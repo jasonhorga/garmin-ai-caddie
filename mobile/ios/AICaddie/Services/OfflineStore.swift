@@ -115,10 +115,387 @@ private struct ReplayEventIdentity: Hashable {
     let eventId: String
 }
 
+private enum JSONPrefixClassification: Equatable {
+    case incomplete
+    case complete
+    case invalid
+}
+
+private struct JSONPrefixScanner {
+    private static let maximumNestingDepth = 128
+
+    private enum DocumentState: Equatable {
+        case expectingRoot
+        case afterRoot
+    }
+
+    private enum ArrayState {
+        case firstValueOrEnd
+        case valueAfterComma
+        case commaOrEnd
+    }
+
+    private enum ObjectState {
+        case firstKeyOrEnd
+        case keyAfterComma
+        case colon
+        case value
+        case commaOrEnd
+    }
+
+    private enum Frame {
+        case array(ArrayState)
+        case object(ObjectState)
+    }
+
+    private enum TokenResult {
+        case complete(Data.Index)
+        case incomplete
+        case invalid
+    }
+
+    private let bytes: Data
+    private var index: Data.Index
+    private var documentState = DocumentState.expectingRoot
+    private var frames: [Frame] = []
+
+    static func classify(_ data: Data) -> JSONPrefixClassification {
+        var scanner = JSONPrefixScanner(bytes: data)
+        return scanner.classify()
+    }
+
+    private init(bytes: Data) {
+        self.bytes = bytes
+        self.index = bytes.startIndex
+    }
+
+    private mutating func classify() -> JSONPrefixClassification {
+        while true {
+            consumeWhitespace()
+            if index == bytes.endIndex {
+                if frames.isEmpty, documentState == .afterRoot {
+                    return .complete
+                }
+                return .incomplete
+            }
+
+            guard !frames.isEmpty else {
+                guard documentState == .expectingRoot else {
+                    return .invalid
+                }
+                if let terminal = consumeValue() {
+                    return terminal
+                }
+                continue
+            }
+
+            let frameIndex = frames.count - 1
+            switch frames[frameIndex] {
+            case .array(.firstValueOrEnd):
+                if bytes[index] == 0x5D {
+                    index += 1
+                    frames.removeLast()
+                    guard finishValue() else { return .invalid }
+                } else if let terminal = consumeValue() {
+                    return terminal
+                }
+            case .array(.valueAfterComma):
+                if let terminal = consumeValue() {
+                    return terminal
+                }
+            case .array(.commaOrEnd):
+                switch bytes[index] {
+                case 0x2C:
+                    index += 1
+                    frames[frameIndex] = .array(.valueAfterComma)
+                case 0x5D:
+                    index += 1
+                    frames.removeLast()
+                    guard finishValue() else { return .invalid }
+                default:
+                    return .invalid
+                }
+            case .object(.firstKeyOrEnd):
+                if bytes[index] == 0x7D {
+                    index += 1
+                    frames.removeLast()
+                    guard finishValue() else { return .invalid }
+                } else if let terminal = consumeObjectKey(at: frameIndex) {
+                    return terminal
+                }
+            case .object(.keyAfterComma):
+                if let terminal = consumeObjectKey(at: frameIndex) {
+                    return terminal
+                }
+            case .object(.colon):
+                guard bytes[index] == 0x3A else { return .invalid }
+                index += 1
+                frames[frameIndex] = .object(.value)
+            case .object(.value):
+                if let terminal = consumeValue() {
+                    return terminal
+                }
+            case .object(.commaOrEnd):
+                switch bytes[index] {
+                case 0x2C:
+                    index += 1
+                    frames[frameIndex] = .object(.keyAfterComma)
+                case 0x7D:
+                    index += 1
+                    frames.removeLast()
+                    guard finishValue() else { return .invalid }
+                default:
+                    return .invalid
+                }
+            }
+        }
+    }
+
+    private mutating func consumeWhitespace() {
+        while index < bytes.endIndex {
+            switch bytes[index] {
+            case 0x09, 0x0A, 0x0D, 0x20:
+                index += 1
+            default:
+                return
+            }
+        }
+    }
+
+    private mutating func consumeValue() -> JSONPrefixClassification? {
+        guard index < bytes.endIndex else { return .incomplete }
+        switch bytes[index] {
+        case 0x7B:
+            guard frames.count < Self.maximumNestingDepth else { return .invalid }
+            index += 1
+            frames.append(.object(.firstKeyOrEnd))
+            return nil
+        case 0x5B:
+            guard frames.count < Self.maximumNestingDepth else { return .invalid }
+            index += 1
+            frames.append(.array(.firstValueOrEnd))
+            return nil
+        case 0x22:
+            let result = scanString(at: index)
+            return finishToken(result)
+        case 0x74:
+            let result = scanLiteral([0x74, 0x72, 0x75, 0x65])
+            return finishToken(result)
+        case 0x66:
+            let result = scanLiteral([0x66, 0x61, 0x6C, 0x73, 0x65])
+            return finishToken(result)
+        case 0x6E:
+            let result = scanLiteral([0x6E, 0x75, 0x6C, 0x6C])
+            return finishToken(result)
+        case 0x2D, 0x30...0x39:
+            let result = scanNumber()
+            return finishToken(result)
+        default:
+            return .invalid
+        }
+    }
+
+    private mutating func consumeObjectKey(
+        at frameIndex: Int
+    ) -> JSONPrefixClassification? {
+        guard bytes[index] == 0x22 else { return .invalid }
+        switch scanString(at: index) {
+        case .complete(let nextIndex):
+            index = nextIndex
+            frames[frameIndex] = .object(.colon)
+            return nil
+        case .incomplete:
+            return .incomplete
+        case .invalid:
+            return .invalid
+        }
+    }
+
+    private mutating func finishToken(
+        _ result: TokenResult
+    ) -> JSONPrefixClassification? {
+        switch result {
+        case .complete(let nextIndex):
+            index = nextIndex
+            return finishValue() ? nil : .invalid
+        case .incomplete:
+            return .incomplete
+        case .invalid:
+            return .invalid
+        }
+    }
+
+    private mutating func finishValue() -> Bool {
+        guard !frames.isEmpty else {
+            guard documentState == .expectingRoot else { return false }
+            documentState = .afterRoot
+            return true
+        }
+
+        let parentIndex = frames.count - 1
+        switch frames[parentIndex] {
+        case .array(.firstValueOrEnd), .array(.valueAfterComma):
+            frames[parentIndex] = .array(.commaOrEnd)
+            return true
+        case .object(.value):
+            frames[parentIndex] = .object(.commaOrEnd)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func scanString(at start: Int) -> TokenResult {
+        var cursor = start + 1
+        while cursor < bytes.endIndex {
+            let byte = bytes[cursor]
+            switch byte {
+            case 0x22:
+                return .complete(cursor + 1)
+            case 0x5C:
+                cursor += 1
+                guard cursor < bytes.endIndex else { return .incomplete }
+                switch bytes[cursor] {
+                case 0x22, 0x2F, 0x5C, 0x62, 0x66, 0x6E, 0x72, 0x74:
+                    cursor += 1
+                case 0x75:
+                    cursor += 1
+                    for _ in 0..<4 {
+                        guard cursor < bytes.endIndex else { return .incomplete }
+                        guard Self.isHexDigit(bytes[cursor]) else { return .invalid }
+                        cursor += 1
+                    }
+                default:
+                    return .invalid
+                }
+            case 0x00...0x1F:
+                return .invalid
+            case 0x80...0xFF:
+                switch scanUTF8Scalar(at: cursor) {
+                case .complete(let nextIndex):
+                    cursor = nextIndex
+                case .incomplete:
+                    return .incomplete
+                case .invalid:
+                    return .invalid
+                }
+            default:
+                cursor += 1
+            }
+        }
+        return .incomplete
+    }
+
+    private func scanUTF8Scalar(at start: Int) -> TokenResult {
+        let first = bytes[start]
+        let length: Int
+        let secondRange: ClosedRange<UInt8>
+        switch first {
+        case 0xC2...0xDF:
+            length = 2
+            secondRange = 0x80...0xBF
+        case 0xE0:
+            length = 3
+            secondRange = 0xA0...0xBF
+        case 0xE1...0xEC, 0xEE...0xEF:
+            length = 3
+            secondRange = 0x80...0xBF
+        case 0xED:
+            length = 3
+            secondRange = 0x80...0x9F
+        case 0xF0:
+            length = 4
+            secondRange = 0x90...0xBF
+        case 0xF1...0xF3:
+            length = 4
+            secondRange = 0x80...0xBF
+        case 0xF4:
+            length = 4
+            secondRange = 0x80...0x8F
+        default:
+            return .invalid
+        }
+
+        guard start + 1 < bytes.endIndex else { return .incomplete }
+        guard secondRange.contains(bytes[start + 1]) else { return .invalid }
+        if length > 2 {
+            for offset in 2..<length {
+                guard start + offset < bytes.endIndex else { return .incomplete }
+                guard (0x80...0xBF).contains(bytes[start + offset]) else {
+                    return .invalid
+                }
+            }
+        }
+        return .complete(start + length)
+    }
+
+    private func scanLiteral(_ literal: [UInt8]) -> TokenResult {
+        for (offset, expected) in literal.enumerated() {
+            guard index + offset < bytes.endIndex else { return .incomplete }
+            guard bytes[index + offset] == expected else { return .invalid }
+        }
+        return .complete(index + literal.count)
+    }
+
+    private func scanNumber() -> TokenResult {
+        var cursor = index
+        if bytes[cursor] == 0x2D {
+            cursor += 1
+            guard cursor < bytes.endIndex else { return .incomplete }
+        }
+
+        if bytes[cursor] == 0x30 {
+            cursor += 1
+        } else if (0x31...0x39).contains(bytes[cursor]) {
+            cursor += 1
+            while cursor < bytes.endIndex, Self.isDigit(bytes[cursor]) {
+                cursor += 1
+            }
+        } else {
+            return .invalid
+        }
+
+        if cursor < bytes.endIndex, bytes[cursor] == 0x2E {
+            cursor += 1
+            guard cursor < bytes.endIndex else { return .incomplete }
+            guard Self.isDigit(bytes[cursor]) else { return .invalid }
+            while cursor < bytes.endIndex, Self.isDigit(bytes[cursor]) {
+                cursor += 1
+            }
+        }
+
+        if cursor < bytes.endIndex,
+           (bytes[cursor] == 0x65 || bytes[cursor] == 0x45) {
+            cursor += 1
+            guard cursor < bytes.endIndex else { return .incomplete }
+            if bytes[cursor] == 0x2B || bytes[cursor] == 0x2D {
+                cursor += 1
+                guard cursor < bytes.endIndex else { return .incomplete }
+            }
+            guard Self.isDigit(bytes[cursor]) else { return .invalid }
+            while cursor < bytes.endIndex, Self.isDigit(bytes[cursor]) {
+                cursor += 1
+            }
+        }
+        return .complete(cursor)
+    }
+
+    private static func isDigit(_ byte: UInt8) -> Bool {
+        (0x30...0x39).contains(byte)
+    }
+
+    private static func isHexDigit(_ byte: UInt8) -> Bool {
+        (0x30...0x39).contains(byte)
+            || (0x41...0x46).contains(byte)
+            || (0x61...0x66).contains(byte)
+    }
+}
+
 private let REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
 private let REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
 
 public final class OfflineStore {
+    private let trustedDirectoryAnchor: URL
     private let directoryURL: URL
     private let logURL: URL
     private let packagesDirectoryURL: URL
@@ -132,26 +509,77 @@ public final class OfflineStore {
     private let syncEventLogDirectory: (URL) throws -> Void
     private let eventLogLock = NSLock()
 
-    public convenience init(directoryURL: URL) {
+    private static func nearestExistingDirectoryAncestor(of url: URL) -> URL {
+        var candidate = url.standardizedFileURL.resolvingSymlinksInPath()
+        while true {
+            var isDirectory = ObjCBool(false)
+            if FileManager.default.fileExists(
+                atPath: candidate.path,
+                isDirectory: &isDirectory
+            ), isDirectory.boolValue {
+                return candidate
+            }
+            let parent = candidate.deletingLastPathComponent()
+            if parent.path == candidate.path {
+                return candidate
+            }
+            candidate = parent.standardizedFileURL.resolvingSymlinksInPath()
+        }
+    }
+
+    convenience init(directoryURL: URL) {
+        let resolvedDirectory = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
+        let trustedDirectoryAnchor = Self.nearestExistingDirectoryAncestor(
+            of: resolvedDirectory.deletingLastPathComponent()
+        )
         self.init(
-            directoryURL: directoryURL,
+            directoryURL: resolvedDirectory,
+            trustedDirectoryAnchor: trustedDirectoryAnchor,
             syncEventLogFile: { try Self.synchronizeFile(at: $0) },
             syncEventLogDirectory: { try Self.synchronizeDirectory(at: $0) }
         )
     }
 
-    init(
+    convenience init(
         directoryURL: URL,
         syncEventLogFile: @escaping (URL) throws -> Void,
         syncEventLogDirectory: @escaping (URL) throws -> Void
     ) {
-        self.directoryURL = directoryURL
-        self.logURL = directoryURL.appendingPathComponent("events.jsonl")
-        self.packagesDirectoryURL = directoryURL.appendingPathComponent("packages", isDirectory: true)
-        self.currentPackageURL = directoryURL.appendingPathComponent("current_package.json")
-        self.homePackageURL = directoryURL.appendingPathComponent("home_package.json")
-        self.pendingMediaDirectoryURL = directoryURL.appendingPathComponent("pending_media", isDirectory: true)
-        self.pendingMediaIndexURL = directoryURL.appendingPathComponent("pending_media.jsonl")
+        let resolvedDirectory = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
+        let trustedDirectoryAnchor = Self.nearestExistingDirectoryAncestor(
+            of: resolvedDirectory.deletingLastPathComponent()
+        )
+        self.init(
+            directoryURL: resolvedDirectory,
+            trustedDirectoryAnchor: trustedDirectoryAnchor,
+            syncEventLogFile: syncEventLogFile,
+            syncEventLogDirectory: syncEventLogDirectory
+        )
+    }
+
+    init(
+        directoryURL: URL,
+        trustedDirectoryAnchor: URL,
+        syncEventLogFile: @escaping (URL) throws -> Void,
+        syncEventLogDirectory: @escaping (URL) throws -> Void
+    ) {
+        let resolvedAnchor = trustedDirectoryAnchor.standardizedFileURL
+            .resolvingSymlinksInPath()
+        let resolvedDirectory = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
+        self.trustedDirectoryAnchor = resolvedAnchor
+        self.directoryURL = resolvedDirectory
+        self.logURL = resolvedDirectory.appendingPathComponent("events.jsonl")
+        self.packagesDirectoryURL = resolvedDirectory.appendingPathComponent(
+            "packages",
+            isDirectory: true
+        )
+        self.currentPackageURL = resolvedDirectory.appendingPathComponent("current_package.json")
+        self.homePackageURL = resolvedDirectory.appendingPathComponent("home_package.json")
+        self.pendingMediaDirectoryURL = resolvedDirectory.appendingPathComponent(
+            "pending_media",
+            isDirectory: true
+        )
+        self.pendingMediaIndexURL = resolvedDirectory.appendingPathComponent("pending_media.jsonl")
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
         self.syncEventLogFile = syncEventLogFile
@@ -159,9 +587,18 @@ public final class OfflineStore {
     }
 
     public convenience init() {
+        let trustedDirectoryAnchor = URL(
+            fileURLWithPath: NSHomeDirectory(),
+            isDirectory: true
+        ).standardizedFileURL.resolvingSymlinksInPath()
         let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AICaddie", isDirectory: true)
-        self.init(directoryURL: directory)
+        self.init(
+            directoryURL: directory,
+            trustedDirectoryAnchor: trustedDirectoryAnchor,
+            syncEventLogFile: { try Self.synchronizeFile(at: $0) },
+            syncEventLogDirectory: { try Self.synchronizeDirectory(at: $0) }
+        )
     }
 
     public func saveRoundPackage(_ package: LiveRoundPackage) throws {
@@ -259,6 +696,7 @@ public final class OfflineStore {
 
     public func appendEvent(_ event: LiveRoundEvent) throws {
         try withEventLogLock {
+            try validateEventLogDirectoryContainment()
             try repairTornEventLogEOFIfNeededUnlocked()
             _ = try loadEventsUnlocked(strict: true)
             try appendEventUnlocked(event)
@@ -272,10 +710,16 @@ public final class OfflineStore {
         encoded.append(Data([0x0A]))
         if FileManager.default.fileExists(atPath: logURL.path) {
             let handle = try FileHandle(forWritingTo: logURL)
-            try handle.seekToEnd()
-            try handle.write(contentsOf: encoded)
-            try handle.synchronize()
-            try handle.close()
+            do {
+                try handle.seekToEnd()
+                try handle.write(contentsOf: encoded)
+                try handle.close()
+            } catch {
+                try? handle.close()
+                throw error
+            }
+            try syncEventLogFile(logURL)
+            try syncEventLogDirectory(directoryURL)
         } else {
             try writeEventLogAtomicallyAndDurably(encoded)
         }
@@ -290,11 +734,16 @@ public final class OfflineStore {
 
     public func applyReplayEvents(_ replayEvents: [LiveRoundEvent]) throws -> Bool {
         try withEventLogLock {
+            try validateEventLogDirectoryContainment()
             try repairTornEventLogEOFIfNeededUnlocked()
             let transportReplayEvents = replayEvents.map { transportEvent($0) }
             var eventsByIdentity = try replayEventsByIdentity(
                 try loadEventsStrictlyForReplayUnlocked()
             )
+            if !transportReplayEvents.isEmpty,
+               FileManager.default.fileExists(atPath: logURL.path) {
+                try establishFreshEventLogBarrierUnlocked()
+            }
 
             var appendedAny = false
             for event in transportReplayEvents {
@@ -326,6 +775,7 @@ public final class OfflineStore {
 
     public func loadEvents() throws -> [LiveRoundEvent] {
         try withEventLogLock {
+            try validateEventLogDirectoryContainment()
             try loadEventsUnlocked(strict: false)
         }
     }
@@ -363,7 +813,7 @@ public final class OfflineStore {
                 let isUnterminatedFinalLine = !hasTrailingNewline && index == lines.count - 1
                 if !strict,
                    isUnterminatedFinalLine,
-                   !Self.isCompleteJSONValue(lineData) {
+                   JSONPrefixScanner.classify(lineData) == .incomplete {
                     AICaddieLog.storage.error("Skipping torn event-log EOF fragment: \(String(describing: error), privacy: .public)")
                     continue
                 }
@@ -649,12 +1099,52 @@ public final class OfflineStore {
         }
     }
 
-    private func ensureEventLogDirectoryDurable() throws {
-        let alreadyExists = FileManager.default.fileExists(atPath: directoryURL.path)
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        if !alreadyExists {
-            try syncEventLogDirectory(directoryURL.deletingLastPathComponent())
+    private func validateEventLogDirectoryContainment() throws {
+        _ = try eventLogDirectoryCreationParents()
+    }
+
+    private func eventLogDirectoryCreationParents() throws -> [URL] {
+        let resolvedDirectory = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
+        let anchorComponents = trustedDirectoryAnchor.pathComponents
+        let directoryComponents = resolvedDirectory.pathComponents
+        var anchorIsDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(
+                  atPath: trustedDirectoryAnchor.path,
+                  isDirectory: &anchorIsDirectory
+              ),
+              anchorIsDirectory.boolValue,
+              trustedDirectoryAnchor.isFileURL,
+              resolvedDirectory.isFileURL,
+              directoryComponents.count >= anchorComponents.count,
+              Array(directoryComponents.prefix(anchorComponents.count)) == anchorComponents
+        else {
+            throw OfflineStoreError.eventLogCorrupt
         }
+
+        var parents: [URL] = []
+        var current = trustedDirectoryAnchor
+        for component in directoryComponents.dropFirst(anchorComponents.count) {
+            parents.append(current)
+            current.appendPathComponent(component, isDirectory: true)
+        }
+        return parents
+    }
+
+    private func ensureEventLogDirectoryDurable() throws {
+        try validateEventLogDirectoryContainment()
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        for parent in try eventLogDirectoryCreationParents() {
+            try syncEventLogDirectory(parent)
+        }
+    }
+
+    private func establishFreshEventLogBarrierUnlocked() throws {
+        try ensureEventLogDirectoryDurable()
+        guard FileManager.default.fileExists(atPath: logURL.path) else {
+            throw OfflineStoreError.replayDurabilityVerificationFailed
+        }
+        try syncEventLogFile(logURL)
+        try syncEventLogDirectory(directoryURL)
     }
 
     private func writeEventLogAtomicallyAndDurably(_ data: Data) throws {
@@ -664,6 +1154,7 @@ public final class OfflineStore {
     }
 
     private func repairTornEventLogEOFIfNeededUnlocked() throws {
+        try validateEventLogDirectoryContainment()
         guard FileManager.default.fileExists(atPath: logURL.path) else {
             return
         }
@@ -674,21 +1165,22 @@ public final class OfflineStore {
         let lastNewline = data.lastIndex(of: 0x0A)
         let tailStart = lastNewline.map { data.index(after: $0) } ?? data.startIndex
         let tail = Data(data[tailStart..<data.endIndex])
-        if (try? decoder.decode(LiveRoundEvent.self, from: tail)) != nil {
+        switch JSONPrefixScanner.classify(tail) {
+        case .complete:
+            guard (try? decoder.decode(LiveRoundEvent.self, from: tail)) != nil else {
+                throw OfflineStoreError.eventLogCorrupt
+            }
             var terminated = data
             terminated.append(Data([0x0A]))
+            try ensureEventLogDirectoryDurable()
             try writeEventLogAtomicallyAndDurably(terminated)
-            return
-        }
-        if Self.isCompleteJSONValue(tail) {
+        case .incomplete:
+            let durablePrefix = lastNewline.map { Data(data[...$0]) } ?? Data()
+            try ensureEventLogDirectoryDurable()
+            try writeEventLogAtomicallyAndDurably(durablePrefix)
+        case .invalid:
             throw OfflineStoreError.eventLogCorrupt
         }
-        let durablePrefix = lastNewline.map { Data(data[...$0]) } ?? Data()
-        try writeEventLogAtomicallyAndDurably(durablePrefix)
-    }
-
-    private static func isCompleteJSONValue(_ data: Data) -> Bool {
-        (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil
     }
 
     private func replayIdentity(_ event: LiveRoundEvent) -> ReplayEventIdentity {
@@ -768,6 +1260,18 @@ public final class OfflineStore {
             (#"(?i)file://[^\s,)]+"#, REDACTED_MOBILE_PATH),
             (#"\\\\[^\s,;)]+"#, REDACTED_MOBILE_PATH),
             (#"(?i)(?<![a-z0-9])[a-z]:\\[^\s,;)]+"#, REDACTED_MOBILE_PATH),
+            (
+                #"(?i)(^|[\s=(\[{'"])[a-z]:[\\/][^\s,;)]+"#,
+                "$1\(REDACTED_MOBILE_PATH)"
+            ),
+            (
+                #"(^|[\s=(\[{'"])//[^\s,;)]+"#,
+                "$1\(REDACTED_MOBILE_PATH)"
+            ),
+            (
+                #"(?i)(^|[\s=(\[{'"])([a-z_][a-z0-9_-]*):/(?!/)[^\s,;)]+"#,
+                "$1$2:\(REDACTED_MOBILE_PATH)"
+            ),
             (#"(^|[\s=(\[{'"])/(?!/)[^\s,;)]+"#, "$1\(REDACTED_MOBILE_PATH)"),
             (
                 #"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s*[:=]\s*[^,\s;)]+"#,
