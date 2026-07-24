@@ -331,7 +331,7 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
         )
         targets = project["targets"]
         swift_jcs = targets["SwiftJCS"]
-        self.assertEqual(swift_jcs["type"], "static_library")
+        self.assertEqual(swift_jcs["type"], "library.static")
         self.assertEqual(swift_jcs["platform"], "auto")
         self.assertEqual(set(swift_jcs["supportedDestinations"]), {"iOS", "watchOS"})
         self.assertEqual(
@@ -416,8 +416,15 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
 
         visibility_gate = steps["Reject public SwiftJCS consumer bypass"]["run"]
         self.assertIn("import AICaddieDomain", visibility_gate)
+        self.assertIn("JSONValue.null", visibility_gate)
+        self.assertIn("CanonicalJSON.data", visibility_gate)
+        self.assertIn("TypedID.make", visibility_gate)
         self.assertIn("JSONCanonicalization", visibility_gate)
         self.assertIn("xcrun swiftc -typecheck", visibility_gate)
+        self.assertLess(
+            visibility_gate.index("CanonicalJSON.data"),
+            visibility_gate.index("JSONCanonicalization"),
+        )
         self.assertIn(
             "cannot find 'JSONCanonicalization' in scope",
             visibility_gate,

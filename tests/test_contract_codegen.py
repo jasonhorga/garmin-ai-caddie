@@ -794,7 +794,7 @@ class ContractCodegenTests(unittest.TestCase):
         targets = project["targets"]
 
         swift_jcs = targets["SwiftJCS"]
-        self.assertEqual(swift_jcs["type"], "static_library")
+        self.assertEqual(swift_jcs["type"], "library.static")
         self.assertEqual(swift_jcs["platform"], "auto")
         self.assertEqual(set(swift_jcs["supportedDestinations"]), {"iOS", "watchOS"})
         self.assertEqual(

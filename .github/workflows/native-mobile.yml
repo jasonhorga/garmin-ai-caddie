@@ -39,6 +39,15 @@ jobs:
             -type d -path '*/Build/Products/Debug-iphonesimulator/AICaddieDomain.framework' \
             -print -quit)
           test -n "$DOMAIN_FRAMEWORK"
+          POSITIVE_CONSUMER="$RUNNER_TEMP/AICaddieDomainPositiveConsumer.swift"
+          cat > "$POSITIVE_CONSUMER" <<'SWIFT'
+          import AICaddieDomain
+          func verifyPublicWrapper() throws {
+              let value = JSONValue.null
+              _ = try CanonicalJSON.data(value)
+              _ = try TypedID.make(domain: "VisibilityProbe/v1", value: value)
+          }
+          SWIFT
           CONSUMER="$RUNNER_TEMP/AICaddieDomainConsumer.swift"
           cat > "$CONSUMER" <<'SWIFT'
           import AICaddieDomain
@@ -46,6 +55,11 @@ jobs:
           SWIFT
           SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
           ARCH=$(uname -m)
+          xcrun swiftc -typecheck \
+            -target "$ARCH-apple-ios17.0-simulator" \
+            -sdk "$SDK" \
+            -F "$(dirname "$DOMAIN_FRAMEWORK")" \
+            "$POSITIVE_CONSUMER"
           set +e
           DIAGNOSTIC=$(xcrun swiftc -typecheck \
             -target "$ARCH-apple-ios17.0-simulator" \
