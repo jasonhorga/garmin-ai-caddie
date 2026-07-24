@@ -122,6 +122,27 @@ def _normalized_event_for_hash(event: dict[str, Any]) -> dict[str, Any]:
 
 def _redact_mobile_text(value: str) -> str:
     redacted = redact_secret_text(value)
+    # The shared LLM redactor intentionally recognizes only its historical path
+    # families.  Mobile envelopes additionally treat forward-slash drive paths,
+    # forward-slash UNC paths, and named ``label:/absolute`` path boundaries as
+    # local filesystem authority.  Requiring a start/delimiter before each path
+    # keeps complete non-file URLs (including URL paths that look like drives or
+    # UNC shares) byte-exact.
+    redacted = re.sub(
+        r"(?i)(^|[\s=(\[{'\"])[a-z]:[\\/][^\s,;)]+",
+        rf"\1{REDACTED_MOBILE_PATH}",
+        redacted,
+    )
+    redacted = re.sub(
+        r"(^|[\s=(\[{'\"])//[^\s,;)]+",
+        rf"\1{REDACTED_MOBILE_PATH}",
+        redacted,
+    )
+    redacted = re.sub(
+        r"(?i)(^|[\s=(\[{'\"])([a-z_][a-z0-9_-]*):/(?!/)[^\s,;)]+",
+        rf"\1\2:{REDACTED_MOBILE_PATH}",
+        redacted,
+    )
     redacted = re.sub(
         r"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s*[:=]\s*[^,\s;)]+",
         r"\1=[REDACTED]",
@@ -182,7 +203,8 @@ class FileEventStore:
         *,
         sanitizer: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
-        self.root = Path(root)
+        self.root = Path(root).expanduser().resolve(strict=False)
+        self._trusted_root_anchor = Path(self.root.anchor)
         self.log = self.root / EVENT_LOG_FILENAME
         self.event_lock = self.root / EVENT_LOCK_FILENAME
         self.acks = self.root / ACK_FILENAME
@@ -1334,21 +1356,20 @@ class FileEventStore:
             raise
 
     def _ensure_root_durable(self) -> None:
-        missing: list[Path] = []
-        current = self.root
-        while not current.exists():
-            missing.append(current)
-            parent = current.parent
-            if parent == current:
-                break
-            current = parent
-        for directory in reversed(missing):
+        current = self._trusted_root_anchor
+        for component in self.root.relative_to(self._trusted_root_anchor).parts:
+            directory = current / component
             try:
                 directory.mkdir()
             except FileExistsError:
                 if not directory.is_dir():
                     raise
-            self._fsync_directory(directory.parent)
+            # Re-establish every parent-entry barrier for each fresh store use,
+            # even when an earlier process already created the directory.  No
+            # lock, log, marker, reservation, or ACK mutation happens until the
+            # complete root-to-store chain succeeds.
+            self._fsync_directory(current)
+            current = directory
 
     def _fsync_directory(self, directory: Path | None = None) -> None:
         target = self.root if directory is None else directory

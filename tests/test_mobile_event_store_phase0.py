@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import threading
 import unittest
@@ -1550,8 +1551,193 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                     [event],
                     request_key=f"golden-{case['name']}",
                 )
+                log_path = store.root / "events.jsonl"
+                raw_before_retry = log_path.read_bytes()
+                self.assertTrue(raw_before_retry.endswith(b"\n"))
+                raw_lines = raw_before_retry.splitlines(keepends=True)
+                self.assertEqual(len(raw_lines), 1)
+                self.assertTrue(raw_lines[0].endswith(b"\n"))
+                self.assertEqual(json.loads(raw_lines[0])["event"], case["expected"])
 
-                self.assertEqual(store.read_rows(str(event["roundId"]))[0]["event"], case["expected"])
+                reopened = open_mobile_event_store(Path(tmp))
+                self.assertEqual(
+                    reopened.read_rows(str(event["roundId"]))[0]["event"],
+                    case["expected"],
+                )
+                retry = reopened.append_batch(
+                    str(event["roundId"]),
+                    [event],
+                    request_key=f"golden-{case['name']}",
+                )
+                self.assertEqual(
+                    [receipt.status for receipt in retry],
+                    ["duplicate_hash_match"],
+                )
+                self.assertEqual(log_path.read_bytes(), raw_before_retry)
+                self.assertEqual(
+                    open_mobile_event_store(Path(tmp))
+                    .read_rows(str(event["roundId"]))[0]["event"],
+                    case["expected"],
+                )
+
+    def test_production_sanitizer_covers_generated_path_and_unicode_families(self) -> None:
+        from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
+
+        path_inputs: list[str] = []
+        path_expected: list[str] = []
+        for root_name in ("alpha", "opt", "srv-custom", "数据"):
+            for boundary in ("", "path:", "source:", "value=", "("):
+                path_inputs.append(f"{boundary}/{root_name}/private/file.txt")
+                path_expected.append(f"{boundary}[REDACTED_PATH]")
+        for drive_letter in ("C", "c", "Z", "z"):
+            for separator in ("\\", "/"):
+                path_inputs.append(
+                    f"drive={drive_letter}:{separator}users{separator}alice{separator}private.txt"
+                )
+                path_expected.append("drive=[REDACTED_PATH]")
+        path_inputs.extend(
+            [
+                r"\\fileserver\rounds\private.json",
+                "//fileserver/rounds/private.json",
+                "file:///var/mobile/private.json",
+                "FILE://server/share/private.json",
+            ]
+        )
+        path_expected.extend(["[REDACTED_PATH]"] * 4)
+
+        preserved_urls = [
+            "https://example.test/opt/public",
+            "https://example.test/C:/users/alice/private.txt",
+            "https://example.test//fileserver/share/x",
+            "http://example.test/srv/public",
+            "custom://host/root/public",
+            "https://example.test/search?course=private",
+        ]
+        bearer_inputs = ["Bearer İ", "Bearer ı", "Bearer 密钥Δ"]
+        bearer_expected = ["Bearer [REDACTED]"] * len(bearer_inputs)
+        event = {
+            "schema": "source:/schema-root/private.json token=structural-secret",
+            "eventId": "//identity-server/share/event",
+            "roundId": "/identity-root/round",
+            "clientId": "Bearer ı",
+            "timestamp": "Bearer İ path:/clock-root/private.txt",
+            "hole": 1,
+            "kind": "note",
+            "payload": {
+                "paths": path_inputs,
+                "urls": preserved_urls,
+                "bearers": bearer_inputs,
+            },
+        }
+        local_media = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "local-media-placeholder",
+            "roundId": event["roundId"],
+            "clientId": "ios-phone",
+            "timestamp": "2026-07-23T00:00:00Z",
+            "hole": 1,
+            "kind": "photo",
+            "payload": {
+                "fileURL": "[REDACTED_LOCAL_MEDIA_URL]",
+                "note": "public",
+            },
+        }
+        store = open_mobile_event_store(self.root / "family-store")
+
+        store.append_batch(
+            str(event["roundId"]),
+            [event, local_media],
+            request_key="generated-sanitizer-family",
+        )
+        expected_event = {
+            **event,
+            "schema": "source:[REDACTED_PATH] token=[REDACTED]",
+            "timestamp": "Bearer [REDACTED] path:[REDACTED_PATH]",
+            "payload": {
+                "paths": path_expected,
+                "urls": preserved_urls,
+                "bearers": bearer_expected,
+            },
+        }
+        log_path = store.root / "events.jsonl"
+        raw_before_replay = log_path.read_bytes()
+        self.assertTrue(raw_before_replay.endswith(b"\n"))
+        raw_lines = raw_before_replay.splitlines(keepends=True)
+        self.assertEqual(len(raw_lines), 2)
+        self.assertTrue(all(line.endswith(b"\n") for line in raw_lines))
+        self.assertEqual(
+            [json.loads(line)["event"] for line in raw_lines],
+            [expected_event, local_media],
+        )
+
+        reopened = open_mobile_event_store(store.root)
+        sanitized, sanitized_media = [row["event"] for row in reopened.read_rows()]
+
+        self.assertEqual(sanitized["eventId"], event["eventId"])
+        self.assertEqual(sanitized["roundId"], event["roundId"])
+        self.assertEqual(sanitized["clientId"], event["clientId"])
+        self.assertEqual(
+            sanitized["schema"],
+            "source:[REDACTED_PATH] token=[REDACTED]",
+        )
+        self.assertEqual(
+            sanitized["timestamp"],
+            "Bearer [REDACTED] path:[REDACTED_PATH]",
+        )
+        self.assertEqual(sanitized["payload"]["paths"], path_expected)
+        self.assertEqual(sanitized["payload"]["urls"], preserved_urls)
+        self.assertEqual(sanitized["payload"]["bearers"], bearer_expected)
+        self.assertEqual(
+            sanitized_media["payload"]["fileURL"],
+            "[REDACTED_LOCAL_MEDIA_URL]",
+        )
+        retry = reopened.append_batch(
+            str(event["roundId"]),
+            [event, local_media],
+            request_key="generated-sanitizer-family",
+        )
+        self.assertEqual(
+            [receipt.status for receipt in retry],
+            ["duplicate_hash_match", "duplicate_hash_match"],
+        )
+        self.assertEqual(log_path.read_bytes(), raw_before_replay)
+        self.assertEqual(
+            [row["event"] for row in open_mobile_event_store(store.root).read_rows()],
+            [expected_event, local_media],
+        )
+
+    def test_swift_offline_store_keeps_custom_paths_internal_and_defaults_to_app_home(
+        self,
+    ) -> None:
+        source_path = (
+            Path(__file__).resolve().parents[1]
+            / "mobile"
+            / "ios"
+            / "AICaddie"
+            / "Services"
+            / "OfflineStore.swift"
+        )
+        source = source_path.read_text(encoding="utf-8")
+        public_custom_initializer = re.search(
+            r"public\s+(?:convenience\s+)?init\s*\([^)]*"
+            r"(?:directoryURL|trustedDirectoryAnchor)",
+            source,
+            flags=re.DOTALL,
+        )
+        self.assertIsNone(public_custom_initializer)
+        internal_anchor_initializer = re.search(
+            r"(?m)^\s{4}(?:internal\s+)?init\s*\([^)]*trustedDirectoryAnchor",
+            source,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(internal_anchor_initializer)
+        default_initializer = re.search(
+            r"public\s+(?:convenience\s+)?init\(\)\s*\{(?P<body>.*?)\n\s{4}\}",
+            source,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(default_initializer)
+        self.assertIn("NSHomeDirectory()", default_initializer.group("body"))
 
     def test_corrupt_request_reservation_store_is_not_overwritten(self) -> None:
         reservations = self.root / "request_reservations.json"
@@ -2260,6 +2446,61 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                     self.assertEqual(store.reservations.read_bytes(), reservations_before)
                     self.assertFalse(store.acks.exists())
 
+    def test_pending_physical_eof_below_base_fails_closed_without_mutation(self) -> None:
+        from ai_caddie.caddie.mobile_live import replay_event_log
+
+        store = FileEventStore(self.root / "data" / "mobile_events")
+        store.append_batch(ROUND_A, [_event("seed")], request_key="seed")
+        with mock.patch.object(
+            store,
+            "_advance_committed_length",
+            side_effect=OSError("leave-base-pending"),
+        ):
+            with self.assertRaisesRegex(OSError, "leave-base-pending"):
+                store.append_batch(
+                    ROUND_A,
+                    [_event("pending")],
+                    request_key="pending",
+                )
+
+        pending = json.loads(store.pending_commit.read_text(encoding="utf-8"))
+        base_length = int(pending["baseCommittedByteLength"])
+        self.assertGreater(base_length, 0)
+        store.log.write_bytes(store.log.read_bytes()[: base_length - 1])
+        protected_paths = (
+            store.log,
+            store.commit_marker,
+            store.pending_commit,
+            store.reservations,
+        )
+        before = {path: path.read_bytes() for path in protected_paths}
+        operations = {
+            "read": lambda candidate: candidate.read_rows(),
+            "replay": lambda candidate: replay_event_log(
+                ROUND_A,
+                client_id="ios-phone",
+                root=candidate.root.parent.parent,
+            ),
+            "high-water": lambda candidate: candidate.high_water(),
+            "read-ack": lambda candidate: candidate.read_ack(ROUND_A, "ios-phone"),
+            "ack": lambda candidate: candidate.ack(ROUND_A, "ios-phone", 0),
+            "append": lambda candidate: candidate.append_batch(
+                ROUND_A,
+                [_event("must-not-append")],
+                request_key="must-not-reserve",
+            ),
+        }
+
+        for operation_name, operation in operations.items():
+            with self.subTest(operation=operation_name):
+                with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
+                    operation(FileEventStore(store.root))
+                self.assertEqual(
+                    {path: path.read_bytes() for path in protected_paths},
+                    before,
+                )
+                self.assertFalse(store.acks.exists())
+
     def test_complete_untracked_suffix_fails_closed_for_readers_ack_and_append(self) -> None:
         from ai_caddie.caddie.mobile_live import replay_event_log
 
@@ -2281,6 +2522,18 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                 + b"\n"
             ),
             "newline-free-complete-json-value": b'{"syntactically":"complete"}',
+            "complete-object-prefix-plus-torn-suffix": (
+                b'{"syntactically":"complete"}{"eventId":"torn"'
+            ),
+            "complete-array-prefix-plus-torn-suffix": b'["complete"]{"eventId":"torn"',
+            "complete-null-prefix-plus-torn-suffix": b'null{"eventId":"torn"',
+            "complete-string-prefix-plus-torn-suffix": (
+                '"escaped \\"quote\\" \\\\ snowman \\u2603 雪"'
+                '{"eventId":"torn"'
+            ).encode("utf-8"),
+            "complete-number-prefix-plus-torn-suffix": b'-12.5e+3{"eventId":"torn"',
+            "complete-true-prefix-plus-torn-suffix": b'true{"eventId":"torn"',
+            "complete-false-prefix-plus-torn-suffix": b'false{"eventId":"torn"',
         }
         operations = {
             "read": lambda store: store.read_rows(),
@@ -2318,6 +2571,60 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                     self.assertEqual(store.log.read_bytes(), log_before)
                     self.assertEqual(store.commit_marker.read_bytes(), marker_before)
                     self.assertEqual(store.reservations.read_bytes(), reservations_before)
+                    self.assertFalse(store.pending_commit.exists())
+                    self.assertFalse(store.acks.exists())
+
+    def test_invalid_untracked_json_grammar_fails_closed_without_mutation(self) -> None:
+        from ai_caddie.caddie.mobile_live import replay_event_log
+
+        invalid_suffixes = {
+            "invalid-structure": b"{]",
+            "invalid-literal": b'{"x":truX}',
+        }
+        operations = {
+            "read": lambda store: store.read_rows(),
+            "replay": lambda store: replay_event_log(
+                ROUND_A,
+                client_id="ios-phone",
+                root=store.root.parent.parent,
+            ),
+            "high-water": lambda store: store.high_water(),
+            "read-ack": lambda store: store.read_ack(ROUND_A, "ios-phone"),
+            "ack": lambda store: store.ack(ROUND_A, "ios-phone", 0),
+            "append": lambda store: store.append_batch(
+                ROUND_A,
+                [_event("must-not-append")],
+                request_key="must-not-reserve",
+            ),
+        }
+
+        for suffix_name, suffix in invalid_suffixes.items():
+            for operation_name, operation in operations.items():
+                with (
+                    self.subTest(suffix=suffix_name, operation=operation_name),
+                    tempfile.TemporaryDirectory() as tmp,
+                ):
+                    store = FileEventStore(Path(tmp) / "data" / "mobile_events")
+                    store.append_batch(ROUND_A, [_event("seed")], request_key="seed")
+                    with store.log.open("ab") as handle:
+                        handle.write(suffix)
+                    protected_paths = (
+                        store.log,
+                        store.commit_marker,
+                        store.reservations,
+                    )
+                    before = {path: path.read_bytes() for path in protected_paths}
+
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "^event_commit_store_corrupt$",
+                    ):
+                        operation(FileEventStore(store.root))
+
+                    self.assertEqual(
+                        {path: path.read_bytes() for path in protected_paths},
+                        before,
+                    )
                     self.assertFalse(store.pending_commit.exists())
                     self.assertFalse(store.acks.exists())
 
@@ -2711,6 +3018,12 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         store = FileEventStore(root)
         original_fsync = os.fsync
         directory_fsyncs: list[Path] = []
+        trusted_anchor = Path(store.root.anchor)
+        required_creation_parents: list[Path] = []
+        current = trusted_anchor
+        for component in store.root.relative_to(trusted_anchor).parts:
+            required_creation_parents.append(current)
+            current /= component
 
         def record_fsync(descriptor: int) -> None:
             try:
@@ -2725,13 +3038,117 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             store.append_batch(ROUND_A, [_event("first")], request_key="first")
 
         self.assertEqual(
-            directory_fsyncs[:3],
-            [
-                self.root.resolve(),
-                (self.root / "level-one").resolve(),
-                (self.root / "level-one" / "level-two").resolve(),
-            ],
+            directory_fsyncs[: len(required_creation_parents)],
+            [parent.resolve() for parent in required_creation_parents],
         )
+
+    def test_nested_directory_barrier_failures_retry_before_any_store_mutation(self) -> None:
+        original_fsync = os.fsync
+        with tempfile.TemporaryDirectory() as tmp:
+            prototype = Path(tmp) / "case" / "stable" / "level-one" / "level-two" / "mobile_events"
+            prototype_anchor = Path(prototype.resolve().anchor)
+            barrier_count = len(prototype.resolve().relative_to(prototype_anchor).parts)
+
+            for failed_index in range(barrier_count):
+                with self.subTest(failed_index=failed_index):
+                    stable_root = Path(tmp) / f"case-{failed_index}" / "stable"
+                    stable_root.mkdir(parents=True)
+                    level_one = stable_root / "level-one"
+                    level_two = level_one / "level-two"
+                    store_root = level_two / "mobile_events"
+                    absolute_store_root = store_root.resolve()
+                    trusted_anchor = Path(absolute_store_root.anchor)
+                    creation_parents: list[Path] = []
+                    current = trusted_anchor
+                    for component in absolute_store_root.relative_to(trusted_anchor).parts:
+                        creation_parents.append(current)
+                        current /= component
+                    self.assertEqual(len(creation_parents), barrier_count)
+                    failed_parent = creation_parents[failed_index]
+                    failed_once = False
+                    first_attempt_barriers: list[Path] = []
+
+                    def fail_one_creation_barrier(descriptor: int) -> None:
+                        nonlocal failed_once
+                        target = Path(os.readlink(f"/proc/self/fd/{descriptor}")).resolve()
+                        if target.is_dir():
+                            first_attempt_barriers.append(target)
+                        if target == failed_parent.resolve() and not failed_once:
+                            failed_once = True
+                            raise OSError(f"creation-barrier-{failed_index}")
+                        original_fsync(descriptor)
+
+                    with mock.patch(
+                        "ai_caddie.caddie.mobile_event_store.os.fsync",
+                        new=fail_one_creation_barrier,
+                    ):
+                        with self.assertRaisesRegex(OSError, f"creation-barrier-{failed_index}"):
+                            FileEventStore(store_root).append_batch(
+                                ROUND_A,
+                                [_event(f"nested-{failed_index}")],
+                                request_key=f"nested-{failed_index}",
+                            )
+
+                    self.assertTrue(failed_once)
+                    protected_paths = (
+                        store_root / "events.jsonl.lock",
+                        store_root / "events.jsonl",
+                        store_root / "events.jsonl.commit.json",
+                        store_root / "events.jsonl.pending.json",
+                        store_root / "request_reservations.json",
+                        store_root / "client_acks.json.lock",
+                        store_root / "client_acks.json",
+                    )
+                    self.assertEqual(
+                        first_attempt_barriers,
+                        [parent.resolve() for parent in creation_parents[: failed_index + 1]],
+                    )
+                    self.assertTrue(all(not path.exists() for path in protected_paths))
+
+                    retry_directory_barriers: list[Path] = []
+                    retry_barriers: list[Path] = []
+
+                    def record_retry_barriers(descriptor: int) -> None:
+                        target = Path(os.readlink(f"/proc/self/fd/{descriptor}")).resolve()
+                        retry_barriers.append(target)
+                        if target.is_dir():
+                            retry_directory_barriers.append(target)
+                            if len(retry_directory_barriers) <= len(creation_parents):
+                                self.assertTrue(all(not path.exists() for path in protected_paths))
+                        original_fsync(descriptor)
+
+                    with mock.patch(
+                        "ai_caddie.caddie.mobile_event_store.os.fsync",
+                        new=record_retry_barriers,
+                    ):
+                        result = FileEventStore(store_root).append_batch(
+                            ROUND_A,
+                            [_event(f"nested-{failed_index}")],
+                            request_key=f"nested-{failed_index}",
+                        )
+
+                    self.assertEqual(result[0].status, "accepted")
+                    self.assertEqual(
+                        retry_directory_barriers[: len(creation_parents)],
+                        [parent.resolve() for parent in creation_parents],
+                    )
+                    event_file_index = retry_barriers.index((store_root / "events.jsonl").resolve())
+                    store_directory_index = retry_barriers.index(
+                        store_root.resolve(),
+                        event_file_index + 1,
+                    )
+                    self.assertLess(event_file_index, store_directory_index)
+
+    @staticmethod
+    def _root_entry_barrier_chain(root: Path) -> list[Path]:
+        resolved_root = root.resolve()
+        trusted_anchor = Path(resolved_root.anchor)
+        barriers: list[Path] = []
+        current = trusted_anchor
+        for component in resolved_root.relative_to(trusted_anchor).parts:
+            barriers.append(current.resolve())
+            current /= component
+        return barriers
 
     def test_existing_root_fsyncs_event_and_ack_lock_entries_before_protected_work(self) -> None:
         original_fsync = os.fsync
@@ -2757,8 +3174,14 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         ):
             event_store.append_batch(ROUND_A, [_event("event-lock")], request_key="event-lock")
 
+        event_root_chain = self._root_entry_barrier_chain(event_root)
+        self.assertEqual(event_barriers[: len(event_root_chain)], event_root_chain)
+        event_lock_index = event_barriers.index(
+            event_store.event_lock.resolve(),
+            len(event_root_chain),
+        )
         self.assertEqual(
-            event_barriers[:2],
+            event_barriers[event_lock_index : event_lock_index + 2],
             [event_store.event_lock.resolve(), event_root.resolve()],
         )
 
@@ -2774,8 +3197,17 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         ):
             self.assertEqual(ack_store.ack(ROUND_A, "ios-phone", 0), 0)
 
+        ack_root_chain = self._root_entry_barrier_chain(ack_root)
+        self.assertEqual(ack_barriers[: len(ack_root_chain)], ack_root_chain)
         ack_lock_index = ack_barriers.index(ack_store.ack_lock.resolve())
-        self.assertEqual(ack_barriers[ack_lock_index + 1], ack_root.resolve())
+        self.assertEqual(
+            ack_barriers[ack_lock_index - len(ack_root_chain) : ack_lock_index],
+            ack_root_chain,
+        )
+        self.assertEqual(
+            ack_barriers[ack_lock_index : ack_lock_index + 2],
+            [ack_store.ack_lock.resolve(), ack_root.resolve()],
+        )
 
     def test_event_and_ack_lock_barriers_run_after_acquisition(self) -> None:
         original_flock = fcntl.flock
@@ -2817,10 +3249,20 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                 [_event("lock-order-event")],
                 request_key="lock-order-event",
             )
+        event_root_chain = [
+            ("fsync", path) for path in self._root_entry_barrier_chain(event_root)
+        ]
+        self.assertEqual(event_order[: len(event_root_chain)], event_root_chain)
+        event_lock = ("lock", event_store.event_lock.resolve())
+        event_lock_index = event_order.index(event_lock)
         self.assertEqual(
-            event_order[:3],
+            event_order[event_lock_index - len(event_root_chain) : event_lock_index],
+            event_root_chain,
+        )
+        self.assertEqual(
+            event_order[event_lock_index : event_lock_index + 3],
             [
-                ("lock", event_store.event_lock.resolve()),
+                event_lock,
                 ("fsync", event_store.event_lock.resolve()),
                 ("fsync", event_root.resolve()),
             ],
@@ -2844,6 +3286,14 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             self.assertEqual(ack_store.ack(ROUND_A, "ios-phone", 0), 0)
         ack_lock = ("lock", ack_store.ack_lock.resolve())
         ack_lock_index = ack_order.index(ack_lock)
+        ack_root_chain = [
+            ("fsync", path) for path in self._root_entry_barrier_chain(ack_root)
+        ]
+        self.assertEqual(ack_order[: len(ack_root_chain)], ack_root_chain)
+        self.assertEqual(
+            ack_order[ack_lock_index - len(ack_root_chain) : ack_lock_index],
+            ack_root_chain,
+        )
         self.assertEqual(
             ack_order[ack_lock_index : ack_lock_index + 3],
             [
@@ -2920,8 +3370,23 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                 [_event("must-remain-hidden")],
                 request_key="must-not-reserve",
             )
+        event_root_chain = self._root_entry_barrier_chain(event_root)
         self.assertEqual(
-            retried_event_barriers[:2],
+            retried_event_barriers[: len(event_root_chain)],
+            event_root_chain,
+        )
+        event_lock_index = retried_event_barriers.index(
+            event_store.event_lock.resolve(),
+            len(event_root_chain),
+        )
+        self.assertEqual(
+            retried_event_barriers[
+                event_lock_index - len(event_root_chain) : event_lock_index
+            ],
+            event_root_chain,
+        )
+        self.assertEqual(
+            retried_event_barriers[event_lock_index : event_lock_index + 2],
             [event_store.event_lock.resolve(), event_root.resolve()],
         )
 
@@ -2954,8 +3419,22 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             new=record_barriers(retried_ack_barriers),
         ):
             self.assertEqual(ack_store.ack(ROUND_A, "ios-phone", 0), 0)
+        ack_root_chain = self._root_entry_barrier_chain(ack_root)
+        self.assertEqual(
+            retried_ack_barriers[: len(ack_root_chain)],
+            ack_root_chain,
+        )
         ack_lock_index = retried_ack_barriers.index(ack_store.ack_lock.resolve())
-        self.assertEqual(retried_ack_barriers[ack_lock_index + 1], ack_root.resolve())
+        self.assertEqual(
+            retried_ack_barriers[
+                ack_lock_index - len(ack_root_chain) : ack_lock_index
+            ],
+            ack_root_chain,
+        )
+        self.assertEqual(
+            retried_ack_barriers[ack_lock_index : ack_lock_index + 2],
+            [ack_store.ack_lock.resolve(), ack_root.resolve()],
+        )
 
     def test_non_empty_large_batch_opens_and_fsyncs_event_log_once(self) -> None:
         store = FileEventStore(self.root)

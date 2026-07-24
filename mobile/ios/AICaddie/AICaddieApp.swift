@@ -237,8 +237,7 @@ public final class LiveRoundAppModel: ObservableObject {
         adminToken: String? = nil,
         garminSessionStore: GarminSessionStore? = GarminSessionStore(),
         preferredRoundId: String? = nil,
-        syncClient: SyncClient? = nil,
-        mediaUploadClient: MediaUploadClient? = nil
+        syncClient: SyncClient? = nil
     ) {
         self.init(
             offlineStore: offlineStore,
@@ -247,8 +246,7 @@ public final class LiveRoundAppModel: ObservableObject {
             watchBridge: WatchEventBridge(offlineStore: offlineStore, autoActivate: false),
             garminSessionStore: garminSessionStore,
             preferredRoundId: preferredRoundId,
-            syncClient: syncClient,
-            mediaUploadClient: mediaUploadClient
+            syncClient: syncClient
         )
     }
 
@@ -259,8 +257,7 @@ public final class LiveRoundAppModel: ObservableObject {
         watchBridge: WatchEventBridge?,
         garminSessionStore: GarminSessionStore? = GarminSessionStore(),
         preferredRoundId: String? = nil,
-        syncClient: SyncClient? = nil,
-        mediaUploadClient: MediaUploadClient? = nil
+        syncClient: SyncClient? = nil
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
         let resolvedAdminToken = adminToken ?? Self.defaultAdminToken()
@@ -271,7 +268,7 @@ public final class LiveRoundAppModel: ObservableObject {
         self.garminSessionStore = garminSessionStore
         self.preferredRoundId = preferredRoundId ?? Self.defaultLiveRoundId()
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
-        self.mediaUploadClient = mediaUploadClient ?? resolvedAPIBaseURL.map {
+        self.mediaUploadClient = resolvedAPIBaseURL.map {
             MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken)
         }
         watchBridge?.onAcceptedLiveEvent = { [weak self] event in

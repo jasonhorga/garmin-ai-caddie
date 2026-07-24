@@ -142,11 +142,11 @@
     {
       "name": "structural_fields_paths_unicode_bearers_and_exact_identity",
       "input": {
-        "schema": "token=structural-secret from /opt/caddie/schema.json",
+        "schema": "source:/schema-root/private.json token=structural-secret",
         "eventId": "\\\\identity-server\\share\\event",
         "roundId": "/srv/identity/round",
         "clientId": "Bearer ı",
-        "timestamp": "Bearer İ /etc/caddie/timestamp.txt",
+        "timestamp": "Bearer İ path:/clock-root/private.txt",
         "hole": 5,
         "kind": "note",
         "payload": {
@@ -157,18 +157,29 @@
               "C:\\users\\alice\\lowercase.txt",
               "Z:\\ProgramData\\caddie\\secret.txt",
               "/mnt/caddie/generalized.txt",
-              "https://example.test/opt/public"
+              "source:/opt/caddie/source.json",
+              "path:/etc/caddie/path.json",
+              "drive=C:/users/alice/private.txt",
+              "drive=z:/users/alice/private.txt",
+              "//fileserver/rounds/forward.json",
+              "file:///var/mobile/private.json",
+              "FILE://server/share/private.json",
+              "https://example.test/opt/public",
+              "https://example.test/C:/users/alice/private.txt",
+              "https://example.test//fileserver/share/x",
+              "custom://host/srv/private",
+              "https://example.test/search?course=private"
             ],
             "unicodeCredential": "Bearer 密钥Δ"
           }
         }
       },
       "expected": {
-        "schema": "token=[REDACTED] from [REDACTED_PATH]",
+        "schema": "source:[REDACTED_PATH] token=[REDACTED]",
         "eventId": "\\\\identity-server\\share\\event",
         "roundId": "/srv/identity/round",
         "clientId": "Bearer ı",
-        "timestamp": "Bearer [REDACTED] [REDACTED_PATH]",
+        "timestamp": "Bearer [REDACTED] path:[REDACTED_PATH]",
         "hole": 5,
         "kind": "note",
         "payload": {
@@ -179,7 +190,18 @@
               "[REDACTED_PATH]",
               "[REDACTED_PATH]",
               "[REDACTED_PATH]",
-              "https://example.test/opt/public"
+              "source:[REDACTED_PATH]",
+              "path:[REDACTED_PATH]",
+              "drive=[REDACTED_PATH]",
+              "drive=[REDACTED_PATH]",
+              "[REDACTED_PATH]",
+              "[REDACTED_PATH]",
+              "[REDACTED_PATH]",
+              "https://example.test/opt/public",
+              "https://example.test/C:/users/alice/private.txt",
+              "https://example.test//fileserver/share/x",
+              "custom://host/srv/private",
+              "https://example.test/search?course=private"
             ],
             "unicodeCredential": "Bearer [REDACTED]"
           }
