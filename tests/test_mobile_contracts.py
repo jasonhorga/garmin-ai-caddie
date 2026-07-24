@@ -1607,8 +1607,22 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("case eventLogCorrupt", offline_store)
         self.assertIn("private let eventLogLock = NSLock()", offline_store)
-        self.assertIn("try repairTornEventLogEOFIfNeededUnlocked()", offline_store)
-        strict_reload = offline_store.index("let durableEvents = try loadEventsStrictlyForReplayUnlocked()")
+        self.assertIn(
+            "try repairTornEventLogEOFIfNeededUnlocked(authority: authority)",
+            offline_store,
+        )
+        self.assertIn(
+            "let loaded = try loadEventsStrictlyForReplayUnlocked(authority: authority)",
+            offline_store,
+        )
+        strict_reload = offline_store.index(
+            "let durableEvents = try loadEventsStrictlyForReplayUnlocked("
+        )
+        strict_reload_end = offline_store.index(
+            ").events",
+            strict_reload,
+        )
+        self.assertIn("authority: authority", offline_store[strict_reload:strict_reload_end])
         apply_return = offline_store.index("return appendedAny", strict_reload)
         self.assertLess(strict_reload, apply_return)
 
@@ -1626,11 +1640,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("import Darwin", offline_store)
         self.assertIn("syncEventLogFile: @escaping (URL) throws -> Void", offline_store)
         self.assertIn("syncEventLogDirectory: @escaping (URL) throws -> Void", offline_store)
-        self.assertIn("private func writeEventLogAtomicallyAndDurably", offline_store)
+        self.assertIn("private func replaceEventLogDataAtomicallyUnlocked", offline_store)
+        self.assertIn("openat(authority.directoryDescriptor, path, flags, mode_t(0o600))", offline_store)
+        self.assertIn("renameat(", offline_store)
+        self.assertIn("try synchronizeDescriptor(temporary.descriptor)", offline_store)
         self.assertIn("try syncEventLogFile(logURL)", offline_store)
         self.assertIn("try syncEventLogDirectory(directoryURL)", offline_store)
         self.assertGreaterEqual(
-            offline_store.count("try writeEventLogAtomicallyAndDurably("),
+            offline_store.count("try replaceEventLogDataAtomicallyUnlocked("),
             3,
         )
 
@@ -2163,7 +2180,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("attachUploadedMediaId", offline_store)
         self.assertIn("REDACTED_LOCAL_MEDIA_URL", offline_store)
         self.assertIn("transportEvent", offline_store)
-        self.assertIn("try loadEventsUnlocked(strict: true)", offline_store)
+        self.assertIn(
+            "try loadEventsUnlocked(strict: true, authority: authority)",
+            offline_store,
+        )
         self.assertNotIn("try? loadEventsUnlocked(strict: false)", offline_store)
         self.assertIn("func removePendingMedia", offline_store)
         self.assertIn("data.write(to: fileURL, options: [.atomic])", offline_store)
@@ -2218,7 +2238,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(swift_fixture.read_bytes(), canonical_bytes)
         self.assertEqual(
             hashlib.sha256(canonical_bytes).hexdigest(),
-            "88fa86cb65ad5aa729838880244411cd8f459bc2771e74c882117295d326c07e",
+            "123cba00d8ead0ab2388f508bc9119eba4ba888755b087924839f57947e8aa37",
         )
         corpus = json.loads(canonical_bytes)
         self.assertEqual(corpus["schema"], "ai-caddie-mobile-event-sanitizer-golden-v1")
