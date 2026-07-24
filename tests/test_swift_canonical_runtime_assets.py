@@ -255,7 +255,7 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
                 row["bitPatternHex"],
             )
 
-    def test_raw_number_serializer_has_no_wrapper_bypass_calls(self) -> None:
+    def test_vendor_serializer_has_no_production_bypass_calls(self) -> None:
         domain_root = ROOT / "mobile/ios/AICaddieDomain"
         bypasses: list[str] = []
         for path in domain_root.rglob("*.swift"):
@@ -271,6 +271,102 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
                     continue
                 bypasses.append(f"{path.relative_to(ROOT)}:{line_number}")
         self.assertEqual(bypasses, [])
+
+        vendor_api_calls: list[str] = []
+        for path in domain_root.rglob("*.swift"):
+            if path.is_relative_to(ROOT / VENDOR_ROOT):
+                continue
+            for line_number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(),
+                start=1,
+            ):
+                if "JSONCanonicalization." in line:
+                    vendor_api_calls.append(
+                        f"{path.relative_to(ROOT)}:{line_number}"
+                    )
+        self.assertEqual(
+            [entry.rsplit(":", 1)[0] for entry in vendor_api_calls],
+            ["mobile/ios/AICaddieDomain/CanonicalJSON.swift"],
+        )
+
+    def test_swift_package_isolates_swift_jcs_as_non_product_target(self) -> None:
+        package = (ROOT / "Package.swift").read_text(encoding="utf-8")
+        products = package.split("products: [", 1)[1].split("],\n    targets:", 1)[0]
+        self.assertNotIn('name: "SwiftJCS"', products)
+        self.assertRegex(
+            package,
+            r'\.target\(\s*name: "SwiftJCS",\s*'
+            r'path: "mobile/ios/AICaddieDomain/ThirdParty/SwiftJCS"\s*\)',
+        )
+
+        domain = re.search(
+            r'\.target\(\s*name: "AICaddieDomain",(?P<body>.*?)\n\s*\),',
+            package,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(domain, "missing AICaddieDomain Swift package target")
+        assert domain is not None
+        self.assertIn('dependencies: ["SwiftJCS"]', domain["body"])
+        self.assertIn('exclude: ["ThirdParty/SwiftJCS"]', domain["body"])
+
+        domain_tests = re.search(
+            r'\.testTarget\(\s*name: "AICaddieDomainTests",'
+            r'(?P<body>.*?)\n\s*\),',
+            package,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(
+            domain_tests,
+            "missing AICaddieDomainTests Swift package target",
+        )
+        assert domain_tests is not None
+        self.assertIn(
+            'dependencies: ["AICaddieDomain", "SwiftJCS"]',
+            domain_tests["body"],
+        )
+
+    def test_xcodegen_isolates_swift_jcs_as_implementation_target(self) -> None:
+        project = yaml.safe_load(
+            (ROOT / "mobile/ios/project.yml").read_text(encoding="utf-8")
+        )
+        targets = project["targets"]
+        swift_jcs = targets["SwiftJCS"]
+        self.assertEqual(swift_jcs["type"], "static_library")
+        self.assertEqual(swift_jcs["platform"], "auto")
+        self.assertEqual(set(swift_jcs["supportedDestinations"]), {"iOS", "watchOS"})
+        self.assertEqual(
+            swift_jcs["sources"],
+            [{"path": VENDOR_ROOT.as_posix()}],
+        )
+
+        domain = targets["AICaddieDomain"]
+        self.assertEqual(
+            domain["sources"],
+            [
+                {
+                    "path": "mobile/ios/AICaddieDomain",
+                    "excludes": ["ThirdParty/SwiftJCS"],
+                }
+            ],
+        )
+        self.assertIn({"target": "SwiftJCS"}, domain["dependencies"])
+        self.assertIn(
+            {"target": "SwiftJCS"},
+            targets["AICaddieDomainTests"]["dependencies"],
+        )
+
+        for scheme in project["schemes"].values():
+            self.assertNotIn("SwiftJCS", scheme.get("build", {}).get("targets", {}))
+
+        wrapper = (
+            ROOT / "mobile/ios/AICaddieDomain/CanonicalJSON.swift"
+        ).read_text(encoding="utf-8")
+        domain_tests = (
+            ROOT / "mobile/ios/AICaddieDomainTests/CanonicalJSONTests.swift"
+        ).read_text(encoding="utf-8")
+        self.assertIn("import SwiftJCS", wrapper.splitlines())
+        self.assertNotIn("@_exported import SwiftJCS", wrapper)
+        self.assertIn("@testable import SwiftJCS", domain_tests.splitlines())
 
     def test_swift_package_copies_domain_fixtures_byte_for_byte(self) -> None:
         package = (ROOT / "Package.swift").read_text(encoding="utf-8")
@@ -317,6 +413,15 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
         ios_test = steps["Test iOS app target"]["run"]
         self.assertIn("-project mobile/ios/AICaddieNative.xcodeproj", ios_test)
         self.assertIn("-scheme AICaddie", ios_test)
+
+        visibility_gate = steps["Reject public SwiftJCS consumer bypass"]["run"]
+        self.assertIn("import AICaddieDomain", visibility_gate)
+        self.assertIn("JSONCanonicalization", visibility_gate)
+        self.assertIn("xcrun swiftc -typecheck", visibility_gate)
+        self.assertIn(
+            "cannot find 'JSONCanonicalization' in scope",
+            visibility_gate,
+        )
 
 
 if __name__ == "__main__":

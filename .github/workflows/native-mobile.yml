@@ -33,6 +33,30 @@ jobs:
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \
             -destination "$IOS_DESTINATION"
+      - name: Reject public SwiftJCS consumer bypass
+        run: |
+          DOMAIN_FRAMEWORK=$(find "$HOME/Library/Developer/Xcode/DerivedData" \
+            -type d -path '*/Build/Products/Debug-iphonesimulator/AICaddieDomain.framework' \
+            -print -quit)
+          test -n "$DOMAIN_FRAMEWORK"
+          CONSUMER="$RUNNER_TEMP/AICaddieDomainConsumer.swift"
+          cat > "$CONSUMER" <<'SWIFT'
+          import AICaddieDomain
+          _ = JSONCanonicalization.self
+          SWIFT
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          ARCH=$(uname -m)
+          set +e
+          DIAGNOSTIC=$(xcrun swiftc -typecheck \
+            -target "$ARCH-apple-ios17.0-simulator" \
+            -sdk "$SDK" \
+            -F "$(dirname "$DOMAIN_FRAMEWORK")" \
+            "$CONSUMER" 2>&1)
+          STATUS=$?
+          set -e
+          printf '%s\n' "$DIAGNOSTIC"
+          test "$STATUS" -ne 0
+          grep -F "cannot find 'JSONCanonicalization' in scope" <<< "$DIAGNOSTIC"
       - name: Collect design snapshots
         if: always()
         run: |

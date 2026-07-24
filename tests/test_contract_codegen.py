@@ -755,12 +755,20 @@ class ContractCodegenTests(unittest.TestCase):
         package = Path("Package.swift").read_text(encoding="utf-8")
         self.assertIn('.library(name: "AICaddieDomain", targets: ["AICaddieDomain"])', package)
         self.assertIn(
-            'name: "AICaddieDomain",\n            path: "mobile/ios/AICaddieDomain"',
+            'name: "SwiftJCS",\n'
+            '            path: "mobile/ios/AICaddieDomain/ThirdParty/SwiftJCS"',
+            package,
+        )
+        self.assertIn(
+            'name: "AICaddieDomain",\n'
+            '            dependencies: ["SwiftJCS"],\n'
+            '            path: "mobile/ios/AICaddieDomain",\n'
+            '            exclude: ["ThirdParty/SwiftJCS"]',
             package,
         )
         self.assertIn(
             'name: "AICaddieDomainTests",\n'
-            '            dependencies: ["AICaddieDomain"],\n'
+            '            dependencies: ["AICaddieDomain", "SwiftJCS"],\n'
             '            path: "mobile/ios/AICaddieDomainTests",\n'
             '            resources: [.copy("Fixtures")]',
             package,
@@ -785,17 +793,34 @@ class ContractCodegenTests(unittest.TestCase):
         project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))
         targets = project["targets"]
 
+        swift_jcs = targets["SwiftJCS"]
+        self.assertEqual(swift_jcs["type"], "static_library")
+        self.assertEqual(swift_jcs["platform"], "auto")
+        self.assertEqual(set(swift_jcs["supportedDestinations"]), {"iOS", "watchOS"})
+        self.assertEqual(
+            swift_jcs["sources"],
+            [{"path": "mobile/ios/AICaddieDomain/ThirdParty/SwiftJCS"}],
+        )
+
         domain = targets["AICaddieDomain"]
         self.assertEqual(domain["type"], "framework")
         self.assertEqual(domain["platform"], "auto")
         self.assertEqual(set(domain["supportedDestinations"]), {"iOS", "watchOS"})
-        self.assertIn({"path": "mobile/ios/AICaddieDomain"}, domain["sources"])
+        self.assertIn(
+            {
+                "path": "mobile/ios/AICaddieDomain",
+                "excludes": ["ThirdParty/SwiftJCS"],
+            },
+            domain["sources"],
+        )
+        self.assertIn({"target": "SwiftJCS"}, domain["dependencies"])
 
         domain_tests = targets["AICaddieDomainTests"]
         self.assertEqual(domain_tests["type"], "bundle.unit-test")
         self.assertEqual(domain_tests["platform"], "auto")
         self.assertEqual(set(domain_tests["supportedDestinations"]), {"iOS", "watchOS"})
         self.assertIn({"target": "AICaddieDomain"}, domain_tests["dependencies"])
+        self.assertIn({"target": "SwiftJCS"}, domain_tests["dependencies"])
         self.assertIn(
             {"path": "mobile/ios/AICaddieDomainTests", "excludes": ["Fixtures"]},
             domain_tests["sources"],
