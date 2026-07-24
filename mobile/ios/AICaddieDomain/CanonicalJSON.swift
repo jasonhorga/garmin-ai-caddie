@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import SwiftJCS
 
 public enum CanonicalJSONError: Error, Equatable {
     case nonNFC

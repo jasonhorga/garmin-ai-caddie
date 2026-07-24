@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import AICaddieDomain
+@testable import SwiftJCS
 
 private struct NumberVector: Decodable {
     let bitPatternHex: String

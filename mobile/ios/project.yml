@@ -13,6 +13,15 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
 
 targets:
+  SwiftJCS:
+    type: library.static
+    platform: auto
+    supportedDestinations:
+      - iOS
+      - watchOS
+    sources:
+      - path: mobile/ios/AICaddieDomain/ThirdParty/SwiftJCS
+
   AICaddieDomain:
     type: framework
     platform: auto
@@ -21,6 +30,10 @@ targets:
       - watchOS
     sources:
       - path: mobile/ios/AICaddieDomain
+        excludes:
+          - ThirdParty/SwiftJCS
+    dependencies:
+      - target: SwiftJCS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.domain
@@ -40,6 +53,7 @@ targets:
         buildPhase: resources
     dependencies:
       - target: AICaddieDomain
+      - target: SwiftJCS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.domain.tests

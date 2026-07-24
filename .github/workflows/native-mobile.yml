@@ -59,12 +59,14 @@ jobs:
             -target "$ARCH-apple-ios17.0-simulator" \
             -sdk "$SDK" \
             -F "$(dirname "$DOMAIN_FRAMEWORK")" \
+            -I "$(dirname "$DOMAIN_FRAMEWORK")" \
             "$POSITIVE_CONSUMER"
           set +e
           DIAGNOSTIC=$(xcrun swiftc -typecheck \
             -target "$ARCH-apple-ios17.0-simulator" \
             -sdk "$SDK" \
             -F "$(dirname "$DOMAIN_FRAMEWORK")" \
+            -I "$(dirname "$DOMAIN_FRAMEWORK")" \
             "$CONSUMER" 2>&1)
           STATUS=$?
           set -e

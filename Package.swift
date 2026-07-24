@@ -15,8 +15,14 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "SwiftJCS",
+            path: "mobile/ios/AICaddieDomain/ThirdParty/SwiftJCS"
+        ),
+        .target(
             name: "AICaddieDomain",
-            path: "mobile/ios/AICaddieDomain"
+            dependencies: ["SwiftJCS"],
+            path: "mobile/ios/AICaddieDomain",
+            exclude: ["ThirdParty/SwiftJCS"]
         ),
         .target(
             name: "AICaddie",
@@ -33,7 +39,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AICaddieDomainTests",
-            dependencies: ["AICaddieDomain"],
+            dependencies: ["AICaddieDomain", "SwiftJCS"],
             path: "mobile/ios/AICaddieDomainTests",
             resources: [.copy("Fixtures")]
         ),
