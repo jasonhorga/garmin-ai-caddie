@@ -9,9 +9,10 @@ public enum CanonicalJSON {
         Data("null".utf8)
     }
 
-    static func number(_ value: Double) throws -> String {
-        "0"
-    }
+}
+
+func _serializeNumber(_ value: Double) throws -> String {
+    "0"
 }
 
 public enum TypedID {

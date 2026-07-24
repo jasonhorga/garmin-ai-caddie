@@ -84,6 +84,28 @@ VECTOR_FIXTURE = Path(
 )
 VECTOR_GENERATOR = Path("tools/contracts/generate_rfc8785_vectors.py")
 PROVENANCE = Path("mobile/ios/ThirdPartyLicenses/swift-jcs-provenance.json")
+VENDOR_ROOT = Path("mobile/ios/AICaddieDomain/ThirdParty/SwiftJCS")
+EXPECTED_VENDOR_FILES = {
+    Path(relative)
+    for relative in PINNED_FILES
+    if relative.startswith(f"{VENDOR_ROOT.as_posix()}/")
+}
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise AssertionError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _load_unique_json(path: Path) -> object:
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_keys,
+    )
 
 
 def _as_double(bits: int) -> float:
@@ -106,6 +128,20 @@ def _expected_bit_pattern_roster() -> list[str]:
 
 
 class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
+    def test_vendor_source_roster_is_exact(self) -> None:
+        root = ROOT / VENDOR_ROOT
+        self.assertTrue(
+            root.is_dir(),
+            f"missing pinned SwiftJCS source directory: {VENDOR_ROOT}",
+        )
+        actual = {
+            path.relative_to(ROOT)
+            for path in root.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(actual, EXPECTED_VENDOR_FILES)
+        self.assertTrue(all(path.suffix == ".swift" for path in actual))
+
     def test_pinned_swift_jcs_files_have_exact_paths_and_sha256(self) -> None:
         for relative, expected_sha256 in PINNED_FILES.items():
             with self.subTest(path=relative):
@@ -127,7 +163,7 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
             f"missing pinned SwiftJCS provenance: {PROVENANCE}",
         )
         self.assertEqual(
-            json.loads(path.read_text(encoding="utf-8")),
+            _load_unique_json(path),
             EXPECTED_PROVENANCE,
         )
 
@@ -152,7 +188,7 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
             path.is_file(),
             f"missing checked-in RFC 8785 number fixture: {VECTOR_FIXTURE}",
         )
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = _load_unique_json(path)
         self.assertIsInstance(payload, list)
         self.assertEqual(len(payload), 2_048)
 
@@ -208,7 +244,7 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
             f"missing checked-in RFC 8785 number fixture: {VECTOR_FIXTURE}",
         )
         self.assertEqual(importlib.metadata.version("rfc8785"), "0.1.4")
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = _load_unique_json(path)
         self.assertEqual(len(payload), 2_048)
 
         for row in payload:
@@ -218,6 +254,23 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
                 rfc8785.dumps(_as_double(bits)).decode("ascii"),
                 row["bitPatternHex"],
             )
+
+    def test_raw_number_serializer_has_no_wrapper_bypass_calls(self) -> None:
+        domain_root = ROOT / "mobile/ios/AICaddieDomain"
+        bypasses: list[str] = []
+        for path in domain_root.rglob("*.swift"):
+            if path.is_relative_to(ROOT / VENDOR_ROOT):
+                continue
+            for line_number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(),
+                start=1,
+            ):
+                if "_serializeNumber(" not in line:
+                    continue
+                if re.search(r"\bfunc\s+_serializeNumber\s*\(", line):
+                    continue
+                bypasses.append(f"{path.relative_to(ROOT)}:{line_number}")
+        self.assertEqual(bypasses, [])
 
     def test_swift_package_copies_domain_fixtures_byte_for_byte(self) -> None:
         package = (ROOT / "Package.swift").read_text(encoding="utf-8")
@@ -245,6 +298,25 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
             ["test"],
         )
         self.assertIn("AICaddieDomainTests", scheme["test"]["targets"])
+
+    def test_native_workflow_runs_generated_aicaddie_scheme(self) -> None:
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/native-mobile.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        steps = {
+            step["name"]: step
+            for step in workflow["jobs"]["native-mobile"]["steps"]
+            if "name" in step
+        }
+        self.assertEqual(
+            steps["Generate native project"]["run"],
+            "xcodegen generate --spec mobile/ios/project.yml --project-root .",
+        )
+        ios_test = steps["Test iOS app target"]["run"]
+        self.assertIn("-project mobile/ios/AICaddieNative.xcodeproj", ios_test)
+        self.assertIn("-scheme AICaddie", ios_test)
 
 
 if __name__ == "__main__":

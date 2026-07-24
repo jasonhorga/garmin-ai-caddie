@@ -70,7 +70,10 @@ No canonical registry or generated declaration changes belong to 5A.
    RFC 8785 bytes after recursively checking all object keys/string values for
    NFC, every integer/integral Double for the inclusive safe range
    `-9_007_199_254_740_991...9_007_199_254_740_991`, and every Double for
-   finiteness and negative zero.
+   finiteness and negative zero. The pinned vendor's internal
+   `_serializeNumber` is an `@testable` vector-audit seam only;
+   `CanonicalJSON` exposes no raw-number API that can bypass project
+   validation, and production wrapper code never calls that seam directly.
 3. `TypedID.make(domain:value:)` hashes exact
    `ASCII(domain) + 0x00 + canonicalBytes` with SHA-256 and emits lowercase
    hexadecimal. A domain tag is rejected unless it is non-empty, contains no

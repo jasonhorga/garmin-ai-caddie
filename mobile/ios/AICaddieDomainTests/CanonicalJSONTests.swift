@@ -20,6 +20,30 @@ private struct EncodableCanonicalFixture: Encodable {
     let a: String
 }
 
+private struct EncodableOracleNested: Encodable {
+    let escaped: String
+}
+
+private struct EncodableCanonicalOracle: Encodable {
+    let exponent: Double
+    let subnormal: Double
+    let maximumSafeInteger: Double
+    let minimumSafeInteger: Double
+    let nested: EncodableOracleNested
+}
+
+private struct RecursiveGenericNode<Value: Encodable>: Encodable {
+    let inner: Value
+}
+
+private struct RecursiveGenericPayload<Value: Encodable>: Encodable {
+    let outer: [RecursiveGenericNode<Value>]
+
+    init(_ value: Value) {
+        outer = [RecursiveGenericNode(inner: value)]
+    }
+}
+
 final class CanonicalJSONTests: XCTestCase {
     private func utf8String(_ data: Data) throws -> String {
         try XCTUnwrap(String(data: data, encoding: .utf8))
@@ -27,6 +51,46 @@ final class CanonicalJSONTests: XCTestCase {
 
     private func lowercaseHex(_ data: Data) -> String {
         data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func assertTypedInputIsRejected(
+        _ value: JSONValue,
+        _ label: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertThrowsError(
+            try CanonicalJSON.data(value),
+            "data accepted nested \(label)",
+            file: file,
+            line: line
+        )
+        XCTAssertThrowsError(
+            try TypedID.make(domain: "RecursiveValidation/v1", value: value),
+            "TypedID accepted nested \(label)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertGenericInputIsRejected<Value: Encodable>(
+        _ value: Value,
+        _ label: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertThrowsError(
+            try CanonicalJSON.data(value),
+            "generic data accepted nested \(label)",
+            file: file,
+            line: line
+        )
+        XCTAssertThrowsError(
+            try TypedID.make(domain: "RecursiveValidation/v1", value: value),
+            "generic TypedID accepted nested \(label)",
+            file: file,
+            line: line
+        )
     }
 
     private func numberVectorURL() throws -> URL {
@@ -74,6 +138,7 @@ final class CanonicalJSONTests: XCTestCase {
             ),
             expected
         )
+        XCTAssertNotEqual(JSONValue.integer(1), JSONValue.number(1.0))
 
         let fixedCases: [(JSONValue, String)] = [
             (.integer(7), "7"),
@@ -186,7 +251,6 @@ final class CanonicalJSONTests: XCTestCase {
         XCTAssertThrowsError(
             try CanonicalJSON.data(EncodableDoublePayload(value: -0.0))
         )
-        XCTAssertThrowsError(try CanonicalJSON.number(-0.0))
     }
 
     func testNaNAndBothInfinitiesAreRejectedOnEveryPublicPath() throws {
@@ -199,11 +263,75 @@ final class CanonicalJSONTests: XCTestCase {
                 try CanonicalJSON.data(EncodableDoublePayload(value: value)),
                 "generic input accepted \(value)"
             )
-            XCTAssertThrowsError(
-                try CanonicalJSON.number(value),
-                "number serializer accepted \(value)"
+        }
+    }
+
+    func testTypedAndGenericPathsMatchExactRepresentativeOracle() throws {
+        let escaped = "line\nquote\"slash\\control\u{0001}"
+        let typed: JSONValue = .object([
+            "exponent": .number(1e-7),
+            "subnormal": .number(Double(bitPattern: 1)),
+            "maximumSafeInteger": .number(9_007_199_254_740_991.0),
+            "minimumSafeInteger": .number(-9_007_199_254_740_991.0),
+            "nested": .object(["escaped": .string(escaped)]),
+        ])
+        let generic = EncodableCanonicalOracle(
+            exponent: 1e-7,
+            subnormal: Double(bitPattern: 1),
+            maximumSafeInteger: 9_007_199_254_740_991.0,
+            minimumSafeInteger: -9_007_199_254_740_991.0,
+            nested: EncodableOracleNested(escaped: escaped)
+        )
+        let expected = #"{"exponent":1e-7,"maximumSafeInteger":9007199254740991,"minimumSafeInteger":-9007199254740991,"nested":{"escaped":"line\nquote\"slash\\control\u0001"},"subnormal":5e-324}"#
+
+        XCTAssertEqual(try utf8String(CanonicalJSON.data(typed)), expected)
+        XCTAssertEqual(try utf8String(CanonicalJSON.data(generic)), expected)
+    }
+
+    func testRecursiveValidationPropagatesThroughDataAndTypedIDOverloads() {
+        let typedInvalidValues: [(String, JSONValue)] = [
+            ("non-NFC string", .string("e\u{301}")),
+            ("non-NFC key", .object(["e\u{301}": .null])),
+            ("negative zero", .number(-0.0)),
+            ("non-finite number", .number(.infinity)),
+            ("unsafe integer", .integer(9_007_199_254_740_992)),
+            ("unsafe integral number", .number(9_007_199_254_740_992.0)),
+        ]
+        for (label, invalid) in typedInvalidValues {
+            assertTypedInputIsRejected(
+                .object([
+                    "outer": .array([
+                        .object(["inner": invalid]),
+                    ]),
+                ]),
+                label
             )
         }
+
+        assertGenericInputIsRejected(
+            RecursiveGenericPayload("e\u{301}"),
+            "non-NFC string"
+        )
+        assertGenericInputIsRejected(
+            RecursiveGenericPayload(["e\u{301}": "value"]),
+            "non-NFC key"
+        )
+        assertGenericInputIsRejected(
+            RecursiveGenericPayload(-0.0),
+            "negative zero"
+        )
+        assertGenericInputIsRejected(
+            RecursiveGenericPayload(Double.nan),
+            "non-finite number"
+        )
+        assertGenericInputIsRejected(
+            RecursiveGenericPayload(Int64(9_007_199_254_740_992)),
+            "unsafe integer"
+        )
+        assertGenericInputIsRejected(
+            RecursiveGenericPayload(9_007_199_254_740_992.0),
+            "unsafe integral number"
+        )
     }
 
     func testSafeIntegerBoundariesAreInclusiveAndOutsideValuesAreRejected() throws {
@@ -333,7 +461,7 @@ final class CanonicalJSONTests: XCTestCase {
         for vector in vectors {
             let bits = try XCTUnwrap(UInt64(vector.bitPatternHex, radix: 16))
             XCTAssertEqual(
-                try CanonicalJSON.number(Double(bitPattern: bits)),
+                try _serializeNumber(Double(bitPattern: bits)),
                 vector.expected,
                 vector.bitPatternHex
             )
