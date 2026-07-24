@@ -47,7 +47,7 @@ jobs:
           import PackageDescription
           let package = Package(
               name: "ExternalAICaddieConsumer",
-              platforms: [.macOS(.v13)],
+              platforms: [.iOS(.v17)],
               dependencies: [
                   .package(name: "AICaddieSource", path: "$GITHUB_WORKSPACE"),
               ],
@@ -86,12 +86,18 @@ jobs:
               withJSONObject: NSNumber(value: -0.0)
           )
           SWIFT
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          ARCH=$(uname -m)
           swift build \
             --package-path "$PACKAGE_CONSUMER" \
+            --triple "$ARCH-apple-ios17.0-simulator" \
+            --sdk "$SDK" \
             --target PositiveConsumer
           set +e
           SWIFTPM_DIAGNOSTIC=$(swift build \
             --package-path "$PACKAGE_CONSUMER" \
+            --triple "$ARCH-apple-ios17.0-simulator" \
+            --sdk "$SDK" \
             --target ExplicitSwiftJCSConsumer 2>&1)
           SWIFTPM_STATUS=$?
           set -e
@@ -126,8 +132,6 @@ jobs:
               withJSONObject: ["unchecked": -0.0]
           )
           SWIFT
-          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
-          ARCH=$(uname -m)
           xcrun swiftc -typecheck \
             -target "$ARCH-apple-ios17.0-simulator" \
             -sdk "$SDK" \

@@ -421,7 +421,7 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
         self.assertEqual(visibility_step["if"], "always()")
         visibility_gate = visibility_step["run"]
         self.assertIn('name: "ExternalAICaddieConsumer"', visibility_gate)
-        self.assertIn("platforms: [.macOS(.v13)]", visibility_gate)
+        self.assertIn("platforms: [.iOS(.v17)]", visibility_gate)
         self.assertIn(
             '.package(name: "AICaddieSource", path: "$GITHUB_WORKSPACE")',
             visibility_gate,
@@ -430,6 +430,11 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
         self.assertEqual(visibility_gate.count('name: "AICaddieDomain"'), 2)
         self.assertIn("--target PositiveConsumer", visibility_gate)
         self.assertIn("--target ExplicitSwiftJCSConsumer", visibility_gate)
+        self.assertEqual(
+            visibility_gate.count('--triple "$ARCH-apple-ios17.0-simulator"'),
+            2,
+        )
+        self.assertEqual(visibility_gate.count('--sdk "$SDK"'), 2)
         self.assertIn("import AICaddieDomain", visibility_gate)
         self.assertIn("JSONValue.null", visibility_gate)
         self.assertIn("CanonicalJSON.data", visibility_gate)
