@@ -56,6 +56,8 @@ Modify:
 - `Package.swift` — copy Domain fixtures byte-for-byte.
 - `mobile/ios/project.yml` — include `AICaddieDomainTests` in the normal iOS
   test scheme.
+- `tests/test_contract_codegen.py` — keep the package resource assertion in
+  sync with byte-preserving fixture copies.
 
 No canonical registry or generated declaration changes belong to 5A.
 
