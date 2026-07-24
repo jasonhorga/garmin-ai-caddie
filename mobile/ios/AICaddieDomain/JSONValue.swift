@@ -17,7 +17,14 @@ public enum JSONValue: Codable, Equatable {
         } else if let value = try? container.decode(Bool.self) {
             self = .bool(value)
         } else if let value = try? container.decode(Int64.self) {
-            self = .integer(value)
+            if value == 0,
+               let number = try? container.decode(Double.self),
+               number.isZero,
+               number.sign == .minus {
+                self = .number(number)
+            } else {
+                self = .integer(value)
+            }
         } else if let value = try? container.decode(Double.self) {
             guard value.isFinite else {
                 throw DecodingError.dataCorruptedError(
