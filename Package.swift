@@ -35,7 +35,7 @@ let package = Package(
             name: "AICaddieDomainTests",
             dependencies: ["AICaddieDomain"],
             path: "mobile/ios/AICaddieDomainTests",
-            resources: [.process("Fixtures")]
+            resources: [.copy("Fixtures")]
         ),
         .testTarget(
             name: "AICaddieTests",

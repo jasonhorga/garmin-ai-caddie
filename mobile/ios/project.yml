@@ -143,9 +143,11 @@ schemes:
       targets:
         AICaddie: all
         AICaddieWatch: all
+        AICaddieDomainTests: [test]
         AICaddieTests: [test]
     test:
       targets:
+        - AICaddieDomainTests
         - AICaddieTests
 
   AICaddieUITests:
