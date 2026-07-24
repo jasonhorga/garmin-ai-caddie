@@ -138,12 +138,18 @@ final class CanonicalJSONTests: XCTestCase {
         )
     }
 
-    func testTypedIDRejectsEmptyAndNonNFCDomains() throws {
+    func testTypedIDRequiresNonEmptyASCIIDomainWithoutEmbeddedNUL() throws {
         let value = JSONValue.object(["a": .integer(1)])
 
         XCTAssertThrowsError(try TypedID.make(domain: "", value: value))
         XCTAssertThrowsError(
+            try TypedID.make(domain: "Café/v1", value: value)
+        )
+        XCTAssertThrowsError(
             try TypedID.make(domain: "Cafe\u{301}/v1", value: value)
+        )
+        XCTAssertThrowsError(
+            try TypedID.make(domain: "A\u{0000}B/v1", value: value)
         )
     }
 

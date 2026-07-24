@@ -70,9 +70,11 @@ No canonical registry or generated declaration changes belong to 5A.
    `-9_007_199_254_740_991...9_007_199_254_740_991`, and every Double for
    finiteness and negative zero.
 3. `TypedID.make(domain:value:)` hashes exact
-   `UTF8(domain) + 0x00 + canonicalBytes` with SHA-256 and emits lowercase
-   hexadecimal. Empty/non-NFC domain tags are rejected rather than creating a
-   second ambiguous namespace.
+   `ASCII(domain) + 0x00 + canonicalBytes` with SHA-256 and emits lowercase
+   hexadecimal. A domain tag is rejected unless it is non-empty, contains no
+   embedded NUL, and every Unicode scalar (and therefore every UTF-8 byte) is
+   ASCII. Composed and decomposed Unicode are both outside the domain-tag
+   vocabulary; normalization does not create a second namespace contract.
 4. The vendored files and Unlicense are exact bytes from commit
    `1e69befe76f5445696e821811402c586dd2186d8`. Provenance pins:
 

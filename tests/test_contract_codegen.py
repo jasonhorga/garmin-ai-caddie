@@ -762,7 +762,7 @@ class ContractCodegenTests(unittest.TestCase):
             'name: "AICaddieDomainTests",\n'
             '            dependencies: ["AICaddieDomain"],\n'
             '            path: "mobile/ios/AICaddieDomainTests",\n'
-            '            resources: [.process("Fixtures")]',
+            '            resources: [.copy("Fixtures")]',
             package,
         )
         self.assertIn(
