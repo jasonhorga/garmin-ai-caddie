@@ -97,14 +97,34 @@ final class StorageV1RawJSONGateTests: XCTestCase {
     }
 
     func testValidatedCapabilityOwnsImmutableDataSnapshot() throws {
-        let mutable = NSMutableData(data: Data("0".utf8))
-        let aliased = Data(referencing: mutable)
+        let byteCount = 64
+        var original = Data(repeating: 0x20, count: byteCount)
+        original[original.startIndex] = 0x30
+
+        let pointer = UnsafeMutableRawPointer.allocate(
+            byteCount: byteCount,
+            alignment: MemoryLayout<UInt8>.alignment
+        )
+        defer { pointer.deallocate() }
+        _ = pointer.initializeMemory(
+            as: UInt8.self,
+            repeating: 0x20,
+            count: byteCount
+        )
+        pointer.storeBytes(of: UInt8(0x30), as: UInt8.self)
+
+        let aliased = Data(
+            bytesNoCopy: pointer,
+            count: byteCount,
+            deallocator: .none
+        )
+        XCTAssertEqual(aliased, original)
         let value = try Gate.validate(aliased)
 
-        mutable.mutableBytes.storeBytes(of: UInt8(0x78), as: UInt8.self)
+        pointer.storeBytes(of: UInt8(0x78), as: UInt8.self)
 
-        XCTAssertEqual(aliased, Data("x".utf8))
-        XCTAssertEqual(value.exactBytes(), Data("0".utf8))
+        XCTAssertEqual(aliased.first, UInt8(0x78))
+        XCTAssertEqual(value.exactBytes(), original)
         let number = try XCTUnwrap(
             try replay(value).first { $0.kind == .number }
         )
