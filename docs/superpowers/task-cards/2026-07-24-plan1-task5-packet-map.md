@@ -44,7 +44,7 @@ sketches and does not pre-approve a later packet's implementation.
 
 | Packet | Status | Independently testable outcome | Primary ownership | Depends on | Explicitly excludes |
 |---|---|---|---|---|---|
-| 5A Swift canonical runtime | `IN_PROGRESS` | Auditable RFC 8785 + AI-Caddie-v1 `JSONValue`, `CanonicalJSON`, and `TypedID` run in the shared Domain target and in Native CI | Domain canonical runtime, pinned SwiftJCS sources/license/provenance, number vectors, Domain test routing | Tasks 2–3 | ledger state, origin/sequence, v1 adapter, app/watch integration |
+| 5A Swift canonical runtime | `VERIFIED` | Auditable RFC 8785 + AI-Caddie-v1 `JSONValue`, `CanonicalJSON`, and `TypedID` run in the shared Domain target and in Native CI; [verification record](../reviews/2026-07-25-plan1-task5a-swift-canonical-runtime-verification.md) | Domain canonical runtime, pinned SwiftJCS sources/license/provenance, number vectors, Domain test routing | Tasks 2–3 | ledger state, origin/sequence, v1 adapter, app/watch integration |
 | 5B storage-v1 literal schema | `PENDING` | Final Task-5 literal record roster and required storage-v1 root encode/decode strictly without a single-receipt mutation surface | `DomainRoundEvent.swift`, `LegacyV1Transport.swift`, value-only `DomainLedgerStateV1`, authority exception/pins, codec tests | 5A | file ownership, mutation, network, lifecycle |
 | 5C root ownership and sequence | `PENDING` | One composition-root owner per canonical root; distinct iOS/Watch roots; origin/epoch and reserve-before-append sequence survive crash gaps | `DomainLedgerStore.swift`, `DomainLedgerCompositionRoot.swift`, store tests | 5B | event append, wire preparation, response application |
 | 5D event identity and v1 wire | `PENDING` | Domain append enforces origin/epoch/event identity; versioned client/event IDs, binding key, and historical fixed-ID synthetic golden round-trip exactly | `DomainRoundEvent.swift`, `LegacyV1Transport.swift`, store/transport tests | 5C | prepared network batches and terminal receipts |
@@ -82,7 +82,9 @@ decision.
 
 - **Overall:** locked S70 unified Watch/iOS/Web/backend product.
 - **Current phase:** canonical reliability foundation.
-- **Current drill-down:** Task 5A Swift canonical runtime.
-- **Next:** observe Task 5A Native behavioral RED, implement only 5A, then run
-  spec and quality review before activating 5B.
+- **Current drill-down:** POP from verified Task 5A; extract Task 5B1 literal
+  records as its own implementation/review packet.
+- **Next:** freeze the 5B subpacket routing, activate only 5B1, and observe its
+  focused RED before any storage decoder, graph mutation, network, or lifecycle
+  implementation.
 - **Owner decision:** none.
