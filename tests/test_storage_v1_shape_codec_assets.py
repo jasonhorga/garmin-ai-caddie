@@ -33,6 +33,17 @@ TYPE_ROSTER = {
     "RoundEventKind",
     "JSONValue",
 }
+HANDWRITTEN = {
+    "codec": ROOT / "mobile/ios/AICaddieDomain/StorageV1ShapeCodec.swift",
+    "streaming": (
+        ROOT
+        / "mobile/ios/AICaddieDomain/StorageV1StreamingShapeValidator.swift"
+    ),
+    "scalars": (
+        ROOT / "mobile/ios/AICaddieDomain/StorageV1ShapeScalarValidation.swift"
+    ),
+    "metrics": ROOT / "mobile/ios/AICaddieDomain/StorageV1CanonicalMetrics.swift",
+}
 
 
 class StorageV1ShapeCodecAssetTests(unittest.TestCase):
@@ -40,6 +51,14 @@ class StorageV1ShapeCodecAssetTests(unittest.TestCase):
         if not GENERATED.is_file():
             return None
         return GENERATED.read_text(encoding="utf-8")
+
+    def _handwritten_sources_or_none(self) -> dict[str, str] | None:
+        if any(not path.is_file() for path in HANDWRITTEN.values()):
+            return None
+        return {
+            name: path.read_text(encoding="utf-8")
+            for name, path in HANDWRITTEN.items()
+        }
 
     def test_000_generated_swift_asset_exists(self) -> None:
         self.assertTrue(
@@ -160,6 +179,113 @@ class StorageV1ShapeCodecAssetTests(unittest.TestCase):
             with self.subTest(literal=forbidden_literal):
                 self.assertIsNone(re.search(forbidden_literal, source))
         self.assertEqual(len(re.findall(r"\b65_?536\b", source)), 1)
+
+    def test_100_exact_handwritten_runtime_sources_exist(self) -> None:
+        missing = [
+            path.relative_to(ROOT).as_posix()
+            for path in HANDWRITTEN.values()
+            if not path.is_file()
+        ]
+        self.assertEqual(
+            missing,
+            [],
+            "missing handwritten storage-v1 shape source(s): "
+            + ", ".join(missing),
+        )
+
+    def test_handwritten_surface_is_internal_and_has_one_capability_entry(self) -> None:
+        sources = self._handwritten_sources_or_none()
+        if sources is None:
+            return
+        combined = "\n".join(sources.values())
+        for forbidden in (
+            "public ",
+            "package ",
+            "@_spi",
+            "@usableFromInline",
+            "open ",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, combined)
+
+        codec = sources["codec"]
+        self.assertRegex(
+            codec,
+            r"(?s)internal\s+struct\s+ValidatedStorageV1Shape\s*\{"
+            r".*?internal\s+let\s+state\s*:\s*DomainLedgerStateV1\b"
+            r".*?fileprivate\s+init\s*\(\s*state\s*:\s*"
+            r"DomainLedgerStateV1\s*\)",
+        )
+        self.assertNotRegex(
+            codec,
+            r"\b(?:var|private\s+let|fileprivate\s+let|public\s+let|"
+            r"package\s+let)\s+state\b",
+        )
+        entries = re.findall(r"\bfunc\s+decode\s*\(", combined)
+        self.assertEqual(entries, ["func decode("], "codec must have one decode entry")
+        self.assertRegex(
+            codec,
+            r"(?s)internal\s+static\s+func\s+decode\s*\(\s*"
+            r"_\s+validatedRawJSON\s*:\s*"
+            r"StorageV1RawJSONGate\.ValidatedRawJSON\s*\)\s*throws\s*"
+            r"->\s*ValidatedStorageV1Shape\b",
+        )
+        self.assertNotRegex(
+            codec,
+            r"\bfunc\s+decode\s*\([^)]*\b(?:Data|String|JSONValue|"
+            r"JSONDecoder)\b",
+        )
+
+    def test_handwritten_responsibilities_have_no_bypass_or_fake_runtime(self) -> None:
+        sources = self._handwritten_sources_or_none()
+        if sources is None:
+            return
+        combined = "\n".join(sources.values())
+        for forbidden in (
+            "JSONSerialization",
+            "fatalError(",
+            "preconditionFailure(",
+            "[*]",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, combined)
+        self.assertIsNone(
+            re.search(
+                r"\b(?:tokens|events)\s*:\s*\[\s*"
+                r"(?:StorageV1RawJSONGate\.)?Event\s*\]",
+                combined,
+            ),
+            "streaming validation must not retain a token/event array",
+        )
+
+        seam_owners = [
+            name for name, source in sources.items() if "notImplemented" in source
+        ]
+        cursor_owners = [
+            name for name, source in sources.items() if ".makeCursor(" in source
+        ]
+        decoder_pattern = re.compile(
+            r"JSONDecoder\s*\(\s*\)\s*\.decode\s*\(\s*"
+            r"DomainLedgerStateV1\.self\s*,"
+        )
+        decoder_owners = [
+            name for name, source in sources.items() if decoder_pattern.search(source)
+        ]
+        all_decoder_mentions = sum(
+            source.count("JSONDecoder") for source in sources.values()
+        )
+
+        if seam_owners:
+            self.assertEqual(seam_owners, ["codec"])
+            self.assertEqual(cursor_owners, [])
+            self.assertEqual(decoder_owners, [])
+            self.assertEqual(all_decoder_mentions, 0)
+        else:
+            self.assertEqual(cursor_owners, ["codec"])
+            self.assertEqual(sources["codec"].count(".makeCursor("), 1)
+            self.assertEqual(decoder_owners, ["codec"])
+            self.assertEqual(len(decoder_pattern.findall(sources["codec"])), 1)
+            self.assertEqual(all_decoder_mentions, 1)
 
 
 if __name__ == "__main__":
