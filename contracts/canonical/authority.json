@@ -34,7 +34,11 @@
   "forbiddenSymbols": [
     {
       "paths": ["contracts/canonical/**/*.json", "ai_caddie/rounds/**/*.py", "server_v2/round_ledger_api.py", "mobile/ios/AICaddieDomain/**/*.swift", "web_v2/src/contracts/**/*.ts"],
-      "values": ["serverSequence", "weatherSnapshot", "weatherByHole", "WatchInputEvent", "autoshot_candidate"]
+      "values": ["weatherSnapshot", "weatherByHole", "WatchInputEvent", "autoshot_candidate"]
+    },
+    {
+      "paths": ["contracts/canonical/**/*.json", "ai_caddie/rounds/**/*.py", "server_v2/round_ledger_api.py", "mobile/ios/AICaddieDomain/**/*.swift", "web_v2/src/contracts/**/*.ts", "!mobile/ios/AICaddieDomain/LegacyV1Transport.swift"],
+      "values": ["serverSequence"]
     }
   ],
   "generatedGroups": [

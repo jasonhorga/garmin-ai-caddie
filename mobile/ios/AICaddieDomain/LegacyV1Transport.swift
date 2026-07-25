@@ -42,13 +42,76 @@ struct LegacyV1EventReceipt: Codable, Equatable {
     let serverSequence: Int
 }
 
-// RED-only seam uses synthesized optional Codable, which omits nil keys and
-// accepts missing keys.
 struct LegacyV1OutboxRecord: Codable, Equatable {
     let eventIdentity: String
     let eventHash: String
     let receipt: LegacyV1EventReceipt?
     let deadLetterReason: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case eventIdentity, eventHash, receipt, deadLetterReason
+    }
+
+    init(
+        eventIdentity: String,
+        eventHash: String,
+        receipt: LegacyV1EventReceipt?,
+        deadLetterReason: String?
+    ) {
+        self.eventIdentity = eventIdentity
+        self.eventHash = eventHash
+        self.receipt = receipt
+        self.deadLetterReason = deadLetterReason
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        eventIdentity = try values.decode(String.self, forKey: .eventIdentity)
+        eventHash = try values.decode(String.self, forKey: .eventHash)
+        guard values.contains(.receipt) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.receipt,
+                .init(
+                    codingPath: values.codingPath,
+                    debugDescription: "receipt is required-nullable"
+                )
+            )
+        }
+        receipt = try values.decodeIfPresent(
+            LegacyV1EventReceipt.self,
+            forKey: .receipt
+        )
+        guard values.contains(.deadLetterReason) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.deadLetterReason,
+                .init(
+                    codingPath: values.codingPath,
+                    debugDescription:
+                        "deadLetterReason is required-nullable"
+                )
+            )
+        }
+        deadLetterReason = try values.decodeIfPresent(
+            String.self,
+            forKey: .deadLetterReason
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(eventIdentity, forKey: .eventIdentity)
+        try values.encode(eventHash, forKey: .eventHash)
+        if let receipt {
+            try values.encode(receipt, forKey: .receipt)
+        } else {
+            try values.encodeNil(forKey: .receipt)
+        }
+        if let deadLetterReason {
+            try values.encode(deadLetterReason, forKey: .deadLetterReason)
+        } else {
+            try values.encodeNil(forKey: .deadLetterReason)
+        }
+    }
 }
 
 struct LegacyV1TransportAnomaly: Codable, Equatable {

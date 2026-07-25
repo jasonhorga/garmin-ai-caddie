@@ -6,12 +6,34 @@ struct OriginSequenceState: Codable, Equatable {
     let lastReservedClientSequence: Int
 }
 
-// RED-only seam; replaced by Task 3 GREEN.
 struct CanonicalStringSet: Codable, Equatable {
-    let values: [String]
+    private let values: [String]
 
     init(_ values: Set<String> = []) {
-        self.values = Array(values)
+        self.values = values.sorted(by: Self.precedesInUTF8)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let ordered = try container.decode([String].self)
+        guard ordered == ordered.sorted(by: Self.precedesInUTF8),
+              Set(ordered).count == ordered.count else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription:
+                    "CanonicalStringSet must be sorted and unique"
+            )
+        }
+        values = ordered
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(values)
+    }
+
+    private static func precedesInUTF8(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.utf8.lexicographicallyPrecedes(rhs.utf8)
     }
 }
 
@@ -68,5 +90,59 @@ struct DomainLedgerStateV1: Codable, Equatable {
             watchTerminalReceiptRelayConfirmations
         self.migrationMarkers = migrationMarkers
         self.transportAnomalies = transportAnomalies
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedVersion = try values.decode(
+            Int.self,
+            forKey: .storageVersion
+        )
+        guard decodedVersion == 1 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .storageVersion,
+                in: values,
+                debugDescription: "storageVersion must equal 1"
+            )
+        }
+        storageVersion = decodedVersion
+        origin = try values.decode(OriginSequenceState.self, forKey: .origin)
+        events = try values.decode([StoredEventV1].self, forKey: .events)
+        outbox = try values.decode(
+            [LegacyV1OutboxRecord].self,
+            forKey: .outbox
+        )
+        deadLetters = try values.decode(
+            [LegacyV1OutboxRecord].self,
+            forKey: .deadLetters
+        )
+        receipts = try values.decode(
+            [String: LegacyV1EventReceipt].self,
+            forKey: .receipts
+        )
+        legacyWireBindings = try values.decode(
+            [LegacyWireBinding].self,
+            forKey: .legacyWireBindings
+        )
+        preparedLegacyV1Batches = try values.decode(
+            [PreparedLegacyV1Batch].self,
+            forKey: .preparedLegacyV1Batches
+        )
+        watchTerminalReceiptRelayObligations = try values.decode(
+            [WatchTerminalReceiptRelayObligation].self,
+            forKey: .watchTerminalReceiptRelayObligations
+        )
+        watchTerminalReceiptRelayConfirmations = try values.decode(
+            [WatchTerminalReceiptRelayConfirmation].self,
+            forKey: .watchTerminalReceiptRelayConfirmations
+        )
+        migrationMarkers = try values.decode(
+            CanonicalStringSet.self,
+            forKey: .migrationMarkers
+        )
+        transportAnomalies = try values.decode(
+            [LegacyV1TransportAnomaly].self,
+            forKey: .transportAnomalies
+        )
     }
 }
