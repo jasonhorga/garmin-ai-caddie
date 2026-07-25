@@ -321,16 +321,7 @@ Transient GitHub/SSH `429`, `503`, or cooldown responses receive timed exponenti
 
 ### 1. Freeze and review the card
 
-Create a one-file card-candidate commit.
-A fresh reviewer performs card SPEC review,
-then a different fresh reviewer performs card QUALITY review.
-The same sole writer applies corrections and sends each changed candidate back through the applicable fresh review.
-
-After both reviews accept,
-capture the final card SHA-256 and commit SHA.
-No later stage may change a byte of this card.
-
-Run these local text/Git checks from the repository root:
+Before sending an initial candidate or any same-writer correction to review, run this local text/Git block from the repository root to audit the one dirty card path and create its one-file commit. Reviewers receive committed bytes only.
 
 ```bash
 CARD=docs/superpowers/task-cards/2026-07-25-plan1-task5b2a-s-generated-shape-codec.md
@@ -352,7 +343,8 @@ git show --stat --oneline HEAD
 sha256sum "$CARD"
 ```
 
-The lexical audit also rejects unfinished-marker vocabulary and the obsolete uppercase packet spelling without weakening the required `.notImplemented` RED seam.
+Each resulting committed SHA receives fresh SPEC review first and different fresh QUALITY review second. A finding returns to the same sole writer, who corrects the card, reruns the block to create a new committed SHA, and obtains both fresh reviews again.
+After both reviewers accept the same exact committed bytes, do not rerun the dirty/commit block or alter the card. Confirm the worktree is clean, record that final card commit and SHA-256, and freeze it; the lexical audit rejects unfinished-marker vocabulary and obsolete uppercase packet spelling without weakening the required `.notImplemented` RED seam.
 
 ### 2. Prove CODEGEN-RED remotely
 
@@ -382,7 +374,7 @@ test "$(git rev-parse HEAD)" = "$SHA"
 git merge-base --is-ancestor "$CARD_COMMIT" HEAD
 test -z "$(git status --porcelain=v1)"
 set +e
-/home/jason/.local/bin/uv run python -m unittest -v tests.test_storage_v1_shape_codegen tests.test_storage_v1_shape_codec_assets tests.test_storage_v1_literal_schema_assets
+/home/jason/.local/bin/uv run python -m unittest -v tests.test_storage_v1_shape_codegen tests.test_storage_v1_shape_codec_assets tests.test_storage_v1_literal_schema_assets tests.test_contract_authority tests.test_contract_codegen
 TEST_STATUS=$?
 set -e
 printf 'TEST_EXIT=%s\n' "$TEST_STATUS"
@@ -398,7 +390,7 @@ wc -l -c "$RED_LOG"
 sha256sum "$RED_LOG"
 ```
 
-The nonzero status is valid RED only when controlled assertions name the intentionally absent schema, generator, and generated asset; import, checkout, command, or infrastructure failure invalidates the evidence. Preserve the full log, status, assertion text, test/failure/error counts, scratch path, and log SHA-256.
+The nonzero status is valid RED only when controlled assertions name the intentionally absent schema, generator, and generated asset; both existing manifest/codegen gates must pass, and their regression or any import, checkout, command, or infrastructure failure invalidates RED. Preserve the full log, status, assertion text, test/failure/error counts, scratch path, and log SHA-256.
 
 ### 3. Prove CODEGEN-GREEN remotely
 
@@ -433,7 +425,7 @@ for PASS in 1 2; do
   test -z "$(git status --porcelain=v1)"
 done
 sha256sum ai_caddie/contracts/generated.py mobile/ios/AICaddieDomain/GeneratedContracts.swift web_v2/src/contracts/generated.ts mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift
-/home/jason/.local/bin/uv run python -m unittest -v tests.test_storage_v1_shape_codegen tests.test_storage_v1_shape_codec_assets tests.test_storage_v1_literal_schema_assets
+/home/jason/.local/bin/uv run python -m unittest -v tests.test_storage_v1_shape_codegen tests.test_storage_v1_shape_codec_assets tests.test_storage_v1_literal_schema_assets tests.test_contract_authority tests.test_contract_codegen
 sha256sum ai_caddie/contracts/generated.py mobile/ios/AICaddieDomain/GeneratedContracts.swift web_v2/src/contracts/generated.ts mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift
 test -z "$(git status --porcelain=v1)"
 REMOTE
@@ -490,7 +482,7 @@ The expected failure is the frozen `testMinimalStorageDocumentDecodes` behaviora
 ### 5. Prove RUNTIME-GREEN remotely and in Native
 
 Commit Stage D and run `CODEGEN_GREEN_EXACT_SHA` before Native with exact substitutions `GREEN_SHA=<runtime-green HEAD>`, `GREEN_REF=refs/heads/evidence/plan1-task5b2as-runtime-green-$GREEN_SHA`, `GREEN_LOG=/tmp/task5b2as-runtime-green-$GREEN_SHA.log`, and scratch prefix `/home/jason/codex-runs/task5b2as-runtime-green-${GREEN_SHA}-XXXXXX`.
-That same runtime ref must be pushed/verified, pressure-checked, freshly cloned/detached, card-ancestor and initially-clean checked, generator-drifted twice, four-output-hashed before/after the three focused modules, finally clean, and logged/hashed with zero status and actual counts. Only that success permits the exact same ref/SHA to continue below to time-bound Native dispatch.
+That same runtime ref must be pushed/verified, pressure-checked, freshly cloned/detached, card-ancestor and initially-clean checked, generator-drifted twice, four-output-hashed before/after the five focused modules, finally clean, and logged/hashed with zero status and actual counts. Only that success permits the exact same ref/SHA to continue below to time-bound Native dispatch.
 
 ```bash
 set -euo pipefail
