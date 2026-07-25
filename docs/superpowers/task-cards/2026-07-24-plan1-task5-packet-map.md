@@ -45,7 +45,7 @@ sketches and does not pre-approve a later packet's implementation.
 | Packet | Status | Independently testable outcome | Primary ownership | Depends on | Explicitly excludes |
 |---|---|---|---|---|---|
 | 5A Swift canonical runtime | `VERIFIED` | Auditable RFC 8785 + AI-Caddie-v1 `JSONValue`, `CanonicalJSON`, and `TypedID` run in the shared Domain target and in Native CI; [verification record](../reviews/2026-07-25-plan1-task5a-swift-canonical-runtime-verification.md) | Domain canonical runtime, pinned SwiftJCS sources/license/provenance, number vectors, Domain test routing | Tasks 2–3 | ledger state, origin/sequence, v1 adapter, app/watch integration |
-| 5B storage-v1 literal schema | `IN_PROGRESS` — 5B1 `CARD` | Final Task-5 literal record roster and required storage-v1 root encode/decode strictly without a single-receipt mutation surface; [design](../specs/2026-07-25-plan1-task5b-storage-v1-schema-design.md); [5B1 card](2026-07-25-plan1-task5b1-storage-v1-literals.md) | `DomainRoundEvent.swift`, `DomainLedgerStateV1.swift`, `LegacyV1Transport.swift`, authority exception/pins, codec tests | 5A | file ownership, mutation, network, lifecycle |
+| 5B storage-v1 literal schema | `IN_PROGRESS` — 5B1 `VERIFIED`; 5B2a-R `PENDING` | Final Task-5 literal record roster and required storage-v1 root encode/decode strictly without a single-receipt mutation surface; [design](../specs/2026-07-25-plan1-task5b-storage-v1-schema-design.md); [5B1 verification](../reviews/2026-07-25-plan1-task5b1-storage-v1-literals-verification.md) | `DomainRoundEvent.swift`, `DomainLedgerStateV1.swift`, `LegacyV1Transport.swift`, authority exception/pins, codec tests | 5A | file ownership, mutation, network, lifecycle |
 | 5C root ownership and sequence | `PENDING` | One composition-root owner per canonical root; distinct iOS/Watch roots; origin/epoch and reserve-before-append sequence survive crash gaps | `DomainLedgerStore.swift`, `DomainLedgerCompositionRoot.swift`, store tests | 5B | event append, wire preparation, response application |
 | 5D event identity and v1 wire | `PENDING` | Domain append enforces origin/epoch/event identity; versioned client/event IDs, binding key, and historical fixed-ID synthetic golden round-trip exactly | `DomainRoundEvent.swift`, `LegacyV1Transport.swift`, store/transport tests | 5C | prepared network batches and terminal receipts |
 | 5E binding and immutable prepare | `PENDING` | Media-normalized binding, alias, ordered slots, exact body/hash/key, and outbox state become durable in one transaction before first send | `LegacyV1Transport.swift`, `DomainLedgerStore.swift`, transport tests | 5D | interpreting a server response, app/watch callsites |
@@ -63,7 +63,7 @@ storage-v1 decoder.
 
 | Subpacket | Status | Outcome | Explicitly excludes |
 |---|---|---|---|
-| 5B1 literals | `CARD` | Immutable literal roster, exact emitted keys, required-nullable outbox fields, sorted-unique marker set, version `1`, exact two-key backend-v1 body and narrow authority exception | raw hostile parsing, unknown-key gate, graph checks, algorithms, decoder, mutation |
+| 5B1 literals | `VERIFIED` | Immutable literal roster, exact emitted keys, required-nullable outbox fields, sorted-unique marker set, version `1`, exact two-key backend-v1 body and narrow authority exception; [verification record](../reviews/2026-07-25-plan1-task5b1-storage-v1-literals-verification.md) | raw hostile parsing, unknown-key gate, graph checks, algorithms, decoder, mutation |
 | 5B2a-R raw JSON gate | `PENDING` | Byte/depth/duplicate-key/key-length and absolute raw-string checks produce a non-public validated-raw capability with scalar-length evidence | typed path/shape, ordinary-string policy, graph validation, algorithms |
 | 5B2a-S generated V1 shape/codec | `PENDING` | Generated recursive key/type/null/container/count authority plus ordinary-string/Base64 path policy decodes only validated raw input | cross-record graph and algorithms |
 | 5B2b-L algorithm-free ledger graph | `PENDING` | Origin/event/outbox/dead-letter/receipt literal relationships and logical uniqueness | binding/hash construction, transport graph, public decoder |
@@ -96,7 +96,9 @@ decision.
 
 - **Overall:** locked S70 unified Watch/iOS/Web/backend product.
 - **Current phase:** canonical reliability foundation.
-- **Current drill-down:** Task 5B1 literal/value schema at `CARD`.
-- **Next:** observe the test-only and compile-safe behavioral REDs before the
-  minimal 5B1 production values; do not activate 5B2a-R early.
+- **Current drill-down:** POP from verified 5B1; activate only the 5B2a-R raw
+  JSON gate.
+- **Next:** write the bounded 5B2a-R card, then observe its test-only and
+  compile-safe behavioral REDs before production parsing; do not absorb
+  generated shape, graph, algorithm, decoder, mutation, or network work.
 - **Owner decision:** none.

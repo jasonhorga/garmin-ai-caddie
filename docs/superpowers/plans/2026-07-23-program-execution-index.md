@@ -101,7 +101,7 @@ enough to mark `VERIFIED`.
 | Plan 1 Task 2 CanonicalJSON/typed IDs | `VERIFIED` | `07bcb61`, `c00ebef`, `16044d4`, `f308056`, `09770d7`; [verification record](../reviews/2026-07-23-plan1-task2-canonical-json-typed-id-verification.md) | POP → verify/fix Plan 1 Task 3 |
 | Plan 1 Task 3 registries/generated declarations | `VERIFIED` | `cfac7cf`, `7a6fa22`, `b6b818a`; [verification record](../reviews/2026-07-23-plan1-task3-registry-codegen-verification.md) | POP → verify/fix Plan 1 Task 4 |
 | Plan 1 Task 4 mobile event durability | `VERIFIED` | `1d94f4e`, `83c9167`; [verification record](../reviews/2026-07-24-plan1-task4-mobile-event-durability-verification.md) | POP → extract Plan 1 Task 5 as small packets |
-| Plan 1 Task 5 local storage-v1 and v1 transport | `IN_PROGRESS` | Task 5A: `343e9a2`, `f14fb9f`, `51f9bd6`; [verification record](../reviews/2026-07-25-plan1-task5a-swift-canonical-runtime-verification.md); [packet map](../task-cards/2026-07-24-plan1-task5-packet-map.md); [5B design](../specs/2026-07-25-plan1-task5b-storage-v1-schema-design.md); [5B1 card](../task-cards/2026-07-25-plan1-task5b1-storage-v1-literals.md) | Task 5B1 test-only and behavioral RED |
+| Plan 1 Task 5 local storage-v1 and v1 transport | `IN_PROGRESS` | Task 5A: `343e9a2`, `f14fb9f`, `51f9bd6`; [5A verification](../reviews/2026-07-25-plan1-task5a-swift-canonical-runtime-verification.md). Task 5B1: `486d2e3`; [5B1 verification](../reviews/2026-07-25-plan1-task5b1-storage-v1-literals-verification.md); [packet map](../task-cards/2026-07-24-plan1-task5-packet-map.md); [5B design](../specs/2026-07-25-plan1-task5b-storage-v1-schema-design.md) | POP → activate only 5B2a-R raw JSON gate |
 | Plan 1 Tasks 6–14 including 13a | `PENDING` | Dossier only | Activate only after dependency/first-milestone POP check |
 | Plan 2 B1–B17 | `PENDING` | Dossier and pre-existing reusable code only | Baseline acquisition/install dependency audit |
 | Plan 3 C1–C16 | `RESEARCH` | Dossier and historical parsers/data | Run without blocking baseline product; promote per capability only |
@@ -151,8 +151,8 @@ A task is `VERIFIED` only when the ledger can point to all of:
 - **Overall:** deliver the locked S70 unified product and all retained program
   capabilities.
 - **Current phase:** prove and finish the canonical reliability foundation.
-- **Current drill-down:** Plan 1 Task 5B1 literal/value schema at `CARD`, with
-  raw decoding and graph validation retained for later serial subpackets.
+- **Current drill-down:** POP from verified Plan 1 Task 5B1; activate the
+  5B2a-R raw JSON gate without absorbing generated shape or graph validation.
 - **POP:** after each verified task, return here and select the next dependency
   on the first production milestone rather than following the deepest document
   branch.
