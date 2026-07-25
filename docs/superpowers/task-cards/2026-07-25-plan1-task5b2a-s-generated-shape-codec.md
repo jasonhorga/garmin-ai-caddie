@@ -5,28 +5,15 @@
 
 ## Authority and bounded outcome
 
-This card is subordinate to the [Program execution index](../plans/2026-07-23-program-execution-index.md), the [Task 5 packet map](2026-07-24-plan1-task5-packet-map.md), and the [storage-v1 schema design](../specs/2026-07-25-plan1-task5b-storage-v1-schema-design.md).
+This card is subordinate to the [Program execution index](../plans/2026-07-23-program-execution-index.md), the [Task 5 packet map](2026-07-24-plan1-task5-packet-map.md), and the [storage-v1 schema design](../specs/2026-07-25-plan1-task5b-storage-v1-schema-design.md). Those three documents remain the authority for program order, packet boundaries, and the storage-v1 schema decisions respectively.
 
-Those three documents remain the authority for program order, packet boundaries, and the storage-v1 schema decisions respectively.
+This card freezes only packet Task 5B2a-S and does not reopen any accepted architecture decision. Owner decision: none. Task 5B2a-R is verified and unchanged; no Task 5B2a-R source, test, fixture, or acceptance evidence is in this packet's write set.
 
-This card freezes only packet Task 5B2a-S. It does not reopen any accepted architecture decision.
-Owner decision: none.
+Task 5B2a-S accepts only `ValidatedRawJSON`; the raw JSON gate remains the sole syntactic and resource-safety entry boundary. The codec must not accept bytes, text, Foundation JSON objects, or an unvalidated `JSONValue` as an alternate input. S owns the exact persisted storage-v1 shape, exact path-scoped policies, generated Swift shape descriptors, and internal typed decode into the declared storage records.
 
-Task 5B2a-R is verified and unchanged. No Task 5B2a-R source, test, fixture, or acceptance evidence is in this packet's write set.
+The typed result is internal implementation surface, and this packet does not publish a supported decoder. Task 5B2b-T later owns the supported composed decoder combining the R gate, S shape codec, and later semantic stages in the authorized order. Task 5B2a-S excludes graph validation, ledger algorithms/state-transition logic, mutation/persistence writes, request construction/network behavior, and any public decoder or public convenience entry point.
 
-Task 5B2a-S accepts only `ValidatedRawJSON`. The raw JSON gate therefore remains the sole syntactic and resource-safety entry boundary. The codec must not accept bytes, text, Foundation JSON objects, or an unvalidated `JSONValue` as an alternate input.
-
-Task 5B2a-S owns the exact persisted storage-v1 shape, the exact path-scoped policies applied to that shape, the generated Swift shape descriptors, and the internal typed decode from `ValidatedRawJSON` into the declared storage records.
-
-The typed result is internal implementation surface, and this packet does not publish a supported decoder.
-Task 5B2b-T later owns the supported composed decoder that combines the R gate, the S shape codec, and the later semantic stages in the authorized order.
-
-Task 5B2a-S excludes graph validation, ledger algorithms and state-transition logic, mutation and persistence writes, request construction and all network behavior, and any public decoder or public convenience entry point.
-
-Shape validation must not infer semantic relationships between records or decide whether an event may be applied.
-It must not repair, default, coerce, or normalize an accepted value.
-
-Completion of this card does not complete Task 5B, Task 5, or Plan 1. Those enclosing scopes remain incomplete until their separately frozen packets and acceptance evidence are complete.
+Shape validation must not infer semantic relationships or event applicability, nor repair, default, coerce, or normalize an accepted value. Completion does not complete Task 5B, Task 5, or Plan 1; those scopes remain incomplete pending their separately frozen packets and evidence.
 
 ## File ownership, schema grammar, and generated group
 
@@ -81,6 +68,8 @@ Its sole output is:
 - `mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift`
 
 The storage-v1 group remains outside `canonicalRoots`; its schema is not a canonical wire-contract root, and its output must not be folded into any of the three canonical generated files.
+Every descriptor declaration and constant in `GeneratedStorageV1Shape.swift` is `internal`, never `public`, `package`, or SPI; Task 5B2b-T may reuse it only inside the same module. This output only describes/references the existing 5B1 17-type roster and must not redeclare or shadow `DomainLedgerStateV1`, its records, `JSONValue`, `RoundEventKind`, or any other domain value type; asset audits prove both restrictions.
+Like the canonical generator, the sole output embeds an internal source SHA-256 over stable length-prefixed relative paths plus exact bytes for every group schema JSON and `generate_storage_v1_shape.py`; without another provenance file, tests prove path/content sensitivity (including whitespace and generator changes), byte-identical repeated generation, legitimate deterministic sole-output drift, and no storage-only change to the three public canonical digests.
 
 Add `GeneratedStorageV1Shape.swift` as the second surgical `serverSequence` exclusion, beside `LegacyV1Transport.swift`.
 That exclusion covers a literal-only receipt diagnostic field; it does not authorize server-sequence ordering, comparison, or transport semantics in storage decoding.
@@ -148,29 +137,15 @@ The exact generated field/type roster is:
 
 ### Shape semantics
 
-Every field declared by a record is required.
-A missing field is a shape failure.
-Every generated record is closed,
-so an unknown field is also a shape failure.
+Every record field is required, so a missing field is a shape failure. Every generated record is closed, so an unknown field is also a shape failure.
 
-Nullable is explicit-null semantics only.
-A nullable field key must still be present,
-and its value must be either JSON `null` or a value matching the wrapped descriptor.
+Nullable is explicit-null semantics only: the key remains required, and its value is either JSON `null` or matches the wrapped descriptor.
 
-`RoundEventKind` is an open string.
-The codec preserves an unfamiliar string value rather than rejecting it as an unknown case.
-`LegacyV1TerminalStatus` is a closed enum,
-so a value outside its declared cases is rejected.
+`RoundEventKind` is an open string that preserves unfamiliar values. `LegacyV1TerminalStatus` is a closed enum that rejects values outside its declared cases.
 
-`JSONValue` is recursive and retains the existing JSON value model.
-Receipt maps and payload maps are dynamic maps with arbitrary string keys and descriptor-constrained values.
-Dynamic-map keys are data,
-not undeclared record fields.
+`JSONValue` is recursive and retains the existing model. Receipt and payload maps are dynamic maps with arbitrary data keys and descriptor-constrained values; their keys are not undeclared record fields.
 
-`CanonicalStringSet` is a typed collection.
-Its values must already be sorted in canonical order and unique.
-The sole final typed decode rejects an unsorted or duplicate representation;
-it does not sort or deduplicate it.
+`CanonicalStringSet` is typed and must already be canonically sorted and unique. The sole final typed decode rejects unsorted or duplicate representations without sorting or deduplicating them.
 
 ### Exact path-policy roster
 
@@ -200,55 +175,24 @@ The `eventOrEnvelope` policy applies only to:
 - `events[*]`
 - `preparedLegacyV1Batches[*].orderedSlots[*].exactNormalizedEnvelope`
 
-Do not constrain `LegacyV1EventBatchBody.events`.
-Do not globally constrain `JSONValue`.
-A matching field name at any other path does not inherit one of these policies.
-
-Contextual policies are embedded constrained nodes in the descriptor graph.
-Runtime code contains no wildcard matcher and no path-string matcher.
-The generator and its tests flatten the descriptor graph and assert equality with this exact policy roster before Swift emission.
+Do not constrain `LegacyV1EventBatchBody.events` or globally constrain `JSONValue`; a matching field name elsewhere inherits no policy. Contextual policies are embedded constrained nodes, with no runtime wildcard/path-string matcher. Generator tests flatten the graph and assert this exact roster before Swift emission.
 
 ### Exact limits
 
-Each `rootCollection` has a maximum count of `65,536`.
-`preparedSlots` has an inclusive count range of `1...64`.
-An ordinary string has a maximum length of `4,096` Unicode scalars.
-A Base64 text value has a maximum length of `1,398,104` Unicode scalars.
-A decoded request body has a maximum size of `1,048,576` bytes.
-An `eventOrEnvelope` canonical encoding has a maximum size of `65,536` bytes.
-An `eventOrEnvelope` has a maximum relative depth of `16`.
+Each `rootCollection` has maximum count `65,536`; `preparedSlots` count is `1...64`; ordinary strings are at most `4,096` Unicode scalars; Base64 text is at most `1,398,104` Unicode scalars.
+Decoded request bodies are at most `1,048,576` bytes; `eventOrEnvelope` canonical encodings are at most `65,536` bytes and relative depth is at most `16`.
 
-Generated Swift must reference `RoundTransportLimits` symbolically for every matching transport limit.
-Only the `65,536` root-collection count remains a storage-schema literal because no matching transport symbol owns it.
-The descriptor and generated output must not create shadow constants for existing transport limits.
+Generated descriptor/runtime code references Task 5B2a-R's `StorageV1RawJSONGate.maximumStringScalars` for the `1,398,104` request-body Base64 text cap, and matching `RoundTransportLimits` symbols for decoded-body bytes, slots, event/envelope canonical bytes and depth, and ordinary strings. Only the `65,536` root-collection count is a new storage literal; neither `1,398,104` nor any existing transport limit may be copied into a shadow constant.
 
-Counts are checked before per-element descent where the representation makes that possible.
-Unicode string limits count scalars,
-not UTF-8 bytes or UTF-16 code units.
-Canonical byte and relative-depth checks apply only at the two `eventOrEnvelope` paths.
+Counts are checked before per-element descent where possible. String limits count Unicode scalars, not UTF-8 bytes or UTF-16 code units. Canonical byte/depth checks apply only at the two `eventOrEnvelope` paths.
 
 ### Generator rejection contract
 
-The generator rejects duplicate definitions.
-It rejects unknown definitions,
-unknown members,
-unknown references,
-unknown policies,
-and unknown profiles.
-It rejects malformed definitions,
-references,
-policies,
-and profiles.
+Descriptor-source parsing rejects every duplicate JSON object member/key at every level before exact top-key/grammar validation; ordinary last-wins loading is forbidden. The generator also rejects duplicate definitions; unknown definitions, members, references, policies, or profiles; and malformed definitions, references, policies, or profiles.
 
-The generator rejects incompatible constraints on a single descriptor path.
-It rejects policy paths that cannot be reached from the applicable declared root.
-It rejects a policy application that resolves to the wrong descriptor shape.
-It rejects unused or unreachable policy nodes.
+The generator rejects incompatible constraints, policy paths unreachable from the applicable root, wrong-shaped policy targets, and unused or unreachable policy nodes.
 
-Generation is deterministic.
-Stable descriptor traversal and stable emitted ordering are mandatory,
-and the generator rejects inputs whose representation would make output ordering nondeterministic.
-The same accepted source bytes and generator version must produce byte-identical Swift output.
+Generation uses stable traversal/emission, rejects nondeterministic input structures, and produces byte-identical Swift for the same accepted source bytes and generator version.
 
 ## Runtime invariants and capability API
 
@@ -274,7 +218,9 @@ The codec performs exactly one replay pass over the cursor capability supplied b
 
 The implementation must not use `JSONSerialization` or build a dictionary from hostile object keys during streaming validation. Generated ASCII field keys are compared directly as UTF-8 bytes.
 
-Hostile key and value text is checked for NFC before Swift `String` equality, dictionary insertion, or typed materialization. No hostile text may gain host-language normalization behavior before this check.
+Hostile key and value text is checked for NFC before Swift `String` equality, dictionary-key insertion, storage as a key/value, domain materialization, or the final typed decode.
+A short-lived Swift `String` may be constructed from Task 5B2a-R's already validated decoded UTF-8 solely to perform that NFC check. Its precomposed mapping is encoded as UTF-8 and compared byte-for-byte with the original decoded bytes; until equality succeeds, the transient value must not be retained, compared as text, or inserted into a dictionary.
+This uses Foundation's existing normalization behavior rather than introducing another Unicode-normalization engine, and prevents canonically equivalent hostile keys from collapsing before rejection.
 
 Bounded recursive streaming descent is permitted because Task 5B2a-R caps accepted raw JSON depth at `64`. Recursion may track the active shape and bounded metrics only; it must not accumulate an AST or unbounded path history.
 
@@ -299,12 +245,10 @@ An empty Base64 string is valid in Task 5B2a-S; whether a request body is semant
 
 ### Number and integer validation
 
-Every raw number lexeme is resource-guarded before numeric conversion. Canonical numeric bytes are obtained only through existing `CanonicalJSON` / SwiftJCS behavior; the codec contains no handwritten number formatter.
+Every raw number lexeme is resource-guarded before numeric conversion. An integer-shaped token is parsed exactly to `Int64` first and then exactly to platform `Int`; a narrower platform still follows that order.
+The resulting integer must then pass the existing `CanonicalJSON.data(JSONValue.integer(...))` safe-integer policy, and those canonical bytes must equal the raw lexeme byte-for-byte. The codec has no handwritten formatter and no shadow safe-integer bound.
 
-The canonical spelling is compared exactly with the accepted raw lexeme. Consequently `1` is accepted where its numeric shape is valid, while `1.0`, `1e0`, and `-0` are rejected as noncanonical spellings.
-
-An integer field must first convert exactly to `Int64` and then exactly to platform `Int`.
-Fractional, out-of-range, rounded, or saturated integer values are rejected.
+When platform `Int` can represent them, `-9,007,199,254,740,991` and `9,007,199,254,740,991` pass. Values `-9,007,199,254,740,992` and `9,007,199,254,740,992`, plus `Int64.min` and `Int64.max`, fail as unsafe canonical integers; values outside `Int64` fail exact conversion. Existing canonical spelling rules reject `1.0`, `1e0`, and `-0`.
 
 Task 5B2a-S enforces only shape and the frozen contextual resource policies. It adds no graph, hash, identity, or domain-range semantics.
 
@@ -318,7 +262,7 @@ The schema test asserts the exact top-key set rather than presence-only checks.
 It asserts the two exact declared roots, the exact 17-type roster, every record field, every scalar/ref/array/dynamic-map/nullable/constrained wrapper, and every open/closed distinction.
 It flattens embedded constrained nodes and compares the complete policy roster exactly.
 
-The malformed-generator corpus covers duplicate, unknown, malformed, and dangling definitions, references, policies, and profiles.
+The malformed-generator corpus covers duplicate JSON keys at the top level and inside type/member, policy, and profile objects, plus duplicate, unknown, malformed, and dangling definitions, references, policies, and profiles.
 It also covers incompatible constraints, unreachable policy nodes, wrong-shaped policy targets, and nondeterministic input structures.
 
 Authority tests require a separate storage-v1 generated group outside `canonicalRoots`, and pin the one-time digest changes for all three canonical outputs caused by `authority.json`. A mutation of only a storage-v1 schema source must leave every public canonical digest stable.
@@ -335,14 +279,14 @@ Generation twice must be byte-identical. All focused codegen and asset modules m
 
 ### Stage C — RUNTIME-RED
 
-Add the final asset assertions and XCTest API/behavior suite. Add only the compile-safe runtime seam required to discover those tests, with the codec throwing its internal `.notImplemented` error.
+Add the final asset assertions and XCTest API/behavior suite. Add only the compile-safe runtime seam required to discover those tests, with the codec throwing its internal `.notImplemented` error; that seam is permitted only at the exact RUNTIME-RED commit.
 
 Dispatch Native at the exact RUNTIME-RED commit SHA through a unique evidence branch.
 Native must compile and discover the suite, then fail for the expected codec behavioral assertion rather than compilation, linkage, workflow, or test-discovery failure.
 
 ### Stage D — RUNTIME-GREEN
 
-Implement the production streaming validator and sole final typed decode. Make focused Python and XCTest coverage green without weakening any RED assertion. Refactor only while all focused checks remain green.
+Implement the production streaming validator and sole final typed decode. Stage D removes the `.notImplemented` throw seam and preferably its error case; final source/asset audits reject any production occurrence or reachable stub. Make focused Python and XCTest coverage green without weakening any RED assertion.
 
 ### Positive and negative vectors
 
@@ -352,7 +296,7 @@ It accepts an unfamiliar `RoundEventKind` string and every closed terminal statu
 For every record family it isolates missing, extra, wrong-type, and forbidden-null mutations.
 Required-nullable fields separately prove present-null success and missing-key failure.
 
-Dynamic receipt and payload maps accept hostile data keys after NFC validation. Key and value vectors prove NFC success and non-NFC rejection before equality or materialization.
+Dynamic receipt and payload maps accept hostile data keys only after NFC validation. Key/value vectors cover the permitted short-lived validation `String`, exact precomposed-UTF-8 comparison, no pre-success retention/equality/dictionary insertion, NFC success, and non-NFC rejection without canonical-equivalent key collapse.
 
 An ordinary string of `4,096` scalars passes and `4,097` fails. Each named root collection passes at `65,536` elements and fails at `65,537`. An unrelated nested array is not given the root-collection limit.
 
@@ -360,14 +304,13 @@ Prepared slots fail at `0`, pass at `1` and `64`, and fail at `65`.
 
 Base64 vectors cover canonical text, noncanonical text, whitespace, missing padding, empty text, the text preallocation boundary, and the decoded-body byte boundary.
 
-Number vectors cover `1`, `1.0`, `1e0`, `-0`, a hostile huge lexeme, both `Int64` bounds, and values just outside both bounds.
-Platform-`Int` conversion receives its own exact-range assertion where it is narrower.
+Number vectors accept `1` and, where platform-representable, both inclusive safe-integer endpoints `±9,007,199,254,740,991`. They reject `1.0`, `1e0`, `-0`, both `±9,007,199,254,740,992`, `Int64.min`, `Int64.max`, and hostile lexemes outside `Int64`; a narrower platform `Int` separately fails exact conversion after the successful `Int64` parse.
 
 Canonical event/envelope bytes pass at `65,536` and fail at `65,537`. Relative depth passes at `16` and fails at `17`. The same shapes prove those constraints apply only to `events[*]` and `preparedLegacyV1Batches[*].orderedSlots[*].exactNormalizedEnvelope`.
 
 `LegacyV1EventBatchBody.events` and unrelated `JSONValue` nodes remain unconstrained by `eventOrEnvelope`. Sorted unique `CanonicalStringSet` values pass at the final typed decode; unsorted and duplicate values fail only there.
 
-Source audits enforce one cursor replay, one final root decoder, no AST or retained token array, no `JSONSerialization`, no runtime wildcard/path matcher, and no bypass overload.
+Source audits enforce one cursor replay, one final root decoder, no AST or retained token array, no `JSONSerialization`, no runtime wildcard/path matcher, no bypass overload, no hostile `String` retention/comparison before the exact NFC byte check, and internal-only generated descriptors with no public/package/SPI exposure.
 
 Every negative vector changes exactly one relevant property and isolates one expected rejection reason.
 
@@ -381,6 +324,8 @@ All tests,
 builds,
 generation,
 and dependency work run in a unique homeserver scratch or CI.
+After complete logs/hashes are recorded, delete only this packet's exact `mktemp` result after asserting its `/home/jason/codex-runs/` prefix; a failed run may remain through diagnosis, but closeout inventories and removes every packet-created scratch and never cleans an unfamiliar directory, process, or ref.
+Transient GitHub/SSH `429`, `503`, or cooldown responses receive timed exponential-backoff retries with the same SHA/ref/dispatch binding; safe audits may continue while waiting, but transient service state is neither RED, completion, nor a permanent blocker.
 
 ### 1. Freeze and review the card
 
@@ -419,100 +364,177 @@ The lexical audit also rejects unfinished-marker vocabulary and the obsolete upp
 
 ### 2. Prove CODEGEN-RED remotely
 
-Commit only the Stage A test changes.
-Sync that exact tree to a unique homeserver scratch without environment files,
-secret material,
-or `--delete`.
+Commit only the Stage A tests, then push a unique evidence ref that contains the commit SHA. The homeserver must start from that GitHub ref in a fresh SHA-named scratch; no working-tree overlay is allowed.
 
 ```bash
-SHA=$(git rev-parse HEAD)
-SCRATCH="garmin-ai-caddie-5b2as-codegen-red-${SHA}"
-ssh "$HOMESERVER" "git clone --no-hardlinks '$HOMESERVER_REPO' '/tmp/$SCRATCH'"
-rsync -a -e ssh --exclude='.git/' --exclude='.env' --exclude='.env.*' --exclude='*secret*' ./ "$HOMESERVER:/tmp/$SCRATCH/"
-ssh "$HOMESERVER" "cd '/tmp/$SCRATCH' && python3 -m unittest -v tests.test_storage_v1_shape_codegen tests.test_storage_v1_shape_codec_assets tests.test_storage_v1_literal_schema_assets"
+set -euo pipefail
+CARD=docs/superpowers/task-cards/2026-07-25-plan1-task5b2a-s-generated-shape-codec.md
+RED_SHA=$(git rev-parse HEAD)
+CARD_COMMIT=$(git log -1 --format=%H -- "$CARD")
+RED_REF="refs/heads/evidence/plan1-task5b2as-codegen-red-$RED_SHA"
+git push origin "$RED_SHA:$RED_REF"
+test "$(git ls-remote --heads origin "$RED_REF" | awk 'NR == 1 {print $1}')" = "$RED_SHA"
+ssh homeserver 'free -h; df -h "$HOME"; uptime'
+RED_LOG="/tmp/task5b2as-codegen-red-$RED_SHA.log"
+set +e
+ssh homeserver bash -s -- "$RED_SHA" "$RED_REF" "$CARD_COMMIT" 2>&1 <<'REMOTE' | tee "$RED_LOG"
+set -euo pipefail
+SHA=$1; REF=$2; CARD_COMMIT=$3
+RUN_DIR=$(mktemp -d "/home/jason/codex-runs/task5b2as-codegen-red-${SHA}-XXXXXX")
+git clone --quiet --no-checkout https://github.com/jasonhorga/garmin-ai-caddie.git "$RUN_DIR"
+cd "$RUN_DIR"
+git fetch --quiet origin "$REF"
+git checkout --quiet --detach "$SHA"
+test "$(git rev-parse HEAD)" = "$SHA"
+git merge-base --is-ancestor "$CARD_COMMIT" HEAD
+test -z "$(git status --porcelain=v1)"
+set +e
+/home/jason/.local/bin/uv run python -m unittest -v tests.test_storage_v1_shape_codegen tests.test_storage_v1_shape_codec_assets tests.test_storage_v1_literal_schema_assets
+TEST_STATUS=$?
+set -e
+printf 'TEST_EXIT=%s\n' "$TEST_STATUS"
+exit "$TEST_STATUS"
+REMOTE
+RED_STATUS=${PIPESTATUS[0]}
+set -e
+printf 'SSH_EXIT=%s\n' "$RED_STATUS" | tee -a "$RED_LOG"
+test "$RED_STATUS" -ne 0
+for EXPECTED in domain_ledger_storage_shapes_v1.json generate_storage_v1_shape.py GeneratedStorageV1Shape.swift; do rg -F "$EXPECTED" "$RED_LOG"; done
+if rg -n 'ModuleNotFoundError|ImportError|No module named|command not found|FAILED \(errors=' "$RED_LOG"; then exit 1; fi
+wc -l -c "$RED_LOG"
+sha256sum "$RED_LOG"
 ```
 
-Record the nonzero exit,
-the failing assertion,
-and proof that the cause is the intentionally absent storage-v1 schema/generator/generated output.
+The nonzero status is valid RED only when controlled assertions name the intentionally absent schema, generator, and generated asset; import, checkout, command, or infrastructure failure invalidates the evidence. Preserve the full log, status, assertion text, test/failure/error counts, scratch path, and log SHA-256.
 
 ### 3. Prove CODEGEN-GREEN remotely
 
-Commit Stage B and sync a new unique scratch with the same exclusions and no deletion flag.
-Run generation in this exact order,
-then prove a second generation has no drift and run the focused modules:
+Commit Stage B, push its own immutable SHA-bearing ref, run the homeserver pressure check, and use another fresh GitHub clone under `/home/jason/codex-runs`. The clone must prove exact HEAD, card ancestry, and initial cleanliness before generation.
 
 ```bash
-python3 tools/contracts/generate_contracts.py
-python3 tools/contracts/generate_storage_v1_shape.py
-git diff --exit-code -- ai_caddie/contracts/generated.py mobile/ios/AICaddieDomain/GeneratedContracts.swift web_v2/src/contracts/generated.ts mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift
-python3 tools/contracts/generate_storage_v1_shape.py
-git diff --exit-code -- contracts/storage-v1 mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift
-python3 -m unittest -v tests.test_storage_v1_shape_codegen tests.test_storage_v1_shape_codec_assets tests.test_storage_v1_literal_schema_assets
+set -euo pipefail
+GREEN_SHA=$(git rev-parse HEAD)
+CARD_COMMIT=$(git log -1 --format=%H -- docs/superpowers/task-cards/2026-07-25-plan1-task5b2a-s-generated-shape-codec.md)
+GREEN_REF="refs/heads/evidence/plan1-task5b2as-codegen-green-$GREEN_SHA"
+git push origin "$GREEN_SHA:$GREEN_REF"
+test "$(git ls-remote --heads origin "$GREEN_REF" | awk 'NR == 1 {print $1}')" = "$GREEN_SHA"
+ssh homeserver 'free -h; df -h "$HOME"; uptime'
+GREEN_LOG="/tmp/task5b2as-codegen-green-$GREEN_SHA.log"
+set +e
+ssh homeserver bash -s -- "$GREEN_SHA" "$GREEN_REF" "$CARD_COMMIT" 2>&1 <<'REMOTE' | tee "$GREEN_LOG"
+set -euo pipefail
+SHA=$1; REF=$2; CARD_COMMIT=$3
+RUN_DIR=$(mktemp -d "/home/jason/codex-runs/task5b2as-codegen-green-${SHA}-XXXXXX")
+git clone --quiet --no-checkout https://github.com/jasonhorga/garmin-ai-caddie.git "$RUN_DIR"
+cd "$RUN_DIR"
+git fetch --quiet origin "$REF"
+git checkout --quiet --detach "$SHA"
+test "$(git rev-parse HEAD)" = "$SHA"
+git merge-base --is-ancestor "$CARD_COMMIT" HEAD
+test -z "$(git status --porcelain=v1)"
+for PASS in 1 2; do
+  python3 tools/contracts/generate_contracts.py
+  python3 tools/contracts/generate_storage_v1_shape.py
+  git diff --exit-code -- ai_caddie/contracts/generated.py mobile/ios/AICaddieDomain/GeneratedContracts.swift web_v2/src/contracts/generated.ts mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift
+  test -z "$(git status --porcelain=v1)"
+done
+/home/jason/.local/bin/uv run python -m unittest -v tests.test_storage_v1_shape_codegen tests.test_storage_v1_shape_codec_assets tests.test_storage_v1_literal_schema_assets
+test -z "$(git status --porcelain=v1)"
+REMOTE
+GREEN_STATUS=${PIPESTATUS[0]}
+set -e
+printf 'SSH_EXIT=%s\n' "$GREEN_STATUS" | tee -a "$GREEN_LOG"
+test "$GREEN_STATUS" -eq 0
+rg -n '^Ran [0-9]+ tests|^OK$' "$GREEN_LOG"
+wc -l -c "$GREEN_LOG"
+sha256sum "$GREEN_LOG"
 ```
 
-Capture the commit SHA,
-scratch name,
-command transcript,
-focused test counts,
-and output hashes.
+Two complete generator passes must leave the exact checked-out tree clean, proving deterministic checked-in outputs against the correct base. Preserve the SHA/ref, scratch path, full log, exit status, actual focused counts, and log/output hashes.
 
 ### 4. Prove RUNTIME-RED in Native
 
-Commit Stage C.
-Create and push a unique evidence branch pointing at that exact SHA,
-dispatch `native-mobile.yml` by branch,
-and verify the run's `headSha` equals the intended commit.
+Commit Stage C and push its exact SHA to a unique evidence ref. Record dispatch time, then select only a new `workflow_dispatch` run matching branch, `headSha`, and `createdAt`.
 
 ```bash
-SHA=$(git rev-parse HEAD)
-BRANCH="evidence/5b2as-runtime-red-${SHA}"
-git branch "$BRANCH" "$SHA"
-git push origin "$BRANCH:$BRANCH"
-gh workflow run native-mobile.yml --ref "$BRANCH"
-gh run list --workflow native-mobile.yml --branch "$BRANCH" --json databaseId,headSha,status,conclusion,url
-gh run view "$RUN_ID" --json databaseId,headSha,jobs,status,conclusion,url
-gh run view "$RUN_ID" --log-failed
+set -euo pipefail
+RED_SHA=$(git rev-parse HEAD)
+RED_REF="refs/heads/evidence/plan1-task5b2as-runtime-red-$RED_SHA"
+git push origin "$RED_SHA:$RED_REF"
+test "$(git ls-remote --heads origin "$RED_REF" | awk 'NR == 1 {print $1}')" = "$RED_SHA"
+RED_REF_NAME=${RED_REF#refs/heads/}
+DISPATCHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+gh workflow run native-mobile.yml --ref "$RED_REF_NAME"
+RUN_ID=
+for _ in $(seq 1 30); do
+  RUN_ID=$(gh run list --workflow native-mobile.yml --branch "$RED_REF_NAME" --event workflow_dispatch --limit 100 --json databaseId,headSha,createdAt --jq "map(select(.headSha == \"$RED_SHA\" and .createdAt >= \"$DISPATCHED_AT\")) | sort_by(.createdAt) | .[-1].databaseId // empty")
+  test -n "$RUN_ID" && break
+  sleep 2
+done
+test -n "$RUN_ID"
+test "$(gh run view "$RUN_ID" --json headSha --jq .headSha)" = "$RED_SHA"
+set +e
+gh run watch "$RUN_ID" --exit-status
+WATCH_STATUS=$?
+set -e
+test "$WATCH_STATUS" -ne 0
+RED_RUN_LOG="/tmp/task5b2as-runtime-red-$RED_SHA-run-$RUN_ID.log"
+gh run view "$RUN_ID" --log > "$RED_RUN_LOG"
+gh run view "$RUN_ID" --json databaseId,headSha,jobs,status,conclusion,url --jq '{databaseId,headSha,status,conclusion,url,jobs:[.jobs[]|{databaseId,name,conclusion}]}'
+rg -F 'testMinimalStorageDocumentDecodes' "$RED_RUN_LOG"
+rg -F 'notImplemented' "$RED_RUN_LOG"
+if rg -n 'compil(e|ation) error|linker command failed|No tests found|workflow (invalid|failure)|infrastructure failure' "$RED_RUN_LOG"; then exit 1; fi
+wc -l -c "$RED_RUN_LOG"
+sha256sum "$RED_RUN_LOG"
 ```
 
-Record the run ID,
-job ID,
-head SHA,
-and the expected behavioral assertion.
-Reject evidence from the wrong SHA or from compile,
-link,
-discovery,
-workflow,
-or infrastructure failure.
+The expected failure is the frozen `testMinimalStorageDocumentDecodes` behavioral assertion reaching `.notImplemented`. Record run/job IDs and exact head SHA; compilation, linking, discovery, workflow, or infrastructure failure is not RUNTIME-RED.
 
 ### 5. Prove RUNTIME-GREEN remotely and in Native
 
-Commit Stage D and create a new homeserver scratch.
-Run the focused Python modules green there before CI dispatch.
-Then create a new exact-SHA evidence branch and dispatch the full Native workflow.
+Commit Stage D, prove the focused homeserver modules green with the Section 3 fresh-clone protocol, then push a distinct exact-SHA ref and dispatch full Native. Select the run with the same event/branch/SHA/time binding as RED.
 
 ```bash
-python3 -m unittest -v tests.test_storage_v1_shape_codegen tests.test_storage_v1_shape_codec_assets tests.test_storage_v1_literal_schema_assets
-SHA=$(git rev-parse HEAD)
-BRANCH="evidence/5b2as-runtime-green-${SHA}"
-git branch "$BRANCH" "$SHA"
-git push origin "$BRANCH:$BRANCH"
-gh workflow run native-mobile.yml --ref "$BRANCH"
-gh run view "$RUN_ID" --json databaseId,headSha,jobs,status,conclusion,url
+set -euo pipefail
+GREEN_SHA=$(git rev-parse HEAD)
+GREEN_REF="refs/heads/evidence/plan1-task5b2as-runtime-green-$GREEN_SHA"
+git push origin "$GREEN_SHA:$GREEN_REF"
+test "$(git ls-remote --heads origin "$GREEN_REF" | awk 'NR == 1 {print $1}')" = "$GREEN_SHA"
+GREEN_REF_NAME=${GREEN_REF#refs/heads/}
+DISPATCHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+gh workflow run native-mobile.yml --ref "$GREEN_REF_NAME"
+RUN_ID=
+for _ in $(seq 1 30); do
+  RUN_ID=$(gh run list --workflow native-mobile.yml --branch "$GREEN_REF_NAME" --event workflow_dispatch --limit 100 --json databaseId,headSha,createdAt --jq "map(select(.headSha == \"$GREEN_SHA\" and .createdAt >= \"$DISPATCHED_AT\")) | sort_by(.createdAt) | .[-1].databaseId // empty")
+  test -n "$RUN_ID" && break
+  sleep 2
+done
+test -n "$RUN_ID"
+test "$(gh run view "$RUN_ID" --json headSha --jq .headSha)" = "$GREEN_SHA"
 gh run watch "$RUN_ID" --exit-status
-gh run view "$RUN_ID" --log
-gh run download "$RUN_ID" --dir "/tmp/5b2as-native-$RUN_ID"
-sha256sum /tmp/5b2as-native-$RUN_ID/*
+test "$(gh run view "$RUN_ID" --json conclusion --jq .conclusion)" = success
+GREEN_RUN_LOG="/tmp/task5b2as-runtime-green-$GREEN_SHA-run-$RUN_ID.log"
+gh run view "$RUN_ID" --log > "$GREEN_RUN_LOG"
+gh run view "$RUN_ID" --json databaseId,headSha,jobs,status,conclusion,url --jq '{databaseId,headSha,status,conclusion,url,jobs:[.jobs[]|{databaseId,name,conclusion}]}'
+REPOSITORY=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+ARTIFACT_ID=$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "native-build-evidence" and .expired == false) | .id' | tail -n 1)
+test -n "$ARTIFACT_ID"; printf 'ARTIFACT_ID=%s\n' "$ARTIFACT_ID"
+ARTIFACT_ZIP="/tmp/task5b2as-runtime-green-$GREEN_SHA-native-build-evidence-$ARTIFACT_ID.zip"
+gh api -H 'Accept: application/vnd.github+json' "repos/$REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$ARTIFACT_ZIP"
+test -s "$ARTIFACT_ZIP"
+wc -c "$ARTIFACT_ZIP"; sha256sum "$ARTIFACT_ZIP"
+ARTIFACT_DIR=$(mktemp -d "/tmp/task5b2as-runtime-green-$GREEN_SHA-artifacts-XXXXXX")
+bsdtar -xf "$ARTIFACT_ZIP" -C "$ARTIFACT_DIR"
+find "$ARTIFACT_DIR" -type f -print | sort
+test -n "$(find "$ARTIFACT_DIR" -type f -print -quit)"
+find "$ARTIFACT_DIR" -type f -print0 | sort -z | xargs -0 -r sha256sum
+wc -l -c "$GREEN_RUN_LOG"; sha256sum "$GREEN_RUN_LOG"
+case "$ARTIFACT_DIR" in "/tmp/task5b2as-runtime-green-$GREEN_SHA-artifacts-"*) ;; *) exit 1 ;; esac
+rm -f -- "$ARTIFACT_ZIP" "$GREEN_RUN_LOG"
+rm -rf -- "$ARTIFACT_DIR"
 ```
 
-Capture run,
-job,
-and artifact IDs;
-head SHA;
-logs;
-artifact hashes;
-suite and test counts;
-and the green conclusion.
+Capture run/job/artifact IDs, exact head SHA, full logs and hashes, recursive regular-file artifact hashes, suite/test counts, and the asserted green conclusion. Download no design, real-device, Watch, screenshot, or video artifact.
 
 ### 6. Review the implementation
 
