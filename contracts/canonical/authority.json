@@ -37,7 +37,7 @@
       "values": ["weatherSnapshot", "weatherByHole", "WatchInputEvent", "autoshot_candidate"]
     },
     {
-      "paths": ["contracts/canonical/**/*.json", "ai_caddie/rounds/**/*.py", "server_v2/round_ledger_api.py", "mobile/ios/AICaddieDomain/**/*.swift", "web_v2/src/contracts/**/*.ts", "!mobile/ios/AICaddieDomain/LegacyV1Transport.swift"],
+      "paths": ["contracts/canonical/**/*.json", "ai_caddie/rounds/**/*.py", "server_v2/round_ledger_api.py", "mobile/ios/AICaddieDomain/**/*.swift", "web_v2/src/contracts/**/*.ts", "!mobile/ios/AICaddieDomain/LegacyV1Transport.swift", "!mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift"],
       "values": ["serverSequence"]
     }
   ],
@@ -52,6 +52,16 @@
         "ai_caddie/contracts/generated.py",
         "mobile/ios/AICaddieDomain/GeneratedContracts.swift",
         "web_v2/src/contracts/generated.ts"
+      ]
+    },
+    {
+      "name": "storage-v1-shape",
+      "sources": [
+        "contracts/storage-v1/**/*.json",
+        "tools/contracts/generate_storage_v1_shape.py"
+      ],
+      "outputs": [
+        "mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift"
       ]
     }
   ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import unittest
@@ -23,9 +24,26 @@ PROTECTED_PATHS = [
     "mobile/ios/AICaddieDomain/**/*.swift",
     "web_v2/src/contracts/**/*.ts",
 ]
+CANONICAL_OUTPUT_SHA256 = {
+    "ai_caddie/contracts/generated.py": (
+        "c728b49004f7650b223572b165d8efa65e2fc74faccead991c07569bbb047021"
+    ),
+    "mobile/ios/AICaddieDomain/GeneratedContracts.swift": (
+        "795dd5c75925d5c998be1ca75b5e7c8b4c381261ff3dde473e772cc24c334deb"
+    ),
+    "web_v2/src/contracts/generated.ts": (
+        "d021a6a675f9336dafebb099d62aab10d5e2d6f28ff753043b0c6a88dd2aeb53"
+    ),
+}
 
 
 class StorageV1LiteralSchemaAssetTests(unittest.TestCase):
+    def test_authority_regeneration_canonical_output_sha256_values_are_exact(self) -> None:
+        for relative, expected in CANONICAL_OUTPUT_SHA256.items():
+            with self.subTest(path=relative):
+                actual = hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
+                self.assertEqual(actual, expected)
+
     def test_top_level_type_roster_is_exact(self) -> None:
         expected = {
             EVENT: {"StoredEventV1"},

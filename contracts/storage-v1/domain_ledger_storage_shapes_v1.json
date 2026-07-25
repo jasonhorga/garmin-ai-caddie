@@ -1,0 +1,252 @@
+{
+  "schema": "ai-caddie-storage-v1-shapes-v1",
+  "roots": [
+    {
+      "name": "storageDocument",
+      "shape": {"kind": "ref", "name": "DomainLedgerStateV1"}
+    },
+    {
+      "name": "legacyV1EventBatchBody",
+      "shape": {"kind": "ref", "name": "LegacyV1EventBatchBody"}
+    }
+  ],
+  "types": [
+    {
+      "name": "StoredEventV1",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "eventId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "originDeviceId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "originEpoch", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "clientSequence", "shape": {"kind": "scalar", "name": "int"}},
+          {"name": "roundId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "kind", "shape": {"kind": "ref", "name": "RoundEventKind"}},
+          {"name": "payload", "shape": {"kind": "dynamicMap", "values": {"kind": "ref", "name": "JSONValue"}}},
+          {"name": "occurredAt", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}}
+        ]
+      }
+    },
+    {
+      "name": "OriginSequenceState",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "originDeviceId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "originEpoch", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "lastReservedClientSequence", "shape": {"kind": "scalar", "name": "int"}}
+        ]
+      }
+    },
+    {
+      "name": "CanonicalStringSet",
+      "shape": {
+        "kind": "collection",
+        "representation": "sortedUniqueArray",
+        "items": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}
+      }
+    },
+    {
+      "name": "DomainLedgerStateV1",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "storageVersion", "shape": {"kind": "literal", "scalar": "int", "value": 1}},
+          {"name": "origin", "shape": {"kind": "ref", "name": "OriginSequenceState"}},
+          {"name": "events", "shape": {"kind": "constrained", "policy": "rootCollection", "value": {"kind": "array", "items": {"kind": "constrained", "policy": "eventOrEnvelope", "value": {"kind": "ref", "name": "StoredEventV1"}}}}},
+          {"name": "outbox", "shape": {"kind": "constrained", "policy": "rootCollection", "value": {"kind": "array", "items": {"kind": "ref", "name": "LegacyV1OutboxRecord"}}}},
+          {"name": "deadLetters", "shape": {"kind": "constrained", "policy": "rootCollection", "value": {"kind": "array", "items": {"kind": "ref", "name": "LegacyV1OutboxRecord"}}}},
+          {"name": "receipts", "shape": {"kind": "constrained", "policy": "rootCollection", "value": {"kind": "dynamicMap", "values": {"kind": "ref", "name": "LegacyV1EventReceipt"}}}},
+          {"name": "legacyWireBindings", "shape": {"kind": "constrained", "policy": "rootCollection", "value": {"kind": "array", "items": {"kind": "ref", "name": "LegacyWireBinding"}}}},
+          {"name": "preparedLegacyV1Batches", "shape": {"kind": "constrained", "policy": "rootCollection", "value": {"kind": "array", "items": {"kind": "ref", "name": "PreparedLegacyV1Batch"}}}},
+          {"name": "watchTerminalReceiptRelayObligations", "shape": {"kind": "constrained", "policy": "rootCollection", "value": {"kind": "array", "items": {"kind": "ref", "name": "WatchTerminalReceiptRelayObligation"}}}},
+          {"name": "watchTerminalReceiptRelayConfirmations", "shape": {"kind": "constrained", "policy": "rootCollection", "value": {"kind": "array", "items": {"kind": "ref", "name": "WatchTerminalReceiptRelayConfirmation"}}}},
+          {"name": "migrationMarkers", "shape": {"kind": "constrained", "policy": "rootCollection", "value": {"kind": "ref", "name": "CanonicalStringSet"}}},
+          {"name": "transportAnomalies", "shape": {"kind": "constrained", "policy": "rootCollection", "value": {"kind": "array", "items": {"kind": "ref", "name": "LegacyV1TransportAnomaly"}}}}
+        ]
+      }
+    },
+    {
+      "name": "LegacyDomainAlias",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "eventIdentity", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "eventHash", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}}
+        ]
+      }
+    },
+    {
+      "name": "LegacyWireBinding",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "roundId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "wireClientId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "wireEventId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "canonicalDomainIdentity", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "canonicalDomainEventHash", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "normalizedWireEnvelopeHash", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "legacyAliases", "shape": {"kind": "array", "items": {"kind": "ref", "name": "LegacyDomainAlias"}}}
+        ]
+      }
+    },
+    {
+      "name": "PreparedLegacyV1Slot",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "bindingKey", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "exactNormalizedEnvelope", "shape": {"kind": "constrained", "policy": "eventOrEnvelope", "value": {"kind": "ref", "name": "JSONValue"}}},
+          {"name": "exactNormalizedEnvelopeHash", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}}
+        ]
+      }
+    },
+    {
+      "name": "PreparedLegacyV1Batch",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "roundId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "orderedSlots", "shape": {"kind": "constrained", "policy": "preparedSlots", "value": {"kind": "array", "items": {"kind": "ref", "name": "PreparedLegacyV1Slot"}}}},
+          {"name": "exactRequestBody", "shape": {"kind": "constrained", "policy": "requestBody", "value": {"kind": "scalar", "name": "base64Data"}}},
+          {"name": "requestBodySha256", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "idempotencyKey", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}}
+        ]
+      }
+    },
+    {
+      "name": "LegacyV1TerminalStatus",
+      "shape": {
+        "kind": "closedEnum",
+        "values": [
+          "accepted",
+          "duplicate_hash_match",
+          "rejected_permanent"
+        ]
+      }
+    },
+    {
+      "name": "LegacyV1EventReceipt",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "eventIdentity", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "eventHash", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "status", "shape": {"kind": "ref", "name": "LegacyV1TerminalStatus"}},
+          {"name": "serverSequence", "shape": {"kind": "scalar", "name": "int"}}
+        ]
+      }
+    },
+    {
+      "name": "LegacyV1OutboxRecord",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "eventIdentity", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "eventHash", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "receipt", "shape": {"kind": "nullable", "value": {"kind": "ref", "name": "LegacyV1EventReceipt"}}},
+          {"name": "deadLetterReason", "shape": {"kind": "nullable", "value": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}}}
+        ]
+      }
+    },
+    {
+      "name": "LegacyV1TransportAnomaly",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "roundId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "code", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "evidence", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}}
+        ]
+      }
+    },
+    {
+      "name": "WatchTerminalReceiptRelayObligation",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "obligationId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "eventIdentity", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "eventHash", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "status", "shape": {"kind": "ref", "name": "LegacyV1TerminalStatus"}}
+        ]
+      }
+    },
+    {
+      "name": "WatchTerminalReceiptRelayConfirmation",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "confirmationId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "obligationId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "eventIdentity", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "eventHash", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "status", "shape": {"kind": "ref", "name": "LegacyV1TerminalStatus"}}
+        ]
+      }
+    },
+    {
+      "name": "LegacyV1EventBatchBody",
+      "shape": {
+        "kind": "record",
+        "members": [
+          {"name": "roundId", "shape": {"kind": "scalar", "name": "string", "profile": "ordinaryString"}},
+          {"name": "events", "shape": {"kind": "array", "items": {"kind": "ref", "name": "JSONValue"}}}
+        ]
+      }
+    },
+    {
+      "name": "RoundEventKind",
+      "shape": {
+        "kind": "openString",
+        "profile": "ordinaryString"
+      }
+    },
+    {
+      "name": "JSONValue",
+      "shape": {
+        "kind": "recursiveJSONValue",
+        "stringProfile": "ordinaryString"
+      }
+    }
+  ],
+  "policies": [
+    {"name": "rootCollection", "profile": "rootCollection"},
+    {"name": "preparedSlots", "profile": "preparedSlots"},
+    {"name": "requestBody", "profile": "requestBody"},
+    {"name": "eventOrEnvelope", "profile": "eventOrEnvelope"}
+  ],
+  "profiles": [
+    {
+      "name": "ordinaryString",
+      "kind": "stringScalars",
+      "maximum": {"swift": "RoundTransportLimits.maxJsonStringCharacters"}
+    },
+    {
+      "name": "rootCollection",
+      "kind": "count",
+      "maximum": {"literal": 65536}
+    },
+    {
+      "name": "preparedSlots",
+      "kind": "count",
+      "minimum": {"literal": 1},
+      "maximum": {"swift": "RoundTransportLimits.maxEventsPerBatch"}
+    },
+    {
+      "name": "requestBody",
+      "kind": "base64",
+      "alphabet": "standard",
+      "padding": "required",
+      "maximumTextScalars": {"swift": "StorageV1RawJSONGate.maximumStringScalars"},
+      "maximumDecodedBytes": {"swift": "RoundTransportLimits.maxHttpBodyBytes"}
+    },
+    {
+      "name": "eventOrEnvelope",
+      "kind": "canonicalJSON",
+      "maximumBytes": {"swift": "RoundTransportLimits.maxEventCanonicalBytes"},
+      "maximumDepth": {"swift": "RoundTransportLimits.maxEventJsonDepth"}
+    }
+  ]
+}
