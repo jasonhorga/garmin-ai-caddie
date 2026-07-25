@@ -180,8 +180,8 @@ cannot silently lose an Owner-raised exit condition:
   `LiveRoundPackageV1Compatibility` alias). Either retain strict input parsing
   with the complete locked `ConfigDict` policy, or document that a type is
   serializer-only and add an explicit, reviewed mechanical-audit exemption.
-  Complete all Plan 1 mechanical checks, publish the final SHA-256 and final
-  freeze declaration, and do not modify its frozen bytes afterward.
+  Complete all Plan 1 mechanical checks, then output the final SHA-256 and exact
+  literal `Plan 1 frozen`; do not modify its frozen bytes afterward.
 - Before the shared Plan 2 install golden is frozen, its production iOS loader
   must select a valid `ios-v1` primary install (or an explicitly frozen
   multi-profile root containing exact `ios-v1`, `watch-v1`, and `web-v1`

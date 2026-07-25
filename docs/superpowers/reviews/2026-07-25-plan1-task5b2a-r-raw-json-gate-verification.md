@@ -240,7 +240,8 @@ and unfrozen. The following later gates remain open:
 - real LRP asset/static-authority byte and hash binding, with no zero-hash
   placeholder;
 - all remaining mechanical checks; and
-- the final Plan 1 SHA-256 and freeze declaration.
+- the final gate: after all Plan 1 mechanical checks, output the final SHA-256
+  and exact literal `Plan 1 frozen`, then make no further byte changes.
 
 POP returns to the S70 Unified Golf Program Execution Index. The next bounded
 packet is 5B2a-S, which owns generated V1 shape/codec authority. It must be
