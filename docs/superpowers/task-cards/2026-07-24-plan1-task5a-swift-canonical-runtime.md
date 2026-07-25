@@ -71,9 +71,18 @@ Create:
 
 Modify:
 
-- `Package.swift` — copy Domain fixtures byte-for-byte.
-- `mobile/ios/project.yml` — include `AICaddieDomainTests` in the normal iOS
-  test scheme.
+- `Package.swift` — define the in-repository `SwiftJCS` target, wire it as an
+  `AICaddieDomain` and `AICaddieDomainTests` dependency while excluding its
+  vendored sources from `AICaddieDomain`, and copy Domain fixtures
+  byte-for-byte.
+- `mobile/ios/project.yml` — define the static `SwiftJCS` target, link it only
+  into `AICaddieDomain` and `AICaddieDomainTests` while preserving its source
+  isolation from the Domain target, and include `AICaddieDomainTests` in the
+  normal iOS test scheme.
+- `.github/workflows/native-mobile.yml` — at the exact candidate SHA, run the
+  SwiftPM source-build visibility probe as a diagnostic and stage an isolated
+  `AICaddieDomain.framework` for a positive public-wrapper consumer plus a
+  hard-negative explicit-`SwiftJCS` consumer gate.
 - `tests/test_contract_codegen.py` — keep the package resource assertion in
   sync with byte-preserving fixture copies.
 
