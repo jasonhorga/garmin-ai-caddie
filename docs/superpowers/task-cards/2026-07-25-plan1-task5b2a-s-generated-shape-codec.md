@@ -1,13 +1,13 @@
 # Plan 1 Task 5B2a-S — Generated storage-v1 shape codec
 
 **Date:** 2026-07-25
-**Status:** Frozen execution card; Task 5B2a-S is not yet implemented
+**Status:** Review candidate; not frozen until exact committed SHA passes SPEC then QUALITY
 
 ## Authority and bounded outcome
 
 This card is subordinate to the [Program execution index](../plans/2026-07-23-program-execution-index.md), the [Task 5 packet map](2026-07-24-plan1-task5-packet-map.md), and the [storage-v1 schema design](../specs/2026-07-25-plan1-task5b-storage-v1-schema-design.md). Those three documents remain the authority for program order, packet boundaries, and the storage-v1 schema decisions respectively.
 
-This card freezes only packet Task 5B2a-S and does not reopen any accepted architecture decision. Owner decision: none. Task 5B2a-R is verified and unchanged; no Task 5B2a-R source, test, fixture, or acceptance evidence is in this packet's write set.
+This card bounds only packet Task 5B2a-S and does not reopen any accepted architecture decision. Owner decision: none. Task 5B2a-R is verified and unchanged; no Task 5B2a-R source, test, fixture, or acceptance evidence is in this packet's write set.
 
 Task 5B2a-S accepts only `ValidatedRawJSON`; the raw JSON gate remains the sole syntactic and resource-safety entry boundary. The codec must not accept bytes, text, Foundation JSON objects, or an unvalidated `JSONValue` as an alternate input. S owns the exact persisted storage-v1 shape, exact path-scoped policies, generated Swift shape descriptors, and internal typed decode into the declared storage records.
 
@@ -25,6 +25,9 @@ Create exactly these files:
 - `tools/contracts/generate_storage_v1_shape.py`
 - `mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift`
 - `mobile/ios/AICaddieDomain/StorageV1ShapeCodec.swift`
+- `mobile/ios/AICaddieDomain/StorageV1StreamingShapeValidator.swift`
+- `mobile/ios/AICaddieDomain/StorageV1ShapeScalarValidation.swift`
+- `mobile/ios/AICaddieDomain/StorageV1CanonicalMetrics.swift`
 - `tests/test_storage_v1_shape_codegen.py`
 - `tests/test_storage_v1_shape_codec_assets.py`
 - `mobile/ios/AICaddieDomainTests/StorageV1ShapeCodecTests.swift`
@@ -56,6 +59,15 @@ Do not modify any of the following:
 
 Every other path is outside the packet write set.
 
+The internal handwritten production split is exact:
+
+- `StorageV1ShapeCodec.swift`: capability/error/entry orchestration, exactly one replay, and the sole final root `JSONDecoder` only
+- `StorageV1StreamingShapeValidator.swift`: generated-descriptor interpretation, cursor descent, and closed/open/dynamic/container/path-policy/count validation
+- `StorageV1ShapeScalarValidation.swift`: NFC, string, Base64, integer, and `Double` validation
+- `StorageV1CanonicalMetrics.swift`: bottom-up canonical byte/depth metrics and checked/saturating arithmetic
+
+All four files expose only `internal`/`fileprivate` declarations. Asset/source audits pin these responsibilities and reject bypass entry points, duplicate replay, duplicate root decode, and responsibility drift; `Package.swift` and `project.yml` remain untouched.
+
 ### Separate generated group
 
 Register a distinct storage-v1 generated group whose sources are exactly:
@@ -74,7 +86,7 @@ Like the canonical generator, the sole output embeds an internal source SHA-256 
 Add `GeneratedStorageV1Shape.swift` as the second surgical `serverSequence` exclusion, beside `LegacyV1Transport.swift`.
 That exclusion covers a literal-only receipt diagnostic field; it does not authorize server-sequence ordering, comparison, or transport semantics in storage decoding.
 The asset test mechanically proves that readable generated `serverSequence` occurs only as the `LegacyV1EventReceipt` diagnostic field.
-The generator must emit that spelling directly and must never hide it with token splicing, escaped fragments, encoded text, or another obfuscation.
+The generator directly emits the schema/model spelling; mechanical evidence covers observable generated syntax and known forbidden constructs such as token splicing, escaped fragments, or encoded-literal assembly, while generator design plus review evidence supports the broader absence of alternate spellings.
 
 ### Closed descriptor grammar
 
@@ -245,9 +257,9 @@ An empty Base64 string is valid in Task 5B2a-S; whether a request body is semant
 
 ### Number and integer validation
 
-Every number lexeme is raw-resource-guarded first. An `Int` descriptor requires an integer-shaped raw token parsed exactly to `Int64`, then platform `Int`, then `CanonicalJSON.data(JSONValue.integer(...))`, with canonical/raw bytes equal; integer fields never accept fractional or exponent spelling.
-In recursive `JSONValue`, raw token `1` still takes that integer route. A number token that cannot parse as an exact raw `Int64` must convert exactly to a finite `Double`, pass `CanonicalJSON.data(JSONValue.number(...))`, and equal the raw bytes; no path uses an intermediate `JSONDecoder`, handwritten formatter, or shadow bound.
-When platform-representable, inclusive integers `±9,007,199,254,740,991` pass; `±9,007,199,254,740,992` and `Int64.min/max` fail the existing unsafe-canonical-integer policy, while values outside `Int64` fail exact conversion. Canonical `1.5`, `1e-7`, `5e-324`, and existing RFC 8785 corpus representatives pass as recursive numbers; equal-value noncanonical `1.0`/`1e0`, negative zero, overflow/nonfinite conversion, and unsafe integral values fail.
+Every number lexeme is raw-resource-guarded first, then branches only by lexical shape without an intermediate `JSONDecoder`. A lexically integer-shaped token has one path: exact `Int64`, exact platform `Int`, `CanonicalJSON.data(JSONValue.integer(...))`, then canonical/raw byte equality; `Int64` overflow or underflow rejects immediately and never falls back to `Double`.
+Only a spelling containing a fraction or exponent may take exact finite-`Double` conversion, `CanonicalJSON.data(JSONValue.number(...))`, and canonical/raw byte equality, and only for recursive `JSONValue`; an `Int` descriptor rejects that spelling before conversion. No path uses a handwritten formatter or shadow bound.
+Thus recursive raw `1` takes the integer path, while canonical `1.5`, `1e-7`, `5e-324`, and RFC 8785 representatives take the number path. Platform-representable `±9,007,199,254,740,991` pass; `±9,007,199,254,740,992` and `Int64.min/max` fail unsafe-integer policy, outside-`Int64` integer spellings fail without fallback, and equal-value `1.0`/`1e0`, negative zero, or overflow/nonfinite fraction/exponent conversion fails.
 
 Task 5B2a-S enforces only shape and the frozen contextual resource policies. It adds no graph, hash, identity, or domain-range semantics.
 
@@ -255,7 +267,7 @@ Task 5B2a-S enforces only shape and the frozen contextual resource policies. It 
 
 ### Stage A — CODEGEN-RED
 
-The first implementation commit is tests only. It proves the generated file is absent and that repeated generation must be byte-identical.
+The first implementation commit is tests only: it locks repeatability assertions without adding a generator scaffold, but RED does not claim repeated generation evidence.
 The schema test asserts the exact top-key set rather than presence-only checks.
 
 It asserts the two exact declared roots, the exact 17-type roster, every record field, every scalar/ref/array/dynamic-map/nullable/constrained wrapper, and every open/closed distinction.
@@ -266,9 +278,9 @@ It also covers incompatible constraints, unreachable policy nodes, wrong-shaped 
 
 Authority tests require a separate storage-v1 generated group outside `canonicalRoots`, and pin the one-time digest changes for all three canonical outputs caused by `authority.json`. A mutation of only a storage-v1 schema source must leave every public canonical digest stable.
 
-The literal audit allows the second surgical `serverSequence` exception only in readable generated receipt-field context. It fails obfuscation, another generated occurrence, or a use outside the diagnostic field.
+The literal audit allows the second surgical `serverSequence` exception only in readable generated receipt-field context. It rejects another occurrence and known forbidden direct-emission constructs; broader alternate-spelling absence is review evidence, not a token/source-audit claim.
 
-The focused CODEGEN-RED run must fail for the expected missing schema/generator/generated-asset behavior.
+The observable CODEGEN-RED is exactly three separate controlled assertions for the absent schema, generator, and generated asset. Top-level import, subprocess, or infrastructure errors are invalid RED; byte-identical repeated generation is proved only by Stage B GREEN.
 
 ### Stage B — CODEGEN-GREEN
 
@@ -278,14 +290,14 @@ Generation twice must be byte-identical. All focused codegen and asset modules m
 
 ### Stage C — RUNTIME-RED
 
-Add the final asset assertions and XCTest API/behavior suite. Add only the compile-safe runtime seam required to discover those tests, with the codec throwing its internal `.notImplemented` error; that seam is permitted only at the exact RUNTIME-RED commit.
+Add the final asset assertions, XCTest API/behavior suite, and exact four-file handwritten structure with its frozen access/responsibility boundaries. Only the codec gets the compile-safe internal `.notImplemented` throw seam needed for discovery, and only at the exact RUNTIME-RED commit; helpers add no fake behavior.
 
 Dispatch Native at the exact RUNTIME-RED commit SHA through a unique evidence branch.
 Native must compile and discover the suite, then fail for the expected codec behavioral assertion rather than compilation, linkage, workflow, or test-discovery failure.
 
 ### Stage D — RUNTIME-GREEN
 
-Implement the production streaming validator and sole final typed decode. Stage D removes the `.notImplemented` throw seam and preferably its error case; final source/asset audits reject any production occurrence or reachable stub. Make focused Python and XCTest coverage green without weakening any RED assertion.
+Implement production behavior only in the frozen four-file split. Stage D removes the `.notImplemented` throw seam and preferably its error case; final source/asset audits reject any production occurrence, reachable stub, responsibility drift, bypass, second replay, or second root decoder. Make focused Python and XCTest coverage green without weakening RED.
 
 ### Positive and negative vectors
 
@@ -303,13 +315,13 @@ Prepared slots fail at `0`, pass at `1` and `64`, and fail at `65`.
 
 Base64 vectors cover canonical text, noncanonical text, whitespace, missing padding, empty text, the text preallocation boundary, and the decoded-body byte boundary.
 
-Number vectors distinguish integer-field, recursive-integer, and recursive-Double routes: they accept `1`, platform-representable `±9,007,199,254,740,991`, canonical `1.5`, `1e-7`, `5e-324`, and RFC 8785 representatives; they reject fractional/exponent integer fields, `1.0`, `1e0`, negative zero, `±9,007,199,254,740,992`, `Int64.min/max`, overflow/nonfinite conversion, and outside-`Int64` hostile lexemes, with narrower platform `Int` failing only after exact `Int64` parse.
+Number vectors distinguish lexical routes: they accept integer `1`, platform-representable `±9,007,199,254,740,991`, and recursive canonical `1.5`, `1e-7`, `5e-324`/RFC 8785 representatives. They reject fraction/exponent spellings for `Int`, `1.0`, `1e0`, negative zero, unsafe integers, `Int64.min/max`, nonfinite/overflowing fraction/exponent conversion, and integer-shaped `Int64` overflow/underflow without `Double` fallback; narrower platform `Int` fails after exact `Int64` parse.
 
 Canonical event/envelope bytes pass at `65,536` and fail at `65,537`. Relative depth passes at `16` and fails at `17`. The same shapes prove those constraints apply only to `events[*]` and `preparedLegacyV1Batches[*].orderedSlots[*].exactNormalizedEnvelope`.
 
 `LegacyV1EventBatchBody.events` and unrelated `JSONValue` nodes remain unconstrained by `eventOrEnvelope`. Sorted unique `CanonicalStringSet` values pass at the final typed decode; unsorted and duplicate values fail only there.
 
-Source audits enforce one cursor replay, one final root decoder, no AST or retained token array, no `JSONSerialization`, no runtime wildcard/path matcher, no bypass overload, no hostile `String` retention/comparison before the exact NFC byte check, and internal-only generated descriptors with no public/package/SPI exposure.
+Source/asset audits enforce the four-file responsibility map, one codec-owned cursor replay, one codec-owned final root decoder, no AST/token array, no `JSONSerialization`, no runtime wildcard/path matcher, no bypass overload, no pre-NFC hostile text retention/comparison, and internal-only descriptors/handwritten declarations with no public/package/SPI exposure.
 
 Every negative vector changes exactly one relevant property and isolates one expected rejection reason.
 
