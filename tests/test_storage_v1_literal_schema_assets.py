@@ -12,6 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 EVENT = Path("mobile/ios/AICaddieDomain/DomainRoundEvent.swift")
 LEDGER = Path("mobile/ios/AICaddieDomain/DomainLedgerStateV1.swift")
 TRANSPORT = Path("mobile/ios/AICaddieDomain/LegacyV1Transport.swift")
+GENERATED_SHAPE = Path(
+    "mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift"
+)
+SHAPE_GENERATOR = Path("tools/contracts/generate_storage_v1_shape.py")
 PROTECTED_PATHS = [
     "contracts/canonical/**/*.json",
     "ai_caddie/rounds/**/*.py",
@@ -75,7 +79,7 @@ class StorageV1LiteralSchemaAssetTests(unittest.TestCase):
                 with self.subTest(path=relative, token=token):
                     self.assertNotIn(token, source)
 
-    def test_server_sequence_exception_is_exactly_one_file(self) -> None:
+    def test_server_sequence_exception_is_the_exact_surgical_file_roster(self) -> None:
         transport_path = ROOT / TRANSPORT
         self.assertTrue(
             transport_path.is_file(),
@@ -84,6 +88,8 @@ class StorageV1LiteralSchemaAssetTests(unittest.TestCase):
         transport_source = transport_path.read_text(encoding="utf-8")
         self.assertEqual(transport_source.count("serverSequence"), 1)
         self.assertIn("let serverSequence: Int", transport_source)
+        generated_path = ROOT / GENERATED_SHAPE
+        generated_exists = generated_path.is_file()
         manifest = json.loads(
             (ROOT / "contracts/canonical/authority.json").read_text(
                 encoding="utf-8"
@@ -92,9 +98,12 @@ class StorageV1LiteralSchemaAssetTests(unittest.TestCase):
         rules = manifest["forbiddenSymbols"]
         server_rules = [rule for rule in rules if rule["values"] == ["serverSequence"]]
         self.assertEqual(len(server_rules), 1)
+        expected_exclusions = [f"!{TRANSPORT.as_posix()}"]
+        if generated_exists:
+            expected_exclusions.append(f"!{GENERATED_SHAPE.as_posix()}")
         self.assertEqual(
             server_rules[0]["paths"],
-            [*PROTECTED_PATHS, f"!{TRANSPORT.as_posix()}"],
+            [*PROTECTED_PATHS, *expected_exclusions],
         )
         common = [
             rule for rule in rules
@@ -105,6 +114,50 @@ class StorageV1LiteralSchemaAssetTests(unittest.TestCase):
         ]
         self.assertEqual(len(common), 1)
         self.assertEqual(common[0]["paths"], PROTECTED_PATHS)
+
+        # Stage A deliberately owns the sole generated-asset missing assertion
+        # in test_storage_v1_shape_codec_assets.  Once that asset exists, this
+        # same test tightens the authority exception and generated field audit.
+        if not generated_exists:
+            return
+        generated_source = generated_path.read_text(encoding="utf-8")
+        self.assertEqual(generated_source.count("serverSequence"), 1)
+        occurrence = generated_source.index("serverSequence")
+        receipt = generated_source.rfind("LegacyV1EventReceipt", 0, occurrence)
+        self.assertGreaterEqual(
+            receipt,
+            0,
+            "generated serverSequence is not in LegacyV1EventReceipt context",
+        )
+        self.assertLess(
+            occurrence - receipt,
+            1_500,
+            "generated serverSequence is not a readable receipt field",
+        )
+        field_context = generated_source[
+            max(receipt, occurrence - 180): occurrence + 180
+        ]
+        self.assertRegex(
+            field_context,
+            r"(?s)(?:\b(?:Int|int)\b.{0,120}serverSequence|"
+            r"serverSequence.{0,120}\b(?:Int|int)\b)",
+        )
+
+        generator_path = ROOT / SHAPE_GENERATOR
+        if not generator_path.is_file():
+            return
+        generator_source = generator_path.read_text(encoding="utf-8")
+        known_obscuring_constructs = (
+            r"server\s*['\"]\s*\+\s*['\"]Sequence",
+            r"server\\u0053equence",
+            r"server\\x53equence",
+            r"base64\.(?:b64decode|decodebytes)",
+            r"bytes\.fromhex\(",
+            r"codecs\.decode\(",
+        )
+        for pattern in known_obscuring_constructs:
+            with self.subTest(pattern=pattern):
+                self.assertIsNone(re.search(pattern, generator_source))
 
     def test_new_sources_pass_the_repository_authority_gate(self) -> None:
         for relative in (EVENT, LEDGER, TRANSPORT):
