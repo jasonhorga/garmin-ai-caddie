@@ -52,22 +52,34 @@ The implementation order is exact:
 1. **5B1 — literals:** value types, required-key/required-nullable encoding,
    deterministic set representation, and storage-version literal.
 2. **5B2a-R — raw JSON gate:** document byte limit, duplicate-key rejection,
-   depth and Unicode-scalar limits, JSON token/container classification, and a
-   non-public validated-raw capability.
+   depth/key limits, an absolute raw-string cap with exact scalar-length
+   evidence, JSON token/container classification, and a non-public
+   validated-raw capability.
 3. **5B2a-S — generated V1 shape/codec:** generated exact key/type authority
    for every recursive record, required keys, nullable keys, root collection
-   kinds and counts, followed by typed decoding from the validated raw
-   capability.
+   kinds/counts and canonical number/NFC constraints. Before any typed decode,
+   it requires each request-body string to be canonical standard padded Base64
+   with no whitespace, decodes it, and first-enforces the decoded byte limit.
+   It also first-enforces prepared-slot count and every hard canonical-byte and
+   depth bound at `events[*]` and
+   `preparedLegacyV1Batches[*].orderedSlots[*].exactNormalizedEnvelope`, then
+   produces the typed value from the validated raw capability.
 4. **5B2b-L — algorithm-free ledger graph:** origin/event/outbox/dead-letter/
    receipt relationships, logical uniqueness, storage-v1 XORs and ordered
    source semantics that require no identity or hash recomputation.
-5. **5B2b-T — algorithm-free transport graph and sole public decoder:**
+5. **5B2b-T — algorithm-free transport graph and sole supported decoder:**
    binding, prepared-batch, Watch relay and transport-root relationships that
-   can be checked by exact literal comparison. It composes all prior
-   capabilities and owns the only supported storage-v1 decode entry point.
+   can be checked by exact literal comparison. It does not first-enforce the
+   bounds owned by 5B2a-S. For each decoded request body it reuses the 5B2a-R
+   raw scanner, rejects invalid UTF-8/JSON, duplicate keys, depth failures and
+   other raw-gate failures, requires exactly `roundId` plus `events`, and
+   literally compares the body round and ordered events with the enclosing
+   batch and its slots. It composes all prior capabilities and owns the only
+   supported storage-v1 decode entry point.
 
 The letters describe responsibility, not parallel execution. All five packets
-share Domain schema files and therefore execute serially through one writer.
+share Domain schema files and therefore execute serially with only one active
+implementation writer at a time.
 
 ## Storage-v1 root
 
@@ -85,7 +97,7 @@ share Domain schema files and therefore execute serially through one writer.
 | `preparedLegacyV1Batches` | array | `[PreparedLegacyV1Batch]` | source order |
 | `watchTerminalReceiptRelayObligations` | array | `[WatchTerminalReceiptRelayObligation]` | source order |
 | `watchTerminalReceiptRelayConfirmations` | array | `[WatchTerminalReceiptRelayConfirmation]` | source order |
-| `migrationMarkers` | array | `CanonicalStringSet` | lexicographically sorted and unique |
+| `migrationMarkers` | array | `CanonicalStringSet` | UTF-8-byte sorted and unique |
 | `transportAnomalies` | array | `[LegacyV1TransportAnomaly]` | source order |
 
 Bindings, prepared batches, obligations and confirmations remain arrays. Later
@@ -96,12 +108,17 @@ later `DomainRoundEvent` shape.
 
 ## 5B1 literal roster
 
-`DomainRoundEvent.swift` owns these storage values:
+`DomainRoundEvent.swift` owns the historical event row only:
+
+| Type | Exact fields |
+|---|---|
+| `StoredEventV1` | `eventId: String`, `originDeviceId: String`, `originEpoch: String`, `clientSequence: Int`, `roundId: String`, `kind: RoundEventKind`, `payload: [String: JSONValue]`, `occurredAt: String` |
+
+`DomainLedgerStateV1.swift` owns the storage-root values:
 
 | Type | Exact fields |
 |---|---|
 | `OriginSequenceState` | `originDeviceId: String`, `originEpoch: String`, `lastReservedClientSequence: Int` |
-| `StoredEventV1` | `eventId: String`, `originDeviceId: String`, `originEpoch: String`, `clientSequence: Int`, `roundId: String`, `kind: RoundEventKind`, `payload: [String: JSONValue]`, `occurredAt: String` |
 | `CanonicalStringSet` | a sorted-unique JSON string array |
 | `DomainLedgerStateV1` | the 12 roots above, with `storageVersion` fixed to `1` |
 
@@ -127,11 +144,13 @@ idempotency key remains 5E work. This resolves an obsolete later-dossier sketch
 that inspected an `events`-only object; the live v1 `SyncClient.EventBatch`
 already requires both fields.
 
-These declarations initially remain internal to `AICaddieDomain`. Domain tests
-use `@testable import`; later packets promote only the values required by an
-actual cross-target API. Their stored fields are immutable `let` values in
-5B1; later store code replaces whole values rather than gaining a hidden
-mutation method here. No direct root decoder becomes public in 5B1.
+These declarations initially remain internal to `AICaddieDomain` and conform
+only where required to `Codable` and `Equatable`. Domain tests use `@testable
+import`; later packets promote only the values required by an actual
+cross-target API. Their stored fields are immutable `let` values in 5B1; later
+store code replaces whole values rather than gaining a hidden mutation method
+here. 5B1 does not add `Identifiable`, `Hashable`, `Sendable`,
+`@unchecked Sendable`, or a direct public root decoder.
 
 ## 5B1 value-local behavior
 
@@ -141,8 +160,9 @@ mutation method here. No direct root decoder becomes public in 5B1.
   `storageVersion` other than `1`;
 - its normal initializer always sets `storageVersion` to `1` rather than
   accepting a caller-supplied version;
-- `CanonicalStringSet` encodes in lexical order and rejects unsorted or
-  duplicate wire arrays;
+- `CanonicalStringSet` encodes in ascending UTF-8 byte order (equivalent to
+  Unicode-scalar order for valid Swift strings) and rejects wire arrays that
+  are not in that exact order or contain duplicates;
 - `LegacyV1TerminalStatus` rejects unknown raw values through enum decoding;
 - both optional fields of `LegacyV1OutboxRecord` are required-nullable: absent
   keys fail, while explicit JSON `null` decodes to `nil`; encoding `nil` writes
@@ -157,24 +177,49 @@ must make this distinction visible so future code cannot advertise a direct
 
 ## Frozen limits and ownership
 
+Every bound in this table is inclusive.
+
 | Limit | Exact value | First enforcing packet |
 |---|---:|---|
-| storage document bytes | 67,108,864 (64 MiB) | 5B2a-R |
-| raw JSON depth | 64 | 5B2a-R |
-| each root collection | 65,536 entries | 5B2a-S |
-| slots per prepared batch | 64 | 5B2a-S/5B2b-T |
-| decoded request-body bytes | 1,048,576 | 5B2b-T |
-| Base64 text for the request body | 1,398,104 Unicode scalars | 5B2a-S |
-| canonical event or envelope bytes | 65,536 | 5B2b-T |
-| event/envelope JSON depth | 16 | 5B2b-T |
-| JSON object key | 128 Unicode scalars | 5B2a-R |
-| ordinary JSON string | 4,096 Unicode scalars | 5B2a-R |
+| storage document bytes | ≤ 67,108,864 (64 MiB) | 5B2a-R |
+| raw JSON depth | ≤ 64 | 5B2a-R |
+| each root collection | ≤ 65,536 entries | 5B2a-S |
+| slots per prepared batch | 1...64 | 5B2a-S |
+| decoded request-body bytes | ≤ 1,048,576 | 5B2a-S |
+| any raw JSON string absolute cap | ≤ 1,398,104 Unicode scalars | 5B2a-R |
+| Base64 text for the request body | ≤ 1,398,104 Unicode scalars | 5B2a-S |
+| canonical event or envelope bytes | ≤ 65,536 | 5B2a-S |
+| event/envelope JSON depth | ≤ 16 | 5B2a-S |
+| JSON object key | ≤ 128 Unicode scalars | 5B2a-R |
+| ordinary JSON string | ≤ 4,096 Unicode scalars | 5B2a-S using 5B2a-R length evidence |
 
 Existing generated `RoundTransportLimits` values are reused where they match.
 Storage-only limits receive one authority in the packet that first enforces
 them; 5B1 must not create a second set of unused magic constants. “Unicode
 scalars” means `value.unicodeScalars.count`, not grapheme-cluster count or UTF-8
 byte count.
+
+Depth is recursive: a scalar has depth `0`; an empty object or array has depth
+`1`; and a non-empty object or array has depth `1 + max(child depth)`. The
+document depth is the depth of its root value. Because the raw gate does not
+yet possess typed path authority, 5B2a-R rejects any string above the absolute
+1,398,104-scalar cap and carries exact scalar lengths forward. 5B2a-S then
+rejects values above 4,096 everywhere except the exact
+`preparedLegacyV1Batches[*].exactRequestBody` path. At that path, before typed
+decode, it permits at most 1,398,104 scalars, requires canonical standard
+padded Base64 with no whitespace, decodes it, and first-enforces the
+1,048,576-byte limit. 5B2a-S also first-enforces `1...64` prepared slots and
+the 65,536-byte/depth-16 bounds at `events[*]` and
+`preparedLegacyV1Batches[*].orderedSlots[*].exactNormalizedEnvelope`. Inner
+request-body events inherit those bounds when 5B2b-T requires exact ordered
+equality with the already bounded slot envelopes; 5B2b-T does not first-enforce
+them again.
+
+The 65,536-entry limit is for each root collection. Nested arrays other than
+prepared slots have no independent entry-count limit in storage-v1; document
+byte/depth and key/string bounds still apply. The 65,536-byte bound applies
+only to a canonical event or envelope, not automatically to every record that
+contains an event, envelope or nested array.
 
 ## Canonical-authority exception
 
@@ -207,7 +252,15 @@ graph validator will. In particular it does not decide:
 - whether receipt status and outbox/dead-letter placement form a legal XOR.
 
 Those checks belong to 5B2b-L or 5B2b-T when they require only exact literal
-comparison. The following are outside all of 5B and remain in 5C through 5E:
+comparison. In particular, 5B2b-T sends each already size-bounded decoded
+`exactRequestBody` through the 5B2a-R raw scanner, then requires the inner
+object to contain only `roundId` and `events`. It rejects inner duplicate keys,
+invalid UTF-8/JSON, depth failures and all other raw-scanner failures; requires
+`body.roundId == batch.roundId`; and compares `body.events` element-for-element
+in source order with `orderedSlots[*].exactNormalizedEnvelope`. It does not
+re-own the 5B2a-S first bounds or derive canonical body bytes, SHA-256 or an
+idempotency key. The following are outside all of 5B and remain in 5C through
+5E:
 
 - root ownership, origin rotation, sequence reservation and mutation;
 - Domain identity or event-hash computation;
@@ -229,9 +282,9 @@ The successful data flow is:
 ```text
 raw Data
   → 5B2a-R validated raw capability
-  → 5B2a-S exact recursive shape + typed DomainLedgerStateV1
+  → 5B2a-S bounded exact shape + decoded bodies + typed DomainLedgerStateV1
   → 5B2b-L validated ledger capability
-  → 5B2b-T validated transport capability
+  → 5B2b-T inner-body raw/shape and literal transport capability
   → supported decoded storage-v1 value
 ```
 
@@ -243,13 +296,17 @@ state.
 5B1 RED tests are compile-safe and focused on observable literal behavior:
 
 - exact field names and representative round trips for every record;
-- explicit-null encode/decode and missing nullable-key rejection;
+- explicit-null encode/decode, missing nullable-key rejection and non-null
+  nullable-field round trips;
 - missing required root/record fields;
 - storage version `1` acceptance and other-version rejection;
 - sorted deterministic `CanonicalStringSet` encoding plus duplicate/unsorted
-  rejection;
+  rejection, including a non-ASCII order vector;
 - exact 12-key root encoding, array-versus-dictionary containers, source-order
   retention and exact two-key backend-v1 batch-body encoding;
+- all three terminal-status wire values plus unknown-status rejection;
+- unknown `RoundEventKind` raw-value preservation and a known `Data` Base64
+  round trip; and
 - an API/source boundary assertion proving no public storage decoder, mutation,
   identity/hash or network surface was introduced.
 
