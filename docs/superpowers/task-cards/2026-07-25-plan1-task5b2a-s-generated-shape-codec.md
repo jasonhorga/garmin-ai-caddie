@@ -80,7 +80,7 @@ The generator must emit that spelling directly and must never hide it with token
 
 `domain_ledger_storage_shapes_v1.json` is the sole machine-readable descriptor graph for this packet. The graph is closed: every named reference resolves inside the declared type roster, every definition is reachable from a declared root, and no undeclared descriptor kind or member is accepted.
 
-The grammar supports named record descriptors, an open-string descriptor, a closed-enum descriptor, and recursive `JSONValue`.
+The grammar supports named record descriptors, a named collection descriptor for existing `CanonicalStringSet`, an open-string descriptor, a closed-enum descriptor, and recursive `JSONValue`; it adds no 18th alias/helper type.
 It supports generic constrained wrappers for arrays, dynamic maps, nullable values, and values carrying a named path policy or limit profile.
 
 Wrappers remain structural and composable; the generator must not encode one-off field-name branches where a generic wrapper expresses the same rule.
@@ -245,10 +245,9 @@ An empty Base64 string is valid in Task 5B2a-S; whether a request body is semant
 
 ### Number and integer validation
 
-Every raw number lexeme is resource-guarded before numeric conversion. An integer-shaped token is parsed exactly to `Int64` first and then exactly to platform `Int`; a narrower platform still follows that order.
-The resulting integer must then pass the existing `CanonicalJSON.data(JSONValue.integer(...))` safe-integer policy, and those canonical bytes must equal the raw lexeme byte-for-byte. The codec has no handwritten formatter and no shadow safe-integer bound.
-
-When platform `Int` can represent them, `-9,007,199,254,740,991` and `9,007,199,254,740,991` pass. Values `-9,007,199,254,740,992` and `9,007,199,254,740,992`, plus `Int64.min` and `Int64.max`, fail as unsafe canonical integers; values outside `Int64` fail exact conversion. Existing canonical spelling rules reject `1.0`, `1e0`, and `-0`.
+Every number lexeme is raw-resource-guarded first. An `Int` descriptor requires an integer-shaped raw token parsed exactly to `Int64`, then platform `Int`, then `CanonicalJSON.data(JSONValue.integer(...))`, with canonical/raw bytes equal; integer fields never accept fractional or exponent spelling.
+In recursive `JSONValue`, raw token `1` still takes that integer route. A number token that cannot parse as an exact raw `Int64` must convert exactly to a finite `Double`, pass `CanonicalJSON.data(JSONValue.number(...))`, and equal the raw bytes; no path uses an intermediate `JSONDecoder`, handwritten formatter, or shadow bound.
+When platform-representable, inclusive integers `±9,007,199,254,740,991` pass; `±9,007,199,254,740,992` and `Int64.min/max` fail the existing unsafe-canonical-integer policy, while values outside `Int64` fail exact conversion. Canonical `1.5`, `1e-7`, `5e-324`, and existing RFC 8785 corpus representatives pass as recursive numbers; equal-value noncanonical `1.0`/`1e0`, negative zero, overflow/nonfinite conversion, and unsafe integral values fail.
 
 Task 5B2a-S enforces only shape and the frozen contextual resource policies. It adds no graph, hash, identity, or domain-range semantics.
 
@@ -304,7 +303,7 @@ Prepared slots fail at `0`, pass at `1` and `64`, and fail at `65`.
 
 Base64 vectors cover canonical text, noncanonical text, whitespace, missing padding, empty text, the text preallocation boundary, and the decoded-body byte boundary.
 
-Number vectors accept `1` and, where platform-representable, both inclusive safe-integer endpoints `±9,007,199,254,740,991`. They reject `1.0`, `1e0`, `-0`, both `±9,007,199,254,740,992`, `Int64.min`, `Int64.max`, and hostile lexemes outside `Int64`; a narrower platform `Int` separately fails exact conversion after the successful `Int64` parse.
+Number vectors distinguish integer-field, recursive-integer, and recursive-Double routes: they accept `1`, platform-representable `±9,007,199,254,740,991`, canonical `1.5`, `1e-7`, `5e-324`, and RFC 8785 representatives; they reject fractional/exponent integer fields, `1.0`, `1e0`, negative zero, `±9,007,199,254,740,992`, `Int64.min/max`, overflow/nonfinite conversion, and outside-`Int64` hostile lexemes, with narrower platform `Int` failing only after exact `Int64` parse.
 
 Canonical event/envelope bytes pass at `65,536` and fail at `65,537`. Relative depth passes at `16` and fails at `17`. The same shapes prove those constraints apply only to `events[*]` and `preparedLegacyV1Batches[*].orderedSlots[*].exactNormalizedEnvelope`.
 
@@ -316,14 +315,7 @@ Every negative vector changes exactly one relevant property and isolates one exp
 
 ## Serial evidence, remote commands, review, and freeze
 
-All commands in this section are planned execution commands, not claims that they have already run.
-The local machine is limited to Git,
-text inspection,
-and SSH transport.
-All tests,
-builds,
-generation,
-and dependency work run in a unique homeserver scratch or CI.
+All commands here are planned, not already run. The local machine is limited to Git, text inspection, and SSH transport; all tests, builds, generation, and dependency work run in a unique homeserver scratch or CI.
 After complete logs/hashes are recorded, delete only this packet's exact `mktemp` result after asserting its `/home/jason/codex-runs/` prefix; a failed run may remain through diagnosis, but closeout inventories and removes every packet-created scratch and never cleans an unfamiliar directory, process, or ref.
 Transient GitHub/SSH `429`, `503`, or cooldown responses receive timed exponential-backoff retries with the same SHA/ref/dispatch binding; safe audits may continue while waiting, but transient service state is neither RED, completion, nor a permanent blocker.
 
@@ -381,6 +373,7 @@ ssh homeserver bash -s -- "$RED_SHA" "$RED_REF" "$CARD_COMMIT" 2>&1 <<'REMOTE' |
 set -euo pipefail
 SHA=$1; REF=$2; CARD_COMMIT=$3
 RUN_DIR=$(mktemp -d "/home/jason/codex-runs/task5b2as-codegen-red-${SHA}-XXXXXX")
+printf 'RUN_DIR=%s\n' "$RUN_DIR"
 git clone --quiet --no-checkout https://github.com/jasonhorga/garmin-ai-caddie.git "$RUN_DIR"
 cd "$RUN_DIR"
 git fetch --quiet origin "$REF"
@@ -425,6 +418,7 @@ ssh homeserver bash -s -- "$GREEN_SHA" "$GREEN_REF" "$CARD_COMMIT" 2>&1 <<'REMOT
 set -euo pipefail
 SHA=$1; REF=$2; CARD_COMMIT=$3
 RUN_DIR=$(mktemp -d "/home/jason/codex-runs/task5b2as-codegen-green-${SHA}-XXXXXX")
+printf 'RUN_DIR=%s\n' "$RUN_DIR"
 git clone --quiet --no-checkout https://github.com/jasonhorga/garmin-ai-caddie.git "$RUN_DIR"
 cd "$RUN_DIR"
 git fetch --quiet origin "$REF"
@@ -438,7 +432,9 @@ for PASS in 1 2; do
   git diff --exit-code -- ai_caddie/contracts/generated.py mobile/ios/AICaddieDomain/GeneratedContracts.swift web_v2/src/contracts/generated.ts mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift
   test -z "$(git status --porcelain=v1)"
 done
+sha256sum ai_caddie/contracts/generated.py mobile/ios/AICaddieDomain/GeneratedContracts.swift web_v2/src/contracts/generated.ts mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift
 /home/jason/.local/bin/uv run python -m unittest -v tests.test_storage_v1_shape_codegen tests.test_storage_v1_shape_codec_assets tests.test_storage_v1_literal_schema_assets
+sha256sum ai_caddie/contracts/generated.py mobile/ios/AICaddieDomain/GeneratedContracts.swift web_v2/src/contracts/generated.ts mobile/ios/AICaddieDomain/GeneratedStorageV1Shape.swift
 test -z "$(git status --porcelain=v1)"
 REMOTE
 GREEN_STATUS=${PIPESTATUS[0]}
@@ -450,7 +446,7 @@ wc -l -c "$GREEN_LOG"
 sha256sum "$GREEN_LOG"
 ```
 
-Two complete generator passes must leave the exact checked-out tree clean, proving deterministic checked-in outputs against the correct base. Preserve the SHA/ref, scratch path, full log, exit status, actual focused counts, and log/output hashes.
+The complete pressure-check-through-log-hash block above is the normative reusable `CODEGEN_GREEN_EXACT_SHA` protocol. Two generator passes must leave the exact tree clean; preserve SHA/ref, printed scratch, full log/status, actual focused counts, and the four before/after output hashes.
 
 ### 4. Prove RUNTIME-RED in Native
 
@@ -478,6 +474,7 @@ gh run watch "$RUN_ID" --exit-status
 WATCH_STATUS=$?
 set -e
 test "$WATCH_STATUS" -ne 0
+test "$(gh run view "$RUN_ID" --json conclusion --jq .conclusion)" = failure
 RED_RUN_LOG="/tmp/task5b2as-runtime-red-$RED_SHA-run-$RUN_ID.log"
 gh run view "$RUN_ID" --log > "$RED_RUN_LOG"
 gh run view "$RUN_ID" --json databaseId,headSha,jobs,status,conclusion,url --jq '{databaseId,headSha,status,conclusion,url,jobs:[.jobs[]|{databaseId,name,conclusion}]}'
@@ -492,7 +489,8 @@ The expected failure is the frozen `testMinimalStorageDocumentDecodes` behaviora
 
 ### 5. Prove RUNTIME-GREEN remotely and in Native
 
-Commit Stage D, prove the focused homeserver modules green with the Section 3 fresh-clone protocol, then push a distinct exact-SHA ref and dispatch full Native. Select the run with the same event/branch/SHA/time binding as RED.
+Commit Stage D and run `CODEGEN_GREEN_EXACT_SHA` before Native with exact substitutions `GREEN_SHA=<runtime-green HEAD>`, `GREEN_REF=refs/heads/evidence/plan1-task5b2as-runtime-green-$GREEN_SHA`, `GREEN_LOG=/tmp/task5b2as-runtime-green-$GREEN_SHA.log`, and scratch prefix `/home/jason/codex-runs/task5b2as-runtime-green-${GREEN_SHA}-XXXXXX`.
+That same runtime ref must be pushed/verified, pressure-checked, freshly cloned/detached, card-ancestor and initially-clean checked, generator-drifted twice, four-output-hashed before/after the three focused modules, finally clean, and logged/hashed with zero status and actual counts. Only that success permits the exact same ref/SHA to continue below to time-bound Native dispatch.
 
 ```bash
 set -euo pipefail
@@ -500,6 +498,7 @@ GREEN_SHA=$(git rev-parse HEAD)
 GREEN_REF="refs/heads/evidence/plan1-task5b2as-runtime-green-$GREEN_SHA"
 git push origin "$GREEN_SHA:$GREEN_REF"
 test "$(git ls-remote --heads origin "$GREEN_REF" | awk 'NR == 1 {print $1}')" = "$GREEN_SHA"
+# `CODEGEN_GREEN_EXACT_SHA` with the substitutions above has completed successfully here.
 GREEN_REF_NAME=${GREEN_REF#refs/heads/}
 DISPATCHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 gh workflow run native-mobile.yml --ref "$GREEN_REF_NAME"
@@ -527,33 +526,27 @@ ARTIFACT_DIR=$(mktemp -d "/tmp/task5b2as-runtime-green-$GREEN_SHA-artifacts-XXXX
 bsdtar -xf "$ARTIFACT_ZIP" -C "$ARTIFACT_DIR"
 find "$ARTIFACT_DIR" -type f -print | sort
 test -n "$(find "$ARTIFACT_DIR" -type f -print -quit)"
+mapfile -d '' EVIDENCE_JSONS < <(find "$ARTIFACT_DIR" -type f -name native_build_evidence.json -print0)
+test "${#EVIDENCE_JSONS[@]}" -eq 1
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); assert d["schema"] == "ai-caddie-native-build-evidence-v1"; assert d["commit"] == sys.argv[2]; assert str(d["workflowRunId"]) == sys.argv[3]; assert d["artifactName"] == "native-build-evidence"; assert d["ios"]["scheme"] == "AICaddie" and d["ios"]["status"] == "passed"; assert d["watch"]["scheme"] == "AICaddieWatch" and d["watch"]["status"] == "passed"' "${EVIDENCE_JSONS[0]}" "$GREEN_SHA" "$RUN_ID"
 find "$ARTIFACT_DIR" -type f -print0 | sort -z | xargs -0 -r sha256sum
 wc -l -c "$GREEN_RUN_LOG"; sha256sum "$GREEN_RUN_LOG"
 case "$ARTIFACT_DIR" in "/tmp/task5b2as-runtime-green-$GREEN_SHA-artifacts-"*) ;; *) exit 1 ;; esac
-rm -f -- "$ARTIFACT_ZIP" "$GREEN_RUN_LOG"
+rm -f -- "$ARTIFACT_ZIP"
 rm -rf -- "$ARTIFACT_DIR"
 ```
 
-Capture run/job/artifact IDs, exact head SHA, full logs and hashes, recursive regular-file artifact hashes, suite/test counts, and the asserted green conclusion. Download no design, real-device, Watch, screenshot, or video artifact.
+Capture run/job/artifact IDs, exact head SHA, full logs/hashes, validated evidence JSON, recursive regular-file hashes, counts, and green conclusion. Download no design/real-device/Watch screenshot or video artifact; retain `GREEN_RUN_LOG` through verification-record ingestion, and at closeout delete only exact packet-created `/tmp` logs after their hashes are recorded.
 
 ### 6. Review the implementation
 
-After all exact-SHA checks are green,
-a fresh implementation reviewer performs SPEC review.
-A different fresh reviewer then performs QUALITY review.
+After all exact-SHA checks are green, a fresh implementation reviewer performs SPEC review and a different fresh reviewer performs QUALITY review.
 
-Every Critical or Important finding returns to the same writer for the smallest bounded correction.
-The writer reruns the affected focused homeserver checks and full exact-SHA Native workflow,
-then obtains fresh review of the new SHA.
-The loop ends only with no unresolved Critical or Important finding.
+Every Critical or Important finding returns to the same writer for the smallest correction, affected focused homeserver checks, full exact-SHA Native workflow, and fresh review of the new SHA; the loop ends only with none unresolved.
 
 ### 7. Record verification and close only this packet
 
-Write the verification record from captured evidence,
-then update the program index and packet map in their authorized closeout packet.
-Closeout marks only Task 5B2a-S `VERIFIED`.
+Write the verification record from captured evidence, then update the program index and packet map in their authorized closeout packet. Closeout marks only Task 5B2a-S `VERIFIED`.
 
-Task 5B,
-Task 5,
-and Plan 1 remain incomplete.
+Task 5B, Task 5, and Plan 1 remain incomplete.
 The handoff returns Overall POP to the next frozen packet without implying broader completion.
