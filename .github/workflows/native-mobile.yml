@@ -247,35 +247,67 @@ jobs:
           name: watch-snapshots
           path: watch-snapshots/
           if-no-files-found: warn
-      - name: Real-simulator screenshots (watchOS via simctl — no XCUITest on watchOS)
+      - name: Real Watch round seed and restore screenshots
         if: github.event_name == 'workflow_dispatch'
         run: |
-          set -x
-          WATCH_UDID=$(xcrun simctl list devices available | grep "Apple Watch Series 10 (46mm)" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
-          echo "watch udid: $WATCH_UDID"
-          [ -z "$WATCH_UDID" ] && { echo "no watch sim"; exit 0; }
-          xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
-          xcrun simctl bootstatus "$WATCH_UDID" || true
-          # Install the Debug watch build (test already built it; install is idempotent + robust).
-          APP=$(find ~/Library/Developer/Xcode/DerivedData -name "AICaddieWatch.app" -path "*Debug-watchsimulator*" 2>/dev/null | head -1)
-          echo "watch app: $APP"
-          [ -n "$APP" ] && xcrun simctl install "$WATCH_UDID" "$APP" || true
+          set -euo pipefail
+          WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
+            [.devices | to_entries[]
+              | .key as $runtime
+              | .value[]
+              | select(.isAvailable == true and .name == "Apple Watch Series 10 (46mm)")
+              | {
+                  udid: .udid,
+                  runtime: $runtime,
+                  version: ($runtime
+                    | capture("watchOS-(?<major>[0-9]+)-(?<minor>[0-9]+)")
+                    | [(.major | tonumber), (.minor | tonumber)])
+                }]
+            | sort_by(.version)
+            | last')
+          test "$WATCH_DEVICE" != "null"
+          WATCH_UDID=$(jq -r .udid <<< "$WATCH_DEVICE")
+          echo "Watch runtime device: $WATCH_DEVICE"
+
+          xcodebuild build \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatch \
+            -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/WatchRuntimeDerivedData"
+
+          APP="$RUNNER_TEMP/WatchRuntimeDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
           BID=com.ai-caddie.mobile.watchkitapp
+          test -d "$APP"
+          xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$WATCH_UDID" -b
+          xcrun simctl uninstall "$WATCH_UDID" "$BID" 2>/dev/null || true
+          xcrun simctl install "$WATCH_UDID" "$APP"
+          xcrun simctl privacy "$WATCH_UDID" grant location "$BID"
           mkdir -p watch-real-screenshots
-          for screen in home caddie-options hazards glance scorecard hole-select menu score finish start; do
-            xcrun simctl terminate "$WATCH_UDID" "$BID" 2>/dev/null || true
-            xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$screen" 2>/dev/null || true
-            sleep 4
-            xcrun simctl io "$WATCH_UDID" screenshot "watch-real-screenshots/watch-$screen.png" 2>/dev/null || true
-          done
-          ls -la watch-real-screenshots || true
+
+          launch_and_capture() {
+            local mode="$1"
+            local screenshot="$2"
+            local launch_output
+            if ! launch_output=$(xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$mode" 2>&1); then
+              printf '%s\n' "$launch_output"
+              exit 1
+            fi
+            printf '%s\n' "$launch_output" | tee "watch-real-screenshots/launch-$mode.txt"
+            sleep 5
+            xcrun simctl io "$WATCH_UDID" screenshot "watch-real-screenshots/$screenshot"
+            xcrun simctl terminate "$WATCH_UDID" "$BID"
+          }
+
+          launch_and_capture milestone-seed watch-round-seeded.png
+          launch_and_capture milestone-restore watch-round-restored.png
       - name: Upload watch real screenshots
-        if: github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: watch-real-screenshots
           path: watch-real-screenshots/
-          if-no-files-found: warn
+          if-no-files-found: error
       - name: Write native build evidence
         run: python3 ops/write_native_build_evidence.py
       - name: Upload native build evidence
