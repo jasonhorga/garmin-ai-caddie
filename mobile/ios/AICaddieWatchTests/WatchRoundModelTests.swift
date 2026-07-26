@@ -315,6 +315,53 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.recordedShotCount, 1)
     }
 
+    func testRejectedAutoShotCandidateRestoresOriginatingHoleMapAfterRelaunch() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("autoshot-map-reject-\(UUID().uuidString)", isDirectory: true)
+        let first = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory),
+            autoShotEnabled: true,
+            persistAutoShotEnabled: { _ in }
+        )
+        first.seedRound([hole(1)])
+        first.openHoleMap()
+        XCTAssertTrue(first.proposeAutoShotCandidate(
+            latitude: 40.0,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T12:00:00Z"
+        ))
+
+        let restored = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory),
+            autoShotEnabled: true,
+            persistAutoShotEnabled: { _ in }
+        )
+        restored.rejectAutoShotCandidate()
+
+        XCTAssertEqual(restored.screen, .holeMap)
+        XCTAssertNil(restored.pendingAutoShotCandidate)
+        XCTAssertTrue(restored.round?.pendingEvents.isEmpty == true)
+    }
+
+    func testAcceptedAutoShotFromHoleMapReturnsThereAfterClubConfirmation() {
+        let model = seededModel(holes: [hole(1)], autoShotEnabled: true)
+        model.openHoleMap()
+        XCTAssertTrue(model.proposeAutoShotCandidate(
+            latitude: 40.0454995,
+            longitude: 116.5461531,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T12:00:00Z"
+        ))
+
+        model.acceptAutoShotCandidate()
+        XCTAssertEqual(model.screen, .clubPrompt)
+        model.completePendingManualShot(clubName: nil)
+
+        XCTAssertEqual(model.screen, .holeMap)
+        XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.location])
+    }
+
     func testAutoShotCandidateRestoresWithoutBecomingARecordedShot() {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("autoshot-restore-\(UUID().uuidString)", isDirectory: true)
