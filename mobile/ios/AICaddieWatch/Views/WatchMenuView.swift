@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// round-13 (Watch standalone): the menu hub (spec screen ⑩) — a plain text list (S70-style, no
-/// icons) of the round actions. Presentational VStack so it renders in ImageRenderer snapshots.
+/// icons) of the round actions. The list scrolls so every action remains reachable as capabilities grow.
 public struct WatchMenuView: View {
     public let hasCaddie: Bool
     public let hasHazards: Bool
@@ -45,21 +45,26 @@ public struct WatchMenuView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("菜单").font(.headline.weight(.bold)).padding(.bottom, 2)
-            if hasCaddie { menuRow("球童建议", action: onCaddie) }
-            if hasHazards { menuRow("障碍", action: onHazards) }
-            menuRow(
-                "AutoShot Beta · \(autoShotEnabled ? autoShotStatus : (autoShotSupported ? "关闭" : "本机不支持"))",
-                action: onToggleAutoShot
-            )
-            .disabled(!autoShotSupported)
-            menuRow("计分卡", action: onScorecard)
-            menuRow("选洞", action: onHoleSelect)
-            menuRow("结束本场", role: .destructive, action: onFinish)
-            menuRow("继续打球", action: onClose)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("菜单").font(.headline.weight(.bold)).padding(.bottom, 2)
+                if hasCaddie { menuRow("球童建议", action: onCaddie) }
+                if hasHazards { menuRow("障碍", action: onHazards) }
+                menuRow(
+                    "AutoShot Beta · \(autoShotEnabled ? autoShotStatus : (autoShotSupported ? "关闭" : "本机不支持"))",
+                    action: onToggleAutoShot
+                )
+                .disabled(!autoShotSupported)
+                menuRow("计分卡", action: onScorecard)
+                menuRow("选洞", action: onHoleSelect)
+                menuRow("结束本场", role: .destructive, action: onFinish)
+                menuRow("继续打球", action: onClose)
+            }
+            .padding(.horizontal, 6)
+            .padding(.top, 18)
+            .padding(.bottom, 8)
         }
-        .padding(6)
+        .scrollIndicators(.hidden)
     }
 
     private func menuRow(_ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {

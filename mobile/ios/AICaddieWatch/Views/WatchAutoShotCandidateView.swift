@@ -22,6 +22,7 @@ public struct WatchAutoShotCandidateView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
 
             Button("记这一杆", action: onAccept)
                 .buttonStyle(.borderedProminent)
