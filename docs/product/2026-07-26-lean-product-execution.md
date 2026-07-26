@@ -24,8 +24,8 @@
 | 1 | 现有 iOS/Watch 使用一个真实球场完成开局，列出唯一真实阻塞点 | `COMPLETE` |
 | 2 | 在现有 UI 中完成已确认的成绩确认与手动记杆流程 | `COMPLETE` |
 | 3 | 关键操作后强杀可恢复，重发不丢不重，结果进入现有后端并可复盘 | `COMPLETE` |
-| 4 | Watch 可独立搜索、下载、缓存新球场并离线开局 | `CURRENT` |
-| 5 | 已确认的 S70 地图与球童页面接入真实距离、危险区和球杆数据 | `PENDING` |
+| 4 | Watch 可独立搜索、下载、缓存新球场并离线开局 | `COMPLETE` |
+| 5 | 已确认的 S70 地图与球童页面接入真实距离、危险区和球杆数据 | `CURRENT` |
 | 6 | 完整手动路径稳定后，再做 AutoShot 和按需 Deep Mine | `PENDING` |
 
 任一时刻只推进一个里程碑。里程碑完成后回到本表选择下一项，不沿实现细节继续派生计划树。
@@ -58,18 +58,20 @@
 - [Watch runtime run 30214498129](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30214498129) 成功，包含 Watch 单测、构建和强杀恢复；[CI run 30214932147](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30214932147) 整体成功，包含后端、Web 组件、lint、production build、Docker 与 visual smoke。
 - [Native Mobile run 30214932897](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30214932897) 的 iOS app tests、SwiftJCS 边界检查、390×844 设计截图采集与 artifact 上传成功后主动取消了后续无关的重复模拟器任务。Codex 已检查 `round-review.png`：逐洞显示 `罚 1 / 罚 0`，合计显示 `罚 1`，推杆、球道和总杆无截断或布局挤压。
 
-## 当前工作：Watch 独立获取真实球场并离线开局
+## 里程碑 4 结果（2026-07-26）
 
-里程碑 4 只接通一条用户可见链路，不建设新的地图分发平台：
+- 功能最终 SHA：`a7176860c14cc1aafdd3f7cfd6c6b636bfd2010c`。Watch 使用 iPhone 已下发的后端地址与登录 session，直接读取现有 course options/package/prep 接口；选球场后把真实洞、Par、T 台距离、F/M/B、plays-like、球杆、危险区、地图锚点与渲染图写入现有 Watch course/image store。没有新增 installer、CAS、hash 或地图分发协议。
+- 已缓存球场不需要手机、网络或 config 即可生成新的 round identity 并开局；在线更新失败保留缓存列表，prep 没有几何时只保留真实记分数据，不伪造地图。后端 `teeBox = unknown` 时会从真实 tees 中优先选择 Blue/White，不把 `unknown` 发回开局接口。
+- 最终 Watch runtime：[run 30216738684](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30216738684) 整体成功：Watch `93/93`、独立 App build、runtime seed/restore 与 artifact 上传全部通过。
+- Codex 已下载并亲自检查三张 416×496 真实 App 截图。首次进程 PID `26682` 显示北京丽宫、第 4 洞、P5、567 码和球道图入口；未重装、没有网络 config 且不发网络请求的第二进程 PID `27133` 从 production round/image store 恢复真实 gid31669/h4 地图、3 号木与 F/M/B；第三进程 PID `27478` 从同一 course store 显示完整北京丽宫名称、`18 洞 · Blue` 和已下载标记。诊断中无 crash、fatal、unknown screen 或 restore error。
 
-1. Watch 使用已经由 iPhone 下发的后端地址与登录 session，直接读取现有 `/api/v2/mobile/courses/options`，显示真实球场列表。
-2. 选定球场后直接下载现有 `/api/v2/mobile/courses/{global_id}/package`，从真实 package 建立 Watch round seed 与球洞地图缓存；不再从“练习记分”占位开局。
-3. 下载完成后断开手机和网络，仍能从本地缓存选择该球场、开局、记分并强杀恢复。在线失败时保留已缓存球场，不把网络错误伪装成空列表。
-4. 第一条可见验收是 Watch 启动页能看到并选择北京丽宫，进入第 1 洞后显示真实名称、Par、距离和地图；随后以离线重启证明不是临时网络状态。
+## 当前工作：真实数据进入已确认的 S70 地图与球童页面
 
-## 第一个里程碑验收
+里程碑 5 复用本轮已经落到 Watch hole state 的真实 F/M/B、plays-like、球杆、危险区、地图图像和锚点，接通用户已确认的地图/大字/球童页面。先修用户实际可见的缺口，不重画已确认 UI，不提前做 AutoShot、风、Deep Mine 或新地图协议。
 
-使用仓库已有真实球场数据和现有生产入口：
+## 持续端到端验收基线
+
+以下能力已由里程碑 1–4 建立，后续实现不得回退：
 
 1. iOS 能选择真实球场并创建 `LiveRoundPackage`。
 2. Watch 收到或读取同一球场的真实洞、Par、距离和地图数据，而不是 18×Par 4 练习占位。
