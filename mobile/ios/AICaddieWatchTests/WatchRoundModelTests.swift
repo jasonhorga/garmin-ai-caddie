@@ -42,11 +42,15 @@ final class WatchRoundModelTests: XCTestCase {
         holes: [WatchRoundState],
         uploader: (([WatchInputEvent], String) async throws -> [String])? = nil,
         finisher: ((String, WatchRoundFinishMetadata) async throws -> Void)? = nil,
-        config: WatchRoundConfig? = nil
+        config: WatchRoundConfig? = nil,
+        autoShotEnabled: Bool = false,
+        persistAutoShotEnabled: @escaping (Bool) -> Void = { _ in }
     ) -> WatchRoundModel {
         let model = WatchRoundModel(
             store: makeStore(),
             config: config,
+            autoShotEnabled: autoShotEnabled,
+            persistAutoShotEnabled: persistAutoShotEnabled,
             makeEventId: sequentialIds(),
             now: { "2026-06-20T00:00:00Z" },
             uploader: uploader,
@@ -253,6 +257,113 @@ final class WatchRoundModelTests: XCTestCase {
 
         XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.location])
         XCTAssertEqual(model.recordedShotCount, 1)
+    }
+
+    func testAutoShotIsOptInAndRejectedCandidateWritesNoShotEvent() {
+        var savedPreferences: [Bool] = []
+        let model = seededModel(
+            holes: [hole(1)],
+            persistAutoShotEnabled: { savedPreferences.append($0) }
+        )
+
+        XCTAssertFalse(model.proposeAutoShotCandidate(
+            latitude: 40.0,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T12:00:00Z"
+        ))
+        XCTAssertNil(model.pendingAutoShotCandidate)
+
+        model.setAutoShotEnabled(true)
+        XCTAssertEqual(savedPreferences, [true])
+        XCTAssertTrue(model.proposeAutoShotCandidate(
+            latitude: 40.0,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T12:00:00Z"
+        ))
+        XCTAssertEqual(model.screen, .autoShotCandidate)
+        XCTAssertNotNil(model.pendingAutoShotCandidate)
+        XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
+
+        model.rejectAutoShotCandidate()
+
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNil(model.pendingAutoShotCandidate)
+        XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
+    }
+
+    func testAcceptedAutoShotUsesExistingClubAndLocationEventPath() {
+        let model = seededModel(holes: [hole(1)], autoShotEnabled: true)
+        XCTAssertTrue(model.proposeAutoShotCandidate(
+            latitude: 40.0454995,
+            longitude: 116.5461531,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T12:00:00Z"
+        ))
+
+        model.acceptAutoShotCandidate()
+
+        XCTAssertNil(model.pendingAutoShotCandidate)
+        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.pendingManualShot?.hole, 1)
+        XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
+
+        model.completePendingManualShot(clubName: "一号木")
+
+        XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.club, .location])
+        XCTAssertEqual(model.recordedShotCount, 1)
+    }
+
+    func testAutoShotCandidateRestoresWithoutBecomingARecordedShot() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("autoshot-restore-\(UUID().uuidString)", isDirectory: true)
+        let first = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory),
+            autoShotEnabled: true,
+            persistAutoShotEnabled: { _ in }
+        )
+        first.seedRound([hole(1)])
+        XCTAssertTrue(first.proposeAutoShotCandidate(
+            latitude: 40.0,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T12:00:00Z"
+        ))
+
+        let restored = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory),
+            autoShotEnabled: true,
+            persistAutoShotEnabled: { _ in }
+        )
+
+        XCTAssertEqual(restored.screen, .autoShotCandidate)
+        XCTAssertEqual(restored.pendingAutoShotCandidate?.capturedAt, "2026-07-26T12:00:00Z")
+        XCTAssertTrue(restored.round?.pendingEvents.isEmpty == true)
+    }
+
+    func testAcceptedAutoShotAtNextTeeReusesPreviousHoleConfirmation() {
+        let model = seededModel(
+            holes: [
+                hole(1, teeLatitude: 40.0, teeLongitude: 116.0),
+                hole(2, teeLatitude: 40.001, teeLongitude: 116.0),
+            ],
+            autoShotEnabled: true
+        )
+        XCTAssertTrue(model.proposeAutoShotCandidate(
+            latitude: 40.001,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T12:00:00Z"
+        ))
+
+        model.acceptAutoShotCandidate()
+
+        XCTAssertEqual(model.screen, .scoring)
+        XCTAssertEqual(model.activeHole, 1)
+        XCTAssertEqual(model.pendingManualShot?.hole, 2)
+        XCTAssertEqual(model.pendingManualShot?.candidateFromHole, 1)
+        XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
     }
 
     func testPendingManualShotRestoresClubPromptAfterRelaunch() {

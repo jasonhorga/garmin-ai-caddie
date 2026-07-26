@@ -70,6 +70,7 @@ final class WatchRoundStoreTests: XCTestCase {
 
         XCTAssertEqual(loaded.roundId, "legacy-round")
         XCTAssertNil(loaded.pendingManualShot)
+        XCTAssertNil(loaded.pendingAutoShotCandidate)
         XCTAssertNil(loaded.scoreDraft)
     }
 
