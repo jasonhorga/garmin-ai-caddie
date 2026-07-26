@@ -53,13 +53,13 @@ jobs:
           echo "WATCH_RUNTIME=$WATCH_RUNTIME" >> "$GITHUB_ENV"
           echo "Diagnostic device: $WATCH_RUNTIME / $WATCH_UDID"
 
-      - name: Reproduce the existing Watch test build
+      - name: Build Watch app for the resolved simulator
         run: |
           set -euo pipefail
-          xcodebuild test \
+          xcodebuild build \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
-            -destination "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest" \
+            -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
             -derivedDataPath "$RUNNER_TEMP/WatchDerivedData"
 
       - name: Launch Watch app and require it to remain alive
