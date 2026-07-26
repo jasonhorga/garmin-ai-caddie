@@ -32,7 +32,8 @@ public struct WatchUITestRoot: View {
             WatchRoundHomeView(
                 courseName: "北京丽宫 · 前九", hole: 7, par: 4, holeCount: 9,
                 scoredHoles: 6, toPar: 3, distanceText: "152 码", pendingUploads: 2,
-                ringPips: (1...18).map { WatchRingPip(hole: $0, toPar: Self.demoToPars[$0], isCurrent: $0 == 7) }
+                ringPips: (1...18).map { WatchRingPip(hole: $0, toPar: Self.demoToPars[$0], isCurrent: $0 == 7) },
+                canRecordShot: true
             )
         case "caddie-options":
             WatchCaddieOptionsView(options: Self.demoOptions, recommendedId: "stock")
@@ -49,8 +50,19 @@ public struct WatchUITestRoot: View {
             WatchHoleSelectView(holes: Array(1...18), activeHole: 7)
         case "menu":
             WatchMenuView()
-        case "score":
+        case "score", "score-recommendation":
             WatchScoreHoleView(hole: 7, par: 4, score: 5, putts: 2, penalty: 0)
+        case "score-fairway":
+            WatchScoreHoleView(
+                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+                step: .fairway
+            )
+        case "club-prompt":
+            WatchClubPromptView(
+                shotNumber: 1,
+                recommendedClub: "一号木",
+                clubs: ["一号木", "三号木", "5号铁", "7号铁"]
+            )
         case "finish":
             WatchFinishRoundView(
                 courseName: "北京丽宫 · 前九", holesPlayed: 9, holeCount: 9,

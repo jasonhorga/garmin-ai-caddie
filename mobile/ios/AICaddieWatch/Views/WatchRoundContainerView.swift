@@ -16,12 +16,17 @@ public struct WatchRoundContainerView: View {
     /// watch P3: F/M/B green distances (码) from the watch's OWN GPS; when present they override the
     /// phone-pushed static distances so the hole view is a live rangefinder even without the phone.
     private let watchGreenYards: (front: Int?, center: Int?, back: Int?)?
+    /// Latest fix from the Watch itself. Manual shot capture is disabled until this exists; no
+    /// placeholder coordinate is ever manufactured.
+    private let shotLocation: WatchLocationFix?
 
     public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil,
-                watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil) {
+                watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
+                shotLocation: WatchLocationFix? = nil) {
         self.model = model
         self.holeGeometry = holeGeometry
         self.watchGreenYards = watchGreenYards
+        self.shotLocation = shotLocation
     }
 
     // watch P3: effective F/M/B — the watch-GPS value when available, else the phone-pushed distance.
@@ -52,7 +57,17 @@ public struct WatchRoundContainerView: View {
                     WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
                 },
                 hasHoleMap: hasHoleView(model.activeHoleState),
+                canRecordShot: shotLocation != nil,
                 onHoleMap: { model.openHoleMap() },
+                onRecordShot: {
+                    guard let fix = shotLocation else { return }
+                    model.beginManualShot(
+                        latitude: fix.coordinate.latitude,
+                        longitude: fix.coordinate.longitude,
+                        horizontalAccuracyM: fix.horizontalAccuracyM,
+                        capturedAt: fix.capturedAt
+                    )
+                },
                 onScoreHole: { model.startScoringActiveHole() },
                 onPreviousHole: { model.goToPreviousHole() },
                 onNextHole: { model.goToNextHole() },
@@ -96,7 +111,7 @@ public struct WatchRoundContainerView: View {
                 WatchScorecardView(
                     holes: model.allHoleStates.map { WatchScorecardRow(hole: $0.hole, par: $0.par, score: $0.score) },
                     totalToPar: model.toPar,
-                    onSelectHole: { model.selectHole($0) },
+                    onSelectHole: { model.startEditingHole($0) },
                     onBack: { model.openMenu() }
                 )
             }
@@ -109,17 +124,35 @@ public struct WatchRoundContainerView: View {
                     onBack: { model.openMenu() }
                 )
             }
+        case .clubPrompt:
+            if let pending = model.pendingManualShot {
+                WatchClubPromptView(
+                    shotNumber: pending.shotNumber,
+                    recommendedClub: model.activeHoleState?.suggestedClub,
+                    clubs: model.activeHoleState?.availableClubNames ?? [],
+                    onSelectClub: { model.completePendingManualShot(clubName: $0) },
+                    onSkipClub: { model.completePendingManualShot(clubName: nil) }
+                )
+            } else {
+                Color.black.onAppear { model.backToHome() }
+            }
         case .scoring:
             WatchScoreHoleView(
-                hole: model.activeHole,
-                par: model.activeHoleState?.par ?? 0,
+                hole: model.scoringHole ?? model.activeHole,
+                par: model.scoringHoleState?.par ?? 0,
                 score: model.draftScore,
                 putts: model.draftPutts,
                 penalty: model.draftPenalty,
+                step: model.scoreFlowStep,
+                fairway: model.draftFairway,
                 onScoreDelta: { model.adjustDraftScore($0) },
                 onPuttsDelta: { model.adjustDraftPutts($0) },
                 onPenaltyDelta: { model.adjustDraftPenalty($0) },
-                onSave: { model.saveActiveHole() },
+                onAcceptRecommended: { model.acceptRecommendedScore() },
+                onManualEntry: { model.startManualScoreEntry() },
+                onAdvance: { model.advanceScoreEntry() },
+                onFairway: { model.selectDraftFairway($0) },
+                onSave: { model.saveManualScore() },
                 onCancel: { model.cancelScoring() }
             )
         case .finishing:

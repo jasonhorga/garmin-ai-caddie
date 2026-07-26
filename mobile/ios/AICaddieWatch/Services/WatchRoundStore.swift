@@ -72,7 +72,7 @@ public final class WatchRoundStore {
     /// enqueue the event for upload. No-op for the snapshot if the hole isn't seeded yet, but the
     /// event is still queued so it isn't lost.
     @discardableResult
-    public func record(_ event: WatchInputEvent) throws -> PersistedRound {
+    public func record(_ event: WatchInputEvent, updateActiveHole: Bool = true) throws -> PersistedRound {
         var round = load() ?? PersistedRound(roundId: event.roundId)
         if round.roundId != event.roundId {
             round = PersistedRound(roundId: event.roundId)
@@ -81,7 +81,9 @@ public final class WatchRoundStore {
             round.holeStates[index] = round.holeStates[index].applying(event)
         }
         round.pendingEvents.append(event)
-        round.activeHole = event.hole
+        if updateActiveHole {
+            round.activeHole = event.hole
+        }
         try save(round)
         return round
     }

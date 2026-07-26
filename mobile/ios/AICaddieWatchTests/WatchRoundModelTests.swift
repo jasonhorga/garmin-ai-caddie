@@ -114,6 +114,7 @@ final class WatchRoundModelTests: XCTestCase {
         let model = seededModel(holes: [hole(1, par: 5)])
         model.startScoringActiveHole()
         XCTAssertEqual(model.screen, .scoring)
+        XCTAssertEqual(model.scoreFlowStep, .recommendation)
         XCTAssertEqual(model.draftScore, 5)   // defaults to par
         XCTAssertEqual(model.draftPutts, 2)   // sensible default
         XCTAssertEqual(model.draftPenalty, 0)
@@ -122,9 +123,116 @@ final class WatchRoundModelTests: XCTestCase {
     func testStartScoringUsesExistingValuesForScoredHole() {
         let model = seededModel(holes: [hole(1, par: 4, score: 6, putts: 3, penalty: 1)])
         model.startScoringActiveHole()
+        XCTAssertEqual(model.scoreFlowStep, .score)
         XCTAssertEqual(model.draftScore, 6)
         XCTAssertEqual(model.draftPutts, 3)
         XCTAssertEqual(model.draftPenalty, 1)
+    }
+
+    func testNextUnscoredHoleRequestsConfirmationWithoutAdvancing() {
+        let model = seededModel(holes: [hole(1), hole(2)])
+
+        model.goToNextHole()
+
+        XCTAssertEqual(model.activeHole, 1)
+        XCTAssertEqual(model.scoringHole, 1)
+        XCTAssertEqual(model.screen, .scoring)
+        XCTAssertEqual(model.scoreFlowStep, .recommendation)
+    }
+
+    func testAcceptRecommendedScorePersistsDefaultsAndAdvances() {
+        let model = seededModel(holes: [hole(1, par: 4), hole(2)])
+        model.goToNextHole()
+
+        model.acceptRecommendedScore()
+
+        let first = model.round?.holeStates.first { $0.hole == 1 }
+        XCTAssertEqual(first?.score, 4)
+        XCTAssertEqual(first?.putts, 2)
+        XCTAssertEqual(first?.penaltyCount, 0)
+        XCTAssertEqual(model.activeHole, 2)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertEqual(model.pendingUploads, 2)
+    }
+
+    func testManualPar4ConfirmationFollowsScorePuttsFairwayPenalty() {
+        let model = seededModel(holes: [hole(1, par: 4), hole(2)])
+        model.startScoringActiveHole()
+
+        model.startManualScoreEntry()
+        XCTAssertEqual(model.scoreFlowStep, .score)
+        model.adjustDraftScore(1)
+        model.advanceScoreEntry()
+        XCTAssertEqual(model.scoreFlowStep, .putts)
+        model.advanceScoreEntry()
+        XCTAssertEqual(model.scoreFlowStep, .fairway)
+        model.selectDraftFairway(.left)
+        XCTAssertEqual(model.scoreFlowStep, .penalty)
+        model.adjustDraftPenalty(1)
+        model.saveManualScore()
+
+        let first = model.round?.holeStates.first { $0.hole == 1 }
+        XCTAssertEqual(first?.score, 5)
+        XCTAssertEqual(first?.putts, 2)
+        XCTAssertEqual(first?.fairwayResult, "LEFT")
+        XCTAssertEqual(first?.penaltyCount, 1)
+        XCTAssertEqual(model.activeHole, 2)
+        XCTAssertEqual(model.screen, .home)
+    }
+
+    func testManualPar3ConfirmationSkipsFairway() {
+        let model = seededModel(holes: [hole(1, par: 3), hole(2)])
+        model.startScoringActiveHole()
+        model.startManualScoreEntry()
+
+        model.advanceScoreEntry()
+        XCTAssertEqual(model.scoreFlowStep, .putts)
+        model.advanceScoreEntry()
+
+        XCTAssertEqual(model.scoreFlowStep, .penalty)
+        XCTAssertNil(model.draftFairway)
+    }
+
+    func testManualShotRecordsClubThenLocationAndFeedsRecommendedScore() {
+        let model = seededModel(holes: [hole(1, par: 4), hole(2)])
+
+        model.beginManualShot(
+            latitude: 40.0454995,
+            longitude: 116.5461531,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T08:00:00Z"
+        )
+        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.pendingManualShot?.hole, 1)
+
+        model.completePendingManualShot(clubName: "一号木")
+
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNil(model.pendingManualShot)
+        XCTAssertEqual(model.recordedShotCount, 1)
+        XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.club, .location])
+        XCTAssertEqual(model.round?.pendingEvents.first?.value, "一号木")
+        XCTAssertEqual(model.round?.pendingEvents.first?.shotType, "tee")
+        XCTAssertEqual(model.round?.pendingEvents.last?.value, "40.0454995,116.5461531,5.0")
+
+        model.startScoringActiveHole()
+        XCTAssertEqual(model.draftScore, 3)
+        XCTAssertEqual(model.draftPutts, 2)
+    }
+
+    func testSkippingClubStillRecordsTheShotLocation() {
+        let model = seededModel(holes: [hole(1)])
+        model.beginManualShot(
+            latitude: 40.0,
+            longitude: 116.0,
+            horizontalAccuracyM: 4,
+            capturedAt: "2026-07-26T08:00:00Z"
+        )
+
+        model.completePendingManualShot(clubName: nil)
+
+        XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.location])
+        XCTAssertEqual(model.recordedShotCount, 1)
     }
 
     func testAdjustDraftClampsAtLowerBounds() {
@@ -175,7 +283,11 @@ final class WatchRoundModelTests: XCTestCase {
     // MARK: navigation
 
     func testNavigationClampsAtBothEnds() {
-        let model = seededModel(holes: [hole(1), hole(2), hole(3)])
+        let model = seededModel(holes: [
+            hole(1, score: 4, putts: 2),
+            hole(2, score: 4, putts: 2),
+            hole(3, score: 4, putts: 2),
+        ])
         model.goToPreviousHole()
         XCTAssertEqual(model.activeHole, 1)            // already first, clamps
         model.goToNextHole(); model.goToNextHole(); model.goToNextHole()
@@ -202,6 +314,26 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .home)
         XCTAssertEqual(model.pendingUploads, 0)   // nothing recorded
         XCTAssertEqual(model.scoredHoles, 0)      // hole still unscored
+    }
+
+    func testEditingHistoricalHoleDoesNotChangeActivePlayHole() {
+        let model = seededModel(holes: [
+            hole(1, score: 4, putts: 2),
+            hole(2, score: 5, putts: 2),
+            hole(3),
+        ])
+        model.selectHole(3)
+
+        model.startEditingHole(1)
+        XCTAssertEqual(model.activeHole, 3)
+        XCTAssertEqual(model.scoringHole, 1)
+        XCTAssertEqual(model.scoreFlowStep, .score)
+        model.adjustDraftScore(1)
+        model.saveManualScore()
+
+        XCTAssertEqual(model.round?.holeStates.first { $0.hole == 1 }?.score, 5)
+        XCTAssertEqual(model.activeHole, 3)
+        XCTAssertEqual(model.screen, .home)
     }
 
     func testConfirmFinishUploadsPendingThenClearsRound() async {

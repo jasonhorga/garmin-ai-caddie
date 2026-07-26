@@ -11,12 +11,35 @@ import Foundation
 
 public enum WatchRoundScreen: Equatable {
     case home
+    case clubPrompt
     case scoring
     case finishing
     case scorecard   // round-13: 计分卡逐洞列表
     case holeSelect  // round-13: 选洞
     case menu        // round-13: 菜单 hub(纯文字,S70 式)
     case holeMap     // watch P1b: 全屏球道图(真几何底图 + 球童线/落点/旗)
+}
+
+public enum WatchScoreFlowStep: Equatable {
+    case recommendation
+    case score
+    case putts
+    case fairway
+    case penalty
+}
+
+public enum WatchFairwayResult: String, CaseIterable, Equatable {
+    case hit = "HIT"
+    case left = "LEFT"
+    case right = "RIGHT"
+}
+
+public struct WatchPendingManualShot: Equatable {
+    public let hole: Int
+    public let location: WatchShotLocationValue
+    public let capturedAt: String
+    public let shotNumber: Int
+    public let shotType: String
 }
 
 public struct WatchRoundConfig: Equatable {
@@ -52,6 +75,10 @@ public final class WatchRoundModel: ObservableObject {
     @Published public var draftScore: Int = 0
     @Published public var draftPutts: Int = 0
     @Published public var draftPenalty: Int = 0
+    @Published public var draftFairway: WatchFairwayResult?
+    @Published public private(set) var scoreFlowStep: WatchScoreFlowStep = .recommendation
+    @Published public private(set) var scoringHole: Int?
+    @Published public private(set) var pendingManualShot: WatchPendingManualShot?
     @Published public private(set) var isUploading: Bool = false
     @Published public private(set) var uploadError: String?
 
@@ -64,6 +91,7 @@ public final class WatchRoundModel: ObservableObject {
     private let makeEventId: () -> String
     private let now: () -> String
     private let uploaderOverride: (([WatchInputEvent], String) async throws -> [String])?
+    private var advanceAfterScoring = true
 
     public init(
         store: WatchRoundStore,
@@ -96,7 +124,16 @@ public final class WatchRoundModel: ObservableObject {
         return round.holeStates.first { $0.hole == round.activeHole }
     }
 
+    public var scoringHoleState: WatchRoundState? {
+        guard let round, let scoringHole else { return nil }
+        return round.holeStates.first { $0.hole == scoringHole }
+    }
+
     public var holeCount: Int { round?.holeStates.count ?? 0 }
+
+    public var recordedShotCount: Int {
+        recordedShotCount(for: activeHole)
+    }
 
     /// All holes' states, hole-ordered — feeds the round-13 计分卡 / 选洞 / 18洞环.
     public var allHoleStates: [WatchRoundState] {
@@ -220,24 +257,144 @@ public final class WatchRoundModel: ObservableObject {
 
     public func startScoringActiveHole() {
         guard let hole = activeHoleState else { return }
+        beginScoring(hole: hole, advanceAfterSave: true, offerRecommendation: hole.score == 0)
+    }
+
+    /// Edit a completed/historical hole without moving the live-play cursor.
+    public func startEditingHole(_ holeNumber: Int) {
+        guard let hole = round?.holeStates.first(where: { $0.hole == holeNumber }) else { return }
+        beginScoring(hole: hole, advanceAfterSave: false, offerRecommendation: false)
+    }
+
+    private func beginScoring(
+        hole: WatchRoundState,
+        advanceAfterSave: Bool,
+        offerRecommendation: Bool
+    ) {
         let unscored = hole.score == 0
-        draftScore = unscored ? hole.par : hole.score
+        let shotCount = recordedShotCount(for: hole.hole)
+        draftScore = unscored ? (shotCount > 0 ? shotCount + 2 : hole.par) : hole.score
         draftPutts = unscored ? 2 : hole.putts
         draftPenalty = hole.penaltyCount
+        draftFairway = hole.fairwayResult.flatMap { WatchFairwayResult(rawValue: $0.uppercased()) }
+        scoringHole = hole.hole
+        self.advanceAfterScoring = advanceAfterSave
+        scoreFlowStep = offerRecommendation ? .recommendation : .score
         screen = .scoring
+    }
+
+    // MARK: - manual shot
+
+    public func beginManualShot(
+        latitude: Double,
+        longitude: Double,
+        horizontalAccuracyM: Double,
+        capturedAt: String
+    ) {
+        guard let hole = activeHoleState,
+              let location = WatchShotLocationValue(
+                  latitude: latitude,
+                  longitude: longitude,
+                  horizontalAccuracyM: horizontalAccuracyM
+              ) else { return }
+        let shotNumber = recordedShotCount(for: hole.hole) + 1
+        pendingManualShot = WatchPendingManualShot(
+            hole: hole.hole,
+            location: location,
+            capturedAt: capturedAt,
+            shotNumber: shotNumber,
+            shotType: shotNumber == 1 ? "tee" : (hole.shotType ?? "approach")
+        )
+        screen = .clubPrompt
+    }
+
+    public func completePendingManualShot(clubName: String?) {
+        guard let pendingManualShot else { return }
+        var latest = round
+        if let clubName = clubName?.trimmingCharacters(in: .whitespacesAndNewlines), !clubName.isEmpty {
+            latest = record(
+                hole: pendingManualShot.hole,
+                kind: .club,
+                value: clubName,
+                createdAt: pendingManualShot.capturedAt,
+                contextClub: clubName,
+                shotType: pendingManualShot.shotType
+            )
+        }
+        latest = record(
+            hole: pendingManualShot.hole,
+            kind: .location,
+            value: pendingManualShot.location.encodedValue,
+            createdAt: pendingManualShot.capturedAt,
+            shotType: pendingManualShot.shotType
+        )
+        round = latest
+        self.pendingManualShot = nil
+        screen = .home
+    }
+
+    private func recordedShotCount(for hole: Int) -> Int {
+        round?.pendingEvents.reduce(into: 0) { count, event in
+            if event.hole == hole, event.kind == .location {
+                count += 1
+            }
+        } ?? 0
     }
 
     public func adjustDraftScore(_ delta: Int) { draftScore = max(1, draftScore + delta) }
     public func adjustDraftPutts(_ delta: Int) { draftPutts = max(0, draftPutts + delta) }
     public func adjustDraftPenalty(_ delta: Int) { draftPenalty = max(0, draftPenalty + delta) }
 
+    public func startManualScoreEntry() {
+        guard screen == .scoring else { return }
+        scoreFlowStep = .score
+    }
+
+    public func advanceScoreEntry() {
+        guard let hole = scoringHoleState else { return }
+        switch scoreFlowStep {
+        case .recommendation:
+            scoreFlowStep = .score
+        case .score:
+            scoreFlowStep = .putts
+        case .putts:
+            scoreFlowStep = hole.par == 3 ? .penalty : .fairway
+        case .fairway:
+            if draftFairway != nil { scoreFlowStep = .penalty }
+        case .penalty:
+            break
+        }
+    }
+
+    public func selectDraftFairway(_ result: WatchFairwayResult) {
+        draftFairway = result
+        scoreFlowStep = .penalty
+    }
+
     /// Leave the scoring screen without recording anything (the draft is discarded).
-    public func cancelScoring() { screen = .home }
+    public func cancelScoring() {
+        scoringHole = nil
+        screen = .home
+    }
+
+    public func acceptRecommendedScore() {
+        guard scoreFlowStep == .recommendation else { return }
+        persistScoreDraft()
+    }
+
+    public func saveManualScore() {
+        persistScoreDraft()
+    }
 
     /// Persist the draft for the active hole as `WatchInputEvent`s (only for fields that changed), then
     /// return to the round home and advance to the next hole.
     public func saveActiveHole() {
-        guard let hole = activeHoleState else { return }
+        persistScoreDraft()
+    }
+
+    private func persistScoreDraft() {
+        guard let hole = scoringHoleState else { return }
+        let shouldAdvance = advanceAfterScoring && hole.hole == activeHole
         var latest = round
         if draftScore != hole.score {
             latest = record(hole: hole.hole, kind: .score, value: String(draftScore))
@@ -248,21 +405,44 @@ public final class WatchRoundModel: ObservableObject {
         if draftPenalty != hole.penaltyCount {
             latest = record(hole: hole.hole, kind: .penalty, value: String(draftPenalty))
         }
+
+        // Fairway is already part of the persisted Watch hole projection. Keep it local in this
+        // milestone; the existing backend event adapter is wired in milestone 3 with the rest of the
+        // strong-sync path, rather than inventing a second score protocol here.
+        if hole.par != 3, let draftFairway, var local = latest,
+           let index = local.holeStates.firstIndex(where: { $0.hole == hole.hole }) {
+            local.holeStates[index].fairwayResult = draftFairway.rawValue
+            try? store.save(local)
+            latest = local
+        }
+
         round = latest
+        scoringHole = nil
         screen = .home
-        goToNextHole()
+        if shouldAdvance {
+            advanceToNextHole()
+        }
     }
 
-    private func record(hole: Int, kind: WatchInputKind, value: String) -> WatchRoundStore.PersistedRound? {
+    private func record(
+        hole: Int,
+        kind: WatchInputKind,
+        value: String,
+        createdAt: String? = nil,
+        contextClub: String? = nil,
+        shotType: String? = nil
+    ) -> WatchRoundStore.PersistedRound? {
         let event = WatchInputEvent(
             eventId: makeEventId(),
             roundId: round?.roundId ?? "",
             hole: hole,
             kind: kind,
             value: value,
-            createdAt: now()
+            createdAt: createdAt ?? now(),
+            contextClub: contextClub,
+            shotType: shotType
         )
-        return try? store.record(event)
+        return try? store.record(event, updateActiveHole: false)
     }
 
     // MARK: - hole navigation
@@ -274,6 +454,14 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     public func goToNextHole() {
+        if activeHoleState?.score == 0 {
+            startScoringActiveHole()
+            return
+        }
+        advanceToNextHole()
+    }
+
+    private func advanceToNextHole() {
         let holes = sortedHoleNumbers
         guard let current = holes.firstIndex(of: activeHole), current + 1 < holes.count else { return }
         setActiveHole(holes[current + 1])

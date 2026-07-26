@@ -6,11 +6,11 @@ final class WatchBackendClientTests: XCTestCase {
         WatchBackendClient(baseURL: URL(string: "https://caddie.example")!, adminToken: adminToken)
     }
 
-    func testMapsWatchInputEventsToBackendEventsWithAppleWatchClientId() {
+    func testMapsWatchInputEventsToBackendEventsWithAppleWatchClientId() throws {
         let client = makeClient()
 
         let score = WatchInputEvent(eventId: "e1", roundId: "r1", hole: 3, kind: .score, value: "5", createdAt: "2026-06-20T00:00:00Z")
-        let scoreDict = client.backendEvent(from: score)
+        let scoreDict = try client.backendEvent(from: score)
         XCTAssertEqual(scoreDict["kind"] as? String, "score")
         XCTAssertEqual(scoreDict["clientId"] as? String, "apple-watch")
         XCTAssertEqual(scoreDict["schema"] as? String, "ai-caddie-live-round-event-v1")
@@ -18,7 +18,7 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual((scoreDict["payload"] as? [String: Any])?["strokes"] as? Int, 5)
 
         let club = WatchInputEvent(eventId: "e2", roundId: "r1", hole: 3, kind: .club, value: "7I", createdAt: "t", shotType: "approach", lie: "fairway")
-        let clubDict = client.backendEvent(from: club)
+        let clubDict = try client.backendEvent(from: club)
         XCTAssertEqual(clubDict["kind"] as? String, "club")
         let clubPayload = clubDict["payload"] as? [String: Any]
         XCTAssertEqual(clubPayload?["clubName"] as? String, "7I")
@@ -27,11 +27,22 @@ final class WatchBackendClientTests: XCTestCase {
 
         // A distance input is recorded as a club event carrying the new to-pin distance.
         let distance = WatchInputEvent(eventId: "e3", roundId: "r1", hole: 3, kind: .distance, value: "142", createdAt: "t", contextClub: "8I")
-        let distDict = client.backendEvent(from: distance)
+        let distDict = try client.backendEvent(from: distance)
         XCTAssertEqual(distDict["kind"] as? String, "club")
         let distPayload = distDict["payload"] as? [String: Any]
         XCTAssertEqual(distPayload?["clubName"] as? String, "8I")
         XCTAssertEqual(distPayload?["distanceToPinM"] as? Double, 142)
+
+        let location = WatchInputEvent(
+            eventId: "e4", roundId: "r1", hole: 3, kind: .location,
+            value: "40.0454995,116.5461531,5.0", createdAt: "t"
+        )
+        let locationDict = try client.backendEvent(from: location)
+        XCTAssertEqual(locationDict["kind"] as? String, "location")
+        let locationPayload = locationDict["payload"] as? [String: Any]
+        XCTAssertEqual(locationPayload?["latitude"] as? Double, 40.0454995)
+        XCTAssertEqual(locationPayload?["longitude"] as? Double, 116.5461531)
+        XCTAssertEqual(locationPayload?["horizontalAccuracyM"] as? Double, 5)
     }
 
     func testEventBatchRequestCarriesHeadersAndMappedAppleWatchBatch() throws {

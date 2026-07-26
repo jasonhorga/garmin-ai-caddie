@@ -13,6 +13,8 @@ public struct WatchRoundHomeView: View {
     public let toPar: Int?
     public let distanceText: String?
     public let pendingUploads: Int
+    public let canRecordShot: Bool
+    public let onRecordShot: () -> Void
     public let onScoreHole: () -> Void
     public let onPreviousHole: () -> Void
     public let onNextHole: () -> Void
@@ -33,7 +35,9 @@ public struct WatchRoundHomeView: View {
         pendingUploads: Int = 0,
         ringPips: [WatchRingPip] = [],
         hasHoleMap: Bool = false,
+        canRecordShot: Bool = false,
         onHoleMap: @escaping () -> Void = {},
+        onRecordShot: @escaping () -> Void = {},
         onScoreHole: @escaping () -> Void = {},
         onPreviousHole: @escaping () -> Void = {},
         onNextHole: @escaping () -> Void = {},
@@ -50,7 +54,9 @@ public struct WatchRoundHomeView: View {
         self.pendingUploads = pendingUploads
         self.ringPips = ringPips
         self.hasHoleMap = hasHoleMap
+        self.canRecordShot = canRecordShot
         self.onHoleMap = onHoleMap
+        self.onRecordShot = onRecordShot
         self.onScoreHole = onScoreHole
         self.onPreviousHole = onPreviousHole
         self.onNextHole = onNextHole
@@ -97,10 +103,18 @@ public struct WatchRoundHomeView: View {
                 }
                 .tint(AICaddieDesignTokens.par)
             }
-            Button(action: onScoreHole) {
-                Text("记这一洞").frame(maxWidth: .infinity)
+            HStack(spacing: 6) {
+                Button(action: onRecordShot) {
+                    Text("记一杆").frame(maxWidth: .infinity)
+                }
+                .tint(AICaddieDesignTokens.par)
+                .disabled(!canRecordShot)
+                .accessibilityHint(canRecordShot ? "先保存当前位置，再选择实际球杆" : "等待 GPS 定位")
+
+                Button(action: onScoreHole) {
+                    Text("本洞成绩").frame(maxWidth: .infinity)
+                }
             }
-            .tint(AICaddieDesignTokens.par)
             HStack(spacing: 10) {
                 Button(action: onPreviousHole) {
                     Image(systemName: "chevron.left")

@@ -55,7 +55,12 @@ public struct AICaddieWatchApp: App {
             // watch P1b: pass the active hole's map geometry (topo image + anchors). Recomputed every
             // render — a @Published change on syncClient (incl. lastHoleImageKey when the image lands)
             // re-renders this body, so the 「球道图」 entry appears as soon as the topo transfer completes.
-            WatchRoundContainerView(model: roundModel, holeGeometry: activeHoleGeometry, watchGreenYards: watchGreenYards)
+            WatchRoundContainerView(
+                model: roundModel,
+                holeGeometry: activeHoleGeometry,
+                watchGreenYards: watchGreenYards,
+                shotLocation: watchLocation.latestFix
+            )
         } else if let state = syncClient.currentState {
             // phone-coordinated companion glance (legacy single-hole push).
             WatchHoleView(

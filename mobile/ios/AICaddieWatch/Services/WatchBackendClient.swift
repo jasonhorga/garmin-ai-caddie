@@ -13,6 +13,10 @@ public struct WatchBackendEventResult: Equatable {
     public let serverSequence: Int
 }
 
+public enum WatchBackendClientError: Error {
+    case invalidShotLocation
+}
+
 public final class WatchBackendClient {
     private let baseURL: URL
     private let adminToken: String?
@@ -42,7 +46,7 @@ public final class WatchBackendClient {
     /// Mirror of the phone's `WatchEventBridge.mapWatchInputEvent`, but emits the JSON wire dict the
     /// `/events` endpoint accepts (stamped with this client's id). Keeping the mapping here lets the
     /// watch post on its own when the phone is unreachable.
-    public func backendEvent(from event: WatchInputEvent) -> [String: Any] {
+    public func backendEvent(from event: WatchInputEvent) throws -> [String: Any] {
         let kind: String
         var payload: [String: Any]
         switch event.kind {
@@ -63,6 +67,17 @@ public final class WatchBackendClient {
             kind = "club"
             payload = clubPayload(for: event, clubName: event.contextClub ?? event.value)
             payload["distanceToPinM"] = Double(event.value) ?? 0
+        case .location:
+            guard let location = WatchShotLocationValue(encodedValue: event.value) else {
+                throw WatchBackendClientError.invalidShotLocation
+            }
+            kind = "location"
+            payload = [
+                "latitude": location.latitude,
+                "longitude": location.longitude,
+                "horizontalAccuracyM": location.horizontalAccuracyM,
+                "source": "apple_watch",
+            ]
         }
         return [
             "schema": "ai-caddie-live-round-event-v1",
@@ -98,7 +113,7 @@ public final class WatchBackendClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
         applyAuth(&request)
-        let body: [String: Any] = ["roundId": roundId, "events": events.map { backendEvent(from: $0) }]
+        let body: [String: Any] = ["roundId": roundId, "events": try events.map { try backendEvent(from: $0) }]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
     }

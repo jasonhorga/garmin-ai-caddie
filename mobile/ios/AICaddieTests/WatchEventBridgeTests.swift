@@ -223,6 +223,26 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(liveEvent.payload["source"], .string("apple_watch"))
     }
 
+    func testWatchManualShotLocationMapsToLiveLocationEvent() throws {
+        let bridge = WatchEventBridge()
+        let event = WatchInputEvent(
+            eventId: "watch-location-1",
+            roundId: "round-1",
+            hole: 1,
+            kind: .location,
+            value: "40.0454995,116.5461531,5.0",
+            createdAt: "2026-07-26T08:00:00Z"
+        )
+
+        let liveEvent = try bridge.mapWatchInputEvent(event)
+
+        XCTAssertEqual(liveEvent.kind, .location)
+        XCTAssertEqual(liveEvent.payload["latitude"], .number(40.0454995))
+        XCTAssertEqual(liveEvent.payload["longitude"], .number(116.5461531))
+        XCTAssertEqual(liveEvent.payload["horizontalAccuracyM"], .number(5))
+        XCTAssertEqual(liveEvent.payload["source"], .string("apple_watch"))
+    }
+
     func testWatchClubInputIncludesDecisionContextForAudit() throws {
         let bridge = WatchEventBridge()
         let event = WatchInputEvent(

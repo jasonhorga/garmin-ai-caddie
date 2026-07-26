@@ -75,7 +75,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
             hole: 7, par: 4, holeCount: 9,
             scoredHoles: 6, toPar: 3,
             distanceText: "152 码", pendingUploads: 2,
-            ringPips: pips
+            ringPips: pips,
+            canRecordShot: true
         )
         .frame(width: 198, height: 198)
         .background(Color.black)
@@ -141,9 +142,32 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let view = WatchScoreHoleView(
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0
         )
-        .frame(width: 198)
+        .frame(width: 198, height: 242)
         .background(Color.black)
         try render(view, named: "watch-score-hole")
+    }
+
+    @MainActor
+    func testRenderWatchScoreFairwayStep() throws {
+        let view = WatchScoreHoleView(
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+            step: .fairway
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-score-fairway")
+    }
+
+    @MainActor
+    func testRenderWatchClubPrompt() throws {
+        let view = WatchClubPromptView(
+            shotNumber: 1,
+            recommendedClub: "一号木",
+            clubs: ["一号木", "三号木", "5号铁", "7号铁"]
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-club-prompt")
     }
 
     @MainActor

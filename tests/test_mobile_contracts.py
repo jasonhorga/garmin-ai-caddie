@@ -410,10 +410,20 @@ class MobileContractTests(unittest.TestCase):
         }
         invalid_distance_event = {**distance_event, "eventId": "watch-distance-bad"}
         invalid_distance_event.pop("contextClub")
+        location_event = {
+            "schema": "ai-caddie-watch-input-event-v1",
+            "eventId": "watch-location-1",
+            "roundId": "round-1",
+            "hole": 7,
+            "kind": "location",
+            "value": "40.0454995,116.5461531,5.0",
+            "createdAt": "2026-07-26T08:00:00Z",
+        }
 
         _assert_json_schema_accepts(self, state_schema, state)
         _assert_json_schema_accepts(self, input_schema, club_event)
         _assert_json_schema_accepts(self, input_schema, distance_event)
+        _assert_json_schema_accepts(self, input_schema, location_event)
         _assert_json_schema_rejects(self, input_schema, invalid_distance_event)
 
     def test_live_round_package_can_report_ready_dependency_checks(self) -> None:
@@ -2606,6 +2616,7 @@ class MobileContractTests(unittest.TestCase):
             "case .penalty:",
             "case .club:",
             "case .distance:",
+            "case .location:",
             "kind: .score",
             "kind: .putt",
             "kind: .penalty",

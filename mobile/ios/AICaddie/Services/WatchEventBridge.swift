@@ -7,6 +7,7 @@ public enum WatchInputKind: String, Codable, Equatable {
     case penalty
     case club
     case distance
+    case location
 }
 
 public struct WatchClubOption: Codable, Equatable, Identifiable {
@@ -298,6 +299,9 @@ public final class WatchEventBridge: NSObject {
                 kind: .club,
                 payload: payload
             )
+        case .location:
+            let location = try shotLocationPayload(event.value)
+            return liveEvent(event, kind: .location, payload: location)
         }
     }
 
@@ -711,6 +715,21 @@ public final class WatchEventBridge: NSObject {
             throw WatchEventBridgeError.invalidNumericInput
         }
         return .number(parsed)
+    }
+
+    private func shotLocationPayload(_ value: String) throws -> [String: JSONValue] {
+        let parts = value.split(separator: ",", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let latitude = Double(parts[0]), latitude.isFinite, (-90...90).contains(latitude),
+              let longitude = Double(parts[1]), longitude.isFinite, (-180...180).contains(longitude),
+              let accuracy = Double(parts[2]), accuracy.isFinite, accuracy >= 0 else {
+            throw WatchEventBridgeError.invalidNumericInput
+        }
+        return [
+            "latitude": .number(latitude),
+            "longitude": .number(longitude),
+            "horizontalAccuracyM": .number(accuracy),
+        ]
     }
 
     private func jsonStringOrNull(_ value: String?) -> JSONValue {
