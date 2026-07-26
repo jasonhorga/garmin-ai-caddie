@@ -27,8 +27,10 @@ public struct AICaddieWatchApp: App {
                     }
                 }
                 .onAppear {
-                    watchLocation.requestAuthorization()
-                    watchLocation.startUpdatingLocation()
+                    if WatchLocationLaunchPolicy.shouldStartLocationServices() {
+                        watchLocation.requestAuthorization()
+                        watchLocation.startUpdatingLocation()
+                    }
                 }
         }
     }
@@ -108,5 +110,20 @@ public struct AICaddieWatchApp: App {
         let back = WatchGeoMath.yards(from: c.latitude, c.longitude, toLat: s.backGreenLat, s.backGreenLon)
         guard front != nil || center != nil || back != nil else { return nil }
         return (front, center, back)
+    }
+}
+
+public enum WatchLocationLaunchPolicy {
+    public static func shouldStartLocationServices(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+#if DEBUG
+        guard let index = arguments.firstIndex(of: "-uitest-screen"), index + 1 < arguments.count else {
+            return true
+        }
+        return false
+#else
+        return true
+#endif
     }
 }
