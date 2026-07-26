@@ -541,15 +541,36 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertFalse(model.isUploading)
     }
 
-    func testConfirmFinishWithoutConfigFinishesLocally() async {
-        // a local practice round with no backend configured just finishes cleanly (no scary error)
+    func testConfirmFinishWithoutConfigKeepsPendingRoundForLaterSync() async {
         let model = seededModel(holes: [hole(1, par: 4)])
         model.startScoringActiveHole()
         model.saveActiveHole()
+        let pendingBefore = model.pendingUploads
+
         await model.confirmFinish()
-        XCTAssertNil(model.uploadError)
-        XCTAssertNil(model.round)
-        XCTAssertEqual(model.screen, .home)
+
+        XCTAssertNotNil(model.round)
+        XCTAssertEqual(model.pendingUploads, pendingBefore)
+        XCTAssertEqual(model.screen, .finishing)
+        XCTAssertNotNil(model.uploadError)
+    }
+
+    func testConfirmFinishKeepsEventsMissingFromUploaderAcknowledgement() async {
+        let model = seededModel(
+            holes: [hole(1, par: 4)],
+            uploader: { events, _ in [events[0].eventId] }
+        )
+        model.startScoringActiveHole()
+        model.adjustDraftScore(1)
+        model.saveActiveHole()
+        XCTAssertEqual(model.pendingUploads, 2)
+
+        await model.confirmFinish()
+
+        XCTAssertNotNil(model.round)
+        XCTAssertEqual(model.round?.pendingEvents.map(\.eventId), ["evt-2"])
+        XCTAssertEqual(model.screen, .finishing)
+        XCTAssertNotNil(model.uploadError)
     }
 
     // MARK: practice round

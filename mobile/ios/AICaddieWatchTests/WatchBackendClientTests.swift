@@ -113,13 +113,23 @@ final class WatchBackendClientTests: XCTestCase {
 
     func testParseEventResultDecodesAcceptedAndSequence() throws {
         let client = makeClient()
-        let data = try JSONSerialization.data(withJSONObject: ["accepted": 1, "duplicate": false, "serverSequence": 7])
+        let data = try JSONSerialization.data(withJSONObject: [
+            "accepted": 1,
+            "duplicate": false,
+            "acceptedEventIds": ["event-1"],
+            "duplicateEventIds": ["event-0"],
+            "serverSequence": 7,
+        ])
         let result = client.parseEventResult(data)
         XCTAssertEqual(result.accepted, 1)
         XCTAssertFalse(result.duplicate)
+        XCTAssertEqual(result.acceptedEventIds, ["event-1"])
+        XCTAssertEqual(result.duplicateEventIds, ["event-0"])
+        XCTAssertEqual(result.acknowledgedEventIds, ["event-1", "event-0"])
         XCTAssertEqual(result.serverSequence, 7)
 
         // Missing/garbled fields degrade to safe defaults rather than throwing.
+        XCTAssertEqual(client.parseEventResult(Data()).acknowledgedEventIds, [])
         XCTAssertEqual(client.parseEventResult(Data()).serverSequence, 0)
     }
 }

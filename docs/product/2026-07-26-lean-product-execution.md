@@ -58,6 +58,8 @@
 2. 第一条可见验收是：点击“记一杆”后在成绩确认页或球杆页强杀，重开仍回到同一页面，同一杆既不丢失也不提前写成重复事件。
 3. 继续复用 Watch 待发送事件、iOS replay/ACK 和后端 `(clientId,eventId)` 去重；本地恢复走通后，再验证同一结果进入现有后端并在 iOS/Web 复盘。
 
+本地交互恢复已验收：实现 SHA `4e2b075b882a8cee6e76d16fbf6cdfe5365de8ac`；[Watch runtime run 30212011485](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30212011485) 成功，Watch `86/86`。Codex 已逐张检查球杆选择与候选下一洞成绩确认的 seed/restore 截图；独立进程 PID 分别为 `35293 → 35774` 与 `35912 → 36708`，恢复前后页面事实一致且无系统权限弹窗。下一步只处理待同步事件不丢失、精确 ACK 和 Fairway 进入统一复盘。
+
 ## 第一个里程碑验收
 
 使用仓库已有真实球场数据和现有生产入口：
