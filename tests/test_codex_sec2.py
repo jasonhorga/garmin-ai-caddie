@@ -100,6 +100,11 @@ class RouteAuthPolicyTests(unittest.TestCase):
         ):
             self.assertTrue(_requires_admin_token("POST", path, empty), path)
 
+    def test_mobile_round_finish_is_prebody_gated_and_player_scoped(self) -> None:
+        path = "/api/v2/mobile/rounds/live-round-1/finish"
+        self.assertTrue(_requires_admin_token("POST", path, QueryParams("")))
+        self.assertTrue(is_player_scoped_route("POST", path))
+
     def test_auth_apple_link_is_admin_gated(self) -> None:
         # /auth/apple/link is the owner-bootstrap endpoint (links an Apple sub to the owner user).
         # It must be admin-gated; the three other auth routes must NOT be admin-gated (/apple is

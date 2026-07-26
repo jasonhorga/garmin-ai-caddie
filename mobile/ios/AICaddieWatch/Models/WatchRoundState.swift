@@ -209,7 +209,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let lastShotDistanceM: Double?
     public let distanceFromLastShotM: Double?
     public let greenInRegulation: Bool?
-    public internal(set) var fairwayResult: String?
+    public let fairwayResult: String?
     public let geometryCoverage: String?
     // watch P0.2: green Front/Middle/Back WGS84 coords (so the watch recomputes F/M/B from its OWN GPS)
     // + the topo image's geo→px projection (so the watch places its GPS/pin/landings on /topo.png).

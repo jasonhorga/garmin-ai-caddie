@@ -288,6 +288,7 @@ def is_player_scoped_route(method: str, path: str) -> bool:
         return (
             (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/events/ack"))
+            or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/finish"))
             # Media WRITES — the media store is per-player partitioned, so a member writes ONLY to
             # their own media (the handlers thread current_player_id).
             or path == "/api/v2/media"

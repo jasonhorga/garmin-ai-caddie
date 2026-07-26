@@ -129,6 +129,7 @@ class PlayerTokenResolutionTests(unittest.TestCase):
         self.assertTrue(players_api.is_player_scoped_route("POST", "/api/v2/caddie/decision"))
         self.assertTrue(players_api.is_player_scoped_route("POST", "/api/v2/caddie/decisions/decision-1/audit"))
         self.assertTrue(players_api.is_player_scoped_route("POST", "/api/v2/annotations"))
+        self.assertTrue(players_api.is_player_scoped_route("POST", "/api/v2/mobile/rounds/live-round-1/finish"))
         self.assertTrue(players_api.is_player_scoped_route("POST", "/api/v2/reports/round/900001/generate"))
         self.assertTrue(players_api.is_player_scoped_route("POST", "/api/v2/reports/trend/recent_10/generate"))
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/weather/snapshot"))

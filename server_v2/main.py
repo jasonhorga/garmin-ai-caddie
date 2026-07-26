@@ -317,6 +317,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         ("/api/v2/media/findings/", "/confirmation"),
         ("/api/v2/mobile/rounds/", "/events"),
         ("/api/v2/mobile/rounds/", "/events/ack"),
+        ("/api/v2/mobile/rounds/", "/finish"),
         ("/api/v2/mobile/rounds/", "/reconciliation/apply"),
         ("/api/v2/reports/round/", "/generate"),
         ("/api/v2/reports/trend/", "/generate"),

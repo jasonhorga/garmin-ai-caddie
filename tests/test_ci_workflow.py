@@ -431,7 +431,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("xcodebuild test", watch_test)
         self.assertIn("-project mobile/ios/AICaddieNative.xcodeproj", watch_test)
         self.assertIn("-scheme AICaddieWatch", watch_test)
-        self.assertIn('-destination "$WATCH_DESTINATION"', watch_test)
+        self.assertIn('-destination "platform=watchOS Simulator,id=$NATIVE_WATCH_UDID"', watch_test)
 
         self.assertEqual("python3 ops/write_native_build_evidence.py", steps["Write native build evidence"]["run"])
 
