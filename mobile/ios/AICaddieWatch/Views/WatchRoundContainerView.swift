@@ -100,12 +100,50 @@ public struct WatchRoundContainerView: View {
                 Color.black.onAppear { model.backToHome() }
             }
         case .menu:
-            WatchMenuView(
-                onScorecard: { model.openScorecard() },
-                onHoleSelect: { model.openHoleSelect() },
-                onFinish: { model.requestFinish() },
-                onClose: { model.backToHome() }
-            )
+            ScrollView {
+                WatchMenuView(
+                    hasCaddie: model.caddieDetailAvailable,
+                    hasHazards: model.hazardDetailAvailable,
+                    onCaddie: { model.openCaddie() },
+                    onHazards: { model.openHazards() },
+                    onScorecard: { model.openScorecard() },
+                    onHoleSelect: { model.openHoleSelect() },
+                    onFinish: { model.requestFinish() },
+                    onClose: { model.backToHome() }
+                )
+            }
+        case .caddie:
+            if let state = model.activeHoleState, model.caddieDetailAvailable {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        instrumentBackButton
+                        Text("球童建议").font(.headline)
+                        WatchCaddieGlanceView(state: state)
+                        if !state.caddieOptions.isEmpty {
+                            Divider()
+                            WatchCaddieOptionsView(
+                                options: state.caddieOptions,
+                                recommendedId: state.offlineOptionId
+                            )
+                        }
+                    }
+                    .padding(8)
+                }
+            } else {
+                Color.black.onAppear { model.backToMenu() }
+            }
+        case .hazards:
+            if let state = model.activeHoleState, model.hazardDetailAvailable {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        instrumentBackButton
+                        WatchHazardView(hazards: state.hazards)
+                    }
+                    .padding(8)
+                }
+            } else {
+                Color.black.onAppear { model.backToMenu() }
+            }
         case .scorecard:
             ScrollView {
                 WatchScorecardView(
@@ -179,7 +217,8 @@ public struct WatchRoundContainerView: View {
         return "\(WatchUnits.yards(distanceM)) 码"
     }
 
-    // watch P1b: the caddie recommendation shown on the hole map's data column.
+    // A prepared/offline recommendation is useful inside the caddie detail surface, but D02 forbids it
+    // from appearing on the root until freshness/mode/dispersion are all explicitly gated.
     private func caddieClub(_ s: WatchRoundState) -> String {
         s.suggestedClub ?? s.caddieOptions.first?.clubName ?? s.selectedClub ?? "—"
     }
@@ -204,10 +243,11 @@ public struct WatchRoundContainerView: View {
             frontGreen: frontYd(s),
             centerGreen: centerYd(s),
             backGreen: backYd(s),
-            playsLikeDelta: Int((s.elevationDeltaM ?? 0).rounded()),
+            playsLikeDelta: model.activePlaysLikeDeltaYards,
             lastShot: WatchUnits.yards(s.lastShotDistanceM ?? 0),
             caddieClub: caddieClub(s),
             caddieNote: caddieNote(s),
+            showCaddieRecommendation: model.rootCaddieLayerAvailable,
             // owner 2026-07-08 (Fable audit): KEEP the scoring ring — real per-hole scores, current hole hi.
             ringPips: model.allHoleStates.map {
                 WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
@@ -226,9 +266,17 @@ public struct WatchRoundContainerView: View {
             frontYd: watchGreenYards?.front ?? s.frontGreenM.map { WatchUnits.yards($0) },
             centerYd: watchGreenYards?.center ?? s.centerGreenM.map { WatchUnits.yards($0) },
             backYd: watchGreenYards?.back ?? s.backGreenM.map { WatchUnits.yards($0) },
-            caddieLine: caddieLine(s),
+            caddieLine: model.rootCaddieLayerAvailable ? caddieLine(s) : nil,
             bigText: big
         )
+    }
+
+    private var instrumentBackButton: some View {
+        Button(action: { model.backToMenu() }) {
+            Label("菜单", systemImage: "chevron.backward")
+                .font(.caption.weight(.semibold))
+        }
+        .buttonStyle(.plain)
     }
 
     private var backToHubButton: some View {

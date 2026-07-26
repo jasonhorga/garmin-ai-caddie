@@ -28,7 +28,8 @@ public struct WatchUITestRoot: View {
         switch screen {
         case "milestone-seed", "milestone-restore":
             milestoneRound
-        case "standalone-course-seed", "standalone-course-restore":
+        case "standalone-course-seed", "standalone-course-restore",
+             "standalone-course-caddie", "standalone-course-hazards":
             standaloneCourseRound
         case "course-picker":
             cachedCoursePicker
@@ -56,7 +57,7 @@ public struct WatchUITestRoot: View {
         case "hole-select":
             WatchHoleSelectView(holes: Array(1...18), activeHole: 7)
         case "menu":
-            WatchMenuView()
+            WatchMenuView(hasCaddie: true, hasHazards: true)
         case "score", "score-recommendation":
             WatchScoreHoleView(hole: 7, par: 4, score: 5, putts: 2, penalty: 0)
         case "score-next-tee-candidate":
@@ -110,6 +111,10 @@ public struct WatchUITestRoot: View {
                 Task { await seedStandaloneCourse() }
             } else if screen == "standalone-course-restore" {
                 model.openHoleMap()
+            } else if screen == "standalone-course-caddie" {
+                model.openCaddie()
+            } else if screen == "standalone-course-hazards" {
+                model.openHazards()
             }
         }
     }

@@ -115,6 +115,9 @@ jobs:
           launch_and_capture standalone-course-seed watch-standalone-course-seeded.png
           # No reinstall, network, phone seed, or second course write: load the persisted round + map.
           launch_and_capture standalone-course-restore watch-standalone-course-restored.png
+          # The same persisted production hole state drives the shallow caddie and hazard surfaces.
+          launch_and_capture standalone-course-caddie watch-standalone-course-caddie.png
+          launch_and_capture standalone-course-hazards watch-standalone-course-hazards.png
           # The same persisted production course store must still advertise the course as downloaded.
           launch_and_capture course-picker watch-course-picker.png
           launch_and_capture milestone-seed watch-round-seeded.png

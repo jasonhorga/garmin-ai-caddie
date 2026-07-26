@@ -5,13 +5,13 @@ import SwiftUI
 /// (`WatchHoleMapSample`), DECLUTTERED toward Garmin's progressive disclosure.
 ///
 /// This snapshot is a par-5 SECOND shot (gid31669 h4). Layout after the "太挤" review:
-///  • Left column shows only the essentials: 第N洞·P (tap → 距上一杆), a compact caddie chip (tap → full
-///    caddie detail: dispersion %, expected strokes, alternatives), and the green distance block 后/中/前
-///    with **中 = distance to the pin you drag in Green Preview**.
+///  • Left column shows only the essentials: 第N洞·P and the green distance block 后/中/前, with
+///    **中 = distance to the pin you drag in Green Preview**. A recommendation chip is independently
+///    gated and stays absent in production until the complete D02 freshness/mode contract exists.
 ///  • The distance block is a **TOGGLE**: default shows the raw yardage; `showPlaysLike` flips it to the
 ///    slope/elevation-adjusted **实打** values with a ↑/↓ arrow (Garmin taps the distance for this).
-///  • The map is clean: the caddie line + lay-up circle + a subtle dispersion ellipse + you + pin. The
-///    per-shot text (club / 球道% / 距上一杆) is NOT floated on the map anymore.
+///  • The map is facts-only: real image, player, pin, measurements and score ring. Static route anchors
+///    are not presented as an AI trajectory and no decorative dispersion ellipse is drawn.
 ///
 /// RENDERING: one `Canvas` for image + vectors (free `Path{}.fill()` child views nil `ImageRenderer` on
 /// watchOS); TEXT is a SwiftUI overlay; every point `safe(_:)`-guarded.
@@ -21,11 +21,14 @@ public struct WatchHoleMapView: View {
     public let frontGreen: Int
     public let centerGreen: Int
     public let backGreen: Int
-    /// 实打 adjustment (m). +N ⇒ plays longer (uphill/into wind). Shown when `showPlaysLike` is on.
+    /// 实打 adjustment (yards). +N ⇒ plays longer uphill. Shown when `showPlaysLike` is on.
     public let playsLikeDelta: Int
     public let lastShot: Int
     public let caddieClub: String
     public let caddieNote: String
+    /// D02/C′ gate for the lightweight recommendation chip. The standalone production model currently
+    /// supplies false because freshness, mode and real dispersion are not yet in the Watch contract.
+    public let showCaddieRecommendation: Bool
     public let ringPips: [WatchRingPip]
     public let showTextOverlay: Bool
     /// Distance block toggle: false = raw yardage; true = 实打 (slope-adjusted) with a ↑/↓ arrow.
@@ -58,6 +61,7 @@ public struct WatchHoleMapView: View {
         lastShot: Int = 200,
         caddieClub: String = "3号木",
         caddieNote: String = "推进 · 留100",
+        showCaddieRecommendation: Bool = false,
         ringPips: [WatchRingPip] = WatchHoleMapView.sampleRing,
         showTextOverlay: Bool = true,
         showPlaysLike: Bool = false,
@@ -77,6 +81,7 @@ public struct WatchHoleMapView: View {
         self.lastShot = lastShot
         self.caddieClub = caddieClub
         self.caddieNote = caddieNote
+        self.showCaddieRecommendation = showCaddieRecommendation
         self.ringPips = ringPips
         self.showTextOverlay = showTextOverlay
         self.showPlaysLike = showPlaysLike
@@ -190,14 +195,18 @@ public struct WatchHoleMapView: View {
                         .font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
                     Spacer().frame(height: 8)
 
-                    // Caddie recommendation — no "球童" label; the club + strategy speak for themselves.
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(caddieClub).font(.system(size: 16, weight: .bold)).foregroundStyle(.white).fixedSize()
-                        Text(caddieNote).font(.system(size: 9.5, weight: .medium)).foregroundStyle(caddieGreen).fixedSize()
+                    if showCaddieRecommendation {
+                        // Current-shot recommendation only; the map itself never draws a whole-hole route.
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(caddieClub).font(.system(size: 16, weight: .bold)).foregroundStyle(.white).fixedSize()
+                            Text(caddieNote).font(.system(size: 9.5, weight: .medium)).foregroundStyle(caddieGreen).fixedSize()
+                        }
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(caddieGreen.opacity(0.16)))
+                        Spacer().frame(height: 14)
+                    } else {
+                        Spacer().frame(height: 8)
                     }
-                    .padding(.horizontal, 8).padding(.vertical, 5)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(caddieGreen.opacity(0.16)))
-                    Spacer().frame(height: 14)
 
                     // Distance block — TOGGLE. 中 = to the (draggable) pin. 实打 flips values + shows ↑/↓.
                     Text(pl ? "实打 \(arrow)\(abs(playsLikeDelta))" : "到果岭")
@@ -218,7 +227,7 @@ public struct WatchHoleMapView: View {
     // Zoomed full-map state: a top-centre distance readout + zoom hints, no data column.
     @ViewBuilder private func fullMapControls(_ size: CGSize) -> some View {
         VStack {
-            Text("中 \(centerGreen) · 到果岭").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+            Text("中 \(centerGreen) 码 · 到果岭").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
                 .padding(.horizontal, 9).padding(.vertical, 3)
                 .background(Capsule().fill(.black.opacity(0.5)))
                 .padding(.top, 12)
@@ -262,11 +271,8 @@ public struct WatchHoleMapView: View {
         let scale = fullMap ? mapScale * 1.5 : mapScale
         let a = anchors(size)
         let player = a.you
-        let layup = a.t(geometry.layupPx)
-        let apex = a.t(geometry.apexPx)
         // 拖旗: the flag follows the drag offset (canvas px), previewing "到旗" from a moved pin.
         let green = CGPoint(x: a.t(geometry.pinPx).x + pinDrag.width, y: a.t(geometry.pinPx).y + pinDrag.height)
-        let greenCtrl = a.t(geometry.greenCtrlPx)
 
         var drew = false
         #if canImport(UIKit)
@@ -291,25 +297,6 @@ public struct WatchHoleMapView: View {
                      with: .radialGradient(
                         Gradient(colors: [.black.opacity(0), .black.opacity(0.05), .black.opacity(0.82)]),
                         center: player, startRadius: size.height * 0.12, endRadius: size.height * 0.62))
-
-        // Caddie line — solid you → lay-up (through apex), white dashed lay-up → green.
-        var dash = Path(); dash.move(to: layup); dash.addQuadCurve(to: green, control: greenCtrl)
-        context.stroke(dash, with: .color(.white.opacity(0.85)),
-                       style: StrokeStyle(lineWidth: 2.4, lineCap: .round, dash: [4.5, 3.5]))
-        var solid = Path(); solid.move(to: player); solid.addQuadCurve(to: layup, control: apex)
-        context.stroke(solid, with: .color(.black.opacity(0.5)), style: StrokeStyle(lineWidth: 5, lineCap: .round))
-        context.stroke(solid, with: .color(caddieGreen), style: StrokeStyle(lineWidth: 3, lineCap: .round))
-
-        // Dispersion ellipse (uncertainty) + lay-up target dot.
-        let dW: CGFloat = 30, dH: CGFloat = 26
-        let dRect = CGRect(x: layup.x - dW / 2, y: layup.y - dH / 2, width: dW, height: dH)
-        context.fill(Path(ellipseIn: dRect), with: .color(caddieGreen.opacity(0.13)))
-        context.stroke(Path(ellipseIn: dRect), with: .color(caddieGreen.opacity(0.5)),
-                       style: StrokeStyle(lineWidth: 1.1, dash: [3, 3]))
-        let lr: CGFloat = 5.5
-        let lrect = CGRect(x: layup.x - lr, y: layup.y - lr, width: lr * 2, height: lr * 2)
-        context.fill(Path(ellipseIn: lrect), with: .color(caddieGreen.opacity(0.9)))
-        context.stroke(Path(ellipseIn: lrect), with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
 
         // Pin + flag.
         let pr: CGFloat = 5
@@ -345,7 +332,7 @@ public struct WatchHoleMapView: View {
         if lastShot > 0 {
             let lp = CGPoint(x: player.x, y: player.y + 21)
             context.fill(Path(roundedRect: CGRect(x: lp.x - 35, y: lp.y - 9, width: 70, height: 18), cornerRadius: 9), with: .color(.black.opacity(0.66)))
-            context.draw(context.resolve(Text("上一杆 \(lastShot)").font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: lp)
+            context.draw(context.resolve(Text("上一杆 \(lastShot) 码").font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: lp)
         }
 
         // 拖旗: live "到旗" distance from the dragged flag.

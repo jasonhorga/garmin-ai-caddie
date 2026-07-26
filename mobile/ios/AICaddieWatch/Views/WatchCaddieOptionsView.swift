@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// round-13 spec ②: the AI-caddie 球童打法 screen — 激进 / 推荐 / 保守 side by side, each with its
-/// recommended club + 目标码 + 期望杆. The recommended (stock) option is highlighted. **No success-%**
-/// (intentionally absent — we don't have a calibrated model). Driven by the phone-pushed
+/// recommended club + 目标码. The recommended (stock) option is highlighted. Expected strokes and
+/// success-% stay absent until there is a calibrated model. Driven by the phone-pushed
 /// `WatchRoundState.caddieOptions`; a plain VStack so it renders in the ImageRenderer design snapshot.
 public struct WatchCaddieOptionsView: View {
     public let options: [WatchCaddieOption]
@@ -25,9 +25,6 @@ public struct WatchCaddieOptionsView: View {
                 ForEach(options) { option in
                     optionRow(option)
                 }
-                Text("不给成功率")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -49,9 +46,6 @@ public struct WatchCaddieOptionsView: View {
             HStack(spacing: 8) {
                 if let carry = option.carryM {
                     Text("\(Self.yards(carry)) 码").monospacedDigit()
-                }
-                if let expected = option.expectedStrokes {
-                    Text(String(format: "期望 %.1f", expected)).foregroundStyle(.secondary)
                 }
             }
             .font(.caption2)

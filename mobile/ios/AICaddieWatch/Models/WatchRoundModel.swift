@@ -17,7 +17,9 @@ public enum WatchRoundScreen: Equatable {
     case scorecard   // round-13: 计分卡逐洞列表
     case holeSelect  // round-13: 选洞
     case menu        // round-13: 菜单 hub(纯文字,S70 式)
-    case holeMap     // watch P1b: 全屏球道图(真几何底图 + 球童线/落点/旗)
+    case holeMap     // watch P1b: 全屏球道图(真几何底图 + 事实标记)
+    case caddie      // S70 式浅层仪表面: 当前洞球童详情
+    case hazards     // S70 式浅层仪表面: 当前洞障碍距离
 }
 
 public enum WatchScoreFlowStep: String, Codable, Equatable {
@@ -160,11 +162,41 @@ public final class WatchRoundModel: ObservableObject {
         (round?.holeStates ?? []).sorted { $0.hole < $1.hole }
     }
 
+    /// The detail surface may show an offline/prepared recommendation. It is deliberately separate from
+    /// the stricter Hole Root gate below: useful detail data must not automatically become a live call.
+    public var caddieDetailAvailable: Bool {
+        guard let state = activeHoleState else { return false }
+        let club = state.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !club.isEmpty || !state.caddieOptions.isEmpty
+    }
+
+    public var hazardDetailAvailable: Bool {
+        !(activeHoleState?.hazards.isEmpty ?? true)
+    }
+
+    /// D02/C′ safety gate. The current state has no complete recommendation freshness, mode or real
+    /// lateral-dispersion contract, so the production root must stay on its facts-only fallback.
+    public var rootCaddieLayerAvailable: Bool { false }
+
+    /// Source elevation is metres; every player-facing Watch distance is yards (L21).
+    public var activePlaysLikeDeltaYards: Int {
+        WatchUnits.yards(activeHoleState?.elevationDeltaM ?? 0)
+    }
+
     // round-13 navigation between the standalone round screens (menu hub → scorecard / hole select).
     public func openScorecard() { screen = .scorecard }
     public func openHoleSelect() { screen = .holeSelect }
     public func openMenu() { screen = .menu }
     public func openHoleMap() { screen = .holeMap }
+    public func openCaddie() {
+        guard caddieDetailAvailable else { return }
+        screen = .caddie
+    }
+    public func openHazards() {
+        guard hazardDetailAvailable else { return }
+        screen = .hazards
+    }
+    public func backToMenu() { screen = .menu }
     public func backToHome() { screen = .home }
     public func selectHole(_ hole: Int) {
         setActiveHole(hole)

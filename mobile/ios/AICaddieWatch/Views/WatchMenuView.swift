@@ -3,17 +3,29 @@ import SwiftUI
 /// round-13 (Watch standalone): the menu hub (spec screen ⑩) — a plain text list (S70-style, no
 /// icons) of the round actions. Presentational VStack so it renders in ImageRenderer snapshots.
 public struct WatchMenuView: View {
+    public let hasCaddie: Bool
+    public let hasHazards: Bool
+    public let onCaddie: () -> Void
+    public let onHazards: () -> Void
     public let onScorecard: () -> Void
     public let onHoleSelect: () -> Void
     public let onFinish: () -> Void
     public let onClose: () -> Void
 
     public init(
+        hasCaddie: Bool = false,
+        hasHazards: Bool = false,
+        onCaddie: @escaping () -> Void = {},
+        onHazards: @escaping () -> Void = {},
         onScorecard: @escaping () -> Void = {},
         onHoleSelect: @escaping () -> Void = {},
         onFinish: @escaping () -> Void = {},
         onClose: @escaping () -> Void = {}
     ) {
+        self.hasCaddie = hasCaddie
+        self.hasHazards = hasHazards
+        self.onCaddie = onCaddie
+        self.onHazards = onHazards
         self.onScorecard = onScorecard
         self.onHoleSelect = onHoleSelect
         self.onFinish = onFinish
@@ -23,6 +35,8 @@ public struct WatchMenuView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("菜单").font(.headline.weight(.bold)).padding(.bottom, 2)
+            if hasCaddie { menuRow("球童建议", action: onCaddie) }
+            if hasHazards { menuRow("障碍", action: onHazards) }
             menuRow("计分卡", action: onScorecard)
             menuRow("选洞", action: onHoleSelect)
             menuRow("结束本场", role: .destructive, action: onFinish)

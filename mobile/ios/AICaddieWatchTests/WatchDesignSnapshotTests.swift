@@ -131,7 +131,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderWatchMenu() throws {
-        let view = WatchMenuView()
+        let view = WatchMenuView(hasCaddie: true, hasHazards: true)
             .frame(width: 198)
             .background(Color.black)
         try render(view, named: "watch-menu")
@@ -217,9 +217,9 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderWatchRoundContainerHoleMap() throws {
-        // Phase 1b: the full .holeMap screen through the container — geometry built the REAL way
-        // (WatchHoleMapGeometry.from(pushed WatchHoleMap + cached topo)), hole data mapped from the seeded
-        // WatchRoundState (greens→码, suggestedClub), NO scoring ring, + the bottom-leading back-to-hub button.
+        // The full .holeMap screen through the container — geometry built the REAL way
+        // (WatchHoleMapGeometry.from(pushed WatchHoleMap + cached topo)), hole facts mapped from the seeded
+        // state. Caddie freshness/dispersion is not contracted, so the root is intentionally facts-only.
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("wsnap-\(UUID().uuidString)", isDirectory: true)
         let model = WatchRoundModel(store: WatchRoundStore(directoryURL: dir))
@@ -294,8 +294,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderWatchHoleMap() throws {
-        // watch P1 (consensus 主打球屏 = watch-holeview.png): real-topo hole map (left data column +
-        // right map on the baked sample geometry) + F/M/B + caddie chip + edge scoring ring. Uses the
+        // watch P1: real-topo fact map (left data column + right map on the baked sample geometry) +
+        // F/M/B + edge scoring ring. Uses the
         // default `WatchHoleMapSample.geometry`; the real playing view feeds a fetched image + projection.
         let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
         let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4) }
