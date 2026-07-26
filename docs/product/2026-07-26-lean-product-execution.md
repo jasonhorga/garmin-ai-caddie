@@ -26,7 +26,7 @@
 | 3 | 关键操作后强杀可恢复，重发不丢不重，结果进入现有后端并可复盘 | `COMPLETE` |
 | 4 | Watch 可独立搜索、下载、缓存新球场并离线开局 | `COMPLETE` |
 | 5 | 已确认的 S70 地图与球童页面接入真实距离、危险区和球杆数据 | `COMPLETE` |
-| 6 | 完整手动路径稳定后，再做 AutoShot 和按需 Deep Mine | `CURRENT` |
+| 6 | 完整手动路径稳定后，再做 AutoShot 和按需 Deep Mine | `CURRENT — 软件路径完成，待真机门` |
 
 任一时刻只推进一个里程碑。里程碑完成后回到本表选择下一项，不沿实现细节继续派生计划树。
 
@@ -77,6 +77,14 @@
 
 里程碑 1–5 已建立真实开局、手动记杆、确认换洞、恢复同步、Watch 独立球场缓存和事实地图/球童页面。里程碑 6 从现有 AutoShot 代码与真实击球路径开始，只解决阻塞自动记杆的可复现问题；Deep Mine 只在实际新球场缺失已需要的数据时启动，不建设通用未知格式平台。风、空气密度、假成功率和推杆级等高线继续后置。
 
+### AutoShot Beta 软件结果（2026-07-26）
+
+- 当前实现 SHA：`4ffb14663b0042384c92e38d9cf8acda21e6f345`。AutoShot 默认关闭，只在球局中由玩家显式开启；设备不支持高频批量加速度与 Device Motion 时保持禁用，不提供未经真机验证的 100Hz fallback。
+- Watch 通过 HealthKit 高尔夫 workout session 启动 `CMBatchedSensorManager`，原始 Motion 只在内存交给纯检测器，不写 round store、Health workout 或后端。候选只有在玩家确认后才复用现有“球杆可选 → GPS location event”链路；拒绝、未确认和重复检测均不产生正式杆事件。
+- 候选、球杆确认和下一 Tee 上一洞成绩确认继续使用现有强杀恢复状态。候选从球洞地图出现时，拒绝或完成球杆确认都会回到球洞地图；菜单中的 AutoShot Beta 状态可见且列表可滚动。
+- 最终 Watch runtime [run 30220967536](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30220967536) 完整成功：Watch `111/111`、独立 App build、18 次真实进程启动、真实缓存球场 seed/restore、球童/障碍、AutoShot 候选页和菜单截图全部通过。Codex 已检查最终截图；候选说明无截断，菜单标题和 Beta 开关完整，诊断 artifact 无 crash、fatal、unknown screen、restore error 或 AutoShot provider failure。
+- 模拟器不能证明真机传感器授权、后台 workout 抢占、误报/漏报、连续一场续航和热量表现，因此里程碑 6 暂不标 COMPLETE。下一步只做 TestFlight 真机球场验证；Deep Mine 仍没有被真实新球场的数据缺口触发。
+
 ## 持续端到端验收基线
 
 以下能力已由里程碑 1–4 建立，后续实现不得回退：
@@ -104,7 +112,7 @@
 - 通用 RFC 8785 数字平台、任意 JSON 内容寻址和 storage-v2/v3 迁移平台。
 - Course CAS、复杂 rights matrix、构建租约、Ed25519 发布控制、channel/GC 平台。
 - 全量未知格式研究框架。Deep Mine 只在实际球场缺失某项数据时按证据启动。
-- AutoShot、风、空气密度、假成功率和推杆级果岭等高线。
+- 风、空气密度、假成功率和推杆级果岭等高线。
 
 后置不等于删除。只有当前产品路径出现可复现问题，或相应里程碑真正开始时，才从历史资料中提取所需部分。
 
