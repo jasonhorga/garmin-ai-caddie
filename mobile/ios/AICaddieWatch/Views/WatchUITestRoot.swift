@@ -28,6 +28,9 @@ public struct WatchUITestRoot: View {
         switch screen {
         case "milestone-seed", "milestone-restore":
             milestoneRound
+        case "interaction-club-seed", "interaction-club-restore",
+             "interaction-score-seed", "interaction-score-restore":
+            interactionRound
         case "home":
             WatchRoundHomeView(
                 courseName: "北京丽宫 · 前九", hole: 7, par: 4, holeCount: 9,
@@ -96,6 +99,38 @@ public struct WatchUITestRoot: View {
         }
     }
 
+    private var interactionRound: some View {
+        Group {
+            if model.round != nil {
+                WatchRoundContainerView(model: model)
+            } else {
+                Text("interaction restore unavailable")
+            }
+        }
+        .onAppear {
+            switch screen {
+            case "interaction-club-seed":
+                model.applyRoundSeed(Self.interactionClubSeed)
+                model.beginManualShot(
+                    latitude: 40.0,
+                    longitude: 116.0,
+                    horizontalAccuracyM: 5,
+                    capturedAt: "2026-07-26T12:00:00Z"
+                )
+            case "interaction-score-seed":
+                model.applyRoundSeed(Self.interactionScoreSeed)
+                model.beginManualShot(
+                    latitude: 40.001,
+                    longitude: 116.0,
+                    horizontalAccuracyM: 5,
+                    capturedAt: "2026-07-26T12:10:00Z"
+                )
+            default:
+                break
+            }
+        }
+    }
+
     private static let milestoneSeed = WatchRoundSeed(
         roundId: "ci-beijing-ligong-round-1",
         courseName: "北京丽宫体育公园高尔夫俱乐部",
@@ -103,6 +138,29 @@ public struct WatchUITestRoot: View {
         holes: [
             WatchRoundSeedHole(hole: 1, par: 4, distanceM: 369.4176), // 404 yards
         ]
+    )
+
+    private static let interactionClubSeed = WatchRoundSeed(
+        roundId: "ci-interaction-club-round",
+        courseName: "北京丽宫 · 前九",
+        activeHole: 7,
+        holes: [
+            WatchRoundSeedHole(
+                hole: 7, par: 4, distanceM: 139,
+                teeLatitude: 40.0, teeLongitude: 116.0
+            ),
+            WatchRoundSeedHole(
+                hole: 8, par: 5, distanceM: 472,
+                teeLatitude: 40.001, teeLongitude: 116.0
+            ),
+        ]
+    )
+
+    private static let interactionScoreSeed = WatchRoundSeed(
+        roundId: "ci-interaction-score-round",
+        courseName: "北京丽宫 · 前九",
+        activeHole: 7,
+        holes: interactionClubSeed.holes
     )
 
     // MARK: - demo data (mirrors the design-snapshot fixtures)

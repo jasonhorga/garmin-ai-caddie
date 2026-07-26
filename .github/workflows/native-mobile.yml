@@ -334,6 +334,10 @@ jobs:
 
           launch_and_capture milestone-seed watch-round-seeded.png
           launch_and_capture milestone-restore watch-round-restored.png
+          launch_and_capture interaction-club-seed watch-interaction-club-seeded.png
+          launch_and_capture interaction-club-restore watch-interaction-club-restored.png
+          launch_and_capture interaction-score-seed watch-interaction-score-seeded.png
+          launch_and_capture interaction-score-restore watch-interaction-score-restored.png
           launch_and_capture home watch-round-home.png
           launch_and_capture score-recommendation watch-score-recommendation.png
           launch_and_capture score-next-tee-candidate watch-score-next-tee-candidate.png
