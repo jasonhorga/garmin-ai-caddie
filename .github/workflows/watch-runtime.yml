@@ -53,6 +53,20 @@ jobs:
           echo "WATCH_RUNTIME=$WATCH_RUNTIME" >> "$GITHUB_ENV"
           echo "Diagnostic device: $WATCH_RUNTIME / $WATCH_UDID"
 
+      - name: Boot resolved Watch simulator
+        run: |
+          set -euo pipefail
+          xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$WATCH_UDID" -b
+
+      - name: Test Watch app on the resolved simulator
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatch \
+            -destination "platform=watchOS Simulator,id=$WATCH_UDID"
+
       - name: Build Watch app for the resolved simulator
         run: |
           set -euo pipefail
