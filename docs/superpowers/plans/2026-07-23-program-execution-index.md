@@ -1,10 +1,15 @@
 # S70 Unified Golf Program Execution Index
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use
-> `superpowers:subagent-driven-development` task by task. This file is the
-> program routing and evidence index; the four 2026-07-18 engineering dossiers
-> retain detailed research and task material without becoming line-by-line
-> completion authorities.
+> **HISTORICAL REFERENCE — NOT EXECUTION AUTHORITY (2026-07-26):**
+> This program tree is retained for research, invariants, and reuse evidence.
+> It must not be executed linearly or used to create further Task 5 subpackets.
+> Current product order and status are owned by
+> [`docs/product/2026-07-26-lean-product-execution.md`](../../product/2026-07-26-lean-product-execution.md).
+
+> **Retired workflow note:** This index originally required
+> `superpowers:subagent-driven-development` task by task. That requirement is
+> no longer active; the text below is preserved only as historical research and
+> reuse material.
 
 **Goal:** Deliver an honest, S70-behavioral-parity golf product whose Watch,
 iOS, Web, and backend share course facts, round events, guidance semantics, and
