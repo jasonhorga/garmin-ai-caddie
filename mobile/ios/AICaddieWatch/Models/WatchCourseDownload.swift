@@ -62,8 +62,15 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
     public var playableHoleCount: Int { segmentHoles ?? holes }
 
     public var preferredTee: String {
-        if let teeBox, !teeBox.isEmpty { return teeBox }
-        return tees.first ?? "Blue"
+        if let teeBox {
+            let normalized = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty, normalized.caseInsensitiveCompare("unknown") != .orderedSame {
+                return teeBox
+            }
+        }
+        return tees.first(where: { ["blue", "white"].contains($0.lowercased()) })
+            ?? tees.first
+            ?? "Blue"
     }
 }
 

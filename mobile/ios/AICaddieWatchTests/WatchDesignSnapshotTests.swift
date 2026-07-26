@@ -194,39 +194,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-finish-round")
     }
 
-    @MainActor
-    func testRenderWatchStart() throws {
-        let view = WatchStartView(phoneReachable: false)
-            .frame(width: 198)
-            .background(Color.black)
-        try render(view, named: "watch-start")
-    }
-
-    @MainActor
-    func testRenderWatchCoursePicker() throws {
-        let view = WatchStartView(
-            phoneReachable: false,
-            courses: [
-                WatchCourseOption(
-                    globalId: 31669,
-                    name: "北京丽宫体育公园高尔夫俱乐部",
-                    holes: 18,
-                    teeBox: "Blue",
-                    tees: ["Blue", "White"]
-                ),
-                WatchCourseOption(
-                    globalId: 41825,
-                    name: "黑骑士高尔夫球场",
-                    holes: 18,
-                    teeBox: "White"
-                ),
-            ],
-            cachedCourseIds: [31669]
-        )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
-        try render(view, named: "watch-course-picker")
-    }
+    // WatchStartView is a real NavigationStack/List. ImageRenderer cannot flatten those watchOS
+    // platform views reliably, so the workflow captures it from the running simulator instead.
 
     @MainActor
     func testRenderWatchRoundContainerHome() throws {

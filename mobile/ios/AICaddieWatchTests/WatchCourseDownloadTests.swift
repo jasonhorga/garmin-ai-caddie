@@ -4,6 +4,18 @@ import XCTest
 final class WatchCourseDownloadTests: XCTestCase {
     private let client = WatchBackendClient(baseURL: URL(string: "https://caddie.example")!)
 
+    func testPreferredTeeDoesNotTreatUnknownAsARealTee() {
+        let option = WatchCourseOption(
+            globalId: 31669,
+            name: "北京丽宫",
+            holes: 18,
+            teeBox: "unknown",
+            tees: ["Blue", "White"]
+        )
+
+        XCTAssertEqual(option.preferredTee, "Blue")
+    }
+
     func testBuildsOfflineRoundTemplateFromRealPackageAndRenderedPrep() throws {
         let option = WatchCourseOption(
             globalId: 31669,
