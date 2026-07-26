@@ -60,6 +60,18 @@ final class WatchAutoShotDetectorTests: XCTestCase {
         XCTAssertEqual(later.map(\.timestamp), [4.2])
     }
 
+    func testDeviceMotionMayArriveAfterTheAccelerometerBatch() {
+        var detector = WatchAutoShotDetector()
+        let beforeMotion = detector.processAccelerometer([
+            WatchAutoShotAccelerationSample(timestamp: 0.8, x: 0, y: 0, z: 4.0),
+        ])
+        XCTAssertTrue(beforeMotion.isEmpty)
+
+        let afterMotion = detector.appendDeviceMotion(swingSamples(endingAt: 0.7))
+
+        XCTAssertEqual(afterMotion.map(\.timestamp), [0.8])
+    }
+
     private func swingSamples(endingAt end: TimeInterval) -> [WatchAutoShotRotationSample] {
         [
             WatchAutoShotRotationSample(timestamp: end - 0.7, rotationAlongGravity: 0.1),
