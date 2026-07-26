@@ -135,6 +135,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.watchkitapp
         INFOPLIST_FILE: $(PROJECT_DIR)/AICaddieWatch/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path @executable_path/Frameworks
       configs:
         Release:
           CODE_SIGN_STYLE: Manual
