@@ -441,6 +441,60 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.caddieConfidence = try container.decode(String.self, forKey: .caddieConfidence)
     }
 
+    public func replacingRoundId(_ newRoundId: String) -> WatchRoundState {
+        WatchRoundState(
+            roundId: newRoundId,
+            hole: hole,
+            par: par,
+            distanceM: distanceM,
+            teeLatitude: teeLatitude,
+            teeLongitude: teeLongitude,
+            targetNote: targetNote,
+            targetLatitude: targetLatitude,
+            targetLongitude: targetLongitude,
+            targetKind: targetKind,
+            suggestedClub: suggestedClub,
+            selectedClub: selectedClub,
+            availableClubs: availableClubs,
+            shotType: shotType,
+            strategyMode: strategyMode,
+            lie: lie,
+            offlineOptionId: offlineOptionId,
+            decisionId: decisionId,
+            nextShotPrompt: nextShotPrompt,
+            holePlanSummary: holePlanSummary,
+            expectedStrokes: expectedStrokes,
+            expectedRemainingM: expectedRemainingM,
+            evidenceSummary: evidenceSummary,
+            missingDataSummary: missingDataSummary,
+            frontGreenM: frontGreenM,
+            centerGreenM: centerGreenM,
+            backGreenM: backGreenM,
+            frontGreenLat: frontGreenLat,
+            frontGreenLon: frontGreenLon,
+            centerGreenLat: centerGreenLat,
+            centerGreenLon: centerGreenLon,
+            backGreenLat: backGreenLat,
+            backGreenLon: backGreenLon,
+            holeImageProjection: holeImageProjection,
+            globalId: globalId,
+            holeMap: holeMap,
+            playsLikeDistanceM: playsLikeDistanceM,
+            elevationDeltaM: elevationDeltaM,
+            lastShotDistanceM: lastShotDistanceM,
+            distanceFromLastShotM: distanceFromLastShotM,
+            greenInRegulation: greenInRegulation,
+            fairwayResult: fairwayResult,
+            geometryCoverage: geometryCoverage,
+            caddieOptions: caddieOptions,
+            hazards: hazards,
+            score: score,
+            putts: putts,
+            penaltyCount: penaltyCount,
+            caddieConfidence: caddieConfidence
+        )
+    }
+
     public func applying(_ event: WatchInputEvent) -> WatchRoundState {
         guard event.roundId == roundId, event.hole == hole else {
             return self

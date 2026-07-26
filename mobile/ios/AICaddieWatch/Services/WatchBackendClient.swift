@@ -204,6 +204,10 @@ public final class WatchBackendClient {
         try JSONDecoder().decode(WatchCoursePackage.self, from: data)
     }
 
+    public func decodeCoursePrep(_ data: Data) throws -> WatchCoursePrepResponse {
+        try JSONDecoder().decode(WatchCoursePrepResponse.self, from: data)
+    }
+
     /// Build the POST /events request (headers + mapped batch body). Split out from `postEvents` so it
     /// can be unit-tested without a URLSession — watchOS makes URLProtocol stubbing of the live session
     /// unreliable, so the request construction (the meaningful logic) is verified directly instead.
