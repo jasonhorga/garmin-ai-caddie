@@ -161,4 +161,60 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(client.parseEventResult(Data()).acknowledgedEventIds, [])
         XCTAssertEqual(client.parseEventResult(Data()).serverSequence, 0)
     }
+
+    func testCourseDownloadRequestsReuseExistingAuthenticatedMobileEndpoints() throws {
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            adminToken: "admin-secret",
+            sessionToken: "member-session"
+        )
+
+        let options = try client.makeCourseOptionsRequest()
+        XCTAssertEqual(options.url?.path, "/api/v2/mobile/courses/options")
+        XCTAssertEqual(options.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
+
+        let package = try client.makeCoursePackageRequest(
+            globalId: 31669,
+            roundId: "watch-round-1",
+            teeBox: "Blue"
+        )
+        XCTAssertEqual(package.url?.path, "/api/v2/mobile/courses/31669/package")
+        let packageQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(package.url), resolvingAgainstBaseURL: false))
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "round_id" })?.value, "watch-round-1")
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "tee_box" })?.value, "Blue")
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "client_id" })?.value, "apple-watch")
+
+        let prep = try client.makeCoursePrepRequest(globalId: 31669, localHoles: [1, 2, 9])
+        XCTAssertEqual(prep.url?.path, "/api/v2/courses/31669/prep")
+        let prepQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(prep.url), resolvingAgainstBaseURL: false))
+        XCTAssertEqual(prepQuery.queryItems?.filter { $0.name == "holes" }.compactMap(\.value), ["1", "2", "9"])
+        XCTAssertEqual(prepQuery.queryItems?.first(where: { $0.name == "render" })?.value, "true")
+    }
+
+    func testCoursePayloadsDecodeOnlyWatchStartFacts() throws {
+        let client = makeClient()
+        let options = try client.decodeCourseOptions(Data(
+            #"{"schema":"ai-caddie-mobile-course-options-v1","dataMode":"real","total":1,"courses":[{"globalId":31669,"name":"北京丽宫","roundCount":4,"holes":18,"teeBox":"Blue","geometryCoverage":"ready","sourceRefs":[],"venueName":"北京丽宫","segmentLabel":null,"segmentHoles":18,"tees":["Blue","White"]}],"generatedAt":"2026-07-26T00:00:00Z"}"#.utf8
+        ))
+        XCTAssertEqual(options, [
+            WatchCourseOption(
+                globalId: 31669,
+                name: "北京丽宫",
+                holes: 18,
+                teeBox: "Blue",
+                venueName: "北京丽宫",
+                segmentLabel: nil,
+                segmentHoles: 18,
+                tees: ["Blue", "White"]
+            )
+        ])
+
+        let package = try client.decodeCoursePackage(Data(
+            #"{"schema":"ai-caddie-live-round-package-v1","roundId":"watch-round-1","course":{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1}],"ignored":{"large":"payload"}}"#.utf8
+        ))
+        XCTAssertEqual(package.roundId, "watch-round-1")
+        XCTAssertEqual(package.course.name, "北京丽宫")
+        XCTAssertEqual(package.holes.first?.yards, 404)
+        XCTAssertEqual(package.holes.first?.sourceLocalHole, 1)
+    }
 }
