@@ -304,7 +304,11 @@ jobs:
           APP="$RUNNER_TEMP/WatchRuntimeDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
           BID=com.ai-caddie.mobile.watchkitapp
           test -d "$APP"
-          xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
+          # Watch unit tests can leave the system location sheet open. Runtime screenshots need a
+          # fresh simulator so they prove the app UI rather than capturing stale system state.
+          xcrun simctl shutdown "$WATCH_UDID" 2>/dev/null || true
+          xcrun simctl erase "$WATCH_UDID"
+          xcrun simctl boot "$WATCH_UDID"
           xcrun simctl bootstatus "$WATCH_UDID" -b
           xcrun simctl uninstall "$WATCH_UDID" "$BID" 2>/dev/null || true
           xcrun simctl install "$WATCH_UDID" "$APP"

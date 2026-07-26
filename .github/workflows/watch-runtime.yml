@@ -83,7 +83,11 @@ jobs:
           APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
           BID=com.ai-caddie.mobile.watchkitapp
           test -d "$APP"
-          xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
+          # Unit tests host the real app and can leave watchOS's location sheet open. Reset the
+          # simulator at this boundary so runtime screenshots start from a clean device.
+          xcrun simctl shutdown "$WATCH_UDID" 2>/dev/null || true
+          xcrun simctl erase "$WATCH_UDID"
+          xcrun simctl boot "$WATCH_UDID"
           xcrun simctl bootstatus "$WATCH_UDID" -b
           xcrun simctl uninstall "$WATCH_UDID" "$BID" 2>/dev/null || true
           xcrun simctl install "$WATCH_UDID" "$APP"
