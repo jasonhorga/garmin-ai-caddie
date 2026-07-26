@@ -150,6 +150,60 @@ public final class WatchBackendClient {
 
     // MARK: - Endpoints (mirror the phone SyncClient event surface)
 
+    public func makeCourseOptionsRequest() throws -> URLRequest {
+        var request = URLRequest(url: endpointURL("/api/v2/mobile/courses/options"))
+        applyAuth(&request)
+        return request
+    }
+
+    public func makeCoursePackageRequest(
+        globalId: Int,
+        roundId: String,
+        teeBox: String
+    ) throws -> URLRequest {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [
+            URLQueryItem(name: "round_id", value: roundId),
+            URLQueryItem(name: "tee_box", value: teeBox),
+            URLQueryItem(name: "nine", value: "all"),
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "ensure_geometry", value: "false"),
+        ]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+        return request
+    }
+
+    public func makeCoursePrepRequest(globalId: Int, localHoles: [Int]) throws -> URLRequest {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/\(globalId)/prep"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = localHoles.map {
+            URLQueryItem(name: "holes", value: String($0))
+        } + [URLQueryItem(name: "render", value: "true")]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+        return request
+    }
+
+    public func decodeCourseOptions(_ data: Data) throws -> [WatchCourseOption] {
+        try JSONDecoder().decode(WatchCourseOptionsEnvelope.self, from: data).courses
+    }
+
+    public func decodeCoursePackage(_ data: Data) throws -> WatchCoursePackage {
+        try JSONDecoder().decode(WatchCoursePackage.self, from: data)
+    }
+
     /// Build the POST /events request (headers + mapped batch body). Split out from `postEvents` so it
     /// can be unit-tested without a URLSession — watchOS makes URLProtocol stubbing of the live session
     /// unreliable, so the request construction (the meaningful logic) is verified directly instead.

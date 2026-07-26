@@ -205,7 +205,8 @@ final class WatchBackendClientTests: XCTestCase {
                 venueName: "北京丽宫",
                 segmentLabel: nil,
                 segmentHoles: 18,
-                tees: ["Blue", "White"]
+                tees: ["Blue", "White"],
+                roundCount: 4
             )
         ])
 
