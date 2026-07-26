@@ -130,6 +130,8 @@ targets:
         embed: true
     info:
       path: AICaddieWatch/Info.plist
+    entitlements:
+      path: AICaddieWatch/AICaddieWatch.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ai-caddie.mobile.watchkitapp

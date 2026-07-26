@@ -1,4 +1,5 @@
 import SwiftUI
+import WatchKit
 
 @main
 public struct AICaddieWatchApp: App {
@@ -7,6 +8,7 @@ public struct AICaddieWatchApp: App {
     @StateObject private var courseLibrary = WatchCourseLibrary()
     // watch P3: the watch's own GPS — recomputes you/green distances from the wrist (less phone-dependence).
     @StateObject private var watchLocation = WatchLocationProvider()
+    @StateObject private var autoShotProvider = WatchAutoShotProvider()
 
     public init() {}
 
@@ -25,6 +27,23 @@ public struct AICaddieWatchApp: App {
                 .onChange(of: syncClient.currentState, initial: true) { _, state in
                     if let state {
                         roundModel.receivePhoneState(state)
+                    }
+                }
+                .onChange(of: roundModel.autoShotEnabled, initial: true) { _, _ in
+                    reconcileAutoShot()
+                }
+                .onChange(of: roundModel.round?.roundId, initial: true) { _, _ in
+                    reconcileAutoShot()
+                }
+                .onChange(of: autoShotProvider.latestSignal) { _, signal in
+                    guard signal != nil, let fix = watchLocation.latestFix else { return }
+                    if roundModel.proposeAutoShotCandidate(
+                        latitude: fix.coordinate.latitude,
+                        longitude: fix.coordinate.longitude,
+                        horizontalAccuracyM: fix.horizontalAccuracyM,
+                        capturedAt: fix.capturedAt
+                    ) {
+                        WKInterfaceDevice.current().play(.notification)
                     }
                 }
                 .onAppear {
@@ -63,7 +82,9 @@ public struct AICaddieWatchApp: App {
                     model: roundModel,
                     holeGeometry: activeHoleGeometry,
                     watchGreenYards: watchGreenYards,
-                    shotLocation: watchLocation.latestFix
+                    shotLocation: watchLocation.latestFix,
+                    autoShotSupported: autoShotProvider.isSupported,
+                    autoShotStatus: autoShotProvider.state.menuDetail
                 )
             } else if let state = syncClient.currentState {
                 // phone-coordinated companion glance (legacy single-hole push).
@@ -110,6 +131,14 @@ public struct AICaddieWatchApp: App {
 
     private func sendQuickInputEvent(_ event: WatchInputEvent) {
         try? syncClient.sendQuickInputEvent(event)
+    }
+
+    private func reconcileAutoShot() {
+        if roundModel.round != nil, roundModel.autoShotEnabled {
+            Task { await autoShotProvider.start() }
+        } else {
+            autoShotProvider.stop()
+        }
     }
 
     /// watch P1b: the active hole's render geometry — the phone-pushed overlay anchors (`holeMap`) + the

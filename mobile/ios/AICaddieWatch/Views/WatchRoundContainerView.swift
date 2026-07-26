@@ -19,14 +19,20 @@ public struct WatchRoundContainerView: View {
     /// Latest fix from the Watch itself. Manual shot capture is disabled until this exists; no
     /// placeholder coordinate is ever manufactured.
     private let shotLocation: WatchLocationFix?
+    private let autoShotSupported: Bool
+    private let autoShotStatus: String
 
     public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil,
                 watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
-                shotLocation: WatchLocationFix? = nil) {
+                shotLocation: WatchLocationFix? = nil,
+                autoShotSupported: Bool = false,
+                autoShotStatus: String = "本机不支持") {
         self.model = model
         self.holeGeometry = holeGeometry
         self.watchGreenYards = watchGreenYards
         self.shotLocation = shotLocation
+        self.autoShotSupported = autoShotSupported
+        self.autoShotStatus = autoShotStatus
     }
 
     // watch P3: effective F/M/B — the watch-GPS value when available, else the phone-pushed distance.
@@ -113,8 +119,15 @@ public struct WatchRoundContainerView: View {
                 WatchMenuView(
                     hasCaddie: model.caddieDetailAvailable,
                     hasHazards: model.hazardDetailAvailable,
+                    autoShotSupported: autoShotSupported,
+                    autoShotEnabled: model.autoShotEnabled,
+                    autoShotStatus: autoShotStatus,
                     onCaddie: { model.openCaddie() },
                     onHazards: { model.openHazards() },
+                    onToggleAutoShot: {
+                        guard autoShotSupported else { return }
+                        model.setAutoShotEnabled(!model.autoShotEnabled)
+                    },
                     onScorecard: { model.openScorecard() },
                     onHoleSelect: { model.openHoleSelect() },
                     onFinish: { model.requestFinish() },

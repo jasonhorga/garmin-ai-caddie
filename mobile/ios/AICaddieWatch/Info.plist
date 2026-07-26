@@ -22,6 +22,12 @@
     <false/>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>用你的位置在球道图上定位「你」并实时计算到果岭前/中/后的距离。</string>
+    <key>NSMotionUsageDescription</key>
+    <string>仅在你主动开启 AutoShot Beta 后，用腕部运动数据在本地判断疑似击球；原始数据不会上传。</string>
+    <key>NSHealthShareUsageDescription</key>
+    <string>AI Caddie 不读取“健康”中的运动或身体数据。</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>用于启动高频运动传感器所需的高尔夫训练会话；AI Caddie 不会把这次训练保存到“健康”。</string>
     <key>WKApplication</key>
     <true/>
     <key>WKCompanionAppBundleIdentifier</key>

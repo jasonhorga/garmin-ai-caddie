@@ -57,7 +57,12 @@ public struct WatchUITestRoot: View {
         case "hole-select":
             WatchHoleSelectView(holes: Array(1...18), activeHole: 7)
         case "menu":
-            WatchMenuView(hasCaddie: true, hasHazards: true)
+            WatchMenuView(
+                hasCaddie: true,
+                hasHazards: true,
+                autoShotSupported: true,
+                autoShotStatus: "关闭"
+            )
         case "score", "score-recommendation":
             WatchScoreHoleView(hole: 7, par: 4, score: 5, putts: 2, penalty: 0)
         case "score-next-tee-candidate":

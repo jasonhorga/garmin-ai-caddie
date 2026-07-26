@@ -5,8 +5,12 @@ import SwiftUI
 public struct WatchMenuView: View {
     public let hasCaddie: Bool
     public let hasHazards: Bool
+    public let autoShotSupported: Bool
+    public let autoShotEnabled: Bool
+    public let autoShotStatus: String
     public let onCaddie: () -> Void
     public let onHazards: () -> Void
+    public let onToggleAutoShot: () -> Void
     public let onScorecard: () -> Void
     public let onHoleSelect: () -> Void
     public let onFinish: () -> Void
@@ -15,8 +19,12 @@ public struct WatchMenuView: View {
     public init(
         hasCaddie: Bool = false,
         hasHazards: Bool = false,
+        autoShotSupported: Bool = false,
+        autoShotEnabled: Bool = false,
+        autoShotStatus: String = "本机不支持",
         onCaddie: @escaping () -> Void = {},
         onHazards: @escaping () -> Void = {},
+        onToggleAutoShot: @escaping () -> Void = {},
         onScorecard: @escaping () -> Void = {},
         onHoleSelect: @escaping () -> Void = {},
         onFinish: @escaping () -> Void = {},
@@ -24,8 +32,12 @@ public struct WatchMenuView: View {
     ) {
         self.hasCaddie = hasCaddie
         self.hasHazards = hasHazards
+        self.autoShotSupported = autoShotSupported
+        self.autoShotEnabled = autoShotEnabled
+        self.autoShotStatus = autoShotStatus
         self.onCaddie = onCaddie
         self.onHazards = onHazards
+        self.onToggleAutoShot = onToggleAutoShot
         self.onScorecard = onScorecard
         self.onHoleSelect = onHoleSelect
         self.onFinish = onFinish
@@ -37,6 +49,11 @@ public struct WatchMenuView: View {
             Text("菜单").font(.headline.weight(.bold)).padding(.bottom, 2)
             if hasCaddie { menuRow("球童建议", action: onCaddie) }
             if hasHazards { menuRow("障碍", action: onHazards) }
+            menuRow(
+                "AutoShot Beta · \(autoShotEnabled ? autoShotStatus : (autoShotSupported ? "关闭" : "本机不支持"))",
+                action: onToggleAutoShot
+            )
+            .disabled(!autoShotSupported)
             menuRow("计分卡", action: onScorecard)
             menuRow("选洞", action: onHoleSelect)
             menuRow("结束本场", role: .destructive, action: onFinish)
