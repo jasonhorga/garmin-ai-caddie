@@ -137,6 +137,56 @@ public final class WatchRoundModel: ObservableObject {
 
     // MARK: - seeding (from a phone-synced round or a fetched package)
 
+    /// Start (or refresh) the real phone-selected round. Existing snapshots and unsynced Watch edits
+    /// for the same round are retained; newly added holes receive a truthful blank state from the seed.
+    public func applyRoundSeed(_ seed: WatchRoundSeed) {
+        guard !seed.holes.isEmpty else { return }
+        let existing = round?.roundId == seed.roundId ? round : nil
+        let states = seed.holes
+            .sorted { $0.hole < $1.hole }
+            .map { hole in
+                existing?.holeStates.first { $0.hole == hole.hole }
+                    ?? WatchRoundState(
+                        roundId: seed.roundId,
+                        hole: hole.hole,
+                        par: hole.par,
+                        distanceM: hole.distanceM,
+                        selectedClub: nil,
+                        score: 0,
+                        putts: 0,
+                        penaltyCount: 0,
+                        caddieConfidence: "offline"
+                    )
+            }
+        let holeNumbers = Set(states.map(\.hole))
+        let activeHole = holeNumbers.contains(seed.activeHole) ? seed.activeHole : states[0].hole
+        let persisted = WatchRoundStore.PersistedRound(
+            roundId: seed.roundId,
+            activeHole: activeHole,
+            holeStates: states,
+            pendingEvents: existing?.pendingEvents ?? [],
+            courseName: seed.courseName
+        )
+        try? store.save(persisted)
+        round = persisted
+        screen = .home
+    }
+
+    /// Merge the richer live snapshot for one hole without dropping the seeded course or other holes.
+    /// Pending on-Watch edits are replayed so a stale phone snapshot cannot silently undo them.
+    public func receivePhoneState(_ state: WatchRoundState) {
+        if let round, round.roundId != state.roundId {
+            return
+        }
+        let merged = (round?.pendingEvents ?? []).reduce(state) { partial, event in
+            partial.applying(event)
+        }
+        guard let persisted = try? store.upsertHoleState(merged) else {
+            return
+        }
+        round = persisted
+    }
+
     /// Replace the active round with a fresh set of per-hole snapshots and start at the given hole.
     public func seedRound(_ states: [WatchRoundState], activeHole: Int? = nil, courseName: String? = nil) {
         guard let first = states.first else { return }

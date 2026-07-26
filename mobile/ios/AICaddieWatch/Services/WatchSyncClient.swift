@@ -108,6 +108,7 @@ public struct WatchSyncAcknowledgement: Equatable {
 
 public final class WatchSyncClient: NSObject, ObservableObject {
     @Published public private(set) var currentState: WatchRoundState?
+    @Published public private(set) var roundSeed: WatchRoundSeed?
     @Published public private(set) var queuedEventCount = 0
     @Published public private(set) var phoneReachable = false
     @Published public private(set) var lastPhoneAcceptedAt: String?
@@ -159,6 +160,12 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             try persistState(merged)
         } catch {
             WatchLog.storage.error("Persist received state failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    public func receiveRoundSeed(_ seed: WatchRoundSeed) {
+        publishStateUpdate { client in
+            client.roundSeed = seed
         }
     }
 
@@ -346,29 +353,40 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         receiveState(decoded)
     }
 
-    /// round-12 P3.4 (Watch standalone): parse the backend config the phone delivers in its application
-    /// context. Exposed (not just used inside the delegate) so it can be unit-tested without WCSession.
-    public func applyApplicationContext(_ context: [String: Any]) {
-        guard let configDict = context["config"] as? [String: Any],
-              let baseURLString = configDict["apiBaseURL"] as? String,
-              let baseURL = URL(string: baseURLString)
+    private func receiveRoundSeedPayload(_ seed: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(seed),
+              let data = try? JSONSerialization.data(withJSONObject: seed),
+              let decoded = try? decoder.decode(WatchRoundSeed.self, from: data)
         else {
             return
         }
-        let adminToken = configDict["adminToken"] as? String
-        // round-13 watch-auth: the phone's live Apple session token (Bearer) + its expiry. Absent when
-        // the phone is signed out, so the rebuilt config clears the Bearer (latest-wins app context).
-        let sessionToken = configDict["sessionToken"] as? String
-        let sessionTokenExpiresAt = (configDict["sessionTokenExpiresAt"] as? String)
-            .flatMap { ISO8601DateFormatter().date(from: $0) }
-        let parsed = WatchRoundConfig(
-            baseURL: baseURL,
-            adminToken: adminToken,
-            sessionToken: sessionToken,
-            sessionTokenExpiresAt: sessionTokenExpiresAt
-        )
-        publishStateUpdate { client in
-            client.config = parsed
+        receiveRoundSeed(decoded)
+    }
+
+    /// round-12 P3.4 (Watch standalone): parse the backend config the phone delivers in its application
+    /// context. Exposed (not just used inside the delegate) so it can be unit-tested without WCSession.
+    public func applyApplicationContext(_ context: [String: Any]) {
+        if let configDict = context["config"] as? [String: Any],
+           let baseURLString = configDict["apiBaseURL"] as? String,
+           let baseURL = URL(string: baseURLString) {
+            let adminToken = configDict["adminToken"] as? String
+            // round-13 watch-auth: the phone's live Apple session token (Bearer) + its expiry. Absent when
+            // the phone is signed out, so the rebuilt config clears the Bearer (latest-wins app context).
+            let sessionToken = configDict["sessionToken"] as? String
+            let sessionTokenExpiresAt = (configDict["sessionTokenExpiresAt"] as? String)
+                .flatMap { ISO8601DateFormatter().date(from: $0) }
+            let parsed = WatchRoundConfig(
+                baseURL: baseURL,
+                adminToken: adminToken,
+                sessionToken: sessionToken,
+                sessionTokenExpiresAt: sessionTokenExpiresAt
+            )
+            publishStateUpdate { client in
+                client.config = parsed
+            }
+        }
+        if let seed = context["roundSeed"] as? [String: Any] {
+            receiveRoundSeedPayload(seed)
         }
     }
 }
@@ -401,17 +419,21 @@ extension WatchSyncClient: WCSessionDelegate {
     }
 
     public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-        guard let state = message["state"] as? [String: Any] else {
-            return
+        if let state = message["state"] as? [String: Any] {
+            receiveStatePayload(state)
         }
-        receiveStatePayload(state)
+        if let seed = message["roundSeed"] as? [String: Any] {
+            receiveRoundSeedPayload(seed)
+        }
     }
 
     public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
-        guard let state = userInfo["state"] as? [String: Any] else {
-            return
+        if let state = userInfo["state"] as? [String: Any] {
+            receiveStatePayload(state)
         }
-        receiveStatePayload(state)
+        if let seed = userInfo["roundSeed"] as? [String: Any] {
+            receiveRoundSeedPayload(seed)
+        }
     }
 
     public func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {

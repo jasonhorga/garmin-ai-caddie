@@ -153,6 +153,40 @@ public struct WatchHoleMap: Codable, Equatable {
     public let greenCtrl: [Double]
 }
 
+/// The small, round-level payload that lets the Watch enter the real round UI before the first
+/// per-hole caddie snapshot arrives. The Watch target mirrors these JSON keys with `WatchRoundSeed`.
+public struct WatchRoundSeedHolePayload: Codable, Equatable {
+    public let hole: Int
+    public let par: Int
+    public let distanceM: Double?
+
+    public init(hole: Int, par: Int, distanceM: Double?) {
+        self.hole = hole
+        self.par = par
+        self.distanceM = distanceM
+    }
+}
+
+public struct WatchRoundSeedPayload: Codable, Equatable {
+    public let schema: String = "ai-caddie-watch-round-seed-v1"
+    public let roundId: String
+    public let courseName: String
+    public let activeHole: Int
+    public let holes: [WatchRoundSeedHolePayload]
+
+    public init(
+        roundId: String,
+        courseName: String,
+        activeHole: Int,
+        holes: [WatchRoundSeedHolePayload]
+    ) {
+        self.roundId = roundId
+        self.courseName = courseName
+        self.activeHole = activeHole
+        self.holes = holes
+    }
+}
+
 public struct WatchRoundStatePayload: Codable, Equatable {
     public let schema: String = "ai-caddie-watch-round-state-v1"
     public let roundId: String
@@ -221,6 +255,9 @@ public final class WatchEventBridge: NSObject {
     private let decoder = JSONDecoder()
     /// Latest backend config to hand the watch; re-pushed once the session activates (round-12 P3.4).
     private var pendingConfig: [String: Any]?
+    /// Latest real-round seed. Application context is latest-wins, so keep it beside config and always
+    /// publish the two together instead of allowing one update to erase the other.
+    private var pendingRoundSeed: [String: Any]?
 
     public init(offlineStore: OfflineStore = OfflineStore(), autoActivate: Bool = false) {
         self.offlineStore = offlineStore
@@ -368,6 +405,26 @@ public final class WatchEventBridge: NSObject {
         )
     }
 
+    public func makeWatchRoundSeedPayload(
+        package: LiveRoundPackage,
+        activeHole: Int
+    ) -> WatchRoundSeedPayload {
+        WatchRoundSeedPayload(
+            roundId: package.roundId,
+            courseName: package.course.name,
+            activeHole: activeHole,
+            holes: package.holes
+                .sorted { $0.number < $1.number }
+                .map { hole in
+                    WatchRoundSeedHolePayload(
+                        hole: hole.number,
+                        par: hole.par,
+                        distanceM: hole.yards.map { Double($0) * 0.9144 }
+                    )
+                }
+        )
+    }
+
     /// watch P1b: pre-compute the five hole-map overlay anchors from the hole's centreline route so the
     /// watch renders the map with zero projection math. `overlay.route` is `[[px, py, cumMetres]]` in the
     /// same /topo.png pixel space the watch caches. `you` = tee, `pin` = green centre, `layup` = the
@@ -444,6 +501,19 @@ public final class WatchEventBridge: NSObject {
         }
     }
 
+    /// Send the latest real-round identity and hole list using application context. It survives an
+    /// unreachable Watch and is re-pushed after WCSession activation; live per-hole state continues to
+    /// use `sendStateToWatch`.
+    public func sendRoundSeedToWatch(_ seed: WatchRoundSeedPayload) {
+        guard let data = try? encoder.encode(seed),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return
+        }
+        pendingRoundSeed = object
+        pushPendingApplicationContext()
+    }
+
     /// round-12 P3.4 (Watch standalone): hand the watch what it needs to reach the backend on its own
     /// (base URL + auth), so a standalone round can sync without the phone relaying each event. Sent via
     /// application context — latest-wins and delivered even when the watch isn't reachable now.
@@ -477,19 +547,29 @@ public final class WatchEventBridge: NSObject {
             }
         }
         pendingConfig = config
-        pushPendingConfig()
+        pushPendingApplicationContext()
     }
 
-    /// Push the stored config via application context. No-op until the session is activated — the
-    /// activation callback re-invokes this, so a config set during launch still reaches the watch.
-    private func pushPendingConfig() {
-        guard WCSession.isSupported(), let pendingConfig else {
+    /// Push the stored config and real-round seed in one latest-wins application context. No-op until
+    /// activation; the activation callback retries anything queued during launch.
+    private func pushPendingApplicationContext() {
+        guard WCSession.isSupported() else {
             return
         }
         guard WCSession.default.activationState == .activated else {
             return
         }
-        try? WCSession.default.updateApplicationContext(["config": pendingConfig])
+        var context: [String: Any] = [:]
+        if let pendingConfig {
+            context["config"] = pendingConfig
+        }
+        if let pendingRoundSeed {
+            context["roundSeed"] = pendingRoundSeed
+        }
+        guard !context.isEmpty else {
+            return
+        }
+        try? WCSession.default.updateApplicationContext(context)
     }
 
     /// watch P0.4: push a hole's topo image to the watch via a guaranteed-delivery file transfer, keyed
@@ -940,7 +1020,7 @@ extension WatchEventBridge: WCSessionDelegate {
         error: Error?
     ) {
         if activationState == .activated {
-            pushPendingConfig()  // deliver config queued before activation completed
+            pushPendingApplicationContext()
         }
     }
 

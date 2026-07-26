@@ -16,6 +16,16 @@ public struct AICaddieWatchApp: App {
                 .onChange(of: syncClient.config, initial: true) { _, newConfig in
                     roundModel.config = newConfig
                 }
+                .onChange(of: syncClient.roundSeed, initial: true) { _, seed in
+                    if let seed {
+                        roundModel.applyRoundSeed(seed)
+                    }
+                }
+                .onChange(of: syncClient.currentState, initial: true) { _, state in
+                    if let state {
+                        roundModel.receivePhoneState(state)
+                    }
+                }
                 .onAppear {
                     watchLocation.requestAuthorization()
                     watchLocation.startUpdatingLocation()

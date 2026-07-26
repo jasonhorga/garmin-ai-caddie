@@ -16,7 +16,7 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(seed.activeHole, 1)
         XCTAssertEqual(seed.holes.map(\.hole), [1])
         XCTAssertEqual(seed.holes.map(\.par), [4])
-        XCTAssertEqual(seed.holes.first?.distanceM, 374.904, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(seed.holes.first?.distanceM), 374.904, accuracy: 0.001)
     }
 
     func testWatchRoundStatePayloadCompactsDecisionEvidenceWithoutDroppingContext() throws {

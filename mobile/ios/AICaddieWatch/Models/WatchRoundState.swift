@@ -122,6 +122,42 @@ public struct WatchHoleMap: Codable, Equatable {
     }
 }
 
+/// Mirrors the phone's compact round seed. It carries only facts needed to enter and restore the real
+/// round UI; richer map/caddie state still arrives through `WatchRoundState` one hole at a time.
+public struct WatchRoundSeedHole: Codable, Equatable {
+    public let hole: Int
+    public let par: Int
+    public let distanceM: Double?
+
+    public init(hole: Int, par: Int, distanceM: Double?) {
+        self.hole = hole
+        self.par = par
+        self.distanceM = distanceM
+    }
+}
+
+public struct WatchRoundSeed: Codable, Equatable {
+    public let schema: String
+    public let roundId: String
+    public let courseName: String
+    public let activeHole: Int
+    public let holes: [WatchRoundSeedHole]
+
+    public init(
+        schema: String = "ai-caddie-watch-round-seed-v1",
+        roundId: String,
+        courseName: String,
+        activeHole: Int,
+        holes: [WatchRoundSeedHole]
+    ) {
+        self.schema = schema
+        self.roundId = roundId
+        self.courseName = courseName
+        self.activeHole = activeHole
+        self.holes = holes
+    }
+}
+
 public struct WatchRoundState: Codable, Equatable, Identifiable {
     public var id: String { "\(roundId)-\(hole)" }
     public var availableClubNames: [String] {

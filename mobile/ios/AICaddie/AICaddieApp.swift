@@ -883,6 +883,14 @@ public final class LiveRoundAppModel: ObservableObject {
         liveRoundState = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)
         pendingEventCount = try offlineStore.loadPendingEvents(roundId: nextPackage.roundId).count
         syncStatus = status
+        if let watchBridge,
+           let activeHole = liveRoundState?.activeHole ?? nextPackage.holes.first?.number {
+            let seed = watchBridge.makeWatchRoundSeedPayload(
+                package: nextPackage,
+                activeHole: activeHole
+            )
+            watchBridge.sendRoundSeedToWatch(seed)
+        }
     }
 
     /// Activate a HOME/landing package: populate the Hub (course, last round, choices) WITHOUT
