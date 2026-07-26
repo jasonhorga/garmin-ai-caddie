@@ -118,7 +118,12 @@ public struct WatchRoundContainerView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         instrumentBackButton
                         Text("球童建议").font(.headline)
-                        WatchCaddieGlanceView(state: state)
+                        WatchCaddieGlanceView(
+                            state: state,
+                            frontYd: watchGreenYards?.front,
+                            centerYd: watchGreenYards?.center,
+                            backYd: watchGreenYards?.back
+                        )
                         if !state.caddieOptions.isEmpty {
                             Divider()
                             WatchCaddieOptionsView(
