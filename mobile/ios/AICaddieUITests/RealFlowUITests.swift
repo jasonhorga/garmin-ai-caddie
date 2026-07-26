@@ -23,8 +23,8 @@ final class RealFlowUITests: XCTestCase {
         continueAfterFailure = true
         app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = cfg("AI_CADDIE_API_BASE_URL") ?? ""
         app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
-        app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.083"
-        app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.585"
+        app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
+        app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.5461531"
         app.launchEnvironment["UITEST_MODE"] = "1"
     }
 
@@ -95,9 +95,15 @@ final class RealFlowUITests: XCTestCase {
             "simulated course location must select 北京丽宫"
         )
         XCTAssertTrue(tapContaining(["开始记分"]), "selected real course must be startable")
-        settle(15); save("10-live-hole"); dump("10-live-hole")
+        XCTAssertTrue(
+            app.staticTexts["363"].waitForExistence(timeout: 60),
+            "cold-loaded 北京丽宫 hole prep must expose the blue-tee center-green distance"
+        )
+        save("10-live-hole"); dump("10-live-hole")
         XCTAssertTrue(app.staticTexts["第 1 洞"].exists, "starting 北京丽宫 must enter its real first hole")
-        if tapContaining(["看完整方案", "换打法", "备选打法"]) {
+        XCTAssertTrue(app.staticTexts["342"].exists, "front-green distance must render")
+        XCTAssertTrue(app.staticTexts["379"].exists, "back-green distance must render")
+        if tapContaining(["展开", "看完整方案", "换打法", "备选打法"]) {
             settle(3); save("11-caddie-plan"); dump("11-caddie-plan")
         }
     }

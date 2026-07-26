@@ -20,9 +20,9 @@ final class TeeSelectionUITests: XCTestCase {
         continueAfterFailure = true
         app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = cfg("AI_CADDIE_API_BASE_URL") ?? ""
         app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
-        // 黑骑士 (real course with CourseView tees + geometry) so /courses/{id}/tees returns real choices.
-        app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.083"
-        app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.585"
+        // 北京丽宫第 1 洞蓝 T: a real CourseView tee on the same course this flow verifies.
+        app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
+        app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.5461531"
         app.launchEnvironment["UITEST_MODE"] = "1"
     }
 
@@ -95,8 +95,8 @@ final class TeeSelectionUITests: XCTestCase {
         let url = cfg("AI_CADDIE_API_BASE_URL") ?? ""
         let token = cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
         var lines = ["resolvedURL=\(url)", "tokenLen=\(token.count)"]
-        // 黑骑士 A (gid 31794) — a real course with CourseView tees.
-        if let probeURL = URL(string: url + "/api/v2/courses/31794/tees") {
+        // 北京丽宫 (gid 31793) — the real course selected by the injected blue-tee fix.
+        if let probeURL = URL(string: url + "/api/v2/courses/31793/tees") {
             var request = URLRequest(url: probeURL)
             request.timeoutInterval = 40
             request.setValue(token, forHTTPHeaderField: "x-ai-caddie-admin-token")
