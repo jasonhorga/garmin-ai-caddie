@@ -52,34 +52,41 @@ public struct WatchAutoShotDetector {
     private static let cooldownSeconds = 3.0
 
     private var rotationSamples: [WatchAutoShotRotationSample] = []
+    private var pendingImpacts: [WatchAutoShotAccelerationSample] = []
     private var lastDetectionTimestamp: TimeInterval?
+    private var latestObservedTimestamp: TimeInterval?
 
     public init() {}
 
-    public mutating func appendDeviceMotion(_ samples: [WatchAutoShotRotationSample]) {
-        guard let newest = samples.last?.timestamp else { return }
+    /// Returns detections as well as storing the batch because CoreMotion's two batched handlers have no
+    /// ordering contract. A device-motion batch may complete a previously buffered acceleration impact.
+    @discardableResult
+    public mutating func appendDeviceMotion(
+        _ samples: [WatchAutoShotRotationSample]
+    ) -> [WatchAutoShotDetection] {
+        guard let newest = samples.map(\.timestamp).max() else { return [] }
         rotationSamples.append(contentsOf: samples)
-        let oldestNeeded = newest - Self.motionHistorySeconds
-        rotationSamples.removeAll { $0.timestamp < oldestNeeded }
+        noteLatest(newest)
+        trimHistory()
+        return evaluatePendingImpacts()
     }
 
     public mutating func processAccelerometer(
         _ samples: [WatchAutoShotAccelerationSample]
     ) -> [WatchAutoShotDetection] {
-        var detections: [WatchAutoShotDetection] = []
-        for sample in samples {
-            guard isImpact(sample), outsideCooldown(sample.timestamp), hasSwing(before: sample.timestamp) else {
-                continue
-            }
-            lastDetectionTimestamp = sample.timestamp
-            detections.append(WatchAutoShotDetection(timestamp: sample.timestamp))
+        if let newest = samples.map(\.timestamp).max() {
+            noteLatest(newest)
         }
-        return detections
+        pendingImpacts.append(contentsOf: samples.filter { isImpact($0) })
+        trimHistory()
+        return evaluatePendingImpacts()
     }
 
     public mutating func reset() {
         rotationSamples.removeAll(keepingCapacity: true)
+        pendingImpacts.removeAll(keepingCapacity: true)
         lastDetectionTimestamp = nil
+        latestObservedTimestamp = nil
     }
 
     private func isImpact(_ sample: WatchAutoShotAccelerationSample) -> Bool {
@@ -89,6 +96,34 @@ public struct WatchAutoShotDetector {
     private func outsideCooldown(_ timestamp: TimeInterval) -> Bool {
         guard let lastDetectionTimestamp else { return true }
         return timestamp - lastDetectionTimestamp >= Self.cooldownSeconds
+    }
+
+    private mutating func evaluatePendingImpacts() -> [WatchAutoShotDetection] {
+        var detections: [WatchAutoShotDetection] = []
+        var unresolved: [WatchAutoShotAccelerationSample] = []
+        for impact in pendingImpacts.sorted(by: { $0.timestamp < $1.timestamp }) {
+            guard outsideCooldown(impact.timestamp) else { continue }
+            guard hasSwing(before: impact.timestamp) else {
+                unresolved.append(impact)
+                continue
+            }
+            lastDetectionTimestamp = impact.timestamp
+            detections.append(WatchAutoShotDetection(timestamp: impact.timestamp))
+        }
+        pendingImpacts = unresolved
+        trimHistory()
+        return detections
+    }
+
+    private mutating func noteLatest(_ timestamp: TimeInterval) {
+        latestObservedTimestamp = max(latestObservedTimestamp ?? timestamp, timestamp)
+    }
+
+    private mutating func trimHistory() {
+        guard let latestObservedTimestamp else { return }
+        let oldestNeeded = latestObservedTimestamp - Self.motionHistorySeconds
+        rotationSamples.removeAll { $0.timestamp < oldestNeeded }
+        pendingImpacts.removeAll { $0.timestamp < oldestNeeded }
     }
 
     private func hasSwing(before impactTimestamp: TimeInterval) -> Bool {
