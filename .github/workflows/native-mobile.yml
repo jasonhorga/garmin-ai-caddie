@@ -233,12 +233,33 @@ jobs:
           name: real-video
           path: real-videos/
           if-no-files-found: warn
+      - name: Resolve and boot Watch test simulator
+        run: |
+          set -euo pipefail
+          WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
+            [.devices | to_entries[]
+              | .key as $runtime
+              | .value[]
+              | select(.isAvailable == true and .name == "Apple Watch Series 10 (46mm)")
+              | {
+                  udid: .udid,
+                  version: ($runtime
+                    | capture("watchOS-(?<major>[0-9]+)-(?<minor>[0-9]+)")
+                    | [(.major | tonumber), (.minor | tonumber)])
+                }]
+            | sort_by(.version)
+            | last')
+          test "$WATCH_DEVICE" != "null"
+          NATIVE_WATCH_UDID=$(jq -r .udid <<< "$WATCH_DEVICE")
+          echo "NATIVE_WATCH_UDID=$NATIVE_WATCH_UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$NATIVE_WATCH_UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$NATIVE_WATCH_UDID" -b
       - name: Test Watch app target
         run: |
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
-            -destination "$WATCH_DESTINATION"
+            -destination "platform=watchOS Simulator,id=$NATIVE_WATCH_UDID"
       - name: Collect Watch design snapshots
         if: always()
         run: |
