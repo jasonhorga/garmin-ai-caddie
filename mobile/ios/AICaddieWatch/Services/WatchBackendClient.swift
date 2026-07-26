@@ -10,7 +10,13 @@ import Foundation
 public struct WatchBackendEventResult: Equatable {
     public let accepted: Int
     public let duplicate: Bool
+    public let acceptedEventIds: [String]
+    public let duplicateEventIds: [String]
     public let serverSequence: Int
+
+    public var acknowledgedEventIds: [String] {
+        acceptedEventIds + duplicateEventIds
+    }
 }
 
 public enum WatchBackendClientError: Error {
@@ -123,6 +129,8 @@ public final class WatchBackendClient {
         return WatchBackendEventResult(
             accepted: json["accepted"] as? Int ?? 0,
             duplicate: json["duplicate"] as? Bool ?? false,
+            acceptedEventIds: json["acceptedEventIds"] as? [String] ?? [],
+            duplicateEventIds: json["duplicateEventIds"] as? [String] ?? [],
             serverSequence: json["serverSequence"] as? Int ?? 0
         )
     }
