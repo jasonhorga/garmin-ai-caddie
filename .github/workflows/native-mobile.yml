@@ -294,7 +294,10 @@ jobs:
             local mode="$1"
             local screenshot="$2"
             local launch_output
-            if ! launch_output=$(xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$mode" 2>&1); then
+            if ! launch_output=$(env \
+              SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
+              SIMCTL_CHILD_UITEST_GPS_LON=116.5461531 \
+              xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$mode" 2>&1); then
               printf '%s\n' "$launch_output"
               exit 1
             fi
