@@ -9,6 +9,14 @@ import XCTest
 /// test and uploads them as the `watch-snapshots` artifact. (Only real GPS / HealthKit / motion need a
 /// physical watch — the UI/scoring layout is fully reviewable here.)
 final class WatchDesignSnapshotTests: XCTestCase {
+    @MainActor
+    func testRenderAutoShotCandidateConfirmation() throws {
+        let view = WatchAutoShotCandidateView()
+            .frame(width: 198, height: 242)
+            .background(Color.black)
+        try render(view, named: "watch-autoshot-candidate")
+    }
+
     func testCaddieGlancePrefersLiveWatchGreenDistances() {
         let state = WatchRoundState(
             roundId: "r1", hole: 4, par: 5, distanceM: 480,

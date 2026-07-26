@@ -11,6 +11,7 @@ import Foundation
 
 public enum WatchRoundScreen: Equatable {
     case home
+    case autoShotCandidate
     case clubPrompt
     case scoring
     case finishing
@@ -45,6 +46,14 @@ public struct WatchPendingManualShot: Codable, Equatable {
     public let capturedAt: String
     public let shotNumber: Int
     public let shotType: String
+}
+
+/// Durable AutoShot observation. Only the contemporaneous GPS fact is retained; raw Motion samples and
+/// detector features never enter the round store. It is not a recorded shot until the player accepts it
+/// and completes the existing club/location path.
+public struct WatchPendingAutoShotCandidate: Codable, Equatable {
+    public let location: WatchShotLocationValue
+    public let capturedAt: String
 }
 
 public struct WatchScoreDraft: Codable, Equatable {
@@ -94,6 +103,8 @@ public final class WatchRoundModel: ObservableObject {
     @Published public private(set) var scoreFlowStep: WatchScoreFlowStep = .recommendation
     @Published public private(set) var scoringHole: Int?
     @Published public private(set) var pendingManualShot: WatchPendingManualShot?
+    @Published public private(set) var pendingAutoShotCandidate: WatchPendingAutoShotCandidate?
+    @Published public private(set) var autoShotEnabled: Bool
     @Published public private(set) var isUploading: Bool = false
     @Published public private(set) var uploadError: String?
 
@@ -105,6 +116,7 @@ public final class WatchRoundModel: ObservableObject {
     private let clientId: String
     private let makeEventId: () -> String
     private let now: () -> String
+    private let persistAutoShotEnabled: (Bool) -> Void
     private let uploaderOverride: (([WatchInputEvent], String) async throws -> [String])?
     private let finisherOverride: ((String, WatchRoundFinishMetadata) async throws -> Void)?
     private var advanceAfterScoring = true
@@ -115,6 +127,10 @@ public final class WatchRoundModel: ObservableObject {
         store: WatchRoundStore,
         clientId: String = "apple-watch",
         config: WatchRoundConfig? = nil,
+        autoShotEnabled: Bool = UserDefaults.standard.bool(forKey: "watch.autoshot.beta.enabled"),
+        persistAutoShotEnabled: @escaping (Bool) -> Void = {
+            UserDefaults.standard.set($0, forKey: "watch.autoshot.beta.enabled")
+        },
         makeEventId: @escaping () -> String = { UUID().uuidString },
         now: @escaping () -> String = { ISO8601DateFormatter().string(from: Date()) },
         uploader: (([WatchInputEvent], String) async throws -> [String])? = nil,
@@ -123,6 +139,8 @@ public final class WatchRoundModel: ObservableObject {
         self.store = store
         self.clientId = clientId
         self.config = config
+        self.autoShotEnabled = autoShotEnabled
+        self.persistAutoShotEnabled = persistAutoShotEnabled
         self.makeEventId = makeEventId
         self.now = now
         self.uploaderOverride = uploader
@@ -258,6 +276,7 @@ public final class WatchRoundModel: ObservableObject {
             pendingEvents: existing?.pendingEvents ?? [],
             courseName: seed.courseName,
             pendingManualShot: existing?.pendingManualShot,
+            pendingAutoShotCandidate: existing?.pendingAutoShotCandidate,
             scoreDraft: existing?.scoreDraft
         )
         try? store.save(persisted)
@@ -300,6 +319,7 @@ public final class WatchRoundModel: ObservableObject {
 
     private func restoreInteractionState(from persisted: WatchRoundStore.PersistedRound?) {
         pendingManualShot = persisted?.pendingManualShot
+        pendingAutoShotCandidate = persisted?.pendingAutoShotCandidate
         guard let draft = persisted?.scoreDraft,
               persisted?.holeStates.contains(where: { $0.hole == draft.hole }) == true else {
             scoringHole = nil
@@ -311,6 +331,8 @@ public final class WatchRoundModel: ObservableObject {
             advanceAfterScoring = true
             if let pendingManualShot, pendingManualShot.candidateFromHole == nil {
                 screen = .clubPrompt
+            } else if pendingAutoShotCandidate != nil {
+                screen = .autoShotCandidate
             } else {
                 screen = .home
             }
@@ -330,6 +352,7 @@ public final class WatchRoundModel: ObservableObject {
     private func persistInteractionState() {
         guard var current = round else { return }
         current.pendingManualShot = pendingManualShot
+        current.pendingAutoShotCandidate = pendingAutoShotCandidate
         if let scoringHole {
             current.scoreDraft = WatchScoreDraft(
                 hole: scoringHole,
@@ -392,6 +415,64 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     // MARK: - manual shot
+
+    public func setAutoShotEnabled(_ enabled: Bool) {
+        guard autoShotEnabled != enabled else { return }
+        autoShotEnabled = enabled
+        persistAutoShotEnabled(enabled)
+        if !enabled, pendingAutoShotCandidate != nil {
+            pendingAutoShotCandidate = nil
+            screen = .home
+            persistInteractionState()
+        }
+    }
+
+    /// Stage a detector observation without creating a shot event. Returns true only when the candidate
+    /// became the active user decision, allowing the caller to play one haptic and suppress duplicates.
+    @discardableResult
+    public func proposeAutoShotCandidate(
+        latitude: Double,
+        longitude: Double,
+        horizontalAccuracyM: Double,
+        capturedAt: String
+    ) -> Bool {
+        guard autoShotEnabled,
+              round != nil,
+              pendingAutoShotCandidate == nil,
+              pendingManualShot == nil,
+              round?.scoreDraft == nil,
+              screen == .home || screen == .holeMap,
+              let location = WatchShotLocationValue(
+                  latitude: latitude,
+                  longitude: longitude,
+                  horizontalAccuracyM: horizontalAccuracyM
+              ) else { return false }
+        pendingAutoShotCandidate = WatchPendingAutoShotCandidate(
+            location: location,
+            capturedAt: capturedAt
+        )
+        screen = .autoShotCandidate
+        persistInteractionState()
+        return true
+    }
+
+    public func rejectAutoShotCandidate() {
+        guard pendingAutoShotCandidate != nil else { return }
+        pendingAutoShotCandidate = nil
+        screen = .home
+        persistInteractionState()
+    }
+
+    public func acceptAutoShotCandidate() {
+        guard let candidate = pendingAutoShotCandidate else { return }
+        pendingAutoShotCandidate = nil
+        beginManualShot(
+            latitude: candidate.location.latitude,
+            longitude: candidate.location.longitude,
+            horizontalAccuracyM: candidate.location.horizontalAccuracyM,
+            capturedAt: candidate.capturedAt
+        )
+    }
 
     public func beginManualShot(
         latitude: Double,

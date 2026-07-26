@@ -74,6 +74,15 @@ public struct WatchRoundContainerView: View {
                 onFinish: { model.requestFinish() },
                 onMenu: { model.openMenu() }
             )
+        case .autoShotCandidate:
+            if model.pendingAutoShotCandidate != nil {
+                WatchAutoShotCandidateView(
+                    onAccept: { model.acceptAutoShotCandidate() },
+                    onReject: { model.rejectAutoShotCandidate() }
+                )
+            } else {
+                Color.black.onAppear { model.backToHome() }
+            }
         case .holeMap:
             if let s = model.activeHoleState, hasHoleView(s) {
                 ZStack {

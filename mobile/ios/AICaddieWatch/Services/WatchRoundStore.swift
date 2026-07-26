@@ -15,6 +15,7 @@ public final class WatchRoundStore {
         public var courseName: String?
         /// In-progress user facts are optional so rounds written by older app versions still decode.
         public var pendingManualShot: WatchPendingManualShot?
+        public var pendingAutoShotCandidate: WatchPendingAutoShotCandidate?
         public var scoreDraft: WatchScoreDraft?
 
         public init(
@@ -24,6 +25,7 @@ public final class WatchRoundStore {
             pendingEvents: [WatchInputEvent] = [],
             courseName: String? = nil,
             pendingManualShot: WatchPendingManualShot? = nil,
+            pendingAutoShotCandidate: WatchPendingAutoShotCandidate? = nil,
             scoreDraft: WatchScoreDraft? = nil
         ) {
             self.roundId = roundId
@@ -32,6 +34,7 @@ public final class WatchRoundStore {
             self.pendingEvents = pendingEvents
             self.courseName = courseName
             self.pendingManualShot = pendingManualShot
+            self.pendingAutoShotCandidate = pendingAutoShotCandidate
             self.scoreDraft = scoreDraft
         }
     }

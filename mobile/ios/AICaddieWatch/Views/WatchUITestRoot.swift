@@ -77,6 +77,8 @@ public struct WatchUITestRoot: View {
                 recommendedClub: "一号木",
                 clubs: ["一号木", "三号木", "5号铁", "7号铁"]
             )
+        case "autoshot-candidate":
+            WatchAutoShotCandidateView()
         case "finish":
             WatchFinishRoundView(
                 courseName: "北京丽宫 · 前九", holesPlayed: 9, holeCount: 9,
