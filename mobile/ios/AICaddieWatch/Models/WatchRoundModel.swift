@@ -46,6 +46,8 @@ public struct WatchPendingManualShot: Codable, Equatable {
     public let capturedAt: String
     public let shotNumber: Int
     public let shotType: String
+    /// Optional for backward-compatible decoding of rounds written before map-origin resume existed.
+    public let resumeHoleMap: Bool?
 }
 
 /// Durable AutoShot observation. Only the contemporaneous GPS fact is retained; raw Motion samples and
@@ -54,6 +56,8 @@ public struct WatchPendingManualShot: Codable, Equatable {
 public struct WatchPendingAutoShotCandidate: Codable, Equatable {
     public let location: WatchShotLocationValue
     public let capturedAt: String
+    /// Optional for backward-compatible decoding of candidates written by an older app version.
+    public let resumeHoleMap: Bool?
 }
 
 public struct WatchScoreDraft: Codable, Equatable {
@@ -449,7 +453,8 @@ public final class WatchRoundModel: ObservableObject {
               ) else { return false }
         pendingAutoShotCandidate = WatchPendingAutoShotCandidate(
             location: location,
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            resumeHoleMap: screen == .holeMap ? true : nil
         )
         screen = .autoShotCandidate
         persistInteractionState()
@@ -457,9 +462,9 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     public func rejectAutoShotCandidate() {
-        guard pendingAutoShotCandidate != nil else { return }
+        guard let candidate = pendingAutoShotCandidate else { return }
         pendingAutoShotCandidate = nil
-        screen = .home
+        screen = candidate.resumeHoleMap == true ? .holeMap : .home
         persistInteractionState()
     }
 
@@ -470,7 +475,8 @@ public final class WatchRoundModel: ObservableObject {
             latitude: candidate.location.latitude,
             longitude: candidate.location.longitude,
             horizontalAccuracyM: candidate.location.horizontalAccuracyM,
-            capturedAt: candidate.capturedAt
+            capturedAt: candidate.capturedAt,
+            resumeHoleMap: candidate.resumeHoleMap == true
         )
     }
 
@@ -478,7 +484,8 @@ public final class WatchRoundModel: ObservableObject {
         latitude: Double,
         longitude: Double,
         horizontalAccuracyM: Double,
-        capturedAt: String
+        capturedAt: String,
+        resumeHoleMap: Bool = false
     ) {
         guard let hole = activeHoleState,
               let location = WatchShotLocationValue(
@@ -491,7 +498,8 @@ public final class WatchRoundModel: ObservableObject {
                 assignedTo: nextHole,
                 candidateFromHole: hole.hole,
                 location: location,
-                capturedAt: capturedAt
+                capturedAt: capturedAt,
+                resumeHoleMap: resumeHoleMap ? true : nil
             )
             startScoringActiveHole()
         } else {
@@ -499,7 +507,8 @@ public final class WatchRoundModel: ObservableObject {
                 assignedTo: hole,
                 candidateFromHole: nil,
                 location: location,
-                capturedAt: capturedAt
+                capturedAt: capturedAt,
+                resumeHoleMap: resumeHoleMap ? true : nil
             )
             screen = .clubPrompt
             persistInteractionState()
@@ -528,7 +537,7 @@ public final class WatchRoundModel: ObservableObject {
         )
         round = latest
         self.pendingManualShot = nil
-        screen = .home
+        screen = pendingManualShot.resumeHoleMap == true ? .holeMap : .home
         persistInteractionState()
     }
 
@@ -562,7 +571,8 @@ public final class WatchRoundModel: ObservableObject {
         candidateFromHole: Int?,
         location: WatchShotLocationValue,
         capturedAt: String,
-        shotTypeOverride: String? = nil
+        shotTypeOverride: String? = nil,
+        resumeHoleMap: Bool? = nil
     ) -> WatchPendingManualShot {
         let shotNumber = recordedShotCount(for: hole.hole) + 1
         return WatchPendingManualShot(
@@ -571,7 +581,8 @@ public final class WatchRoundModel: ObservableObject {
             location: location,
             capturedAt: capturedAt,
             shotNumber: shotNumber,
-            shotType: shotTypeOverride ?? (shotNumber == 1 ? "tee" : (hole.shotType ?? "approach"))
+            shotType: shotTypeOverride ?? (shotNumber == 1 ? "tee" : (hole.shotType ?? "approach")),
+            resumeHoleMap: resumeHoleMap
         )
     }
 
@@ -586,7 +597,8 @@ public final class WatchRoundModel: ObservableObject {
             candidateFromHole: nil,
             location: pending.location,
             capturedAt: pending.capturedAt,
-            shotTypeOverride: asRecovery ? "recovery" : nil
+            shotTypeOverride: asRecovery ? "recovery" : nil,
+            resumeHoleMap: pending.resumeHoleMap
         )
     }
 
