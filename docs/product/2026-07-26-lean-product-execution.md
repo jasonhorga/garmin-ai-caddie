@@ -25,8 +25,8 @@
 | 2 | 在现有 UI 中完成已确认的成绩确认与手动记杆流程 | `COMPLETE` |
 | 3 | 关键操作后强杀可恢复，重发不丢不重，结果进入现有后端并可复盘 | `COMPLETE` |
 | 4 | Watch 可独立搜索、下载、缓存新球场并离线开局 | `COMPLETE` |
-| 5 | 已确认的 S70 地图与球童页面接入真实距离、危险区和球杆数据 | `CURRENT` |
-| 6 | 完整手动路径稳定后，再做 AutoShot 和按需 Deep Mine | `PENDING` |
+| 5 | 已确认的 S70 地图与球童页面接入真实距离、危险区和球杆数据 | `COMPLETE` |
+| 6 | 完整手动路径稳定后，再做 AutoShot 和按需 Deep Mine | `CURRENT` |
 
 任一时刻只推进一个里程碑。里程碑完成后回到本表选择下一项，不沿实现细节继续派生计划树。
 
@@ -65,9 +65,17 @@
 - 最终 Watch runtime：[run 30216738684](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30216738684) 整体成功：Watch `93/93`、独立 App build、runtime seed/restore 与 artifact 上传全部通过。
 - Codex 已下载并亲自检查三张 416×496 真实 App 截图。首次进程 PID `26682` 显示北京丽宫、第 4 洞、P5、567 码和球道图入口；未重装、没有网络 config 且不发网络请求的第二进程 PID `27133` 从 production round/image store 恢复真实 gid31669/h4 地图、3 号木与 F/M/B；第三进程 PID `27478` 从同一 course store 显示完整北京丽宫名称、`18 洞 · Blue` 和已下载标记。诊断中无 crash、fatal、unknown screen 或 restore error。
 
-## 当前工作：真实数据进入已确认的 S70 地图与球童页面
+## 里程碑 5 结果（2026-07-26）
 
-里程碑 5 复用本轮已经落到 Watch hole state 的真实 F/M/B、plays-like、球杆、危险区、地图图像和锚点，接通用户已确认的地图/大字/球童页面。先修用户实际可见的缺口，不重画已确认 UI，不提前做 AutoShot、风、Deep Mine 或新地图协议。
+- 功能最终 SHA：`459e7c25784311f3c8de3de783c98dc827b4e95a`。独立 Watch 球局的现有菜单按当前洞真实数据开放“球童建议”和“障碍”两个浅层仪表面；球童页消费真实 F/M/B、腕上 GPS 距离覆盖、高差、推荐杆和已有打法 options，障碍页直接消费真实沙坑/水域区间。
+- D02 的根页门控已恢复诚实降级：Watch 契约尚无完整推荐新鲜度、模式门和真实横向散布，因此生产根地图只显示真实底图、球员、旗位、F/M/B、测距与成绩环；原固定 `you → layup → green` 路线、固定 `30×26` 椭圆和无条件推荐 chip 均不再显示。
+- `elevationDeltaM` 已在显示边界从米换成码；完整球童 options 不再展示未校准 `expectedStrokes`，也删除了“不给成功率”工程备注。离线预备数据没有目标工作流时不再伪造红色“待选旗位”动作。
+- 最终 Watch runtime：[run 30218317794](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30218317794) 整体成功：Watch `99/99`、独立 App build、真实缓存球场 seed/restore、球童页与障碍页运行态截图全部通过。
+- Codex 已下载并亲自检查最终 416×496 截图：事实地图显示第 4 洞 P5、实打 `+8` 码和 `256 / 270 / 282` F/M/B；球童页显示 `248 / 262 / 274`、坡度 `+8` 码、`3号木`与离线状态；障碍页显示真实沙坑前沿 `197`、越过 `213` 码。四次独立进程 PID 为 `24183 → 24669 → 25108 → 25210`，诊断中无 crash、fatal、unknown screen 或 restore error。
+
+## 当前工作：AutoShot 与按需 Deep Mine
+
+里程碑 1–5 已建立真实开局、手动记杆、确认换洞、恢复同步、Watch 独立球场缓存和事实地图/球童页面。里程碑 6 从现有 AutoShot 代码与真实击球路径开始，只解决阻塞自动记杆的可复现问题；Deep Mine 只在实际新球场缺失已需要的数据时启动，不建设通用未知格式平台。风、空气密度、假成功率和推杆级等高线继续后置。
 
 ## 持续端到端验收基线
 
