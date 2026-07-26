@@ -23,8 +23,8 @@
 |---|---|---|
 | 1 | 现有 iOS/Watch 使用一个真实球场完成开局，列出唯一真实阻塞点 | `COMPLETE` |
 | 2 | 在现有 UI 中完成已确认的成绩确认与手动记杆流程 | `COMPLETE` |
-| 3 | 关键操作后强杀可恢复，重发不丢不重，结果进入现有后端并可复盘 | `CURRENT` |
-| 4 | Watch 可独立搜索、下载、缓存新球场并离线开局 | `PENDING` |
+| 3 | 关键操作后强杀可恢复，重发不丢不重，结果进入现有后端并可复盘 | `COMPLETE` |
+| 4 | Watch 可独立搜索、下载、缓存新球场并离线开局 | `CURRENT` |
 | 5 | 已确认的 S70 地图与球童页面接入真实距离、危险区和球杆数据 | `PENDING` |
 | 6 | 完整手动路径稳定后，再做 AutoShot 和按需 Deep Mine | `PENDING` |
 
@@ -50,15 +50,22 @@
 - Codex 已下载并逐张检查最终 artifact。候选成绩页显示“第 8 洞首杆已暂存”，球杆页显示“第 8 洞 · 第 1 杆已定位”；推荐、Fairway、首页与 seed/restore 页面均无权限弹窗，关键操作在首屏完整可见。seed/restore 是独立真实进程 PID `26131 → 26900`，状态一致；7 次截图启动 PID 均不同。
 - 截图曾被 Watch unit-test host 遗留的系统定位页覆盖；最终 workflow 在“测试 → 截图”边界擦除并重启模拟器，截图启动本身也不请求定位。里程碑 2 没有剩余产品或验证阻塞。
 
-## 当前工作：关键操作强杀恢复与现有同步闭环
+## 里程碑 3 结果（2026-07-26）
 
-里程碑 3 只补当前用户路径真正缺失的状态，不建设新同步协议：
+- 功能最终 SHA：`6077111ab7f438ac843a118eb4774ceee3bce77e`。
+- `pendingManualShot` 与成绩确认草稿已随现有 `round.json` 持久化；在成绩确认页或球杆页强杀后，重开回到同一页面，同一杆不丢失也不提前重复入账。[Watch runtime run 30212011485](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30212011485) 成功，Watch `86/86`；Codex 已检查两组独立进程 seed/restore 截图。
+- Watch 待发送事件保留到收到精确 ACK；后端继续以 `(playerId, clientId, eventId)` 去重并完成 player-scoped 双登记。完成球局后，现有 iOS/Web 历史复盘均能看到总杆、推杆、Fairway 与真实罚杆；缺少罚杆字段的旧 Garmin 球局继续使用原失误代理，不伪造罚杆。
+- [Watch runtime run 30214498129](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30214498129) 成功，包含 Watch 单测、构建和强杀恢复；[CI run 30214932147](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30214932147) 整体成功，包含后端、Web 组件、lint、production build、Docker 与 visual smoke。
+- [Native Mobile run 30214932897](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30214932897) 的 iOS app tests、SwiftJCS 边界检查、390×844 设计截图采集与 artifact 上传成功后主动取消了后续无关的重复模拟器任务。Codex 已检查 `round-review.png`：逐洞显示 `罚 1 / 罚 0`，合计显示 `罚 1`，推杆、球道和总杆无截断或布局挤压。
 
-1. 将 `pendingManualShot` 与成绩确认草稿（洞号、步骤、数值和保存后是否前进）随现有 `round.json` 持久化；恢复页面由这些事实直接推导。
-2. 第一条可见验收是：点击“记一杆”后在成绩确认页或球杆页强杀，重开仍回到同一页面，同一杆既不丢失也不提前写成重复事件。
-3. 继续复用 Watch 待发送事件、iOS replay/ACK 和后端 `(clientId,eventId)` 去重；本地恢复走通后，再验证同一结果进入现有后端并在 iOS/Web 复盘。
+## 当前工作：Watch 独立获取真实球场并离线开局
 
-本地交互恢复已验收：实现 SHA `4e2b075b882a8cee6e76d16fbf6cdfe5365de8ac`；[Watch runtime run 30212011485](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30212011485) 成功，Watch `86/86`。Codex 已逐张检查球杆选择与候选下一洞成绩确认的 seed/restore 截图；独立进程 PID 分别为 `35293 → 35774` 与 `35912 → 36708`，恢复前后页面事实一致且无系统权限弹窗。下一步只处理待同步事件不丢失、精确 ACK 和 Fairway 进入统一复盘。
+里程碑 4 只接通一条用户可见链路，不建设新的地图分发平台：
+
+1. Watch 使用已经由 iPhone 下发的后端地址与登录 session，直接读取现有 `/api/v2/mobile/courses/options`，显示真实球场列表。
+2. 选定球场后直接下载现有 `/api/v2/mobile/courses/{global_id}/package`，从真实 package 建立 Watch round seed 与球洞地图缓存；不再从“练习记分”占位开局。
+3. 下载完成后断开手机和网络，仍能从本地缓存选择该球场、开局、记分并强杀恢复。在线失败时保留已缓存球场，不把网络错误伪装成空列表。
+4. 第一条可见验收是 Watch 启动页能看到并选择北京丽宫，进入第 1 洞后显示真实名称、Par、距离和地图；随后以离线重启证明不是临时网络状态。
 
 ## 第一个里程碑验收
 
