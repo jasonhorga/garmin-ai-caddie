@@ -79,7 +79,7 @@ public struct WatchRoundHomeView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             HStack {
-                Text("第 \(hole) 洞 · Par \(par)").font(.headline.weight(.bold))
+                Text("第\(hole)洞 · P\(par)").font(.headline.weight(.bold))
                 Spacer()
                 if let distanceText {
                     Text(distanceText).font(.headline.monospacedDigit()).foregroundStyle(AICaddieDesignTokens.par)
@@ -105,8 +105,11 @@ public struct WatchRoundHomeView: View {
             }
             HStack(spacing: 6) {
                 Button(action: onRecordShot) {
-                    Text("记一杆").frame(maxWidth: .infinity)
+                    Text("记一杆")
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
                 .tint(AICaddieDesignTokens.par)
                 .disabled(!canRecordShot)
                 .accessibilityHint(canRecordShot ? "先保存当前位置，再选择实际球杆" : "等待 GPS 定位")

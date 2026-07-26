@@ -63,10 +63,9 @@ public struct WatchScoreHoleView: View {
 
             stepContent
 
-            Button(action: onCancel) {
-                Text("取消").frame(maxWidth: .infinity)
+            if step != .recommendation {
+                cancelButton
             }
-            .buttonStyle(.bordered)
         }
         .padding(8)
     }
@@ -85,13 +84,19 @@ public struct WatchScoreHoleView: View {
             }
             .frame(maxWidth: .infinity)
             Button(action: onAcceptRecommended) {
-                Text("确认 \(score) 杆").frame(maxWidth: .infinity)
+                Text("确认 \(score) 杆")
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.borderedProminent)
             .tint(AICaddieDesignTokens.par)
-            Button(action: onManualEntry) {
-                Text("手动确认").frame(maxWidth: .infinity)
+            HStack(spacing: 6) {
+                Button(action: onManualEntry) {
+                    Text("手动确认").font(.caption).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                cancelButton
             }
-            .buttonStyle(.bordered)
         case .score:
             Text("总杆").font(.caption).foregroundStyle(.secondary)
             scoreStepper
@@ -111,8 +116,11 @@ public struct WatchScoreHoleView: View {
             Text("罚杆").font(.caption).foregroundStyle(.secondary)
             stepperRow(label: "罚杆", value: penalty) { onPenaltyDelta($0) }
             Button(action: onSave) {
-                Text("保存本洞").frame(maxWidth: .infinity)
+                Text("保存本洞")
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.borderedProminent)
             .tint(AICaddieDesignTokens.par)
         }
     }
@@ -135,9 +143,19 @@ public struct WatchScoreHoleView: View {
 
     private var nextButton: some View {
         Button(action: onAdvance) {
-            Text("下一步").frame(maxWidth: .infinity)
+            Text("下一步")
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
         }
+        .buttonStyle(.borderedProminent)
         .tint(AICaddieDesignTokens.par)
+    }
+
+    private var cancelButton: some View {
+        Button(action: onCancel) {
+            Text("取消").font(.caption).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
     }
 
     private func fairwayButton(_ label: String, _ result: WatchFairwayResult) -> some View {
