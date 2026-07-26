@@ -62,7 +62,7 @@ jobs:
             -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
             -derivedDataPath "$RUNNER_TEMP/WatchDerivedData"
 
-      - name: Launch Watch app and require it to remain alive
+      - name: Seed and restore a real Watch round
         run: |
           set -euo pipefail
           APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
@@ -70,18 +70,29 @@ jobs:
           test -d "$APP"
           xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$WATCH_UDID" -b
+          xcrun simctl uninstall "$WATCH_UDID" "$BID" 2>/dev/null || true
           xcrun simctl install "$WATCH_UDID" "$APP"
           xcrun simctl privacy "$WATCH_UDID" grant location "$BID"
           mkdir -p watch-runtime-artifacts
-          if ! LAUNCH_OUTPUT=$(xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen home 2>&1); then
-            printf '%s\n' "$LAUNCH_OUTPUT"
-            exit 1
-          fi
-          printf '%s\n' "$LAUNCH_OUTPUT" | tee watch-runtime-artifacts/launch.txt
-          sleep 5
-          xcrun simctl io "$WATCH_UDID" screenshot watch-runtime-artifacts/watch-home.png
-          # A successful terminate proves the app was still running when the screenshot was taken.
-          xcrun simctl terminate "$WATCH_UDID" "$BID"
+
+          launch_and_capture() {
+            local mode="$1"
+            local screenshot="$2"
+            local launch_output
+            if ! launch_output=$(xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$mode" 2>&1); then
+              printf '%s\n' "$launch_output"
+              exit 1
+            fi
+            printf '%s\n' "$launch_output" | tee "watch-runtime-artifacts/launch-$mode.txt"
+            sleep 5
+            xcrun simctl io "$WATCH_UDID" screenshot "watch-runtime-artifacts/$screenshot"
+            # A successful terminate proves the app was still running when the screenshot was taken.
+            xcrun simctl terminate "$WATCH_UDID" "$BID"
+          }
+
+          launch_and_capture milestone-seed watch-round-seeded.png
+          # Do not reinstall or reseed here: the second process must load the first launch's stored round.
+          launch_and_capture milestone-restore watch-round-restored.png
 
       - name: Collect Watch runtime diagnostics
         if: always()
