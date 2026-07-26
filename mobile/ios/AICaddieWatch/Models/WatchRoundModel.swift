@@ -670,22 +670,34 @@ public final class WatchRoundModel: ObservableObject {
         screen = .home
     }
 
-    /// Finish the round. When the backend is configured and there are queued events, they're uploaded
-    /// first; on upload failure the round is kept and events stay queued (offline-safe) with
-    /// `uploadError` set. A local practice round with no backend configured just finishes cleanly.
+    /// Finish the round only after every queued event is explicitly acknowledged. Without backend
+    /// config, on upload failure, or after a partial acknowledgement, the round and unresolved events
+    /// stay on disk for a later retry.
     public func confirmFinish() async {
         guard let current = round else { return }
         isUploading = true
         uploadError = nil
         defer { isUploading = false }
         let pending = current.pendingEvents
-        guard !pending.isEmpty, canUpload else {
-            finishLocally()   // nothing to sync, or no backend configured -> local practice round
+        guard !pending.isEmpty else {
+            finishLocally()
+            return
+        }
+        guard canUpload else {
+            uploadError = "尚未连接，已离线保存"
             return
         }
         do {
             let posted = try await upload(pending, roundId: current.roundId)
-            round = try store.markPosted(eventIds: posted)
+            guard let updated = try store.markPosted(eventIds: posted) else {
+                uploadError = "本场状态不可用，未清除记录"
+                return
+            }
+            round = updated
+            guard updated.pendingEvents.isEmpty else {
+                uploadError = "部分记录尚未确认，已离线保存"
+                return
+            }
             finishLocally()
         } catch {
             uploadError = "上传失败,已离线保存"
@@ -712,7 +724,11 @@ public final class WatchRoundModel: ObservableObject {
             sessionTokenExpiresAt: config.sessionTokenExpiresAt,
             clientId: clientId
         )
-        _ = try await client.postEvents(events, roundId: roundId, idempotencyKey: makeEventId())
-        return events.map(\.eventId)
+        let result = try await client.postEvents(
+            events,
+            roundId: roundId,
+            idempotencyKey: makeEventId()
+        )
+        return result.acknowledgedEventIds
     }
 }
