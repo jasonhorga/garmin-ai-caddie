@@ -12,8 +12,10 @@ from ai_caddie.caddie.mobile_live import (
     build_mobile_course_options,
     build_round_state,
     replay_event_log,
+    round_events,
 )
 from ai_caddie.history.history import OWNER_ID
+from ai_caddie.rounds import round_ingest
 from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.llm.weather_context import WeatherTransport
 
@@ -25,7 +27,9 @@ from .models import (
     LiveRoundEventAckResponse,
     LiveRoundEventReplayResponse,
     LiveRoundPackageResponse,
+    MobileRoundFinishRequest,
     MobileCourseOptionsResponse,
+    RoundIngestResponse,
     RoundStateResponse,
     MobileReconciliationApplyRequest,
     MobileReconciliationApplyResponse,
@@ -126,6 +130,25 @@ def append_mobile_events_response(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return LiveRoundEventBatchResponse(**result)
+
+
+def finish_mobile_round_response(
+    round_id: str,
+    request: MobileRoundFinishRequest,
+    *,
+    player_id: str = OWNER_ID,
+) -> RoundIngestResponse:
+    try:
+        summary = round_ingest.ingest_round(
+            player_id,
+            round_events(round_id, root=MOBILE_ROOT, player_id=player_id),
+            request.meta,
+            idempotency_key=f"mobile-finish:{round_id}",
+            root=MOBILE_ROOT,
+        )
+    except round_ingest.RoundIngestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RoundIngestResponse(**summary)
 
 
 def replay_mobile_events_response(

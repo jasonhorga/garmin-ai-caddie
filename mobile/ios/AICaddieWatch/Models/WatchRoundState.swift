@@ -450,9 +450,13 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         var nextScore = score
         var nextPutts = putts
         var nextPenaltyCount = penaltyCount
+        var nextFairwayResult = fairwayResult
         switch event.kind {
         case .score:
             nextScore = Int(event.value) ?? score
+            if let fairwayResult = event.fairwayResult {
+                nextFairwayResult = fairwayResult
+            }
         case .putt:
             nextPutts = Int(event.value) ?? putts
         case .penalty:
@@ -506,7 +510,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             lastShotDistanceM: lastShotDistanceM,
             distanceFromLastShotM: distanceFromLastShotM,
             greenInRegulation: greenInRegulation,
-            fairwayResult: fairwayResult,
+            fairwayResult: nextFairwayResult,
             geometryCoverage: geometryCoverage,
             caddieOptions: caddieOptions,
             hazards: hazards,

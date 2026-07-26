@@ -19,13 +19,15 @@ final class WatchRoundModelTests: XCTestCase {
         penalty: Int = 0,
         teeLatitude: Double? = nil,
         teeLongitude: Double? = nil,
-        shotType: String? = nil
+        shotType: String? = nil,
+        globalId: Int? = nil
     ) -> WatchRoundState {
         WatchRoundState(
             roundId: "r1", hole: n, par: par, distanceM: nil,
             teeLatitude: teeLatitude, teeLongitude: teeLongitude,
             selectedClub: nil,
             shotType: shotType,
+            globalId: globalId,
             score: score, putts: putts, penaltyCount: penalty, caddieConfidence: "offline"
         )
     }
@@ -39,6 +41,7 @@ final class WatchRoundModelTests: XCTestCase {
     private func seededModel(
         holes: [WatchRoundState],
         uploader: (([WatchInputEvent], String) async throws -> [String])? = nil,
+        finisher: ((String, WatchRoundFinishMetadata) async throws -> Void)? = nil,
         config: WatchRoundConfig? = nil
     ) -> WatchRoundModel {
         let model = WatchRoundModel(
@@ -46,7 +49,8 @@ final class WatchRoundModelTests: XCTestCase {
             config: config,
             makeEventId: sequentialIds(),
             now: { "2026-06-20T00:00:00Z" },
-            uploader: uploader
+            uploader: uploader,
+            finisher: finisher
         )
         model.seedRound(holes, courseName: "北京丽宫 · 前九")
         return model
@@ -513,9 +517,15 @@ final class WatchRoundModelTests: XCTestCase {
 
     func testConfirmFinishUploadsPendingThenClearsRound() async {
         var received: [WatchInputEvent] = []
+        var finishedRoundId: String?
+        var finishMetadata: WatchRoundFinishMetadata?
         let model = seededModel(
-            holes: [hole(1, par: 4)],
-            uploader: { events, _ in received = events; return events.map(\.eventId) }
+            holes: [hole(1, par: 4, globalId: 12345), hole(2, par: 5, globalId: 12345)],
+            uploader: { events, _ in received = events; return events.map(\.eventId) },
+            finisher: { roundId, metadata in
+                finishedRoundId = roundId
+                finishMetadata = metadata
+            }
         )
         model.startScoringActiveHole()
         model.adjustDraftScore(1)
@@ -523,6 +533,11 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.pendingUploads, 2)
         await model.confirmFinish()
         XCTAssertEqual(received.count, 2)               // uploader saw the queued events
+        XCTAssertEqual(finishedRoundId, "r1")
+        XCTAssertEqual(finishMetadata?.courseName, "北京丽宫 · 前九")
+        XCTAssertEqual(finishMetadata?.holePars, [4, 5])
+        XCTAssertEqual(finishMetadata?.holesCompleted, 1)
+        XCTAssertEqual(finishMetadata?.courseGlobalId, 12345)
         XCTAssertNil(model.round)                       // round cleared after successful upload
         XCTAssertEqual(model.screen, .home)
         XCTAssertNil(model.uploadError)

@@ -2232,6 +2232,20 @@ def _event_log_rows(
     return open_mobile_event_store(path.parent).read_rows(round_id)
 
 
+def round_events(
+    round_id: str,
+    *,
+    root: Path | str | None = None,
+    player_id: str = OWNER_ID,
+) -> list[dict[str, Any]]:
+    """Return one round's complete accepted event stream in server order."""
+    rows = sorted(
+        _event_log_rows(round_id, root=root, player_id=player_id),
+        key=lambda row: _safe_int(row.get("serverSequence")) or 0,
+    )
+    return [row["event"] for row in rows if isinstance(row.get("event"), dict)]
+
+
 def _latest_event_sequence(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> int:
     latest = 0
     for row in _event_log_rows(round_id, root=root, player_id=player_id):
@@ -2320,6 +2334,10 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
             if value is not None:
                 state["score"] = int(value)
                 mark(hole_no, "score", client_id)
+            fairway = str(payload.get("fairway") or "").strip().lower()
+            if fairway in {"hit", "left", "right"}:
+                state["fairwayResult"] = fairway
+                mark(hole_no, "fairway", client_id)
         elif kind == "putt":
             value = _safe_float(payload.get("putts"))
             if value is not None:

@@ -95,6 +95,7 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public let distanceToPinM: Double?
     public let offlineOptionId: String?
     public let decisionId: String?
+    public let fairwayResult: String?
 
     public init(
         eventId: String,
@@ -109,7 +110,8 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
         lie: String? = nil,
         distanceToPinM: Double? = nil,
         offlineOptionId: String? = nil,
-        decisionId: String? = nil
+        decisionId: String? = nil,
+        fairwayResult: String? = nil
     ) {
         self.eventId = eventId
         self.roundId = roundId
@@ -124,6 +126,7 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
         self.distanceToPinM = distanceToPinM
         self.offlineOptionId = offlineOptionId
         self.decisionId = decisionId
+        self.fairwayResult = fairwayResult
     }
 }
 
@@ -290,7 +293,13 @@ public final class WatchEventBridge: NSObject {
     public func mapWatchInputEvent(_ event: WatchInputEvent) throws -> LiveRoundEvent {
         switch event.kind {
         case .score:
-            return liveEvent(event, kind: .score, payload: ["strokes": try numericPayload(event.value, minimum: 1)])
+            var payload: [String: JSONValue] = [
+                "strokes": try numericPayload(event.value, minimum: 1)
+            ]
+            if let fairway = normalizedFairway(event.fairwayResult) {
+                payload["fairway"] = .string(fairway)
+            }
+            return liveEvent(event, kind: .score, payload: payload)
         case .putt:
             return liveEvent(event, kind: .putt, payload: ["putts": try numericPayload(event.value, minimum: 0)])
         case .penalty:
@@ -710,6 +719,12 @@ public final class WatchEventBridge: NSObject {
             payload["decisionId"] = .string(decisionId)
         }
         return payload
+    }
+
+    private func normalizedFairway(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return ["hit", "left", "right"].contains(normalized) ? normalized : nil
     }
 
     private func liveEvent(

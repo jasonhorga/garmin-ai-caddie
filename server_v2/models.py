@@ -49,7 +49,7 @@ MediaPrivacyState = Literal["private_local", "synced", "redacted"]
 LiveRoundEventKind = Literal["score", "club", "putt", "penalty", "note", "location", "photo", "video", "sync_marker"]
 
 _LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
-    "score": ({"strokes"}, {"source"}),
+    "score": ({"strokes"}, {"source", "fairway"}),
     "club": (
         {"clubName"},
         {
@@ -77,7 +77,7 @@ _LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
 }
 
 _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
-    "score": {"strokes": "number", "source": "string"},
+    "score": {"strokes": "number", "source": "string", "fairway": "string"},
     "club": {
         "clubName": "string",
         "source": "string",
@@ -131,6 +131,7 @@ _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
 }
 
 _LIVE_EVENT_PAYLOAD_ENUMS: dict[tuple[str, str], set[str]] = {
+    ("score", "fairway"): {"hit", "left", "right"},
     ("club", "shotType"): {"tee", "approach", "recovery"},
     ("club", "strategyMode"): {"protect_score", "stock", "attack"},
 }
@@ -1020,6 +1021,15 @@ class LiveRoundEventBatchResponse(BaseModel):
     acceptedEventIds: list[str] = Field(default_factory=list)
     duplicateEventIds: list[str] = Field(default_factory=list)
     serverSequence: int = 0
+
+
+class MobileRoundFinishRequest(BaseModel):
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("meta")
+    @classmethod
+    def _bound_meta(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return _reject_oversized(value, label="meta")
 
 
 class LiveRoundEventReplayItem(BaseModel):

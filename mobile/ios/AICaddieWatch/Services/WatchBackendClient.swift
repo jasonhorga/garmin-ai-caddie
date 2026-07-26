@@ -19,6 +19,37 @@ public struct WatchBackendEventResult: Equatable {
     }
 }
 
+public struct WatchRoundFinishMetadata: Equatable {
+    public let courseName: String
+    public let holePars: [Int]
+    public let holesCompleted: Int
+    public let courseGlobalId: Int?
+
+    public init(
+        courseName: String,
+        holePars: [Int],
+        holesCompleted: Int,
+        courseGlobalId: Int?
+    ) {
+        self.courseName = courseName
+        self.holePars = holePars
+        self.holesCompleted = holesCompleted
+        self.courseGlobalId = courseGlobalId
+    }
+
+    fileprivate var jsonObject: [String: Any] {
+        var value: [String: Any] = [
+            "courseName": courseName,
+            "holePars": holePars,
+            "holesCompleted": holesCompleted,
+        ]
+        if let courseGlobalId {
+            value["courseGlobalId"] = courseGlobalId
+        }
+        return value
+    }
+}
+
 public enum WatchBackendClientError: Error {
     case invalidShotLocation
 }
@@ -59,6 +90,9 @@ public final class WatchBackendClient {
         case .score:
             kind = "score"
             payload = ["strokes": Int(event.value) ?? 0]
+            if let fairway = normalizedFairway(event.fairwayResult) {
+                payload["fairway"] = fairway
+            }
         case .putt:
             kind = "putt"
             payload = ["putts": Int(event.value) ?? 0]
@@ -108,6 +142,12 @@ public final class WatchBackendClient {
         return payload
     }
 
+    private func normalizedFairway(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return ["hit", "left", "right"].contains(normalized) ? normalized : nil
+    }
+
     // MARK: - Endpoints (mirror the phone SyncClient event surface)
 
     /// Build the POST /events request (headers + mapped batch body). Split out from `postEvents` so it
@@ -121,6 +161,18 @@ public final class WatchBackendClient {
         applyAuth(&request)
         let body: [String: Any] = ["roundId": roundId, "events": try events.map { try backendEvent(from: $0) }]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    public func makeRoundFinishRequest(
+        roundId: String,
+        metadata: WatchRoundFinishMetadata
+    ) throws -> URLRequest {
+        var request = URLRequest(url: endpointURL("/api/v2/mobile/rounds/\(roundId)/finish"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["meta": metadata.jsonObject])
         return request
     }
 
@@ -143,6 +195,14 @@ public final class WatchBackendClient {
             throw URLError(.badServerResponse)
         }
         return parseEventResult(data)
+    }
+
+    public func finishRound(
+        roundId: String,
+        metadata: WatchRoundFinishMetadata
+    ) async throws {
+        let request = try makeRoundFinishRequest(roundId: roundId, metadata: metadata)
+        _ = try await sendForJSON(request)
     }
 
     /// Pull events authored by other clients (phone/web) so the watch round stays in sync.

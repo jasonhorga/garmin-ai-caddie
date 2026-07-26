@@ -39,6 +39,7 @@ public struct LiveHoleStateSnapshot: Codable, Equatable, Identifiable {
     public var score: Int
     public var putts: Int
     public var penaltyCount: Int
+    public var fairwayResult: String?
     public var selectedClub: String
     public var selectedShotType: String
     public var selectedStrategyMode: String
@@ -59,6 +60,7 @@ public struct LiveHoleStateSnapshot: Codable, Equatable, Identifiable {
             && score == other.score
             && putts == other.putts
             && penaltyCount == other.penaltyCount
+            && fairwayResult == other.fairwayResult
             && selectedClub == other.selectedClub
             && selectedShotType == other.selectedShotType
             && selectedStrategyMode == other.selectedStrategyMode
@@ -995,6 +997,9 @@ public final class OfflineStore {
                 if let strokes = numberPayload("strokes", in: event.payload) {
                     state.score = Int(strokes)
                 }
+                if let fairway = stringPayload("fairway", in: event.payload) {
+                    state.fairwayResult = fairway
+                }
             case .putt:
                 if let putts = numberPayload("putts", in: event.payload) {
                     state.putts = Int(putts)
@@ -1902,6 +1907,7 @@ public final class OfflineStore {
             score: par,
             putts: 2,
             penaltyCount: 0,
+            fairwayResult: nil,
             selectedClub: selectedClub,
             selectedShotType: selectedShotType,
             selectedStrategyMode: "stock",

@@ -68,6 +68,8 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public let distanceToPinM: Double?
     public let offlineOptionId: String?
     public let decisionId: String?
+    /// Optional Fairway result captured with a score on Par 4/5: HIT, LEFT, or RIGHT.
+    public let fairwayResult: String?
 
     public init(
         eventId: String,
@@ -82,7 +84,8 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
         lie: String? = nil,
         distanceToPinM: Double? = nil,
         offlineOptionId: String? = nil,
-        decisionId: String? = nil
+        decisionId: String? = nil,
+        fairwayResult: String? = nil
     ) {
         self.eventId = eventId
         self.roundId = roundId
@@ -97,6 +100,7 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
         self.distanceToPinM = distanceToPinM
         self.offlineOptionId = offlineOptionId
         self.decisionId = decisionId
+        self.fairwayResult = fairwayResult
     }
 }
 

@@ -104,6 +104,7 @@ public final class WatchRoundModel: ObservableObject {
     private let makeEventId: () -> String
     private let now: () -> String
     private let uploaderOverride: (([WatchInputEvent], String) async throws -> [String])?
+    private let finisherOverride: ((String, WatchRoundFinishMetadata) async throws -> Void)?
     private var advanceAfterScoring = true
     private static let nextTeeCandidateRadiusM = 35.0
     private static let maximumCandidateAccuracyM = 12.0
@@ -114,7 +115,8 @@ public final class WatchRoundModel: ObservableObject {
         config: WatchRoundConfig? = nil,
         makeEventId: @escaping () -> String = { UUID().uuidString },
         now: @escaping () -> String = { ISO8601DateFormatter().string(from: Date()) },
-        uploader: (([WatchInputEvent], String) async throws -> [String])? = nil
+        uploader: (([WatchInputEvent], String) async throws -> [String])? = nil,
+        finisher: ((String, WatchRoundFinishMetadata) async throws -> Void)? = nil
     ) {
         self.store = store
         self.clientId = clientId
@@ -122,6 +124,7 @@ public final class WatchRoundModel: ObservableObject {
         self.makeEventId = makeEventId
         self.now = now
         self.uploaderOverride = uploader
+        self.finisherOverride = finisher
         let persisted = store.load()
         self.round = persisted
         restoreInteractionState(from: persisted)
@@ -569,24 +572,20 @@ public final class WatchRoundModel: ObservableObject {
             ? pendingManualShot
             : nil
         var latest = round
-        if draftScore != hole.score {
-            latest = record(hole: hole.hole, kind: .score, value: String(draftScore))
+        let selectedFairway = hole.par == 3 ? nil : draftFairway?.rawValue
+        if draftScore != hole.score || selectedFairway != hole.fairwayResult?.uppercased() {
+            latest = record(
+                hole: hole.hole,
+                kind: .score,
+                value: String(draftScore),
+                fairwayResult: selectedFairway
+            )
         }
         if draftPutts != hole.putts {
             latest = record(hole: hole.hole, kind: .putt, value: String(draftPutts))
         }
         if draftPenalty != hole.penaltyCount {
             latest = record(hole: hole.hole, kind: .penalty, value: String(draftPenalty))
-        }
-
-        // Fairway is already part of the persisted Watch hole projection. Keep it local in this
-        // milestone; the existing backend event adapter is wired in milestone 3 with the rest of the
-        // strong-sync path, rather than inventing a second score protocol here.
-        if hole.par != 3, let draftFairway, var local = latest,
-           let index = local.holeStates.firstIndex(where: { $0.hole == hole.hole }) {
-            local.holeStates[index].fairwayResult = draftFairway.rawValue
-            try? store.save(local)
-            latest = local
         }
 
         round = latest
@@ -611,7 +610,8 @@ public final class WatchRoundModel: ObservableObject {
         value: String,
         createdAt: String? = nil,
         contextClub: String? = nil,
-        shotType: String? = nil
+        shotType: String? = nil,
+        fairwayResult: String? = nil
     ) -> WatchRoundStore.PersistedRound? {
         let event = WatchInputEvent(
             eventId: makeEventId(),
@@ -621,7 +621,8 @@ public final class WatchRoundModel: ObservableObject {
             value: value,
             createdAt: createdAt ?? now(),
             contextClub: contextClub,
-            shotType: shotType
+            shotType: shotType,
+            fairwayResult: fairwayResult
         )
         return try? store.record(event, updateActiveHole: false)
     }
@@ -678,26 +679,31 @@ public final class WatchRoundModel: ObservableObject {
         isUploading = true
         uploadError = nil
         defer { isUploading = false }
-        let pending = current.pendingEvents
-        guard !pending.isEmpty else {
-            finishLocally()
-            return
-        }
-        guard canUpload else {
-            uploadError = "尚未连接，已离线保存"
-            return
-        }
         do {
-            let posted = try await upload(pending, roundId: current.roundId)
-            guard let updated = try store.markPosted(eventIds: posted) else {
-                uploadError = "本场状态不可用，未清除记录"
+            var readyToFinish = current
+            let pending = current.pendingEvents
+            if !pending.isEmpty {
+                guard canUpload else {
+                    uploadError = "尚未连接，已离线保存"
+                    return
+                }
+                let posted = try await upload(pending, roundId: current.roundId)
+                guard let updated = try store.markPosted(eventIds: posted) else {
+                    uploadError = "本场状态不可用，未清除记录"
+                    return
+                }
+                round = updated
+                guard updated.pendingEvents.isEmpty else {
+                    uploadError = "部分记录尚未确认，已离线保存"
+                    return
+                }
+                readyToFinish = updated
+            }
+            guard canFinish else {
+                uploadError = "尚未连接，已离线保存"
                 return
             }
-            round = updated
-            guard updated.pendingEvents.isEmpty else {
-                uploadError = "部分记录尚未确认，已离线保存"
-                return
-            }
+            try await finishRemotely(readyToFinish)
             finishLocally()
         } catch {
             uploadError = "上传失败,已离线保存"
@@ -705,6 +711,7 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     private var canUpload: Bool { uploaderOverride != nil || config != nil }
+    private var canFinish: Bool { finisherOverride != nil || config != nil }
 
     private func finishLocally() {
         store.clear()
@@ -730,5 +737,27 @@ public final class WatchRoundModel: ObservableObject {
             idempotencyKey: makeEventId()
         )
         return result.acknowledgedEventIds
+    }
+
+    private func finishRemotely(_ current: WatchRoundStore.PersistedRound) async throws {
+        let metadata = WatchRoundFinishMetadata(
+            courseName: current.courseName ?? "Watch round",
+            holePars: current.holeStates.sorted { $0.hole < $1.hole }.map(\.par),
+            holesCompleted: current.holeStates.filter { $0.score > 0 }.count,
+            courseGlobalId: current.holeStates.compactMap(\.globalId).first
+        )
+        if let finisherOverride {
+            try await finisherOverride(current.roundId, metadata)
+            return
+        }
+        guard let config else { throw WatchRoundModelError.notConfigured }
+        let client = WatchBackendClient(
+            baseURL: config.baseURL,
+            adminToken: config.adminToken,
+            sessionToken: config.sessionToken,
+            sessionTokenExpiresAt: config.sessionTokenExpiresAt,
+            clientId: clientId
+        )
+        try await client.finishRound(roundId: current.roundId, metadata: metadata)
     }
 }

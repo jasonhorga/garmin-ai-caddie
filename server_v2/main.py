@@ -58,6 +58,7 @@ from .mobile import (
     build_mobile_course_package_response,
     build_mobile_course_options_response,
     build_mobile_round_package_response,
+    finish_mobile_round_response,
     reconcile_mobile_round_response,
     replay_mobile_events_response,
     round_state_response,
@@ -111,6 +112,7 @@ from .models import (
     LiveRoundEventAckResponse,
     LiveRoundEventReplayResponse,
     LiveRoundPackageResponse,
+    MobileRoundFinishRequest,
     RoundStateResponse,
     MediaCreateRequest,
     MediaCreateResponse,
@@ -1096,6 +1098,19 @@ def mobile_round_events(
     return append_mobile_events_response(
         round_id, request, idempotency_key=idempotency_key, player_id=acting_player_id
     )
+
+
+@app.post(
+    "/api/v2/mobile/rounds/{round_id}/finish",
+    response_model=RoundIngestResponse,
+    status_code=201,
+)
+def mobile_round_finish(
+    round_id: str,
+    request: MobileRoundFinishRequest,
+    acting_player_id: str = Depends(current_player_id),
+) -> RoundIngestResponse:
+    return finish_mobile_round_response(round_id, request, player_id=acting_player_id)
 
 
 @app.get("/api/v2/mobile/rounds/{round_id}/events/replay", response_model=LiveRoundEventReplayResponse)

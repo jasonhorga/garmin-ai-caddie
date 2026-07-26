@@ -126,12 +126,13 @@ def _as_float(value: Any) -> float | None:
 
 
 class _HoleAccumulator:
-    __slots__ = ("strokes", "putts", "penalties", "shots", "notes")
+    __slots__ = ("strokes", "putts", "penalties", "fairway", "shots", "notes")
 
     def __init__(self) -> None:
         self.strokes: int | None = None
         self.putts: int = 0
         self.penalties: int = 0
+        self.fairway: str | None = None
         self.shots: list[dict[str, Any]] = []
         self.notes: list[str] = []
 
@@ -178,6 +179,11 @@ def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
             if strokes is None or strokes < 1:
                 raise RoundIngestError("score event needs strokes >= 1")
             acc.strokes = strokes  # last score event for the hole wins
+            if "fairway" in payload:
+                fairway = str(payload.get("fairway") or "").strip().lower()
+                if fairway not in {"hit", "left", "right"}:
+                    raise RoundIngestError("score event fairway must be hit, left, or right")
+                acc.fairway = fairway
         elif kind == "putt":
             putts = _as_int(payload.get("putts"))
             if putts is None or putts < 0:
@@ -268,7 +274,14 @@ def _build_scorecard(
         acc = holes[number]
         if acc.strokes is None:
             continue
-        hole_dict: dict[str, Any] = {"number": number, "strokes": acc.strokes}
+        hole_dict: dict[str, Any] = {
+            "number": number,
+            "strokes": acc.strokes,
+            "putts": acc.putts,
+            "penalties": acc.penalties,
+        }
+        if acc.fairway is not None:
+            hole_dict["fairway"] = acc.fairway
         # Manual rounds carry no Garmin gir/fairway -> derive REAL ones from per-shot GPS +
         # hole geometry. Only-when-absent (the helper never overwrites a present value) and
         # undeterminable values are omitted, so this is a pure add for no-Garmin members.
