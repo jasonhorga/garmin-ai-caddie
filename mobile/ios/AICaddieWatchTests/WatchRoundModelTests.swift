@@ -247,6 +247,88 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.recordedShotCount, 1)
     }
 
+    func testPendingManualShotRestoresClubPromptAfterRelaunch() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("manual-shot-restore-\(UUID().uuidString)", isDirectory: true)
+        let first = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory),
+            makeEventId: sequentialIds(),
+            now: { "2026-07-26T10:00:00Z" }
+        )
+        first.seedRound([hole(1)])
+        first.beginManualShot(
+            latitude: 40.0,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T10:00:00Z"
+        )
+
+        let restored = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory),
+            makeEventId: sequentialIds(),
+            now: { "2026-07-26T10:01:00Z" }
+        )
+
+        XCTAssertEqual(restored.screen, .clubPrompt)
+        XCTAssertEqual(restored.pendingManualShot?.hole, 1)
+        XCTAssertEqual(restored.pendingManualShot?.shotNumber, 1)
+        XCTAssertEqual(restored.pendingUploads, 0)
+
+        restored.completePendingManualShot(clubName: nil)
+        XCTAssertNil(restored.pendingManualShot)
+        XCTAssertEqual(restored.round?.pendingEvents.map(\.kind), [.location])
+    }
+
+    func testNextTeeCandidateAndScoreDraftRestoreAfterRelaunch() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("candidate-score-restore-\(UUID().uuidString)", isDirectory: true)
+        let first = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory),
+            makeEventId: sequentialIds(),
+            now: { "2026-07-26T11:00:00Z" }
+        )
+        first.seedRound([
+            hole(1, par: 4, teeLatitude: 40.0, teeLongitude: 116.0),
+            hole(2, par: 5, teeLatitude: 40.001, teeLongitude: 116.0),
+        ])
+        first.beginManualShot(
+            latitude: 40.001,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T11:00:00Z"
+        )
+        first.startManualScoreEntry()
+        first.adjustDraftScore(1)
+        first.advanceScoreEntry()
+        first.adjustDraftPutts(1)
+
+        let restored = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory),
+            makeEventId: sequentialIds(),
+            now: { "2026-07-26T11:01:00Z" }
+        )
+
+        XCTAssertEqual(restored.screen, .scoring)
+        XCTAssertEqual(restored.activeHole, 1)
+        XCTAssertEqual(restored.scoringHole, 1)
+        XCTAssertEqual(restored.scoreFlowStep, .putts)
+        XCTAssertEqual(restored.draftScore, 5)
+        XCTAssertEqual(restored.draftPutts, 3)
+        XCTAssertEqual(restored.pendingManualShot?.hole, 2)
+        XCTAssertEqual(restored.pendingManualShot?.candidateFromHole, 1)
+        XCTAssertEqual(restored.pendingUploads, 0)
+
+        restored.advanceScoreEntry()
+        restored.selectDraftFairway(.hit)
+        restored.saveManualScore()
+        XCTAssertEqual(restored.activeHole, 2)
+        XCTAssertEqual(restored.screen, .clubPrompt)
+
+        restored.completePendingManualShot(clubName: nil)
+        XCTAssertEqual(restored.round?.pendingEvents.map(\.kind), [.score, .putt, .location])
+        XCTAssertEqual(restored.round?.pendingEvents.last?.hole, 2)
+    }
+
     func testManualShotAtNextTeeWaitsForPreviousScoreThenBelongsToNextHole() {
         let model = seededModel(holes: [
             hole(1, par: 4, teeLatitude: 40.0, teeLongitude: 116.0),
