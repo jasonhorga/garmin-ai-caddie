@@ -71,6 +71,7 @@ jobs:
           xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$WATCH_UDID" -b
           xcrun simctl install "$WATCH_UDID" "$APP"
+          xcrun simctl privacy "$WATCH_UDID" grant location "$BID"
           mkdir -p watch-runtime-artifacts
           if ! LAUNCH_OUTPUT=$(xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen home 2>&1); then
             printf '%s\n' "$LAUNCH_OUTPUT"
