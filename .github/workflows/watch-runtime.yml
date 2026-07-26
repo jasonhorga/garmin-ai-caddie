@@ -1,0 +1,105 @@
+name: Watch Runtime Visual Check
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ai-caddie-watch-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  watch-runtime:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate native project
+        run: xcodegen generate --spec mobile/ios/project.yml --project-root .
+
+      - name: Resolve diagnostic Watch simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
+            [.devices | to_entries[]
+              | .key as $runtime
+              | .value[]
+              | select(.isAvailable == true and .name == "Apple Watch Series 10 (46mm)")
+              | {
+                  udid: .udid,
+                  runtime: $runtime,
+                  version: ($runtime
+                    | capture("watchOS-(?<major>[0-9]+)-(?<minor>[0-9]+)")
+                    | [(.major | tonumber), (.minor | tonumber)])
+                }]
+            | sort_by(.version)
+            | first')
+          test "$WATCH_DEVICE" != "null"
+          WATCH_UDID=$(jq -r .udid <<< "$WATCH_DEVICE")
+          WATCH_RUNTIME=$(jq -r .runtime <<< "$WATCH_DEVICE")
+          echo "WATCH_UDID=$WATCH_UDID" >> "$GITHUB_ENV"
+          echo "WATCH_RUNTIME=$WATCH_RUNTIME" >> "$GITHUB_ENV"
+          echo "Diagnostic device: $WATCH_RUNTIME / $WATCH_UDID"
+
+      - name: Reproduce the existing Watch test build
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatch \
+            -destination "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest" \
+            -derivedDataPath "$RUNNER_TEMP/WatchDerivedData"
+
+      - name: Launch Watch app and require it to remain alive
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
+          BID=com.ai-caddie.mobile.watchkitapp
+          test -d "$APP"
+          xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$WATCH_UDID" -b
+          xcrun simctl install "$WATCH_UDID" "$APP"
+          mkdir -p watch-runtime-artifacts
+          if ! LAUNCH_OUTPUT=$(xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen home 2>&1); then
+            printf '%s\n' "$LAUNCH_OUTPUT"
+            exit 1
+          fi
+          printf '%s\n' "$LAUNCH_OUTPUT" | tee watch-runtime-artifacts/launch.txt
+          sleep 5
+          xcrun simctl io "$WATCH_UDID" screenshot watch-runtime-artifacts/watch-home.png
+          # A successful terminate proves the app was still running when the screenshot was taken.
+          xcrun simctl terminate "$WATCH_UDID" "$BID"
+
+      - name: Collect Watch runtime diagnostics
+        if: always()
+        run: |
+          mkdir -p watch-runtime-artifacts/diagnostics
+          xcrun simctl list devices available \
+            > watch-runtime-artifacts/diagnostics/devices.txt 2>&1 || true
+          xcrun simctl list pairs \
+            > watch-runtime-artifacts/diagnostics/pairs.txt 2>&1 || true
+          if [ -n "${WATCH_UDID:-}" ]; then
+            xcrun simctl spawn "$WATCH_UDID" log show \
+              --last 10m \
+              --style compact \
+              --predicate 'process == "AICaddieWatch" OR eventMessage CONTAINS[c] "AICaddieWatch" OR eventMessage CONTAINS[c] "com.ai-caddie.mobile.watchkitapp"' \
+              > watch-runtime-artifacts/diagnostics/watch.log 2>&1 || true
+            find "$HOME/Library/Developer/CoreSimulator/Devices/$WATCH_UDID/data/Library/Logs/CrashReporter" \
+              -type f -iname '*AICaddieWatch*' \
+              -exec cp {} watch-runtime-artifacts/diagnostics/ \; 2>/dev/null || true
+          fi
+          find "$HOME/Library/Logs/DiagnosticReports" \
+            -type f -iname '*AICaddieWatch*' \
+            -exec cp {} watch-runtime-artifacts/diagnostics/ \; 2>/dev/null || true
+          find watch-runtime-artifacts -maxdepth 2 -type f -print
+
+      - name: Upload Watch runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: watch-runtime-evidence
+          path: watch-runtime-artifacts/
+          if-no-files-found: error

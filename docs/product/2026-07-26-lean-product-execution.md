@@ -21,7 +21,7 @@
 
 | 顺序 | 可见结果 | 状态 |
 |---|---|---|
-| 1 | 现有 iOS/Watch 使用一个真实球场完成开局，列出唯一真实阻塞点 | `DEVICE_CHECK` |
+| 1 | 现有 iOS/Watch 使用一个真实球场完成开局，列出唯一真实阻塞点 | `CI_VISUAL_FIX` |
 | 2 | 在现有 UI 中完成已确认的成绩确认与手动记杆流程 | `PENDING` |
 | 3 | 关键操作后强杀可恢复，重发不丢不重，结果进入现有后端并可复盘 | `PENDING` |
 | 4 | Watch 可独立搜索、下载、缓存新球场并离线开局 | `PENDING` |
@@ -33,10 +33,11 @@
 ## 当前结果（2026-07-26）
 
 - 实现 SHA：`5b86b330148ef3828da4a4a90c33578dd3b4ba21`。
-- Native CI：[run 30186231292](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30186231292) 全绿；iOS、Watch、live UI、两端截图和 build evidence 均成功。
+- Native CI：[run 30186231292](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30186231292) 的 iOS、Watch 单测和 iOS live UI 通过；iOS 运行态截图有效。
+- 该 run 的 Watch `watch-real-screenshots` 实际拍到表盘，不是 App。截图脚本选中了 watchOS 11.5，而 Watch 测试使用 watchOS 26.2，并吞掉了 install/launch/terminate 错误，因此原工作流是假绿，不能作为 Watch 运行态证据。
 - iPhone 激活真实 `LiveRoundPackage` 后会把真实球场名、当前洞以及所有洞的 Par/距离发给 Watch；Watch 进入现有 `WatchRoundContainerView`，后续继续合并现有单洞地图/球童状态。
 - `WatchRoundStore` 已覆盖整轮持久化和重启恢复；同一局的 Watch 未同步编辑不会被后到的手机状态清掉。
-- 当前没有已知工程阻塞。里程碑 1 只剩一次配对设备确认：真实开局后核对两端球场/洞/Par/距离一致；强杀并重开 Watch 后仍回到同一局。确认前不启动里程碑 2。
+- 当前阻塞是修复 GitHub Actions 的 Watch 运行态验收：必须在同一个明确的 Watch 模拟器上启动真实 `WatchRoundModel`/`WatchRoundContainerView`，分别截图首次接收和进程重启恢复，并在 App 提前退出时让 CI 失败并上传诊断。用户不承担真机检查；修复后由 Codex 下载并检查截图。确认前不启动里程碑 2。
 
 ## 第一个里程碑验收
 
