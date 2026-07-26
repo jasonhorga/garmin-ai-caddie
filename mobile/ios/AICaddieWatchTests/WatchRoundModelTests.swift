@@ -546,6 +546,7 @@ final class WatchRoundModelTests: XCTestCase {
         model.startScoringActiveHole()
         model.saveActiveHole()
         let pendingBefore = model.pendingUploads
+        model.requestFinish()
 
         await model.confirmFinish()
 
@@ -564,6 +565,7 @@ final class WatchRoundModelTests: XCTestCase {
         model.adjustDraftScore(1)
         model.saveActiveHole()
         XCTAssertEqual(model.pendingUploads, 2)
+        model.requestFinish()
 
         await model.confirmFinish()
 
