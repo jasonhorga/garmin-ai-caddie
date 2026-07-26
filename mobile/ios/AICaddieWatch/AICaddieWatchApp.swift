@@ -39,7 +39,7 @@ public struct AICaddieWatchApp: App {
         if let uitestScreen = WatchUITestRoot.requestedScreen() {
             // `simctl launch ... -uitest-screen <name>`: render the real view with demo data so
             // `simctl io screenshot` captures it (watchOS has no XCUITest). DEBUG-only.
-            WatchUITestRoot(screen: uitestScreen)
+            WatchUITestRoot(screen: uitestScreen, model: roundModel)
         } else {
             standardContent
         }

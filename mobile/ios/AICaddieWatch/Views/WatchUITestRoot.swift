@@ -8,9 +8,11 @@ import SwiftUI
 /// XCUITest, so this direct-render-by-arg harness is how the watch surfaces get genuine running-app shots.
 public struct WatchUITestRoot: View {
     public let screen: String
+    @ObservedObject private var model: WatchRoundModel
 
-    public init(screen: String) {
+    public init(screen: String, model: WatchRoundModel) {
         self.screen = screen
+        self.model = model
     }
 
     /// Reads `-uitest-screen <name>` from the launch arguments; nil when not a UI-test launch.
@@ -24,6 +26,8 @@ public struct WatchUITestRoot: View {
 
     public var body: some View {
         switch screen {
+        case "milestone-seed", "milestone-restore":
+            milestoneRound
         case "home":
             WatchRoundHomeView(
                 courseName: "北京丽宫 · 前九", hole: 7, par: 4, holeCount: 9,
@@ -58,6 +62,30 @@ public struct WatchUITestRoot: View {
             Text("unknown uitest screen: \(screen)")
         }
     }
+
+    private var milestoneRound: some View {
+        Group {
+            if model.round != nil {
+                WatchRoundContainerView(model: model)
+            } else {
+                Text("round restore unavailable")
+            }
+        }
+        .onAppear {
+            if screen == "milestone-seed" {
+                model.applyRoundSeed(Self.milestoneSeed)
+            }
+        }
+    }
+
+    private static let milestoneSeed = WatchRoundSeed(
+        roundId: "ci-beijing-ligong-round-1",
+        courseName: "北京丽宫体育公园高尔夫俱乐部",
+        activeHole: 1,
+        holes: [
+            WatchRoundSeedHole(hole: 1, par: 4, distanceM: 369.4176), // 404 yards
+        ]
+    )
 
     // MARK: - demo data (mirrors the design-snapshot fixtures)
 
