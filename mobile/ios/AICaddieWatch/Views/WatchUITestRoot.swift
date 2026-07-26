@@ -52,6 +52,11 @@ public struct WatchUITestRoot: View {
             WatchMenuView()
         case "score", "score-recommendation":
             WatchScoreHoleView(hole: 7, par: 4, score: 5, putts: 2, penalty: 0)
+        case "score-next-tee-candidate":
+            WatchScoreHoleView(
+                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+                candidateNextHole: 8
+            )
         case "score-fairway":
             WatchScoreHoleView(
                 hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
@@ -59,6 +64,7 @@ public struct WatchUITestRoot: View {
             )
         case "club-prompt":
             WatchClubPromptView(
+                hole: 8,
                 shotNumber: 1,
                 recommendedClub: "一号木",
                 clubs: ["一号木", "三号木", "5号铁", "7号铁"]

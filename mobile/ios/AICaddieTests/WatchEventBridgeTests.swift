@@ -19,6 +19,16 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(seed.holes.first?.distanceM), 374.904, accuracy: 0.001)
     }
 
+    func testWatchRoundSeedIncludesTeeCoordinateFromRealMapProjection() throws {
+        let bridge = WatchEventBridge()
+        let package = try fixturePackageWithTeeProjection()
+
+        let seed = bridge.makeWatchRoundSeedPayload(package: package, activeHole: 1)
+
+        XCTAssertEqual(try XCTUnwrap(seed.holes.first?.teeLatitude), 0.8, accuracy: 0.000001)
+        XCTAssertEqual(try XCTUnwrap(seed.holes.first?.teeLongitude), 0.2, accuracy: 0.000001)
+    }
+
     func testWatchRoundStatePayloadCompactsDecisionEvidenceWithoutDroppingContext() throws {
         let bridge = WatchEventBridge()
         let package = try fixturePackage()
@@ -331,6 +341,53 @@ final class WatchEventBridgeTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
         let data = try Data(contentsOf: url)
+        return try JSONDecoder().decode(LiveRoundPackage.self, from: data)
+    }
+
+    private func fixturePackageWithTeeProjection() throws -> LiveRoundPackage {
+        let base = try fixturePackage()
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(base)) as? [String: Any]
+        )
+        object["coursePrep"] = [
+            "schema": "ai-caddie-course-prep-package-v1",
+            "globalId": 31795,
+            "missingData": [],
+            "holes": [[
+                "hole": 1,
+                "par": 4,
+                "par_source": "fixture",
+                "blue_yards": 410,
+                "route_len_m": 375.0,
+                "route": [[20.0, 80.0, 0.0], [80.0, 20.0, 375.0]],
+                "geometryCoverage": "ready",
+                "sourceRefs": [],
+                "missingData": [],
+                "candidateRoutes": [],
+                "carryTargets": [],
+                "steps": [],
+                "cautions": [],
+                "hazards": ["water_carry": [], "bunkers": []],
+                "map": [
+                    "image": "data:image/jpeg;base64,AAAA",
+                    "overlay": [
+                        "w": 100, "h": 100, "ppm": 1.0, "ln": 375.0,
+                        "route": [[20.0, 80.0, 0.0], [80.0, 20.0, 375.0]],
+                    ],
+                ],
+                "holeImageProjection": [
+                    "available": true,
+                    "widthPx": 100,
+                    "heightPx": 100,
+                    "refs": [
+                        ["lat": 0.0, "lon": 0.0, "px": 0.0, "py": 0.0],
+                        ["lat": 0.0, "lon": 1.0, "px": 100.0, "py": 0.0],
+                        ["lat": 1.0, "lon": 0.0, "px": 0.0, "py": 100.0],
+                    ],
+                ],
+            ]],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: object)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: data)
     }
 

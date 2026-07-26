@@ -4,6 +4,7 @@ import SwiftUI
 /// The shot location is already staged by the model. This screen only lets the player attach the
 /// actual club; choosing Skip still records the location and never treats the suggested club as fact.
 public struct WatchClubPromptView: View {
+    public let hole: Int?
     public let shotNumber: Int
     public let recommendedClub: String?
     public let clubs: [String]
@@ -11,12 +12,14 @@ public struct WatchClubPromptView: View {
     public let onSkipClub: () -> Void
 
     public init(
+        hole: Int? = nil,
         shotNumber: Int,
         recommendedClub: String? = nil,
         clubs: [String] = [],
         onSelectClub: @escaping (String) -> Void = { _ in },
         onSkipClub: @escaping () -> Void = {}
     ) {
+        self.hole = hole
         self.shotNumber = shotNumber
         self.recommendedClub = recommendedClub
         self.clubs = clubs
@@ -27,7 +30,7 @@ public struct WatchClubPromptView: View {
     public var body: some View {
         VStack(spacing: 6) {
             VStack(spacing: 1) {
-                Text("第 \(shotNumber) 杆已定位")
+                Text(locationTitle)
                     .font(.headline.weight(.bold))
                 Text("选择实际球杆")
                     .font(.caption2)
@@ -78,6 +81,11 @@ public struct WatchClubPromptView: View {
         guard let value = recommendedClub?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else { return nil }
         return value
+    }
+
+    private var locationTitle: String {
+        guard let hole else { return "第 \(shotNumber) 杆已定位" }
+        return "第 \(hole) 洞 · 第 \(shotNumber) 杆已定位"
     }
 
     private var clubChoices: [String] {

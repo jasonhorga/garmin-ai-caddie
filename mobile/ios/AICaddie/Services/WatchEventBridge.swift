@@ -160,11 +160,21 @@ public struct WatchRoundSeedHolePayload: Codable, Equatable {
     public let hole: Int
     public let par: Int
     public let distanceM: Double?
+    public let teeLatitude: Double?
+    public let teeLongitude: Double?
 
-    public init(hole: Int, par: Int, distanceM: Double?) {
+    public init(
+        hole: Int,
+        par: Int,
+        distanceM: Double?,
+        teeLatitude: Double? = nil,
+        teeLongitude: Double? = nil
+    ) {
         self.hole = hole
         self.par = par
         self.distanceM = distanceM
+        self.teeLatitude = teeLatitude
+        self.teeLongitude = teeLongitude
     }
 }
 
@@ -194,6 +204,8 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let hole: Int
     public let par: Int
     public let distanceM: Double?
+    public let teeLatitude: Double?
+    public let teeLongitude: Double?
     public let targetNote: String?
     public let targetLatitude: Double?
     public let targetLongitude: Double?
@@ -345,11 +357,14 @@ public final class WatchEventBridge: NSObject {
         let selectedOptionId = string(selected?["id"]) ?? decision?.selectedOptionId ?? offlineSelected?.optionId
         let suggestedClub = clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName
         let selectedSequence = selectedSequence(from: decision)
+        let tee = Self.teeCoordinate(package: package, hole: hole.number)
         return WatchRoundStatePayload(
             roundId: package.roundId,
             hole: hole.number,
             par: hole.par,
             distanceM: distanceToPinM ?? number(selected?["carry_m"]) ?? number(selected?["carryM"]) ?? offlineSelected?.carryM,
+            teeLatitude: tee?.latitude,
+            teeLongitude: tee?.longitude,
             targetNote: watchTargetNote(
                 selected: selected,
                 offlineOption: offlineSelected,
@@ -420,13 +435,54 @@ public final class WatchEventBridge: NSObject {
             holes: package.holes
                 .sorted { $0.number < $1.number }
                 .map { hole in
-                    WatchRoundSeedHolePayload(
+                    let tee = Self.teeCoordinate(package: package, hole: hole.number)
+                    return WatchRoundSeedHolePayload(
                         hole: hole.number,
                         par: hole.par,
-                        distanceM: hole.yards.map { Double($0) * 0.9144 }
+                        distanceM: hole.yards.map { Double($0) * 0.9144 },
+                        teeLatitude: tee?.latitude,
+                        teeLongitude: tee?.longitude
                     )
                 }
         )
+    }
+
+    private static func teeCoordinate(
+        package: LiveRoundPackage,
+        hole: Int
+    ) -> (latitude: Double, longitude: Double)? {
+        guard let prep = package.coursePrep?.holes.first(where: { $0.hole == hole }),
+              let first = prep.map?.overlay.route.first,
+              first.count >= 2,
+              let refs = prep.holeImageProjection?.refs else { return nil }
+        return projectFromTopoPx(
+            px: first[0],
+            py: first[1],
+            refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+        )
+    }
+
+    /// Inverse of `projectToTopoPx`, used once on the phone to put each real tee anchor into the
+    /// compact Watch round seed.
+    private static func projectFromTopoPx(
+        px: Double,
+        py: Double,
+        refs: [(lat: Double, lon: Double, px: Double, py: Double)]
+    ) -> (latitude: Double, longitude: Double)? {
+        guard refs.count >= 3, px.isFinite, py.isFinite else { return nil }
+        let o = refs[0], r1 = refs[1], r2 = refs[2]
+        let a = r1.px - o.px, b = r2.px - o.px
+        let c = r1.py - o.py, d = r2.py - o.py
+        let det = a * d - b * c
+        guard abs(det) > 1e-12 else { return nil }
+        let dx = px - o.px, dy = py - o.py
+        let s = (dx * d - b * dy) / det
+        let t = (a * dy - dx * c) / det
+        let latitude = o.lat + s * (r1.lat - o.lat) + t * (r2.lat - o.lat)
+        let longitude = o.lon + s * (r1.lon - o.lon) + t * (r2.lon - o.lon)
+        guard latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude) else { return nil }
+        return (latitude, longitude)
     }
 
     /// watch P1b: pre-compute the five hole-map overlay anchors from the hole's centreline route so the

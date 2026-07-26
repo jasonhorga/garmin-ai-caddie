@@ -11,9 +11,18 @@ final class WatchRoundModelTests: XCTestCase {
         return WatchRoundStore(directoryURL: dir)
     }
 
-    private func hole(_ n: Int, par: Int = 4, score: Int = 0, putts: Int = 0, penalty: Int = 0) -> WatchRoundState {
+    private func hole(
+        _ n: Int,
+        par: Int = 4,
+        score: Int = 0,
+        putts: Int = 0,
+        penalty: Int = 0,
+        teeLatitude: Double? = nil,
+        teeLongitude: Double? = nil
+    ) -> WatchRoundState {
         WatchRoundState(
             roundId: "r1", hole: n, par: par, distanceM: nil, selectedClub: nil,
+            teeLatitude: teeLatitude, teeLongitude: teeLongitude,
             score: score, putts: putts, penaltyCount: penalty, caddieConfidence: "offline"
         )
     }
@@ -233,6 +242,83 @@ final class WatchRoundModelTests: XCTestCase {
 
         XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.location])
         XCTAssertEqual(model.recordedShotCount, 1)
+    }
+
+    func testManualShotAtNextTeeWaitsForPreviousScoreThenBelongsToNextHole() {
+        let model = seededModel(holes: [
+            hole(1, par: 4, teeLatitude: 40.0, teeLongitude: 116.0),
+            hole(2, par: 5, teeLatitude: 40.001, teeLongitude: 116.0),
+        ])
+
+        model.beginManualShot(
+            latitude: 40.001,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T09:00:00Z"
+        )
+
+        XCTAssertEqual(model.screen, .scoring)
+        XCTAssertEqual(model.activeHole, 1)
+        XCTAssertEqual(model.scoringHole, 1)
+        XCTAssertEqual(model.pendingManualShot?.hole, 2)
+        XCTAssertEqual(model.pendingManualShot?.candidateFromHole, 1)
+        XCTAssertEqual(model.pendingUploads, 0)
+
+        model.acceptRecommendedScore()
+
+        XCTAssertEqual(model.activeHole, 2)
+        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.pendingManualShot?.hole, 2)
+        XCTAssertNil(model.pendingManualShot?.candidateFromHole)
+
+        model.completePendingManualShot(clubName: "一号木")
+
+        XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.score, .putt, .club, .location])
+        XCTAssertEqual(model.round?.pendingEvents.suffix(2).map(\.hole), [2, 2])
+        XCTAssertEqual(model.recordedShotCount, 1)
+    }
+
+    func testCancelPreviousScoreKeepsCandidateShotOnPreviousHole() {
+        let model = seededModel(holes: [
+            hole(1, teeLatitude: 40.0, teeLongitude: 116.0),
+            hole(2, teeLatitude: 40.001, teeLongitude: 116.0),
+        ])
+        model.beginManualShot(
+            latitude: 40.001,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T09:00:00Z"
+        )
+
+        model.cancelScoring()
+
+        XCTAssertEqual(model.activeHole, 1)
+        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.pendingManualShot?.hole, 1)
+        XCTAssertNil(model.pendingManualShot?.candidateFromHole)
+        model.completePendingManualShot(clubName: nil)
+        XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.location])
+        XCTAssertEqual(model.round?.pendingEvents.first?.hole, 1)
+        XCTAssertEqual(model.round?.pendingEvents.first?.shotType, "recovery")
+        XCTAssertEqual(model.activeHoleState?.score, 0)
+    }
+
+    func testManualShotAtCurrentTeeDoesNotOpenPreviousScoreConfirmation() {
+        let model = seededModel(holes: [
+            hole(1, teeLatitude: 40.0, teeLongitude: 116.0),
+            hole(2, teeLatitude: 40.0001, teeLongitude: 116.0),
+        ])
+
+        model.beginManualShot(
+            latitude: 40.0,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T09:00:00Z"
+        )
+
+        XCTAssertEqual(model.screen, .clubPrompt)
+        XCTAssertEqual(model.pendingManualShot?.hole, 1)
+        XCTAssertNil(model.pendingManualShot?.candidateFromHole)
     }
 
     func testAdjustDraftClampsAtLowerBounds() {

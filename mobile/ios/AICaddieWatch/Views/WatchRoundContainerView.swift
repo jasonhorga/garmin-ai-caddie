@@ -127,9 +127,10 @@ public struct WatchRoundContainerView: View {
         case .clubPrompt:
             if let pending = model.pendingManualShot {
                 WatchClubPromptView(
+                    hole: pending.hole,
                     shotNumber: pending.shotNumber,
-                    recommendedClub: model.activeHoleState?.suggestedClub,
-                    clubs: model.activeHoleState?.availableClubNames ?? [],
+                    recommendedClub: model.allHoleStates.first(where: { $0.hole == pending.hole })?.suggestedClub,
+                    clubs: model.allHoleStates.first(where: { $0.hole == pending.hole })?.availableClubNames ?? [],
                     onSelectClub: { model.completePendingManualShot(clubName: $0) },
                     onSkipClub: { model.completePendingManualShot(clubName: nil) }
                 )
@@ -145,6 +146,9 @@ public struct WatchRoundContainerView: View {
                 penalty: model.draftPenalty,
                 step: model.scoreFlowStep,
                 fairway: model.draftFairway,
+                candidateNextHole: model.pendingManualShot?.candidateFromHole == model.scoringHole
+                    ? model.pendingManualShot?.hole
+                    : nil,
                 onScoreDelta: { model.adjustDraftScore($0) },
                 onPuttsDelta: { model.adjustDraftPutts($0) },
                 onPenaltyDelta: { model.adjustDraftPenalty($0) },

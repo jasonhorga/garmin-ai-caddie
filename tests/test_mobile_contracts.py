@@ -334,6 +334,8 @@ class MobileContractTests(unittest.TestCase):
             "hole": 7,
             "par": 4,
             "distanceM": 142.0,
+            "teeLatitude": 22.2785,
+            "teeLongitude": 114.1615,
             "targetNote": "pin set on iPhone",
             "targetLatitude": 22.279,
             "targetLongitude": 114.162,

@@ -36,6 +36,9 @@ public enum WatchFairwayResult: String, CaseIterable, Equatable {
 
 public struct WatchPendingManualShot: Equatable {
     public let hole: Int
+    /// Non-nil while this shot was captured at the ordered next tee before the previous hole was
+    /// confirmed. Confirm clears it and keeps `hole`; Cancel reassigns the shot to this hole.
+    public let candidateFromHole: Int?
     public let location: WatchShotLocationValue
     public let capturedAt: String
     public let shotNumber: Int
@@ -92,6 +95,8 @@ public final class WatchRoundModel: ObservableObject {
     private let now: () -> String
     private let uploaderOverride: (([WatchInputEvent], String) async throws -> [String])?
     private var advanceAfterScoring = true
+    private static let nextTeeCandidateRadiusM = 35.0
+    private static let maximumCandidateAccuracyM = 12.0
 
     public init(
         store: WatchRoundStore,
@@ -188,6 +193,8 @@ public final class WatchRoundModel: ObservableObject {
                         hole: hole.hole,
                         par: hole.par,
                         distanceM: hole.distanceM,
+                        teeLatitude: hole.teeLatitude,
+                        teeLongitude: hole.teeLongitude,
                         selectedClub: nil,
                         score: 0,
                         putts: 0,
@@ -297,19 +304,27 @@ public final class WatchRoundModel: ObservableObject {
                   longitude: longitude,
                   horizontalAccuracyM: horizontalAccuracyM
               ) else { return }
-        let shotNumber = recordedShotCount(for: hole.hole) + 1
-        pendingManualShot = WatchPendingManualShot(
-            hole: hole.hole,
-            location: location,
-            capturedAt: capturedAt,
-            shotNumber: shotNumber,
-            shotType: shotNumber == 1 ? "tee" : (hole.shotType ?? "approach")
-        )
-        screen = .clubPrompt
+        if let nextHole = candidateNextHole(from: hole, location: location) {
+            pendingManualShot = makePendingShot(
+                assignedTo: nextHole,
+                candidateFromHole: hole.hole,
+                location: location,
+                capturedAt: capturedAt
+            )
+            startScoringActiveHole()
+        } else {
+            pendingManualShot = makePendingShot(
+                assignedTo: hole,
+                candidateFromHole: nil,
+                location: location,
+                capturedAt: capturedAt
+            )
+            screen = .clubPrompt
+        }
     }
 
     public func completePendingManualShot(clubName: String?) {
-        guard let pendingManualShot else { return }
+        guard let pendingManualShot, pendingManualShot.candidateFromHole == nil else { return }
         var latest = round
         if let clubName = clubName?.trimmingCharacters(in: .whitespacesAndNewlines), !clubName.isEmpty {
             latest = record(
@@ -331,6 +346,64 @@ public final class WatchRoundModel: ObservableObject {
         round = latest
         self.pendingManualShot = nil
         screen = .home
+    }
+
+    private func candidateNextHole(
+        from currentHole: WatchRoundState,
+        location: WatchShotLocationValue
+    ) -> WatchRoundState? {
+        guard currentHole.score == 0,
+              location.horizontalAccuracyM <= Self.maximumCandidateAccuracyM,
+              let currentIndex = allHoleStates.firstIndex(where: { $0.hole == currentHole.hole }),
+              currentIndex + 1 < allHoleStates.count else { return nil }
+        let nextHole = allHoleStates[currentIndex + 1]
+        guard let nextLat = nextHole.teeLatitude, let nextLon = nextHole.teeLongitude else { return nil }
+        let nextDistance = WatchGeoMath.metres(
+            location.latitude, location.longitude, nextLat, nextLon
+        )
+        guard nextDistance <= Self.nextTeeCandidateRadiusM + location.horizontalAccuracyM else {
+            return nil
+        }
+        if let currentLat = currentHole.teeLatitude, let currentLon = currentHole.teeLongitude {
+            let currentDistance = WatchGeoMath.metres(
+                location.latitude, location.longitude, currentLat, currentLon
+            )
+            guard nextDistance < currentDistance else { return nil }
+        }
+        return nextHole
+    }
+
+    private func makePendingShot(
+        assignedTo hole: WatchRoundState,
+        candidateFromHole: Int?,
+        location: WatchShotLocationValue,
+        capturedAt: String,
+        shotTypeOverride: String? = nil
+    ) -> WatchPendingManualShot {
+        let shotNumber = recordedShotCount(for: hole.hole) + 1
+        return WatchPendingManualShot(
+            hole: hole.hole,
+            candidateFromHole: candidateFromHole,
+            location: location,
+            capturedAt: capturedAt,
+            shotNumber: shotNumber,
+            shotType: shotTypeOverride ?? (shotNumber == 1 ? "tee" : (hole.shotType ?? "approach"))
+        )
+    }
+
+    private func reassignPendingShot(
+        _ pending: WatchPendingManualShot,
+        to holeNumber: Int,
+        asRecovery: Bool = false
+    ) -> WatchPendingManualShot? {
+        guard let hole = round?.holeStates.first(where: { $0.hole == holeNumber }) else { return nil }
+        return makePendingShot(
+            assignedTo: hole,
+            candidateFromHole: nil,
+            location: pending.location,
+            capturedAt: pending.capturedAt,
+            shotTypeOverride: asRecovery ? (hole.shotType ?? "recovery") : nil
+        )
     }
 
     private func recordedShotCount(for hole: Int) -> Int {
@@ -373,6 +446,19 @@ public final class WatchRoundModel: ObservableObject {
 
     /// Leave the scoring screen without recording anything (the draft is discarded).
     public func cancelScoring() {
+        if let pendingManualShot,
+           let previousHole = pendingManualShot.candidateFromHole,
+           previousHole == scoringHole,
+           let reassigned = reassignPendingShot(
+               pendingManualShot,
+               to: previousHole,
+               asRecovery: true
+           ) {
+            self.pendingManualShot = reassigned
+            scoringHole = nil
+            screen = .clubPrompt
+            return
+        }
         scoringHole = nil
         screen = .home
     }
@@ -395,6 +481,9 @@ public final class WatchRoundModel: ObservableObject {
     private func persistScoreDraft() {
         guard let hole = scoringHoleState else { return }
         let shouldAdvance = advanceAfterScoring && hole.hole == activeHole
+        let candidateShot = pendingManualShot?.candidateFromHole == hole.hole
+            ? pendingManualShot
+            : nil
         var latest = round
         if draftScore != hole.score {
             latest = record(hole: hole.hole, kind: .score, value: String(draftScore))
@@ -418,9 +507,16 @@ public final class WatchRoundModel: ObservableObject {
 
         round = latest
         scoringHole = nil
-        screen = .home
         if shouldAdvance {
             advanceToNextHole()
+        }
+        if let candidateShot,
+           activeHole == candidateShot.hole,
+           let resolved = reassignPendingShot(candidateShot, to: candidateShot.hole) {
+            pendingManualShot = resolved
+            screen = .clubPrompt
+        } else {
+            screen = .home
         }
     }
 

@@ -128,11 +128,21 @@ public struct WatchRoundSeedHole: Codable, Equatable {
     public let hole: Int
     public let par: Int
     public let distanceM: Double?
+    public let teeLatitude: Double?
+    public let teeLongitude: Double?
 
-    public init(hole: Int, par: Int, distanceM: Double?) {
+    public init(
+        hole: Int,
+        par: Int,
+        distanceM: Double?,
+        teeLatitude: Double? = nil,
+        teeLongitude: Double? = nil
+    ) {
         self.hole = hole
         self.par = par
         self.distanceM = distanceM
+        self.teeLatitude = teeLatitude
+        self.teeLongitude = teeLongitude
     }
 }
 
@@ -169,6 +179,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let hole: Int
     public let par: Int
     public let distanceM: Double?
+    public let teeLatitude: Double?
+    public let teeLongitude: Double?
     public let targetNote: String?
     public let targetLatitude: Double?
     public let targetLongitude: Double?
@@ -227,6 +239,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case hole
         case par
         case distanceM
+        case teeLatitude
+        case teeLongitude
         case targetNote
         case targetLatitude
         case targetLongitude
@@ -277,6 +291,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         hole: Int,
         par: Int,
         distanceM: Double?,
+        teeLatitude: Double? = nil,
+        teeLongitude: Double? = nil,
         targetNote: String? = nil,
         targetLatitude: Double? = nil,
         targetLongitude: Double? = nil,
@@ -325,6 +341,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.hole = hole
         self.par = par
         self.distanceM = distanceM
+        self.teeLatitude = teeLatitude
+        self.teeLongitude = teeLongitude
         self.targetNote = targetNote
         self.targetLatitude = targetLatitude
         self.targetLongitude = targetLongitude
@@ -376,6 +394,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.hole = try container.decode(Int.self, forKey: .hole)
         self.par = try container.decode(Int.self, forKey: .par)
         self.distanceM = try container.decodeIfPresent(Double.self, forKey: .distanceM)
+        self.teeLatitude = try container.decodeIfPresent(Double.self, forKey: .teeLatitude)
+        self.teeLongitude = try container.decodeIfPresent(Double.self, forKey: .teeLongitude)
         self.targetNote = try container.decodeIfPresent(String.self, forKey: .targetNote)
         self.targetLatitude = try container.decodeIfPresent(Double.self, forKey: .targetLatitude)
         self.targetLongitude = try container.decodeIfPresent(Double.self, forKey: .targetLongitude)
@@ -449,6 +469,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             hole: hole,
             par: par,
             distanceM: nextDistanceM,
+            teeLatitude: teeLatitude,
+            teeLongitude: teeLongitude,
             targetNote: targetNote,
             targetLatitude: targetLatitude,
             targetLongitude: targetLongitude,

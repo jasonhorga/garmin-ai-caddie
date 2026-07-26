@@ -159,8 +159,20 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchScoreWithNextTeeCandidate() throws {
+        let view = WatchScoreHoleView(
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+            candidateNextHole: 8
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-score-next-tee-candidate")
+    }
+
+    @MainActor
     func testRenderWatchClubPrompt() throws {
         let view = WatchClubPromptView(
+            hole: 8,
             shotNumber: 1,
             recommendedClub: "一号木",
             clubs: ["一号木", "三号木", "5号铁", "7号铁"]

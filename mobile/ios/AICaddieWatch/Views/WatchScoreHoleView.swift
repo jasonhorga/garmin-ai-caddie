@@ -10,6 +10,8 @@ public struct WatchScoreHoleView: View {
     public let penalty: Int
     public let step: WatchScoreFlowStep
     public let fairway: WatchFairwayResult?
+    /// The ordered next hole when its first shot was captured before this hole was confirmed.
+    public let candidateNextHole: Int?
     public let onScoreDelta: (Int) -> Void
     public let onPuttsDelta: (Int) -> Void
     public let onPenaltyDelta: (Int) -> Void
@@ -28,6 +30,7 @@ public struct WatchScoreHoleView: View {
         penalty: Int,
         step: WatchScoreFlowStep = .recommendation,
         fairway: WatchFairwayResult? = nil,
+        candidateNextHole: Int? = nil,
         onScoreDelta: @escaping (Int) -> Void = { _ in },
         onPuttsDelta: @escaping (Int) -> Void = { _ in },
         onPenaltyDelta: @escaping (Int) -> Void = { _ in },
@@ -45,6 +48,7 @@ public struct WatchScoreHoleView: View {
         self.penalty = penalty
         self.step = step
         self.fairway = fairway
+        self.candidateNextHole = candidateNextHole
         self.onScoreDelta = onScoreDelta
         self.onPuttsDelta = onPuttsDelta
         self.onPenaltyDelta = onPenaltyDelta
@@ -78,9 +82,9 @@ public struct WatchScoreHoleView: View {
                 Text("推荐 \(score) 杆")
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .monospacedDigit()
-                Text("默认 \(putts) 推 · \(penalty) 罚")
+                Text(recommendationNote)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(candidateNextHole == nil ? Color.secondary : AICaddieDesignTokens.par)
             }
             .frame(maxWidth: .infinity)
             Button(action: onAcceptRecommended) {
@@ -170,6 +174,13 @@ public struct WatchScoreHoleView: View {
         let diff = score - par
         if diff == 0 { return "标准杆" }
         return diff > 0 ? "+\(diff)" : "\(diff)"
+    }
+
+    private var recommendationNote: String {
+        if let candidateNextHole {
+            return "第 \(candidateNextHole) 洞首杆已暂存"
+        }
+        return "默认 \(putts) 推 · \(penalty) 罚"
     }
 
     private func stepperRow(label: String, value: Int, onDelta: @escaping (Int) -> Void) -> some View {
