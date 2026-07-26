@@ -42,6 +42,62 @@ final class WatchRoundModelTests: XCTestCase {
 
     // MARK: seeding + derived
 
+    func testApplyRoundSeedStartsAndRestoresARealCourse() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("real-round-\(UUID().uuidString)", isDirectory: true)
+        let store = WatchRoundStore(directoryURL: directory)
+        let model = WatchRoundModel(store: store)
+        let seed = WatchRoundSeed(
+            roundId: "real-round-1",
+            courseName: "北京丽宫",
+            activeHole: 2,
+            holes: [
+                WatchRoundSeedHole(hole: 1, par: 4, distanceM: 365),
+                WatchRoundSeedHole(hole: 2, par: 3, distanceM: 148),
+                WatchRoundSeedHole(hole: 3, par: 5, distanceM: 472),
+            ]
+        )
+
+        model.applyRoundSeed(seed)
+
+        XCTAssertEqual(model.courseName, "北京丽宫")
+        XCTAssertEqual(model.holeCount, 3)
+        XCTAssertEqual(model.activeHole, 2)
+        XCTAssertEqual(model.activeHoleState?.par, 3)
+        XCTAssertEqual(model.activeHoleState?.distanceM, 148)
+
+        let relaunched = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory)
+        )
+        XCTAssertEqual(relaunched.courseName, "北京丽宫")
+        XCTAssertEqual(relaunched.holeCount, 3)
+        XCTAssertEqual(relaunched.activeHole, 2)
+    }
+
+    func testReceivePhoneStateUpdatesOneHoleWithoutDroppingTheRound() {
+        let model = seededModel(holes: [hole(1), hole(2), hole(3)])
+        let liveState = WatchRoundState(
+            roundId: "r1",
+            hole: 2,
+            par: 4,
+            distanceM: 137,
+            suggestedClub: "8I",
+            selectedClub: "8I",
+            score: 0,
+            putts: 0,
+            penaltyCount: 0,
+            caddieConfidence: "medium"
+        )
+
+        model.receivePhoneState(liveState)
+
+        XCTAssertEqual(model.courseName, "北京丽宫 · 前九")
+        XCTAssertEqual(model.holeCount, 3)
+        XCTAssertEqual(model.activeHole, 2)
+        XCTAssertEqual(model.activeHoleState?.distanceM, 137)
+        XCTAssertEqual(model.activeHoleState?.suggestedClub, "8I")
+    }
+
     func testSeedRoundSetsActiveHoleAndCourse() {
         let model = seededModel(holes: [hole(1), hole(2), hole(3)])
         XCTAssertEqual(model.holeCount, 3)

@@ -5,6 +5,23 @@ import WatchConnectivity
 @testable import AICaddieWatch
 
 final class WatchSyncClientTests: XCTestCase {
+    func testReceiveRoundSeedPublishesRealRoundForTheAppModel() throws {
+        let client = WatchSyncClient(queueURL: tempQueueURL())
+        let seed = WatchRoundSeed(
+            roundId: "round-real-1",
+            courseName: "北京丽宫",
+            activeHole: 2,
+            holes: [
+                WatchRoundSeedHole(hole: 1, par: 4, distanceM: 365),
+                WatchRoundSeedHole(hole: 2, par: 3, distanceM: 148),
+            ]
+        )
+
+        client.receiveRoundSeed(seed)
+
+        XCTAssertEqual(client.roundSeed, seed)
+    }
+
     func testQueueInputEventSerializesPendingEvents() throws {
         let queueURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
