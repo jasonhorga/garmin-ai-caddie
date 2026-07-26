@@ -203,6 +203,32 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchCoursePicker() throws {
+        let view = WatchStartView(
+            phoneReachable: false,
+            courses: [
+                WatchCourseOption(
+                    globalId: 31669,
+                    name: "北京丽宫体育公园高尔夫俱乐部",
+                    holes: 18,
+                    teeBox: "Blue",
+                    tees: ["Blue", "White"]
+                ),
+                WatchCourseOption(
+                    globalId: 41825,
+                    name: "黑骑士高尔夫球场",
+                    holes: 18,
+                    teeBox: "White"
+                ),
+            ],
+            cachedCourseIds: [31669]
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-course-picker")
+    }
+
+    @MainActor
     func testRenderWatchRoundContainerHome() throws {
         let model = makeSeededModel(scoring: false)   // hold a strong ref through render
         let view = WatchRoundContainerView(model: model)

@@ -87,4 +87,38 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertEqual(second.holeStates.first?.roundId, "watch-round-b")
         XCTAssertNotEqual(first.roundId, second.roundId)
     }
+
+    @MainActor
+    func testCourseLibraryStartsACachedCourseWithoutPhoneOrNetworkConfig() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("watch-course-library-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WatchCourseStore(directoryURL: directory)
+        let option = WatchCourseOption(globalId: 31669, name: "北京丽宫", holes: 18, teeBox: "Blue")
+        try store.save(WatchCourseTemplate(
+            option: option,
+            courseName: "北京丽宫",
+            teeBox: "Blue",
+            holeStates: [
+                WatchRoundState(
+                    roundId: "download-only", hole: 1, par: 4, distanceM: 369.4,
+                    selectedClub: nil, score: 0, putts: 0, penaltyCount: 0,
+                    caddieConfidence: "offline"
+                )
+            ],
+            cachedAt: "2026-07-26T00:00:00Z"
+        ))
+        let library = WatchCourseLibrary(
+            store: store,
+            imageStore: WatchHoleImageStore(directoryURL: directory),
+            makeRoundId: { "watch-offline-round" }
+        )
+
+        XCTAssertEqual(library.courses, [option])
+        XCTAssertEqual(library.cachedCourseIds, [31669])
+        let prepared = await library.startCourse(option, config: nil)
+        XCTAssertEqual(prepared?.roundId, "watch-offline-round")
+        XCTAssertEqual(prepared?.holeStates.first?.roundId, "watch-offline-round")
+        XCTAssertNil(library.errorMessage)
+    }
 }
