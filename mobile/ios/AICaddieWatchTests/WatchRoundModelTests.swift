@@ -461,6 +461,66 @@ final class WatchRoundModelTests: XCTestCase {
 
     // MARK: navigation
 
+    func testCaddieSurfaceOpensOnlyWhenTheActiveHoleHasARecommendation() {
+        let recommended = WatchRoundState(
+            roundId: "r1", hole: 1, par: 5, distanceM: 480,
+            suggestedClub: "3号木", selectedClub: nil,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [recommended])
+
+        model.openCaddie()
+        XCTAssertEqual(model.screen, .caddie)
+        model.backToMenu()
+        XCTAssertEqual(model.screen, .menu)
+
+        let factsOnly = seededModel(holes: [hole(1)])
+        factsOnly.openCaddie()
+        XCTAssertEqual(factsOnly.screen, .home)
+    }
+
+    func testHazardSurfaceOpensOnlyWhenTheActiveHoleHasHazards() {
+        let withHazard = WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, distanceM: 320,
+            selectedClub: nil,
+            hazards: [WatchHazard(kind: "bunker", label: "沙坑", startM: 180, endM: 195)],
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [withHazard])
+
+        model.openHazards()
+        XCTAssertEqual(model.screen, .hazards)
+        model.backToMenu()
+        XCTAssertEqual(model.screen, .menu)
+
+        let noHazards = seededModel(holes: [hole(1)])
+        noHazards.openHazards()
+        XCTAssertEqual(noHazards.screen, .home)
+    }
+
+    func testRootCaddieLayerStaysHiddenUntilTheFullRecommendationGateExists() {
+        let apparentlyStrongRecommendation = WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, distanceM: 320,
+            suggestedClub: "一号木", selectedClub: nil,
+            decisionId: "decision-1",
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "high"
+        )
+        let model = seededModel(holes: [apparentlyStrongRecommendation])
+
+        XCTAssertFalse(model.rootCaddieLayerAvailable)
+    }
+
+    func testPlaysLikeDeltaConvertsMetresToUserFacingYards() {
+        let uphill = WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, distanceM: 320,
+            selectedClub: nil, elevationDeltaM: 7,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [uphill])
+
+        XCTAssertEqual(model.activePlaysLikeDeltaYards, 8)
+    }
+
     func testNavigationClampsAtBothEnds() {
         let model = seededModel(holes: [
             hole(1, score: 4, putts: 2),
