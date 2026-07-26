@@ -9,6 +9,36 @@ import XCTest
 /// test and uploads them as the `watch-snapshots` artifact. (Only real GPS / HealthKit / motion need a
 /// physical watch — the UI/scoring layout is fully reviewable here.)
 final class WatchDesignSnapshotTests: XCTestCase {
+    func testCaddieGlancePrefersLiveWatchGreenDistances() {
+        let state = WatchRoundState(
+            roundId: "r1", hole: 4, par: 5, distanceM: 480,
+            selectedClub: nil,
+            frontGreenM: 200, centerGreenM: 210, backGreenM: 220,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+
+        let view = WatchCaddieGlanceView(
+            state: state,
+            frontYd: 201,
+            centerYd: 211,
+            backYd: 221
+        )
+
+        XCTAssertEqual(view.displayFrontYd, 201)
+        XCTAssertEqual(view.displayCenterYd, 211)
+        XCTAssertEqual(view.displayBackYd, 221)
+    }
+
+    func testCaddieGlanceDoesNotInventMissingTargetActionForPreparedCourseData() {
+        let state = WatchRoundState(
+            roundId: "r1", hole: 4, par: 5, distanceM: 480,
+            suggestedClub: "3号木", selectedClub: nil,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+
+        XCTAssertFalse(WatchCaddieGlanceView(state: state).showsTargetStatus)
+    }
+
     @MainActor
     func testRenderWatchCaddieGlance() throws {
         let state = WatchRoundState(
