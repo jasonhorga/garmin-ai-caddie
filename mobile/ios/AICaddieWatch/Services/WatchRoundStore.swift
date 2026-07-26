@@ -13,13 +13,26 @@ public final class WatchRoundStore {
         public var pendingEvents: [WatchInputEvent]
         /// Round-level course label for the watch UI (optional — older persisted rounds decode it as nil).
         public var courseName: String?
+        /// In-progress user facts are optional so rounds written by older app versions still decode.
+        public var pendingManualShot: WatchPendingManualShot?
+        public var scoreDraft: WatchScoreDraft?
 
-        public init(roundId: String, activeHole: Int = 0, holeStates: [WatchRoundState] = [], pendingEvents: [WatchInputEvent] = [], courseName: String? = nil) {
+        public init(
+            roundId: String,
+            activeHole: Int = 0,
+            holeStates: [WatchRoundState] = [],
+            pendingEvents: [WatchInputEvent] = [],
+            courseName: String? = nil,
+            pendingManualShot: WatchPendingManualShot? = nil,
+            scoreDraft: WatchScoreDraft? = nil
+        ) {
             self.roundId = roundId
             self.activeHole = activeHole
             self.holeStates = holeStates
             self.pendingEvents = pendingEvents
             self.courseName = courseName
+            self.pendingManualShot = pendingManualShot
+            self.scoreDraft = scoreDraft
         }
     }
 

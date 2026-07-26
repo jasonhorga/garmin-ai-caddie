@@ -20,7 +20,7 @@ public enum WatchRoundScreen: Equatable {
     case holeMap     // watch P1b: 全屏球道图(真几何底图 + 球童线/落点/旗)
 }
 
-public enum WatchScoreFlowStep: Equatable {
+public enum WatchScoreFlowStep: String, Codable, Equatable {
     case recommendation
     case score
     case putts
@@ -28,13 +28,13 @@ public enum WatchScoreFlowStep: Equatable {
     case penalty
 }
 
-public enum WatchFairwayResult: String, CaseIterable, Equatable {
+public enum WatchFairwayResult: String, CaseIterable, Codable, Equatable {
     case hit = "HIT"
     case left = "LEFT"
     case right = "RIGHT"
 }
 
-public struct WatchPendingManualShot: Equatable {
+public struct WatchPendingManualShot: Codable, Equatable {
     public let hole: Int
     /// Non-nil while this shot was captured at the ordered next tee before the previous hole was
     /// confirmed. Confirm clears it and keeps `hole`; Cancel reassigns the shot to this hole.
@@ -43,6 +43,16 @@ public struct WatchPendingManualShot: Equatable {
     public let capturedAt: String
     public let shotNumber: Int
     public let shotType: String
+}
+
+public struct WatchScoreDraft: Codable, Equatable {
+    public let hole: Int
+    public let score: Int
+    public let putts: Int
+    public let penalty: Int
+    public let fairway: WatchFairwayResult?
+    public let step: WatchScoreFlowStep
+    public let advanceAfterSave: Bool
 }
 
 public struct WatchRoundConfig: Equatable {
@@ -112,7 +122,9 @@ public final class WatchRoundModel: ObservableObject {
         self.makeEventId = makeEventId
         self.now = now
         self.uploaderOverride = uploader
-        self.round = store.load()
+        let persisted = store.load()
+        self.round = persisted
+        restoreInteractionState(from: persisted)
     }
 
     /// Default standalone model backed by the on-watch document store (for `@StateObject` in the app).
@@ -209,11 +221,13 @@ public final class WatchRoundModel: ObservableObject {
             activeHole: activeHole,
             holeStates: states,
             pendingEvents: existing?.pendingEvents ?? [],
-            courseName: seed.courseName
+            courseName: seed.courseName,
+            pendingManualShot: existing?.pendingManualShot,
+            scoreDraft: existing?.scoreDraft
         )
         try? store.save(persisted)
         round = persisted
-        screen = .home
+        restoreInteractionState(from: persisted)
     }
 
     /// Merge the richer live snapshot for one hole without dropping the seeded course or other holes.
@@ -240,11 +254,62 @@ public final class WatchRoundModel: ObservableObject {
         persisted.courseName = courseName
         try? store.save(persisted)
         round = persisted
-        screen = .home
+        restoreInteractionState(from: persisted)
     }
 
     public func refreshFromStore() {
-        round = store.load()
+        let persisted = store.load()
+        round = persisted
+        restoreInteractionState(from: persisted)
+    }
+
+    private func restoreInteractionState(from persisted: WatchRoundStore.PersistedRound?) {
+        pendingManualShot = persisted?.pendingManualShot
+        guard let draft = persisted?.scoreDraft,
+              persisted?.holeStates.contains(where: { $0.hole == draft.hole }) == true else {
+            scoringHole = nil
+            draftScore = 0
+            draftPutts = 0
+            draftPenalty = 0
+            draftFairway = nil
+            scoreFlowStep = .recommendation
+            advanceAfterScoring = true
+            if let pendingManualShot, pendingManualShot.candidateFromHole == nil {
+                screen = .clubPrompt
+            } else {
+                screen = .home
+            }
+            return
+        }
+
+        scoringHole = draft.hole
+        draftScore = draft.score
+        draftPutts = draft.putts
+        draftPenalty = draft.penalty
+        draftFairway = draft.fairway
+        scoreFlowStep = draft.step
+        advanceAfterScoring = draft.advanceAfterSave
+        screen = .scoring
+    }
+
+    private func persistInteractionState() {
+        guard var current = round else { return }
+        current.pendingManualShot = pendingManualShot
+        if let scoringHole {
+            current.scoreDraft = WatchScoreDraft(
+                hole: scoringHole,
+                score: draftScore,
+                putts: draftPutts,
+                penalty: draftPenalty,
+                fairway: draftFairway,
+                step: scoreFlowStep,
+                advanceAfterSave: advanceAfterScoring
+            )
+        } else {
+            current.scoreDraft = nil
+        }
+        try? store.save(current)
+        round = current
     }
 
     /// Start a self-contained practice round on the watch (no phone needed) — `holeCount` blank holes at
@@ -288,6 +353,7 @@ public final class WatchRoundModel: ObservableObject {
         self.advanceAfterScoring = advanceAfterSave
         scoreFlowStep = offerRecommendation ? .recommendation : .score
         screen = .scoring
+        persistInteractionState()
     }
 
     // MARK: - manual shot
@@ -320,6 +386,7 @@ public final class WatchRoundModel: ObservableObject {
                 capturedAt: capturedAt
             )
             screen = .clubPrompt
+            persistInteractionState()
         }
     }
 
@@ -346,6 +413,7 @@ public final class WatchRoundModel: ObservableObject {
         round = latest
         self.pendingManualShot = nil
         screen = .home
+        persistInteractionState()
     }
 
     private func candidateNextHole(
@@ -414,13 +482,25 @@ public final class WatchRoundModel: ObservableObject {
         } ?? 0
     }
 
-    public func adjustDraftScore(_ delta: Int) { draftScore = max(1, draftScore + delta) }
-    public func adjustDraftPutts(_ delta: Int) { draftPutts = max(0, draftPutts + delta) }
-    public func adjustDraftPenalty(_ delta: Int) { draftPenalty = max(0, draftPenalty + delta) }
+    public func adjustDraftScore(_ delta: Int) {
+        draftScore = max(1, draftScore + delta)
+        persistInteractionState()
+    }
+
+    public func adjustDraftPutts(_ delta: Int) {
+        draftPutts = max(0, draftPutts + delta)
+        persistInteractionState()
+    }
+
+    public func adjustDraftPenalty(_ delta: Int) {
+        draftPenalty = max(0, draftPenalty + delta)
+        persistInteractionState()
+    }
 
     public func startManualScoreEntry() {
         guard screen == .scoring else { return }
         scoreFlowStep = .score
+        persistInteractionState()
     }
 
     public func advanceScoreEntry() {
@@ -437,11 +517,13 @@ public final class WatchRoundModel: ObservableObject {
         case .penalty:
             break
         }
+        persistInteractionState()
     }
 
     public func selectDraftFairway(_ result: WatchFairwayResult) {
         draftFairway = result
         scoreFlowStep = .penalty
+        persistInteractionState()
     }
 
     /// Leave the scoring screen without recording anything (the draft is discarded).
@@ -457,10 +539,12 @@ public final class WatchRoundModel: ObservableObject {
             self.pendingManualShot = reassigned
             scoringHole = nil
             screen = .clubPrompt
+            persistInteractionState()
             return
         }
         scoringHole = nil
         screen = .home
+        persistInteractionState()
     }
 
     public func acceptRecommendedScore() {
@@ -518,6 +602,7 @@ public final class WatchRoundModel: ObservableObject {
         } else {
             screen = .home
         }
+        persistInteractionState()
     }
 
     private func record(
@@ -612,7 +697,7 @@ public final class WatchRoundModel: ObservableObject {
     private func finishLocally() {
         store.clear()
         round = nil
-        screen = .home
+        restoreInteractionState(from: nil)
     }
 
     private func upload(_ events: [WatchInputEvent], roundId: String) async throws -> [String] {

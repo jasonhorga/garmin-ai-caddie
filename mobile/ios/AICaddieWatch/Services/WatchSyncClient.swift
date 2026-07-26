@@ -15,7 +15,7 @@ public enum WatchInputKind: String, Codable, Equatable {
 /// Compact value carried by the existing Watch input adapter for a manually captured shot origin.
 /// The domain/backend event remains the existing `location` live-round event; this is only the
 /// WatchConnectivity/offline-queue representation and adds no second shot protocol.
-public struct WatchShotLocationValue: Equatable {
+public struct WatchShotLocationValue: Codable, Equatable {
     public let latitude: Double
     public let longitude: Double
     public let horizontalAccuracyM: Double

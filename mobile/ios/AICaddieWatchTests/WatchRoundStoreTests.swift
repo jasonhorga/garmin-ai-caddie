@@ -51,6 +51,28 @@ final class WatchRoundStoreTests: XCTestCase {
         XCTAssertEqual(loaded.pendingEvents.map(\.eventId), ["e1"])
     }
 
+    func testLoadsRoundWrittenBeforeInteractionStateFieldsExisted() throws {
+        let (store, directory) = tempStore()
+        let legacy = Data(
+            """
+            {
+              "roundId": "legacy-round",
+              "activeHole": 1,
+              "holeStates": [],
+              "pendingEvents": [],
+              "courseName": "Legacy Course"
+            }
+            """.utf8
+        )
+        try legacy.write(to: directory.appendingPathComponent("round.json"))
+
+        let loaded = try XCTUnwrap(store.load())
+
+        XCTAssertEqual(loaded.roundId, "legacy-round")
+        XCTAssertNil(loaded.pendingManualShot)
+        XCTAssertNil(loaded.scoreDraft)
+    }
+
     func testNewRoundReplacesPreviousPersistedRound() throws {
         let (store, _) = tempStore()
         try store.upsertHoleState(holeState(roundId: "r1", hole: 1))
