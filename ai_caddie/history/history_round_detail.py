@@ -242,6 +242,7 @@ def _scorecard(row: dict[str, Any], shots_by_hole: dict[int, list[tuple[int, dic
                 "toPar": to_par,
                 "className": _score_class(score, par),
                 "putts": _int_value(hole.get("putts")) if hole else None,
+                "penalties": _int_value(hole.get("penalties")) if hole else None,
                 "gir": hole.get("gir") if hole else None,
                 "fairway": hole.get("fairway") if hole else None,
                 "globalId": geometry_target.get("globalId"),
@@ -273,6 +274,7 @@ def _hole_details(row: dict[str, Any], shots_by_hole: dict[int, list[tuple[int, 
                 "score": score,
                 "toPar": score - par if score is not None and par is not None else None,
                 "putts": _int_value(hole.get("putts")) if hole else None,
+                "penalties": _int_value(hole.get("penalties")) if hole else None,
                 "gir": hole.get("gir") if hole else None,
                 "fairway": hole.get("fairway") if hole else None,
                 "globalId": geometry_target.get("globalId"),
@@ -378,6 +380,9 @@ def _phase_summary(
     putt_cells = [cell for cell in scorecard if cell.get("putts") is not None]
     putts_total = sum(int(cell["putts"]) for cell in putt_cells)
     three_putts = sum(1 for cell in putt_cells if int(cell["putts"]) >= 3)
+    penalty_cells = [cell for cell in scorecard if cell.get("penalties") is not None]
+    penalties_total = sum(int(cell["penalties"]) for cell in penalty_cells)
+    holes_with_penalties = sum(1 for cell in penalty_cells if int(cell["penalties"]) > 0)
     score_penalties = sum(1 for cell in scorecard if (cell.get("toPar") or 0) >= 2)
     holes_completed = int(
         row.get("holesCompleted") or len([c for c in scorecard if c.get("score") is not None]) or len(scorecard) or 0
@@ -401,6 +406,7 @@ def _phase_summary(
     has_fairways = fairways_recorded > 0
     has_gir = gir_total > 0
     has_putts = bool(putt_cells) or has_round_putts
+    has_penalties = bool(penalty_cells)
     return [
         {
             "phase": "Tee",
@@ -432,10 +438,21 @@ def _phase_summary(
         },
         {
             "phase": "Penalty / Damage",
-            "state": "partial" if score_penalties else "missing",
-            "primary": f"{score_penalties} 个双柏忌及以上",
-            "metrics": {"doubleOrWorseHoles": score_penalties},
-            "sourceRefs": _dedupe([str(cell.get("holeRef")) for cell in scorecard if (cell.get("toPar") or 0) >= 2]),
+            "state": "ready" if has_penalties else "partial" if score_penalties else "missing",
+            "primary": f"{penalties_total} 罚杆" if has_penalties else f"{score_penalties} 个双柏忌及以上",
+            "metrics": {
+                "totalPenalties": penalties_total if has_penalties else None,
+                "holesWithPenalties": holes_with_penalties if has_penalties else None,
+                "doubleOrWorseHoles": score_penalties,
+            },
+            "sourceRefs": _dedupe(
+                [
+                    str(cell.get("holeRef"))
+                    for cell in scorecard
+                    if (cell.get("penalties") or 0) > 0
+                    or (not has_penalties and (cell.get("toPar") or 0) >= 2)
+                ]
+            ),
         },
     ]
 

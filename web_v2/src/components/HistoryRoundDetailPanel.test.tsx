@@ -34,6 +34,7 @@ const payload: HistoryRoundDetailResponse = {
       toPar: 0,
       className: 'par',
       putts: 2,
+      penalties: 1,
       gir: true,
       fairway: 'hit',
       holeRef: '700001:1',
@@ -48,6 +49,7 @@ const payload: HistoryRoundDetailResponse = {
       toPar: 1,
       className: 'bogey',
       putts: 3,
+      penalties: 0,
       gir: false,
       fairway: 'right',
       holeRef: '700001:2',
@@ -59,10 +61,11 @@ const payload: HistoryRoundDetailResponse = {
   phaseSummary: [
     { phase: 'Tee', state: 'ready', primary: '1/2 fairways', metrics: { fairwaysHit: 1 } },
     { phase: 'Putting', state: 'ready', primary: '5 putts', metrics: { totalPutts: 5 } },
+    { phase: 'Penalty / Damage', state: 'ready', primary: '1 罚杆', metrics: { totalPenalties: 1 } },
   ],
   holeDetails: [
-    { hole: 1, score: 4, toPar: 0, putts: 2, gir: true, fairway: 'hit', holeRef: '700001:1', shotRefs: ['700001:1:0', '700001:1:1'] },
-    { hole: 2, score: 5, toPar: 1, putts: 3, gir: false, fairway: 'right', holeRef: '700001:2', shotRefs: ['700001:2:2'] },
+    { hole: 1, score: 4, toPar: 0, putts: 2, penalties: 1, gir: true, fairway: 'hit', holeRef: '700001:1', shotRefs: ['700001:1:0', '700001:1:1'] },
+    { hole: 2, score: 5, toPar: 1, putts: 3, penalties: 0, gir: false, fairway: 'right', holeRef: '700001:2', shotRefs: ['700001:2:2'] },
   ],
   relatedRefs: {
     roundRefs: ['700001'],
@@ -93,11 +96,14 @@ describe('HistoryRoundDetailPanel', () => {
     expect(screen.getByLabelText('球局数据')).toHaveTextContent('成绩')
     expect(screen.getByLabelText('记分卡')).toHaveTextContent('H1')
     expect(screen.getByLabelText('记分卡')).toHaveTextContent('3推')
+    expect(screen.getByLabelText('记分卡')).toHaveTextContent('罚1')
     expect(screen.getByLabelText('阶段汇总')).toHaveTextContent('球道 1/2')
     expect(screen.getByLabelText('阶段汇总')).toHaveTextContent('推杆 5')
+    expect(screen.getByLabelText('阶段汇总')).toHaveTextContent('1 罚杆')
     // hole rows translate gir booleans and the raw fairway token vocabulary
     expect(screen.getByLabelText('逐洞详情')).toHaveTextContent('是')
     expect(screen.getByLabelText('逐洞详情')).toHaveTextContent('偏右')
+    expect(screen.getByLabelText('逐洞详情')).toHaveTextContent('罚杆')
     expect(screen.getByLabelText('逐洞详情')).toHaveTextContent('700001:1:0')
     expect(screen.getByText('windy finish')).toBeInTheDocument()
     expect(screen.getByText('83 → 82')).toBeInTheDocument()

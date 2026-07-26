@@ -26,10 +26,10 @@ def round_detail_data() -> HistoryData:
         "par": 16,
         "holePars": "4444",
         "holes": [
-            {"number": 1, "strokes": 4, "par": 4, "putts": 2, "gir": True, "fairway": "hit"},
-            {"number": 2, "strokes": 5, "par": 4, "putts": 2, "gir": False, "fairway": "right"},
-            {"number": 3, "strokes": 3, "par": 4, "putts": 1, "gir": True, "fairway": "hit"},
-            {"number": 4, "strokes": 5, "par": 4, "putts": 3, "gir": False, "fairway": "left"},
+            {"number": 1, "strokes": 4, "par": 4, "putts": 2, "penalties": 1, "gir": True, "fairway": "hit"},
+            {"number": 2, "strokes": 5, "par": 4, "putts": 2, "penalties": 0, "gir": False, "fairway": "right"},
+            {"number": 3, "strokes": 3, "par": 4, "putts": 1, "penalties": 0, "gir": True, "fairway": "hit"},
+            {"number": 4, "strokes": 5, "par": 4, "putts": 3, "penalties": 0, "gir": False, "fairway": "left"},
         ],
         "hasShots": True,
         "shotStatus": "ready",
@@ -68,12 +68,14 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual(payload["scorecard"][1]["className"], "bogey")
         self.assertEqual(payload["scorecard"][2]["className"], "birdie")
         self.assertEqual(payload["scorecard"][3]["putts"], 3)
+        self.assertEqual(payload["scorecard"][0].get("penalties"), 1)
         self.assertEqual(payload["scorecard"][0]["globalId"], 31795)
         self.assertEqual(payload["scorecard"][0]["localHole"], 1)
         self.assertEqual(payload["scorecard"][1]["holeRef"], "700001:2")
         self.assertEqual(payload["scorecard"][1]["shotRefs"], ["700001:2:2", "700001:2:3"])
         self.assertEqual(payload["holeDetails"][1]["globalId"], 31795)
         self.assertEqual(payload["holeDetails"][1]["localHole"], 2)
+        self.assertEqual(payload["holeDetails"][0].get("penalties"), 1)
         self.assertIn("700001:2", payload["relatedRefs"]["holeRefs"])
         self.assertIn("700001:4:4", payload["relatedRefs"]["shotRefs"])
         self.assertIn("garmin:scorecard:700001", payload["relatedRefs"]["sourceRefs"])
@@ -174,6 +176,9 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual(phases["Short Game"]["metrics"]["shots"], 1)
         self.assertEqual(phases["Putting"]["metrics"]["totalPutts"], 8)
         self.assertEqual(phases["Penalty / Damage"]["metrics"]["doubleOrWorseHoles"], 0)
+        self.assertEqual(phases["Penalty / Damage"]["metrics"].get("totalPenalties"), 1)
+        self.assertEqual(phases["Penalty / Damage"]["primary"], "1 罚杆")
+        self.assertEqual(phases["Penalty / Damage"]["state"], "ready")
 
     def test_phase_summary_falls_back_to_round_level_aggregates(self) -> None:
         # round-9 C3: synced rounds carry round-level fh/frec/gir/putts but no per-hole gir/fairway —

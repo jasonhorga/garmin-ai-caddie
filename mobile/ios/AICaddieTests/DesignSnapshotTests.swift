@@ -281,17 +281,17 @@ final class DesignSnapshotTests: XCTestCase {
         {"roundRef":"r1","found":true,"title":"Fixture Links",\
         "round":{"courseName":"Fixture Links","date":"2026-05-20","score":81,"par":72,"toPar":9,"holesCompleted":9,"confidence":"high"},\
         "scorecard":[\
-        {"hole":1,"par":4,"score":5,"toPar":1,"className":"bogey","putts":2,"status":"complete"},\
-        {"hole":2,"par":3,"score":3,"toPar":0,"className":"par","putts":2,"gir":true,"status":"complete"},\
-        {"hole":3,"par":5,"score":4,"toPar":-1,"className":"birdie","putts":1,"status":"complete"},\
-        {"hole":4,"par":4,"score":6,"toPar":2,"className":"double","putts":3,"fairway":"left","status":"complete"},\
-        {"hole":5,"par":4,"score":4,"toPar":0,"className":"par","putts":2,"status":"complete"}],\
+        {"hole":1,"par":4,"score":5,"toPar":1,"className":"bogey","putts":2,"penalties":1,"status":"complete"},\
+        {"hole":2,"par":3,"score":3,"toPar":0,"className":"par","putts":2,"penalties":0,"gir":true,"status":"complete"},\
+        {"hole":3,"par":5,"score":4,"toPar":-1,"className":"birdie","putts":1,"penalties":0,"status":"complete"},\
+        {"hole":4,"par":4,"score":6,"toPar":2,"className":"double","putts":3,"penalties":0,"fairway":"left","status":"complete"},\
+        {"hole":5,"par":4,"score":4,"toPar":0,"className":"par","putts":2,"penalties":0,"status":"complete"}],\
         "phaseSummary":[\
         {"phase":"Tee","state":"ready","primary":"5/9 球道命中"},\
         {"phase":"Approach","state":"ready","primary":"3/9 标准杆上果岭(GIR)"},\
         {"phase":"Short Game","state":"ready","primary":"2 次短杆"},\
         {"phase":"Putting","state":"ready","primary":"31 推"},\
-        {"phase":"Penalty / Damage","state":"partial","primary":"1 个双柏忌及以上"}],\
+        {"phase":"Penalty / Damage","state":"ready","primary":"1 罚杆"}],\
         "missingData":[{"label":"shot rows","state":"missing","reason":"no normalized Garmin shot rows for this round"}]}
         """
         let roundDetail = try JSONDecoder().decode(RoundDetail.self, from: Data(roundJSON.utf8))

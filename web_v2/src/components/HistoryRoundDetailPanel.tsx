@@ -189,7 +189,7 @@ function ScorecardGrid({ data, onSelectRef }: { data: HistoryRoundDetailResponse
       <div className="section-head">
         <div>
           <h3>记分卡</h3>
-          <p>逐洞成绩、推杆数、果岭击球率、球道命中</p>
+          <p>逐洞成绩、推杆数、罚杆数、果岭击球率、球道命中</p>
         </div>
       </div>
       <div className="round-detail-scorecard" style={{ '--round-detail-holes': Math.max(data.scorecard.length, 1) } as CSSProperties}>
@@ -201,7 +201,10 @@ function ScorecardGrid({ data, onSelectRef }: { data: HistoryRoundDetailResponse
               <small>
                 p{cell.par ?? '-'} / {toParText(cell.toPar)}
               </small>
-              <em>{cell.putts === null ? '推杆 —' : `${cell.putts}推`}</em>
+              <em>
+                {cell.putts === null ? '推杆 —' : `${cell.putts}推`}
+                {cell.penalties == null ? '' : ` · 罚${cell.penalties}`}
+              </em>
             </>
           )
           return onSelectRef ? (
@@ -256,8 +259,8 @@ function HoleDetails({ rows, onSelectRef, diagnostics }: { rows: Array<Record<st
               <b>{valueText(row.score)} / {toParText(row.toPar)}</b>
             </div>
             <div>
-              <span>推杆</span>
-              <b>{valueText(row.putts)}</b>
+              <span>推杆 / 罚杆</span>
+              <b>{valueText(row.putts)} / {valueText(row.penalties)}</b>
             </div>
             <div>
               <span>GIR</span>

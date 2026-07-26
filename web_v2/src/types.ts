@@ -465,6 +465,7 @@ export interface HistoryRoundDetailScorecardCell {
   toPar: number | null
   className: ScoreClass
   putts: number | null
+  penalties?: number | null
   gir: boolean | null
   fairway: string | null
   globalId?: number | null

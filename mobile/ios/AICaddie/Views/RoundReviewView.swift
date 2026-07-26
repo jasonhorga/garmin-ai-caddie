@@ -252,10 +252,14 @@ struct RoundReviewContent: View {
         let totalScore = holes.compactMap(\.score).reduce(0, +)
         let totalPar = holes.compactMap(\.par).reduce(0, +)
         let totalPutts = holes.compactMap(\.putts).reduce(0, +)
+        let recordedPenalties = holes.compactMap(\.penalties)
         return HStack(spacing: 12) {
             Text("合计").font(.subheadline.weight(.bold)).frame(width: 40, alignment: .leading)
             if totalPutts > 0 {
                 Text("推 \(totalPutts)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            }
+            if !recordedPenalties.isEmpty {
+                Text("罚 \(recordedPenalties.reduce(0, +))").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             Text("Par \(totalPar)").font(.caption.weight(.semibold)).monospacedDigit().foregroundStyle(.secondary)
@@ -264,10 +268,11 @@ struct RoundReviewContent: View {
         .padding(.top, 10)
     }
 
-    /// A compact per-hole metadata line (推 · 果岭 · 球道) built only from present fields.
+    /// A compact per-hole metadata line (推 · 罚 · 果岭 · 球道) built only from present fields.
     private func rowMeta(_ hole: RoundDetailHole) -> String {
         var parts: [String] = []
         if let putts = hole.putts { parts.append("推 \(putts)") }
+        if let penalties = hole.penalties { parts.append("罚 \(penalties)") }
         if let gir = hole.gir { parts.append(gir ? "果岭✓" : "果岭✗") }
         if let fairway = hole.fairway, !fairway.isEmpty { parts.append(zhFairway(fairway)) }
         return parts.isEmpty ? "—" : parts.joined(separator: " · ")
