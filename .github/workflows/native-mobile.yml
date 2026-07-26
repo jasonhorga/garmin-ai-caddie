@@ -200,29 +200,33 @@ jobs:
           sleep 2
           # -parallel-testing-enabled NO stops Xcode cloning the sim for UI tests, so the app runs on
           # the SAME booted sim we're screen-recording (a clone would leave the recording on home screen).
+          set +e
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieUITests \
             -destination "platform=iOS Simulator,id=$UDID" \
-            -parallel-testing-enabled NO || true
+            -parallel-testing-enabled NO
+          TEST_STATUS=$?
+          set -e
           kill -INT "$REC_PID" 2>/dev/null || true
           sleep 4
           ls -la real-videos || true
+          exit "$TEST_STATUS"
       - name: Collect real screenshots
-        if: github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch'
         run: |
           mkdir -p real-screenshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/real-screenshots/*" -exec cp {} real-screenshots/ \; 2>/dev/null || true
           ls -la real-screenshots || true
       - name: Upload real screenshots
-        if: github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: real-screenshots
           path: real-screenshots/
           if-no-files-found: warn
       - name: Upload real video
-        if: github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: real-video

@@ -357,8 +357,11 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             #if DEBUG
-            // Dev/simulator + CI harness: auto-fetch the preferred round so snapshots/dev render.
-            if let remotePackage = await fetchRemotePackage() {
+            // Keep the legacy preferred-round shortcut for interactive DEBUG builds. Real-flow UI
+            // tests must exercise the normal home -> choose course -> start path instead of silently
+            // activating the implicit 900001 round.
+            if ProcessInfo.processInfo.environment["UITEST_MODE"] != "1",
+               let remotePackage = await fetchRemotePackage() {
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "Remote package cached")
                 return

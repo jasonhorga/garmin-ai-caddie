@@ -86,13 +86,19 @@ final class RealFlowUITests: XCTestCase {
             }
         }
 
-        // ---- Section 5: continue the in-progress live round — VIEW ONLY (no save → no backend write) ----
+        // ---- Section 5: start the selected real course — GET package only, no score/backend write ----
         launchFresh()
-        if tapContaining(["进行中", "继续这场"]) {
-            settle(10); save("10-live-hole"); dump("10-live-hole")
-            if tapContaining(["看完整方案", "换打法", "备选打法"]) {
-                settle(3); save("11-caddie-plan"); dump("11-caddie-plan")
-            }
+        XCTAssertTrue(tapContaining(["打球", "开始一场"]), "home must expose the real start-round path")
+        settle(9)
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "北京丽宫")).firstMatch.exists,
+            "simulated course location must select 北京丽宫"
+        )
+        XCTAssertTrue(tapContaining(["开始记分"]), "selected real course must be startable")
+        settle(15); save("10-live-hole"); dump("10-live-hole")
+        XCTAssertTrue(app.staticTexts["第 1 洞"].exists, "starting 北京丽宫 must enter its real first hole")
+        if tapContaining(["看完整方案", "换打法", "备选打法"]) {
+            settle(3); save("11-caddie-plan"); dump("11-caddie-plan")
         }
     }
 
