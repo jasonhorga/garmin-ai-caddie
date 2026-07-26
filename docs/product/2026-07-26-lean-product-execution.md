@@ -21,8 +21,8 @@
 
 | 顺序 | 可见结果 | 状态 |
 |---|---|---|
-| 1 | 现有 iOS/Watch 使用一个真实球场完成开局，列出唯一真实阻塞点 | `CI_VISUAL_FIX` |
-| 2 | 在现有 UI 中完成已确认的成绩确认与手动记杆流程 | `PENDING` |
+| 1 | 现有 iOS/Watch 使用一个真实球场完成开局，列出唯一真实阻塞点 | `COMPLETE` |
+| 2 | 在现有 UI 中完成已确认的成绩确认与手动记杆流程 | `CURRENT` |
 | 3 | 关键操作后强杀可恢复，重发不丢不重，结果进入现有后端并可复盘 | `PENDING` |
 | 4 | Watch 可独立搜索、下载、缓存新球场并离线开局 | `PENDING` |
 | 5 | 已确认的 S70 地图与球童页面接入真实距离、危险区和球杆数据 | `PENDING` |
@@ -32,12 +32,21 @@
 
 ## 当前结果（2026-07-26）
 
-- 实现 SHA：`5b86b330148ef3828da4a4a90c33578dd3b4ba21`。
-- Native CI：[run 30186231292](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30186231292) 的 iOS、Watch 单测和 iOS live UI 通过；iOS 运行态截图有效。
-- 该 run 的 Watch `watch-real-screenshots` 实际拍到表盘，不是 App。截图脚本选中了 watchOS 11.5，而 Watch 测试使用 watchOS 26.2，并吞掉了 install/launch/terminate 错误，因此原工作流是假绿，不能作为 Watch 运行态证据。
-- iPhone 激活真实 `LiveRoundPackage` 后会把真实球场名、当前洞以及所有洞的 Par/距离发给 Watch；Watch 进入现有 `WatchRoundContainerView`，后续继续合并现有单洞地图/球童状态。
-- `WatchRoundStore` 已覆盖整轮持久化和重启恢复；同一局的 Watch 未同步编辑不会被后到的手机状态清掉。
-- 当前阻塞是修复 GitHub Actions 的 Watch 运行态验收：必须在同一个明确的 Watch 模拟器上启动真实 `WatchRoundModel`/`WatchRoundContainerView`，分别截图首次接收和进程重启恢复，并在 App 提前退出时让 CI 失败并上传诊断。用户不承担真机检查；修复后由 Codex 下载并检查截图。确认前不启动里程碑 2。
+- 实现 SHA：`f56358da2ae2810517527746e676c644d44b8bf7`。
+- Native CI：[run 30190900236](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30190900236) 整体成功：iOS `109/109`、真实 App XCUITest `3/3`、Watch `69/69`。
+- Codex 已下载并亲自检查运行态产物。iOS 首页没有 `Unknown course` 或虚假进行中局；历史页显示真实黑骑士数据（155 场、103.8 均杆）；开局页选择北京丽宫、蓝 T、6377 码。
+- 北京丽宫第 1 洞真实地图、Par 4 和蓝 T 距离正确加载：前/中/后 `342 / 363 / 379` 码。球童“展开”后 accessibility tree 出现完整方案、护分/标准/进攻和备选打法；方案位于当前截图 viewport 下方，不把截图构图当作产品阻塞。
+- Watch seed 与强杀恢复截图均为真实 App，而不是表盘；两个进程 PID 为 `45435 → 45691`，恢复前后都保留北京丽宫、第 1 洞、404 码和同一记分状态。
+- 里程碑 1 没有剩余数据或链路阻塞。Watch 小屏标题中的球场名与 Par 会被省略号截断，记入里程碑 2 的交互整理，不为此单独扩张或重跑里程碑 1。
+
+## 当前工作：成绩确认与手动记杆
+
+复用现有 `WatchRoundModel`、`WatchRoundStore`、iOS `OfflineStore`、事件构建和已确认 UI，只补齐用户能在场上完成的路径：
+
+1. Watch 可明确手动记一杆，并保留球杆可选/可跳过；极短距离击球先照实记录，只有用户明确选择“打厚/打深”时才拆成额外一杆。
+2. 离开当前洞后提醒确认上一洞。直接接受推荐成绩时立即完成；手动确认时依次处理总杆、推杆、球道结果（上球道/偏左/偏右，Par 3 不适用）和罚杆。
+3. 上一洞尚未确认但下一洞已经产生候选开球时，界面仍停在上一洞确认：确认则切洞并保留该候选为下一洞第一杆，取消则继续当前洞。
+4. 任意已完成洞都能重新打开和修改。里程碑 2 先在 Watch/iOS 模拟器走通这条可见路径；强杀、重发和后端复盘的完整闭环留给里程碑 3。
 
 ## 第一个里程碑验收
 
