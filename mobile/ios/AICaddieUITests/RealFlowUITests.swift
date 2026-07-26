@@ -33,6 +33,10 @@ final class RealFlowUITests: XCTestCase {
         // ---- Section 1: home + the two macro tiles (stats) ----
         launchFresh()
         save("01-home"); dump("01-home")
+        XCTAssertFalse(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Unknown course")).firstMatch.exists,
+            "UI-test bootstrap must load the real home course, not auto-activate the implicit DEBUG round 900001"
+        )
         if tapContaining(["数据统计", "均杆 · 趋势"]) {
             settle(7); save("02-stats"); dump("02-stats")
         }
