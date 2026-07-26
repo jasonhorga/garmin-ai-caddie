@@ -161,7 +161,8 @@ final class WatchEventBridgeTests: XCTestCase {
             hole: 4,
             kind: .score,
             value: "5",
-            createdAt: "2026-05-25T00:00:00Z"
+            createdAt: "2026-05-25T00:00:00Z",
+            fairwayResult: "LEFT"
         )
         let message = ["event": try Self.jsonObject(from: event)]
 
@@ -176,6 +177,7 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(acceptedReply?["duplicateEventIds"] as? [String], [])
         XCTAssertEqual(acceptedReply?["rejectedEventIds"] as? [String], [])
         XCTAssertEqual(try store.loadEvents().map(\.eventId), ["watch-event-1"])
+        XCTAssertEqual(try store.loadEvents().first?.payload["fairway"], .string("left"))
 
         var duplicateReply: [String: Any]?
         bridge.handleWatchInputMessage(message) { reply in

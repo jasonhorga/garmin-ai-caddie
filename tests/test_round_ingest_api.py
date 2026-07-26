@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import players
+from server_v2 import mobile
 from server_v2.main import app
 
 ADMIN_ENV = {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}
@@ -42,6 +43,7 @@ class RoundIngestApiTests(unittest.TestCase):
             mock.patch.object(players, "ROOT", self.root),
             mock.patch.object(history, "ROOT", self.root),
             mock.patch.object(stats_cache, "_PLAYERS_DIR", self.root / "data" / "players"),
+            mock.patch.object(mobile, "MOBILE_ROOT", self.root),
         ]
         for p in self._patches:
             p.start()
@@ -128,6 +130,71 @@ class RoundIngestApiTests(unittest.TestCase):
             )
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertGreaterEqual(resp.json()["metrics"]["totalRounds"], 1)
+
+    def test_watch_event_log_finish_becomes_reviewable_history(self) -> None:
+        round_id = "watch-round-review-1"
+        events = [
+            {
+                "schema": "ai-caddie-live-round-event-v1",
+                "eventId": "watch-score-1",
+                "roundId": round_id,
+                "clientId": "apple-watch",
+                "timestamp": "2026-07-26T08:00:00Z",
+                "hole": 1,
+                "kind": "score",
+                "payload": {"strokes": 5, "fairway": "left"},
+            },
+            {
+                "schema": "ai-caddie-live-round-event-v1",
+                "eventId": "watch-putt-1",
+                "roundId": round_id,
+                "clientId": "apple-watch",
+                "timestamp": "2026-07-26T08:01:00Z",
+                "hole": 1,
+                "kind": "putt",
+                "payload": {"putts": 2},
+            },
+            {
+                "schema": "ai-caddie-live-round-event-v1",
+                "eventId": "watch-penalty-1",
+                "roundId": round_id,
+                "clientId": "apple-watch",
+                "timestamp": "2026-07-26T08:02:00Z",
+                "hole": 1,
+                "kind": "penalty",
+                "payload": {"penalties": 1},
+            },
+        ]
+        headers = {**self._auth(self.alice["token"]), "Idempotency-Key": "watch-batch-1"}
+
+        with mock.patch.dict("os.environ", ADMIN_ENV):
+            posted = self.client.post(
+                f"/api/v2/mobile/rounds/{round_id}/events",
+                json={"roundId": round_id, "events": events},
+                headers=headers,
+            )
+            finished = self.client.post(
+                f"/api/v2/mobile/rounds/{round_id}/finish",
+                json={
+                    "meta": {
+                        "courseName": "北京丽宫 · 前九",
+                        "courseGlobalId": 12345,
+                        "holePars": [4],
+                        "holesCompleted": 1,
+                    }
+                },
+                headers=self._auth(self.alice["token"]),
+            )
+
+        self.assertEqual(posted.status_code, 200, posted.text)
+        self.assertEqual(finished.status_code, 201, finished.text)
+        rounds = history.load_raw_rounds(player_id=self.alice["id"])
+        self.assertEqual(len(rounds), 1)
+        hole = rounds[0]["holes"][0]
+        self.assertEqual(hole["strokes"], 5)
+        self.assertEqual(hole["putts"], 2)
+        self.assertEqual(hole["penalties"], 1)
+        self.assertEqual(hole["fairway"], "left")
 
 
 if __name__ == "__main__":

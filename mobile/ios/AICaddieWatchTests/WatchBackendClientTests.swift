@@ -9,13 +9,17 @@ final class WatchBackendClientTests: XCTestCase {
     func testMapsWatchInputEventsToBackendEventsWithAppleWatchClientId() throws {
         let client = makeClient()
 
-        let score = WatchInputEvent(eventId: "e1", roundId: "r1", hole: 3, kind: .score, value: "5", createdAt: "2026-06-20T00:00:00Z")
+        let score = WatchInputEvent(
+            eventId: "e1", roundId: "r1", hole: 3, kind: .score, value: "5",
+            createdAt: "2026-06-20T00:00:00Z", fairwayResult: "LEFT"
+        )
         let scoreDict = try client.backendEvent(from: score)
         XCTAssertEqual(scoreDict["kind"] as? String, "score")
         XCTAssertEqual(scoreDict["clientId"] as? String, "apple-watch")
         XCTAssertEqual(scoreDict["schema"] as? String, "ai-caddie-live-round-event-v1")
         XCTAssertEqual(scoreDict["hole"] as? Int, 3)
         XCTAssertEqual((scoreDict["payload"] as? [String: Any])?["strokes"] as? Int, 5)
+        XCTAssertEqual((scoreDict["payload"] as? [String: Any])?["fairway"] as? String, "left")
 
         let club = WatchInputEvent(eventId: "e2", roundId: "r1", hole: 3, kind: .club, value: "7I", createdAt: "t", shotType: "approach", lie: "fairway")
         let clubDict = try client.backendEvent(from: club)
@@ -73,6 +77,31 @@ final class WatchBackendClientTests: XCTestCase {
             idempotencyKey: "b"
         )
         XCTAssertNil(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"))
+    }
+
+    func testRoundFinishRequestCarriesReviewMetadata() throws {
+        let metadata = WatchRoundFinishMetadata(
+            courseName: "北京丽宫 · 前九",
+            holePars: [4, 5],
+            holesCompleted: 2,
+            courseGlobalId: 12345
+        )
+
+        let request = try makeClient(adminToken: "secret").makeRoundFinishRequest(
+            roundId: "round-1",
+            metadata: metadata
+        )
+
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/v2/mobile/rounds/round-1/finish")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "secret")
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let meta = try XCTUnwrap(json["meta"] as? [String: Any])
+        XCTAssertEqual(meta["courseName"] as? String, "北京丽宫 · 前九")
+        XCTAssertEqual(meta["holePars"] as? [Int], [4, 5])
+        XCTAssertEqual(meta["holesCompleted"] as? Int, 2)
+        XCTAssertEqual(meta["courseGlobalId"] as? Int, 12345)
     }
 
     func testEventBatchRequestPrefersBearerSessionTokenOverAdminToken() throws {

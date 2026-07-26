@@ -1557,7 +1557,7 @@ final class OfflineStoreTests: XCTestCase {
                 timestamp: "2026-05-25T00:00:00Z",
                 hole: 1,
                 kind: .score,
-                payload: ["strokes": .number(5)]
+                payload: ["strokes": .number(5), "fairway": .string("left")]
             )
         )
         try store.appendEvent(
@@ -1619,6 +1619,7 @@ final class OfflineStoreTests: XCTestCase {
 
         XCTAssertEqual(snapshot.activeHole, 1)
         XCTAssertEqual(holeState.score, 5)
+        XCTAssertEqual(holeState.fairwayResult, "left")
         XCTAssertEqual(holeState.putts, 3)
         XCTAssertEqual(holeState.penaltyCount, 1)
         XCTAssertEqual(holeState.selectedClub, "7I")

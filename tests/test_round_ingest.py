@@ -20,7 +20,7 @@ def _events() -> list[dict]:
         {"hole": 1, "kind": "location", "payload": {"latitude": 47.7349, "longitude": 138.8930,
                                                     "targetLatitude": 47.7351, "targetLongitude": 138.8931}},
         {"hole": 1, "kind": "putt", "payload": {"putts": 2}},
-        {"hole": 1, "kind": "score", "payload": {"strokes": 4}},
+        {"hole": 1, "kind": "score", "payload": {"strokes": 4, "fairway": "left"}},
         {"hole": 2, "kind": "club", "payload": {"clubName": "7I", "shotType": "tee", "lie": "TeeBox"}},
         {"hole": 2, "kind": "location", "payload": {"latitude": 47.7400, "longitude": 138.9000}},
         {"hole": 2, "kind": "penalty", "payload": {"penalties": 1}},
@@ -88,6 +88,11 @@ class RoundIngestCoreTests(unittest.TestCase):
         # per-hole strokes come straight from the score events
         strokes_by_hole = {h["number"]: h["strokes"] for h in row["holes"]}
         self.assertEqual(strokes_by_hole, {1: 4, 2: 5})
+        first_hole = next(h for h in row["holes"] if h["number"] == 1)
+        second_hole = next(h for h in row["holes"] if h["number"] == 2)
+        self.assertEqual(first_hole["putts"], 2)
+        self.assertEqual(first_hole["fairway"], "left")
+        self.assertEqual(second_hole["penalties"], 1)
 
     def test_shots_are_consumable_by_load_shot_history(self) -> None:
         round_ingest.ingest_round(

@@ -188,6 +188,10 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(first?.putts, 2)
         XCTAssertEqual(first?.fairwayResult, "LEFT")
         XCTAssertEqual(first?.penaltyCount, 1)
+        XCTAssertEqual(
+            model.round?.pendingEvents.first(where: { $0.kind == .score })?.fairwayResult,
+            "LEFT"
+        )
         XCTAssertEqual(model.activeHole, 2)
         XCTAssertEqual(model.screen, .home)
     }
