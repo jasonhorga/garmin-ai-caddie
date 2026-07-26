@@ -10,6 +10,7 @@ on:
     paths:
       - '.github/workflows/watch-runtime.yml'
       - 'mobile/ios/AICaddieWatch/**'
+      - 'mobile/ios/AICaddieWatchTests/**'
       - 'mobile/ios/project.yml'
 
 concurrency:
