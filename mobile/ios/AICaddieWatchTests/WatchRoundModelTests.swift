@@ -18,11 +18,14 @@ final class WatchRoundModelTests: XCTestCase {
         putts: Int = 0,
         penalty: Int = 0,
         teeLatitude: Double? = nil,
-        teeLongitude: Double? = nil
+        teeLongitude: Double? = nil,
+        shotType: String? = nil
     ) -> WatchRoundState {
         WatchRoundState(
-            roundId: "r1", hole: n, par: par, distanceM: nil, selectedClub: nil,
+            roundId: "r1", hole: n, par: par, distanceM: nil,
             teeLatitude: teeLatitude, teeLongitude: teeLongitude,
+            selectedClub: nil,
+            shotType: shotType,
             score: score, putts: putts, penaltyCount: penalty, caddieConfidence: "offline"
         )
     }
@@ -280,7 +283,7 @@ final class WatchRoundModelTests: XCTestCase {
 
     func testCancelPreviousScoreKeepsCandidateShotOnPreviousHole() {
         let model = seededModel(holes: [
-            hole(1, teeLatitude: 40.0, teeLongitude: 116.0),
+            hole(1, teeLatitude: 40.0, teeLongitude: 116.0, shotType: "approach"),
             hole(2, teeLatitude: 40.001, teeLongitude: 116.0),
         ])
         model.beginManualShot(

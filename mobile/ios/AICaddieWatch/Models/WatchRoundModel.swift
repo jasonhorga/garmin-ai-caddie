@@ -402,7 +402,7 @@ public final class WatchRoundModel: ObservableObject {
             candidateFromHole: nil,
             location: pending.location,
             capturedAt: pending.capturedAt,
-            shotTypeOverride: asRecovery ? (hole.shotType ?? "recovery") : nil
+            shotTypeOverride: asRecovery ? "recovery" : nil
         )
     }
 
