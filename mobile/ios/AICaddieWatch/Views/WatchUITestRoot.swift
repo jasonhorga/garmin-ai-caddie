@@ -28,6 +28,10 @@ public struct WatchUITestRoot: View {
         switch screen {
         case "milestone-seed", "milestone-restore":
             milestoneRound
+        case "standalone-course-seed", "standalone-course-restore":
+            standaloneCourseRound
+        case "course-picker":
+            cachedCoursePicker
         case "interaction-club-seed", "interaction-club-restore",
              "interaction-score-seed", "interaction-score-restore":
             interactionRound
@@ -84,6 +88,67 @@ public struct WatchUITestRoot: View {
         }
     }
 
+    private var cachedCoursePicker: some View {
+        let cached = WatchCourseStore().loadCourses()
+        return WatchStartView(
+            phoneReachable: false,
+            courses: cached.map(\.option),
+            cachedCourseIds: Set(cached.map { $0.option.globalId })
+        )
+    }
+
+    private var standaloneCourseRound: some View {
+        Group {
+            if model.round != nil {
+                WatchRoundContainerView(model: model, holeGeometry: standaloneCourseGeometry)
+            } else {
+                Text("offline course restore unavailable")
+            }
+        }
+        .onAppear {
+            if screen == "standalone-course-seed", model.round == nil {
+                Task { await seedStandaloneCourse() }
+            } else if screen == "standalone-course-restore" {
+                model.openHoleMap()
+            }
+        }
+    }
+
+    private var standaloneCourseGeometry: WatchHoleMapGeometry? {
+        guard let state = model.activeHoleState,
+              let globalId = state.globalId,
+              let image = WatchHoleImageStore().image(globalId: globalId, hole: state.hole) else {
+            return nil
+        }
+        return WatchHoleMapGeometry.from(holeMap: state.holeMap, image: image)
+    }
+
+    @MainActor
+    private func seedStandaloneCourse() async {
+        let courseStore = WatchCourseStore()
+        let imageStore = WatchHoleImageStore()
+        guard let imageData = Data(base64Encoded: WatchHoleMapSample.jpegBase64) else { return }
+        do {
+            try courseStore.save(Self.standaloneCourseTemplate)
+            try imageStore.store(data: imageData, globalId: 31669, hole: 4)
+        } catch {
+            return
+        }
+        let library = WatchCourseLibrary(
+            store: courseStore,
+            imageStore: imageStore,
+            makeRoundId: { "ci-watch-offline-course-round" }
+        )
+        guard let prepared = await library.startCourse(Self.standaloneCourseOption, config: nil) else {
+            return
+        }
+        model.seedRound(
+            prepared.holeStates,
+            activeHole: prepared.holeStates.first?.hole,
+            courseName: prepared.courseName
+        )
+    }
+
     private var milestoneRound: some View {
         Group {
             if model.round != nil {
@@ -138,6 +203,61 @@ public struct WatchUITestRoot: View {
         holes: [
             WatchRoundSeedHole(hole: 1, par: 4, distanceM: 369.4176), // 404 yards
         ]
+    )
+
+    private static let standaloneCourseOption = WatchCourseOption(
+        globalId: 31669,
+        name: "北京丽宫体育公园高尔夫俱乐部",
+        holes: 18,
+        teeBox: "Blue",
+        venueName: "北京丽宫体育公园高尔夫俱乐部",
+        tees: ["Blue", "White"]
+    )
+
+    /// The same real gid31669/hole-4 render already baked for design review, persisted through the
+    /// production course/image stores so the second process proves an offline course start and map load.
+    private static let standaloneCourseTemplate = WatchCourseTemplate(
+        option: standaloneCourseOption,
+        courseName: "北京丽宫体育公园高尔夫俱乐部",
+        teeBox: "Blue",
+        holeStates: [
+            WatchRoundState(
+                roundId: "download-template-only",
+                hole: 4,
+                par: 5,
+                distanceM: 518.8,
+                suggestedClub: "3号木",
+                selectedClub: nil,
+                availableClubs: [
+                    WatchClubOption(clubName: "3号木", medianM: 205, source: "course-prep"),
+                    WatchClubOption(clubName: "5号铁", medianM: 170, source: "course-prep"),
+                ],
+                frontGreenM: 227,
+                centerGreenM: 240,
+                backGreenM: 251,
+                globalId: 31669,
+                holeMap: WatchHoleMap(
+                    w: Int(WatchHoleMapSample.imageSize.width),
+                    h: Int(WatchHoleMapSample.imageSize.height),
+                    you: [504, 702],
+                    pin: [435, 279],
+                    layup: [506, 403],
+                    apex: [556, 562],
+                    greenCtrl: [498, 375]
+                ),
+                playsLikeDistanceM: 525.8,
+                elevationDeltaM: 7,
+                geometryCoverage: "ready",
+                hazards: [
+                    WatchHazard(kind: "bunker", label: "沙坑", startM: 180, endM: 195),
+                ],
+                score: 0,
+                putts: 0,
+                penaltyCount: 0,
+                caddieConfidence: "offline"
+            ),
+        ],
+        cachedAt: "2026-07-26T00:00:00Z"
     )
 
     private static let interactionClubSeed = WatchRoundSeed(

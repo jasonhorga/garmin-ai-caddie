@@ -4,6 +4,7 @@ import SwiftUI
 public struct AICaddieWatchApp: App {
     @StateObject private var syncClient = WatchSyncClient()
     @StateObject private var roundModel = WatchRoundModel()
+    @StateObject private var courseLibrary = WatchCourseLibrary()
     // watch P3: the watch's own GPS — recomputes you/green distances from the wrist (less phone-dependence).
     @StateObject private var watchLocation = WatchLocationProvider()
 
@@ -52,32 +53,58 @@ public struct AICaddieWatchApp: App {
 
     @ViewBuilder
     private var standardContent: some View {
-        if roundModel.round != nil {
-            // round-12 P3.3: a standalone round in progress takes over the whole watch.
-            // watch P1b: pass the active hole's map geometry (topo image + anchors). Recomputed every
-            // render — a @Published change on syncClient (incl. lastHoleImageKey when the image lands)
-            // re-renders this body, so the 「球道图」 entry appears as soon as the topo transfer completes.
-            WatchRoundContainerView(
-                model: roundModel,
-                holeGeometry: activeHoleGeometry,
-                watchGreenYards: watchGreenYards,
-                shotLocation: watchLocation.latestFix
-            )
-        } else if let state = syncClient.currentState {
-            // phone-coordinated companion glance (legacy single-hole push).
-            WatchHoleView(
-                state: state,
-                clubs: state.availableClubNames,
-                queuedEventCount: syncClient.queuedEventCount,
-                phoneReachable: syncClient.phoneReachable,
-                lastPhoneAcceptedAt: syncClient.lastPhoneAcceptedAt,
-                onEvent: sendQuickInputEvent
-            )
-        } else {
-            WatchStartView(
-                phoneReachable: syncClient.phoneReachable,
-                onStartPractice: { roundModel.startPracticeRound() }
-            )
+        Group {
+            if roundModel.round != nil {
+                // round-12 P3.3: a standalone round in progress takes over the whole watch.
+                // watch P1b: pass the active hole's map geometry (topo image + anchors). Recomputed every
+                // render — a @Published change on syncClient (incl. lastHoleImageKey when the image lands)
+                // re-renders this body, so the 「球道图」 entry appears as soon as the topo transfer completes.
+                WatchRoundContainerView(
+                    model: roundModel,
+                    holeGeometry: activeHoleGeometry,
+                    watchGreenYards: watchGreenYards,
+                    shotLocation: watchLocation.latestFix
+                )
+            } else if let state = syncClient.currentState {
+                // phone-coordinated companion glance (legacy single-hole push).
+                WatchHoleView(
+                    state: state,
+                    clubs: state.availableClubNames,
+                    queuedEventCount: syncClient.queuedEventCount,
+                    phoneReachable: syncClient.phoneReachable,
+                    lastPhoneAcceptedAt: syncClient.lastPhoneAcceptedAt,
+                    onEvent: sendQuickInputEvent
+                )
+            } else {
+                WatchStartView(
+                    phoneReachable: syncClient.phoneReachable,
+                    courses: courseLibrary.courses,
+                    cachedCourseIds: courseLibrary.cachedCourseIds,
+                    isLoadingCourses: courseLibrary.isLoadingCourses,
+                    preparingCourseId: courseLibrary.preparingCourseId,
+                    errorMessage: courseLibrary.errorMessage,
+                    onRefresh: {
+                        Task { await courseLibrary.refresh(config: syncClient.config) }
+                    },
+                    onStartCourse: { option in
+                        Task {
+                            guard let prepared = await courseLibrary.startCourse(
+                                option,
+                                config: syncClient.config
+                            ) else { return }
+                            roundModel.seedRound(
+                                prepared.holeStates,
+                                activeHole: prepared.holeStates.first?.hole,
+                                courseName: prepared.courseName
+                            )
+                        }
+                    },
+                    onStartPractice: { roundModel.startPracticeRound() }
+                )
+            }
+        }
+        .task(id: syncClient.config) {
+            await courseLibrary.refresh(config: syncClient.config)
         }
     }
 

@@ -112,6 +112,11 @@ jobs:
             xcrun simctl terminate "$WATCH_UDID" "$BID"
           }
 
+          launch_and_capture standalone-course-seed watch-standalone-course-seeded.png
+          # No reinstall, network, phone seed, or second course write: load the persisted round + map.
+          launch_and_capture standalone-course-restore watch-standalone-course-restored.png
+          # The same persisted production course store must still advertise the course as downloaded.
+          launch_and_capture course-picker watch-course-picker.png
           launch_and_capture milestone-seed watch-round-seeded.png
           # Do not reinstall or reseed here: the second process must load the first launch's stored round.
           launch_and_capture milestone-restore watch-round-restored.png

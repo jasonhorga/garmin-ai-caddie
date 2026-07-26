@@ -208,6 +208,28 @@ public final class WatchBackendClient {
         try JSONDecoder().decode(WatchCoursePrepResponse.self, from: data)
     }
 
+    public func fetchCourseOptions() async throws -> [WatchCourseOption] {
+        let request = try makeCourseOptionsRequest()
+        let data = try await sendForData(request)
+        return try decodeCourseOptions(data)
+    }
+
+    public func fetchCoursePackage(
+        globalId: Int,
+        roundId: String,
+        teeBox: String
+    ) async throws -> WatchCoursePackage {
+        let request = try makeCoursePackageRequest(globalId: globalId, roundId: roundId, teeBox: teeBox)
+        let data = try await sendForData(request)
+        return try decodeCoursePackage(data)
+    }
+
+    public func fetchCoursePrep(globalId: Int, localHoles: [Int]) async throws -> WatchCoursePrepResponse {
+        let request = try makeCoursePrepRequest(globalId: globalId, localHoles: localHoles)
+        let data = try await sendForData(request)
+        return try decodeCoursePrep(data)
+    }
+
     /// Build the POST /events request (headers + mapped batch body). Split out from `postEvents` so it
     /// can be unit-tested without a URLSession — watchOS makes URLProtocol stubbing of the live session
     /// unreliable, so the request construction (the meaningful logic) is verified directly instead.
@@ -332,12 +354,17 @@ public final class WatchBackendClient {
     }
 
     private func sendForJSON(_ request: URLRequest) async throws -> [String: Any] {
+        let data = try await sendForData(request)
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+    }
+
+    private func sendForData(_ request: URLRequest) async throws -> Data {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         guard (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
-        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        return data
     }
 
     private func endpointURL(_ endpoint: String) -> URL {
