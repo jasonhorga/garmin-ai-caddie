@@ -96,6 +96,12 @@
 - 功能 SHA：`2890c5de214cee4b183c77c65e8f90469bfcec95`。首页原先始终显示整洞 Tee 长度，玩家走到球道中段仍可能看到 `567 码`。现在优先显示腕上 GPS 算出的中果岭距离；暂时无腕上结果时回退到已准备的中果岭距离，只有两者都缺失才显示整洞长度。没有改布局、状态或数据协议。
 - Watch runtime [run 30236028072](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30236028072) 完整成功：Watch `114/114`、独立 App build 和 21 次真实进程截图全部通过。Codex 已检查同一真实缓存球场的首页：预备距离显示 `262 码`，腕上实时值到达后显示 `211 码`；地图、球童、距上一杆和恢复截图继续正常，artifact 中没有 App crash、未知测试页面或恢复失败。
 
+### Watch 结束页诚实统计结果（2026-07-27）
+
+- 最终功能 SHA：`727e169526252f2ae9359062f1e0bcee0d6b3171`。结束页直接复用已存在的 `greenInRegulation` 与 `fairwayResult`，不新增协议或后端字段。只统计已有成绩的洞；球道只接受大小写不敏感的 `HIT/LEFT/RIGHT`，GIR 只接受明确 Bool，未知或异常旧值不进入分母也不伪装成 miss。
+- 结束页以紧凑三列显示推杆、球道命中/已记录和 GIR 命中/已记录；没有明确 outcome 时隐藏对应列。首次运行态截图发现原两个纵排按钮会让标题与次按钮越界，最终改为同一行后，标题、球场、成绩、三列统计、同步提示和两个动作都在 416×496 首屏完整可见。
+- Watch runtime [run 30246181671](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30246181671) 完整成功：Watch `115/115`、独立 App build 和 22 次真实进程截图全部通过。Codex 已检查结束页显示 `推杆 16 / 球道 5/7 / GIR 4/9`，artifact 中没有 App crash、未知测试页面、恢复失败或 AutoShot provider failure。
+
 ## 持续端到端验收基线
 
 以下能力已由里程碑 1–4 建立，后续实现不得回退：
