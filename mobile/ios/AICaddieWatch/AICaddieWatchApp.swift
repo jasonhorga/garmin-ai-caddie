@@ -107,10 +107,10 @@ public struct AICaddieWatchApp: App {
                     onRefresh: {
                         Task { await courseLibrary.refresh(config: syncClient.config) }
                     },
-                    onStartCourse: { option in
+                    onStartCourse: { selection in
                         Task {
                             guard let prepared = await courseLibrary.startCourse(
-                                option,
+                                selection,
                                 config: syncClient.config
                             ) else { return }
                             roundModel.seedRound(
@@ -119,8 +119,7 @@ public struct AICaddieWatchApp: App {
                                 courseName: prepared.courseName
                             )
                         }
-                    },
-                    onStartPractice: { roundModel.startPracticeRound() }
+                    }
                 )
             }
         }

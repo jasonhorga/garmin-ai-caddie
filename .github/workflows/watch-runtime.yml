@@ -126,6 +126,7 @@ jobs:
           launch_and_capture standalone-course-caddie-last-shot watch-standalone-course-caddie-last-shot.png
           # The same persisted production course store must still advertise the course as downloaded.
           launch_and_capture course-picker watch-course-picker.png
+          launch_and_capture course-setup watch-course-setup.png
           launch_and_capture milestone-seed watch-round-seeded.png
           # Do not reinstall or reseed here: the second process must load the first launch's stored round.
           launch_and_capture milestone-restore watch-round-restored.png

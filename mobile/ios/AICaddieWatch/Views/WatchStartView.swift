@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Home-before-a-round. Real courses are the primary path; downloaded rows remain available with no
-/// phone or network. 「仅记分」keeps the old blank scorecard as a deliberate secondary fallback.
+/// Home-before-a-round. Every production path starts from a real course; downloaded rows remain
+/// available with no phone or network, while unavailable course data stays unavailable.
 public struct WatchStartView: View {
     public let phoneReachable: Bool
     public let courses: [WatchCourseOption]
@@ -10,8 +10,7 @@ public struct WatchStartView: View {
     public let preparingCourseId: Int?
     public let errorMessage: String?
     public let onRefresh: () -> Void
-    public let onStartCourse: (WatchCourseOption) -> Void
-    public let onStartPractice: () -> Void
+    public let onStartCourse: (WatchCourseSelection) -> Void
 
     @State private var searchText = ""
 
@@ -23,8 +22,7 @@ public struct WatchStartView: View {
         preparingCourseId: Int? = nil,
         errorMessage: String? = nil,
         onRefresh: @escaping () -> Void = {},
-        onStartCourse: @escaping (WatchCourseOption) -> Void = { _ in },
-        onStartPractice: @escaping () -> Void = {}
+        onStartCourse: @escaping (WatchCourseSelection) -> Void = { _ in }
     ) {
         self.phoneReachable = phoneReachable
         self.courses = courses
@@ -34,7 +32,6 @@ public struct WatchStartView: View {
         self.errorMessage = errorMessage
         self.onRefresh = onRefresh
         self.onStartCourse = onStartCourse
-        self.onStartPractice = onStartPractice
     }
 
     public var body: some View {
@@ -69,15 +66,12 @@ public struct WatchStartView: View {
                 }
 
                 Section {
-                    Button(action: onStartPractice) {
-                        Text("仅记分")
-                    }
-                    .disabled(preparingCourseId != nil)
-                } footer: {
                     Label(
                         phoneReachable ? "iPhone 已连接" : "已下载球场可离线开局",
                         systemImage: phoneReachable ? "iphone.radiowaves.left.and.right" : "applewatch"
                     )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("AI Caddie")
@@ -87,8 +81,15 @@ public struct WatchStartView: View {
 
     @ViewBuilder
     private func courseButton(_ course: WatchCourseOption) -> some View {
-        Button {
-            onStartCourse(course)
+        NavigationLink {
+            WatchRoundSetupView(
+                front: course,
+                courses: courses,
+                hasCachedVersion: cachedCourseIds.contains(course.globalId),
+                isPreparing: preparingCourseId == course.globalId,
+                errorMessage: errorMessage,
+                onStart: onStartCourse
+            )
         } label: {
             HStack(spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {

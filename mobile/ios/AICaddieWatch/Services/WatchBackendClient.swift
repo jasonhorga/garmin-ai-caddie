@@ -159,7 +159,8 @@ public final class WatchBackendClient {
     public func makeCoursePackageRequest(
         globalId: Int,
         roundId: String,
-        teeBox: String
+        teeBox: String,
+        backGlobalId: Int? = nil
     ) throws -> URLRequest {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
@@ -167,13 +168,17 @@ public final class WatchBackendClient {
         ) else {
             throw URLError(.badURL)
         }
-        components.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "round_id", value: roundId),
             URLQueryItem(name: "tee_box", value: teeBox),
             URLQueryItem(name: "nine", value: "all"),
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "ensure_geometry", value: "false"),
         ]
+        if let backGlobalId {
+            queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
+        }
+        components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         applyAuth(&request)
@@ -217,9 +222,15 @@ public final class WatchBackendClient {
     public func fetchCoursePackage(
         globalId: Int,
         roundId: String,
-        teeBox: String
+        teeBox: String,
+        backGlobalId: Int? = nil
     ) async throws -> WatchCoursePackage {
-        let request = try makeCoursePackageRequest(globalId: globalId, roundId: roundId, teeBox: teeBox)
+        let request = try makeCoursePackageRequest(
+            globalId: globalId,
+            roundId: roundId,
+            teeBox: teeBox,
+            backGlobalId: backGlobalId
+        )
         let data = try await sendForData(request)
         return try decodeCoursePackage(data)
     }

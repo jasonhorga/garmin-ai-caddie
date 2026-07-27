@@ -37,6 +37,14 @@ public struct WatchUITestRoot: View {
             standaloneCourseRound
         case "course-picker":
             cachedCoursePicker
+        case "course-setup":
+            NavigationStack {
+                WatchRoundSetupView(
+                    front: Self.setupFront,
+                    courses: [Self.setupFront, Self.setupBack],
+                    hasCachedVersion: true
+                )
+            }
         case "interaction-club-seed", "interaction-club-restore",
              "interaction-score-seed", "interaction-score-restore":
             interactionRound
@@ -105,9 +113,10 @@ public struct WatchUITestRoot: View {
 
     private var cachedCoursePicker: some View {
         let cached = WatchCourseStore().loadCourses()
+        let options = cached.flatMap { [$0.option, $0.backOption].compactMap { $0 } }
         return WatchStartView(
             phoneReachable: false,
-            courses: cached.map(\.option),
+            courses: options,
             cachedCourseIds: Set(cached.map { $0.option.globalId })
         )
     }
@@ -276,6 +285,28 @@ public struct WatchUITestRoot: View {
         holes: 18,
         teeBox: "Blue",
         venueName: "北京丽宫体育公园高尔夫俱乐部",
+        tees: ["Blue", "White"]
+    )
+
+    private static let setupFront = WatchCourseOption(
+        globalId: 32001,
+        name: "北京黑骑士 ~ A",
+        holes: 9,
+        teeBox: "Blue",
+        venueName: "北京黑骑士",
+        segmentLabel: "A",
+        segmentHoles: 9,
+        tees: ["Blue", "White"]
+    )
+
+    private static let setupBack = WatchCourseOption(
+        globalId: 32002,
+        name: "北京黑骑士 ~ B",
+        holes: 9,
+        teeBox: "Blue",
+        venueName: "北京黑骑士",
+        segmentLabel: "B",
+        segmentHoles: 9,
         tees: ["Blue", "White"]
     )
 

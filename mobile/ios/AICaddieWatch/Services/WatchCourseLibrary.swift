@@ -27,7 +27,7 @@ public final class WatchCourseLibrary: ObservableObject {
         self.makeRoundId = makeRoundId
         self.now = now
         let cached = store.loadCourses()
-        courses = cached.map(\.option)
+        courses = Self.uniqueOptions(from: cached.flatMap { [$0.option, $0.backOption].compactMap { $0 } })
         cachedCourseIds = Set(cached.map { $0.option.globalId })
     }
 
@@ -44,10 +44,11 @@ public final class WatchCourseLibrary: ObservableObject {
             let remote = try await makeClient(config).fetchCourseOptions()
             let cached = store.loadCourses()
             var merged = remote
-            for template in cached where !merged.contains(where: { $0.globalId == template.option.globalId }) {
-                merged.append(template.option)
+            let cachedOptions = cached.flatMap { [$0.option, $0.backOption].compactMap { $0 } }
+            for option in cachedOptions where !merged.contains(where: { $0.globalId == option.globalId }) {
+                merged.append(option)
             }
-            courses = merged
+            courses = Self.uniqueOptions(from: merged)
             cachedCourseIds = Set(cached.map { $0.option.globalId })
             errorMessage = nil
         } catch {
@@ -61,25 +62,36 @@ public final class WatchCourseLibrary: ObservableObject {
         _ option: WatchCourseOption,
         config: WatchRoundConfig?
     ) async -> WatchPreparedCourse? {
-        if let cached = store.course(globalId: option.globalId) {
+        await startCourse(
+            WatchCourseSelection(front: option, teeBox: option.preferredTee),
+            config: config
+        )
+    }
+
+    public func startCourse(
+        _ selection: WatchCourseSelection,
+        config: WatchRoundConfig?
+    ) async -> WatchPreparedCourse? {
+        if let cached = store.course(globalId: selection.front.globalId), cached.matches(selection) {
             errorMessage = nil
             return cached.makeRound(roundId: makeRoundId())
         }
         guard let config else {
-            errorMessage = "这个球场尚未下载，请联网后重试"
+            errorMessage = "这个洞组和发球台尚未下载，请联网后重试"
             return nil
         }
 
-        preparingCourseId = option.globalId
+        preparingCourseId = selection.front.globalId
         errorMessage = nil
         defer { preparingCourseId = nil }
         do {
             let client = makeClient(config)
             let roundId = makeRoundId()
             let package = try await client.fetchCoursePackage(
-                globalId: option.globalId,
+                globalId: selection.front.globalId,
                 roundId: roundId,
-                teeBox: option.preferredTee
+                teeBox: selection.teeBox,
+                backGlobalId: selection.back?.globalId
             )
 
             var requestedByGlobalId: [Int: Set<Int>] = [:]
@@ -98,7 +110,8 @@ public final class WatchCourseLibrary: ObservableObject {
             }
 
             let download = try WatchCourseTemplateBuilder.build(
-                option: option,
+                option: selection.front,
+                backOption: selection.back,
                 package: package,
                 prepsByGlobalId: preps,
                 cachedAt: now()
@@ -107,10 +120,10 @@ public final class WatchCourseLibrary: ObservableObject {
                 try imageStore.store(data: image.data, globalId: image.globalId, hole: image.hole)
             }
             try store.save(download.template)
-            cachedCourseIds.insert(option.globalId)
-            if !courses.contains(where: { $0.globalId == option.globalId }) {
-                courses.append(option)
-            }
+            cachedCourseIds.insert(selection.front.globalId)
+            courses = Self.uniqueOptions(
+                from: courses + [selection.front, selection.back].compactMap { $0 }
+            )
             return download.template.makeRound(roundId: package.roundId)
         } catch {
             errorMessage = "球场下载失败，请保持联网后重试"
@@ -125,5 +138,10 @@ public final class WatchCourseLibrary: ObservableObject {
             sessionToken: config.sessionToken,
             sessionTokenExpiresAt: config.sessionTokenExpiresAt
         )
+    }
+
+    private static func uniqueOptions(from options: [WatchCourseOption]) -> [WatchCourseOption] {
+        var seen = Set<Int>()
+        return options.filter { seen.insert($0.globalId).inserted }
     }
 }

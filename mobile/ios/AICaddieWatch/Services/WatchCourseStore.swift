@@ -40,6 +40,7 @@ public enum WatchCourseTemplateBuilderError: Error {
 public enum WatchCourseTemplateBuilder {
     public static func build(
         option: WatchCourseOption,
+        backOption: WatchCourseOption? = nil,
         package: WatchCoursePackage,
         prepsByGlobalId: [Int: WatchCoursePrepResponse],
         cachedAt: String
@@ -101,6 +102,7 @@ public enum WatchCourseTemplateBuilder {
 
         let template = WatchCourseTemplate(
             option: option,
+            backOption: backOption,
             courseName: package.course.name,
             teeBox: package.course.teeBox,
             holeStates: states,

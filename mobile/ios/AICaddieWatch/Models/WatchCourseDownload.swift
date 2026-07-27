@@ -74,6 +74,25 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
     }
 }
 
+/// The exact real-world setup the player chose before downloading or starting a Watch round.
+/// A 9-hole front loop can optionally be paired with a second loop; the selected tee always travels
+/// with that choice so an offline launch can never silently substitute a different setup.
+public struct WatchCourseSelection: Equatable {
+    public let front: WatchCourseOption
+    public let back: WatchCourseOption?
+    public let teeBox: String
+
+    public init(front: WatchCourseOption, back: WatchCourseOption? = nil, teeBox: String) {
+        self.front = front
+        self.back = back
+        self.teeBox = teeBox
+    }
+
+    public var holeCount: Int {
+        front.playableHoleCount + (back?.playableHoleCount ?? 0)
+    }
+}
+
 struct WatchCourseOptionsEnvelope: Decodable {
     let courses: [WatchCourseOption]
 }
@@ -213,6 +232,7 @@ public struct WatchCourseTemplate: Codable, Equatable, Identifiable {
     public var id: Int { option.globalId }
 
     public let option: WatchCourseOption
+    public let backOption: WatchCourseOption?
     public let courseName: String
     public let teeBox: String
     public let holeStates: [WatchRoundState]
@@ -220,16 +240,24 @@ public struct WatchCourseTemplate: Codable, Equatable, Identifiable {
 
     public init(
         option: WatchCourseOption,
+        backOption: WatchCourseOption? = nil,
         courseName: String,
         teeBox: String,
         holeStates: [WatchRoundState],
         cachedAt: String
     ) {
         self.option = option
+        self.backOption = backOption
         self.courseName = courseName
         self.teeBox = teeBox
         self.holeStates = holeStates
         self.cachedAt = cachedAt
+    }
+
+    public func matches(_ selection: WatchCourseSelection) -> Bool {
+        option.globalId == selection.front.globalId
+            && backOption?.globalId == selection.back?.globalId
+            && teeBox.caseInsensitiveCompare(selection.teeBox) == .orderedSame
     }
 
     public func makeRound(roundId: String) -> WatchPreparedCourse {
