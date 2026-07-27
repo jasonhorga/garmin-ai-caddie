@@ -352,6 +352,11 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-holemap")
     }
 
+    func testMapZoomExpandsOnlyAfterCrownLeavesItsRestingPosition() {
+        XCTAssertFalse(WatchHoleMapView.isFullMap(crownScale: WatchHoleMapView.restingCrownScale))
+        XCTAssertTrue(WatchHoleMapView.isFullMap(crownScale: WatchHoleMapView.restingCrownScale + 0.02))
+    }
+
     @MainActor
     func testRenderWatchHoleMapPlaysLike() throws {
         // 实打 TOGGLE: 后/中/前 flip to slope-adjusted values with a ↑ arrow (+8 uphill → plays longer).
