@@ -650,6 +650,18 @@ class CIWorkflowTests(unittest.TestCase):
         workflow_text = Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8")
         self.assertIn("vars.AI_CADDIE_API_BASE_URL", workflow_text)
 
+    def test_signing_bootstrap_syncs_release_entitlements_before_match(self) -> None:
+        text = Path("fastlane/Fastfile").read_text(encoding="utf-8")
+
+        self.assertIn("ensure_bundle_capabilities!", text)
+        self.assertIn("BundleIdCapability::Type::APPLE_ID_AUTH", text)
+        self.assertIn("BundleIdCapability::Type::HEALTHKIT", text)
+        self.assertIn("bundle.create_capability", text)
+        self.assertLess(
+            text.index("ensure_bundle_capabilities!"),
+            text.index('match(\n      api_key: api_key, type: "appstore", readonly: false'),
+        )
+
     def test_native_evidence_writer_is_documented_and_reused_by_ci(self) -> None:
         workflow = Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8")
         readme = Path("mobile/ios/README.md").read_text(encoding="utf-8")
