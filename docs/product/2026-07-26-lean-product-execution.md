@@ -91,6 +91,11 @@
 - 球洞地图和球童详情使用同一个动态值；腕上 fix 或本地事件缺失时才回退到现有 phone/backend 距离字段。AutoShot 菜单同时移除了容器层多余的第二个 `ScrollView`，保留菜单自身唯一滚动层。
 - Watch runtime [run 30235314492](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30235314492) 完整成功：Watch `113/113`、独立 App build 和 20 次真实进程截图全部通过。Codex 已检查地图与球童截图，两处都显示同一真实计算结果 `61 码`；菜单首屏正常，artifact 中没有 App crash、未知测试页面或恢复失败。
 
+### Watch 首页实时果岭距离结果（2026-07-27）
+
+- 功能 SHA：`2890c5de214cee4b183c77c65e8f90469bfcec95`。首页原先始终显示整洞 Tee 长度，玩家走到球道中段仍可能看到 `567 码`。现在优先显示腕上 GPS 算出的中果岭距离；暂时无腕上结果时回退到已准备的中果岭距离，只有两者都缺失才显示整洞长度。没有改布局、状态或数据协议。
+- Watch runtime [run 30236028072](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30236028072) 完整成功：Watch `114/114`、独立 App build 和 21 次真实进程截图全部通过。Codex 已检查同一真实缓存球场的首页：预备距离显示 `262 码`，腕上实时值到达后显示 `211 码`；地图、球童、距上一杆和恢复截图继续正常，artifact 中没有 App crash、未知测试页面或恢复失败。
+
 ## 持续端到端验收基线
 
 以下能力已由里程碑 1–4 建立，后续实现不得回退：
