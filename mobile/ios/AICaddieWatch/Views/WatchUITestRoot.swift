@@ -31,7 +31,8 @@ public struct WatchUITestRoot: View {
             milestoneRound
         case "standalone-course-seed", "standalone-course-restore",
              "standalone-course-caddie", "standalone-course-hazards",
-             "standalone-course-last-shot", "standalone-course-caddie-last-shot":
+             "standalone-course-last-shot", "standalone-course-caddie-last-shot",
+             "standalone-course-live-home":
             standaloneCourseRound
         case "course-picker":
             cachedCoursePicker
@@ -113,6 +114,7 @@ public struct WatchUITestRoot: View {
                 WatchRoundContainerView(
                     model: model,
                     holeGeometry: standaloneCourseGeometry,
+                    watchGreenYards: standaloneHomeGreenYards,
                     shotLocation: standaloneLastShotFix
                 )
             } else {
@@ -134,8 +136,15 @@ public struct WatchUITestRoot: View {
             } else if screen == "standalone-course-caddie-last-shot" {
                 ensureStandaloneLastShot()
                 model.openCaddie()
+            } else if screen == "standalone-course-live-home" {
+                model.backToHome()
             }
         }
+    }
+
+    private var standaloneHomeGreenYards: (front: Int?, center: Int?, back: Int?)? {
+        guard screen == "standalone-course-live-home" else { return nil }
+        return (front: 199, center: 211, back: 223)
     }
 
     private var standaloneLastShotFix: WatchLocationFix? {

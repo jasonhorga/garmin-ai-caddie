@@ -250,8 +250,15 @@ public struct WatchRoundContainerView: View {
         }
     }
 
-    private var distanceText: String? {
-        guard let distanceM = model.activeHoleState?.distanceM else { return nil }
+    var distanceText: String? {
+        if let liveCenterYd = watchGreenYards?.center {
+            return "\(liveCenterYd) 码"
+        }
+        guard let state = model.activeHoleState else { return nil }
+        if let centerGreenM = state.centerGreenM {
+            return "\(WatchUnits.yards(centerGreenM)) 码"
+        }
+        guard let distanceM = state.distanceM else { return nil }
         return "\(WatchUnits.yards(distanceM)) 码"
     }
 

@@ -115,6 +115,8 @@ jobs:
           launch_and_capture standalone-course-seed watch-standalone-course-seeded.png
           # No reinstall, network, phone seed, or second course write: load the persisted round + map.
           launch_and_capture standalone-course-restore watch-standalone-course-restored.png
+          # The home hub must prefer the Watch's live center-green distance over static tee length.
+          launch_and_capture standalone-course-live-home watch-standalone-course-live-home.png
           # The same persisted production hole state drives the shallow caddie and hazard surfaces.
           launch_and_capture standalone-course-caddie watch-standalone-course-caddie.png
           launch_and_capture standalone-course-hazards watch-standalone-course-hazards.png
