@@ -156,11 +156,32 @@ public final class WatchBackendClient {
         return request
     }
 
+    public func makeCourseSearchRequest(name: String) throws -> URLRequest {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/search"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "name", value: name)]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+        return request
+    }
+
+    public func makeCourseTeesRequest(globalId: Int) throws -> URLRequest {
+        var request = URLRequest(url: endpointURL("/api/v2/courses/\(globalId)/tees"))
+        applyAuth(&request)
+        return request
+    }
+
     public func makeCoursePackageRequest(
         globalId: Int,
         roundId: String,
         teeBox: String,
-        backGlobalId: Int? = nil
+        backGlobalId: Int? = nil,
+        ensureGeometry: Bool = false
     ) throws -> URLRequest {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
@@ -173,7 +194,7 @@ public final class WatchBackendClient {
             URLQueryItem(name: "tee_box", value: teeBox),
             URLQueryItem(name: "nine", value: "all"),
             URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "ensure_geometry", value: "false"),
+            URLQueryItem(name: "ensure_geometry", value: ensureGeometry ? "true" : "false"),
         ]
         if let backGlobalId {
             queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
@@ -205,6 +226,14 @@ public final class WatchBackendClient {
         try JSONDecoder().decode(WatchCourseOptionsEnvelope.self, from: data).courses
     }
 
+    public func decodeCourseSearch(_ data: Data) throws -> [WatchCourseSearchMatch] {
+        try JSONDecoder().decode(WatchCourseSearchEnvelope.self, from: data).matches
+    }
+
+    public func decodeCourseTees(_ data: Data) throws -> [WatchCourseTee] {
+        try JSONDecoder().decode(WatchCourseTeesEnvelope.self, from: data).tees
+    }
+
     public func decodeCoursePackage(_ data: Data) throws -> WatchCoursePackage {
         try JSONDecoder().decode(WatchCoursePackage.self, from: data)
     }
@@ -219,17 +248,31 @@ public final class WatchBackendClient {
         return try decodeCourseOptions(data)
     }
 
+    public func searchCourses(name: String) async throws -> [WatchCourseSearchMatch] {
+        let request = try makeCourseSearchRequest(name: name)
+        let data = try await sendForData(request)
+        return try decodeCourseSearch(data)
+    }
+
+    public func fetchCourseTees(globalId: Int) async throws -> [WatchCourseTee] {
+        let request = try makeCourseTeesRequest(globalId: globalId)
+        let data = try await sendForData(request)
+        return try decodeCourseTees(data)
+    }
+
     public func fetchCoursePackage(
         globalId: Int,
         roundId: String,
         teeBox: String,
-        backGlobalId: Int? = nil
+        backGlobalId: Int? = nil,
+        ensureGeometry: Bool = false
     ) async throws -> WatchCoursePackage {
         let request = try makeCoursePackageRequest(
             globalId: globalId,
             roundId: roundId,
             teeBox: teeBox,
-            backGlobalId: backGlobalId
+            backGlobalId: backGlobalId,
+            ensureGeometry: ensureGeometry
         )
         let data = try await sendForData(request)
         return try decodeCoursePackage(data)

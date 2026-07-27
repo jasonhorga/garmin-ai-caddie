@@ -127,6 +127,9 @@ jobs:
           # The same persisted production course store must still advertise the course as downloaded.
           launch_and_capture course-picker watch-course-picker.png
           launch_and_capture course-setup watch-course-setup.png
+          # Full-catalogue discovery remains explicit; a selected remote result loads real tee rows.
+          launch_and_capture course-search-results watch-course-search-results.png
+          launch_and_capture course-remote-setup watch-course-remote-setup.png
           launch_and_capture milestone-seed watch-round-seeded.png
           # Do not reinstall or reseed here: the second process must load the first launch's stored round.
           launch_and_capture milestone-restore watch-round-restored.png

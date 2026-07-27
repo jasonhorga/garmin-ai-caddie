@@ -100,12 +100,28 @@ public struct AICaddieWatchApp: App {
                 WatchStartView(
                     phoneReachable: syncClient.phoneReachable,
                     courses: courseLibrary.courses,
+                    searchMatches: courseLibrary.searchMatches,
                     cachedCourseIds: courseLibrary.cachedCourseIds,
                     isLoadingCourses: courseLibrary.isLoadingCourses,
+                    isSearchingCourses: courseLibrary.isSearchingCourses,
                     preparingCourseId: courseLibrary.preparingCourseId,
                     errorMessage: courseLibrary.errorMessage,
                     onRefresh: {
                         Task { await courseLibrary.refresh(config: syncClient.config) }
+                    },
+                    onSearchAllCourses: { name in
+                        Task {
+                            await courseLibrary.searchAllCourses(
+                                name: name,
+                                config: syncClient.config
+                            )
+                        }
+                    },
+                    onLoadCourseTees: { globalId in
+                        await courseLibrary.loadCourseTees(
+                            globalId: globalId,
+                            config: syncClient.config
+                        )
                     },
                     onStartCourse: { selection in
                         Task {

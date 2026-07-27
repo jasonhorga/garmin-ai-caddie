@@ -37,12 +37,26 @@ public struct WatchUITestRoot: View {
             standaloneCourseRound
         case "course-picker":
             cachedCoursePicker
+        case "course-search-results":
+            WatchStartView(
+                phoneReachable: false,
+                searchMatches: Self.remoteCourseMatches
+            )
         case "course-setup":
             NavigationStack {
                 WatchRoundSetupView(
                     front: Self.setupFront,
                     courses: [Self.setupFront, Self.setupBack],
                     hasCachedVersion: true
+                )
+            }
+        case "course-remote-setup":
+            NavigationStack {
+                WatchRoundSetupView(
+                    front: Self.remoteCourseMatches[0].courseOption,
+                    courses: [Self.remoteCourseMatches[0].courseOption],
+                    ensureGeometry: true,
+                    onLoadTees: { _ in Self.remoteCourseTees }
                 )
             }
         case "interaction-club-seed", "interaction-club-restore",
@@ -309,6 +323,44 @@ public struct WatchUITestRoot: View {
         segmentHoles: 9,
         tees: ["Blue", "White"]
     )
+
+    private static let remoteCourseMatches = [
+        WatchCourseSearchMatch(
+            globalId: 31870,
+            name: "Mission Hills ~ A",
+            holes: 9,
+            city: "深圳",
+            province: "广东",
+            ratio: 0.96
+        ),
+        WatchCourseSearchMatch(
+            globalId: 31871,
+            name: "Mission Hills ~ B",
+            holes: 9,
+            city: "深圳",
+            province: "广东",
+            ratio: 0.94
+        ),
+    ]
+
+    private static let remoteCourseTees = [
+        WatchCourseTee(
+            teeBox: "blue",
+            name: "Blue",
+            geometrySet: 2,
+            yards: 3210,
+            holeCount: 9,
+            isDefault: true
+        ),
+        WatchCourseTee(
+            teeBox: "white",
+            name: "White",
+            geometrySet: 3,
+            yards: 3010,
+            holeCount: 9,
+            isDefault: false
+        ),
+    ]
 
     /// The same real gid31669/hole-4 render already baked for design review, persisted through the
     /// production course/image stores so the second process proves an offline course start and map load.

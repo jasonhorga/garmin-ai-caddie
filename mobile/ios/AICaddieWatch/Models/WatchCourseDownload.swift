@@ -72,6 +72,103 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
             ?? tees.first
             ?? "Blue"
     }
+
+    public func withTees(
+        _ teeOptions: [WatchCourseTee],
+        selectedTee: String? = nil
+    ) -> WatchCourseOption {
+        WatchCourseOption(
+            globalId: globalId,
+            name: name,
+            holes: holes,
+            teeBox: selectedTee ?? teeOptions.first(where: \.isDefault)?.teeBox ?? teeBox,
+            venueName: venueName,
+            segmentLabel: segmentLabel,
+            segmentHoles: segmentHoles,
+            tees: teeOptions.map(\.teeBox),
+            roundCount: roundCount
+        )
+    }
+}
+
+/// A ranked row from Garmin's full course catalogue. It remains ephemeral until the selected
+/// package + prep data has been downloaded into the existing Watch course store.
+public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
+    public var id: Int { globalId }
+
+    public let globalId: Int
+    public let name: String
+    public let holes: Int
+    public let city: String?
+    public let province: String?
+    public let ratio: Double
+
+    public init(
+        globalId: Int,
+        name: String,
+        holes: Int,
+        city: String?,
+        province: String?,
+        ratio: Double
+    ) {
+        self.globalId = globalId
+        self.name = name
+        self.holes = holes
+        self.city = city
+        self.province = province
+        self.ratio = ratio
+    }
+
+    public var courseOption: WatchCourseOption {
+        let parts = name.split(separator: "~", maxSplits: 1, omittingEmptySubsequences: false)
+        let venue = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let segment = parts.count > 1
+            ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil
+        return WatchCourseOption(
+            globalId: globalId,
+            name: name,
+            holes: holes,
+            venueName: venue.isEmpty ? name : venue,
+            segmentLabel: segment?.isEmpty == false ? segment : nil,
+            segmentHoles: holes
+        )
+    }
+}
+
+/// One real tee row returned by GET /courses/{globalId}/tees. Missing yardage stays nil rather than
+/// being replaced by a guessed distance.
+public struct WatchCourseTee: Decodable, Equatable, Identifiable {
+    public var id: String { teeBox.lowercased() }
+
+    public let teeBox: String
+    public let name: String
+    public let geometrySet: Int?
+    public let yards: Int?
+    public let holeCount: Int?
+    public let isDefault: Bool
+
+    public init(
+        teeBox: String,
+        name: String,
+        geometrySet: Int? = nil,
+        yards: Int? = nil,
+        holeCount: Int? = nil,
+        isDefault: Bool
+    ) {
+        self.teeBox = teeBox
+        self.name = name
+        self.geometrySet = geometrySet
+        self.yards = yards
+        self.holeCount = holeCount
+        self.isDefault = isDefault
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case teeBox, name, yards, holeCount
+        case geometrySet = "set"
+        case isDefault = "default"
+    }
 }
 
 /// The exact real-world setup the player chose before downloading or starting a Watch round.
@@ -81,11 +178,18 @@ public struct WatchCourseSelection: Equatable {
     public let front: WatchCourseOption
     public let back: WatchCourseOption?
     public let teeBox: String
+    public let ensureGeometry: Bool
 
-    public init(front: WatchCourseOption, back: WatchCourseOption? = nil, teeBox: String) {
+    public init(
+        front: WatchCourseOption,
+        back: WatchCourseOption? = nil,
+        teeBox: String,
+        ensureGeometry: Bool = false
+    ) {
         self.front = front
         self.back = back
         self.teeBox = teeBox
+        self.ensureGeometry = ensureGeometry
     }
 
     public var holeCount: Int {
@@ -95,6 +199,14 @@ public struct WatchCourseSelection: Equatable {
 
 struct WatchCourseOptionsEnvelope: Decodable {
     let courses: [WatchCourseOption]
+}
+
+struct WatchCourseSearchEnvelope: Decodable {
+    let matches: [WatchCourseSearchMatch]
+}
+
+struct WatchCourseTeesEnvelope: Decodable {
+    let tees: [WatchCourseTee]
 }
 
 public struct WatchCoursePackage: Decodable, Equatable {

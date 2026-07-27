@@ -6,8 +6,10 @@ import Foundation
 @MainActor
 public final class WatchCourseLibrary: ObservableObject {
     @Published public private(set) var courses: [WatchCourseOption]
+    @Published public private(set) var searchMatches: [WatchCourseSearchMatch] = []
     @Published public private(set) var cachedCourseIds: Set<Int>
     @Published public private(set) var isLoadingCourses = false
+    @Published public private(set) var isSearchingCourses = false
     @Published public private(set) var preparingCourseId: Int?
     @Published public private(set) var errorMessage: String?
 
@@ -58,6 +60,53 @@ public final class WatchCourseLibrary: ObservableObject {
         }
     }
 
+    public func searchAllCourses(name: String, config: WatchRoundConfig?) async {
+        let query = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2 else {
+            searchMatches = []
+            errorMessage = "请至少输入两个字再搜索全部球场"
+            return
+        }
+        guard let config else {
+            searchMatches = []
+            errorMessage = "请先在 iPhone 登录并同步一次"
+            return
+        }
+
+        isSearchingCourses = true
+        searchMatches = []
+        errorMessage = nil
+        defer { isSearchingCourses = false }
+        do {
+            let matches = try await makeClient(config).searchCourses(name: query)
+            var seen = Set<Int>()
+            searchMatches = matches.filter { seen.insert($0.globalId).inserted }
+            if searchMatches.isEmpty {
+                errorMessage = "全部球场中没有找到匹配结果"
+            }
+        } catch {
+            errorMessage = "无法搜索全部球场，请检查网络或登录状态"
+        }
+    }
+
+    public func loadCourseTees(
+        globalId: Int,
+        config: WatchRoundConfig?
+    ) async -> [WatchCourseTee] {
+        guard let config else {
+            errorMessage = "这个球场尚未下载，请联网后重试"
+            return []
+        }
+        do {
+            let tees = try await makeClient(config).fetchCourseTees(globalId: globalId)
+            errorMessage = tees.isEmpty ? "这个球场没有可用的发球台数据" : nil
+            return tees
+        } catch {
+            errorMessage = "无法获取发球台，请检查网络后重试"
+            return []
+        }
+    }
+
     public func startCourse(
         _ option: WatchCourseOption,
         config: WatchRoundConfig?
@@ -91,7 +140,8 @@ public final class WatchCourseLibrary: ObservableObject {
                 globalId: selection.front.globalId,
                 roundId: roundId,
                 teeBox: selection.teeBox,
-                backGlobalId: selection.back?.globalId
+                backGlobalId: selection.back?.globalId,
+                ensureGeometry: selection.ensureGeometry
             )
 
             var requestedByGlobalId: [Int: Set<Int>] = [:]

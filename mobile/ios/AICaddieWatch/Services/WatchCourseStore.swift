@@ -103,12 +103,24 @@ public enum WatchCourseTemplateBuilder {
         let template = WatchCourseTemplate(
             option: option,
             backOption: backOption,
-            courseName: package.course.name,
+            courseName: resolvedCourseName(package: package, option: option),
             teeBox: package.course.teeBox,
             holeStates: states,
             cachedAt: cachedAt
         )
         return WatchCourseDownload(template: template, images: images)
+    }
+
+    private static func resolvedCourseName(
+        package: WatchCoursePackage,
+        option: WatchCourseOption
+    ) -> String {
+        let packageName = package.course.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let genericName = "Course \(package.course.globalId)"
+        if packageName.caseInsensitiveCompare(genericName) == .orderedSame {
+            return option.name
+        }
+        return package.course.name
     }
 
     private static func watchProjection(_ value: WatchCoursePrepProjection?) -> WatchHoleImageProjection? {
