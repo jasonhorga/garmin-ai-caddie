@@ -186,11 +186,26 @@ public struct WatchRoundSetupView: View {
     }
 
     private var selectionSummary: String {
-        let teeSummary = teeOptions.isEmpty ? "发球台待加载" : "\(selectedTee) T"
+        let teeSummary = teeOptions.isEmpty ? "发球台待加载" : selectedTeeSummary
         if let selectedBack {
             return "\(loopName(front)) + \(loopName(selectedBack)) · \(teeSummary) · 18 洞"
         }
         return "\(loopName(front)) · \(teeSummary) · \(front.playableHoleCount) 洞"
+    }
+
+    private var selectedTeeSummary: String {
+        guard let tee = teeOptions.first(where: {
+            $0.teeBox.caseInsensitiveCompare(selectedTee) == .orderedSame
+        }) else {
+            return "\(selectedTee.capitalized) T"
+        }
+        let code = tee.teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = tee.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let canonicalNames = [code.lowercased(), "\(code.lowercased()) tee"]
+        if !name.isEmpty, !canonicalNames.contains(name.lowercased()) {
+            return name.hasSuffix("台") ? name : "\(name) T"
+        }
+        return "\(code.capitalized) T"
     }
 
     private func venueName(_ option: WatchCourseOption) -> String {
