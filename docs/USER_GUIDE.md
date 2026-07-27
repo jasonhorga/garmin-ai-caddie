@@ -105,7 +105,7 @@ AI Caddie 把你的 **Garmin 高尔夫数据**(球局、逐杆、球场几何)�
 - **选洞**:18 洞格,当前洞高亮。
 - **菜单 hub**:纯文字(计分卡 / 选洞 / 结束本场 / 继续打球),S70 式。
 - **结束小结**:总杆 / 到标准杆 / 推杆 / 球道命中 / GIR / 待上传；球道与 GIR 只统计明确记录，未知洞不算失误。
-- **开始**:列附近球场 / 恢复进行中的局。
+- **开始**:筛选历史/缓存球场 → 明确选择 9 洞或 9+9 洞组与 Tee → 下载或离线开局 / 恢复进行中的局；未打过球场的远端全库发现仍在接线。
 
 ---
 
@@ -128,13 +128,14 @@ AI Caddie 把你的 **Garmin 高尔夫数据**(球局、逐杆、球场几何)�
 **已落地(CI 绿 + 截图复核 + 部分已部署)**
 - Web:GolfLive 统计改版 + 提速、备战、复盘、实战沙盘、设置、诊断模式 —— **已部署上线**。
 - iPhone:实战屏(距离头含 F/M/B + 坡度)、球童卡 + 策略 + 障碍、GPS 记分、GolfLive 统计屏 —— 完整。
-- Watch:HOME(F/M/B + 坡度 + 18 洞环)、**Map Detail 表冠全屏缩放**、计分卡、选洞、菜单 hub、记分(含上球道/偏左/偏右)、**结束页诚实 GIR/球道汇总**、独立局、**球童三选项(激进/推荐/保守)、障碍 Hazard View、实时距上一杆** —— 核心完整。
+- Watch:HOME(F/M/B + 坡度 + 18 洞环)、**Map Detail 表冠全屏缩放**、计分卡、选洞、菜单 hub、记分(含上球道/偏左/偏右)、**结束页诚实 GIR/球道汇总**、已知真实球场的洞组/Tee 下载与离线独立局、**球童三选项(激进/推荐/保守)、障碍 Hazard View、实时距上一杆** —— 已知球场核心完整。
 - 后端:坡度 / 果岭距离 / 7 维分布 / 紧凑统计契约 / 球杆清洗 / WatchRoundState 扩字段(含 caddieOptions/hazards 数组)—— 完整、已部署。
 - 正确性修复(2026-06-23):窗口化统计 shot-ref 稳定化(last10/12m 订正/refs 不再错位)、decision audit 认 Garmin 字段别名 —— 已部署。
 
 **质量验证**:除单元/契约/设计快照外,iOS 用 **XCUITest 在真模拟器启动真 app 对接 live 后端**导航截真屏、watch 用 **simctl io screenshot** 截真运行时屏(按需 `gh workflow run native-mobile.yml`);GPS 经 env 注入模拟在场。
 
 **后续 backlog(需生产接线或真机验证)**
+- Watch:开局搜索当前只过滤历史/缓存 options；需复用现有 `/api/v2/courses/search` 接入未打过的新球场，再走同一 Tee/package/prep/cache 链。
 - Watch:地图拖旗已接入生产视图但仍需真机触控复核；真正的 Green View / 可保存旗位仍需完整 pinSet 与果岭边界，靠近果岭时不会拿整洞图放大来冒充。
 - **AutoShot Beta 软件路径已完成**(watchOS 高频运动 API + GPS + HealthKit workout)；仍需真机完成空挥/推杆/球车误报、漏报、续航和发热验证。
 - 两路(standalone / companion)数据完全统一是更大重构。

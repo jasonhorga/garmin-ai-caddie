@@ -24,9 +24,9 @@
 | 1 | 现有 iOS/Watch 使用一个真实球场完成开局，列出唯一真实阻塞点 | `COMPLETE` |
 | 2 | 在现有 UI 中完成已确认的成绩确认与手动记杆流程 | `COMPLETE` |
 | 3 | 关键操作后强杀可恢复，重发不丢不重，结果进入现有后端并可复盘 | `COMPLETE` |
-| 4 | Watch 可独立搜索、下载、缓存新球场并离线开局 | `COMPLETE` |
+| 4 | Watch 可独立搜索、下载、缓存新球场并离线开局 | `CURRENT — 已知球场链路完成，远端新球场发现待接` |
 | 5 | 已确认的 S70 地图与球童页面接入真实距离、危险区和球杆数据 | `COMPLETE` |
-| 6 | 完整手动路径稳定后，再做 AutoShot 和按需 Deep Mine | `CURRENT — 软件路径完成，待真机门` |
+| 6 | 完整手动路径稳定后，再做 AutoShot 和按需 Deep Mine | `SOFTWARE COMPLETE — 待真机门` |
 
 任一时刻只推进一个里程碑。里程碑完成后回到本表选择下一项，不沿实现细节继续派生计划树。
 
@@ -65,6 +65,13 @@
 - 最终 Watch runtime：[run 30216738684](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30216738684) 整体成功：Watch `93/93`、独立 App build、runtime seed/restore 与 artifact 上传全部通过。
 - Codex 已下载并亲自检查三张 416×496 真实 App 截图。首次进程 PID `26682` 显示北京丽宫、第 4 洞、P5、567 码和球道图入口；未重装、没有网络 config 且不发网络请求的第二进程 PID `27133` 从 production round/image store 恢复真实 gid31669/h4 地图、3 号木与 F/M/B；第三进程 PID `27478` 从同一 course store 显示完整北京丽宫名称、`18 洞 · Blue` 和已下载标记。诊断中无 crash、fatal、unknown screen 或 restore error。
 
+### Watch 真实洞组 / Tee 开局补齐（2026-07-27）
+
+- 功能 SHA：`573c8bdc5e1c3faad76a3eca06fb86ad81cff13c`。点击已知真实球场后不再按历史默认 Tee 直接开局，而是进入腕上设置页：9 洞环可明确选择只打 9 洞或同场任意 9+9 组合，并明确选择真实 Tee；选择值直接复用现有 package 的 `tee_box/back_global_id`，不新增后端协议。
+- 离线缓存按实际前九、后九和 Tee 匹配；不匹配时明确要求联网更新，不会拿另一个 Tee/洞组的缓存冒充。未获批准的默认 `18×Par 4「仅记分」`入口已从生产开局页移除。
+- Watch runtime [run 30250667576](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30250667576) 完整成功：Watch `118/118`、独立 App build 和 24 次真实进程启动全部通过。首次成功构建的截图复核还抓到设置页插值被显示为字面量，最终 SHA 修正后复跑；Codex 已检查球场页无“仅记分”，设置页正确显示 `A · Blue T · 9 洞` 与 `只打 A · 9 洞`，诊断中无 crash、未知测试页面或恢复失败。
+- 原里程碑 4 的“独立搜索新球场”完成表述过宽：当前搜索框只过滤 `/mobile/courses/options` 返回的历史/已知球场，并未接入仓库已经存在的 `/api/v2/courses/search` 全库入口。因此“已知真实球场 → 洞组/Tee → 下载 → 离线开局”已完成；任意未打过新球场的远端发现仍是里程碑 4 当前唯一软件缺口。
+
 ## 里程碑 5 结果（2026-07-26）
 
 - 功能最终 SHA：`459e7c25784311f3c8de3de783c98dc827b4e95a`。独立 Watch 球局的现有菜单按当前洞真实数据开放“球童建议”和“障碍”两个浅层仪表面；球童页消费真实 F/M/B、腕上 GPS 距离覆盖、高差、推荐杆和已有打法 options，障碍页直接消费真实沙坑/水域区间。
@@ -73,9 +80,9 @@
 - 最终 Watch runtime：[run 30218317794](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30218317794) 整体成功：Watch `99/99`、独立 App build、真实缓存球场 seed/restore、球童页与障碍页运行态截图全部通过。
 - Codex 已下载并亲自检查最终 416×496 截图：事实地图显示第 4 洞 P5、实打 `+8` 码和 `256 / 270 / 282` F/M/B；球童页显示 `248 / 262 / 274`、坡度 `+8` 码、`3号木`与离线状态；障碍页显示真实沙坑前沿 `197`、越过 `213` 码。四次独立进程 PID 为 `24183 → 24669 → 25108 → 25210`，诊断中无 crash、fatal、unknown screen 或 restore error。
 
-## 当前工作：AutoShot 与按需 Deep Mine
+## 当前工作：Watch 新球场发现；AutoShot 等真机
 
-里程碑 1–5 已建立真实开局、手动记杆、确认换洞、恢复同步、Watch 独立球场缓存和事实地图/球童页面。里程碑 6 从现有 AutoShot 代码与真实击球路径开始，只解决阻塞自动记杆的可复现问题；Deep Mine 只在实际新球场缺失已需要的数据时启动，不建设通用未知格式平台。风、空气密度、假成功率和推杆级等高线继续后置。
+里程碑 1–5 已建立真实开局、手动记杆、确认换洞、恢复同步、Watch 独立球场缓存和事实地图/球童页面。当前先把 Watch 已有本地过滤接到现成 `/api/v2/courses/search`，让未打过的新球场也能进入同一洞组/Tee/package/prep 链；只有真实搜索结果在 package/prep 缺少当前产品所需数据时才触发 Deep Mine，不建设通用未知格式平台。AutoShot 软件路径保持完成状态，等待真机门；风、空气密度、假成功率和推杆级等高线继续后置。
 
 ### AutoShot Beta 软件结果（2026-07-26）
 
