@@ -24,7 +24,7 @@
 | 1 | 现有 iOS/Watch 使用一个真实球场完成开局，列出唯一真实阻塞点 | `COMPLETE` |
 | 2 | 在现有 UI 中完成已确认的成绩确认与手动记杆流程 | `COMPLETE` |
 | 3 | 关键操作后强杀可恢复，重发不丢不重，结果进入现有后端并可复盘 | `COMPLETE` |
-| 4 | Watch 可独立搜索、下载、缓存新球场并离线开局 | `SOFTWARE COMPLETE — 待真实新球场数据门` |
+| 4 | Watch 可独立搜索、下载、缓存新球场并离线开局 | `COMPLETE — 软件链 + Simulator 真实数据证据` |
 | 5 | 已确认的 S70 地图与球童页面接入真实距离、危险区和球杆数据 | `COMPLETE` |
 | 6 | 完整手动路径稳定后，再做 AutoShot 和按需 Deep Mine | `SOFTWARE COMPLETE — 待真机门` |
 
@@ -100,11 +100,19 @@
 - homeserver 真实验证使用 Garmin `globalId=3881`（Cypress Point Club，搜索结果 18 洞）。冷 release 请求 `ensure_release=true` 用时 `0.219504s`，只返回 Championship/Middle/Forward 三个真实 Tee，geometry 仍为 `0/18 missing`，没有隐藏下载。
 - 现有 production package 请求 `ensure_geometry=true` 用时 `241.795319s`，返回 `2,011,453` bytes、18 个洞且 `geometryCoverage=ready` 的 18/18；请求没有超过新的 900 秒客户端预算。下载后重新读取 Tee 得到 Championship `6269`、Middle `6067`、Forward `5358` 码，三组均 `holeCount=18`。
 - 真实链路第一次复读曾显示 9 洞/3094 码；根因是首次 Tee 查询缓存了 geometry 缺失结果，package 下载后没有清 `load_geometry` 的负缓存。`50e4c26` 在 `_ensure_geometry_for_course` 与 package-hole helper 统一失效该缓存，并增加先失败后通过的回归测试；重启后同一 Cypress 数据稳定返回 18 洞/6269 码。
-- 这项证据证明后端 release → geometry → Tee 重读链路已接通；它还没有冒充 Watch 端的“下载后断网重开”真机证据。里程碑 4 的任意新球场能力仍保持 `SOFTWARE COMPLETE — 待真实 Watch course store 门`，只有 Watch 端证据或新的实际数据缺口才继续 Deep Mine。
+- 这项证据证明后端 release → geometry → Tee 重读链路已接通；Watch 端证据见下节。只有新的实际数据缺口才继续 Deep Mine。
 
-## 当前工作：软件主路径完成；等待两项真实证据
+### Watch 运行态（真实球场数据）下载与离线恢复（2026-07-27）
 
-里程碑 1–5 的软件路径已建立真实开局、手动记杆、确认换洞、恢复同步、Watch 全库发现/离线缓存和事实地图/球童页面。下一步不再派生软件平台，只保留两项现场证据：第一，用一个账号历史中从未出现的真实球场验证搜索、Tee、下载和断网重开，并据实际缺项决定是否 Deep Mine；第二，用真 Watch/TestFlight 验证 AutoShot 的授权、误报/漏报、续航与发热。风、空气密度、假成功率和推杆级等高线继续后置。
+- GitHub Actions [run 30306280529](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30306280529) 在 macOS watchOS Simulator 上全部成功：Watch 测试、构建、真实球场 seed、诊断收集和 artifact 上传均通过；这不是物理手表证据。
+- `real-course-download-seed` 使用真实搜索结果 `globalId=3881`（Cypress Point Club），取得真实 Championship Tee，执行 package `ensure_geometry=true` 与 18 洞 prep/render，并写入现有 production course/image store；没有新增 installer、缓存协议或 fixture。
+- `real-course-download-restore` 是第二个独立进程，未提供 API URL/token，调用 `startCourse(config: nil)` 从本地 production store 开局；因此它验证的是下载后的离线恢复，而不是再次联网成功。
+- artifact 中的 `watch-real-course-download.png` 与 `watch-real-course-offline.png`（均 416×496）已由 Codex 逐张检查：两张都显示 `Cypress Point Club`、第 1 洞 `P5`、`407 码` 和真实球道图；两张 artifact SHA256 相同（`4f6727ea97fb6fc463f98fe6badb8d475bf274ee9d2ea18ae86cadf229a7e560`）。
+- 两次 launch PID 为 `18929 → 31770`，不同进程；diagnostics 没有 AICaddieWatch crash report、`real-course-*-failed` marker 或 restore error。该证据关闭了软件侧“账号历史中未出现的新球场 → Tee → 几何/图片下载 → 离线重开”门；物理手表的 AutoShot 门仍未关闭。
+
+## 当前工作：软件主路径完成；只等待一项真实证据
+
+里程碑 1–5 的软件路径已建立真实开局、手动记杆、确认换洞、恢复同步、Watch 全库发现/离线缓存和事实地图/球童页面；上节已关闭新球场下载/离线恢复门。下一步不再派生软件平台，只保留真 Watch/TestFlight 的 AutoShot 授权、误报/漏报、续航与发热验证。风、空气密度、假成功率和推杆级等高线继续后置。
 
 ### AutoShot Beta 软件结果（2026-07-26）
 
