@@ -322,6 +322,28 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertNil(model.distanceFromLatestShotM(latitude: .nan, longitude: 116.0))
     }
 
+    func testRoundHomeDistancePrefersLiveWatchCenterYards() {
+        let state = WatchRoundState(
+            roundId: "r1",
+            hole: 1,
+            par: 4,
+            distanceM: 365,
+            selectedClub: nil,
+            centerGreenM: 240,
+            score: 0,
+            putts: 0,
+            penaltyCount: 0,
+            caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [state])
+        let view = WatchRoundContainerView(
+            model: model,
+            watchGreenYards: (front: 199, center: 211, back: 223)
+        )
+
+        XCTAssertEqual(view.distanceText, "211 码")
+    }
+
     func testAutoShotIsOptInAndRejectedCandidateWritesNoShotEvent() {
         var savedPreferences: [Bool] = []
         let model = seededModel(
