@@ -40,6 +40,18 @@ public struct WatchRoundContainerView: View {
     private func centerYd(_ s: WatchRoundState) -> Int { watchGreenYards?.center ?? WatchUnits.yards(s.centerGreenM ?? 0) }
     private func backYd(_ s: WatchRoundState) -> Int { watchGreenYards?.back ?? WatchUnits.yards(s.backGreenM ?? 0) }
 
+    /// Prefer the Watch's live walk-off distance; retain older server/phone facts as an offline fallback.
+    private func latestShotDistanceM(_ s: WatchRoundState) -> Double? {
+        if let fix = shotLocation,
+           let live = model.distanceFromLatestShotM(
+            latitude: fix.coordinate.latitude,
+            longitude: fix.coordinate.longitude
+           ) {
+            return live
+        }
+        return s.distanceFromLastShotM ?? s.lastShotDistanceM
+    }
+
     /// watch P1f: the hole view has a map (geometry holes) or a big F/M/B hero (no-geometry fallback), and
     /// a 大字 toggle that swaps either for the arm's-length center number. Shown when the hole has geometry
     /// OR at least a center-green distance; the home 「本洞」 entry is gated on the same.
@@ -115,25 +127,23 @@ public struct WatchRoundContainerView: View {
                 Color.black.onAppear { model.backToHome() }
             }
         case .menu:
-            ScrollView {
-                WatchMenuView(
-                    hasCaddie: model.caddieDetailAvailable,
-                    hasHazards: model.hazardDetailAvailable,
-                    autoShotSupported: autoShotSupported,
-                    autoShotEnabled: model.autoShotEnabled,
-                    autoShotStatus: autoShotStatus,
-                    onCaddie: { model.openCaddie() },
-                    onHazards: { model.openHazards() },
-                    onToggleAutoShot: {
-                        guard autoShotSupported else { return }
-                        model.setAutoShotEnabled(!model.autoShotEnabled)
-                    },
-                    onScorecard: { model.openScorecard() },
-                    onHoleSelect: { model.openHoleSelect() },
-                    onFinish: { model.requestFinish() },
-                    onClose: { model.backToHome() }
-                )
-            }
+            WatchMenuView(
+                hasCaddie: model.caddieDetailAvailable,
+                hasHazards: model.hazardDetailAvailable,
+                autoShotSupported: autoShotSupported,
+                autoShotEnabled: model.autoShotEnabled,
+                autoShotStatus: autoShotStatus,
+                onCaddie: { model.openCaddie() },
+                onHazards: { model.openHazards() },
+                onToggleAutoShot: {
+                    guard autoShotSupported else { return }
+                    model.setAutoShotEnabled(!model.autoShotEnabled)
+                },
+                onScorecard: { model.openScorecard() },
+                onHoleSelect: { model.openHoleSelect() },
+                onFinish: { model.requestFinish() },
+                onClose: { model.backToHome() }
+            )
         case .caddie:
             if let state = model.activeHoleState, model.caddieDetailAvailable {
                 ScrollView {
@@ -144,7 +154,8 @@ public struct WatchRoundContainerView: View {
                             state: state,
                             frontYd: watchGreenYards?.front,
                             centerYd: watchGreenYards?.center,
-                            backYd: watchGreenYards?.back
+                            backYd: watchGreenYards?.back,
+                            lastShotDistanceM: latestShotDistanceM(state)
                         )
                         if !state.caddieOptions.isEmpty {
                             Divider()
@@ -271,7 +282,7 @@ public struct WatchRoundContainerView: View {
             centerGreen: centerYd(s),
             backGreen: backYd(s),
             playsLikeDelta: model.activePlaysLikeDeltaYards,
-            lastShot: WatchUnits.yards(s.lastShotDistanceM ?? 0),
+            lastShot: latestShotDistanceM(s).map(WatchUnits.yards) ?? 0,
             caddieClub: caddieClub(s),
             caddieNote: caddieNote(s),
             showCaddieRecommendation: model.rootCaddieLayerAvailable,

@@ -5,22 +5,28 @@ public struct WatchCaddieGlanceView: View {
     public let frontYd: Int?
     public let centerYd: Int?
     public let backYd: Int?
+    public let lastShotDistanceM: Double?
 
     public init(
         state: WatchRoundState,
         frontYd: Int? = nil,
         centerYd: Int? = nil,
-        backYd: Int? = nil
+        backYd: Int? = nil,
+        lastShotDistanceM: Double? = nil
     ) {
         self.state = state
         self.frontYd = frontYd
         self.centerYd = centerYd
         self.backYd = backYd
+        self.lastShotDistanceM = lastShotDistanceM
     }
 
     var displayFrontYd: Int? { frontYd ?? state.frontGreenM.map { WatchUnits.yards($0) } }
     var displayCenterYd: Int? { centerYd ?? state.centerGreenM.map { WatchUnits.yards($0) } }
     var displayBackYd: Int? { backYd ?? state.backGreenM.map { WatchUnits.yards($0) } }
+    var displayLastShotDistanceM: Double? {
+        lastShotDistanceM ?? state.distanceFromLastShotM ?? state.lastShotDistanceM
+    }
 
     /// Prepared offline course data has no explicit target workflow. Only show target status when the
     /// payload actually carries target metadata; otherwise "待选旗位" would invent a required action.
@@ -55,7 +61,7 @@ public struct WatchCaddieGlanceView: View {
                 .font(.caption2)
                 .foregroundStyle(delta > 0 ? AICaddieDesignTokens.bogey : AICaddieDesignTokens.par)
             }
-            if let fromLast = state.distanceFromLastShotM {
+            if let fromLast = displayLastShotDistanceM {
                 HStack(spacing: 3) {
                     Image(systemName: "arrow.left.and.right")
                     Text("距上一杆 \(WatchUnits.yards(fromLast)) 码")

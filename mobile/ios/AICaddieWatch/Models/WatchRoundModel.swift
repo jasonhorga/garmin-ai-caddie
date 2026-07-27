@@ -179,6 +179,31 @@ public final class WatchRoundModel: ObservableObject {
         recordedShotCount(for: activeHole)
     }
 
+    /// Live distance from the active hole's latest recorded shot origin to the Watch's current fix.
+    /// Location events are the existing durable shot facts; malformed or other-hole events cannot
+    /// replace the last usable origin.
+    public func distanceFromLatestShotM(latitude: Double, longitude: Double) -> Double? {
+        guard let round,
+              let current = WatchShotLocationValue(
+                latitude: latitude,
+                longitude: longitude,
+                horizontalAccuracyM: 0
+              ) else {
+            return nil
+        }
+        for event in round.pendingEvents.reversed()
+            where event.hole == round.activeHole && event.kind == .location {
+            guard let shot = WatchShotLocationValue(encodedValue: event.value) else { continue }
+            return WatchGeoMath.metres(
+                shot.latitude,
+                shot.longitude,
+                current.latitude,
+                current.longitude
+            )
+        }
+        return nil
+    }
+
     /// All holes' states, hole-ordered — feeds the round-13 计分卡 / 选洞 / 18洞环.
     public var allHoleStates: [WatchRoundState] {
         (round?.holeStates ?? []).sorted { $0.hole < $1.hole }

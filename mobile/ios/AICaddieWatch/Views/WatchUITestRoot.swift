@@ -1,4 +1,5 @@
 #if DEBUG
+import CoreLocation
 import SwiftUI
 
 /// Real-runtime watch screenshots: launched with `-uitest-screen <name>` (via `simctl launch`), the watch
@@ -29,7 +30,8 @@ public struct WatchUITestRoot: View {
         case "milestone-seed", "milestone-restore":
             milestoneRound
         case "standalone-course-seed", "standalone-course-restore",
-             "standalone-course-caddie", "standalone-course-hazards":
+             "standalone-course-caddie", "standalone-course-hazards",
+             "standalone-course-last-shot", "standalone-course-caddie-last-shot":
             standaloneCourseRound
         case "course-picker":
             cachedCoursePicker
@@ -108,7 +110,11 @@ public struct WatchUITestRoot: View {
     private var standaloneCourseRound: some View {
         Group {
             if model.round != nil {
-                WatchRoundContainerView(model: model, holeGeometry: standaloneCourseGeometry)
+                WatchRoundContainerView(
+                    model: model,
+                    holeGeometry: standaloneCourseGeometry,
+                    shotLocation: standaloneLastShotFix
+                )
             } else {
                 Text("offline course restore unavailable")
             }
@@ -122,8 +128,37 @@ public struct WatchUITestRoot: View {
                 model.openCaddie()
             } else if screen == "standalone-course-hazards" {
                 model.openHazards()
+            } else if screen == "standalone-course-last-shot" {
+                ensureStandaloneLastShot()
+                model.openHoleMap()
+            } else if screen == "standalone-course-caddie-last-shot" {
+                ensureStandaloneLastShot()
+                model.openCaddie()
             }
         }
+    }
+
+    private var standaloneLastShotFix: WatchLocationFix? {
+        guard screen == "standalone-course-last-shot"
+                || screen == "standalone-course-caddie-last-shot" else {
+            return nil
+        }
+        return WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.0454995, longitude: 116.5461531),
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-27T00:01:00Z"
+        )
+    }
+
+    private func ensureStandaloneLastShot() {
+        guard model.recordedShotCount == 0 else { return }
+        model.beginManualShot(
+            latitude: 40.045,
+            longitude: 116.5461531,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-27T00:00:00Z"
+        )
+        model.completePendingManualShot(clubName: nil)
     }
 
     private var standaloneCourseGeometry: WatchHoleMapGeometry? {
