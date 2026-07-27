@@ -85,6 +85,12 @@
 - 最终 Watch runtime [run 30220967536](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30220967536) 完整成功：Watch `111/111`、独立 App build、18 次真实进程启动、真实缓存球场 seed/restore、球童/障碍、AutoShot 候选页和菜单截图全部通过。Codex 已检查最终截图；候选说明无截断，菜单标题和 Beta 开关完整，诊断 artifact 无 crash、fatal、unknown screen、restore error 或 AutoShot provider failure。
 - 模拟器不能证明真机传感器授权、后台 workout 抢占、误报/漏报、连续一场续航和热量表现，因此里程碑 6 暂不标 COMPLETE。下一步只做 TestFlight 真机球场验证；Deep Mine 仍没有被真实新球场的数据缺口触发。
 
+### Watch 距上一杆结果（2026-07-27）
+
+- 功能 SHA：`df154f8c90a67230cfe383fc415983427023822a`。独立 Watch 球局直接复用当前洞已持久化的最后一条有效 `location` 事件，以最新腕上 GPS 实时计算走离上一杆位置的距离；不新增字段、协议或第二份位置状态。其他洞和损坏位置值不会覆盖当前洞最后一个有效起点。
+- 球洞地图和球童详情使用同一个动态值；腕上 fix 或本地事件缺失时才回退到现有 phone/backend 距离字段。AutoShot 菜单同时移除了容器层多余的第二个 `ScrollView`，保留菜单自身唯一滚动层。
+- Watch runtime [run 30235314492](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30235314492) 完整成功：Watch `113/113`、独立 App build 和 20 次真实进程截图全部通过。Codex 已检查地图与球童截图，两处都显示同一真实计算结果 `61 码`；菜单首屏正常，artifact 中没有 App crash、未知测试页面或恢复失败。
+
 ## 持续端到端验收基线
 
 以下能力已由里程碑 1–4 建立，后续实现不得回退：
