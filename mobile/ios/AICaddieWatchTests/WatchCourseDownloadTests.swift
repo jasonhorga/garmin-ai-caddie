@@ -70,6 +70,30 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertEqual(hole.penaltyCount, 0)
     }
 
+    func testNewCourseTemplateKeepsSearchResultNameWhenPackageOnlyHasGenericIdName() throws {
+        let option = WatchCourseOption(
+            globalId: 31870,
+            name: "Mission Hills ~ A",
+            holes: 9,
+            venueName: "Mission Hills",
+            segmentLabel: "A",
+            segmentHoles: 9,
+            tees: ["blue", "white"]
+        )
+        let package = try client.decodeCoursePackage(Data(
+            #"{"roundId":"watch-new-1","course":{"globalId":31870,"name":"Course 31870","teeBox":"blue"},"holes":[{"number":1,"par":4,"yards":null,"geometryCoverage":"missing","sourceGlobalId":31870,"sourceLocalHole":1}]}"#.utf8
+        ))
+
+        let download = try WatchCourseTemplateBuilder.build(
+            option: option,
+            package: package,
+            prepsByGlobalId: [:],
+            cachedAt: "2026-07-27T00:00:00Z"
+        )
+
+        XCTAssertEqual(download.template.courseName, "Mission Hills ~ A")
+    }
+
     func testCachedTemplatePersistsAndCreatesANewRoundIdentityEachTime() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("watch-course-store-\(UUID().uuidString)", isDirectory: true)

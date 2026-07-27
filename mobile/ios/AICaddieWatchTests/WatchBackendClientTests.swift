@@ -173,17 +173,32 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(options.url?.path, "/api/v2/mobile/courses/options")
         XCTAssertEqual(options.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
 
+        let search = try client.makeCourseSearchRequest(name: "观澜湖")
+        XCTAssertEqual(search.url?.path, "/api/v2/courses/search")
+        XCTAssertEqual(
+            URLComponents(url: try XCTUnwrap(search.url), resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "name" })?.value,
+            "观澜湖"
+        )
+        XCTAssertEqual(search.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
+
+        let tees = try client.makeCourseTeesRequest(globalId: 31870)
+        XCTAssertEqual(tees.url?.path, "/api/v2/courses/31870/tees")
+        XCTAssertEqual(tees.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
+
         let package = try client.makeCoursePackageRequest(
             globalId: 31669,
             roundId: "watch-round-1",
             teeBox: "White",
-            backGlobalId: 31670
+            backGlobalId: 31670,
+            ensureGeometry: true
         )
         XCTAssertEqual(package.url?.path, "/api/v2/mobile/courses/31669/package")
         let packageQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(package.url), resolvingAgainstBaseURL: false))
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "round_id" })?.value, "watch-round-1")
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "tee_box" })?.value, "White")
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "back_global_id" })?.value, "31670")
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "ensure_geometry" })?.value, "true")
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "client_id" })?.value, "apple-watch")
 
         let prep = try client.makeCoursePrepRequest(globalId: 31669, localHoles: [1, 2, 9])
@@ -219,5 +234,28 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(package.course.name, "北京丽宫")
         XCTAssertEqual(package.holes.first?.yards, 404)
         XCTAssertEqual(package.holes.first?.sourceLocalHole, 1)
+
+        let matches = try client.decodeCourseSearch(Data(
+            #"{"schema":"ai-caddie-course-search-v1","query":"观澜湖","matches":[{"globalId":31870,"name":"Mission Hills ~ A","holes":9,"city":"深圳","province":"广东","ratio":0.92}]}"#.utf8
+        ))
+        XCTAssertEqual(matches, [
+            WatchCourseSearchMatch(
+                globalId: 31870,
+                name: "Mission Hills ~ A",
+                holes: 9,
+                city: "深圳",
+                province: "广东",
+                ratio: 0.92
+            )
+        ])
+        XCTAssertEqual(matches.first?.courseOption.segmentLabel, "A")
+        XCTAssertEqual(matches.first?.courseOption.venueName, "Mission Hills")
+
+        let tees = try client.decodeCourseTees(Data(
+            #"{"schema":"ai-caddie-course-tees-v1","globalId":31870,"defaultTeeBox":"blue","tees":[{"teeBox":"blue","name":"Blue","set":2,"yards":6412,"holeCount":18,"default":true},{"teeBox":"white","name":"White","set":3,"yards":6020,"holeCount":18,"default":false}]}"#.utf8
+        ))
+        XCTAssertEqual(tees.map(\.teeBox), ["blue", "white"])
+        XCTAssertEqual(tees.first?.yards, 6412)
+        XCTAssertTrue(tees.first?.isDefault == true)
     }
 }
