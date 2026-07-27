@@ -75,7 +75,7 @@
 ### Watch 全库新球场发现补齐（2026-07-27）
 
 - 功能最终 SHA：`fe89aec6c6eb910b6eae2feb7b0928ff122e3ce3`。腕上输入名称后必须明确点击“搜索全部球场”，不会因输入文字自动联网；结果显示 Garmin 名称、城市、省份和真实洞数，同场 9 洞结果继续进入既有 9+9 设置页。
-- 选择全库结果后读取现有 `/api/v2/courses/{globalId}/tees`，真实 Tee 与总码数在设置页可见；随后仍走同一 package → prep → image/course store → 离线开局链。只有从全库结果首次下载时传 `ensure_geometry=true`，没有新增 installer、地图协议或第二套缓存。package 只返回 `Course {globalId}` 时保留玩家实际选择的球场名。
+- 选择全库结果后读取现有 `/api/v2/courses/{globalId}/tees?ensure_release=true`，设置页立即显示真实 Tee；已有 geometry 时同时显示总码数，首次球场则暂不伪造码数。随后仍走同一 package → prep → image/course store → 离线开局链。只有点击准备并开始、首次下载几何时才传 `ensure_geometry=true`，没有新增 installer、地图协议或第二套缓存。package 只返回 `Course {globalId}` 时保留玩家实际选择的球场名。
 - Garmin 搜索记录允许 `holes=null`；Watch 现在保留该结果但显示“洞数未知”并禁止开局，不再让一条不完整记录导致整批搜索解码失败。后端会把远端搜索失败同样降成空结果，因此空结果文案明确要求检查名称或稍后重试，不武断声称球场不存在。Tee 获取失败时也禁用开局，不会拿猜测的 Blue T 继续。
 - 运行态复核同时发现并修复两个可见问题：9+9 候选不再出现同一洞组的 `A + A`；远端 wire key `blue` 仍原样发回后端，但摘要统一显示为 `Blue T`。最终 Watch runtime [run 30255505429](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30255505429) 完整成功：Watch `119/119`、独立 App build、26 次真实进程启动和 26 张 416×496 截图全部通过。Codex 已检查全库结果页显示 `Mission Hills · A/B` 与 `深圳 · 广东 · 9 洞`，远端设置页显示 `A · Blue T · 9 洞` 和 `蓝 T · 3210 码`；26 个 launch PID 均不同，诊断中无 crash、unknown screen 或恢复失败。
 - 这证明 Watch 软件链和契约边界已经接通，不证明 Garmin 对任意未来球场都有完整 package/prep/地图数据。下一个门是拿一个账号历史中从未出现的真实球场完成“搜索 → Tee → 下载 → 断网重开”；只有该证据暴露具体缺项时才启动 Deep Mine。
@@ -91,7 +91,7 @@
 ### 新球场 Tee / geometry 索引修正（2026-07-27，进行中）
 
 - Garmin CourseView release 的 MEN Tee `name + index` 现在是 Tee 选择的权威；geometry 的 `sets` 按 release 的真实 index 匹配，不再把 `set 1/2/3/4/5` 固定解释成黑/蓝/白/金/红。这样 Pebble Beach（Blue=1、Gold=2、White=3、Green=4、Red=5）和北京丽宫（Gold=1、Blue=2、White=3、Red=4）都不会错配。
-- `GET /api/v2/courses/{globalId}/tees?ensure_geometry=true` 复用现有 geometry 准备链路；普通 `/tees` 保持只读、不触发下载。iOS 与 Watch 的 Tee 请求都显式使用该参数，并沿用现有鉴权、package、prep 和 course store。
+- `GET /api/v2/courses/{globalId}/tees?ensure_release=true` 只获取并缓存真实 CourseView release 的 Tee 名称/index，快速返回；普通 `/tees` 保持只读、不触发下载。iOS 与 Watch 的 Tee 请求都显式使用该参数。点击准备并开始后，现有 package 请求才传 `ensure_geometry=true`；首次 package/prep 下载允许最长 900 秒，几何未完成前码数保持 `null`，不伪造。
 - geometry 缺失时继续返回真实 Tee 名称和 `yards: null`，不猜距离；没有 release 的旧缓存继续走 canonical fallback。
 - 本切片的本机 Python focused gate 已通过；仍待 GitHub Native CI，以及一个账号历史中从未出现的真实球场完成“搜索 → Tee → 下载 → 断网重开”证据。没有这两项证据前，不把里程碑 4 的任意新球场能力标为完成。
 

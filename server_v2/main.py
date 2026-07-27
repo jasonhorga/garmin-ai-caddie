@@ -290,7 +290,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             or (
                 path.startswith("/api/v2/courses/")
                 and path.endswith("/tees")
-                and _truthy_query_flag(query_params.get("ensure_geometry"))
+                and _truthy_query_flag(query_params.get("ensure_release"))
             )
             or path == "/api/v2/courses/search"
             # codex HIGH #1: a geometry/hole request WITH source_ref loads the owner's real shot
@@ -876,24 +876,21 @@ def course_search_endpoint(
 
 
 @app.get("/api/v2/courses/{global_id}/tees")
-def course_tees(global_id: int, ensure_geometry: bool = False) -> dict:
+def course_tees(global_id: int, ensure_release: bool = False) -> dict:
     """The course's selectable tee boxes (colour + total yards + which is default) for the pre-round
-    tee picker — the same list Garmin's 'new round' shows. Pure course knowledge (no player data, no
-    source_ref), public exactly like /topo.png + /geometry/hole/{}/coverage: colour names from the
+    tee picker — the same list Garmin's 'new round' shows. Pure course knowledge (no player data,
+    no source_ref), public exactly like /topo.png + /geometry/hole/{}/coverage: colour names from the
     CourseView release, total yards summed from per-hole tee→target geometry (null when a tee has no
     geometry — never faked), default = blue when the course has it else the longest tee. A course with
-    neither CourseView names nor geometry degrades to generic 长/中/短 tiers."""
-    from ai_caddie.caddie.analysis import course_tee_options, load_geometry
+    neither CourseView names nor geometry degrades to generic 长/中/短 tiers. ``ensure_release`` only
+    fetches and caches the small CourseView release metadata; geometry is intentionally prepared later
+    by the selected course-package request."""
+    from ai_caddie.caddie.analysis import course_tee_options
 
-    geometry_ensure = None
-    if ensure_geometry:
-        from ai_caddie.caddie.mobile_live import _ensure_geometry_for_course
-        from ai_caddie.courses.course_reference import courseview_par
+    if ensure_release:
+        from ai_caddie.courses.course_reference import courseview_tees
 
-        pars = courseview_par(int(global_id), allow_fetch=True)
-        holes = list(range(1, len(pars) + 1)) if pars else None
-        geometry_ensure = _ensure_geometry_for_course(int(global_id), holes)
-        load_geometry.cache_clear()
+        courseview_tees(int(global_id), allow_fetch=True)
     options = course_tee_options(int(global_id))
     response = {
         "schema": "ai-caddie-course-tees-v1",
@@ -901,8 +898,6 @@ def course_tees(global_id: int, ensure_geometry: bool = False) -> dict:
         "defaultTeeBox": options["defaultTeeBox"],
         "tees": options["tees"],
     }
-    if geometry_ensure is not None:
-        response["geometryEnsure"] = geometry_ensure
     return response
 
 

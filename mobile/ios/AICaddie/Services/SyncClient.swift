@@ -124,6 +124,9 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
+        if ensureGeometry {
+            request.timeoutInterval = 900
+        }
         applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
@@ -154,6 +157,9 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
+        if ensureGeometry {
+            request.timeoutInterval = 900
+        }
         applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
@@ -178,7 +184,7 @@ public final class SyncClient {
         ) else {
             throw URLError(.badURL)
         }
-        components.queryItems = [URLQueryItem(name: "ensure_geometry", value: "true")]
+        components.queryItems = [URLQueryItem(name: "ensure_release", value: "true")]
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         applyAuth(to: &request)

@@ -175,7 +175,7 @@ public final class WatchBackendClient {
             url: endpointURL("/api/v2/courses/\(globalId)/tees"),
             resolvingAgainstBaseURL: false
         )
-        components?.queryItems = [URLQueryItem(name: "ensure_geometry", value: "true")]
+        components?.queryItems = [URLQueryItem(name: "ensure_release", value: "true")]
         guard let url = components?.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         applyAuth(&request)
@@ -208,6 +208,9 @@ public final class WatchBackendClient {
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
+        if ensureGeometry {
+            request.timeoutInterval = 900
+        }
         applyAuth(&request)
         return request
     }
@@ -224,6 +227,7 @@ public final class WatchBackendClient {
         } + [URLQueryItem(name: "render", value: "true")]
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
+        request.timeoutInterval = 900
         applyAuth(&request)
         return request
     }

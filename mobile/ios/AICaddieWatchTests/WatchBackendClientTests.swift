@@ -207,6 +207,7 @@ final class WatchBackendClientTests: XCTestCase {
 
         let prep = try client.makeCoursePrepRequest(globalId: 31669, localHoles: [1, 2, 9])
         XCTAssertEqual(prep.url?.path, "/api/v2/courses/31669/prep")
+        XCTAssertEqual(prep.timeoutInterval, 900)
         let prepQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(prep.url), resolvingAgainstBaseURL: false))
         XCTAssertEqual(prepQuery.queryItems?.filter { $0.name == "holes" }.compactMap(\.value), ["1", "2", "9"])
         XCTAssertEqual(prepQuery.queryItems?.first(where: { $0.name == "render" })?.value, "true")
