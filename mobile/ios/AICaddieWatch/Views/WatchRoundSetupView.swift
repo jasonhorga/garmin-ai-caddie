@@ -46,14 +46,14 @@ public struct WatchRoundSetupView: View {
             if !backOptions.isEmpty {
                 Section("洞组") {
                     choiceRow(
-                        title: "只打 (loopName(front)) · (front.playableHoleCount) 洞",
+                        title: "只打 \(loopName(front)) · \(front.playableHoleCount) 洞",
                         selected: selectedBackGlobalId == nil
                     ) {
                         selectedBackGlobalId = nil
                     }
                     ForEach(backOptions) { option in
                         choiceRow(
-                            title: "(loopName(front)) + (loopName(option)) · 18 洞",
+                            title: "\(loopName(front)) + \(loopName(option)) · 18 洞",
                             selected: selectedBackGlobalId == option.globalId
                         ) {
                             selectedBackGlobalId = option.globalId
@@ -144,9 +144,9 @@ public struct WatchRoundSetupView: View {
 
     private var selectionSummary: String {
         if let selectedBack {
-            return "(loopName(front)) + (loopName(selectedBack)) · (selectedTee) T · 18 洞"
+            return "\(loopName(front)) + \(loopName(selectedBack)) · \(selectedTee) T · 18 洞"
         }
-        return "(loopName(front)) · (selectedTee) T · (front.playableHoleCount) 洞"
+        return "\(loopName(front)) · \(selectedTee) T · \(front.playableHoleCount) 洞"
     }
 
     private func venueName(_ option: WatchCourseOption) -> String {
@@ -170,7 +170,7 @@ public struct WatchRoundSetupView: View {
         case "green": "绿 T"
         case "yellow": "黄 T"
         case "silver": "银 T"
-        default: "(tee) T"
+        default: "\(tee) T"
         }
     }
 }
