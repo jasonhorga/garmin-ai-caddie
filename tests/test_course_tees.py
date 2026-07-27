@@ -206,15 +206,19 @@ class CourseTeesEndpointTests(unittest.TestCase):
         "os.environ",
         {"AI_CADDIE_ADMIN_TOKEN": "tee-test-token", "AI_CADDIE_SECURITY_PROFILE": "private"},
     )
-    def test_ensure_geometry_requires_authentication(self) -> None:
-        response = TestClient(app).get("/api/v2/courses/10283/tees?ensure_geometry=true")
+    def test_ensure_release_requires_authentication(self) -> None:
+        response = TestClient(app).get("/api/v2/courses/10283/tees?ensure_release=true")
         self.assertEqual(response.status_code, 401)
 
     @patch.dict(
         "os.environ",
         {"AI_CADDIE_ADMIN_TOKEN": "tee-test-token", "AI_CADDIE_SECURITY_PROFILE": "private"},
     )
-    def test_ensure_geometry_prepares_course_before_resolving_tees(self) -> None:
+    def test_ensure_release_fetches_tee_metadata_without_preparing_geometry(self) -> None:
+        release_tees = [
+            {"name": "Blue", "gender": "MEN", "index": 1},
+            {"name": "Gold", "gender": "MEN", "index": 2},
+        ]
         expected_options = {
             "defaultTeeBox": "blue",
             "tees": [
@@ -230,19 +234,21 @@ class CourseTeesEndpointTests(unittest.TestCase):
         }
         with (
             patch(
-                "ai_caddie.courses.course_reference.courseview_par",
-                return_value=[4] * 18,
-            ),
-            patch("ai_caddie.caddie.mobile_live._ensure_geometry_for_course") as prepare,
-            patch("ai_caddie.caddie.analysis.course_tee_options", return_value=expected_options),
+                "ai_caddie.courses.course_reference.courseview_tees",
+                return_value=release_tees,
+            ) as fetch_release,
+            patch("ai_caddie.caddie.mobile_live._ensure_geometry_for_course") as prepare_geometry,
+            patch("ai_caddie.caddie.analysis.course_tee_options", return_value=expected_options) as options,
         ):
             response = TestClient(app).get(
-                "/api/v2/courses/10283/tees?ensure_geometry=true",
+                "/api/v2/courses/10283/tees?ensure_release=true",
                 headers={"x-ai-caddie-admin-token": "tee-test-token"},
             )
 
         self.assertEqual(response.status_code, 200)
-        prepare.assert_called_once_with(10283, list(range(1, 19)))
+        fetch_release.assert_called_once_with(10283, allow_fetch=True)
+        prepare_geometry.assert_not_called()
+        options.assert_called_once()
         self.assertEqual(response.json()["tees"], expected_options["tees"])
 
 

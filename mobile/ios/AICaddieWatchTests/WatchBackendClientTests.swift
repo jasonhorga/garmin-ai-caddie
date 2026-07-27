@@ -185,7 +185,8 @@ final class WatchBackendClientTests: XCTestCase {
         let tees = try client.makeCourseTeesRequest(globalId: 31870)
         XCTAssertEqual(tees.url?.path, "/api/v2/courses/31870/tees")
         let teeQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(tees.url), resolvingAgainstBaseURL: false))
-        XCTAssertEqual(teeQuery.queryItems?.first(where: { $0.name == "ensure_geometry" })?.value, "true")
+        XCTAssertEqual(teeQuery.queryItems?.first(where: { $0.name == "ensure_release" })?.value, "true")
+        XCTAssertNil(teeQuery.queryItems?.first(where: { $0.name == "ensure_geometry" }))
         XCTAssertEqual(tees.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
 
         let package = try client.makeCoursePackageRequest(
@@ -202,6 +203,7 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "back_global_id" })?.value, "31670")
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "ensure_geometry" })?.value, "true")
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "client_id" })?.value, "apple-watch")
+        XCTAssertEqual(package.timeoutInterval, 900)
 
         let prep = try client.makeCoursePrepRequest(globalId: 31669, localHoles: [1, 2, 9])
         XCTAssertEqual(prep.url?.path, "/api/v2/courses/31669/prep")
