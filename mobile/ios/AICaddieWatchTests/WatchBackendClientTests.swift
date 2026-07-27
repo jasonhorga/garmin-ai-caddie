@@ -251,6 +251,13 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(matches.first?.courseOption.segmentLabel, "A")
         XCTAssertEqual(matches.first?.courseOption.venueName, "Mission Hills")
 
+        let incompleteMatches = try client.decodeCourseSearch(Data(
+            #"{"schema":"ai-caddie-course-search-v1","query":"unknown","matches":[{"globalId":39999,"name":"Unclassified Course","holes":null,"city":null,"province":null,"ratio":0.5}]}"#.utf8
+        ))
+        XCTAssertEqual(incompleteMatches.count, 1)
+        XCTAssertNil(incompleteMatches.first?.holes)
+        XCTAssertNil(incompleteMatches.first?.courseOption)
+
         let tees = try client.decodeCourseTees(Data(
             #"{"schema":"ai-caddie-course-tees-v1","globalId":31870,"defaultTeeBox":"blue","tees":[{"teeBox":"blue","name":"Blue","set":2,"yards":6412,"holeCount":18,"default":true},{"teeBox":"white","name":"White","set":3,"yards":6020,"holeCount":18,"default":false}]}"#.utf8
         ))
