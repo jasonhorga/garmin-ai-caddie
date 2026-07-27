@@ -87,14 +87,16 @@ public struct WatchFinishRoundView: View {
                     .foregroundStyle(AICaddieDesignTokens.offline)
             }
 
-            Button(action: onConfirmFinish) {
-                Text("保存并结束").frame(maxWidth: .infinity)
+            HStack(spacing: 6) {
+                Button(action: onConfirmFinish) {
+                    Text("保存并结束").font(.caption).frame(maxWidth: .infinity)
+                }
+                .tint(AICaddieDesignTokens.par)
+                Button(action: onKeepPlaying) {
+                    Text("继续打球").font(.caption).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
             }
-            .tint(AICaddieDesignTokens.par)
-            Button(action: onKeepPlaying) {
-                Text("继续打球").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
         }
         .padding(8)
     }
