@@ -93,7 +93,14 @@
 - Garmin CourseView release 的 MEN Tee `name + index` 现在是 Tee 选择的权威；geometry 的 `sets` 按 release 的真实 index 匹配，不再把 `set 1/2/3/4/5` 固定解释成黑/蓝/白/金/红。这样 Pebble Beach（Blue=1、Gold=2、White=3、Green=4、Red=5）和北京丽宫（Gold=1、Blue=2、White=3、Red=4）都不会错配。
 - `GET /api/v2/courses/{globalId}/tees?ensure_release=true` 只获取并缓存真实 CourseView release 的 Tee 名称/index，快速返回；普通 `/tees` 保持只读、不触发下载。iOS 与 Watch 的 Tee 请求都显式使用该参数。点击准备并开始后，现有 package 请求才传 `ensure_geometry=true`；首次 package/prep 下载允许最长 900 秒，几何未完成前码数保持 `null`，不伪造。
 - geometry 缺失时继续返回真实 Tee 名称和 `yards: null`，不猜距离；没有 release 的旧缓存继续走 canonical fallback。
-- 本切片的本机 Python focused gate 已通过；仍待 GitHub Native CI，以及一个账号历史中从未出现的真实球场完成“搜索 → Tee → 下载 → 断网重开”证据。没有这两项证据前，不把里程碑 4 的任意新球场能力标为完成。
+- 本切片的本机 Python focused gate 已通过；GitHub Native CI 的 iOS/Watch 单测与 Watch runtime 在父提交 `5a74480` 已通过，后端 cache 修复在 `50e4c26` 另行验证。
+
+### 未打过球场的真实下载门（2026-07-27）
+
+- homeserver 真实验证使用 Garmin `globalId=3881`（Cypress Point Club，搜索结果 18 洞）。冷 release 请求 `ensure_release=true` 用时 `0.219504s`，只返回 Championship/Middle/Forward 三个真实 Tee，geometry 仍为 `0/18 missing`，没有隐藏下载。
+- 现有 production package 请求 `ensure_geometry=true` 用时 `241.795319s`，返回 `2,011,453` bytes、18 个洞且 `geometryCoverage=ready` 的 18/18；请求没有超过新的 900 秒客户端预算。下载后重新读取 Tee 得到 Championship `6269`、Middle `6067`、Forward `5358` 码，三组均 `holeCount=18`。
+- 真实链路第一次复读曾显示 9 洞/3094 码；根因是首次 Tee 查询缓存了 geometry 缺失结果，package 下载后没有清 `load_geometry` 的负缓存。`50e4c26` 在 `_ensure_geometry_for_course` 与 package-hole helper 统一失效该缓存，并增加先失败后通过的回归测试；重启后同一 Cypress 数据稳定返回 18 洞/6269 码。
+- 这项证据证明后端 release → geometry → Tee 重读链路已接通；它还没有冒充 Watch 端的“下载后断网重开”真机证据。里程碑 4 的任意新球场能力仍保持 `SOFTWARE COMPLETE — 待真实 Watch course store 门`，只有 Watch 端证据或新的实际数据缺口才继续 Deep Mine。
 
 ## 当前工作：软件主路径完成；等待两项真实证据
 
