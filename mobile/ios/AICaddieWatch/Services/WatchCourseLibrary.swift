@@ -82,7 +82,7 @@ public final class WatchCourseLibrary: ObservableObject {
             var seen = Set<Int>()
             searchMatches = matches.filter { seen.insert($0.globalId).inserted }
             if searchMatches.isEmpty {
-                errorMessage = "全部球场中没有找到匹配结果"
+                errorMessage = "未返回匹配球场，请检查名称或稍后重试"
             }
         } catch {
             errorMessage = "无法搜索全部球场，请检查网络或登录状态"
