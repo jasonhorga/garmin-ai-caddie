@@ -3364,7 +3364,10 @@ class MobileContractTests(unittest.TestCase):
         # round-12 P3.3: standalone round entry alongside the companion glance.
         self.assertIn("WatchRoundModel", watch_app)
         self.assertIn("WatchRoundContainerView", watch_app)
-        self.assertIn("startPracticeRound", watch_app)
+        # The production start screen now requires a real course selection; the old
+        # practice-round callback was removed when the offline course library landed.
+        self.assertIn("onStartCourse", watch_app)
+        self.assertIn("courseLibrary.startCourse", watch_app)
         self.assertIn("WatchStartView", watch_app)
         self.assertIn("struct WatchHoleView: View", hole_view)
         self.assertIn("public let queuedEventCount: Int", hole_view)

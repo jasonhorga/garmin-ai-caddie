@@ -242,8 +242,8 @@ def course_reference_coverage(*, root: Path = ROOT) -> dict[str, object]:
     }
 
 
-def _release_holes(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[dict] | None:
-    """Per-hole records from the CourseView release protobuf (cache-first, then fetch+cache)."""
+def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> dict | None:
+    """Decoded CourseView release (cache-first, then one anonymous fetch+cache)."""
     gid = int(global_id)
     path = _courseview_dir(root) / f"{gid}_releases.pb"
     if path.exists():
@@ -258,9 +258,33 @@ def _release_holes(global_id: int, *, allow_fetch: bool = True, root: Path = ROO
     else:
         return None
     try:
-        return inspect_release(pb).get("holes") or None
+        return inspect_release(pb)
     except Exception:
         return None
+
+
+def _release_holes(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[dict] | None:
+    """Per-hole records from the CourseView release protobuf (cache-first, then fetch+cache)."""
+    info = _release_info(global_id, allow_fetch=allow_fetch, root=root)
+    return (info or {}).get("holes") or None
+
+
+def courseview_tees(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[dict]:
+    """Garmin's real MEN tee rows, preserving each release ``index`` used by geometry ``sets``."""
+    info = _release_info(global_id, allow_fetch=allow_fetch, root=root)
+    rows = (info or {}).get("tees") or []
+    men = [row for row in rows if str(row.get("gender") or "").upper() == "MEN"]
+    selected = men or rows
+    result: list[dict] = []
+    for row in selected:
+        name = str(row.get("name") or "").strip()
+        try:
+            index = int(row.get("index"))
+        except (TypeError, ValueError):
+            continue
+        if name and index > 0:
+            result.append({"name": name, "gender": str(row.get("gender") or ""), "index": index})
+    return sorted(result, key=lambda row: row["index"])
 
 
 def courseview_par(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[int] | None:

@@ -184,6 +184,8 @@ final class WatchBackendClientTests: XCTestCase {
 
         let tees = try client.makeCourseTeesRequest(globalId: 31870)
         XCTAssertEqual(tees.url?.path, "/api/v2/courses/31870/tees")
+        let teeQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(tees.url), resolvingAgainstBaseURL: false))
+        XCTAssertEqual(teeQuery.queryItems?.first(where: { $0.name == "ensure_geometry" })?.value, "true")
         XCTAssertEqual(tees.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
 
         let package = try client.makeCoursePackageRequest(

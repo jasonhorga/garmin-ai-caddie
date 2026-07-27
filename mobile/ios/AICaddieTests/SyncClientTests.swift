@@ -154,6 +154,38 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(response.globalId, 31870)
     }
 
+    func testFetchCourseTeesRequestsGeometryPreparation() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-tees-v1","globalId":10283,"defaultTeeBox":"blue","tees":[{"teeBox":"blue","name":"Blue","set":1,"yards":6828,"holeCount":18,"default":true}]}"#.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v2/courses/10283/tees")
+            let queryItems = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
+            XCTAssertEqual(queryItems?.first { $0.name == "ensure_geometry" }?.value, "true")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            adminToken: "admin-secret",
+            session: session
+        )
+
+        let response = try await client.fetchCourseTees(globalId: 10283)
+
+        XCTAssertEqual(response.globalId, 10283)
+        XCTAssertEqual(response.tees.first?.set, 1)
+    }
+
     func testFetchEventReplayUsesClientCursorQuery() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]

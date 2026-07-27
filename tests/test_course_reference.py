@@ -47,6 +47,27 @@ class EstimateTests(unittest.TestCase):
 
 
 class PersistenceTests(unittest.TestCase):
+    def test_cached_courseview_release_exposes_mens_tee_names_with_real_indices(self) -> None:
+        fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_path = root / "data" / "courseview" / "31936_releases.pb"
+            release_path.parent.mkdir(parents=True)
+            release_path.write_bytes(fixture.read_bytes())
+            resolve_tees = getattr(cr, "courseview_tees", lambda *_args, **_kwargs: [])
+
+            tees = resolve_tees(31936, allow_fetch=False, root=root)
+
+        self.assertEqual(
+            tees,
+            [
+                {"name": "Black", "gender": "MEN", "index": 1},
+                {"name": "Blue", "gender": "MEN", "index": 2},
+                {"name": "White", "gender": "MEN", "index": 3},
+                {"name": "Red", "gender": "MEN", "index": 4},
+            ],
+        )
+
     def test_save_and_load_preserves_source_confidence_provenance_and_yardage(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

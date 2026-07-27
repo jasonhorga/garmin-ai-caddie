@@ -171,7 +171,13 @@ public final class WatchBackendClient {
     }
 
     public func makeCourseTeesRequest(globalId: Int) throws -> URLRequest {
-        var request = URLRequest(url: endpointURL("/api/v2/courses/\(globalId)/tees"))
+        var components = URLComponents(
+            url: endpointURL("/api/v2/courses/\(globalId)/tees"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [URLQueryItem(name: "ensure_geometry", value: "true")]
+        guard let url = components?.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
         applyAuth(&request)
         return request
     }

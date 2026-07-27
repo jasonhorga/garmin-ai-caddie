@@ -88,6 +88,13 @@
 - 最终 Watch runtime：[run 30218317794](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30218317794) 整体成功：Watch `99/99`、独立 App build、真实缓存球场 seed/restore、球童页与障碍页运行态截图全部通过。
 - Codex 已下载并亲自检查最终 416×496 截图：事实地图显示第 4 洞 P5、实打 `+8` 码和 `256 / 270 / 282` F/M/B；球童页显示 `248 / 262 / 274`、坡度 `+8` 码、`3号木`与离线状态；障碍页显示真实沙坑前沿 `197`、越过 `213` 码。四次独立进程 PID 为 `24183 → 24669 → 25108 → 25210`，诊断中无 crash、fatal、unknown screen 或 restore error。
 
+### 新球场 Tee / geometry 索引修正（2026-07-27，进行中）
+
+- Garmin CourseView release 的 MEN Tee `name + index` 现在是 Tee 选择的权威；geometry 的 `sets` 按 release 的真实 index 匹配，不再把 `set 1/2/3/4/5` 固定解释成黑/蓝/白/金/红。这样 Pebble Beach（Blue=1、Gold=2、White=3、Green=4、Red=5）和北京丽宫（Gold=1、Blue=2、White=3、Red=4）都不会错配。
+- `GET /api/v2/courses/{globalId}/tees?ensure_geometry=true` 复用现有 geometry 准备链路；普通 `/tees` 保持只读、不触发下载。iOS 与 Watch 的 Tee 请求都显式使用该参数，并沿用现有鉴权、package、prep 和 course store。
+- geometry 缺失时继续返回真实 Tee 名称和 `yards: null`，不猜距离；没有 release 的旧缓存继续走 canonical fallback。
+- 本切片的本机 Python focused gate 已通过；仍待 GitHub Native CI，以及一个账号历史中从未出现的真实球场完成“搜索 → Tee → 下载 → 断网重开”证据。没有这两项证据前，不把里程碑 4 的任意新球场能力标为完成。
+
 ## 当前工作：软件主路径完成；等待两项真实证据
 
 里程碑 1–5 的软件路径已建立真实开局、手动记杆、确认换洞、恢复同步、Watch 全库发现/离线缓存和事实地图/球童页面。下一步不再派生软件平台，只保留两项现场证据：第一，用一个账号历史中从未出现的真实球场验证搜索、Tee、下载和断网重开，并据实际缺项决定是否 Deep Mine；第二，用真 Watch/TestFlight 验证 AutoShot 的授权、误报/漏报、续航与发热。风、空气密度、假成功率和推杆级等高线继续后置。
