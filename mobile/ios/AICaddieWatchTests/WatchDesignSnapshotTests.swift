@@ -225,7 +225,10 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let view = WatchFinishRoundView(
             courseName: "北京丽宫 · 前九",
             holesPlayed: 9, holeCount: 9,
-            totalStrokes: 41, toPar: 5, totalPutts: 16, pendingUploads: 2
+            totalStrokes: 41, toPar: 5, totalPutts: 16,
+            fairwaySummary: WatchOutcomeSummary(hits: 5, recorded: 7),
+            girSummary: WatchOutcomeSummary(hits: 4, recorded: 9),
+            pendingUploads: 2
         )
         .frame(width: 198)
         .background(Color.black)

@@ -243,6 +243,8 @@ public struct WatchRoundContainerView: View {
                 totalStrokes: model.totalStrokes,
                 toPar: model.toPar,
                 totalPutts: model.totalPutts,
+                fairwaySummary: model.fairwaySummary,
+                girSummary: model.girSummary,
                 pendingUploads: model.pendingUploads,
                 onConfirmFinish: { Task { await model.confirmFinish() } },
                 onKeepPlaying: { model.keepPlaying() }

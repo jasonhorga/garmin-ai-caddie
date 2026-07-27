@@ -37,6 +37,16 @@ public enum WatchFairwayResult: String, CaseIterable, Codable, Equatable {
     case right = "RIGHT"
 }
 
+public struct WatchOutcomeSummary: Equatable {
+    public let hits: Int
+    public let recorded: Int
+
+    public init(hits: Int, recorded: Int) {
+        self.hits = hits
+        self.recorded = recorded
+    }
+}
+
 public struct WatchPendingManualShot: Codable, Equatable {
     public let hole: Int
     /// Non-nil while this shot was captured at the ordered next tee before the previous hole was
@@ -259,6 +269,41 @@ public final class WatchRoundModel: ObservableObject {
     public var totalStrokes: Int { scoredHoleStates.reduce(0) { $0 + $1.score } }
 
     public var totalPutts: Int { scoredHoleStates.reduce(0) { $0 + $1.putts } }
+
+    /// Only explicit HIT/LEFT/RIGHT facts on scored holes enter the fairway denominator. Unknown and
+    /// legacy values stay unknown instead of becoming misses.
+    public var fairwaySummary: WatchOutcomeSummary? {
+        var hits = 0
+        var recorded = 0
+        for state in scoredHoleStates {
+            guard let rawResult = state.fairwayResult?.uppercased(),
+                  let result = WatchFairwayResult(rawValue: rawResult) else {
+                continue
+            }
+            switch result {
+            case .hit:
+                hits += 1
+                recorded += 1
+            case .left, .right:
+                recorded += 1
+            }
+        }
+        guard recorded > 0 else { return nil }
+        return WatchOutcomeSummary(hits: hits, recorded: recorded)
+    }
+
+    /// GIR is summarized only when a scored hole carries an explicit Boolean outcome.
+    public var girSummary: WatchOutcomeSummary? {
+        var hits = 0
+        var recorded = 0
+        for state in scoredHoleStates {
+            guard let madeGIR = state.greenInRegulation else { continue }
+            recorded += 1
+            if madeGIR { hits += 1 }
+        }
+        guard recorded > 0 else { return nil }
+        return WatchOutcomeSummary(hits: hits, recorded: recorded)
+    }
 
     /// Cumulative score relative to par over the holes actually scored (nil before any hole is scored).
     public var toPar: Int? {

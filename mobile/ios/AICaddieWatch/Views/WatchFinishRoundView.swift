@@ -12,6 +12,8 @@ public struct WatchFinishRoundView: View {
     public let totalStrokes: Int
     public let toPar: Int?
     public let totalPutts: Int?
+    public let fairwaySummary: WatchOutcomeSummary?
+    public let girSummary: WatchOutcomeSummary?
     public let pendingUploads: Int
     public let onConfirmFinish: () -> Void
     public let onKeepPlaying: () -> Void
@@ -23,6 +25,8 @@ public struct WatchFinishRoundView: View {
         totalStrokes: Int,
         toPar: Int?,
         totalPutts: Int? = nil,
+        fairwaySummary: WatchOutcomeSummary? = nil,
+        girSummary: WatchOutcomeSummary? = nil,
         pendingUploads: Int = 0,
         onConfirmFinish: @escaping () -> Void = {},
         onKeepPlaying: @escaping () -> Void = {}
@@ -33,6 +37,8 @@ public struct WatchFinishRoundView: View {
         self.totalStrokes = totalStrokes
         self.toPar = toPar
         self.totalPutts = totalPutts
+        self.fairwaySummary = fairwaySummary
+        self.girSummary = girSummary
         self.pendingUploads = pendingUploads
         self.onConfirmFinish = onConfirmFinish
         self.onKeepPlaying = onKeepPlaying
@@ -55,8 +61,25 @@ public struct WatchFinishRoundView: View {
                 }
             }
 
-            if let totalPutts {
-                Text("推杆 \(totalPutts)").font(.caption).foregroundStyle(.secondary)
+            if totalPutts != nil || fairwaySummary != nil || girSummary != nil {
+                HStack(spacing: 6) {
+                    if let totalPutts {
+                        finishMetric(label: "推杆", value: "\(totalPutts)")
+                    }
+                    if let fairwaySummary {
+                        finishMetric(
+                            label: "球道",
+                            value: "\(fairwaySummary.hits)/\(fairwaySummary.recorded)"
+                        )
+                    }
+                    if let girSummary {
+                        finishMetric(
+                            label: "GIR",
+                            value: "\(girSummary.hits)/\(girSummary.recorded)"
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
             if pendingUploads > 0 {
                 Label("稍后同步 \(pendingUploads)", systemImage: "arrow.up.circle")
@@ -80,5 +103,13 @@ public struct WatchFinishRoundView: View {
         guard let toPar else { return "—" }
         if toPar == 0 { return "E" }
         return toPar > 0 ? "+\(toPar)" : "\(toPar)"
+    }
+
+    private func finishMetric(label: String, value: String) -> some View {
+        VStack(spacing: 0) {
+            Text(value).font(.caption.weight(.semibold))
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 }

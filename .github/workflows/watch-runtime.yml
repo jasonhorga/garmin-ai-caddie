@@ -139,6 +139,7 @@ jobs:
           launch_and_capture club-prompt watch-club-prompt.png
           launch_and_capture autoshot-candidate watch-autoshot-candidate.png
           launch_and_capture menu watch-menu-autoshot.png
+          launch_and_capture finish watch-round-finish.png
 
       - name: Collect Watch runtime diagnostics
         if: always()
