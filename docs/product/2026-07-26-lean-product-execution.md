@@ -110,9 +110,16 @@
 - artifact 中的 `watch-real-course-download.png` 与 `watch-real-course-offline.png`（均 416×496）已由 Codex 逐张检查：两张都显示 `Cypress Point Club`、第 1 洞 `P5`、`407 码` 和真实球道图；两张 artifact SHA256 相同（`4f6727ea97fb6fc463f98fe6badb8d475bf274ee9d2ea18ae86cadf229a7e560`）。
 - 两次 launch PID 为 `18929 → 31770`，不同进程；diagnostics 没有 AICaddieWatch crash report、`real-course-*-failed` marker 或 restore error。该证据关闭了软件侧“账号历史中未出现的新球场 → Tee → 几何/图片下载 → 离线重开”门；物理手表的 AutoShot 门仍未关闭。
 
+### TestFlight 签名门修复（2026-07-27）
+
+- 首次当前分支上传 [run 30307710460](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30307710460) 在 archive 前失败：旧 App Store profile 不含 Sign in with Apple，旧 Watch profile 不含 HealthKit。根因是 profiles 在 6 月 6 日生成，而两个 entitlement 在 6 月 29 日加入；原 bootstrap 只确保 Bundle ID，不同步 capability。
+- `c7ab42e` 在 `fastlane/Fastfile` 增加幂等 capability 同步：iOS `APPLE_ID_AUTH`、Watch `HEALTHKIT`，随后复用原有 `match(force: true)`。新增 CI contract；`uv run python -m unittest tests.test_ci_workflow` 为 `26/26` 通过。
+- Signing bootstrap [run 30308261724](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30308261724) 成功启用 Watch HealthKit，并重建/推送两个 App Store profiles。重跑 TestFlight [run 30308357804](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30308357804) 成功 archive、签名、上传并完成 App Store Connect processing（build `0.1.0 (35)`）。
+- IPA artifact 解码验证：iOS embedded profile 含 `com.apple.developer.applesignin = Default`；Watch embedded profile 含 `com.apple.developer.healthkit = true`。这只证明 TestFlight binary 已可安装，不证明物理 Watch 的 Apple 登录、传感器授权、误报/漏报、续航或发热。
+
 ## 当前工作：软件主路径完成；只等待一项真实证据
 
-里程碑 1–5 的软件路径已建立真实开局、手动记杆、确认换洞、恢复同步、Watch 全库发现/离线缓存和事实地图/球童页面；上节已关闭新球场下载/离线恢复门。下一步不再派生软件平台，只保留真 Watch/TestFlight 的 AutoShot 授权、误报/漏报、续航与发热验证。风、空气密度、假成功率和推杆级等高线继续后置。
+里程碑 1–5 的软件路径已建立真实开局、手动记杆、确认换洞、恢复同步、Watch 全库发现/离线缓存和事实地图/球童页面；上节已关闭新球场下载/离线恢复门，TestFlight binary 也已处理完成。下一步不再派生软件平台，只保留真 Watch/TestFlight 的 AutoShot 授权、误报/漏报、续航与发热验证。风、空气密度、假成功率和推杆级等高线继续后置。
 
 ### AutoShot Beta 软件结果（2026-07-26）
 
