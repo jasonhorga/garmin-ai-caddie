@@ -1,5 +1,6 @@
 #if DEBUG
 import CoreLocation
+import Foundation
 import SwiftUI
 
 /// Real-runtime watch screenshots: launched with `-uitest-screen <name>` (via `simctl launch`), the watch
@@ -10,6 +11,10 @@ import SwiftUI
 public struct WatchUITestRoot: View {
     public let screen: String
     @ObservedObject private var model: WatchRoundModel
+    @State private var realCourseTaskStarted = false
+    @State private var realCourseStatus: String?
+
+    private static let realCourseGlobalId = 3881
 
     public init(screen: String, model: WatchRoundModel) {
         self.screen = screen
@@ -35,6 +40,8 @@ public struct WatchUITestRoot: View {
              "standalone-course-last-shot", "standalone-course-caddie-last-shot",
              "standalone-course-live-home":
             standaloneCourseRound
+        case "real-course-download-seed", "real-course-download-restore":
+            realCourseRound
         case "course-picker":
             cachedCoursePicker
         case "course-search-results":
@@ -171,6 +178,155 @@ public struct WatchUITestRoot: View {
             } else if screen == "standalone-course-live-home" {
                 model.backToHome()
             }
+        }
+    }
+
+    /// DEBUG-only live evidence: exercise the same production Watch course library against a real
+    /// backend, then prove a second process can start the exact cached selection without config.
+    private var realCourseRound: some View {
+        Group {
+            if model.round != nil {
+                WatchRoundContainerView(
+                    model: model,
+                    holeGeometry: realCourseGeometry,
+                    shotLocation: nil
+                )
+            } else {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text(realCourseStatus ?? "准备真实球场…")
+                        .font(.caption2)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(12)
+            }
+        }
+        .onAppear {
+            guard !realCourseTaskStarted else { return }
+            realCourseTaskStarted = true
+            Task { @MainActor in
+                if screen == "real-course-download-seed" {
+                    await seedRealCourse()
+                } else {
+                    await restoreRealCourseOffline()
+                }
+            }
+        }
+    }
+
+    private var realCourseGeometry: WatchHoleMapGeometry? {
+        guard let state = model.activeHoleState,
+              let globalId = state.globalId,
+              let image = WatchHoleImageStore().image(globalId: globalId, hole: state.hole) else {
+            return nil
+        }
+        return WatchHoleMapGeometry.from(holeMap: state.holeMap, image: image)
+    }
+
+    private var realCourseRuntimeConfig: WatchRoundConfig? {
+        let environment = ProcessInfo.processInfo.environment
+        guard let rawBaseURL = environment["AI_CADDIE_API_BASE_URL"],
+              let baseURL = URL(string: rawBaseURL),
+              let adminToken = environment["AI_CADDIE_ADMIN_TOKEN"],
+              !adminToken.isEmpty else {
+            return nil
+        }
+        return WatchRoundConfig(baseURL: baseURL, adminToken: adminToken)
+    }
+
+    @MainActor
+    private func seedRealCourse() async {
+        removeRealCourseMarkers()
+        guard let config = realCourseRuntimeConfig else {
+            failRealCourse("缺少真实 API 配置")
+            return
+        }
+
+        let library = WatchCourseLibrary()
+        await library.searchAllCourses(name: "Cypress Point", config: config)
+        guard let match = library.searchMatches.first(where: { $0.globalId == Self.realCourseGlobalId }),
+              let option = match.courseOption else {
+            failRealCourse("真实球场搜索未返回 Cypress Point")
+            return
+        }
+
+        let tees = await library.loadCourseTees(globalId: Self.realCourseGlobalId, config: config)
+        guard let tee = tees.first(where: { $0.teeBox.caseInsensitiveCompare("championship") == .orderedSame })
+                ?? tees.first else {
+            failRealCourse("真实球场没有可用 Tee")
+            return
+        }
+
+        let selectedOption = option.withTees(tees, selectedTee: tee.teeBox)
+        let selection = WatchCourseSelection(
+            front: selectedOption,
+            teeBox: tee.teeBox,
+            ensureGeometry: true
+        )
+        guard let prepared = await library.startCourse(selection, config: config) else {
+            failRealCourse(library.errorMessage ?? "真实球场下载失败")
+            return
+        }
+
+        model.seedRound(
+            prepared.holeStates,
+            activeHole: prepared.holeStates.first?.hole,
+            courseName: prepared.courseName
+        )
+        writeRealCourseMarker("real-course-download-ready")
+    }
+
+    @MainActor
+    private func restoreRealCourseOffline() async {
+        removeRealCourseMarkers()
+        let store = WatchCourseStore()
+        guard let cached = store.course(globalId: Self.realCourseGlobalId) else {
+            failRealCourse("找不到已下载的真实球场缓存")
+            return
+        }
+
+        let selection = WatchCourseSelection(
+            front: cached.option,
+            back: cached.backOption,
+            teeBox: cached.teeBox
+        )
+        let library = WatchCourseLibrary()
+        guard let prepared = await library.startCourse(selection, config: nil) else {
+            failRealCourse(library.errorMessage ?? "离线球场开局失败")
+            return
+        }
+
+        model.seedRound(
+            prepared.holeStates,
+            activeHole: prepared.holeStates.first?.hole,
+            courseName: prepared.courseName
+        )
+        writeRealCourseMarker("real-course-offline-ready")
+    }
+
+    @MainActor
+    private func failRealCourse(_ message: String) {
+        realCourseStatus = message
+        writeRealCourseMarker(screen == "real-course-download-seed"
+            ? "real-course-download-failed"
+            : "real-course-offline-failed")
+    }
+
+    private func realCourseMarkerURL(_ name: String) -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(name)
+    }
+
+    private func writeRealCourseMarker(_ name: String) {
+        try? Data(name.utf8).write(to: realCourseMarkerURL(name), options: .atomic)
+    }
+
+    private func removeRealCourseMarkers() {
+        for name in [
+            "real-course-download-ready", "real-course-download-failed",
+            "real-course-offline-ready", "real-course-offline-failed",
+        ] {
+            try? FileManager.default.removeItem(at: realCourseMarkerURL(name))
         }
     }
 
