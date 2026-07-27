@@ -116,6 +116,7 @@
 - `c7ab42e` 在 `fastlane/Fastfile` 增加幂等 capability 同步：iOS `APPLE_ID_AUTH`、Watch `HEALTHKIT`，随后复用原有 `match(force: true)`。新增 CI contract；`uv run python -m unittest tests.test_ci_workflow` 为 `26/26` 通过。
 - Signing bootstrap [run 30308261724](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30308261724) 成功启用 Watch HealthKit，并重建/推送两个 App Store profiles。重跑 TestFlight [run 30308357804](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30308357804) 成功 archive、签名、上传并完成 App Store Connect processing（build `0.1.0 (35)`）。
 - IPA artifact 解码验证：iOS embedded profile 含 `com.apple.developer.applesignin = Default`；Watch embedded profile 含 `com.apple.developer.healthkit = true`。这只证明 TestFlight binary 已可安装，不证明物理 Watch 的 Apple 登录、传感器授权、误报/漏报、续航或发热。
+- 只读 App Store Connect [run 30308959334](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30308959334) 确认 build 35 为 `VALID / IN_BETA_TESTING`、未过期、出口合规已完成；现有 internal group 为 `allBuilds=true`。本次未分发 external `Private Trial`、未通知 tester。
 
 ## 当前工作：软件主路径完成；只等待一项真实证据
 
