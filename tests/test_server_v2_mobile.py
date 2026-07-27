@@ -18,6 +18,25 @@ from server_v2.main import app
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def test_course_geometry_ensure_invalidates_geometry_loader_cache(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        ready = {
+            "ok": True,
+            "status": "ready",
+            "globalId": 3881,
+            "localHole": 1,
+            "sourceRef": "output/prodgeometry/gid3881_h01_meshes.json",
+        }
+        with (
+            patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", return_value=ready),
+            patch("ai_caddie.caddie.analysis.load_geometry.cache_clear") as clear_cache,
+        ):
+            summary = mobile_live._ensure_geometry_for_course(3881, holes=[1])
+
+        self.assertEqual(summary["state"], "ready")
+        clear_cache.assert_called_once_with()
+
     def test_recent_history_hole_issue_label_is_chinese_from_token(self) -> None:
         # 复盘 holes 的 repeatedIssues label 必须中文(iOS 直接展示该字符串)。
         self.assertEqual(_hole_issue_label_zh({"issue": "approach_short", "count": 2}), "攻果岭偏短")

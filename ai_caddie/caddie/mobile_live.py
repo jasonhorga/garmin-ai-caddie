@@ -680,6 +680,11 @@ def _ensure_geometry_for_package_holes(round_row: dict[str, Any], hole_numbers: 
                 result=result,
             )
         )
+    # ``load_geometry`` caches missing files too. A successful first download must invalidate
+    # those entries so the same process can immediately expose the new map/tee distances.
+    from ai_caddie.caddie.analysis import load_geometry
+
+    load_geometry.cache_clear()
     return _geometry_ensure_summary(results, requested=True)
 
 
@@ -700,6 +705,11 @@ def _ensure_geometry_for_course(global_id: int, holes: list[int] | None = None) 
                 result=result,
             )
         )
+    # ``load_geometry`` caches missing files too. A first course download must be visible to
+    # the package response and the next Tee read without requiring an app/server restart.
+    from ai_caddie.caddie.analysis import load_geometry
+
+    load_geometry.cache_clear()
     return _geometry_ensure_summary(results, requested=True)
 
 
