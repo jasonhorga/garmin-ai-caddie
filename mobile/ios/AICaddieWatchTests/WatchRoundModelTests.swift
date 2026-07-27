@@ -259,6 +259,69 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.recordedShotCount, 1)
     }
 
+    func testDistanceFromLatestShotUsesLastValidLocationOnActiveHole() throws {
+        let store = makeStore()
+        let events = [
+            WatchInputEvent(
+                eventId: "hole-1-old",
+                roundId: "r1",
+                hole: 1,
+                kind: .location,
+                value: "40.0,116.0,5.0",
+                createdAt: "2026-07-26T08:00:00Z"
+            ),
+            WatchInputEvent(
+                eventId: "hole-1-latest",
+                roundId: "r1",
+                hole: 1,
+                kind: .location,
+                value: "40.001,116.0,5.0",
+                createdAt: "2026-07-26T08:05:00Z"
+            ),
+            WatchInputEvent(
+                eventId: "other-hole",
+                roundId: "r1",
+                hole: 2,
+                kind: .location,
+                value: "41.0,116.0,5.0",
+                createdAt: "2026-07-26T08:10:00Z"
+            ),
+            WatchInputEvent(
+                eventId: "damaged-current-hole-value",
+                roundId: "r1",
+                hole: 1,
+                kind: .location,
+                value: "not-a-location",
+                createdAt: "2026-07-26T08:15:00Z"
+            ),
+        ]
+        try store.save(WatchRoundStore.PersistedRound(
+            roundId: "r1",
+            activeHole: 1,
+            holeStates: [hole(1), hole(2)],
+            pendingEvents: events
+        ))
+        let model = WatchRoundModel(store: store)
+
+        let distance = try XCTUnwrap(model.distanceFromLatestShotM(
+            latitude: 40.002,
+            longitude: 116.0
+        ))
+
+        XCTAssertEqual(
+            distance,
+            WatchGeoMath.metres(40.001, 116.0, 40.002, 116.0),
+            accuracy: 0.01
+        )
+    }
+
+    func testDistanceFromLatestShotIsNilWithoutAValidCurrentHoleLocation() {
+        let model = seededModel(holes: [hole(1)])
+
+        XCTAssertNil(model.distanceFromLatestShotM(latitude: 40.0, longitude: 116.0))
+        XCTAssertNil(model.distanceFromLatestShotM(latitude: .nan, longitude: 116.0))
+    }
+
     func testAutoShotIsOptInAndRejectedCandidateWritesNoShotEvent() {
         var savedPreferences: [Bool] = []
         let model = seededModel(
