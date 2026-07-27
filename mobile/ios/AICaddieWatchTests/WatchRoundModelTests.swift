@@ -20,7 +20,9 @@ final class WatchRoundModelTests: XCTestCase {
         teeLatitude: Double? = nil,
         teeLongitude: Double? = nil,
         shotType: String? = nil,
-        globalId: Int? = nil
+        globalId: Int? = nil,
+        greenInRegulation: Bool? = nil,
+        fairwayResult: String? = nil
     ) -> WatchRoundState {
         WatchRoundState(
             roundId: "r1", hole: n, par: par, distanceM: nil,
@@ -28,6 +30,8 @@ final class WatchRoundModelTests: XCTestCase {
             selectedClub: nil,
             shotType: shotType,
             globalId: globalId,
+            greenInRegulation: greenInRegulation,
+            fairwayResult: fairwayResult,
             score: score, putts: putts, penaltyCount: penalty, caddieConfidence: "offline"
         )
     }
@@ -126,6 +130,20 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .home)
         XCTAssertNil(model.toPar)        // nothing scored yet
         XCTAssertEqual(model.scoredHoles, 0)
+    }
+
+    func testFinishOutcomesCountOnlyExplicitValidResultsOnScoredHoles() {
+        let model = seededModel(holes: [
+            hole(1, par: 4, score: 4, greenInRegulation: true, fairwayResult: "HIT"),
+            hole(2, par: 5, score: 6, greenInRegulation: false, fairwayResult: "left"),
+            hole(3, par: 3, score: 3, greenInRegulation: true),
+            hole(4, par: 4, score: 5),
+            hole(5, par: 4, score: 0, greenInRegulation: true, fairwayResult: "HIT"),
+            hole(6, par: 4, score: 4, fairwayResult: "center"),
+        ])
+
+        XCTAssertEqual(model.fairwaySummary, WatchOutcomeSummary(hits: 1, recorded: 2))
+        XCTAssertEqual(model.girSummary, WatchOutcomeSummary(hits: 2, recorded: 3))
     }
 
     // MARK: scoring draft
