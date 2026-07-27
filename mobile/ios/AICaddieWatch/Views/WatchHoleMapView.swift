@@ -16,6 +16,13 @@ import SwiftUI
 /// RENDERING: one `Canvas` for image + vectors (free `Path{}.fill()` child views nil `ImageRenderer` on
 /// watchOS); TEXT is a SwiftUI overlay; every point `safe(_:)`-guarded.
 public struct WatchHoleMapView: View {
+    public static let restingCrownScale = 0.32
+    public static let maximumCrownScale = 0.56
+
+    public static func isFullMap(crownScale: Double) -> Bool {
+        crownScale > restingCrownScale + 0.001
+    }
+
     public let holeNumber: Int
     public let par: Int
     public let frontGreen: Int
@@ -103,7 +110,14 @@ public struct WatchHoleMapView: View {
         return CGFloat(centerGreen) / span
     }
 
-    private var currentScale: CGFloat { fullMap ? mapScale * 1.5 : mapScale }
+    private var currentScale: CGFloat { mapScale }
+
+    private var zoomProgress: CGFloat {
+        let lower = CGFloat(Self.restingCrownScale)
+        let upper = CGFloat(Self.maximumCrownScale)
+        guard upper > lower else { return 0 }
+        return min(max((mapScale - lower) / (upper - lower), 0), 1)
+    }
 
     /// Distance (码) from YOU to an image-px point, via `yardsPerPx`.
     private func yards(toImagePx px: CGPoint) -> Int? {
@@ -169,7 +183,7 @@ public struct WatchHoleMapView: View {
     /// Shared transform so the Canvas vectors and the Text overlay agree on where map points land.
     private func anchors(_ size: CGSize) -> (t: (CGPoint) -> CGPoint, you: CGPoint) {
         let mapLeft = fullMap ? 0 : size.width * columnFrac
-        let scale = fullMap ? mapScale * 1.5 : mapScale
+        let scale = currentScale
         let youImg = geometry.youPx
         let youCanvas = CGPoint(x: mapLeft + (size.width - mapLeft) * 0.5, y: size.height * (fullMap ? 0.66 : 0.72))
         let t: (CGPoint) -> CGPoint = { p in
@@ -240,8 +254,10 @@ public struct WatchHoleMapView: View {
             Spacer()
             ZStack(alignment: .top) {
                 Capsule().fill(Color.white.opacity(0.22)).frame(width: 4, height: 104)
-                Capsule().fill(caddieGreen).frame(width: 4, height: 40).padding(.top, 56)
+                Capsule().fill(caddieGreen).frame(width: 4, height: 40)
+                    .offset(y: (1 - zoomProgress) * 64)
             }
+            .frame(width: 4, height: 104, alignment: .top)
             .padding(.trailing, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
@@ -268,7 +284,7 @@ public struct WatchHoleMapView: View {
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
 
         let mapLeft = fullMap ? 0 : size.width * columnFrac
-        let scale = fullMap ? mapScale * 1.5 : mapScale
+        let scale = currentScale
         let a = anchors(size)
         let player = a.you
         // 拖旗: the flag follows the drag offset (canvas px), previewing "到旗" from a moved pin.

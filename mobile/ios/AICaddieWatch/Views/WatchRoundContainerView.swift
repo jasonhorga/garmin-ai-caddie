@@ -12,6 +12,9 @@ public struct WatchRoundContainerView: View {
     /// watch P1f (spec D1 大字模式): tap the hole view to blow the center distance up for arm's-length /
     /// bright-sun reading. Toggled on the .holeMap screen; the map + the no-geometry hero both honor it.
     @State private var holeMapBigText = false
+    /// Map Detail owns the Crown. The resting position keeps the facts column and score ring; turning it
+    /// enters the existing full-map presentation and continuously changes the real image transform.
+    @State private var holeMapCrownScale: Double
 
     /// watch P3: F/M/B green distances (码) from the watch's OWN GPS; when present they override the
     /// phone-pushed static distances so the hole view is a live rangefinder even without the phone.
@@ -26,13 +29,15 @@ public struct WatchRoundContainerView: View {
                 watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
                 shotLocation: WatchLocationFix? = nil,
                 autoShotSupported: Bool = false,
-                autoShotStatus: String = "本机不支持") {
+                autoShotStatus: String = "本机不支持",
+                initialHoleMapCrownScale: Double = WatchHoleMapView.restingCrownScale) {
         self.model = model
         self.holeGeometry = holeGeometry
         self.watchGreenYards = watchGreenYards
         self.shotLocation = shotLocation
         self.autoShotSupported = autoShotSupported
         self.autoShotStatus = autoShotStatus
+        self._holeMapCrownScale = State(initialValue: initialHoleMapCrownScale)
     }
 
     // watch P3: effective F/M/B — the watch-GPS value when available, else the phone-pushed distance.
@@ -303,9 +308,24 @@ public struct WatchRoundContainerView: View {
             // owner 2026-07-08: KEEP 实打 — only when the backend has a real mesh-elevation slope
             // (elevationDeltaM non-nil ⇒ playsLike.available), so it stays honest.
             showPlaysLike: s.elevationDeltaM != nil,
+            fullMap: WatchHoleMapView.isFullMap(crownScale: holeMapCrownScale),
+            mapScale: CGFloat(holeMapCrownScale),
             geometry: geometry,
             onToggleBigText: { holeMapBigText = true }
         )
+        .focusable(true)
+        .digitalCrownRotation(
+            $holeMapCrownScale,
+            from: WatchHoleMapView.restingCrownScale,
+            through: WatchHoleMapView.maximumCrownScale,
+            by: 0.02,
+            sensitivity: .medium,
+            isContinuous: false,
+            isHapticFeedbackEnabled: true
+        )
+        .onChange(of: s.hole) { _ in
+            holeMapCrownScale = WatchHoleMapView.restingCrownScale
+        }
     }
 
     private func distanceHero(_ s: WatchRoundState, big: Bool) -> some View {

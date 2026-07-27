@@ -30,6 +30,7 @@ public struct WatchUITestRoot: View {
         case "milestone-seed", "milestone-restore":
             milestoneRound
         case "standalone-course-seed", "standalone-course-restore",
+             "standalone-course-map-zoom",
              "standalone-course-caddie", "standalone-course-hazards",
              "standalone-course-last-shot", "standalone-course-caddie-last-shot",
              "standalone-course-live-home":
@@ -118,7 +119,10 @@ public struct WatchUITestRoot: View {
                     model: model,
                     holeGeometry: standaloneCourseGeometry,
                     watchGreenYards: standaloneHomeGreenYards,
-                    shotLocation: standaloneLastShotFix
+                    shotLocation: standaloneLastShotFix,
+                    initialHoleMapCrownScale: screen == "standalone-course-map-zoom"
+                        ? WatchHoleMapView.restingCrownScale + 0.02
+                        : WatchHoleMapView.restingCrownScale
                 )
             } else {
                 Text("offline course restore unavailable")
@@ -128,6 +132,8 @@ public struct WatchUITestRoot: View {
             if screen == "standalone-course-seed", model.round == nil {
                 Task { await seedStandaloneCourse() }
             } else if screen == "standalone-course-restore" {
+                model.openHoleMap()
+            } else if screen == "standalone-course-map-zoom" {
                 model.openHoleMap()
             } else if screen == "standalone-course-caddie" {
                 model.openCaddie()
