@@ -176,12 +176,14 @@ final class WatchBackendClientTests: XCTestCase {
         let package = try client.makeCoursePackageRequest(
             globalId: 31669,
             roundId: "watch-round-1",
-            teeBox: "Blue"
+            teeBox: "White",
+            backGlobalId: 31670
         )
         XCTAssertEqual(package.url?.path, "/api/v2/mobile/courses/31669/package")
         let packageQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(package.url), resolvingAgainstBaseURL: false))
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "round_id" })?.value, "watch-round-1")
-        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "tee_box" })?.value, "Blue")
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "tee_box" })?.value, "White")
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "back_global_id" })?.value, "31670")
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "client_id" })?.value, "apple-watch")
 
         let prep = try client.makeCoursePrepRequest(globalId: 31669, localHoles: [1, 2, 9])

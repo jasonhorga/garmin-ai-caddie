@@ -100,6 +100,90 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertNotEqual(first.roundId, second.roundId)
     }
 
+    func testRoundSetupSelectionKeepsExplicitTeeAndBackLoop() {
+        let front = WatchCourseOption(
+            globalId: 31669,
+            name: "北京黑骑士 ~ A",
+            holes: 9,
+            teeBox: "Blue",
+            venueName: "北京黑骑士",
+            segmentLabel: "A",
+            segmentHoles: 9,
+            tees: ["Blue", "White"]
+        )
+        let back = WatchCourseOption(
+            globalId: 31670,
+            name: "北京黑骑士 ~ B",
+            holes: 9,
+            teeBox: "Blue",
+            venueName: "北京黑骑士",
+            segmentLabel: "B",
+            segmentHoles: 9,
+            tees: ["Blue", "White"]
+        )
+
+        let selection = WatchCourseSelection(front: front, back: back, teeBox: "White")
+
+        XCTAssertEqual(selection.front.globalId, 31669)
+        XCTAssertEqual(selection.back?.globalId, 31670)
+        XCTAssertEqual(selection.teeBox, "White")
+        XCTAssertEqual(selection.holeCount, 18)
+    }
+
+    @MainActor
+    func testOfflineStartRejectsADifferentTeeOrHoleGroupInsteadOfUsingWrongCache() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("watch-course-selection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WatchCourseStore(directoryURL: directory)
+        let front = WatchCourseOption(
+            globalId: 31669,
+            name: "北京黑骑士 ~ A",
+            holes: 9,
+            teeBox: "Blue",
+            venueName: "北京黑骑士",
+            segmentLabel: "A",
+            segmentHoles: 9,
+            tees: ["Blue", "White"]
+        )
+        let back = WatchCourseOption(
+            globalId: 31670,
+            name: "北京黑骑士 ~ B",
+            holes: 9,
+            teeBox: "Blue",
+            venueName: "北京黑骑士",
+            segmentLabel: "B",
+            segmentHoles: 9,
+            tees: ["Blue", "White"]
+        )
+        try store.save(WatchCourseTemplate(
+            option: front,
+            courseName: "北京黑骑士 ~ A",
+            teeBox: "Blue",
+            holeStates: [
+                WatchRoundState(
+                    roundId: "download-only", hole: 1, par: 4, distanceM: 369.4,
+                    selectedClub: nil, score: 0, putts: 0, penaltyCount: 0,
+                    caddieConfidence: "offline"
+                )
+            ],
+            cachedAt: "2026-07-26T00:00:00Z"
+        ))
+        let library = WatchCourseLibrary(
+            store: store,
+            imageStore: WatchHoleImageStore(directoryURL: directory),
+            makeRoundId: { "watch-offline-round" }
+        )
+
+        let prepared = await library.startCourse(
+            WatchCourseSelection(front: front, back: back, teeBox: "White"),
+            config: nil
+        )
+
+        XCTAssertNil(prepared)
+        XCTAssertEqual(library.errorMessage, "这个洞组和发球台尚未下载，请联网后重试")
+    }
+
     @MainActor
     func testCourseLibraryStartsACachedCourseWithoutPhoneOrNetworkConfig() async throws {
         let directory = FileManager.default.temporaryDirectory
