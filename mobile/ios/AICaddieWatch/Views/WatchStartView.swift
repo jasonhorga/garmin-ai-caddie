@@ -121,17 +121,39 @@ public struct WatchStartView: View {
             .disabled(!canSearchAllCourses)
 
             ForEach(visibleSearchMatches) { match in
-                courseButton(
-                    match.courseOption,
-                    subtitle: searchResultSubtitle(match),
-                    ensureGeometry: true
-                )
+                searchResultRow(match)
             }
 
             if !searchMatches.isEmpty, visibleSearchMatches.isEmpty {
                 Text("搜索结果已在已知球场中")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func searchResultRow(_ match: WatchCourseSearchMatch) -> some View {
+        if let course = match.courseOption {
+            courseButton(
+                course,
+                subtitle: searchResultSubtitle(match),
+                ensureGeometry: true
+            )
+        } else {
+            HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(match.name)
+                        .font(.body.weight(.semibold))
+                        .lineLimit(2)
+                    Text(searchResultSubtitle(match))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 2)
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("洞数未知，无法开局")
             }
         }
     }
@@ -212,7 +234,7 @@ public struct WatchStartView: View {
 
     private var allSelectableCourses: [WatchCourseOption] {
         var seen = Set<Int>()
-        return (courses + searchMatches.map(\.courseOption)).filter {
+        return (courses + searchMatches.compactMap(\.courseOption)).filter {
             seen.insert($0.globalId).inserted
         }
     }
@@ -227,8 +249,7 @@ public struct WatchStartView: View {
                 }
             }
             .joined(separator: " · ")
-        return location.isEmpty
-            ? "\(match.holes) 洞"
-            : "\(location) · \(match.holes) 洞"
+        let holeText = match.holes.flatMap { $0 > 0 ? "\($0) 洞" : nil } ?? "洞数未知"
+        return location.isEmpty ? holeText : "\(location) · \(holeText)"
     }
 }

@@ -53,8 +53,8 @@ public struct WatchUITestRoot: View {
         case "course-remote-setup":
             NavigationStack {
                 WatchRoundSetupView(
-                    front: Self.remoteCourseMatches[0].courseOption,
-                    courses: [Self.remoteCourseMatches[0].courseOption],
+                    front: Self.remoteCourseOptions[0],
+                    courses: [Self.remoteCourseOptions[0]],
                     ensureGeometry: true,
                     onLoadTees: { _ in Self.remoteCourseTees }
                 )
@@ -342,6 +342,10 @@ public struct WatchUITestRoot: View {
             ratio: 0.94
         ),
     ]
+
+    private static var remoteCourseOptions: [WatchCourseOption] {
+        remoteCourseMatches.compactMap(\.courseOption)
+    }
 
     private static let remoteCourseTees = [
         WatchCourseTee(

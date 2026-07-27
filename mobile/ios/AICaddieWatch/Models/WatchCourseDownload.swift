@@ -98,7 +98,7 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
 
     public let globalId: Int
     public let name: String
-    public let holes: Int
+    public let holes: Int?
     public let city: String?
     public let province: String?
     public let ratio: Double
@@ -106,7 +106,7 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
     public init(
         globalId: Int,
         name: String,
-        holes: Int,
+        holes: Int?,
         city: String?,
         province: String?,
         ratio: Double
@@ -119,7 +119,8 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
         self.ratio = ratio
     }
 
-    public var courseOption: WatchCourseOption {
+    public var courseOption: WatchCourseOption? {
+        guard let holes, holes > 0 else { return nil }
         let parts = name.split(separator: "~", maxSplits: 1, omittingEmptySubsequences: false)
         let venue = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
         let segment = parts.count > 1

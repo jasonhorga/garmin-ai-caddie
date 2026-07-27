@@ -248,8 +248,8 @@ final class WatchBackendClientTests: XCTestCase {
                 ratio: 0.92
             )
         ])
-        XCTAssertEqual(matches.first?.courseOption.segmentLabel, "A")
-        XCTAssertEqual(matches.first?.courseOption.venueName, "Mission Hills")
+        XCTAssertEqual(matches.first?.courseOption?.segmentLabel, "A")
+        XCTAssertEqual(matches.first?.courseOption?.venueName, "Mission Hills")
 
         let incompleteMatches = try client.decodeCourseSearch(Data(
             #"{"schema":"ai-caddie-course-search-v1","query":"unknown","matches":[{"globalId":39999,"name":"Unclassified Course","holes":null,"city":null,"province":null,"ratio":0.5}]}"#.utf8
