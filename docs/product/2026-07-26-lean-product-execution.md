@@ -102,6 +102,12 @@
 - 结束页以紧凑三列显示推杆、球道命中/已记录和 GIR 命中/已记录；没有明确 outcome 时隐藏对应列。首次运行态截图发现原两个纵排按钮会让标题与次按钮越界，最终改为同一行后，标题、球场、成绩、三列统计、同步提示和两个动作都在 416×496 首屏完整可见。
 - Watch runtime [run 30246181671](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30246181671) 完整成功：Watch `115/115`、独立 App build 和 22 次真实进程截图全部通过。Codex 已检查结束页显示 `推杆 16 / 球道 5/7 / GIR 4/9`，artifact 中没有 App crash、未知测试页面、恢复失败或 AutoShot provider failure。
 
+### Watch Map Detail 表冠缩放结果（2026-07-27）
+
+- 功能 SHA：`40e839e880d8d57603873a2944ab14fc9f42ba4e`。历史提交虽然留下 `fullMap/mapScale` 绘制分支和“转表冠缩放”文案，但生产源码从未出现 `.digitalCrownRotation`，属于可渲染而不可操作的死入口。现在只在独立 Map Detail 占用表冠；停在基准位时保留事实左栏和成绩环，转动后进入全屏地图并连续缩放真实位图与全部叠加，回到基准位则恢复外层呈现。
+- 设计上没有把早期降权旧稿中的“靠近果岭自动弹 Green View”混进本切片：当前没有完整 pinSet、Green View 边界和恢复规则，整洞图放大不能冒充果岭特写。既有拖旗仍是临时预览；到旗主距离持久化另行按真实数据解决。
+- Watch runtime [run 30247952766](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30247952766) 完整成功：Watch `116/116`、独立 App build 和 23 次真实进程截图全部通过。Codex 已对比同一北京丽宫缓存球场的普通/全屏截图：全屏态地图居中，事实左栏与成绩环消失，距离、返回键、动态缩放轨道完整；artifact 中没有 App crash、未知测试页面、恢复失败或 AutoShot provider failure。
+
 ## 持续端到端验收基线
 
 以下能力已由里程碑 1–4 建立，后续实现不得回退：
