@@ -43,6 +43,14 @@ final class RoundTenUITests: XCTestCase {
 
         let water = try XCTUnwrap(hazards.first { $0.icon == "💧" })
         XCTAssertEqual(water.detail, "到 191 · 过 213 码")
+
+        // Every iPhone surface consumes one proximity order, regardless of hazard kind. A water
+        // edge between two bunkers must not be appended after every bunker simply because of type.
+        XCTAssertEqual(hazards.map(\.label), ["沙坑 1", "水域", "沙坑 2"])
+        XCTAssertEqual(
+            "\(hazards[0].label) · \(try XCTUnwrap(hazards[0].detail))",
+            "沙坑 1 · 到 147 · 过 163 码"
+        )
     }
 
     func testLegacyBunkerNeverTreatsItsLateralGapAsTheBackEdge() throws {
