@@ -191,7 +191,7 @@ public struct WatchHazardMapView: View {
                 )
             }
 
-            controls(hazard: hazard, index: index)
+            controls(hazard: hazard, index: index, size: size)
         }
     }
 
@@ -273,8 +273,19 @@ public struct WatchHazardMapView: View {
         }
     }
 
-    private func controls(hazard: WatchHazard, index: Int) -> some View {
-        ZStack {
+    private func controls(hazard: WatchHazard, index: Int, size: CGSize) -> some View {
+        let sideText = WatchHazardMapLayout.bunkerSideMetres(for: hazard).map {
+            "离球路 \(Int(($0 * 1.09361).rounded())) 码"
+        }
+        let summary = ["\(hazard.label) \(index + 1)/\(upcoming.count)", sideText]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+        let trackHeight = min(size.height * 0.55, 104)
+        let thumbHeight = min(40, max(18, trackHeight * 0.28))
+        let thumbOffset = CGFloat(index) * (trackHeight - thumbHeight)
+            / CGFloat(max(upcoming.count - 1, 1))
+
+        return ZStack {
             VStack {
                 HStack {
                     Button(action: onBack) {
@@ -301,25 +312,35 @@ public struct WatchHazardMapView: View {
                 }
                 Spacer()
                 VStack(spacing: 1) {
-                    Text("\(hazard.label) · \(index + 1)/\(upcoming.count)")
+                    Text(summary)
                         .font(.system(size: 10, weight: .semibold))
-                    if let side = WatchHazardMapLayout.bunkerSideMetres(for: hazard) {
-                        Text("离球路 \(Int((side * 1.09361).rounded())) 码")
-                            .font(.system(size: 8.5, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
                     Text(upcoming.count > 1
                         ? "转表冠换障碍"
                         : (hazard.kind == "water" ? "障碍前后沿" : "沿球路最近位置"))
                         .font(.system(size: 8.5, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.62))
                 }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(.black.opacity(0.78)))
+                .lineLimit(1)
+                .shadow(color: .black, radius: 2)
             }
             .padding(.top, 5)
             .padding(.bottom, 5)
+
+            if upcoming.count > 1 {
+                HStack {
+                    Spacer()
+                    ZStack(alignment: .top) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.22))
+                            .frame(width: 4, height: trackHeight)
+                        Capsule()
+                            .fill(Color(red: 0.30, green: 0.86, blue: 0.46))
+                            .frame(width: 4, height: thumbHeight)
+                            .offset(y: thumbOffset)
+                    }
+                    .padding(.trailing, 6)
+                }
+            }
         }
     }
 
