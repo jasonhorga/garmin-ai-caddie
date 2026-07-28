@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// Real running-app screenshots from the iOS Simulator (XCUITest) — NOT ImageRenderer view snapshots.
@@ -131,9 +132,10 @@ final class RealFlowUITests: XCTestCase {
             app.buttons["返回球局首页"].waitForExistence(timeout: 5),
             "immersive live play must retain an explicit way back to the round home"
         )
-        XCTAssertFalse(
-            app.statusBars.firstMatch.exists,
-            "the live-play NavigationStack must hide the black-on-black system status bar"
+        XCTAssertLessThan(
+            visibleStatusChromePixelFraction(in: XCUIScreen.main.screenshot()),
+            0.005,
+            "the live-play NavigationStack must not render the black-on-black system time, Wi-Fi, or battery chrome"
         )
         XCTAssertFalse(
             app.buttons["晚上好"].exists || app.buttons["早上好"].exists
@@ -216,6 +218,69 @@ final class RealFlowUITests: XCTestCase {
     private func fullyVisible(_ element: XCUIElement) -> Bool {
         let frame = element.frame
         return !frame.isNull && !frame.isEmpty && visibleSafeRect().contains(frame)
+    }
+
+    /// `app.statusBars` is empty on the iPhone 16 simulator even while SpringBoard visibly draws the
+    /// black time / Wi-Fi / battery glyphs over this app's near-black top inset. Inspect the two status
+    /// chrome lanes in the actual screen pixels instead. Mirrored bottom lanes make this independent
+    /// of CGImage's row orientation; those corner lanes contain no pure-black app content.
+    private func visibleStatusChromePixelFraction(in screenshot: XCUIScreenshot) -> Double {
+        let lanes = [
+            CGRect(x: 0.08, y: 0.015, width: 0.19, height: 0.06),
+            CGRect(x: 0.68, y: 0.015, width: 0.26, height: 0.06),
+            CGRect(x: 0.08, y: 0.925, width: 0.19, height: 0.06),
+            CGRect(x: 0.68, y: 0.925, width: 0.26, height: 0.06),
+        ]
+        return lanes.map { nearBlackPixelFraction(in: screenshot, normalizedRect: $0) }.max() ?? 1
+    }
+
+    private func nearBlackPixelFraction(
+        in screenshot: XCUIScreenshot,
+        normalizedRect: CGRect
+    ) -> Double {
+        guard let image = screenshot.image.cgImage else {
+            XCTFail("screen capture must expose CGImage pixels")
+            return 1
+        }
+        let cropRect = CGRect(
+            x: normalizedRect.minX * CGFloat(image.width),
+            y: normalizedRect.minY * CGFloat(image.height),
+            width: normalizedRect.width * CGFloat(image.width),
+            height: normalizedRect.height * CGFloat(image.height)
+        ).integral
+        guard let crop = image.cropping(to: cropRect) else {
+            XCTFail("status-chrome pixel crop must be valid")
+            return 1
+        }
+
+        let bytesPerPixel = 4
+        let bytesPerRow = crop.width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * crop.height)
+        let rendered = pixels.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(
+                data: bytes.baseAddress,
+                width: crop.width,
+                height: crop.height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(crop, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
+            return true
+        }
+        guard rendered else {
+            XCTFail("status-chrome pixel crop must render")
+            return 1
+        }
+
+        var nearBlack = 0
+        for offset in stride(from: 0, to: pixels.count, by: bytesPerPixel) {
+            if pixels[offset] <= 1, pixels[offset + 1] <= 1, pixels[offset + 2] <= 1 {
+                nearBlack += 1
+            }
+        }
+        return Double(nearBlack) / Double(crop.width * crop.height)
     }
 
     private func waitUntilGone(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
