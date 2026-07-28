@@ -271,16 +271,26 @@ public struct WatchHoleMapView: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
 
-    // Zoomed full-map state: a top-centre distance readout + zoom hints, no data column.
+    // Zoomed full-map state: keep the map full-bleed, but leave the top-right lane to watchOS.
+    // persistentSystemOverlays(.hidden) is only a preference on watchOS; the system can retain its
+    // clock, so product chrome must not assume that area is available.
     @ViewBuilder private func fullMapControls(_ size: CGSize) -> some View {
         VStack {
-            Text("中 \(centerGreen) 码 · 到果岭").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
-                .padding(.horizontal, 9).padding(.vertical, 3)
-                .background(Capsule().fill(.black.opacity(0.5)))
-                .padding(.top, 12)
+            HStack {
+                Text("中 \(centerGreen) 码 · 到果岭")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(.black.opacity(0.5)))
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, 48)
+            .padding(.top, 12)
             Spacer()
         }
-        .frame(maxWidth: .infinity, alignment: .center)
+        .frame(maxWidth: .infinity, alignment: .leading)
         // Digital-Crown zoom indicator on the right edge (crown = zoom; NO +/- tap targets). Track + a
         // brighter thumb toward the bottom = currently zoomed in — the standard watchOS crown affordance.
         HStack {
