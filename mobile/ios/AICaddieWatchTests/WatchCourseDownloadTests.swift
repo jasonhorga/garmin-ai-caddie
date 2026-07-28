@@ -64,6 +64,11 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertEqual(hole.globalId, 31669)
         XCTAssertEqual(hole.holeMap?.you, [100, 700])
         XCTAssertEqual(hole.holeMap?.pin, [600, 100])
+        XCTAssertEqual(hole.holeMap?.route, [
+            [100, 700, 0],
+            [500, 400, 200],
+            [600, 100, 400],
+        ])
         XCTAssertEqual(hole.hazards.map(\.label), ["沙坑", "水域"])
         XCTAssertEqual(hole.score, 0)
         XCTAssertEqual(hole.putts, 0)
