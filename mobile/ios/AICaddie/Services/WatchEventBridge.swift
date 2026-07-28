@@ -31,8 +31,8 @@ public struct WatchClubOption: Codable, Equatable, Identifiable {
     }
 }
 
-/// A measured hazard fact pushed to the Watch. Water uses start/end along-route metres; bunker uses
-/// start along the route plus sideM (shortest lateral gap). The Watch converts metres to 码.
+/// A measured hazard fact pushed to the Watch. New payloads carry true front/back boundary pixels and
+/// straight-line tee distances; legacy bunker payloads may still contain only startM + sideM.
 public struct WatchHazard: Codable, Equatable, Identifiable {
     public var id: String { "\(kind)-\(label)" }
 
@@ -41,19 +41,31 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
     public let startM: Double?
     public let endM: Double?
     public let sideM: Double?
+    public let frontDistanceM: Double?
+    public let backDistanceM: Double?
+    public let frontPx: [Double]?
+    public let backPx: [Double]?
 
     public init(
         kind: String,
         label: String,
         startM: Double? = nil,
         endM: Double? = nil,
-        sideM: Double? = nil
+        sideM: Double? = nil,
+        frontDistanceM: Double? = nil,
+        backDistanceM: Double? = nil,
+        frontPx: [Double]? = nil,
+        backPx: [Double]? = nil
     ) {
         self.kind = kind
         self.label = label
         self.startM = startM
         self.endM = endM
         self.sideM = sideM
+        self.frontDistanceM = frontDistanceM
+        self.backDistanceM = backDistanceM
+        self.frontPx = frontPx
+        self.backPx = backPx
     }
 }
 

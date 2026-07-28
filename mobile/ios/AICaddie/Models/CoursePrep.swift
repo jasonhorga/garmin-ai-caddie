@@ -105,15 +105,62 @@ public enum CoursePrepRoute {
 public struct CoursePrepHazards: Codable, Equatable {
     public let waterCarry: [[Double]]
     public let bunkers: [[Double]]
+    public let details: [CoursePrepHazardDetail]
 
-    public init(waterCarry: [[Double]] = [], bunkers: [[Double]] = []) {
+    public init(
+        waterCarry: [[Double]] = [],
+        bunkers: [[Double]] = [],
+        details: [CoursePrepHazardDetail] = []
+    ) {
         self.waterCarry = waterCarry
         self.bunkers = bunkers
+        self.details = details
     }
 
     private enum CodingKeys: String, CodingKey {
         case waterCarry = "water_carry"
-        case bunkers
+        case bunkers, details
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        waterCarry = try container.decodeIfPresent([[Double]].self, forKey: .waterCarry) ?? []
+        bunkers = try container.decodeIfPresent([[Double]].self, forKey: .bunkers) ?? []
+        details = try container.decodeIfPresent([CoursePrepHazardDetail].self, forKey: .details) ?? []
+    }
+}
+
+/// Player-facing front/back facts for one mapped hazard. Route metres are used only for ordering and
+/// passed/remaining state; front/back metres are straight-line distances from the selected tee, and
+/// the pixel pairs are the real geometry boundary points on the shared topo image.
+public struct CoursePrepHazardDetail: Codable, Equatable {
+    public let kind: String
+    public let frontM: Double
+    public let backM: Double
+    public let frontRouteM: Double
+    public let backRouteM: Double
+    public let frontPx: [Double]
+    public let backPx: [Double]
+    public let sideM: Double?
+
+    public init(
+        kind: String,
+        frontM: Double,
+        backM: Double,
+        frontRouteM: Double,
+        backRouteM: Double,
+        frontPx: [Double],
+        backPx: [Double],
+        sideM: Double?
+    ) {
+        self.kind = kind
+        self.frontM = frontM
+        self.backM = backM
+        self.frontRouteM = frontRouteM
+        self.backRouteM = backRouteM
+        self.frontPx = frontPx
+        self.backPx = backPx
+        self.sideM = sideM
     }
 }
 

@@ -682,22 +682,48 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
         self.detail = detail
     }
 
-    /// 水域是 `[enter, clear]` 沿路线区间；沙坑是 `[alongRoute, side]`，第二项是到
-    /// 球路的横向距离，不是沙坑后沿。沙坑在前、水域在后，各自按沿路线距离近→远排序。
-    /// 同类多于一处时编号(沙坑 1 / 沙坑 2 …),避免三个都只写「沙坑」看不出区别(round-10 反馈)。
+    /// New prep details give both water and bunkers true front/back edges. Legacy water intervals
+    /// retain both readings; a legacy bunker has only one safe route distance because its second
+    /// number is an internal lateral gap, never a player-facing back edge.
     public static func from(_ hazards: CoursePrepHazards) -> [CaddiePlanHazard] {
         var out: [CaddiePlanHazard] = []
-        let bunkers = hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-        for (index, interval) in bunkers.enumerated() {
-            let label = bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑"
-            out.append(CaddiePlanHazard(
-                id: "bunker-\(index)", icon: "🏖", label: label, detail: bunkerText(interval)
-            ))
+        let bunkerDetails = hazards.details
+            .filter { $0.kind == "bunker" }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+        if !bunkerDetails.isEmpty {
+            for (index, detail) in bunkerDetails.enumerated() {
+                let label = bunkerDetails.count > 1 ? "沙坑 \(index + 1)" : "沙坑"
+                out.append(CaddiePlanHazard(
+                    id: "bunker-\(index)", icon: "🏖", label: label,
+                    detail: measuredText(frontM: detail.frontM, backM: detail.backM)
+                ))
+            }
+        } else {
+            let bunkers = hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            for (index, interval) in bunkers.enumerated() {
+                let label = bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑"
+                out.append(CaddiePlanHazard(
+                    id: "bunker-\(index)", icon: "🏖", label: label, detail: bunkerText(interval)
+                ))
+            }
         }
-        let water = hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-        for (index, interval) in water.enumerated() {
-            let label = water.count > 1 ? "水域 \(index + 1)" : "水域"
-            out.append(CaddiePlanHazard(id: "water-\(index)", icon: "💧", label: label, detail: rangeText(interval)))
+        let waterDetails = hazards.details
+            .filter { $0.kind == "water" }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+        if !waterDetails.isEmpty {
+            for (index, detail) in waterDetails.enumerated() {
+                let label = waterDetails.count > 1 ? "水域 \(index + 1)" : "水域"
+                out.append(CaddiePlanHazard(
+                    id: "water-\(index)", icon: "💧", label: label,
+                    detail: measuredText(frontM: detail.frontM, backM: detail.backM)
+                ))
+            }
+        } else {
+            let water = hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            for (index, interval) in water.enumerated() {
+                let label = water.count > 1 ? "水域 \(index + 1)" : "水域"
+                out.append(CaddiePlanHazard(id: "water-\(index)", icon: "💧", label: label, detail: rangeText(interval)))
+            }
         }
         return out
     }
@@ -705,9 +731,11 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
     private static func bunkerText(_ values: [Double]) -> String? {
         guard let alongRoute = values.first else { return nil }
         let distance = CoursePrepRoute.yards(fromMetres: alongRoute)
-        guard values.count >= 2 else { return "距 \(distance) 码" }
-        let side = CoursePrepRoute.yards(fromMetres: values[1])
-        return "距 \(distance) 码 · 离球路 \(side) 码"
+        return "距 \(distance) 码"
+    }
+
+    private static func measuredText(frontM: Double, backM: Double) -> String {
+        "到 \(CoursePrepRoute.yards(fromMetres: frontM)) · 过 \(CoursePrepRoute.yards(fromMetres: backM)) 码"
     }
 
     private static func rangeText(_ interval: [Double]) -> String? {
@@ -715,8 +743,8 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
             return nil
         }
         if interval.count >= 2 {
-            return "\(CoursePrepRoute.yards(fromMetres: start))–\(CoursePrepRoute.yards(fromMetres: interval[1])) 码"
+            return measuredText(frontM: start, backM: interval[1])
         }
-        return "越线 \(CoursePrepRoute.yards(fromMetres: start)) 码"
+        return "距 \(CoursePrepRoute.yards(fromMetres: start)) 码"
     }
 }

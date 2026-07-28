@@ -1,20 +1,26 @@
 import SwiftUI
 
-/// Hazard list: remaining hazards near→far. Bunkers show route distance + lateral gap; water shows
-/// enter/clear distance. Driven by `WatchRoundState.hazards`; a plain VStack also renders in snapshots.
+/// Hazard list: remaining hazards near→far. New geometry shows the same 到/过 front/back readout for
+/// sand and water; old bunker caches keep their one reliable distance and never expose lateral gap.
 /// Geometry-gated upstream: holes without usable geometry push no hazards and show the empty state.
 public struct WatchHazardView: View {
     public let hazards: [WatchHazard]
     public let playerProgressM: Double
+    public let playerImagePoint: CGPoint?
+    public let route: [[Double]]
     public let onSelect: ((WatchHazard) -> Void)?
 
     public init(
         hazards: [WatchHazard],
         playerProgressM: Double = 0,
+        playerImagePoint: CGPoint? = nil,
+        route: [[Double]] = [],
         onSelect: ((WatchHazard) -> Void)? = nil
     ) {
         self.hazards = hazards
         self.playerProgressM = playerProgressM
+        self.playerImagePoint = playerImagePoint
+        self.route = route
         self.onSelect = onSelect
     }
 
@@ -75,29 +81,46 @@ public struct WatchHazardView: View {
     }
 
     private func carryText(_ hazard: WatchHazard) -> String? {
-        if hazard.kind == "bunker" {
-            let distance = hazard.startM.flatMap {
-                WatchHazardMapLayout.remainingYards(to: $0, after: playerProgressM)
-            }
-            let side = WatchHazardMapLayout.bunkerSideMetres(for: hazard).map {
-                Int(($0 * 1.09361).rounded())
-            }
-            if let distance, let side { return "距 \(distance) · 离球路 \(side) 码" }
+        let hasFrontBack = hazard.kind == "water" || WatchHazardMapLayout.hasMeasuredFrontBack(hazard)
+        if !hasFrontBack {
+            let distance = edgeYards(
+                pixel: hazard.frontPx,
+                teeDistanceM: hazard.frontDistanceM,
+                routeM: hazard.startM
+            )
             if let distance { return "距 \(distance) 码" }
             return nil
         }
 
-        let startYards = hazard.startM.flatMap {
-            WatchHazardMapLayout.remainingYards(to: $0, after: playerProgressM)
-        }
-        let endYards = hazard.endM.flatMap {
-            WatchHazardMapLayout.remainingYards(to: $0, after: playerProgressM)
-        }
+        let startYards = edgeYards(
+            pixel: hazard.frontPx,
+            teeDistanceM: hazard.frontDistanceM,
+            routeM: hazard.startM
+        )
+        let endYards = edgeYards(
+            pixel: hazard.backPx,
+            teeDistanceM: hazard.backDistanceM,
+            routeM: hazard.endM
+        )
         if let startYards, let endYards {
-            return "前 \(startYards) · 越 \(endYards) 码"
+            return "到 \(startYards) · 过 \(endYards) 码"
         }
-        if let endYards { return "越 \(endYards) 码" }
-        if let startYards { return "前 \(startYards) 码" }
+        if let endYards { return "过 \(endYards) 码" }
+        if let startYards { return "到 \(startYards) 码" }
         return nil
+    }
+
+    private func edgeYards(pixel: [Double]?, teeDistanceM: Double?, routeM: Double?) -> Int? {
+        if let playerImagePoint,
+           let edge = WatchHazardMapLayout.point(pixel),
+           let live = WatchHazardMapLayout.distanceYards(from: playerImagePoint, to: edge, on: route) {
+            return live
+        }
+        if playerProgressM <= 0, let teeDistanceM {
+            return Int((teeDistanceM * 1.09361).rounded())
+        }
+        return routeM.flatMap {
+            WatchHazardMapLayout.remainingYards(to: $0, after: playerProgressM)
+        }
     }
 }

@@ -21,8 +21,8 @@ public struct WatchClubOption: Codable, Equatable, Identifiable {
     }
 }
 
-/// A measured hazard fact for the Watch. Water uses along-route enter/clear distances. Bunker uses one
-/// along-route point plus its shortest lateral gap; it has no inferred back edge.
+/// A measured hazard fact for the Watch. New payloads carry true front/back boundary pixels and
+/// straight-line tee distances; legacy bunker payloads may still contain only startM + sideM.
 public struct WatchHazard: Codable, Equatable, Identifiable {
     public var id: String { "\(kind)-\(label)" }
 
@@ -33,19 +33,31 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
     /// Bunkers use `[along-route, lateral gap]`, not an enter/clear interval. New payloads keep the
     /// lateral fact here; old cached bunker payloads are interpreted compatibly at the view boundary.
     public let sideM: Double?
+    public let frontDistanceM: Double?
+    public let backDistanceM: Double?
+    public let frontPx: [Double]?
+    public let backPx: [Double]?
 
     public init(
         kind: String,
         label: String,
         startM: Double? = nil,
         endM: Double? = nil,
-        sideM: Double? = nil
+        sideM: Double? = nil,
+        frontDistanceM: Double? = nil,
+        backDistanceM: Double? = nil,
+        frontPx: [Double]? = nil,
+        backPx: [Double]? = nil
     ) {
         self.kind = kind
         self.label = label
         self.startM = startM
         self.endM = endM
         self.sideM = sideM
+        self.frontDistanceM = frontDistanceM
+        self.backDistanceM = backDistanceM
+        self.frontPx = frontPx
+        self.backPx = backPx
     }
 }
 

@@ -182,14 +182,42 @@ def _bbox_gap(route_bbox, comp_bbox) -> float:
     return math.hypot(dx, dy)
 
 
-def _bunkers(bunker, route) -> list[list[float]]:
-    """``[along_route_m, side_m]`` per bunker, side = shortest distance to the bunker BOUNDARY.
+def _project_point_to_route(point, segments):
+    """Return ``(side_m, route_m, route_point)`` for the closest point on a polyline route."""
+    best = None
+    for a, b, cum, seg in segments:
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        t = max(0.0, min(1.0, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / (seg * seg)))
+        route_point = (a[0] + t * dx, a[1] + t * dy)
+        side = math.hypot(point[0] - route_point[0], point[1] - route_point[1])
+        row = (side, cum + t * seg, route_point)
+        if best is None or row[:2] < best[:2]:
+            best = row
+    return best
+
+
+def _route_point(segments, route_m: float):
+    """Interpolate a local-metre point at an absolute cumulative distance on the route."""
+    if not segments:
+        return None
+    for a, b, cum, seg in segments:
+        if route_m <= cum + seg:
+            t = max(0.0, min(1.0, (route_m - cum) / seg))
+            return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+    return segments[-1][1]
+
+
+def _bunker_measurements(bunker, route) -> list[dict]:
+    """Internal measurement per bunker, retaining both legacy side gap and real front/back edges.
 
     Uses :func:`measure_prodgeometry_distances.point_triangle_distance` (exact point→triangle) from
     each densified route point to the bunker's triangles, so a long bunker whose near edge hugs the
     route is measured by that edge — not by its far-away centroid (the old approximation, which
     over-stated the gap and could push a near-edge bunker past the ``BUNKER_MAX_M`` gate). The
-    along-route position keeps the existing 4 m route resolution.
+    along-route position keeps the existing 4 m route resolution.  For the player-facing S70 readout,
+    every component vertex is also projected onto the route: the earliest/latest route projections
+    define front/back, and the least-lateral vertex wins a tie so both dots sit on the useful bunker
+    edge rather than an arbitrary far corner.
     """
     if not bunker:
         return []
@@ -201,7 +229,8 @@ def _bunkers(bunker, route) -> list[list[float]]:
     xs = [p[0] for p in dense]
     ys = [p[1] for p in dense]
     route_bbox = (min(xs), min(ys), max(xs), max(ys))
-    bunkers: list[list[float]] = []
+    segments = _route_segments(route)
+    bunkers: list[dict] = []
     for component in mesh_components(bunker):
         if _bbox_gap(route_bbox, component["bbox"]) > BUNKER_MAX_M:
             continue  # whole component is provably out of range — skip the per-point distance work
@@ -213,9 +242,42 @@ def _bunkers(bunker, route) -> list[list[float]]:
             if best_side is None or side < best_side:
                 best_side, best_cum = side, p[2]
         if best_side is not None and best_side <= BUNKER_MAX_M:
-            bunkers.append([round(best_cum, 1), round(best_side, 1)])
-    bunkers.sort()
+            vertices = {point for triangle in triangles for point in triangle}
+            projected = []
+            for point in vertices:
+                route_projection = _project_point_to_route(point, segments)
+                if route_projection is not None:
+                    projected.append((route_projection[1], route_projection[0], point))
+            if not projected:
+                continue
+            front = min(projected, key=lambda row: (row[0], row[1], row[2]))
+            back = min(projected, key=lambda row: (-row[0], row[1], row[2]))
+            bunkers.append({
+                "legacy": [round(best_cum, 1), round(best_side, 1)],
+                "frontRouteM": round(front[0], 1),
+                "backRouteM": round(back[0], 1),
+                "frontPoint": front[2],
+                "backPoint": back[2],
+                "sideM": round(best_side, 1),
+            })
+    bunkers.sort(key=lambda row: row["legacy"])
     return bunkers
+
+
+def _hazard_detail(kind: str, front_route_m: float, back_route_m: float, front_point, back_point,
+                   tee, to_px, side_m: float | None = None) -> dict:
+    front_px = to_px(front_point)
+    back_px = to_px(back_point)
+    return {
+        "kind": kind,
+        "frontM": round(math.hypot(front_point[0] - tee[0], front_point[1] - tee[1]), 1),
+        "backM": round(math.hypot(back_point[0] - tee[0], back_point[1] - tee[1]), 1),
+        "frontRouteM": round(front_route_m, 1),
+        "backRouteM": round(back_route_m, 1),
+        "frontPx": [round(front_px[0], 1), round(front_px[1], 1)],
+        "backPx": [round(back_px[0], 1), round(back_px[1], 1)],
+        "sideM": side_m,
+    }
 
 
 def route_hazards(by: dict, route) -> dict:
@@ -224,14 +286,39 @@ def route_hazards(by: dict, route) -> dict:
     Geometry is measured EXACTLY against the decoded meshes (same coord frame as the map/overlay).
     Water carries come from the true route-segment ∩ Lake-component intersection (a narrow strip
     crossed between samples is never missed); bunker ``side`` is the shortest distance to the bunker
-    BOUNDARY rather than its centroid (a long bunker is measured by its near edge). The output shape
-    is unchanged: ``water_carry`` = ``[[enter_m, clear_m], ...]`` and ``bunkers`` =
-    ``[[along_route_m, side_m], ...]``, both in metres along the route, rounded to 0.1 m.
+    BOUNDARY rather than its centroid (a long bunker is measured by its near edge). Legacy arrays stay
+    byte-compatible for strategy code. Additive ``details`` rows give both hazard kinds the same
+    player-facing front/back contract and put their map markers on real geometry boundary pixels.
     """
     segments = _route_segments(route)
+    water = _water_carry(by.get("Lake.drc"), segments)
+    bunker_measurements = _bunker_measurements(by.get("Bunker.drc"), route)
+    details: list[dict] = []
+    if water or bunker_measurements:
+        tee = (float(route[0][0]), float(route[0][1]))
+        to_px = hole_render.overlay_projector(by, route)
+        for start, end in water:
+            front_point = _route_point(segments, start)
+            back_point = _route_point(segments, end)
+            if front_point is not None and back_point is not None:
+                details.append(_hazard_detail(
+                    "water", start, end, front_point, back_point, tee, to_px,
+                ))
+        for bunker_row in bunker_measurements:
+            details.append(_hazard_detail(
+                "bunker",
+                bunker_row["frontRouteM"],
+                bunker_row["backRouteM"],
+                bunker_row["frontPoint"],
+                bunker_row["backPoint"],
+                tee,
+                to_px,
+                side_m=bunker_row["sideM"],
+            ))
     return {
-        "water_carry": _water_carry(by.get("Lake.drc"), segments),
-        "bunkers": _bunkers(by.get("Bunker.drc"), route),
+        "water_carry": water,
+        "bunkers": [row["legacy"] for row in bunker_measurements],
+        "details": details,
     }
 
 
@@ -695,7 +782,7 @@ def _missing_hole(global_id: int, local_hole: int, par_record=None) -> dict:
         "cautions": [],
         "landing_m": None,
         "tee_club": None,
-        "hazards": {"water_carry": [], "bunkers": []},
+        "hazards": {"water_carry": [], "bunkers": [], "details": []},
     }
 
 

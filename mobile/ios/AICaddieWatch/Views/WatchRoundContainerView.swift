@@ -173,6 +173,8 @@ public struct WatchRoundContainerView: View {
                                 WatchHazardView(
                                     hazards: state.hazards,
                                     playerProgressM: progress,
+                                    playerImagePoint: geometry.youPx,
+                                    route: route,
                                     onSelect: { selectedHazardID = $0.id }
                                 )
                             } else {

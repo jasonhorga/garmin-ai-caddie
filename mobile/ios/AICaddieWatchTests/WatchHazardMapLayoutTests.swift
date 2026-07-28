@@ -40,6 +40,7 @@ final class WatchHazardMapLayoutTests: XCTestCase {
         )
 
         XCTAssertEqual(WatchHazardMapLayout.alongRouteEndMetres(for: measured), 190)
+        XCTAssertNil(WatchHazardMapLayout.bunkerSideMetres(for: measured))
         XCTAssertEqual(WatchHazardMapLayout.alongRouteEndMetres(for: current), 180)
         XCTAssertEqual(WatchHazardMapLayout.bunkerSideMetres(for: current), 15)
         XCTAssertEqual(WatchHazardMapLayout.alongRouteEndMetres(for: oldCache), 180)

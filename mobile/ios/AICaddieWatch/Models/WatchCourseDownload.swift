@@ -279,22 +279,40 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
 public struct WatchCoursePrepHazards: Decodable, Equatable {
     public let waterCarry: [[Double]]
     public let bunkers: [[Double]]
+    public let details: [WatchCoursePrepHazardDetail]
 
-    public init(waterCarry: [[Double]] = [], bunkers: [[Double]] = []) {
+    public init(
+        waterCarry: [[Double]] = [],
+        bunkers: [[Double]] = [],
+        details: [WatchCoursePrepHazardDetail] = []
+    ) {
         self.waterCarry = waterCarry
         self.bunkers = bunkers
+        self.details = details
     }
 
     private enum CodingKeys: String, CodingKey {
         case waterCarry = "water_carry"
-        case bunkers
+        case bunkers, details
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         waterCarry = try container.decodeIfPresent([[Double]].self, forKey: .waterCarry) ?? []
         bunkers = try container.decodeIfPresent([[Double]].self, forKey: .bunkers) ?? []
+        details = try container.decodeIfPresent([WatchCoursePrepHazardDetail].self, forKey: .details) ?? []
     }
+}
+
+public struct WatchCoursePrepHazardDetail: Decodable, Equatable {
+    public let kind: String
+    public let frontM: Double
+    public let backM: Double
+    public let frontRouteM: Double
+    public let backRouteM: Double
+    public let frontPx: [Double]
+    public let backPx: [Double]
+    public let sideM: Double?
 }
 
 public struct WatchCoursePrepMap: Decodable, Equatable {

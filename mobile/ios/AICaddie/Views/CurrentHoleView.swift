@@ -510,30 +510,66 @@ public struct CurrentHoleView: View {
         return byLabel != fallback ? byLabel : fallback
     }
 
-    /// Measured hazard facts mirrored to the Watch. Bunker rows are `[along-route, lateral-gap]`;
-    /// water rows are `[enter, clear]`. Ordering and numbering match the iPhone list.
+    /// Measured hazard facts mirrored to the Watch. New prep carries true front/back boundary facts;
+    /// old caches fall back to water intervals and a single reliable bunker route point.
     private func watchHazards() -> [WatchHazard] {
         guard let holePrep else {
             return []
         }
         var out: [WatchHazard] = []
-        let bunkers = holePrep.hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-        for (index, interval) in bunkers.enumerated() {
-            out.append(WatchHazard(
-                kind: "bunker",
-                label: bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
-                startM: interval.first,
-                sideM: interval.count >= 2 ? interval[1] : nil
-            ))
+        let bunkerDetails = holePrep.hazards.details
+            .filter { $0.kind == "bunker" }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+        if !bunkerDetails.isEmpty {
+            for (index, detail) in bunkerDetails.enumerated() {
+                out.append(WatchHazard(
+                    kind: "bunker",
+                    label: bunkerDetails.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
+                    startM: detail.frontRouteM,
+                    endM: detail.backRouteM,
+                    frontDistanceM: detail.frontM,
+                    backDistanceM: detail.backM,
+                    frontPx: detail.frontPx,
+                    backPx: detail.backPx
+                ))
+            }
+        } else {
+            let bunkers = holePrep.hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            for (index, interval) in bunkers.enumerated() {
+                out.append(WatchHazard(
+                    kind: "bunker",
+                    label: bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
+                    startM: interval.first,
+                    sideM: interval.count >= 2 ? interval[1] : nil
+                ))
+            }
         }
-        let water = holePrep.hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-        for (index, interval) in water.enumerated() {
-            out.append(WatchHazard(
-                kind: "water",
-                label: water.count > 1 ? "水域 \(index + 1)" : "水域",
-                startM: interval.first,
-                endM: interval.count >= 2 ? interval[1] : nil
-            ))
+        let waterDetails = holePrep.hazards.details
+            .filter { $0.kind == "water" }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+        if !waterDetails.isEmpty {
+            for (index, detail) in waterDetails.enumerated() {
+                out.append(WatchHazard(
+                    kind: "water",
+                    label: waterDetails.count > 1 ? "水域 \(index + 1)" : "水域",
+                    startM: detail.frontRouteM,
+                    endM: detail.backRouteM,
+                    frontDistanceM: detail.frontM,
+                    backDistanceM: detail.backM,
+                    frontPx: detail.frontPx,
+                    backPx: detail.backPx
+                ))
+            }
+        } else {
+            let water = holePrep.hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            for (index, interval) in water.enumerated() {
+                out.append(WatchHazard(
+                    kind: "water",
+                    label: water.count > 1 ? "水域 \(index + 1)" : "水域",
+                    startM: interval.first,
+                    endM: interval.count >= 2 ? interval[1] : nil
+                ))
+            }
         }
         return out
     }

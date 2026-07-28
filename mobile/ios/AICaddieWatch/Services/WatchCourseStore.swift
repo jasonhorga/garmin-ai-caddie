@@ -198,23 +198,59 @@ public enum WatchCourseTemplateBuilder {
     private static func watchHazards(_ value: WatchCoursePrepHazards?) -> [WatchHazard] {
         guard let value else { return [] }
         var result: [WatchHazard] = []
-        let bunkers = value.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-        for (index, interval) in bunkers.enumerated() {
-            result.append(WatchHazard(
-                kind: "bunker",
-                label: bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
-                startM: interval.first,
-                sideM: interval.count >= 2 ? interval[1] : nil
-            ))
+        let bunkerDetails = value.details
+            .filter { $0.kind == "bunker" }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+        if !bunkerDetails.isEmpty {
+            for (index, detail) in bunkerDetails.enumerated() {
+                result.append(WatchHazard(
+                    kind: "bunker",
+                    label: bunkerDetails.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
+                    startM: detail.frontRouteM,
+                    endM: detail.backRouteM,
+                    frontDistanceM: detail.frontM,
+                    backDistanceM: detail.backM,
+                    frontPx: detail.frontPx,
+                    backPx: detail.backPx
+                ))
+            }
+        } else {
+            let bunkers = value.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            for (index, interval) in bunkers.enumerated() {
+                result.append(WatchHazard(
+                    kind: "bunker",
+                    label: bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
+                    startM: interval.first,
+                    sideM: interval.count >= 2 ? interval[1] : nil
+                ))
+            }
         }
-        let water = value.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-        for (index, interval) in water.enumerated() {
-            result.append(WatchHazard(
-                kind: "water",
-                label: water.count > 1 ? "水域 \(index + 1)" : "水域",
-                startM: interval.first,
-                endM: interval.count >= 2 ? interval[1] : nil
-            ))
+        let waterDetails = value.details
+            .filter { $0.kind == "water" }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+        if !waterDetails.isEmpty {
+            for (index, detail) in waterDetails.enumerated() {
+                result.append(WatchHazard(
+                    kind: "water",
+                    label: waterDetails.count > 1 ? "水域 \(index + 1)" : "水域",
+                    startM: detail.frontRouteM,
+                    endM: detail.backRouteM,
+                    frontDistanceM: detail.frontM,
+                    backDistanceM: detail.backM,
+                    frontPx: detail.frontPx,
+                    backPx: detail.backPx
+                ))
+            }
+        } else {
+            let water = value.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            for (index, interval) in water.enumerated() {
+                result.append(WatchHazard(
+                    kind: "water",
+                    label: water.count > 1 ? "水域 \(index + 1)" : "水域",
+                    startM: interval.first,
+                    endM: interval.count >= 2 ? interval[1] : nil
+                ))
+            }
         }
         return result
     }

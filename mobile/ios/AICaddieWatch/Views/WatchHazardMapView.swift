@@ -63,14 +63,56 @@ enum WatchHazardMapLayout {
         return Int((remaining * 1.09361).rounded())
     }
 
+    static func point(_ coordinates: [Double]?) -> CGPoint? {
+        guard let coordinates, coordinates.count >= 2,
+              coordinates[0].isFinite, coordinates[1].isFinite else { return nil }
+        return CGPoint(x: coordinates[0], y: coordinates[1])
+    }
+
+    /// Straight-line range from the current player pixel to a true hazard-boundary pixel. The topo
+    /// projector is uniform, so the retained route's cumulative metres calibrate image pixels exactly.
+    static func distanceYards(from player: CGPoint, to edge: CGPoint, on route: [[Double]]) -> Int? {
+        guard player.x.isFinite, player.y.isFinite, edge.x.isFinite, edge.y.isFinite else { return nil }
+        var metres = 0.0
+        var pixels = 0.0
+        for index in 0..<(route.count - 1) {
+            let start = route[index]
+            let end = route[index + 1]
+            guard valid(start), valid(end), end[2] > start[2] else { continue }
+            let pixelLength = hypot(end[0] - start[0], end[1] - start[1])
+            guard pixelLength > 0 else { continue }
+            metres += end[2] - start[2]
+            pixels += pixelLength
+        }
+        guard metres > 0, pixels > 0 else { return nil }
+        let distancePixels = hypot(Double(edge.x - player.x), Double(edge.y - player.y))
+        return Int((distancePixels * metres / pixels * 1.09361).rounded())
+    }
+
+    static func hasMeasuredFrontBack(_ hazard: WatchHazard) -> Bool {
+        hazard.frontDistanceM != nil || hazard.backDistanceM != nil
+            || point(hazard.frontPx) != nil || point(hazard.backPx) != nil
+    }
+
     static func alongRouteEndMetres(for hazard: WatchHazard) -> Double? {
-        hazard.kind == "water" ? (hazard.endM ?? hazard.startM) : hazard.startM
+        if hazard.kind == "water" || hasMeasuredFrontBack(hazard) {
+            return hazard.endM ?? hazard.startM
+        }
+        return hazard.startM
     }
 
     static func bunkerSideMetres(for hazard: WatchHazard) -> Double? {
-        guard hazard.kind == "bunker" else { return nil }
+        guard hazard.kind == "bunker", !hasMeasuredFrontBack(hazard) else { return nil }
         // Before `sideM` existed, the same source value was incorrectly encoded as `endM`.
         return hazard.sideM ?? hazard.endM
+    }
+
+    static func frontImagePoint(for hazard: WatchHazard, on route: [[Double]]) -> CGPoint? {
+        point(hazard.frontPx) ?? hazard.startM.flatMap { imagePoint(on: route, atMetres: $0) }
+    }
+
+    static func backImagePoint(for hazard: WatchHazard, on route: [[Double]]) -> CGPoint? {
+        point(hazard.backPx) ?? alongRouteEndMetres(for: hazard).flatMap { imagePoint(on: route, atMetres: $0) }
     }
 
     private static func valid(_ row: [Double]) -> Bool {
@@ -78,9 +120,9 @@ enum WatchHazardMapLayout {
     }
 }
 
-/// Map detail for one of the real hazard intervals listed by ``WatchHazardView``. The map position and
-/// remaining carry both come from the retained CoursePrep route; no lateral hazard location or flight
-/// path is invented. Turning the Crown selects the next upcoming hazard.
+/// Map detail for one measured hazard. New payloads place both dots on the real geometry boundary and
+/// range straight to them; old caches fall back to their retained route facts. Turning the Crown selects
+/// the next upcoming hazard.
 public struct WatchHazardMapView: View {
     public let geometry: WatchHoleMapGeometry
     public let route: [[Double]]
@@ -155,8 +197,8 @@ public struct WatchHazardMapView: View {
         let startMetres = hazard.startM ?? WatchHazardMapLayout.alongRouteEndMetres(for: hazard)
             ?? playerProgressMetres
         let endMetres = WatchHazardMapLayout.alongRouteEndMetres(for: hazard) ?? startMetres
-        let startPoint = WatchHazardMapLayout.imagePoint(on: route, atMetres: startMetres)
-        let endPoint = WatchHazardMapLayout.imagePoint(on: route, atMetres: endMetres)
+        let startPoint = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
+        let endPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
         let topImageY = [startPoint?.y, endPoint?.y].compactMap { $0 }.min() ?? geometry.pinPx.y
         let scale = CGFloat(WatchHoleMapViewport.effectiveRestingScale(
             requestedScale: WatchHoleMapView.maximumCrownScale,
@@ -235,14 +277,20 @@ public struct WatchHazardMapView: View {
         let tint = hazard.kind == "water"
             ? Color(red: 0.20, green: 0.68, blue: 1.0)
             : Color(red: 1.0, green: 0.76, blue: 0.18)
-        let edges: [(String, Double, CGFloat)] = hazard.kind == "water"
-            ? [("进", startMetres, 13), ("过", endMetres, -13)]
-            : [("距", startMetres, 0)]
-        for (label, metres, yOffset) in edges {
-            guard let yards = WatchHazardMapLayout.remainingYards(to: metres, after: playerProgressMetres),
-                  let imagePoint = WatchHazardMapLayout.imagePoint(on: route, atMetres: metres) else {
+        let hasFrontBack = hazard.kind == "water" || WatchHazardMapLayout.hasMeasuredFrontBack(hazard)
+        let frontPoint = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
+        let backPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
+        let edges: [(String, Double, CGPoint?, CGFloat)] = hasFrontBack
+            ? [("到", startMetres, frontPoint, 13), ("过", endMetres, backPoint, -13)]
+            : [("距", startMetres, frontPoint, 0)]
+        for (label, metres, imagePoint, yOffset) in edges {
+            guard let imagePoint else {
                 continue
             }
+            let yards = WatchHazardMapLayout.distanceYards(
+                from: geometry.youPx, to: imagePoint, on: route
+            ) ?? WatchHazardMapLayout.remainingYards(to: metres, after: playerProgressMetres)
+            guard let yards else { continue }
             let point = canvas(imagePoint)
             let markerRect = CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10)
             context.fill(Path(ellipseIn: markerRect), with: .color(tint))
@@ -274,12 +322,7 @@ public struct WatchHazardMapView: View {
     }
 
     private func controls(hazard: WatchHazard, index: Int, size: CGSize) -> some View {
-        let sideText = WatchHazardMapLayout.bunkerSideMetres(for: hazard).map {
-            "离球路 \(Int(($0 * 1.09361).rounded())) 码"
-        }
-        let summary = ["\(hazard.label) \(index + 1)/\(upcoming.count)", sideText]
-            .compactMap { $0 }
-            .joined(separator: " · ")
+        let summary = "\(hazard.label) \(index + 1)/\(upcoming.count)"
         let trackHeight = min(size.height * 0.55, 104)
         let thumbHeight = min(40, max(18, trackHeight * 0.28))
         let thumbOffset = CGFloat(index) * (trackHeight - thumbHeight)
@@ -316,7 +359,8 @@ public struct WatchHazardMapView: View {
                         .font(.system(size: 10, weight: .semibold))
                     Text(upcoming.count > 1
                         ? "转表冠换障碍"
-                        : (hazard.kind == "water" ? "障碍前后沿" : "沿球路最近位置"))
+                        : ((hazard.kind == "water" || WatchHazardMapLayout.hasMeasuredFrontBack(hazard))
+                            ? "障碍前后沿" : "到障碍距离"))
                         .font(.system(size: 8.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.62))
                 }
