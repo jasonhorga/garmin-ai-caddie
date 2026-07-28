@@ -186,6 +186,16 @@ Build 35 的可安装性不等于产品视觉获批。当前重新以 2026-07-02
 
 当前已复现的第一项偏差：`UI-01`，Watch `.home` 是按钮型记分 Hub，真实 Hole Map 被放到二级“球道图”；这违反单一事实型 Hole Root，也解释了 Build 35 与 S70/批准图体感不一致。修复必须保留现有记分、候选杆、恢复、选洞和结束能力，只改变其进入层级。
 
+### 逐屏问题台账
+
+| 编号 | 状态 | 复现与裁决 |
+|---|---|---|
+| UI-01 | `FIXED / 运行态已验证` | `d90ddcb` 已把真实地图/事实读距恢复为唯一 Hole Root；[Watch run 30347531477 attempt 2](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30347531477) 在真实 Cypress Point 18 洞下载与离线重开中均进入同一根页。 |
+| UI-02 | `FIXED / 运行态已验证` | `7985d49` 根据实际视口与 `you → pin` 像素跨度只缩小静止态地图；242pt 批准图画布仍保持原比例，全屏表冠缩放不受影响。[Watch run 30350643879](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30350643879) 为 `124/124`，真实 Cypress Point 下载与断网重开均完整显示 Tee、果岭和旗位，截图 SHA256 同为 `f2389334c5d0c4de5ba59ed099d4dd0139215d445e2fc7a36dc6243f4a92f102`。 |
+| UI-03 | `ACTIVE` | 当前“障碍”是脱离地图的文字卡片，批准图是地图仪表。并非缺数据：现有 prep `map.overlay.route` 已含逐点像素路线和累计米数，`hazards` 已含沿同一路线的前/后沿；可在不猜测横向位置的前提下复用同一事实坐标。 |
+| IOS-01 | `QUEUED` | iPhone 深色实战页仍继承全局 light system chrome 与上一页“早上好”返回标题，且真实地图高度把核心记分动作挤出首屏；待 Watch 连贯旅程关闭后按批准图处理。 |
+| OPS-01 | `RUNTIME RECOVERED` | 2026-07-28 的远端 502 来自 homeserver 重启后 Postgres 容器未自动启动；数据库启动后 API healthy，真实 Cypress 下载重跑成功。此项与产品截图分轨，不再阻塞本地/离线 UI 证据。 |
+
 发布门：完成清单后，由 CI 生成真实 App 模拟器截图；Codex 将批准图与最终图按状态并排提交用户审批。用户明确批准前，不创建下一版 TestFlight。
 
 ## 防止再次过度设计
