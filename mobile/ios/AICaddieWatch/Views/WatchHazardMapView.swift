@@ -219,6 +219,8 @@ public struct WatchHazardMapView: View {
         .onChange(of: upcoming.count) { count in
             crownSelection = min(crownSelection, Double(max(count - 1, 0)))
         }
+        .persistentSystemOverlays(.hidden)
+        .ignoresSafeArea()
     }
 
     private func hazardMap(_ hazard: WatchHazard, index: Int, size: CGSize) -> some View {

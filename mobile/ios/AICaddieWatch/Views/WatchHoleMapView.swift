@@ -209,6 +209,8 @@ public struct WatchHoleMapView: View {
             .onLongPressGesture(minimumDuration: 0.45) { onToggleBigText() }
         }
         .background(Color.black)
+        .persistentSystemOverlays(.hidden)
+        .ignoresSafeArea()
     }
 
     /// Shared transform so the Canvas vectors and the Text overlay agree on where map points land.
