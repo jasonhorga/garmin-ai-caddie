@@ -116,6 +116,7 @@ def _densify(route, step=4.0):
 
 
 WATER_MIN_M = 3.0   # ignore water clips shorter than this along the route (carry not meaningful)
+WATER_SIDE_MAX_M = 30.0  # list nearby side water like S70; exclude water belonging to adjacent holes
 BUNKER_MAX_M = 30.0  # only report a bunker whose nearest edge is within this of the route
 
 
@@ -175,6 +176,139 @@ def _water_carry(lake, segments) -> list[list[float]]:
     ]
 
 
+def _component_boundary_edges(triangles) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """Exterior mesh edges only; shared triangulation edges are internal and cancel in pairs."""
+    edge_counts: dict[tuple[tuple[float, float], tuple[float, float]], int] = {}
+    for triangle in triangles:
+        for first, second in (
+            (triangle[0], triangle[1]),
+            (triangle[1], triangle[2]),
+            (triangle[2], triangle[0]),
+        ):
+            edge = (first, second) if first <= second else (second, first)
+            edge_counts[edge] = edge_counts.get(edge, 0) + 1
+    return [edge for edge, count in edge_counts.items() if count == 1]
+
+
+def _closest_point_on_segment(point, start, end):
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length_squared = dx * dx + dy * dy
+    if length_squared <= 0:
+        return start
+    t = max(0.0, min(1.0, (
+        (point[0] - start[0]) * dx + (point[1] - start[1]) * dy
+    ) / length_squared))
+    return (start[0] + t * dx, start[1] + t * dy)
+
+
+def _radial_boundary_points(boundary_edges, origin):
+    """True boundary points for player-facing ``到`` (nearest) and ``过`` (farthest).
+
+    The nearest point can lie inside a boundary edge, so project the player origin onto every edge.
+    The farthest point on a line segment is always one of its endpoints.  Both returned points are
+    therefore on the decoded Garmin hazard boundary, and their straight-line ranges cannot invert on
+    a dogleg the way route-station-selected points can.
+    """
+    nearest_candidates = [
+        _closest_point_on_segment(origin, start, end)
+        for start, end in boundary_edges
+    ]
+    vertices = {point for edge in boundary_edges for point in edge}
+    if not nearest_candidates or not vertices:
+        return None
+    front = min(nearest_candidates, key=lambda point: (
+        math.hypot(point[0] - origin[0], point[1] - origin[1]), point,
+    ))
+    back = max(vertices, key=lambda point: (
+        math.hypot(point[0] - origin[0], point[1] - origin[1]), point,
+    ))
+    return front, back
+
+
+def _side_water_measurements(lake, route) -> list[dict]:
+    """Nearby lake components that do not cross the intended route, with true front/back edges.
+
+    ``water_carry`` deliberately remains an exact route-intersection contract for strategy code. The
+    S70 hazard browser is broader: a lake beside the fairway is still a hazard for the hole and needs
+    distances to its front and back. This companion measurement adds only non-crossing components
+    within the same 30 m hole corridor used for bunkers, so water from an adjacent hole is not listed.
+    """
+    if not lake:
+        return []
+    from ai_caddie.geometry.measure_prodgeometry_distances import (
+        line_intervals_for_component,
+        mesh_components,
+        point_segment_distance,
+        segment_edge_intersection_t,
+    )
+
+    segments = _route_segments(route)
+    if not segments:
+        return []
+    route_points = [segments[0][0], *(segment[1] for segment in segments)]
+    xs = [point[0] for point in route_points]
+    ys = [point[1] for point in route_points]
+    route_bbox = (min(xs), min(ys), max(xs), max(ys))
+    measurements: list[dict] = []
+
+    def segment_gap(route_start, route_end, edge_start, edge_end) -> float:
+        if segment_edge_intersection_t(route_start, route_end, edge_start, edge_end) is not None:
+            return 0.0
+        return min(
+            point_segment_distance(route_start, edge_start, edge_end),
+            point_segment_distance(route_end, edge_start, edge_end),
+            point_segment_distance(edge_start, route_start, route_end),
+            point_segment_distance(edge_end, route_start, route_end),
+        )
+
+    for component in mesh_components(lake):
+        if _bbox_gap(route_bbox, component["bbox"]) > WATER_SIDE_MAX_M:
+            continue
+        crosses_route = any(
+            t1 - t0 > 1e-6
+            for a, b, _cum, _seg in segments
+            for t0, t1 in line_intervals_for_component(a, b, component)
+        )
+        if crosses_route:
+            continue  # already represented precisely by ``water_carry``
+
+        boundary_edges = _component_boundary_edges(component["triangles"])
+        if not boundary_edges:
+            continue
+        side = min(
+            segment_gap(route_start, route_end, edge_start, edge_end)
+            for route_start, route_end, _cum, _length in segments
+            for edge_start, edge_end in boundary_edges
+        )
+        if side > WATER_SIDE_MAX_M:
+            continue
+
+        vertices = {point for edge in boundary_edges for point in edge}
+        projected = []
+        for point in vertices:
+            route_projection = _project_point_to_route(point, segments)
+            if route_projection is not None:
+                projected.append((route_projection[1], route_projection[0], point))
+        if not projected:
+            continue
+        route_front = min(projected, key=lambda row: (row[0], row[1], row[2]))
+        route_back = min(projected, key=lambda row: (-row[0], row[1], row[2]))
+        radial = _radial_boundary_points(boundary_edges, route[0])
+        if radial is None:
+            continue
+        front_point, back_point = radial
+        measurements.append({
+            "frontRouteM": round(route_front[0], 1),
+            "backRouteM": round(route_back[0], 1),
+            "frontPoint": front_point,
+            "backPoint": back_point,
+            "sideM": round(side, 1),
+        })
+
+    measurements.sort(key=lambda row: (row["frontRouteM"], row["backRouteM"], row["sideM"]))
+    return measurements
+
+
 def _bbox_gap(route_bbox, comp_bbox) -> float:
     """Lower bound on the route↔component distance from their bounding boxes (safe to reject on)."""
     dx = max(comp_bbox[0] - route_bbox[2], route_bbox[0] - comp_bbox[2], 0.0)
@@ -215,9 +349,9 @@ def _bunker_measurements(bunker, route) -> list[dict]:
     route is measured by that edge — not by its far-away centroid (the old approximation, which
     over-stated the gap and could push a near-edge bunker past the ``BUNKER_MAX_M`` gate). The
     along-route position keeps the existing 4 m route resolution.  For the player-facing S70 readout,
-    every component vertex is also projected onto the route: the earliest/latest route projections
-    define front/back, and the least-lateral vertex wins a tie so both dots sit on the useful bunker
-    edge rather than an arbitrary far corner.
+    ``到`` and ``过`` are the nearest/farthest true boundary points from the player origin.  Route
+    projection remains only an internal monotonic range for sorting/filtering; it does not choose the
+    displayed points (doing so inverted the two ranges on a real dogleg greenside bunker).
     """
     if not bunker:
         return []
@@ -242,7 +376,8 @@ def _bunker_measurements(bunker, route) -> list[dict]:
             if best_side is None or side < best_side:
                 best_side, best_cum = side, p[2]
         if best_side is not None and best_side <= BUNKER_MAX_M:
-            vertices = {point for triangle in triangles for point in triangle}
+            boundary_edges = _component_boundary_edges(triangles)
+            vertices = {point for edge in boundary_edges for point in edge}
             projected = []
             for point in vertices:
                 route_projection = _project_point_to_route(point, segments)
@@ -250,14 +385,18 @@ def _bunker_measurements(bunker, route) -> list[dict]:
                     projected.append((route_projection[1], route_projection[0], point))
             if not projected:
                 continue
-            front = min(projected, key=lambda row: (row[0], row[1], row[2]))
-            back = min(projected, key=lambda row: (-row[0], row[1], row[2]))
+            route_front = min(projected, key=lambda row: (row[0], row[1], row[2]))
+            route_back = min(projected, key=lambda row: (-row[0], row[1], row[2]))
+            radial = _radial_boundary_points(boundary_edges, route[0])
+            if radial is None:
+                continue
+            front_point, back_point = radial
             bunkers.append({
                 "legacy": [round(best_cum, 1), round(best_side, 1)],
-                "frontRouteM": round(front[0], 1),
-                "backRouteM": round(back[0], 1),
-                "frontPoint": front[2],
-                "backPoint": back[2],
+                "frontRouteM": round(route_front[0], 1),
+                "backRouteM": round(route_back[0], 1),
+                "frontPoint": front_point,
+                "backPoint": back_point,
                 "sideM": round(best_side, 1),
             })
     bunkers.sort(key=lambda row: row["legacy"])
@@ -292,9 +431,10 @@ def route_hazards(by: dict, route) -> dict:
     """
     segments = _route_segments(route)
     water = _water_carry(by.get("Lake.drc"), segments)
+    side_water_measurements = _side_water_measurements(by.get("Lake.drc"), route)
     bunker_measurements = _bunker_measurements(by.get("Bunker.drc"), route)
     details: list[dict] = []
-    if water or bunker_measurements:
+    if water or side_water_measurements or bunker_measurements:
         tee = (float(route[0][0]), float(route[0][1]))
         to_px = hole_render.overlay_projector(by, route)
         for start, end in water:
@@ -304,6 +444,17 @@ def route_hazards(by: dict, route) -> dict:
                 details.append(_hazard_detail(
                     "water", start, end, front_point, back_point, tee, to_px,
                 ))
+        for water_row in side_water_measurements:
+            details.append(_hazard_detail(
+                "water",
+                water_row["frontRouteM"],
+                water_row["backRouteM"],
+                water_row["frontPoint"],
+                water_row["backPoint"],
+                tee,
+                to_px,
+                side_m=water_row["sideM"],
+            ))
         for bunker_row in bunker_measurements:
             details.append(_hazard_detail(
                 "bunker",

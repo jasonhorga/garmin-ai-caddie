@@ -38,6 +38,14 @@ def _rect_mesh(min_x: float, min_y: float, max_x: float, max_y: float) -> dict:
     }
 
 
+def _triangle_mesh(first: tuple[float, float], second: tuple[float, float], third: tuple[float, float]) -> dict:
+    """One triangular component in the same decoded prodgeometry coordinate convention."""
+    return {
+        "positions": [[-x, 0.0, y] for x, y in (first, second, third)],
+        "faces": [[0, 1, 2]],
+    }
+
+
 class WaterCarryPrecisionTests(unittest.TestCase):
     def test_narrow_strip_crossed_between_4m_samples_is_now_detected(self) -> None:
         # A 3.6 m-wide water band at y in [100.2, 103.8]; the route runs up x=0 so the 4 m samples
@@ -86,8 +94,58 @@ class WaterCarryPrecisionTests(unittest.TestCase):
         route = [(0.0, 0.0), (0.0, 100.0)]
         self.assertEqual(cp.route_hazards({}, route)["water_carry"], [])
 
+    def test_nearby_side_water_has_real_front_and_back_without_fake_route_carry(self) -> None:
+        # S70 lists hazards for the hole even when the intended centre line does not literally cross
+        # them. This lake sits 12 m right of the route: it must have player-facing boundary distances,
+        # while the legacy route-crossing array remains empty because no carry crosses water.
+        route = [(0.0, 0.0), (0.0, 150.0)]
+        side_lake = _rect_mesh(12.0, 50.0, 25.0, 80.0)
+
+        hazards = cp.route_hazards({"Lake.drc": side_lake}, route)
+
+        self.assertEqual(hazards["water_carry"], [])
+        self.assertEqual(len(hazards["details"]), 1)
+        detail = hazards["details"][0]
+        self.assertEqual(detail["kind"], "water")
+        self.assertEqual(detail["frontRouteM"], 50.0)
+        self.assertEqual(detail["backRouteM"], 80.0)
+        self.assertAlmostEqual(detail["frontM"], math.hypot(12.0, 50.0), places=1)
+        self.assertAlmostEqual(detail["backM"], math.hypot(25.0, 80.0), places=1)
+
+        # Both display dots belong to the real lake boundary, never the route centre (x=0).
+        to_px = cp.hole_render.overlay_projector({"Lake.drc": side_lake}, route)
+        expected_front = to_px((12.0, 50.0))
+        expected_back = to_px((25.0, 80.0))
+        self.assertAlmostEqual(detail["frontPx"][0], expected_front[0], places=1)
+        self.assertAlmostEqual(detail["frontPx"][1], expected_front[1], places=1)
+        self.assertAlmostEqual(detail["backPx"][0], expected_back[0], places=1)
+        self.assertAlmostEqual(detail["backPx"][1], expected_back[1], places=1)
+
+    def test_side_water_beyond_the_hole_corridor_is_not_listed(self) -> None:
+        route = [(0.0, 0.0), (0.0, 150.0)]
+        neighbouring_hole_lake = _rect_mesh(40.0, 50.0, 55.0, 80.0)
+
+        hazards = cp.route_hazards({"Lake.drc": neighbouring_hole_lake}, route)
+
+        self.assertEqual(hazards["water_carry"], [])
+        self.assertEqual(hazards["details"], [])
+
 
 class BunkerEdgeDistanceTests(unittest.TestCase):
+    def test_dogleg_greenside_bunker_uses_player_near_and_far_edges(self) -> None:
+        # Real regression: 黑骑士 A 场 h4 bends sharply before the green. Selecting boundary points by
+        # their station along that dogleg produced `到 471 · 过 468` because the later route point was
+        # physically nearer the tee. Player-facing S70 semantics are radial: 到 = nearest true edge,
+        # 过 = farthest true edge. This triangle recreates the same inversion without fixture data.
+        route = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0)]
+        bunker = _triangle_mesh((130.0, 90.0), (110.0, 100.0), (130.0, 110.0))
+
+        detail = cp.route_hazards({"Bunker.drc": bunker}, route)["details"][0]
+
+        self.assertAlmostEqual(detail["frontM"], math.hypot(110.0, 100.0), places=1)
+        self.assertAlmostEqual(detail["backM"], math.hypot(130.0, 110.0), places=1)
+        self.assertLess(detail["frontM"], detail["backM"])
+
     def test_side_bunker_reports_true_front_and_back_edges_on_the_bunker(self) -> None:
         route = [(0.0, 0.0), (0.0, 200.0)]
         bunker = _rect_mesh(5.0, 90.0, 15.0, 110.0)
@@ -102,13 +160,13 @@ class BunkerEdgeDistanceTests(unittest.TestCase):
         self.assertEqual(detail["frontRouteM"], 90.0)
         self.assertEqual(detail["backRouteM"], 110.0)
         self.assertAlmostEqual(detail["frontM"], math.hypot(5.0, 90.0), places=1)
-        self.assertAlmostEqual(detail["backM"], math.hypot(5.0, 110.0), places=1)
+        self.assertAlmostEqual(detail["backM"], math.hypot(15.0, 110.0), places=1)
         self.assertEqual(detail["sideM"], 5.0)
 
-        # The red dots belong on the bunker boundary (x=5), not on the route centreline (x=0).
+        # Both dots belong on the bunker boundary, not on the route centreline (x=0).
         to_px = cp.hole_render.overlay_projector({"Bunker.drc": bunker}, route)
         expected_front = to_px((5.0, 90.0))
-        expected_back = to_px((5.0, 110.0))
+        expected_back = to_px((15.0, 110.0))
         route_front = to_px((0.0, 90.0))
         self.assertAlmostEqual(detail["frontPx"][0], expected_front[0], places=1)
         self.assertAlmostEqual(detail["frontPx"][1], expected_front[1], places=1)
