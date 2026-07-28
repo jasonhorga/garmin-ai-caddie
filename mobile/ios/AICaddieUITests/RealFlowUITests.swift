@@ -170,6 +170,37 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("11b-caddie-hazards"); dump("11b-caddie-hazards")
     }
 
+    /// Product regression for IOS-03. This launch deliberately has no backend configuration, so the
+    /// DEBUG fixture runs entirely inside the simulator and accepting a score cannot write a junk
+    /// round into the owner's real history.
+    func testOfflinePhoneScoringConfirmsAndAdvancesToNextHole() throws {
+        app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = ""
+        app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = ""
+        app.launchEnvironment["UITEST_MODE"] = "1"
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "offline fixture app did not foreground")
+
+        XCTAssertTrue(tapContaining(["继续"]), "offline fixture must expose its active first hole")
+        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 12), "fixture must enter hole 1")
+
+        let save = app.buttons["保存本洞 ✓"]
+        XCTAssertTrue(save.waitForExistence(timeout: 8), "hole root must expose score confirmation")
+        save.tap()
+
+        let acceptRecommendation = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "接受推荐")
+        ).firstMatch
+        XCTAssertTrue(
+            acceptRecommendation.waitForExistence(timeout: 5),
+            "saving a hole must ask for one-tap recommended-score acceptance before recording"
+        )
+        acceptRecommendation.tap()
+        XCTAssertTrue(
+            app.staticTexts["第 2 洞"].waitForExistence(timeout: 12),
+            "accepting the recommended score must move phone-only play to the ordered next hole"
+        )
+    }
+
     // MARK: - navigation helpers
 
     private func launchFresh() {
