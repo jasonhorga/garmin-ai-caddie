@@ -253,9 +253,10 @@ public struct WatchHazardMapView: View {
             let preferredX = point.x > size.width * 0.5
                 ? point.x - pillWidth * 0.5 - 10
                 : point.x + pillWidth * 0.5 + 10
+            let minimumPillCenterY: CGFloat = centerGreenYards > 0 ? 40 : 13
             let pillCenter = CGPoint(
                 x: min(max(preferredX, pillWidth * 0.5 + 4), size.width - pillWidth * 0.5 - 4),
-                y: min(max(point.y + yOffset, 13), size.height - 13)
+                y: min(max(point.y + yOffset, minimumPillCenterY), size.height - 13)
             )
             let rect = CGRect(
                 x: pillCenter.x - pillWidth * 0.5,

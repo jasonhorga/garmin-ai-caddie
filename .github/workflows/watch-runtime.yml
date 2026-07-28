@@ -123,6 +123,9 @@ jobs:
               elif [[ "$mode" == "real-course-hazard-map" ]]; then
                 marker="real-course-hazard-ready"
                 failed_marker="real-course-hazard-failed"
+              elif [[ "$mode" == "real-course-hazard-mid-map" ]]; then
+                marker="real-course-hazard-mid-ready"
+                failed_marker="real-course-hazard-mid-failed"
               fi
               if ! launch_output=$(env \
                 SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
@@ -188,6 +191,9 @@ jobs:
           # Reuse the same offline cache and select its first real hazard-bearing hole. This proves the
           # map callouts are placed from retained production route data rather than a screenshot fixture.
           launch_and_capture real-course-hazard-map watch-real-course-hazard-map.png
+          # Move the simulated wrist fix along that same retained route until the first real hazard is
+          # about 120 yards ahead, matching the approved mid-hole hazard-instrument state.
+          launch_and_capture real-course-hazard-mid-map watch-real-course-hazard-mid-map.png
           launch_and_capture milestone-seed watch-round-seeded.png
           # Do not reinstall or reseed here: the second process must load the first launch's stored round.
           launch_and_capture milestone-restore watch-round-restored.png

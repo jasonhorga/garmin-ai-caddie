@@ -40,7 +40,8 @@ public struct WatchUITestRoot: View {
              "standalone-course-last-shot", "standalone-course-caddie-last-shot",
              "standalone-course-live-home":
             standaloneCourseRound
-        case "real-course-download-seed", "real-course-download-restore", "real-course-hazard-map":
+        case "real-course-download-seed", "real-course-download-restore",
+             "real-course-hazard-map", "real-course-hazard-mid-map":
             realCourseRound
         case "course-picker":
             cachedCoursePicker
@@ -186,9 +187,9 @@ public struct WatchUITestRoot: View {
     private var realCourseRound: some View {
         Group {
             if model.round != nil {
-                if screen == "real-course-hazard-map",
+                if isRealCourseHazardScreen,
                    let state = model.activeHoleState,
-                   let geometry = realCourseGeometry,
+                   let geometry = realCourseHazardGeometry,
                    let route = state.holeMap?.route,
                    !route.isEmpty,
                    !state.hazards.isEmpty {
@@ -196,7 +197,7 @@ public struct WatchUITestRoot: View {
                         geometry: geometry,
                         route: route,
                         hazards: state.hazards,
-                        centerGreenYards: WatchUnits.yards(state.centerGreenM ?? 0)
+                        centerGreenYards: realCourseHazardCenterYards(state)
                     )
                 } else {
                     WatchRoundContainerView(
@@ -222,10 +223,14 @@ public struct WatchUITestRoot: View {
                 if screen == "real-course-download-seed" {
                     await seedRealCourse()
                 } else {
-                    await restoreRealCourseOffline(selectHazardHole: screen == "real-course-hazard-map")
+                    await restoreRealCourseOffline(selectHazardHole: isRealCourseHazardScreen)
                 }
             }
         }
+    }
+
+    private var isRealCourseHazardScreen: Bool {
+        screen == "real-course-hazard-map" || screen == "real-course-hazard-mid-map"
     }
 
     private var realCourseGeometry: WatchHoleMapGeometry? {
@@ -235,6 +240,35 @@ public struct WatchUITestRoot: View {
             return nil
         }
         return WatchHoleMapGeometry.from(holeMap: state.holeMap, image: image)
+    }
+
+    /// Same downloaded Cypress geometry, with a deterministic simulated GPS fix about 120 yards
+    /// before the first real hazard. This makes the runtime comparison match the approved mid-hole
+    /// state without inventing a hazard, route, or map point.
+    private var realCourseHazardGeometry: WatchHoleMapGeometry? {
+        guard let geometry = realCourseGeometry,
+              let progress = simulatedRealCourseHazardProgressM,
+              let route = model.activeHoleState?.holeMap?.route,
+              let point = WatchHazardMapLayout.imagePoint(on: route, atMetres: progress) else {
+            return realCourseGeometry
+        }
+        return geometry.withYou(point)
+    }
+
+    private var simulatedRealCourseHazardProgressM: Double? {
+        guard screen == "real-course-hazard-mid-map",
+              let state = model.activeHoleState else { return nil }
+        let firstHazardM = state.hazards.compactMap { $0.startM ?? $0.endM }.min()
+        return firstHazardM.map { max(0, $0 - 110) }
+    }
+
+    private func realCourseHazardCenterYards(_ state: WatchRoundState) -> Int {
+        guard let progress = simulatedRealCourseHazardProgressM,
+              let routeEnd = state.holeMap?.route.last,
+              routeEnd.count >= 3 else {
+            return WatchUnits.yards(state.centerGreenM ?? 0)
+        }
+        return WatchUnits.yards(max(0, routeEnd[2] - progress))
     }
 
     private var realCourseRuntimeConfig: WatchRoundConfig? {
@@ -328,7 +362,13 @@ public struct WatchUITestRoot: View {
             activeHole: activeHole,
             courseName: prepared.courseName
         )
-        writeRealCourseMarker(selectHazardHole ? "real-course-hazard-ready" : "real-course-offline-ready")
+        if selectHazardHole {
+            writeRealCourseMarker(screen == "real-course-hazard-mid-map"
+                ? "real-course-hazard-mid-ready"
+                : "real-course-hazard-ready")
+        } else {
+            writeRealCourseMarker("real-course-offline-ready")
+        }
     }
 
     @MainActor
@@ -337,8 +377,10 @@ public struct WatchUITestRoot: View {
         switch screen {
         case "real-course-download-seed":
             writeRealCourseMarker("real-course-download-failed")
-        case "real-course-hazard-map":
-            writeRealCourseMarker("real-course-hazard-failed")
+        case "real-course-hazard-map", "real-course-hazard-mid-map":
+            writeRealCourseMarker(screen == "real-course-hazard-mid-map"
+                ? "real-course-hazard-mid-failed"
+                : "real-course-hazard-failed")
         default:
             writeRealCourseMarker("real-course-offline-failed")
         }
@@ -358,6 +400,7 @@ public struct WatchUITestRoot: View {
             "real-course-download-ready", "real-course-download-failed",
             "real-course-offline-ready", "real-course-offline-failed",
             "real-course-hazard-ready", "real-course-hazard-failed",
+            "real-course-hazard-mid-ready", "real-course-hazard-mid-failed",
         ] {
             try? FileManager.default.removeItem(at: realCourseMarkerURL(name))
         }
