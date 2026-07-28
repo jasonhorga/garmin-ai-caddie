@@ -88,12 +88,21 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderWatchHazards() throws {
-        // Bunkers retain along-route + lateral-gap facts; water retains enter/clear distances.
+        // Both sand and water use the locked S70-facing 到/过 front/back semantics.
         let view = WatchHazardView(
             hazards: [
-                WatchHazard(kind: "bunker", label: "沙坑 1", startM: 120, sideM: 12),
-                WatchHazard(kind: "bunker", label: "沙坑 2", startM: 165, sideM: 13),
-                WatchHazard(kind: "water", label: "水域", startM: 210, endM: 235),
+                WatchHazard(
+                    kind: "bunker", label: "沙坑 1", startM: 116, endM: 132,
+                    frontDistanceM: 120, backDistanceM: 136
+                ),
+                WatchHazard(
+                    kind: "bunker", label: "沙坑 2", startM: 160, endM: 178,
+                    frontDistanceM: 165, backDistanceM: 183
+                ),
+                WatchHazard(
+                    kind: "water", label: "水域", startM: 210, endM: 235,
+                    frontDistanceM: 210, backDistanceM: 235
+                ),
             ]
         )
         .padding(8)

@@ -172,7 +172,27 @@ final class DesignSnapshotTests: XCTestCase {
             // round-10: multiple bunkers are numbered + sorted near→far (CaddiePlanHazard.from), so
             // three avoid zones aren't all just "沙坑". Build via .from to exercise that real logic.
             hazards: CaddiePlanHazard.from(
-                CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[210, 18], [138, 12]])
+                CoursePrepHazards(
+                    waterCarry: [[175, 195]],
+                    bunkers: [[210, 18], [138, 12]],
+                    details: [
+                        CoursePrepHazardDetail(
+                            kind: "water", frontM: 175, backM: 195,
+                            frontRouteM: 175, backRouteM: 195,
+                            frontPx: [100, 300], backPx: [100, 280], sideM: nil
+                        ),
+                        CoursePrepHazardDetail(
+                            kind: "bunker", frontM: 207, backM: 224,
+                            frontRouteM: 205, backRouteM: 225,
+                            frontPx: [130, 260], backPx: [132, 240], sideM: 18
+                        ),
+                        CoursePrepHazardDetail(
+                            kind: "bunker", frontM: 134, backM: 149,
+                            frontRouteM: 132, backRouteM: 151,
+                            frontPx: [112, 390], backPx: [114, 371], sideM: 12
+                        ),
+                    ]
+                )
             )
         )
         .padding(14)
