@@ -150,6 +150,10 @@ jobs:
                 sleep 5
               done
               test -f "$app_container/Documents/$marker"
+              # The marker records that production state is ready; SwiftUI may still be committing
+              # the first frame (the focused hazard Canvas is the slowest surface). Give that frame
+              # a short settle window so a successful state transition cannot yield a black image.
+              sleep 2
             else
               sleep 5
             fi
