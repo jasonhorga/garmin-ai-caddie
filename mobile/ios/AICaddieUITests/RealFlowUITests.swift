@@ -131,10 +131,9 @@ final class RealFlowUITests: XCTestCase {
             app.buttons["返回球局首页"].waitForExistence(timeout: 5),
             "immersive live play must retain an explicit way back to the round home"
         )
-        XCTAssertLessThan(
-            app.buttons["返回球局首页"].frame.minY,
-            30,
-            "the live-play NavigationStack must hide the system status bar instead of reserving its 59pt safe area"
+        XCTAssertFalse(
+            app.statusBars.firstMatch.exists,
+            "the live-play NavigationStack must hide the black-on-black system status bar"
         )
         XCTAssertFalse(
             app.buttons["晚上好"].exists || app.buttons["早上好"].exists
