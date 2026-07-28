@@ -1940,6 +1940,7 @@ class MobileContractTests(unittest.TestCase):
     def test_ios_course_review_product_copy_and_route_yardage_contract(self) -> None:
         course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
         course_prep = _read_required_source(self, IOS_DIR / "Models" / "CoursePrep.swift")
+        caddie_plan = _read_required_source(self, IOS_DIR / "Views" / "CaddiePlanView.swift")
 
         self.assertIn("struct CoursePrepHazardIntervalReadout: Equatable", course_prep)
         self.assertIn("enum CoursePrepRoute", course_prep)
@@ -1950,12 +1951,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('Text("蓝T \\(hole.blueYards)y")', course_review)
         # De-engineered: the "Par 来源：…" provenance label is hidden from the consumer course review.
         self.assertNotIn("Par 来源", course_review)
-        self.assertIn("CoursePrepRoute.intervalReadout", course_review)
-        self.assertIn("水障碍：进", course_review)
-        self.assertIn("沙坑：约", course_review)
-        self.assertIn("沙坑：已过", course_review)
-        self.assertIn("bunker[0] >= current", course_review)
-        self.assertNotIn("abs(bunker[0] - current)", course_review)
+        # Course review and the full caddie plan share one measured hazard projection.  Both water
+        # and bunkers show 到前沿 / 过后沿; the legacy lateral gap is never presented as a carry.
+        self.assertIn("CaddiePlanHazard.from(hole.hazards)", course_review)
+        self.assertIn('return "\\(hazard.label)：\\(detail)"', course_review)
+        self.assertIn("measuredText(frontM: detail.frontM, backM: detail.backM)", caddie_plan)
+        self.assertIn('"到 \\(CoursePrepRoute.yards(fromMetres: frontM)) · 过 \\(CoursePrepRoute.yards(fromMetres: backM)) 码"', caddie_plan)
+        self.assertNotIn("离球路", course_review)
         self.assertNotIn('?? "?"', course_review)
 
     def test_ios_clients_attach_admin_token_header_when_configured(self) -> None:
@@ -3014,26 +3016,29 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("WatchEventBridge.makeHoleMap(overlay:", current_hole)
         self.assertIn("func pushTopoToWatch(", current_hole)
         self.assertIn("watchBridge.pushHoleImage(", current_hole)
-        # watch: geometry builder + the .holeMap screen wired into the container + reachable from home.
+        # watch: geometry builder + permanent current-hole map root. `.holeMap` remains only as a
+        # backward-compatible state alias; there is no second user-visible "open map" page/button.
         geometry = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapGeometry.swift")
         self.assertIn("static func from(holeMap:", geometry)
         container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
+        self.assertIn("case .home:", container)
         self.assertIn("case .holeMap:", container)
         self.assertIn("WatchHoleMapView(", container)
-        self.assertIn("model.openHoleMap()", container)
+        self.assertIn("currentHoleRoot(state)", container)
+        self.assertIn("WatchHoleRootPresentation.resolve(", container)
+        self.assertIn("case .map:", container)
+        self.assertIn("holeMapView(s, geometry)", container)
+        self.assertNotIn("model.openHoleMap()", container)
         model = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundModel.swift")
         self.assertIn("case holeMap", model)
         self.assertIn("func openHoleMap()", model)
-        home = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundHomeView.swift")
-        self.assertIn("hasHoleMap", home)
-        self.assertIn("onHoleMap", home)
         # watch P1f: no-geometry big-distance fallback (WatchDistanceHero) + 大字 toggle (spec D1).
         hero = _read_required_source(self, WATCH_DIR / "Views" / "WatchDistanceHero.swift")
         self.assertIn("struct WatchDistanceHero", hero)
         self.assertIn("bigText", hero)
         self.assertIn("WatchDistanceHero(", container)
         self.assertIn("holeMapBigText", container)     # 大字 toggle state
-        self.assertIn("func hasHoleView(", container)  # entry gated on geometry OR a green distance
+        self.assertIn("hasCenterDistance:", container) # root degrades map → distances → score honestly
         self.assertIn(".onTapGesture", container)      # hero tap ↔ map
         # watch P2 map interactions: 选点测距(tap→distance)+ 拖旗(drag flag)+ 大字(long-press).
         map_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift")
