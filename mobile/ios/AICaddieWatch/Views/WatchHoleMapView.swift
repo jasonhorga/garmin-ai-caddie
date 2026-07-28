@@ -1,5 +1,25 @@
 import SwiftUI
 
+enum WatchHoleMapViewport {
+    static let flagTopClearance = 20.0
+
+    static func effectiveRestingScale(
+        requestedScale: Double,
+        viewportHeight: Double,
+        playerAnchorFraction: Double,
+        playerImageY: Double,
+        pinImageY: Double
+    ) -> Double {
+        let upwardImageSpan = playerImageY - pinImageY
+        guard viewportHeight > 0, upwardImageSpan > 0 else { return requestedScale }
+
+        let playerY = viewportHeight * playerAnchorFraction
+        let fittedScale = (playerY - flagTopClearance) / upwardImageSpan
+        guard fittedScale.isFinite, fittedScale > 0 else { return requestedScale }
+        return min(requestedScale, fittedScale)
+    }
+}
+
 /// round-14 (Watch standalone, DESIGN REVIEW): the player's **hole view** — a Garmin-Approach-S70-inspired
 /// SPLIT (LEFT data column | RIGHT hole-map panel) on the REAL server-rendered CourseView image
 /// (`WatchHoleMapSample`), DECLUTTERED toward Garmin's progressive disclosure.
@@ -110,7 +130,16 @@ public struct WatchHoleMapView: View {
         return CGFloat(centerGreen) / span
     }
 
-    private var currentScale: CGFloat { mapScale }
+    private func currentScale(_ size: CGSize) -> CGFloat {
+        guard !fullMap else { return mapScale }
+        return CGFloat(WatchHoleMapViewport.effectiveRestingScale(
+            requestedScale: Double(mapScale),
+            viewportHeight: Double(size.height),
+            playerAnchorFraction: 0.72,
+            playerImageY: Double(geometry.youPx.y),
+            pinImageY: Double(geometry.pinPx.y)
+        ))
+    }
 
     private var zoomProgress: CGFloat {
         let lower = CGFloat(Self.restingCrownScale)
@@ -129,8 +158,9 @@ public struct WatchHoleMapView: View {
     /// Convert a canvas tap/drag location back to image-px (inverse of `anchors`).
     private func imagePx(fromCanvas c: CGPoint, size: CGSize) -> CGPoint {
         let a = anchors(size)
-        return CGPoint(x: (c.x - a.you.x) / currentScale + geometry.youPx.x,
-                       y: (c.y - a.you.y) / currentScale + geometry.youPx.y)
+        let scale = currentScale(size)
+        return CGPoint(x: (c.x - a.you.x) / scale + geometry.youPx.x,
+                       y: (c.y - a.you.y) / scale + geometry.youPx.y)
     }
 
     private func handleTap(_ location: CGPoint, size: CGSize) {
@@ -183,7 +213,7 @@ public struct WatchHoleMapView: View {
     /// Shared transform so the Canvas vectors and the Text overlay agree on where map points land.
     private func anchors(_ size: CGSize) -> (t: (CGPoint) -> CGPoint, you: CGPoint) {
         let mapLeft = fullMap ? 0 : size.width * columnFrac
-        let scale = currentScale
+        let scale = currentScale(size)
         let youImg = geometry.youPx
         let youCanvas = CGPoint(x: mapLeft + (size.width - mapLeft) * 0.5, y: size.height * (fullMap ? 0.66 : 0.72))
         let t: (CGPoint) -> CGPoint = { p in
@@ -284,7 +314,7 @@ public struct WatchHoleMapView: View {
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
 
         let mapLeft = fullMap ? 0 : size.width * columnFrac
-        let scale = currentScale
+        let scale = currentScale(size)
         let a = anchors(size)
         let player = a.you
         // 拖旗: the flag follows the drag offset (canvas px), previewing "到旗" from a moved pin.
