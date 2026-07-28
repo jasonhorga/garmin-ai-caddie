@@ -108,6 +108,12 @@ public struct RoundHomeView: View {
         }
     }
 
+    private var isLiveHolePresented: Bool {
+        guard let route = path.last else { return false }
+        if case .hole = route { return true }
+        return false
+    }
+
     public var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
@@ -149,6 +155,9 @@ public struct RoundHomeView: View {
                 await refreshRealClubBag(apiBaseURL: apiBaseURL, adminToken: adminToken)
             }
         }
+        // The stack owns the system status bar, so the immersive hole destination cannot hide it
+        // reliably from inside CurrentHoleView. Keep normal chrome everywhere except live play.
+        .statusBarHidden(isLiveHolePresented)
         .onChange(of: pendingLiveHole) { _, hole in
             // 开始记分后直接进实战屏:把刚开的洞设为唯一路径(替换掉「开始一场」),不弹回 Hub。
             guard let hole else { return }

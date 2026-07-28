@@ -165,7 +165,6 @@ public struct CurrentHoleView: View {
         // own explicit return affordance instead.
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
-        .statusBarHidden(true)
         .onAppear {
             locationProvider.requestAuthorization()
             locationProvider.startUpdatingLocation()

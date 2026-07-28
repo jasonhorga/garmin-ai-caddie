@@ -479,7 +479,18 @@ struct LiveCaddieStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 7) {
-                Circle().fill(LivePlayStyle.accentSystem).frame(width: 7, height: 7)
+                ZStack {
+                    if isLoading {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(LivePlayStyle.ink60)
+                            .scaleEffect(0.6)
+                    } else {
+                        Circle().fill(LivePlayStyle.accentSystem)
+                    }
+                }
+                .frame(width: 7, height: 7)
+                .accessibilityLabel(isLoading ? "正在更新球童建议" : "球童建议已就绪")
                 Text("球童建议").font(.system(size: 13, weight: .heavy)).foregroundStyle(LivePlayStyle.greenLabel)
                 Spacer(minLength: 0)
                 Button(action: onExpand) {
@@ -494,21 +505,13 @@ struct LiveCaddieStrip: View {
                     }
                 }
             }
-            if let playsText {
-                Text(playsText)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(LivePlayStyle.ink78)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if isLoading {
-                HStack(spacing: 6) {
-                    ProgressView().tint(LivePlayStyle.ink60)
-                    Text("更新球童建议…").font(.caption).foregroundStyle(LivePlayStyle.ink60)
-                }
-            }
-            if let errorText {
-                Text(errorText).font(.caption).foregroundStyle(LivePlayStyle.ink60)
-            }
+            let compactStatus = errorText ?? playsText
+            Text(compactStatus ?? " ")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(errorText == nil ? LivePlayStyle.ink78 : LivePlayStyle.ink60)
+                .lineLimit(1)
+                .opacity(compactStatus == nil ? 0 : 1)
+                .accessibilityHidden(compactStatus == nil)
         }
     }
 }
