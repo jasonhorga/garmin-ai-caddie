@@ -170,7 +170,8 @@ public enum WatchCourseTemplateBuilder {
             pin: [last[0], last[1]],
             layup: interpolate(route, atM: landing),
             apex: interpolate(route, atM: landing * 0.5),
-            greenCtrl: interpolate(route, atM: landing + (total - landing) * 0.5)
+            greenCtrl: interpolate(route, atM: landing + (total - landing) * 0.5),
+            route: route
         )
     }
 

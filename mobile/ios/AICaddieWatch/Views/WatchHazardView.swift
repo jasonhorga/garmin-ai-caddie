@@ -6,9 +6,11 @@ import SwiftUI
 /// Geometry-gated upstream: holes without usable geometry push no hazards and show the empty state.
 public struct WatchHazardView: View {
     public let hazards: [WatchHazard]
+    public let onSelect: ((WatchHazard) -> Void)?
 
-    public init(hazards: [WatchHazard]) {
+    public init(hazards: [WatchHazard], onSelect: ((WatchHazard) -> Void)? = nil) {
         self.hazards = hazards
+        self.onSelect = onSelect
     }
 
     public var body: some View {
@@ -20,14 +22,26 @@ public struct WatchHazardView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(hazards) { hazard in
-                    hazardRow(hazard)
+                ForEach(orderedHazards) { hazard in
+                    if let onSelect {
+                        Button(action: { onSelect(hazard) }) {
+                            hazardRow(hazard, showsDisclosure: true)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        hazardRow(hazard, showsDisclosure: false)
+                    }
                 }
             }
         }
     }
 
-    private func hazardRow(_ hazard: WatchHazard) -> some View {
+    private var orderedHazards: [WatchHazard] {
+        hazards.sorted { ($0.startM ?? $0.endM ?? Double.greatestFiniteMagnitude)
+            < ($1.startM ?? $1.endM ?? Double.greatestFiniteMagnitude) }
+    }
+
+    private func hazardRow(_ hazard: WatchHazard, showsDisclosure: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(hazard.kind == "water" ? "💧" : "🏖")
             VStack(alignment: .leading, spacing: 1) {
@@ -41,6 +55,11 @@ public struct WatchHazardView: View {
                 }
             }
             Spacer()
+            if showsDisclosure {
+                Image(systemName: "chevron.forward")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(6)
         .frame(maxWidth: .infinity, alignment: .leading)

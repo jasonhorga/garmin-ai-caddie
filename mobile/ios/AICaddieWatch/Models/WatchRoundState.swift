@@ -110,8 +110,21 @@ public struct WatchHoleMap: Codable, Equatable {
     public let layup: [Double]
     public let apex: [Double]
     public let greenCtrl: [Double]
+    /// Original CoursePrep centreline points `[px, py, cumulativeMetres]`. New downloads retain this
+    /// so detail instruments can place measured facts such as hazard edges on the real map. Optional
+    /// keeps rounds cached by older builds readable.
+    public let route: [[Double]]?
 
-    public init(w: Int, h: Int, you: [Double], pin: [Double], layup: [Double], apex: [Double], greenCtrl: [Double]) {
+    public init(
+        w: Int,
+        h: Int,
+        you: [Double],
+        pin: [Double],
+        layup: [Double],
+        apex: [Double],
+        greenCtrl: [Double],
+        route: [[Double]]? = nil
+    ) {
         self.w = w
         self.h = h
         self.you = you
@@ -119,6 +132,7 @@ public struct WatchHoleMap: Codable, Equatable {
         self.layup = layup
         self.apex = apex
         self.greenCtrl = greenCtrl
+        self.route = route
     }
 }
 

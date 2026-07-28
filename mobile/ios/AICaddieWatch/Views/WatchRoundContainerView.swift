@@ -29,6 +29,8 @@ public struct WatchRoundContainerView: View {
     /// Map Detail owns the Crown. The resting position keeps the facts column and score ring; turning it
     /// enters the existing full-map presentation and continuously changes the real image transform.
     @State private var holeMapCrownScale: Double
+    /// A hazard row opens a focused map instrument. nil keeps the first-level S70-style hazard list.
+    @State private var selectedHazardID: String? = nil
 
     /// watch P3: F/M/B green distances (码) from the watch's OWN GPS; when present they override the
     /// phone-pushed static distances so the hole view is a live rangefinder even without the phone.
@@ -145,12 +147,35 @@ public struct WatchRoundContainerView: View {
             }
         case .hazards:
             if let state = model.activeHoleState, model.hazardDetailAvailable {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
-                        instrumentBackButton
-                        WatchHazardView(hazards: state.hazards)
+                if let selectedHazardID,
+                   let geometry = holeGeometry,
+                   let route = state.holeMap?.route,
+                   !route.isEmpty {
+                    WatchHazardMapView(
+                        geometry: geometry,
+                        route: route,
+                        hazards: state.hazards,
+                        centerGreenYards: centerYd(state),
+                        initialHazardID: selectedHazardID,
+                        onBack: { self.selectedHazardID = nil }
+                    )
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            instrumentBackButton
+                            if holeGeometry != nil,
+                               let route = state.holeMap?.route,
+                               !route.isEmpty {
+                                WatchHazardView(
+                                    hazards: state.hazards,
+                                    onSelect: { selectedHazardID = $0.id }
+                                )
+                            } else {
+                                WatchHazardView(hazards: state.hazards)
+                            }
+                        }
+                        .padding(8)
                     }
-                    .padding(8)
                 }
             } else {
                 Color.black.onAppear { model.backToMenu() }

@@ -40,7 +40,7 @@ public struct WatchUITestRoot: View {
              "standalone-course-last-shot", "standalone-course-caddie-last-shot",
              "standalone-course-live-home":
             standaloneCourseRound
-        case "real-course-download-seed", "real-course-download-restore":
+        case "real-course-download-seed", "real-course-download-restore", "real-course-hazard-map":
             realCourseRound
         case "course-picker":
             cachedCoursePicker
@@ -186,11 +186,25 @@ public struct WatchUITestRoot: View {
     private var realCourseRound: some View {
         Group {
             if model.round != nil {
-                WatchRoundContainerView(
-                    model: model,
-                    holeGeometry: realCourseGeometry,
-                    shotLocation: nil
-                )
+                if screen == "real-course-hazard-map",
+                   let state = model.activeHoleState,
+                   let geometry = realCourseGeometry,
+                   let route = state.holeMap?.route,
+                   !route.isEmpty,
+                   !state.hazards.isEmpty {
+                    WatchHazardMapView(
+                        geometry: geometry,
+                        route: route,
+                        hazards: state.hazards,
+                        centerGreenYards: WatchUnits.yards(state.centerGreenM ?? 0)
+                    )
+                } else {
+                    WatchRoundContainerView(
+                        model: model,
+                        holeGeometry: realCourseGeometry,
+                        shotLocation: nil
+                    )
+                }
             } else {
                 VStack(spacing: 8) {
                     ProgressView()
@@ -208,7 +222,7 @@ public struct WatchUITestRoot: View {
                 if screen == "real-course-download-seed" {
                     await seedRealCourse()
                 } else {
-                    await restoreRealCourseOffline()
+                    await restoreRealCourseOffline(selectHazardHole: screen == "real-course-hazard-map")
                 }
             }
         }
@@ -277,7 +291,7 @@ public struct WatchUITestRoot: View {
     }
 
     @MainActor
-    private func restoreRealCourseOffline() async {
+    private func restoreRealCourseOffline(selectHazardHole: Bool = false) async {
         removeRealCourseMarkers()
         let store = WatchCourseStore()
         guard let cached = store.course(globalId: Self.realCourseGlobalId) else {
@@ -296,20 +310,38 @@ public struct WatchUITestRoot: View {
             return
         }
 
+        let activeHole: Int?
+        if selectHazardHole {
+            guard let hazardHole = prepared.holeStates.first(where: {
+                !$0.hazards.isEmpty && !($0.holeMap?.route?.isEmpty ?? true)
+            }) else {
+                failRealCourse("真实球场没有可定位的障碍")
+                return
+            }
+            activeHole = hazardHole.hole
+        } else {
+            activeHole = prepared.holeStates.first?.hole
+        }
+
         model.seedRound(
             prepared.holeStates,
-            activeHole: prepared.holeStates.first?.hole,
+            activeHole: activeHole,
             courseName: prepared.courseName
         )
-        writeRealCourseMarker("real-course-offline-ready")
+        writeRealCourseMarker(selectHazardHole ? "real-course-hazard-ready" : "real-course-offline-ready")
     }
 
     @MainActor
     private func failRealCourse(_ message: String) {
         realCourseStatus = message
-        writeRealCourseMarker(screen == "real-course-download-seed"
-            ? "real-course-download-failed"
-            : "real-course-offline-failed")
+        switch screen {
+        case "real-course-download-seed":
+            writeRealCourseMarker("real-course-download-failed")
+        case "real-course-hazard-map":
+            writeRealCourseMarker("real-course-hazard-failed")
+        default:
+            writeRealCourseMarker("real-course-offline-failed")
+        }
     }
 
     private func realCourseMarkerURL(_ name: String) -> URL {
@@ -325,6 +357,7 @@ public struct WatchUITestRoot: View {
         for name in [
             "real-course-download-ready", "real-course-download-failed",
             "real-course-offline-ready", "real-course-offline-failed",
+            "real-course-hazard-ready", "real-course-hazard-failed",
         ] {
             try? FileManager.default.removeItem(at: realCourseMarkerURL(name))
         }

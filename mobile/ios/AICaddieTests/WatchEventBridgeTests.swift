@@ -332,9 +332,11 @@ final class WatchEventBridgeTests: XCTestCase {
         let tee = try XCTUnwrap(WatchEventBridge.makeHoleMap(overlay: overlay, landingM: 240))
         XCTAssertEqual(tee.you, [50, 480])                 // no GPS → tee
         XCTAssertEqual(tee.pin, [200, 100])                // green = route end
+        XCTAssertEqual(tee.route, overlay.route)           // hazard map keeps the real placement line
         let live = try XCTUnwrap(WatchEventBridge.makeHoleMap(overlay: overlay, landingM: 240, youPxOverride: [123, 456]))
         XCTAssertEqual(live.you, [123, 456])               // GPS fix → projected position
         XCTAssertEqual(live.pin, [200, 100])               // pin unchanged
+        XCTAssertEqual(live.route, overlay.route)
     }
 
     private func fixturePackage() throws -> LiveRoundPackage {

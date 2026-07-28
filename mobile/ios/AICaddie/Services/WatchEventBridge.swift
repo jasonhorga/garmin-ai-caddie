@@ -515,7 +515,8 @@ public final class WatchEventBridge: NSObject {
             pin: [last[0], last[1]],
             layup: Self.interpRoute(route, atM: layupM),
             apex: Self.interpRoute(route, atM: layupM * 0.5),
-            greenCtrl: Self.interpRoute(route, atM: layupM + (total - layupM) * 0.5)
+            greenCtrl: Self.interpRoute(route, atM: layupM + (total - layupM) * 0.5),
+            route: route
         )
     }
 
