@@ -339,7 +339,7 @@ struct LivePlayHeader: View {
     var onBack: (() -> Void)? = nil
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 8) {
             if let onBack {
                 Button(action: onBack) {
                     Image(systemName: "chevron.backward")
@@ -348,6 +348,8 @@ struct LivePlayHeader: View {
                         .frame(width: 30, height: 30)
                         .background(LivePlayStyle.panelFill.opacity(0.76), in: Circle())
                         .overlay(Circle().stroke(LivePlayStyle.stroke14))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("返回球局首页")
