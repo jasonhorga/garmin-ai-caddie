@@ -264,7 +264,7 @@ public struct WatchUITestRoot: View {
 
     private func realCourseHazardCenterYards(_ state: WatchRoundState) -> Int {
         guard let progress = simulatedRealCourseHazardProgressM,
-              let routeEnd = state.holeMap?.route.last,
+              let routeEnd = state.holeMap?.route?.last,
               routeEnd.count >= 3 else {
             return WatchUnits.yards(state.centerGreenM ?? 0)
         }
