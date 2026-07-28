@@ -8,13 +8,14 @@ enum WatchHoleMapViewport {
         viewportHeight: Double,
         playerAnchorFraction: Double,
         playerImageY: Double,
-        pinImageY: Double
+        pinImageY: Double,
+        topClearance: Double = flagTopClearance
     ) -> Double {
         let upwardImageSpan = playerImageY - pinImageY
         guard viewportHeight > 0, upwardImageSpan > 0 else { return requestedScale }
 
         let playerY = viewportHeight * playerAnchorFraction
-        let fittedScale = (playerY - flagTopClearance) / upwardImageSpan
+        let fittedScale = (playerY - topClearance) / upwardImageSpan
         guard fittedScale.isFinite, fittedScale > 0 else { return requestedScale }
         return min(requestedScale, fittedScale)
     }

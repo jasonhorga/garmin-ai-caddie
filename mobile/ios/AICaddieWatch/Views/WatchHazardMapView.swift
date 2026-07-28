@@ -115,6 +115,34 @@ enum WatchHazardMapLayout {
         point(hazard.backPx) ?? alongRouteEndMetres(for: hazard).flatMap { imagePoint(on: route, atMetres: $0) }
     }
 
+    /// Keep the farther-edge (过) label above the nearer-edge (到) label when viewport clamping
+    /// would otherwise collapse both 22pt pills onto one row. The caller supplies 26pt spacing so
+    /// their borders retain a visible gap.
+    static func separatedPillCenterYs(
+        frontPreferredY: CGFloat,
+        backPreferredY: CGFloat,
+        minimumY: CGFloat,
+        maximumY: CGFloat,
+        minimumSpacing: CGFloat
+    ) -> (front: CGFloat, back: CGFloat) {
+        guard frontPreferredY.isFinite, backPreferredY.isFinite,
+              minimumY.isFinite, maximumY.isFinite, minimumSpacing.isFinite,
+              maximumY >= minimumY else {
+            return (frontPreferredY, backPreferredY)
+        }
+        let available = maximumY - minimumY
+        let spacing = min(max(minimumSpacing, 0), available)
+        let clamp: (CGFloat) -> CGFloat = { min(max($0, minimumY), maximumY) }
+        let front = clamp(frontPreferredY)
+        let back = clamp(backPreferredY)
+        if front >= back + spacing {
+            return (front, back)
+        }
+
+        let resolvedBack = min(max(min(front, back), minimumY), maximumY - spacing)
+        return (resolvedBack + spacing, resolvedBack)
+    }
+
     private static func valid(_ row: [Double]) -> Bool {
         row.count >= 3 && row[0].isFinite && row[1].isFinite && row[2].isFinite
     }
@@ -205,7 +233,8 @@ public struct WatchHazardMapView: View {
             viewportHeight: Double(size.height),
             playerAnchorFraction: 0.66,
             playerImageY: Double(geometry.youPx.y),
-            pinImageY: Double(topImageY)
+            pinImageY: Double(topImageY),
+            topClearance: centerGreenYards > 0 ? 42 : WatchHoleMapViewport.flagTopClearance
         ))
 
         return ZStack {
@@ -280,10 +309,21 @@ public struct WatchHazardMapView: View {
         let hasFrontBack = hazard.kind == "water" || WatchHazardMapLayout.hasMeasuredFrontBack(hazard)
         let frontPoint = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
         let backPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
-        let edges: [(String, Double, CGPoint?, CGFloat)] = hasFrontBack
-            ? [("到", startMetres, frontPoint, 13), ("过", endMetres, backPoint, -13)]
-            : [("距", startMetres, frontPoint, 0)]
-        for (label, metres, imagePoint, yOffset) in edges {
+        let minimumPillCenterY: CGFloat = centerGreenYards > 0 ? 42 : 13
+        let maximumPillCenterY = max(minimumPillCenterY, size.height - 13)
+        let frontCanvasPoint = frontPoint.map(canvas)
+        let backCanvasPoint = backPoint.map(canvas)
+        let lanes = WatchHazardMapLayout.separatedPillCenterYs(
+            frontPreferredY: (frontCanvasPoint?.y ?? minimumPillCenterY) + 13,
+            backPreferredY: (backCanvasPoint?.y ?? minimumPillCenterY) - 13,
+            minimumY: minimumPillCenterY,
+            maximumY: maximumPillCenterY,
+            minimumSpacing: 26
+        )
+        let edges: [(String, Double, CGPoint?, CGFloat?)] = hasFrontBack
+            ? [("到", startMetres, frontPoint, lanes.front), ("过", endMetres, backPoint, lanes.back)]
+            : [("距", startMetres, frontPoint, nil)]
+        for (label, metres, imagePoint, fixedCenterY) in edges {
             guard let imagePoint else {
                 continue
             }
@@ -301,10 +341,10 @@ public struct WatchHazardMapView: View {
             let preferredX = point.x > size.width * 0.5
                 ? point.x - pillWidth * 0.5 - 10
                 : point.x + pillWidth * 0.5 + 10
-            let minimumPillCenterY: CGFloat = centerGreenYards > 0 ? 40 : 13
             let pillCenter = CGPoint(
                 x: min(max(preferredX, pillWidth * 0.5 + 4), size.width - pillWidth * 0.5 - 4),
-                y: min(max(point.y + yOffset, minimumPillCenterY), size.height - 13)
+                y: fixedCenterY
+                    ?? min(max(point.y, minimumPillCenterY), maximumPillCenterY)
             )
             let rect = CGRect(
                 x: pillCenter.x - pillWidth * 0.5,
