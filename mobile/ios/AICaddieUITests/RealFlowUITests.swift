@@ -86,8 +86,20 @@ final class RealFlowUITests: XCTestCase {
             app.navigationBars["赛前球场攻略"].waitForExistence(timeout: 20),
             "installed course must navigate to its per-hole prep cards"
         )
+        let loading = app.staticTexts["加载中…"]
+        _ = loading.waitForExistence(timeout: 5) // fast cache hits may finish before this appears
         let firstPrepCard = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Par '")).firstMatch
         XCTAssertTrue(firstPrepCard.waitForExistence(timeout: 60), "real course prep must load at least one hole")
+        XCTAssertTrue(
+            waitUntilGone(loading, timeout: 60),
+            "pre-round screenshot must wait for the live prep request to finish"
+        )
+        XCTAssertTrue(
+            scrollTo(firstPrepCard, maxSwipes: 3),
+            "first real prep card must be fully inside the simulator safe viewport"
+        )
+        // SwiftUI can publish the accessibility tree one frame before the rendered hierarchy commits.
+        settle(2)
         save("07-prep-card"); dump("07-prep-card")
 
         // A valid hazard screenshot must show the real front/back contract, not merely the top of a
@@ -97,8 +109,9 @@ final class RealFlowUITests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(
             scrollTo(prepHazard, maxSwipes: 24),
-            "real pre-round cards must expose a measured hazard with 到前沿 / 过后沿"
+            "real pre-round cards must expose a fully visible measured hazard with 到前沿 / 过后沿"
         )
+        settle(1)
         save("08-prep-hazards"); dump("08-prep-hazards")
 
         // ---- Section 5: start the selected real course — GET package only, no score/backend write ----
@@ -146,17 +159,51 @@ final class RealFlowUITests: XCTestCase {
 
     private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
 
-    /// Bring a real element into the visible simulator viewport. `exists` is insufficient for a
-    /// SwiftUI ScrollView: off-screen children are present in the accessibility tree but make a
-    /// screenshot look unchanged, which is exactly how the old caddie-plan evidence became false.
+    /// Bring the whole element into the visible safe viewport. `exists` and even `isHittable` are
+    /// insufficient for a SwiftUI ScrollView: the prior prep hazard was reported hittable at y=848
+    /// on an 852pt screen, leaving the actual row below the screenshot/home-indicator boundary.
     @discardableResult
     private func scrollTo(_ element: XCUIElement, maxSwipes: Int) -> Bool {
         for _ in 0..<maxSwipes {
-            if element.exists, element.isHittable { return true }
-            app.swipeUp()
+            if element.exists, element.isHittable, fullyVisible(element) { return true }
+            if element.exists, element.frame.minY < visibleSafeRect().minY {
+                app.swipeDown()
+            } else {
+                app.swipeUp()
+            }
             settle(0.6)
         }
-        return element.exists && element.isHittable
+        return element.exists && element.isHittable && fullyVisible(element)
+    }
+
+    private func visibleSafeRect() -> CGRect {
+        let windowFrame = app.windows.firstMatch.frame
+        var top = windowFrame.minY + 8
+        let navigationBar = app.navigationBars.firstMatch
+        if navigationBar.exists {
+            top = max(top, navigationBar.frame.maxY + 8)
+        }
+        let bottom = windowFrame.maxY - 34
+        return CGRect(
+            x: windowFrame.minX + 8,
+            y: top,
+            width: max(0, windowFrame.width - 16),
+            height: max(0, bottom - top)
+        )
+    }
+
+    private func fullyVisible(_ element: XCUIElement) -> Bool {
+        let frame = element.frame
+        return !frame.isNull && !frame.isEmpty && visibleSafeRect().contains(frame)
+    }
+
+    private func waitUntilGone(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        if !element.exists { return true }
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.
