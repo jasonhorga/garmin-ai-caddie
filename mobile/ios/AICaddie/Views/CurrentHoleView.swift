@@ -3,6 +3,8 @@ import Foundation
 import SwiftUI
 
 public struct CurrentHoleView: View {
+    @Environment(\.dismiss) private var dismiss
+
     public let package: LiveRoundPackage
     public let hole: Hole
     public let onEvent: (LiveRoundEvent) -> Void
@@ -141,7 +143,7 @@ public struct CurrentHoleView: View {
                         LivePlayTabBar()
                     }
                     .padding(.horizontal, 10)
-                    .padding(.top, -22)
+                    .padding(.top, -46)
 
                     // Secondary controls stay on readable light cards below the dark hero: the full
                     // caddie plan (球童完整方案), 更多调整, 拍照取证, and 球局调整 — all behaviour intact.
@@ -157,10 +159,13 @@ public struct CurrentHoleView: View {
                 .padding(.bottom, 24)
             }
         }
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
+        // A live round is an immersive instrument, not another light NavigationStack page. Keeping
+        // the inherited bar produced a black-on-black status row, a stale “晚上好” back label, and
+        // pushed the save action below the first glance. The map owns the surface and supplies its
+        // own explicit return affordance instead.
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
+        .statusBarHidden(true)
         .onAppear {
             locationProvider.requestAuthorization()
             locationProvider.startUpdatingLocation()
@@ -231,7 +236,8 @@ public struct CurrentHoleView: View {
                 par: hole.par,
                 yards: hole.yards,
                 teeLabel: teeLabelZh,
-                roundToParText: roundToParText
+                roundToParText: roundToParText,
+                onBack: { dismiss() }
             )
             .padding(.horizontal, 20)
             .padding(.top, 12)

@@ -127,6 +127,23 @@ final class RealFlowUITests: XCTestCase {
             app.staticTexts["363"].waitForExistence(timeout: 60),
             "cold-loaded 北京丽宫 hole prep must expose the blue-tee center-green distance"
         )
+        XCTAssertTrue(
+            app.buttons["返回球局首页"].waitForExistence(timeout: 5),
+            "immersive live play must retain an explicit way back to the round home"
+        )
+        XCTAssertFalse(
+            app.buttons["晚上好"].exists || app.buttons["早上好"].exists
+                || app.buttons["中午好"].exists || app.buttons["下午好"].exists,
+            "live play must not inherit the home greeting as navigation chrome"
+        )
+        XCTAssertTrue(
+            fullyVisible(app.buttons["保存本洞 ✓"]),
+            "the primary score action must be fully visible on the first live-play screen"
+        )
+        XCTAssertTrue(
+            fullyVisible(app.staticTexts["洞图"]),
+            "the approved live-play rail must be fully visible above the home-indicator boundary"
+        )
         save("10-live-hole"); dump("10-live-hole")
         XCTAssertTrue(app.staticTexts["第 1 洞"].exists, "starting 北京丽宫 must enter its real first hole")
         XCTAssertTrue(app.staticTexts["342"].exists, "front-green distance must render")

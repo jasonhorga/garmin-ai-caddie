@@ -336,9 +336,22 @@ struct LivePlayHeader: View {
     let yards: Int?
     let teeLabel: String?
     let roundToParText: String
+    var onBack: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
+            if let onBack {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.backward")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .frame(width: 30, height: 30)
+                        .background(LivePlayStyle.panelFill.opacity(0.76), in: Circle())
+                        .overlay(Circle().stroke(LivePlayStyle.stroke14))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("返回球局首页")
+            }
             VStack(alignment: .leading, spacing: 1) {
                 Text("第 \(holeNumber) 洞")
                     .font(.system(size: 19, weight: .heavy))
