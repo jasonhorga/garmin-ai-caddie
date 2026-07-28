@@ -326,6 +326,22 @@ public final class LiveRoundAppModel: ObservableObject {
 
     public func bootstrap() async {
         defer { isBootstrapping = false }
+        #if DEBUG
+        // A deterministic, backend-free two-hole round for the phone scoring XCUITest. Force it
+        // before cache bootstrap so another UI test's real-course cache cannot change what failure
+        // the scoring regression test observes. This path is not compiled into Release/TestFlight.
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_SCORING_FIXTURE"] == "1" {
+            do {
+                let fixture = try loadScoringUITestFixture()
+                try? offlineStore.discardRound(roundId: fixture.roundId)
+                try offlineStore.saveRoundPackage(fixture)
+                try activatePackage(fixture, status: "离线记分测试")
+            } catch {
+                AICaddieLog.storage.error("Scoring UI fixture failed: \(String(describing: error), privacy: .public)")
+            }
+            return
+        }
+        #endif
         // Phase 1 — INSTANT (no network): show a cached package so the menu appears immediately.
         // This is the fix for slow startup — we never block the menu on a network package build.
         do {
@@ -965,4 +981,42 @@ public final class LiveRoundAppModel: ObservableObject {
         let data = try Data(contentsOf: resourceURL)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: data)
     }
+
+    #if DEBUG
+    private func loadScoringUITestFixture() throws -> LiveRoundPackage {
+        let package = try loadFixturePackage()
+        guard let first = package.holes.first else { return package }
+        let second = Hole(
+            number: 2,
+            par: 3,
+            yards: 165,
+            geometryCoverage: .missing,
+            sourceGlobalId: first.sourceGlobalId,
+            sourceLocalHole: 2
+        )
+        return LiveRoundPackage(
+            schema: package.schema,
+            roundId: package.roundId,
+            dataMode: package.dataMode,
+            sourceCoverage: package.sourceCoverage,
+            missingData: package.missingData,
+            playerProfile: package.playerProfile,
+            course: package.course,
+            holes: [first, second],
+            nine: package.nine,
+            coursePrep: package.coursePrep,
+            geometryCoverage: package.geometryCoverage,
+            readinessChecks: package.readinessChecks,
+            caddieContextSeeds: package.caddieContextSeeds,
+            weatherSnapshot: package.weatherSnapshot,
+            clubProfiles: package.clubProfiles,
+            caddieDecisionEndpoint: package.caddieDecisionEndpoint,
+            offlinePackageStatus: package.offlinePackageStatus,
+            eventCursor: package.eventCursor,
+            recentHistory: package.recentHistory,
+            cachedCaddieRules: package.cachedCaddieRules,
+            generatedAt: package.generatedAt
+        )
+    }
+    #endif
 }

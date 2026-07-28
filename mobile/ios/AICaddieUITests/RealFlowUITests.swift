@@ -177,6 +177,7 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = ""
         app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = ""
         app.launchEnvironment["UITEST_MODE"] = "1"
+        app.launchEnvironment["UITEST_FORCE_SCORING_FIXTURE"] = "1"
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "offline fixture app did not foreground")
 
