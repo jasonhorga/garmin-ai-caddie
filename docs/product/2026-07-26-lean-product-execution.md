@@ -192,7 +192,8 @@ Build 35 的可安装性不等于产品视觉获批。当前重新以 2026-07-02
 |---|---|---|
 | UI-01 | `FIXED / 运行态已验证` | `d90ddcb` 已把真实地图/事实读距恢复为唯一 Hole Root；[Watch run 30347531477 attempt 2](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30347531477) 在真实 Cypress Point 18 洞下载与离线重开中均进入同一根页。 |
 | UI-02 | `FIXED / 运行态已验证` | `7985d49` 根据实际视口与 `you → pin` 像素跨度只缩小静止态地图；242pt 批准图画布仍保持原比例，全屏表冠缩放不受影响。[Watch run 30350643879](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30350643879) 为 `124/124`，真实 Cypress Point 下载与断网重开均完整显示 Tee、果岭和旗位，截图 SHA256 同为 `f2389334c5d0c4de5ba59ed099d4dd0139215d445e2fc7a36dc6243f4a92f102`。 |
-| UI-03 | `ACTIVE` | `430eb64` 已将障碍列表连到真实地图仪表；运行态又抓到数据语义误读：水域为 `[enter, clear]`，沙坑为 `[alongRoute, side]`，不能把 `side` 显示成假后沿。当前修复保留水域前/后沿，沙坑只显示沿路线点与“离球路 N 码”，待真实 Cypress 截图验收。 |
+| UI-03 | `FIXED / 运行态已验证` | `1dbd1b6` 保留水域 `[enter, clear]`，将沙坑 `[alongRoute, side]` 显示为单一沿路线距离和“离球路 N 码”，并按批准图恢复轻量底部说明与右侧表冠轨道。[Watch run 30360221337 attempt 2](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30360221337) 的真实 Cypress Tee/球道中段进程分别显示 `距 272 / 离球路 24 码` 与 `距 120 / 中 271 码`；标签、玩家和球路无重叠，diagnostics 无 crash 或失败 marker。attempt 1 仅因 runner DNS 无法解析 `ghcr.io` 失败，未进入工程生成；原样自动重试后完整通过。 |
+| UI-04 | `ACTIVE` | 真实 App 的 Watch 根页和地图仪表仍保留 watchOS 时钟与顶部安全区，而批准图是全屏仪表；结果是同一地图在运行态被整体压矮，底部操作也更容易相互挤占。先核对 watchOS 全屏能力和批准页面范围，只对赛中沉浸仪表隐藏持久系统覆盖，不让开局、列表或确认流程丢失系统导航语义。 |
 | IOS-01 | `QUEUED` | iPhone 深色实战页仍继承全局 light system chrome 与上一页“早上好”返回标题，且真实地图高度把核心记分动作挤出首屏；待 Watch 连贯旅程关闭后按批准图处理。 |
 | OPS-01 | `RUNTIME RECOVERED` | 2026-07-28 的远端 502 来自 homeserver 重启后 Postgres 容器未自动启动；数据库启动后 API healthy，真实 Cypress 下载重跑成功。此项与产品截图分轨，不再阻塞本地/离线 UI 证据。 |
 
