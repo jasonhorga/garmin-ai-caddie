@@ -1,5 +1,19 @@
 import SwiftUI
 
+/// The permanent current-hole surface. Geometry and distance availability select an honest visual
+/// projection; they never change the scoring or shot state machine behind it.
+public enum WatchHoleRootPresentation: Equatable {
+    case map
+    case distances
+    case scoreOnly
+
+    public static func resolve(hasGeometry: Bool, hasCenterDistance: Bool) -> Self {
+        if hasGeometry { return .map }
+        if hasCenterDistance { return .distances }
+        return .scoreOnly
+    }
+}
+
 /// round-12 P3.3 (Watch standalone): the navigation shell that wires `WatchRoundModel` to the three
 /// presentational screens. It maps the model's derived state into each view's props and routes the
 /// views' callbacks back to the model — the model owns all state, this view owns none. Switching on
@@ -57,46 +71,14 @@ public struct WatchRoundContainerView: View {
         return s.distanceFromLastShotM ?? s.lastShotDistanceM
     }
 
-    /// watch P1f: the hole view has a map (geometry holes) or a big F/M/B hero (no-geometry fallback), and
-    /// a 大字 toggle that swaps either for the arm's-length center number. Shown when the hole has geometry
-    /// OR at least a center-green distance; the home 「本洞」 entry is gated on the same.
-    private func hasHoleView(_ s: WatchRoundState?) -> Bool {
-        holeGeometry != nil || (s?.centerGreenM != nil)
-    }
-
     public var body: some View {
         switch model.screen {
         case .home:
-            WatchRoundHomeView(
-                courseName: model.courseName,
-                hole: model.activeHole,
-                par: model.activeHoleState?.par ?? 0,
-                holeCount: model.holeCount,
-                scoredHoles: model.scoredHoles,
-                toPar: model.toPar,
-                distanceText: distanceText,
-                pendingUploads: model.pendingUploads,
-                ringPips: model.allHoleStates.map {
-                    WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
-                },
-                hasHoleMap: hasHoleView(model.activeHoleState),
-                canRecordShot: shotLocation != nil,
-                onHoleMap: { model.openHoleMap() },
-                onRecordShot: {
-                    guard let fix = shotLocation else { return }
-                    model.beginManualShot(
-                        latitude: fix.coordinate.latitude,
-                        longitude: fix.coordinate.longitude,
-                        horizontalAccuracyM: fix.horizontalAccuracyM,
-                        capturedAt: fix.capturedAt
-                    )
-                },
-                onScoreHole: { model.startScoringActiveHole() },
-                onPreviousHole: { model.goToPreviousHole() },
-                onNextHole: { model.goToNextHole() },
-                onFinish: { model.requestFinish() },
-                onMenu: { model.openMenu() }
-            )
+            if let state = model.activeHoleState {
+                currentHoleRoot(state)
+            } else {
+                Color.black
+            }
         case .autoShotCandidate:
             if model.pendingAutoShotCandidate != nil {
                 WatchAutoShotCandidateView(
@@ -107,37 +89,23 @@ public struct WatchRoundContainerView: View {
                 Color.black.onAppear { model.backToHome() }
             }
         case .holeMap:
-            if let s = model.activeHoleState, hasHoleView(s) {
-                ZStack {
-                    if holeMapBigText {
-                        // 大字: tap anywhere to return to the map. (Map long-press turns it on.)
-                        distanceHero(s, big: true)
-                            .contentShape(Rectangle())
-                            .onTapGesture { holeMapBigText = false }
-                    } else if let geometry = holeGeometry {
-                        // Map owns its gestures: tap=选点测距, drag flag=拖旗, long-press=大字.
-                        holeMapView(s, geometry)
-                    } else {
-                        // No-geometry hero: tap → 大字 (there is no map to long-press).
-                        distanceHero(s, big: false)
-                            .contentShape(Rectangle())
-                            .onTapGesture { holeMapBigText = true }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black)
-                .overlay(alignment: .bottomLeading) { backToHubButton }
+            if let state = model.activeHoleState {
+                // Backward-compatible navigation alias for pending interactions written by older builds.
+                // It renders the same single root; there is no user-visible sibling map page.
+                currentHoleRoot(state)
             } else {
-                // Geometry not ready (topo image still transferring) — return to the hub.
                 Color.black.onAppear { model.backToHome() }
             }
         case .menu:
             WatchMenuView(
                 hasCaddie: model.caddieDetailAvailable,
                 hasHazards: model.hazardDetailAvailable,
+                canRecordShot: shotLocation != nil,
                 autoShotSupported: autoShotSupported,
                 autoShotEnabled: model.autoShotEnabled,
                 autoShotStatus: autoShotStatus,
+                onRecordShot: { recordManualShot() },
+                onScoreHole: { model.startScoringActiveHole() },
                 onCaddie: { model.openCaddie() },
                 onHazards: { model.openHazards() },
                 onToggleAutoShot: {
@@ -338,6 +306,84 @@ public struct WatchRoundContainerView: View {
         )
     }
 
+    @ViewBuilder
+    private func currentHoleRoot(_ s: WatchRoundState) -> some View {
+        switch WatchHoleRootPresentation.resolve(
+            hasGeometry: holeGeometry != nil,
+            hasCenterDistance: watchGreenYards?.center != nil || s.centerGreenM != nil
+        ) {
+        case .map:
+            currentHoleInstrument {
+                if holeMapBigText {
+                    distanceHero(s, big: true)
+                        .contentShape(Rectangle())
+                        .onTapGesture { holeMapBigText = false }
+                } else if let geometry = holeGeometry {
+                    holeMapView(s, geometry)
+                }
+            }
+        case .distances:
+            currentHoleInstrument {
+                distanceHero(s, big: holeMapBigText)
+                    .contentShape(Rectangle())
+                    .onTapGesture { holeMapBigText.toggle() }
+            }
+        case .scoreOnly:
+            scoreOnlyRoot(s)
+        }
+    }
+
+    private func currentHoleInstrument<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ZStack { content() }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.black)
+            .overlay(alignment: .bottomLeading) { roundToolsButton }
+            .onChange(of: model.activeHole) { _ in
+                holeMapBigText = false
+                holeMapCrownScale = WatchHoleMapView.restingCrownScale
+            }
+    }
+
+    private func scoreOnlyRoot(_ s: WatchRoundState) -> some View {
+        WatchRoundHomeView(
+            courseName: model.courseName,
+            hole: s.hole,
+            par: s.par,
+            holeCount: model.holeCount,
+            scoredHoles: model.scoredHoles,
+            toPar: model.toPar,
+            distanceText: distanceText,
+            pendingUploads: model.pendingUploads,
+            ringPips: model.allHoleStates.map {
+                WatchRingPip(
+                    hole: $0.hole,
+                    toPar: $0.score > 0 ? $0.score - $0.par : nil,
+                    isCurrent: $0.hole == model.activeHole
+                )
+            },
+            hasHoleMap: false,
+            canRecordShot: shotLocation != nil,
+            onRecordShot: { recordManualShot() },
+            onScoreHole: { model.startScoringActiveHole() },
+            onPreviousHole: { model.goToPreviousHole() },
+            onNextHole: { model.goToNextHole() },
+            onFinish: { model.requestFinish() },
+            onMenu: { model.openMenu() }
+        )
+    }
+
+    private func recordManualShot() {
+        guard let fix = shotLocation else { return }
+        model.beginManualShot(
+            latitude: fix.coordinate.latitude,
+            longitude: fix.coordinate.longitude,
+            horizontalAccuracyM: fix.horizontalAccuracyM,
+            capturedAt: fix.capturedAt
+        )
+    }
+
     private var instrumentBackButton: some View {
         Button(action: { model.backToMenu() }) {
             Label("菜单", systemImage: "chevron.backward")
@@ -346,17 +392,16 @@ public struct WatchRoundContainerView: View {
         .buttonStyle(.plain)
     }
 
-    private var backToHubButton: some View {
-        // Back to the home hub (score/next/menu live there). Bottom-leading keeps clear of the watchOS
-        // clock (top-trailing) and the map's top-leading data column.
-        Button(action: { model.backToHome() }) {
-            Image(systemName: "chevron.backward")
+    private var roundToolsButton: some View {
+        Button(action: { model.openMenu() }) {
+            Image(systemName: "ellipsis")
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(7)
                 .background(Circle().fill(.black.opacity(0.55)))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("球局工具")
         .padding(.leading, 5)
         .padding(.bottom, 5)
     }

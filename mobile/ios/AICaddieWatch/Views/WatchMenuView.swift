@@ -5,9 +5,12 @@ import SwiftUI
 public struct WatchMenuView: View {
     public let hasCaddie: Bool
     public let hasHazards: Bool
+    public let canRecordShot: Bool
     public let autoShotSupported: Bool
     public let autoShotEnabled: Bool
     public let autoShotStatus: String
+    public let onRecordShot: () -> Void
+    public let onScoreHole: () -> Void
     public let onCaddie: () -> Void
     public let onHazards: () -> Void
     public let onToggleAutoShot: () -> Void
@@ -19,9 +22,12 @@ public struct WatchMenuView: View {
     public init(
         hasCaddie: Bool = false,
         hasHazards: Bool = false,
+        canRecordShot: Bool = false,
         autoShotSupported: Bool = false,
         autoShotEnabled: Bool = false,
         autoShotStatus: String = "本机不支持",
+        onRecordShot: @escaping () -> Void = {},
+        onScoreHole: @escaping () -> Void = {},
         onCaddie: @escaping () -> Void = {},
         onHazards: @escaping () -> Void = {},
         onToggleAutoShot: @escaping () -> Void = {},
@@ -32,9 +38,12 @@ public struct WatchMenuView: View {
     ) {
         self.hasCaddie = hasCaddie
         self.hasHazards = hasHazards
+        self.canRecordShot = canRecordShot
         self.autoShotSupported = autoShotSupported
         self.autoShotEnabled = autoShotEnabled
         self.autoShotStatus = autoShotStatus
+        self.onRecordShot = onRecordShot
+        self.onScoreHole = onScoreHole
         self.onCaddie = onCaddie
         self.onHazards = onHazards
         self.onToggleAutoShot = onToggleAutoShot
@@ -48,6 +57,10 @@ public struct WatchMenuView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 Text("菜单").font(.headline.weight(.bold)).padding(.bottom, 2)
+                menuRow("记一杆", action: onRecordShot)
+                    .disabled(!canRecordShot)
+                    .accessibilityHint(canRecordShot ? "先保存当前位置，再选择实际球杆" : "等待 GPS 定位")
+                menuRow("本洞成绩", action: onScoreHole)
                 if hasCaddie { menuRow("球童建议", action: onCaddie) }
                 if hasHazards { menuRow("障碍", action: onHazards) }
                 menuRow(
