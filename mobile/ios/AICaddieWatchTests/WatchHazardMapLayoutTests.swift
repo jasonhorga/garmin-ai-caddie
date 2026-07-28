@@ -61,4 +61,18 @@ final class WatchHazardMapLayoutTests: XCTestCase {
 
         XCTAssertEqual(yards, 101) // sqrt(20² + 90²) metres, then metres → yards
     }
+
+    func testTopClampedFrontAndBackPillsOccupySeparateLanes() {
+        let lanes = WatchHazardMapLayout.separatedPillCenterYs(
+            frontPreferredY: 44,
+            backPreferredY: 40,
+            minimumY: 42,
+            maximumY: 306,
+            minimumSpacing: 26
+        )
+
+        XCTAssertEqual(lanes.back, 42, accuracy: 0.0001)
+        XCTAssertEqual(lanes.front, 68, accuracy: 0.0001)
+        XCTAssertGreaterThanOrEqual(lanes.front - lanes.back, 26)
+    }
 }

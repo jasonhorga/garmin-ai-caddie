@@ -28,4 +28,23 @@ final class WatchHoleMapViewportTests: XCTestCase {
 
         XCTAssertEqual(scale, WatchHoleMapView.restingCrownScale, accuracy: 0.0001)
     }
+
+    func testHazardViewportReservesRoomForItsTopControls() {
+        let viewportHeight = 319.0
+        let playerAnchorFraction = 0.66
+        let playerImageY = 923.0
+        let hazardBackImageY = 426.2
+        let scale = WatchHoleMapViewport.effectiveRestingScale(
+            requestedScale: WatchHoleMapView.maximumCrownScale,
+            viewportHeight: viewportHeight,
+            playerAnchorFraction: playerAnchorFraction,
+            playerImageY: playerImageY,
+            pinImageY: hazardBackImageY,
+            topClearance: 42
+        )
+
+        let edgeY = viewportHeight * playerAnchorFraction
+            + (hazardBackImageY - playerImageY) * scale
+        XCTAssertEqual(edgeY, 42, accuracy: 0.0001)
+    }
 }
