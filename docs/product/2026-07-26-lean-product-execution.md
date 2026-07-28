@@ -118,9 +118,9 @@
 - IPA artifact 解码验证：iOS embedded profile 含 `com.apple.developer.applesignin = Default`；Watch embedded profile 含 `com.apple.developer.healthkit = true`。这只证明 TestFlight binary 已可安装，不证明物理 Watch 的 Apple 登录、传感器授权、误报/漏报、续航或发热。
 - 只读 App Store Connect [run 30308959334](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30308959334) 确认 build 35 为 `VALID / IN_BETA_TESTING`、未过期、出口合规已完成；现有 internal group 为 `allBuilds=true`。本次未分发 external `Private Trial`、未通知 tester。
 
-## 当前工作：软件主路径完成；只等待一项真实证据
+## 当前工作：真实整轮逐屏复核进行中
 
-里程碑 1–5 的软件路径已建立真实开局、手动记杆、确认换洞、恢复同步、Watch 全库发现/离线缓存和事实地图/球童页面；上节已关闭新球场下载/离线恢复门，TestFlight binary 也已处理完成。下一步不再派生软件平台，只保留真 Watch/TestFlight 的 AutoShot 授权、误报/漏报、续航与发热验证。风、空气密度、假成功率和推杆级等高线继续后置。
+Watch 的真实 Hole Root、地图比例、障碍前后沿和 Apple 系统覆盖差异已经收口；当前按下方 15 阶段旅程逐项处理 iPhone。顺序是先关闭 `IOS-01` 的首屏沉浸与稳定布局，再完成阻断 phone-only 整轮的 `IOS-03`，随后处理 `IOS-02/04/05/06`；最后必须用同一真实球场、同一 local round 连续走完整场并生成最终并排截图。用户批准截图前不发布 TestFlight。风、空气密度、假成功率和推杆级果岭等高线继续后置。
 
 ### AutoShot Beta 软件结果（2026-07-26）
 
