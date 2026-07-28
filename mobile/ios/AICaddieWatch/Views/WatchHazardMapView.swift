@@ -159,7 +159,7 @@ public struct WatchHazardMapView: View {
         let endPoint = WatchHazardMapLayout.imagePoint(on: route, atMetres: endMetres)
         let topImageY = [startPoint?.y, endPoint?.y].compactMap { $0 }.min() ?? geometry.pinPx.y
         let scale = CGFloat(WatchHoleMapViewport.effectiveRestingScale(
-            requestedScale: WatchHoleMapView.restingCrownScale,
+            requestedScale: WatchHoleMapView.maximumCrownScale,
             viewportHeight: Double(size.height),
             playerAnchorFraction: 0.66,
             playerImageY: Double(geometry.youPx.y),
