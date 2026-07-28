@@ -28,7 +28,7 @@ final class WatchCourseDownloadTests: XCTestCase {
             #"{"roundId":"watch-download-1","course":{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1}]}"#.utf8
         ))
         let prep = try client.decodeCoursePrep(Data(
-            #"{"schema":"ai-caddie-course-prep-v1","globalId":31669,"holeCount":1,"clubs":[{"name":"1W","m":220.0,"yd":241},{"name":"7I","m":140.0,"yd":153}],"holes":[{"hole":1,"par":4,"geometryCoverage":"ready","landing_m":220.0,"tee_club":"1W","hazards":{"water_carry":[[100.0,130.0]],"bunkers":[[180.0,15.0]]},"map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":1000,"h":800,"ppm":1.0,"ln":400.0,"route":[[100.0,700.0,0.0],[500.0,400.0,200.0],[600.0,100.0,400.0]]}},"greenDistances":{"available":true,"frontM":350.0,"middleM":360.0,"backM":370.0,"frontLat":40.0035,"frontLon":116.005,"middleLat":40.0036,"middleLon":116.0051,"backLat":40.0037,"backLon":116.0052},"playsLike":{"available":true,"deltaM":5.0,"deltaYd":5},"holeImageProjection":{"available":true,"widthPx":1000,"heightPx":800,"refs":[{"lat":40.0,"lon":116.0,"px":100.0,"py":700.0},{"lat":40.0,"lon":116.001,"px":200.0,"py":700.0},{"lat":40.001,"lon":116.0,"px":100.0,"py":600.0}]}}]}"#.utf8
+            #"{"schema":"ai-caddie-course-prep-v1","globalId":31669,"holeCount":1,"clubs":[{"name":"1W","m":220.0,"yd":241},{"name":"7I","m":140.0,"yd":153}],"holes":[{"hole":1,"par":4,"geometryCoverage":"ready","landing_m":220.0,"tee_club":"1W","hazards":{"water_carry":[[100.0,130.0]],"bunkers":[[180.0,15.0]],"details":[{"kind":"water","frontM":100.0,"backM":130.0,"frontRouteM":100.0,"backRouteM":130.0,"frontPx":[300.0,550.0],"backPx":[360.0,505.0],"sideM":null},{"kind":"bunker","frontM":168.0,"backM":184.0,"frontRouteM":170.0,"backRouteM":190.0,"frontPx":[440.0,445.0],"backPx":[470.0,420.0],"sideM":15.0}]},"map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":1000,"h":800,"ppm":1.0,"ln":400.0,"route":[[100.0,700.0,0.0],[500.0,400.0,200.0],[600.0,100.0,400.0]]}},"greenDistances":{"available":true,"frontM":350.0,"middleM":360.0,"backM":370.0,"frontLat":40.0035,"frontLon":116.005,"middleLat":40.0036,"middleLon":116.0051,"backLat":40.0037,"backLon":116.0052},"playsLike":{"available":true,"deltaM":5.0,"deltaYd":5},"holeImageProjection":{"available":true,"widthPx":1000,"heightPx":800,"refs":[{"lat":40.0,"lon":116.0,"px":100.0,"py":700.0},{"lat":40.0,"lon":116.001,"px":200.0,"py":700.0},{"lat":40.001,"lon":116.0,"px":100.0,"py":600.0}]}}]}"#.utf8
         ))
 
         let download = try WatchCourseTemplateBuilder.build(
@@ -71,9 +71,13 @@ final class WatchCourseDownloadTests: XCTestCase {
         ])
         XCTAssertEqual(hole.hazards.map(\.label), ["沙坑", "水域"])
         let bunker = try XCTUnwrap(hole.hazards.first)
-        XCTAssertEqual(bunker.startM, 180)
-        XCTAssertNil(bunker.endM)
-        XCTAssertEqual(bunker.sideM, 15)
+        XCTAssertEqual(bunker.startM, 170)
+        XCTAssertEqual(bunker.endM, 190)
+        XCTAssertEqual(bunker.frontDistanceM, 168)
+        XCTAssertEqual(bunker.backDistanceM, 184)
+        XCTAssertEqual(bunker.frontPx, [440, 445])
+        XCTAssertEqual(bunker.backPx, [470, 420])
+        XCTAssertNil(bunker.sideM)
         XCTAssertEqual(hole.score, 0)
         XCTAssertEqual(hole.putts, 0)
         XCTAssertEqual(hole.penaltyCount, 0)

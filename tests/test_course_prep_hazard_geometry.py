@@ -8,8 +8,10 @@ centroid). These tests pin the two failure modes the old approximation had:
   * a long bunker whose near edge hugs the route but whose centroid is far → distance was measured
     to the centroid (and could exceed the 30 m gate and be dropped), now measured to the near edge.
 
-The output SHAPE is unchanged: ``water_carry`` is ``[[enter_m, clear_m], ...]`` and ``bunkers`` is
-``[[along_route_m, side_m], ...]``, both in metres along the route, rounded to 0.1 m.
+The legacy output stays available: ``water_carry`` is ``[[enter_m, clear_m], ...]`` and ``bunkers``
+is ``[[along_route_m, side_m], ...]``.  The additive ``details`` rows carry the S70-facing front and
+back edges, including their true map pixels, so clients never mistake the internal lateral gap for
+the back of a bunker.
 """
 from __future__ import annotations
 
@@ -86,6 +88,34 @@ class WaterCarryPrecisionTests(unittest.TestCase):
 
 
 class BunkerEdgeDistanceTests(unittest.TestCase):
+    def test_side_bunker_reports_true_front_and_back_edges_on_the_bunker(self) -> None:
+        route = [(0.0, 0.0), (0.0, 200.0)]
+        bunker = _rect_mesh(5.0, 90.0, 15.0, 110.0)
+
+        hazards = cp.route_hazards({"Bunker.drc": bunker}, route)
+
+        # Preserve the legacy closest-sample row for strategy compatibility; it is deliberately
+        # separate from the new player-facing edge pair below.
+        self.assertEqual(hazards["bunkers"], [[92.0, 5.0]])
+        detail = hazards["details"][0]
+        self.assertEqual(detail["kind"], "bunker")
+        self.assertEqual(detail["frontRouteM"], 90.0)
+        self.assertEqual(detail["backRouteM"], 110.0)
+        self.assertAlmostEqual(detail["frontM"], math.hypot(5.0, 90.0), places=1)
+        self.assertAlmostEqual(detail["backM"], math.hypot(5.0, 110.0), places=1)
+        self.assertEqual(detail["sideM"], 5.0)
+
+        # The red dots belong on the bunker boundary (x=5), not on the route centreline (x=0).
+        to_px = cp.hole_render.overlay_projector({"Bunker.drc": bunker}, route)
+        expected_front = to_px((5.0, 90.0))
+        expected_back = to_px((5.0, 110.0))
+        route_front = to_px((0.0, 90.0))
+        self.assertAlmostEqual(detail["frontPx"][0], expected_front[0], places=1)
+        self.assertAlmostEqual(detail["frontPx"][1], expected_front[1], places=1)
+        self.assertAlmostEqual(detail["backPx"][0], expected_back[0], places=1)
+        self.assertAlmostEqual(detail["backPx"][1], expected_back[1], places=1)
+        self.assertNotAlmostEqual(detail["frontPx"][0], route_front[0], places=1)
+
     def test_long_bunker_distance_reflects_near_edge_not_centroid(self) -> None:
         # A 55 m-long bunker at x in [5, 60], y in [98, 102]. Its near edge sits 5 m off the route
         # (x=0); its area centroid is at x=32.5 → 32.5 m away, which EXCEEDS the 30 m gate, so the
@@ -140,13 +170,30 @@ class OutputShapeTests(unittest.TestCase):
             "Lake.drc": _rect_mesh(-8.0, 40.0, 8.0, 55.0),
             "Bunker.drc": _rect_mesh(7.0, 95.0, 13.0, 105.0),
         }, route)
-        self.assertEqual(set(hazards), {"water_carry", "bunkers"})
+        self.assertEqual(set(hazards), {"water_carry", "bunkers", "details"})
         for row in hazards["water_carry"]:
             self.assertEqual(len(row), 2)
             self.assertTrue(all(isinstance(v, float) for v in row))
         for row in hazards["bunkers"]:
             self.assertEqual(len(row), 2)
             self.assertTrue(all(isinstance(v, float) for v in row))
+
+    def test_water_and_bunker_use_the_same_front_back_detail_contract(self) -> None:
+        route = [(0.0, 0.0), (0.0, 160.0)]
+        hazards = cp.route_hazards({
+            "Lake.drc": _rect_mesh(-8.0, 40.0, 8.0, 55.0),
+            "Bunker.drc": _rect_mesh(7.0, 95.0, 13.0, 105.0),
+        }, route)
+
+        self.assertEqual([row["kind"] for row in hazards["details"]], ["water", "bunker"])
+        for row in hazards["details"]:
+            self.assertEqual(
+                set(row),
+                {"kind", "frontM", "backM", "frontRouteM", "backRouteM", "frontPx", "backPx", "sideM"},
+            )
+            self.assertLess(row["frontRouteM"], row["backRouteM"])
+            self.assertEqual(len(row["frontPx"]), 2)
+            self.assertEqual(len(row["backPx"]), 2)
 
 
 if __name__ == "__main__":

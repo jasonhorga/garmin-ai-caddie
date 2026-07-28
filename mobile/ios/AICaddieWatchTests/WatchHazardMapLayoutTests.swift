@@ -27,6 +27,11 @@ final class WatchHazardMapLayoutTests: XCTestCase {
     }
 
     func testBunkerLateralGapNeverBecomesAFakeClearDistance() {
+        let measured = WatchHazard(
+            kind: "bunker", label: "沙坑", startM: 170, endM: 190,
+            frontDistanceM: 168, backDistanceM: 184,
+            frontPx: [440, 445], backPx: [470, 420]
+        )
         let current = WatchHazard(
             kind: "bunker", label: "沙坑", startM: 180, sideM: 15
         )
@@ -34,9 +39,25 @@ final class WatchHazardMapLayoutTests: XCTestCase {
             kind: "bunker", label: "沙坑", startM: 180, endM: 15
         )
 
+        XCTAssertEqual(WatchHazardMapLayout.alongRouteEndMetres(for: measured), 190)
         XCTAssertEqual(WatchHazardMapLayout.alongRouteEndMetres(for: current), 180)
         XCTAssertEqual(WatchHazardMapLayout.bunkerSideMetres(for: current), 15)
         XCTAssertEqual(WatchHazardMapLayout.alongRouteEndMetres(for: oldCache), 180)
         XCTAssertEqual(WatchHazardMapLayout.bunkerSideMetres(for: oldCache), 15)
+    }
+
+    func testDistanceToRealHazardBoundaryUsesMapScaleInsteadOfRouteProgress() throws {
+        let straightRoute = [
+            [100.0, 700.0, 0.0],
+            [100.0, 500.0, 200.0],
+        ]
+        let player = CGPoint(x: 100, y: 700)
+        let sideBunkerFront = CGPoint(x: 120, y: 610)
+
+        let yards = try XCTUnwrap(WatchHazardMapLayout.distanceYards(
+            from: player, to: sideBunkerFront, on: straightRoute
+        ))
+
+        XCTAssertEqual(yards, 101) // sqrt(20² + 90²) metres, then metres → yards
     }
 }

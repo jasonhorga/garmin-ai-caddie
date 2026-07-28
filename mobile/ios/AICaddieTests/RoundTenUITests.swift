@@ -6,24 +6,53 @@ import XCTest
 final class RoundTenUITests: XCTestCase {
     func testHazardsNumberAndSortMultipleBunkersNearToFar() throws {
         let hazards = CaddiePlanHazard.from(
-            CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[210, 18], [138, 12]])
+            CoursePrepHazards(
+                waterCarry: [[175, 195]],
+                bunkers: [[210, 18], [138, 12]],
+                details: [
+                    CoursePrepHazardDetail(
+                        kind: "water", frontM: 175, backM: 195,
+                        frontRouteM: 175, backRouteM: 195,
+                        frontPx: [100, 300], backPx: [100, 280], sideM: nil
+                    ),
+                    CoursePrepHazardDetail(
+                        kind: "bunker", frontM: 207, backM: 224,
+                        frontRouteM: 205, backRouteM: 225,
+                        frontPx: [130, 260], backPx: [132, 240], sideM: 18
+                    ),
+                    CoursePrepHazardDetail(
+                        kind: "bunker", frontM: 134, backM: 149,
+                        frontRouteM: 132, backRouteM: 151,
+                        frontPx: [112, 390], backPx: [114, 371], sideM: 12
+                    ),
+                ]
+            )
         )
         let bunkers = hazards.filter { $0.icon == "🏖" }
         XCTAssertEqual(bunkers.count, 2)
-        // Bunker rows are [distance along route, shortest lateral gap to its boundary].
-        // Number and sort by the first value without presenting the lateral value as a fake back edge.
+        // Number/sort by measured front edge and show the same front/back semantics as S70.
         XCTAssertEqual(bunkers[0].label, "沙坑 1")
         XCTAssertEqual(bunkers[1].label, "沙坑 2")
-        let nearYards = CoursePrepRoute.yards(fromMetres: 138)
-        let farYards = CoursePrepRoute.yards(fromMetres: 210)
-        let nearSideYards = CoursePrepRoute.yards(fromMetres: 12)
-        let farSideYards = CoursePrepRoute.yards(fromMetres: 18)
-        XCTAssertEqual(bunkers[0].detail, "距 \(nearYards) 码 · 离球路 \(nearSideYards) 码")
-        XCTAssertEqual(bunkers[1].detail, "距 \(farYards) 码 · 离球路 \(farSideYards) 码")
+        let nearYards = CoursePrepRoute.yards(fromMetres: 134)
+        let nearClearYards = CoursePrepRoute.yards(fromMetres: 149)
+        let farYards = CoursePrepRoute.yards(fromMetres: 207)
+        let farClearYards = CoursePrepRoute.yards(fromMetres: 224)
+        XCTAssertEqual(bunkers[0].detail, "到 \(nearYards) · 过 \(nearClearYards) 码")
+        XCTAssertEqual(bunkers[1].detail, "到 \(farYards) · 过 \(farClearYards) 码")
         XCTAssertLessThan(nearYards, farYards)  // sort order: nearer bunker first
 
         let water = try XCTUnwrap(hazards.first { $0.icon == "💧" })
-        XCTAssertEqual(water.detail, "191–213 码")
+        XCTAssertEqual(water.detail, "到 191 · 过 213 码")
+    }
+
+    func testLegacyBunkerNeverTreatsItsLateralGapAsTheBackEdge() throws {
+        let bunker = try XCTUnwrap(CaddiePlanHazard.from(
+            CoursePrepHazards(bunkers: [[138, 12]])
+        ).first)
+
+        XCTAssertEqual(bunker.detail, "距 151 码")
+        XCTAssertFalse(bunker.detail?.contains("离球路") == true)
+        XCTAssertFalse(bunker.detail?.contains("过") == true)
     }
 
     func testSingleHazardOfAKindIsNotNumbered() {
