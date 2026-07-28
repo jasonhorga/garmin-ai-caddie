@@ -68,23 +68,38 @@ final class RealFlowUITests: XCTestCase {
             settle(6); save("05-last-round-review"); dump("05-last-round-review")
         }
 
-        // ---- Section 4: pre-round prep on the nearest real course (黑骑士 via injected GPS) ----
+        // ---- Section 4: pre-round prep on a real downloaded course ----
         // READ-ONLY (GET /courses/{id}/prep) — shows real geometry F/M/B + caddie + hazards WITHOUT
         // starting a live round, so CI never writes a junk round into the owner's real history.
         launchFresh()
-        if tapContaining(["赛前攻略", "选球场 · 逐洞"]) {
-            settle(9); save("06-prep-overview"); dump("06-prep-overview")
-            // Enter a real course (黑骑士 A 场, or the first 全场) → per-hole prep carries real geometry.
-            if tapCourseSegment() {
-                settle(9); save("07-prep-course"); dump("07-prep-course")
-                if tapContaining(["逐洞攻略"]) {
-                    settle(8); save("08-prep-hole"); dump("08-prep-hole")  // F/M/B + caddie + hazards
-                }
-                if tapContaining(["针对你"]) {
-                    settle(7); save("09-prep-foryou"); dump("09-prep-foryou")
-                }
-            }
-        }
+        XCTAssertTrue(tapContaining(["备战", "选场 · 球童试算"]), "home must expose pre-round prep")
+        XCTAssertTrue(
+            app.navigationBars["选球场备战"].waitForExistence(timeout: 12),
+            "pre-round entry must navigate to the real course picker"
+        )
+        save("06-prep-course-picker"); dump("06-prep-course-picker")
+
+        // Enter the first real installed course. CourseReviewView itself is the per-hole review; the
+        // old test looked for obsolete `逐洞攻略` / `针对你` buttons and silently produced no evidence.
+        XCTAssertTrue(tapCourseSegment(), "course picker must expose an installed real course")
+        XCTAssertTrue(
+            app.navigationBars["赛前球场攻略"].waitForExistence(timeout: 20),
+            "installed course must navigate to its per-hole prep cards"
+        )
+        let firstPrepCard = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Par '")).firstMatch
+        XCTAssertTrue(firstPrepCard.waitForExistence(timeout: 60), "real course prep must load at least one hole")
+        save("07-prep-card"); dump("07-prep-card")
+
+        // A valid hazard screenshot must show the real front/back contract, not merely the top of a
+        // long scroll view. Find the first course card that exposes both `到` and `过` and bring it on-screen.
+        let prepHazard = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "：到 ", " · 过 ")
+        ).firstMatch
+        XCTAssertTrue(
+            scrollTo(prepHazard, maxSwipes: 24),
+            "real pre-round cards must expose a measured hazard with 到前沿 / 过后沿"
+        )
+        save("08-prep-hazards"); dump("08-prep-hazards")
 
         // ---- Section 5: start the selected real course — GET package only, no score/backend write ----
         launchFresh()
@@ -103,9 +118,20 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["第 1 洞"].exists, "starting 北京丽宫 must enter its real first hole")
         XCTAssertTrue(app.staticTexts["342"].exists, "front-green distance must render")
         XCTAssertTrue(app.staticTexts["379"].exists, "back-green distance must render")
-        if tapContaining(["展开", "看完整方案", "换打法", "备选打法"]) {
-            settle(3); save("11-caddie-plan"); dump("11-caddie-plan")
-        }
+        XCTAssertTrue(tapContaining(["展开"]), "live caddie strip must expose its full plan")
+        let planHeading = app.staticTexts["球童完整方案"]
+        XCTAssertTrue(
+            scrollTo(planHeading, maxSwipes: 8),
+            "expanded caddie plan must be scrolled into the visible simulator viewport"
+        )
+        settle(2); save("11-caddie-plan"); dump("11-caddie-plan")
+
+        let avoidZones = app.buttons["备选打法 · 避开区"]
+        XCTAssertTrue(scrollTo(avoidZones, maxSwipes: 8), "full caddie plan must expose avoid zones")
+        avoidZones.tap()
+        let avoidZonesHeading = app.staticTexts["避开区"]
+        XCTAssertTrue(scrollTo(avoidZonesHeading, maxSwipes: 8), "expanded avoid zones must be visible")
+        settle(1); save("11b-caddie-hazards"); dump("11b-caddie-hazards")
     }
 
     // MARK: - navigation helpers
@@ -119,6 +145,19 @@ final class RealFlowUITests: XCTestCase {
     }
 
     private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+
+    /// Bring a real element into the visible simulator viewport. `exists` is insufficient for a
+    /// SwiftUI ScrollView: off-screen children are present in the accessibility tree but make a
+    /// screenshot look unchanged, which is exactly how the old caddie-plan evidence became false.
+    @discardableResult
+    private func scrollTo(_ element: XCUIElement, maxSwipes: Int) -> Bool {
+        for _ in 0..<maxSwipes {
+            if element.exists, element.isHittable { return true }
+            app.swipeUp()
+            settle(0.6)
+        }
+        return element.exists && element.isHittable
+    }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.
     @discardableResult
