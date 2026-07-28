@@ -199,6 +199,7 @@ Build 35 的可安装性不等于产品视觉获批。当前重新以 2026-07-02
 | IOS-03 | `REPRODUCED / BLOCKS PHONE-ONLY ROUND` | `CurrentHoleView.submitEvents()` 的“保存本洞”只向当前洞写 location/score/putt/penalty/club；没有 Par 4/5 的 `HIT / LEFT / RIGHT`，没有下一洞或选洞动作。`OfflineStore.restoreLiveRoundState()` 又只按每条事件自己的 `event.hole` 更新 `activeHole`，所以纯 iPhone 用户保存第 1 洞后仍无法进入第 2 洞，与“手机可独立打完整场”和已锁定确认流程直接矛盾。后续应复用/共享 Watch 已验证的成绩确认、active/editing hole 与推进语义，不能用孤立导航按钮掩盖缺失的事实链。 |
 | IOS-04 | `REPRODUCED / QUEUED` | 真实“展开球童”运行图只显示护分/标准/进攻 segmented control 下的一条当前建议；批准 `caddie-plan` 图和已锁定 S70 决策要求能比较多套完整击球链，而不是把三套路线压成一次次重算的单卡。障碍前后沿已经真实，方案结构与视觉仍需单独复核。 |
 | IOS-05 | `REPRODUCED / QUEUED` | iPhone 没有独立“记一杆”任务；`保存本洞` 在洞末同时写一条 location/club，等于把果岭旁位置冒充本洞唯一实际击球。这样即使总分能推进，手机独立球局也无法生成诚实逐杆落点图。应拆开逐杆事实与洞末成绩确认，不能用一条洞末 GPS 事件假装完成逐杆记录。 |
+| IOS-06 | `REPRODUCED / QUEUED` | 真实北京丽宫实战图的洞头只显示 `Par 4 · 蓝T`，而同屏已有真实 `342 / 363 / 379` F/M/B；源码只读可空的 `hole.yards`，因此批准图要求的 Tee 名义洞长被静默丢掉。后续必须从所选 Tee 的权威洞长补齐，缺失时明确降级；不能拿会随球员移动的“当前到果岭中”冒充名义洞长。 |
 | OPS-01 | `RUNTIME RECOVERED` | 2026-07-28 的远端 502 来自 homeserver 重启后 Postgres 容器未自动启动；数据库启动后 API healthy，真实 Cypress 下载重跑成功。此项与产品截图分轨，不再阻塞本地/离线 UI 证据。 |
 
 发布门：完成清单后，由 CI 生成真实 App 模拟器截图；Codex 将批准图与最终图按状态并排提交用户审批。用户明确批准前，不创建下一版 TestFlight。
