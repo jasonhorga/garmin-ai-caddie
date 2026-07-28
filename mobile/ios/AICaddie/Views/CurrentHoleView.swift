@@ -473,7 +473,7 @@ public struct CurrentHoleView: View {
     /// 实时果岭测距当前是否生效(有 GPS 定位 + 该洞带果岭经纬度)→ 头部显示「实时」标记区分实时/静态。
     private var isGreenRangeLive: Bool { liveGreenYards != nil }
 
-    /// 本洞避开区:取按洞拉取的 prep 的 hazards(沙坑/水域 米区间)供球童方案展示。
+    /// 本洞避开区:取按洞拉取的 prep 水域区间与沙坑路线点/横距供球童方案展示。
     /// (live 包为提速不再内置全洞 coursePrep;按洞 prep 随 2D 图一起加载。)
     private var caddiePlanHazards: [CaddiePlanHazard] {
         guard let holePrep else {
@@ -510,8 +510,8 @@ public struct CurrentHoleView: View {
         return byLabel != fallback ? byLabel : fallback
     }
 
-    /// round-13 spec ⑤: 障碍 carry intervals (沙坑/水域 米区间) to mirror onto the watch Hazard View.
-    /// Same source + ordering + numbering as the iPhone CaddiePlanHazard list; distances stay in metres.
+    /// Measured hazard facts mirrored to the Watch. Bunker rows are `[along-route, lateral-gap]`;
+    /// water rows are `[enter, clear]`. Ordering and numbering match the iPhone list.
     private func watchHazards() -> [WatchHazard] {
         guard let holePrep else {
             return []
@@ -523,7 +523,7 @@ public struct CurrentHoleView: View {
                 kind: "bunker",
                 label: bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
                 startM: interval.first,
-                endM: interval.count >= 2 ? interval[1] : nil
+                sideM: interval.count >= 2 ? interval[1] : nil
             ))
         }
         let water = holePrep.hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }

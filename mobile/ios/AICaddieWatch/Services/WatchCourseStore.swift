@@ -204,7 +204,7 @@ public enum WatchCourseTemplateBuilder {
                 kind: "bunker",
                 label: bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
                 startM: interval.first,
-                endM: interval.count >= 2 ? interval[1] : nil
+                sideM: interval.count >= 2 ? interval[1] : nil
             ))
         }
         let water = value.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }

@@ -163,11 +163,16 @@ public struct WatchRoundContainerView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 8) {
                             instrumentBackButton
-                            if holeGeometry != nil,
+                            if let geometry = holeGeometry,
                                let route = state.holeMap?.route,
                                !route.isEmpty {
+                                let progress = WatchHazardMapLayout.playerProgressMetres(
+                                    on: route,
+                                    playerImagePoint: geometry.youPx
+                                ) ?? 0
                                 WatchHazardView(
                                     hazards: state.hazards,
+                                    playerProgressM: progress,
                                     onSelect: { selectedHazardID = $0.id }
                                 )
                             } else {

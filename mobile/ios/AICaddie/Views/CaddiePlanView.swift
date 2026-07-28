@@ -668,7 +668,7 @@ public struct CaddiePlanView: View {
     }
 }
 
-/// 避开区项:emoji 图标 + 中文标签 + 距离区间(由 CoursePrep 的 hazards 区间生成)。
+/// 避开区项:emoji 图标 + 中文标签 + CoursePrep 中可证实的距离事实。
 public struct CaddiePlanHazard: Identifiable, Equatable {
     public let id: String
     public let icon: String
@@ -682,14 +682,17 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
         self.detail = detail
     }
 
-    /// 从 course_prep 的 hazards(米区间)生成避开区列表:沙坑在前、水域在后,各自按越线距离近→远排序。
+    /// 水域是 `[enter, clear]` 沿路线区间；沙坑是 `[alongRoute, side]`，第二项是到
+    /// 球路的横向距离，不是沙坑后沿。沙坑在前、水域在后，各自按沿路线距离近→远排序。
     /// 同类多于一处时编号(沙坑 1 / 沙坑 2 …),避免三个都只写「沙坑」看不出区别(round-10 反馈)。
     public static func from(_ hazards: CoursePrepHazards) -> [CaddiePlanHazard] {
         var out: [CaddiePlanHazard] = []
         let bunkers = hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
         for (index, interval) in bunkers.enumerated() {
             let label = bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑"
-            out.append(CaddiePlanHazard(id: "bunker-\(index)", icon: "🏖", label: label, detail: rangeText(interval)))
+            out.append(CaddiePlanHazard(
+                id: "bunker-\(index)", icon: "🏖", label: label, detail: bunkerText(interval)
+            ))
         }
         let water = hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
         for (index, interval) in water.enumerated() {
@@ -697,6 +700,14 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
             out.append(CaddiePlanHazard(id: "water-\(index)", icon: "💧", label: label, detail: rangeText(interval)))
         }
         return out
+    }
+
+    private static func bunkerText(_ values: [Double]) -> String? {
+        guard let alongRoute = values.first else { return nil }
+        let distance = CoursePrepRoute.yards(fromMetres: alongRoute)
+        guard values.count >= 2 else { return "距 \(distance) 码" }
+        let side = CoursePrepRoute.yards(fromMetres: values[1])
+        return "距 \(distance) 码 · 离球路 \(side) 码"
     }
 
     private static func rangeText(_ interval: [Double]) -> String? {

@@ -21,9 +21,8 @@ public struct WatchClubOption: Codable, Equatable, Identifiable {
     }
 }
 
-/// round-13 spec ⑤: a single 障碍 (bunker/water) carry interval to surface on the watch Hazard View.
-/// Distances are along-route metres (start = near edge / 越线前沿, end = far edge / 越线后沿); the watch
-/// converts to 码. Pushed from the phone — mirrors the iPhone CaddiePlanHazard list.
+/// A measured hazard fact for the Watch. Water uses along-route enter/clear distances. Bunker uses one
+/// along-route point plus its shortest lateral gap; it has no inferred back edge.
 public struct WatchHazard: Codable, Equatable, Identifiable {
     public var id: String { "\(kind)-\(label)" }
 
@@ -31,12 +30,22 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
     public let label: String    // 中文,如「沙坑 1」「水域」
     public let startM: Double?
     public let endM: Double?
+    /// Bunkers use `[along-route, lateral gap]`, not an enter/clear interval. New payloads keep the
+    /// lateral fact here; old cached bunker payloads are interpreted compatibly at the view boundary.
+    public let sideM: Double?
 
-    public init(kind: String, label: String, startM: Double? = nil, endM: Double? = nil) {
+    public init(
+        kind: String,
+        label: String,
+        startM: Double? = nil,
+        endM: Double? = nil,
+        sideM: Double? = nil
+    ) {
         self.kind = kind
         self.label = label
         self.startM = startM
         self.endM = endM
+        self.sideM = sideM
     }
 }
 
@@ -238,7 +247,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     // hole-map overlay anchors. Both optional — older payloads (no map) fall back to the text home view.
     public let globalId: Int?
     public let holeMap: WatchHoleMap?
-    // round-13 spec ②⑤: AI-caddie play options (激进/推荐/保守) + 障碍 carry intervals, pushed from
+    // round-13 spec ②⑤: AI-caddie play options (激进/推荐/保守) + measured hazard facts, pushed from
     // the phone. Additive/optional — default [] so older payloads decode unchanged.
     public let caddieOptions: [WatchCaddieOption]
     public let hazards: [WatchHazard]

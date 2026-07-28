@@ -25,4 +25,18 @@ final class WatchHazardMapLayoutTests: XCTestCase {
         XCTAssertEqual(WatchHazardMapLayout.remainingYards(to: 180, after: progress), 87)
         XCTAssertNil(WatchHazardMapLayout.remainingYards(to: 90, after: progress))
     }
+
+    func testBunkerLateralGapNeverBecomesAFakeClearDistance() {
+        let current = WatchHazard(
+            kind: "bunker", label: "沙坑", startM: 180, sideM: 15
+        )
+        let oldCache = WatchHazard(
+            kind: "bunker", label: "沙坑", startM: 180, endM: 15
+        )
+
+        XCTAssertEqual(WatchHazardMapLayout.alongRouteEndMetres(for: current), 180)
+        XCTAssertEqual(WatchHazardMapLayout.bunkerSideMetres(for: current), 15)
+        XCTAssertEqual(WatchHazardMapLayout.alongRouteEndMetres(for: oldCache), 180)
+        XCTAssertEqual(WatchHazardMapLayout.bunkerSideMetres(for: oldCache), 15)
+    }
 }

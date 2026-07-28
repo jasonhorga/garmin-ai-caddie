@@ -63,6 +63,16 @@ enum WatchHazardMapLayout {
         return Int((remaining * 1.09361).rounded())
     }
 
+    static func alongRouteEndMetres(for hazard: WatchHazard) -> Double? {
+        hazard.kind == "water" ? (hazard.endM ?? hazard.startM) : hazard.startM
+    }
+
+    static func bunkerSideMetres(for hazard: WatchHazard) -> Double? {
+        guard hazard.kind == "bunker" else { return nil }
+        // Before `sideM` existed, the same source value was incorrectly encoded as `endM`.
+        return hazard.sideM ?? hazard.endM
+    }
+
     private static func valid(_ row: [Double]) -> Bool {
         row.count >= 3 && row[0].isFinite && row[1].isFinite && row[2].isFinite
     }
@@ -142,8 +152,9 @@ public struct WatchHazardMapView: View {
     }
 
     private func hazardMap(_ hazard: WatchHazard, index: Int, size: CGSize) -> some View {
-        let startMetres = hazard.startM ?? hazard.endM ?? playerProgressMetres
-        let endMetres = hazard.endM ?? hazard.startM ?? startMetres
+        let startMetres = hazard.startM ?? WatchHazardMapLayout.alongRouteEndMetres(for: hazard)
+            ?? playerProgressMetres
+        let endMetres = WatchHazardMapLayout.alongRouteEndMetres(for: hazard) ?? startMetres
         let startPoint = WatchHazardMapLayout.imagePoint(on: route, atMetres: startMetres)
         let endPoint = WatchHazardMapLayout.imagePoint(on: route, atMetres: endMetres)
         let topImageY = [startPoint?.y, endPoint?.y].compactMap { $0 }.min() ?? geometry.pinPx.y
@@ -200,7 +211,7 @@ public struct WatchHazardMapView: View {
             )
         }
 
-        var measuredPoints: [CGPoint] = []
+        var measuredPoints: [CGPoint] = [playerCanvas]
         if let start = WatchHazardMapLayout.imagePoint(on: route, atMetres: playerProgressMetres) {
             measuredPoints.append(canvas(start))
         }
@@ -224,10 +235,9 @@ public struct WatchHazardMapView: View {
         let tint = hazard.kind == "water"
             ? Color(red: 0.20, green: 0.68, blue: 1.0)
             : Color(red: 1.0, green: 0.76, blue: 0.18)
-        let edges: [(String, Double, CGFloat)] = [
-            ("进", startMetres, 13),
-            ("过", endMetres, -13),
-        ]
+        let edges: [(String, Double, CGFloat)] = hazard.kind == "water"
+            ? [("进", startMetres, 13), ("过", endMetres, -13)]
+            : [("距", startMetres, 0)]
         for (label, metres, yOffset) in edges {
             guard let yards = WatchHazardMapLayout.remainingYards(to: metres, after: playerProgressMetres),
                   let imagePoint = WatchHazardMapLayout.imagePoint(on: route, atMetres: metres) else {
@@ -292,7 +302,14 @@ public struct WatchHazardMapView: View {
                 VStack(spacing: 1) {
                     Text("\(hazard.label) · \(index + 1)/\(upcoming.count)")
                         .font(.system(size: 10, weight: .semibold))
-                    Text(upcoming.count > 1 ? "转表冠换障碍" : "障碍前后沿")
+                    if let side = WatchHazardMapLayout.bunkerSideMetres(for: hazard) {
+                        Text("离球路 \(Int((side * 1.09361).rounded())) 码")
+                            .font(.system(size: 8.5, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(upcoming.count > 1
+                        ? "转表冠换障碍"
+                        : (hazard.kind == "water" ? "障碍前后沿" : "沿球路最近位置"))
                         .font(.system(size: 8.5, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -320,7 +337,8 @@ public struct WatchHazardMapView: View {
 
     private static func upcomingHazards(_ hazards: [WatchHazard], after progressMetres: Double) -> [WatchHazard] {
         hazards
-            .filter { ($0.endM ?? $0.startM ?? -Double.greatestFiniteMagnitude) > progressMetres }
+            .filter { (WatchHazardMapLayout.alongRouteEndMetres(for: $0)
+                ?? -Double.greatestFiniteMagnitude) > progressMetres }
             .sorted { ($0.startM ?? $0.endM ?? Double.greatestFiniteMagnitude)
                 < ($1.startM ?? $1.endM ?? Double.greatestFiniteMagnitude) }
     }

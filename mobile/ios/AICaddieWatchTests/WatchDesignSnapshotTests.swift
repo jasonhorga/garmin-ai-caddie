@@ -88,11 +88,11 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderWatchHazards() throws {
-        // round-13 spec ⑤: bunkers then water, near→far, carry interval in 码.
+        // Bunkers retain along-route + lateral-gap facts; water retains enter/clear distances.
         let view = WatchHazardView(
             hazards: [
-                WatchHazard(kind: "bunker", label: "沙坑 1", startM: 120, endM: 140),
-                WatchHazard(kind: "bunker", label: "沙坑 2", startM: 165, endM: 178),
+                WatchHazard(kind: "bunker", label: "沙坑 1", startM: 120, sideM: 12),
+                WatchHazard(kind: "bunker", label: "沙坑 2", startM: 165, sideM: 13),
                 WatchHazard(kind: "water", label: "水域", startM: 210, endM: 235),
             ]
         )

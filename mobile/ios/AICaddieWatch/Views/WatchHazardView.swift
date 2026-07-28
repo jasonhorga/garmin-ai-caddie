@@ -1,15 +1,20 @@
 import SwiftUI
 
-/// round-13 spec ⑤: the 障碍 (Hazard) screen — bunkers then water, near→far, each with its carry
-/// interval (前沿 = near edge / 越过 = far edge, in 码). Driven by the phone-pushed
-/// `WatchRoundState.hazards`; a plain VStack so it renders in the ImageRenderer design snapshot.
+/// Hazard list: remaining hazards near→far. Bunkers show route distance + lateral gap; water shows
+/// enter/clear distance. Driven by `WatchRoundState.hazards`; a plain VStack also renders in snapshots.
 /// Geometry-gated upstream: holes without usable geometry push no hazards and show the empty state.
 public struct WatchHazardView: View {
     public let hazards: [WatchHazard]
+    public let playerProgressM: Double
     public let onSelect: ((WatchHazard) -> Void)?
 
-    public init(hazards: [WatchHazard], onSelect: ((WatchHazard) -> Void)? = nil) {
+    public init(
+        hazards: [WatchHazard],
+        playerProgressM: Double = 0,
+        onSelect: ((WatchHazard) -> Void)? = nil
+    ) {
         self.hazards = hazards
+        self.playerProgressM = playerProgressM
         self.onSelect = onSelect
     }
 
@@ -17,8 +22,8 @@ public struct WatchHazardView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("障碍")
                 .font(.headline)
-            if hazards.isEmpty {
-                Text("本洞无障碍数据")
+            if orderedHazards.isEmpty {
+                Text(hazards.isEmpty ? "本洞无障碍数据" : "前方没有障碍")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -37,8 +42,11 @@ public struct WatchHazardView: View {
     }
 
     private var orderedHazards: [WatchHazard] {
-        hazards.sorted { ($0.startM ?? $0.endM ?? Double.greatestFiniteMagnitude)
-            < ($1.startM ?? $1.endM ?? Double.greatestFiniteMagnitude) }
+        hazards
+            .filter { (WatchHazardMapLayout.alongRouteEndMetres(for: $0)
+                ?? -Double.greatestFiniteMagnitude) > playerProgressM }
+            .sorted { ($0.startM ?? $0.endM ?? Double.greatestFiniteMagnitude)
+                < ($1.startM ?? $1.endM ?? Double.greatestFiniteMagnitude) }
     }
 
     private func hazardRow(_ hazard: WatchHazard, showsDisclosure: Bool) -> some View {
@@ -67,16 +75,29 @@ public struct WatchHazardView: View {
     }
 
     private func carryText(_ hazard: WatchHazard) -> String? {
-        guard let start = hazard.startM else {
+        if hazard.kind == "bunker" {
+            let distance = hazard.startM.flatMap {
+                WatchHazardMapLayout.remainingYards(to: $0, after: playerProgressM)
+            }
+            let side = WatchHazardMapLayout.bunkerSideMetres(for: hazard).map {
+                Int(($0 * 1.09361).rounded())
+            }
+            if let distance, let side { return "距 \(distance) · 离球路 \(side) 码" }
+            if let distance { return "距 \(distance) 码" }
             return nil
         }
-        // Short form so the carry interval fits one watch row without truncating the 码 suffix
-        // (前 = 到前沿 / 越 = 越过后沿). Confirmed against the real watchOS-simulator screenshot.
-        if let end = hazard.endM {
-            return "前 \(Self.yards(start)) · 越 \(Self.yards(end)) 码"
-        }
-        return "前 \(Self.yards(start)) 码"
-    }
 
-    static func yards(_ metres: Double) -> Int { Int((metres * 1.09361).rounded()) }
+        let startYards = hazard.startM.flatMap {
+            WatchHazardMapLayout.remainingYards(to: $0, after: playerProgressM)
+        }
+        let endYards = hazard.endM.flatMap {
+            WatchHazardMapLayout.remainingYards(to: $0, after: playerProgressM)
+        }
+        if let startYards, let endYards {
+            return "前 \(startYards) · 越 \(endYards) 码"
+        }
+        if let endYards { return "越 \(endYards) 码" }
+        if let startYards { return "前 \(startYards) 码" }
+        return nil
+    }
 }

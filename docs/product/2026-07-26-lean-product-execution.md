@@ -82,11 +82,11 @@
 
 ## 里程碑 5 结果（2026-07-26）
 
-- 功能最终 SHA：`459e7c25784311f3c8de3de783c98dc827b4e95a`。独立 Watch 球局的现有菜单按当前洞真实数据开放“球童建议”和“障碍”两个浅层仪表面；球童页消费真实 F/M/B、腕上 GPS 距离覆盖、高差、推荐杆和已有打法 options，障碍页直接消费真实沙坑/水域区间。
+- 功能最终 SHA：`459e7c25784311f3c8de3de783c98dc827b4e95a`。独立 Watch 球局的现有菜单按当前洞真实数据开放“球童建议”和“障碍”两个浅层仪表面；球童页消费真实 F/M/B、腕上 GPS 距离覆盖、高差、推荐杆和已有打法 options，障碍数据包含水域进/出距离与沙坑沿路线点/横向距离。
 - D02 的根页门控已恢复诚实降级：Watch 契约尚无完整推荐新鲜度、模式门和真实横向散布，因此生产根地图只显示真实底图、球员、旗位、F/M/B、测距与成绩环；原固定 `you → layup → green` 路线、固定 `30×26` 椭圆和无条件推荐 chip 均不再显示。
 - `elevationDeltaM` 已在显示边界从米换成码；完整球童 options 不再展示未校准 `expectedStrokes`，也删除了“不给成功率”工程备注。离线预备数据没有目标工作流时不再伪造红色“待选旗位”动作。
 - 最终 Watch runtime：[run 30218317794](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30218317794) 整体成功：Watch `99/99`、独立 App build、真实缓存球场 seed/restore、球童页与障碍页运行态截图全部通过。
-- Codex 已下载并亲自检查最终 416×496 截图：事实地图显示第 4 洞 P5、实打 `+8` 码和 `256 / 270 / 282` F/M/B；球童页显示 `248 / 262 / 274`、坡度 `+8` 码、`3号木`与离线状态；障碍页显示真实沙坑前沿 `197`、越过 `213` 码。四次独立进程 PID 为 `24183 → 24669 → 25108 → 25210`，诊断中无 crash、fatal、unknown screen 或 restore error。
+- Codex 已下载并亲自检查当时的 416×496 截图：事实地图显示第 4 洞 P5、实打 `+8` 码和 `256 / 270 / 282` F/M/B；球童页显示 `248 / 262 / 274`、坡度 `+8` 码、`3号木`与离线状态。当时障碍页把沙坑 `[alongRoute, side]` 误报为“前沿 `197` / 越过 `213`”，后续 UI-03 实战审计已取消这项错误证据。四次独立进程 PID 为 `24183 → 24669 → 25108 → 25210`，诊断中无 crash、fatal、unknown screen 或 restore error。
 
 ### 新球场 Tee / geometry 索引修正（2026-07-27，进行中）
 
@@ -192,7 +192,7 @@ Build 35 的可安装性不等于产品视觉获批。当前重新以 2026-07-02
 |---|---|---|
 | UI-01 | `FIXED / 运行态已验证` | `d90ddcb` 已把真实地图/事实读距恢复为唯一 Hole Root；[Watch run 30347531477 attempt 2](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30347531477) 在真实 Cypress Point 18 洞下载与离线重开中均进入同一根页。 |
 | UI-02 | `FIXED / 运行态已验证` | `7985d49` 根据实际视口与 `you → pin` 像素跨度只缩小静止态地图；242pt 批准图画布仍保持原比例，全屏表冠缩放不受影响。[Watch run 30350643879](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30350643879) 为 `124/124`，真实 Cypress Point 下载与断网重开均完整显示 Tee、果岭和旗位，截图 SHA256 同为 `f2389334c5d0c4de5ba59ed099d4dd0139215d445e2fc7a36dc6243f4a92f102`。 |
-| UI-03 | `ACTIVE` | 当前“障碍”是脱离地图的文字卡片，批准图是地图仪表。并非缺数据：现有 prep `map.overlay.route` 已含逐点像素路线和累计米数，`hazards` 已含沿同一路线的前/后沿；可在不猜测横向位置的前提下复用同一事实坐标。 |
+| UI-03 | `ACTIVE` | `430eb64` 已将障碍列表连到真实地图仪表；运行态又抓到数据语义误读：水域为 `[enter, clear]`，沙坑为 `[alongRoute, side]`，不能把 `side` 显示成假后沿。当前修复保留水域前/后沿，沙坑只显示沿路线点与“离球路 N 码”，待真实 Cypress 截图验收。 |
 | IOS-01 | `QUEUED` | iPhone 深色实战页仍继承全局 light system chrome 与上一页“早上好”返回标题，且真实地图高度把核心记分动作挤出首屏；待 Watch 连贯旅程关闭后按批准图处理。 |
 | OPS-01 | `RUNTIME RECOVERED` | 2026-07-28 的远端 502 来自 homeserver 重启后 Postgres 容器未自动启动；数据库启动后 API healthy，真实 Cypress 下载重跑成功。此项与产品截图分轨，不再阻塞本地/离线 UI 证据。 |
 

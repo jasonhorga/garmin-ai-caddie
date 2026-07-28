@@ -744,7 +744,7 @@ final class WatchRoundModelTests: XCTestCase {
         let withHazard = WatchRoundState(
             roundId: "r1", hole: 1, par: 4, distanceM: 320,
             selectedClub: nil,
-            hazards: [WatchHazard(kind: "bunker", label: "沙坑", startM: 180, endM: 195)],
+            hazards: [WatchHazard(kind: "bunker", label: "沙坑", startM: 180, sideM: 15)],
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
         )
         let model = seededModel(holes: [withHazard])

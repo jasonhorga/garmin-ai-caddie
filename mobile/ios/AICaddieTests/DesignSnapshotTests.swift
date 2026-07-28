@@ -172,7 +172,7 @@ final class DesignSnapshotTests: XCTestCase {
             // round-10: multiple bunkers are numbered + sorted near→far (CaddiePlanHazard.from), so
             // three avoid zones aren't all just "沙坑". Build via .from to exercise that real logic.
             hazards: CaddiePlanHazard.from(
-                CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[210, 225], [138, 150]])
+                CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[210, 18], [138, 12]])
             )
         )
         .padding(14)
@@ -263,7 +263,7 @@ final class DesignSnapshotTests: XCTestCase {
         "route":[[120,330],[118,180],[120,55]],"tee_club":"D","landing_m":150,\
         "steps":[{"club":"D","note":"开球打球道左中,避右侧沙坑"},{"club":"8I","note":"攻果岭中心,后方无碍"}],\
         "cautions":["果岭前缘有陡坡,落点宁长勿短"],\
-        "hazards":{"water_carry":[[175,195]],"bunkers":[[210,225],[138,150]]},\
+        "hazards":{"water_carry":[[175,195]],"bunkers":[[210,18],[138,12]]},\
         "map":{"image":"\(b64)","overlay":{"w":\(mapW),"h":\(mapH),"ppm":1.0,"ln":375,\
         "route":[[120,330,0],[118,180,150],[120,55,375]]}},\
         "greenDistances":{"available":true,"frontM":128,"middleM":135,"backM":142},\

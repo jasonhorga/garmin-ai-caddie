@@ -31,8 +31,8 @@ public struct WatchClubOption: Codable, Equatable, Identifiable {
     }
 }
 
-/// round-13 spec ⑤: a 障碍 carry interval pushed to the watch Hazard View. Mirrors the watch-side
-/// WatchHazard (same JSON shape); distances are along-route metres, the watch converts to 码.
+/// A measured hazard fact pushed to the Watch. Water uses start/end along-route metres; bunker uses
+/// start along the route plus sideM (shortest lateral gap). The Watch converts metres to 码.
 public struct WatchHazard: Codable, Equatable, Identifiable {
     public var id: String { "\(kind)-\(label)" }
 
@@ -40,12 +40,20 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
     public let label: String    // 中文,如「沙坑 1」「水域」
     public let startM: Double?
     public let endM: Double?
+    public let sideM: Double?
 
-    public init(kind: String, label: String, startM: Double? = nil, endM: Double? = nil) {
+    public init(
+        kind: String,
+        label: String,
+        startM: Double? = nil,
+        endM: Double? = nil,
+        sideM: Double? = nil
+    ) {
         self.kind = kind
         self.label = label
         self.startM = startM
         self.endM = endM
+        self.sideM = sideM
     }
 }
 

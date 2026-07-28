@@ -590,7 +590,7 @@ public struct WatchUITestRoot: View {
                 elevationDeltaM: 7,
                 geometryCoverage: "ready",
                 hazards: [
-                    WatchHazard(kind: "bunker", label: "沙坑", startM: 180, endM: 195),
+                    WatchHazard(kind: "bunker", label: "沙坑", startM: 180, sideM: 15),
                 ],
                 score: 0,
                 putts: 0,
@@ -635,8 +635,8 @@ public struct WatchUITestRoot: View {
     ]
 
     static let demoHazards: [WatchHazard] = [
-        WatchHazard(kind: "bunker", label: "沙坑 1", startM: 120, endM: 140),
-        WatchHazard(kind: "bunker", label: "沙坑 2", startM: 165, endM: 178),
+        WatchHazard(kind: "bunker", label: "沙坑 1", startM: 120, sideM: 12),
+        WatchHazard(kind: "bunker", label: "沙坑 2", startM: 165, sideM: 13),
         WatchHazard(kind: "water", label: "水域", startM: 210, endM: 235),
     ]
 

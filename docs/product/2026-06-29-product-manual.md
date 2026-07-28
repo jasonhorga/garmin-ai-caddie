@@ -42,7 +42,7 @@ Surfaces: **BE**=backend · **W**=web · **P**=phone · **⌚**=watch. "Member?"
 |---|---|---|---|
 | Course view / hole map | Top-down render from CourseView meshes (`hole_render.render_hole`); web interactive map w/ draggable ball + shot dots; phone Canvas route+pin | BE,W,P | **Yes** (course-keyed) |
 | Green F/M/B + pin | F/M/B computed **from the tee** (static, not live); phone header + watch glance; web shows only single "到果岭"; **no pin selection** | BE,P,⌚ | Yes |
-| Hazard carry / layup | water-carry + bunker intervals, carryToFront/Clear, avoidZones; web labels; watch hazard view; **no explicit "layup-to-X"** | BE,W,P,⌚ | Yes |
+| Hazard carry / layup | water enter/clear + bunker along-route point/lateral gap; avoidZones; web labels; watch hazard view; **no explicit "layup-to-X"** | BE,W,P,⌚ | Yes |
 | GPS rangefinder (live) | only haversine on client-supplied GPS; phone GPS **geotags shots at save only**; F/M/B never recomputed; **watch has no CoreLocation** | BE math only | **No live recompute** |
 | AutoShot / shot tracking | stores Garmin's autoShotType; owner shot-scatter; manual per-shot tap log; post-round map. **No auto swing detection** | BE,W,P | scatter=**owner-only**; manual=yes |
 | Club bag + per-club distances | effective bag manual>garmin>empty; ladder from history medians (**owner-only**) or typed/catalog default (member); phone+web editors | BE,W,P | bag=yes; measured dist=**owner-only** |
