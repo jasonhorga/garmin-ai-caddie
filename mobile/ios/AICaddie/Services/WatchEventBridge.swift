@@ -155,6 +155,9 @@ public struct WatchHoleMap: Codable, Equatable {
     public let layup: [Double]
     public let apex: [Double]
     public let greenCtrl: [Double]
+    /// Original CoursePrep centreline points `[px, py, cumulativeMetres]`. Optional so payloads
+    /// created before the hazard-map instrument remain decodable on both sides of the bridge.
+    public let route: [[Double]]?
 }
 
 /// The small, round-level payload that lets the Watch enter the real round UI before the first
