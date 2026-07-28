@@ -602,7 +602,7 @@ struct LivePlayReticle: View {
     }
 }
 
-/// One amber hazard "carry" pill over the map (e.g. 过水 235).
+/// One amber hazard pill over the map (e.g. 水域 · 到 213 · 过 235 码).
 struct LiveHazardPill: View {
     let text: String
     var body: some View {

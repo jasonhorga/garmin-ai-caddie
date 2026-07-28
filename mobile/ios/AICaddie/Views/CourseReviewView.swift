@@ -151,7 +151,7 @@ struct HolePrepCard: View {
         }
     }
 
-    // MARK: 障碍提示(过水 / 沙坑)
+    // MARK: 障碍提示（蓝 T 到前沿 / 过后沿）
     private var hazardsSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(hazardSummaries.enumerated()), id: \.offset) { _, summary in
@@ -195,32 +195,10 @@ struct HolePrepCard: View {
         }
     }
 
-    private var routeCurrentMetres: Double {
-        if let landing = hole.landingM { return landing }
-        return hole.par == 3 ? hole.routeLenM : hole.routeLenM * 0.55
-    }
-
     private var hazardSummaries: [String] {
-        let current = routeCurrentMetres
-        var summaries: [String] = []
-        for water in hole.hazards.waterCarry where water.count >= 2 {
-            let readout = CoursePrepRoute.intervalReadout(currentMetres: current, startMetres: water[0], endMetres: water[1])
-            if readout.isCleared {
-                summaries.append("水障碍：已过")
-            } else if readout.isInside {
-                summaries.append("水障碍：过水还需 \(readout.toClearYards)y")
-            } else {
-                summaries.append("水障碍：进 \(readout.toStartYards)y，过 \(readout.toClearYards)y")
-            }
+        CaddiePlanHazard.from(hole.hazards).compactMap { hazard in
+            guard let detail = hazard.detail else { return nil }
+            return "\(hazard.label)：\(detail)"
         }
-        for bunker in hole.hazards.bunkers where bunker.count >= 2 && bunker[1] <= 20 {
-            if bunker[0] >= current {
-                let yards = CoursePrepRoute.yards(fromMetres: bunker[0] - current)
-                summaries.append("沙坑：约 \(yards)y")
-            } else {
-                summaries.append("沙坑：已过")
-            }
-        }
-        return summaries
     }
 }

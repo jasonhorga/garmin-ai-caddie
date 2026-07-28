@@ -59,7 +59,7 @@ final class DesignSnapshotTests: XCTestCase {
                 .frame(height: 176)
                 .frame(maxWidth: .infinity, alignment: .top)
             LivePlayReticle().offset(x: 30, y: 96)
-            LiveHazardPill(text: "过水 235").offset(x: 54, y: 150)
+            LiveHazardPill(text: "水域 · 到 213 · 过 235 码").offset(x: 54, y: 150)
             VStack(spacing: 0) {
                 LivePlayHeader(holeNumber: 1, par: 5, yards: 543, teeLabel: "蓝T", roundToParText: "本场 +4")
                     .padding(.horizontal, 20)

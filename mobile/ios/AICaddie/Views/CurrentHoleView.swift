@@ -379,12 +379,15 @@ public struct CurrentHoleView: View {
         return "实打约 \(deltaYd > 0 ? "+" : "")\(deltaYd) 码(\(deltaYd > 0 ? "上坡" : "下坡"))"
     }
 
-    /// The single hazard carry pill over the map: the nearest water carry (码), when the prep has one.
+    /// The nearest mapped hazard over the live map. New geometry shows the same front/back semantics
+    /// for sand and water; legacy bunkers retain only their one provable distance.
     private var hazardPillText: String? {
-        guard let nearest = holePrep?.hazards.waterCarry.compactMap({ $0.first }).min() else {
+        guard let hazards = holePrep?.hazards,
+              let nearest = CaddiePlanHazard.from(hazards).first,
+              let detail = nearest.detail else {
             return nil
         }
-        return "过水 \(CoursePrepRoute.yards(fromMetres: nearest))"
+        return "\(nearest.label) · \(detail)"
     }
 
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的

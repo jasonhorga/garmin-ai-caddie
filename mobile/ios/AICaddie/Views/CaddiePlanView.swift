@@ -686,25 +686,25 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
     /// retain both readings; a legacy bunker has only one safe route distance because its second
     /// number is an internal lateral gap, never a player-facing back edge.
     public static func from(_ hazards: CoursePrepHazards) -> [CaddiePlanHazard] {
-        var out: [CaddiePlanHazard] = []
+        var out: [(frontRouteM: Double, hazard: CaddiePlanHazard)] = []
         let bunkerDetails = hazards.details
             .filter { $0.kind == "bunker" }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !bunkerDetails.isEmpty {
             for (index, detail) in bunkerDetails.enumerated() {
                 let label = bunkerDetails.count > 1 ? "沙坑 \(index + 1)" : "沙坑"
-                out.append(CaddiePlanHazard(
+                out.append((detail.frontRouteM, CaddiePlanHazard(
                     id: "bunker-\(index)", icon: "🏖", label: label,
                     detail: measuredText(frontM: detail.frontM, backM: detail.backM)
-                ))
+                )))
             }
         } else {
             let bunkers = hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
             for (index, interval) in bunkers.enumerated() {
                 let label = bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑"
-                out.append(CaddiePlanHazard(
+                out.append((interval.first ?? .greatestFiniteMagnitude, CaddiePlanHazard(
                     id: "bunker-\(index)", icon: "🏖", label: label, detail: bunkerText(interval)
-                ))
+                )))
             }
         }
         let waterDetails = hazards.details
@@ -713,19 +713,24 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
         if !waterDetails.isEmpty {
             for (index, detail) in waterDetails.enumerated() {
                 let label = waterDetails.count > 1 ? "水域 \(index + 1)" : "水域"
-                out.append(CaddiePlanHazard(
+                out.append((detail.frontRouteM, CaddiePlanHazard(
                     id: "water-\(index)", icon: "💧", label: label,
                     detail: measuredText(frontM: detail.frontM, backM: detail.backM)
-                ))
+                )))
             }
         } else {
             let water = hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
             for (index, interval) in water.enumerated() {
                 let label = water.count > 1 ? "水域 \(index + 1)" : "水域"
-                out.append(CaddiePlanHazard(id: "water-\(index)", icon: "💧", label: label, detail: rangeText(interval)))
+                out.append((interval.first ?? .greatestFiniteMagnitude, CaddiePlanHazard(
+                    id: "water-\(index)", icon: "💧", label: label, detail: rangeText(interval)
+                )))
             }
         }
-        return out
+        return out.sorted {
+            if $0.frontRouteM == $1.frontRouteM { return $0.hazard.id < $1.hazard.id }
+            return $0.frontRouteM < $1.frontRouteM
+        }.map { $0.hazard }
     }
 
     private static func bunkerText(_ values: [Double]) -> String? {
