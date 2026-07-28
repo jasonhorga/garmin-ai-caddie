@@ -197,6 +197,8 @@ Build 35 的可安装性不等于产品视觉获批。当前重新以 2026-07-02
 | IOS-01 | `IN PROGRESS` | iPhone 深色实战页仍继承全局 light system chrome 与上一页“早上好”返回标题，且真实地图高度把核心记分动作挤出首屏；已用真实运行图定位，当前只修沉浸 chrome、明确返回和批准图面板重叠量，并以首屏保存动作/底栏完整可见作为运行门。 |
 | IOS-02 | `REPRODUCED / QUEUED` | 实战页底部“洞图 / 记分 / 球童 / 球场 / 更多”看起来是五项导航，但 `LivePlayTabBar` 源码明确是 `Visual language only`，没有一项可点；这是批准图自身没有暴露出来的设计/实现共同问题。IOS-01 关闭后先判断五入口是否仍是最优信息架构；无论最终删减还是接入真实任务，都不保留当前假 affordance。 |
 | IOS-03 | `REPRODUCED / BLOCKS PHONE-ONLY ROUND` | `CurrentHoleView.submitEvents()` 的“保存本洞”只向当前洞写 location/score/putt/penalty/club；没有 Par 4/5 的 `HIT / LEFT / RIGHT`，没有下一洞或选洞动作。`OfflineStore.restoreLiveRoundState()` 又只按每条事件自己的 `event.hole` 更新 `activeHole`，所以纯 iPhone 用户保存第 1 洞后仍无法进入第 2 洞，与“手机可独立打完整场”和已锁定确认流程直接矛盾。后续应复用/共享 Watch 已验证的成绩确认、active/editing hole 与推进语义，不能用孤立导航按钮掩盖缺失的事实链。 |
+| IOS-04 | `REPRODUCED / QUEUED` | 真实“展开球童”运行图只显示护分/标准/进攻 segmented control 下的一条当前建议；批准 `caddie-plan` 图和已锁定 S70 决策要求能比较多套完整击球链，而不是把三套路线压成一次次重算的单卡。障碍前后沿已经真实，方案结构与视觉仍需单独复核。 |
+| IOS-05 | `REPRODUCED / QUEUED` | iPhone 没有独立“记一杆”任务；`保存本洞` 在洞末同时写一条 location/club，等于把果岭旁位置冒充本洞唯一实际击球。这样即使总分能推进，手机独立球局也无法生成诚实逐杆落点图。应拆开逐杆事实与洞末成绩确认，不能用一条洞末 GPS 事件假装完成逐杆记录。 |
 | OPS-01 | `RUNTIME RECOVERED` | 2026-07-28 的远端 502 来自 homeserver 重启后 Postgres 容器未自动启动；数据库启动后 API healthy，真实 Cypress 下载重跑成功。此项与产品截图分轨，不再阻塞本地/离线 UI 证据。 |
 
 发布门：完成清单后，由 CI 生成真实 App 模拟器截图；Codex 将批准图与最终图按状态并排提交用户审批。用户明确批准前，不创建下一版 TestFlight。
