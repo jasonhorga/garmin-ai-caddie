@@ -393,7 +393,10 @@ struct LiveDistanceReadout: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
-            side(label: "前", value: greenFrontYards, color: LivePlayStyle.front)
+            side(
+                label: "前", value: greenFrontYards, color: LivePlayStyle.front,
+                accessibilityIdentifier: "live-green-front"
+            )
             VStack(spacing: 2) {
                 Text("到果岭中")
                     .font(.system(size: 12, weight: .bold))
@@ -404,12 +407,16 @@ struct LiveDistanceReadout: View {
                     .foregroundStyle(LivePlayStyle.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
+                    .accessibilityIdentifier("live-green-middle")
                 Text(unitLine)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(LivePlayStyle.ink45)
             }
             .frame(maxWidth: .infinity)
-            side(label: "后", value: greenBackYards, color: LivePlayStyle.back)
+            side(
+                label: "后", value: greenBackYards, color: LivePlayStyle.back,
+                accessibilityIdentifier: "live-green-back"
+            )
         }
     }
 
@@ -419,13 +426,19 @@ struct LiveDistanceReadout: View {
         return "码"
     }
 
-    private func side(label: String, value: Int?, color: Color) -> some View {
+    private func side(
+        label: String,
+        value: Int?,
+        color: Color,
+        accessibilityIdentifier: String
+    ) -> some View {
         VStack(spacing: 3) {
             Text(label).font(.system(size: 11, weight: .heavy)).foregroundStyle(LivePlayStyle.ink50)
             Text(value.map(String.init) ?? "—")
                 .font(.system(size: 28, weight: .heavy))
                 .monospacedDigit()
                 .foregroundStyle(color)
+                .accessibilityIdentifier(accessibilityIdentifier)
         }
         .frame(width: 72)
     }

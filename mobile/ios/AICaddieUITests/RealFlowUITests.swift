@@ -268,10 +268,21 @@ final class RealFlowUITests: XCTestCase {
             "the live backend must expose real static F/M/B facts for 北京丽宫 hole 2"
         )
         continueAfterFailure = false
-        for distance in hole2TeeGreenYards.map(String.init) {
+        let liveDistanceIdentifiers = ["live-green-front", "live-green-middle", "live-green-back"]
+        for (identifier, staticYards) in zip(liveDistanceIdentifiers, hole2TeeGreenYards) {
+            let distance = app.staticTexts[identifier]
             XCTAssertTrue(
-                app.staticTexts[distance].waitForExistence(timeout: 20),
-                "the ordered next hole must move simulated GPS to its own Tee and show F/M/B \(distance)"
+                distance.waitForExistence(timeout: 20),
+                "the ordered next hole must expose its identified live F/M/B distance \(identifier)"
+            )
+            let liveYards = try XCTUnwrap(Int(distance.label), "\(identifier) must expose whole yards")
+            // Static prep is measured in the decoded mesh plane; the live readout ranges between
+            // WGS84 points. They need to identify the same Tee/green, not be byte-identical metres.
+            let tolerance = max(8, Int(ceil(Double(staticYards) * 0.02)))
+            XCTAssertLessThanOrEqual(
+                abs(liveYards - staticYards),
+                tolerance,
+                "the ordered next hole must move simulated GPS to its own Tee (live \(liveYards), static \(staticYards))"
             )
         }
         continueAfterFailure = true
@@ -557,9 +568,9 @@ final class RealFlowUITests: XCTestCase {
             .write(to: realShotsDir().appendingPathComponent("diagnostics.txt"))
     }
 
-    /// Fetches lightweight static Tee→green facts from the same real prep endpoint the app consumes.
-    /// The live screen should equal these only after the DEBUG journey moves its simulated GPS from
-    /// the prior hole to this hole's real Tee; a fixed hole-1 coordinate produces visibly wrong values.
+    /// Fetches a lightweight static Tee→green benchmark from the same real prep endpoint the app
+    /// consumes. Live WGS84 rangefinding may differ by a few yards from mesh-plane measurements, but
+    /// a fixed prior-hole coordinate is hundreds of yards outside that small calibration tolerance.
     private func fetchPrepGreenYards(globalId: Int, hole: Int) -> [Int]? {
         guard let base = cfg("AI_CADDIE_API_BASE_URL"),
               var components = URLComponents(string: base + "/api/v2/courses/\(globalId)/prep") else {
