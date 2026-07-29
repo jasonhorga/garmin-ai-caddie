@@ -1435,6 +1435,9 @@ public struct CurrentHoleView: View {
             pendingPhoneShot = nil
             return
         }
+        #if DEBUG
+        UITestEventLatencyTrace.record("actual-club.build.begin hole=\(hole.number)")
+        #endif
         let event = LiveRoundEventBuilder(roundId: package.roundId).makeActualClubEvent(
             hole: hole.number,
             clubName: trimmedClub,
@@ -1447,7 +1450,17 @@ public struct CurrentHoleView: View {
             offlineOptionId: selectedOfflineOption?.optionId,
             decision: caddieDecision
         )
+        #if DEBUG
+        UITestEventLatencyTrace.record("actual-club.build.end hole=\(hole.number)")
+        UITestEventLatencyTrace.record("actual-club.encode.begin hole=\(hole.number)")
+        let encodedByteCount = (try? JSONEncoder().encode(event).count) ?? -1
+        UITestEventLatencyTrace.record("actual-club.encode.end hole=\(hole.number) bytes=\(encodedByteCount)")
+        UITestEventLatencyTrace.record("actual-club.handle.begin hole=\(hole.number)")
+        #endif
         onEvent(event)
+        #if DEBUG
+        UITestEventLatencyTrace.record("actual-club.handle.end hole=\(hole.number)")
+        #endif
         pendingPhoneShot = nil
     }
 

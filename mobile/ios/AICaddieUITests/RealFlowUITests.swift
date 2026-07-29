@@ -28,6 +28,7 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.5461531"
         app.launchEnvironment["UITEST_MODE"] = "1"
         app.launchEnvironment["UITEST_FOLLOW_HOLE_TEE"] = "1"
+        app.launchEnvironment["UITEST_TRACE_EVENT_LATENCY"] = "1"
     }
 
     func testCaptureRealAppFlow() throws {

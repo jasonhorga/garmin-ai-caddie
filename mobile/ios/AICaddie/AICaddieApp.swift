@@ -723,16 +723,31 @@ public final class LiveRoundAppModel: ObservableObject {
 
     public func handleEvent(_ event: LiveRoundEvent) {
         do {
+            #if DEBUG
+            UITestEventLatencyTrace.record("handle.start kind=\(event.kind.rawValue) hole=\(event.hole)")
+            #endif
             try offlineStore.appendEvent(event)
+            #if DEBUG
+            UITestEventLatencyTrace.record("handle.append.end kind=\(event.kind.rawValue) hole=\(event.hole)")
+            #endif
             if let package, package.roundId == event.roundId {
                 liveRoundState = try offlineStore.restoreLiveRoundState(roundId: event.roundId, package: package)
             }
+            #if DEBUG
+            UITestEventLatencyTrace.record("handle.restore.end kind=\(event.kind.rawValue) hole=\(event.hole)")
+            #endif
             pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
+            #if DEBUG
+            UITestEventLatencyTrace.record("handle.pending.end kind=\(event.kind.rawValue) hole=\(event.hole) count=\(pendingEventCount)")
+            #endif
             syncStatus = "已保存"
             // Real-flow XCUITest reads the owner's real course package/prep/map, then plays the
             // round entirely in the simulator. Keep those events local so visual evidence can use
             // real course data without writing a synthetic score into the owner's backend history.
             if eventSyncSuppressedForUITests {
+                #if DEBUG
+                UITestEventLatencyTrace.record("handle.return.suppressed kind=\(event.kind.rawValue) hole=\(event.hole)")
+                #endif
                 return
             }
             // Auto-sync: push to Garmin/backend in the background after each recorded hole, so the
