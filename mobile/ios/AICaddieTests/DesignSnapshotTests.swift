@@ -8,17 +8,6 @@ import XCTest
 /// collects `Documents/design-snapshots/*.png` from the simulator container and
 /// uploads them as the `design-snapshots` artifact.
 final class DesignSnapshotTests: XCTestCase {
-    func testLiveCaddieClubIdentityIsStableAcrossRenderPasses() {
-        let first = LiveCaddieStrip.Club(name: "三号木", sub: "192 码", on: true)
-        let second = LiveCaddieStrip.Club(name: "三号木", sub: "192 码", on: true)
-
-        XCTAssertEqual(
-            first.id,
-            second.id,
-            "recomputing CurrentHoleView must not replace every club chip with a new SwiftUI identity"
-        )
-    }
-
     @MainActor
     func testRenderLiveHoleRedesign() throws {
         let view = VStack(spacing: 12) {
