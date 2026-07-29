@@ -477,6 +477,10 @@ public struct CurrentHoleView: View {
     /// The nearest mapped hazard over the live map. New geometry shows the same front/back semantics
     /// for sand and water; legacy bunkers retain only their one provable distance.
     private var hazardPillText: String? {
+        if let liveHazards = liveHazardReadouts {
+            guard let nearest = liveHazards.first else { return nil }
+            return "\(nearest.label) · \(nearest.detail)"
+        }
         guard let hazards = holePrep?.hazards,
               let nearest = CaddiePlanHazard.from(hazards).first,
               let detail = nearest.detail else {
@@ -610,7 +614,38 @@ public struct CurrentHoleView: View {
         guard let holePrep else {
             return []
         }
+        if let liveHazards = liveHazardReadouts {
+            return liveHazards.map {
+                CaddiePlanHazard(
+                    id: $0.id,
+                    icon: $0.kind == "water" ? "💧" : "🏖",
+                    label: $0.label,
+                    detail: $0.detail
+                )
+            }
+        }
         return CaddiePlanHazard.from(holePrep.hazards)
+    }
+
+    /// Live-round hazard ranges use the player's current GPS fix and the measured front/back boundary
+    /// pixels. A non-nil empty array means every measured hazard is already behind the player; nil
+    /// means this older prep lacks the projection needed for live ranging and should use static facts.
+    private var liveHazardReadouts: [CoursePrepLiveHazardReadout]? {
+        guard let holePrep,
+              let fix = locationProvider.latestFix,
+              let route = holePrep.map?.overlay.route,
+              let projection = holePrep.holeImageProjection,
+              projection.available,
+              let refs = projection.refs else {
+            return nil
+        }
+        return CoursePrepLiveHazardReadout.upcoming(
+            hazards: holePrep.hazards,
+            route: route,
+            projectionRefs: refs,
+            playerLatitude: fix.coordinate.latitude,
+            playerLongitude: fix.coordinate.longitude
+        )
     }
 
     /// Measured hazard facts mirrored to the Watch. New prep carries true front/back boundary facts;

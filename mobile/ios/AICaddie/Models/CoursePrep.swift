@@ -93,7 +93,118 @@ struct CoursePrepLiveHazardReadout: Equatable {
         playerLatitude: Double,
         playerLongitude: Double
     ) -> [Self]? {
-        nil
+        guard playerLatitude.isFinite, (-90...90).contains(playerLatitude),
+              playerLongitude.isFinite, (-180...180).contains(playerLongitude) else {
+            return nil
+        }
+        let refs = projectionRefs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+        guard let playerPx = WatchEventBridge.projectToTopoPx(
+            lat: playerLatitude,
+            lon: playerLongitude,
+            refs: refs
+        ), let progressM = playerProgressMetres(on: route, playerPx: playerPx) else {
+            return nil
+        }
+
+        let supported = hazards.details
+            .filter { $0.kind == "bunker" || $0.kind == "water" }
+            .sorted {
+                if $0.frontRouteM == $1.frontRouteM { return $0.kind < $1.kind }
+                return $0.frontRouteM < $1.frontRouteM
+            }
+        guard !supported.isEmpty else { return nil }
+
+        let totals = Dictionary(grouping: supported, by: \.kind).mapValues(\.count)
+        var ordinals: [String: Int] = [:]
+        var upcoming: [(readout: Self, frontRouteM: Double)] = []
+        var hasUnpassedGeometry = false
+
+        for detail in supported {
+            let ordinal = ordinals[detail.kind, default: 0]
+            ordinals[detail.kind] = ordinal + 1
+            guard max(detail.frontRouteM, detail.backRouteM) > progressM else { continue }
+            hasUnpassedGeometry = true
+            guard let front = coordinate(for: detail.frontPx, refs: refs),
+                  let back = coordinate(for: detail.backPx, refs: refs),
+                  let toYards = GeoDistance.yards(
+                      from: playerLatitude,
+                      playerLongitude,
+                      to: front.latitude,
+                      front.longitude
+                  ),
+                  let overYards = GeoDistance.yards(
+                      from: playerLatitude,
+                      playerLongitude,
+                      to: back.latitude,
+                      back.longitude
+                  ) else {
+                continue
+            }
+            let baseLabel = detail.kind == "water" ? "水域" : "沙坑"
+            let label = totals[detail.kind, default: 0] > 1 ? "\(baseLabel) \(ordinal + 1)" : baseLabel
+            upcoming.append((
+                readout: Self(
+                    id: "\(detail.kind)-\(ordinal)",
+                    kind: detail.kind,
+                    label: label,
+                    toYards: toYards,
+                    overYards: overYards
+                ),
+                frontRouteM: detail.frontRouteM
+            ))
+        }
+
+        if !hasUnpassedGeometry { return [] }
+        guard !upcoming.isEmpty else { return nil }
+        return upcoming.sorted {
+            if $0.readout.toYards == $1.readout.toYards {
+                if $0.frontRouteM == $1.frontRouteM { return $0.readout.id < $1.readout.id }
+                return $0.frontRouteM < $1.frontRouteM
+            }
+            return $0.readout.toYards < $1.readout.toYards
+        }.map(\.readout)
+    }
+
+    private static func coordinate(
+        for pixels: [Double],
+        refs: [(lat: Double, lon: Double, px: Double, py: Double)]
+    ) -> (latitude: Double, longitude: Double)? {
+        guard pixels.count >= 2 else { return nil }
+        return WatchEventBridge.projectFromTopoPx(px: pixels[0], py: pixels[1], refs: refs)
+    }
+
+    private static func playerProgressMetres(on route: [[Double]], playerPx: [Double]) -> Double? {
+        guard playerPx.count >= 2, playerPx[0].isFinite, playerPx[1].isFinite, route.count >= 2 else {
+            return nil
+        }
+        var bestDistanceSquared = Double.greatestFiniteMagnitude
+        var bestProgressM: Double?
+        for index in 0..<(route.count - 1) {
+            let start = route[index]
+            let end = route[index + 1]
+            guard validRoutePoint(start), validRoutePoint(end), end[2] >= start[2] else { continue }
+            let dx = end[0] - start[0]
+            let dy = end[1] - start[1]
+            let lengthSquared = dx * dx + dy * dy
+            guard lengthSquared > 0 else { continue }
+            let rawFraction = ((playerPx[0] - start[0]) * dx + (playerPx[1] - start[1]) * dy)
+                / lengthSquared
+            let fraction = min(max(rawFraction, 0), 1)
+            let projectedX = start[0] + dx * fraction
+            let projectedY = start[1] + dy * fraction
+            let playerDX = playerPx[0] - projectedX
+            let playerDY = playerPx[1] - projectedY
+            let distanceSquared = playerDX * playerDX + playerDY * playerDY
+            if distanceSquared < bestDistanceSquared {
+                bestDistanceSquared = distanceSquared
+                bestProgressM = start[2] + (end[2] - start[2]) * fraction
+            }
+        }
+        return bestProgressM
+    }
+
+    private static func validRoutePoint(_ point: [Double]) -> Bool {
+        point.count >= 3 && point[0].isFinite && point[1].isFinite && point[2].isFinite
     }
 }
 
