@@ -1952,6 +1952,13 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn('.navigationTitle("赛前球场攻略")', course_review)
         self.assertIn('Text("蓝T \\(hole.blueYards)y")', course_review)
+        # Opening the review must not synchronously render and embed every hole image. Facts load
+        # once; only visible LazyVStack cards request their single-hole map, while retaining the
+        # factual row when that optional request fails.
+        self.assertIn("fetchCoursePrep(globalId: globalId, render: false)", course_review)
+        self.assertIn("LazyVStack(alignment: .leading, spacing: 14)", course_review)
+        self.assertIn("fetchHolePrep(", course_review)
+        self.assertIn("mapUnavailable: didTryMap && renderedHole?.map == nil", course_review)
         # De-engineered: the "Par 来源：…" provenance label is hidden from the consumer course review.
         self.assertNotIn("Par 来源", course_review)
         # Course review and the full caddie plan share one measured hazard projection.  Both water

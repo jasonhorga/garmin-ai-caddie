@@ -27,7 +27,7 @@ public struct CourseReviewView: View {
 
     public var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            LazyVStack(alignment: .leading, spacing: 14) {
                 if isLoading {
                     ProgressView("加载中…")
                 }
@@ -35,10 +35,7 @@ public struct CourseReviewView: View {
                     Text("加载失败：\(errorText)").foregroundColor(.red).font(.callout)
                 }
                 ForEach(holes, id: \.hole) { hole in
-                    HolePrepCard(
-                        hole: hole,
-                        topoURL: SyncClient.topoImageURL(baseURL: client.baseURL, globalId: globalId, localHole: hole.hole)
-                    )
+                    CourseReviewHoleCard(client: client, globalId: globalId, initialHole: hole)
                 }
             }
             .padding()
@@ -52,7 +49,10 @@ public struct CourseReviewView: View {
         isLoading = true
         errorText = nil
         do {
-            let response = try await client.fetchCoursePrep(globalId: globalId)
+            // The all-hole rendered response embeds one JPEG per hole and can exceed URLSession's
+            // request timeout on a cold course. Load every factual row first; visible cards then
+            // fetch their own rendered hole instead of blocking on an eager 18-image render.
+            let response = try await client.fetchCoursePrep(globalId: globalId, render: false)
             holes = response.holes
         } catch {
             errorText = error.localizedDescription
@@ -61,16 +61,81 @@ public struct CourseReviewView: View {
     }
 }
 
+/// Shows the lightweight factual row immediately and requests a rendered map only after this card
+/// enters the LazyVStack viewport. A failed optional bitmap never erases distances or advice.
+private struct CourseReviewHoleCard: View {
+    let client: SyncClient
+    let globalId: Int
+    let initialHole: CoursePrepHole
+
+    @State private var renderedHole: CoursePrepHole?
+    @State private var isLoadingMap = false
+    @State private var didTryMap = false
+
+    private var hole: CoursePrepHole { renderedHole ?? initialHole }
+    private var canLoadMap: Bool { initialHole.map == nil && !initialHole.route.isEmpty }
+
+    var body: some View {
+        HolePrepCard(
+            hole: hole,
+            topoURL: SyncClient.topoImageURL(
+                baseURL: client.baseURL,
+                globalId: globalId,
+                localHole: initialHole.hole
+            ),
+            isLoadingMap: isLoadingMap,
+            mapUnavailable: didTryMap && renderedHole?.map == nil
+        )
+        .task(id: initialHole.hole) { await loadMapIfNeeded() }
+    }
+
+    @MainActor
+    private func loadMapIfNeeded() async {
+        guard canLoadMap, !didTryMap else { return }
+        didTryMap = true
+        isLoadingMap = true
+        defer { isLoadingMap = false }
+        do {
+            renderedHole = try await client.fetchHolePrep(
+                globalId: globalId,
+                localHole: initialHole.hole
+            )
+        } catch is CancellationError {
+            // Lazy rows are cancelled when scrolled off-screen; allow a later appearance to retry.
+            didTryMap = false
+        } catch {
+            renderedHole = nil
+        }
+    }
+}
+
 struct HolePrepCard: View {
     let hole: CoursePrepHole
     /// 本洞真实地形底图 URL(有几何 + 已知 gid 时);nil → 回退 payload flat 渲染图。
     var topoURL: URL? = nil
+    var isLoadingMap = false
+    var mapUnavailable = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
             // 服务端真实球场图 + 推荐打法(route + 推荐落点 + 球杆)叠加。
-            HoleImageMapView(hole: hole, topoURL: topoURL)
+            if hole.map != nil {
+                HoleImageMapView(hole: hole, topoURL: topoURL)
+                    .accessibilityIdentifier("prep-hole-map-\(hole.hole)")
+            } else if isLoadingMap {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("加载本洞地图…")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 72)
+            } else if mapUnavailable {
+                Label("地图暂不可用，距离与建议已保留", systemImage: "map")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             caddieTrySection
             if !hole.steps.isEmpty { stepsSection }
             if !hazardSummaries.isEmpty { hazardsSection }

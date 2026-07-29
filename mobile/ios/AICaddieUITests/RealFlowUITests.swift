@@ -98,6 +98,13 @@ final class RealFlowUITests: XCTestCase {
             waitUntilGone(loading, timeout: 60),
             "pre-round screenshot must wait for the live prep request to finish"
         )
+        let firstPrepMap = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "prep-hole-map-")
+        ).firstMatch
+        XCTAssertTrue(
+            firstPrepMap.waitForExistence(timeout: 60),
+            "the first visible prep card must lazily load its real single-hole map"
+        )
         XCTAssertTrue(
             scrollTo(firstPrepCard, maxSwipes: 3),
             "first real prep card must be fully inside the simulator safe viewport"
