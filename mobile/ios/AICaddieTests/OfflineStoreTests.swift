@@ -64,6 +64,23 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
     }
 
+    func testSaveAndLoadHomePackageCreatesFreshStoreDirectory() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let package = try fixturePackage()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        do {
+            try store.saveHomePackage(package)
+        } catch {
+            XCTFail("fresh-install home package must persist without prior store writes: \(error)")
+            return
+        }
+
+        XCTAssertEqual(try store.loadHomePackage()?.roundId, package.roundId)
+    }
+
     func testAppendAndLoadEvents() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
