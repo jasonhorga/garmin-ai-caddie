@@ -78,6 +78,7 @@ def build_mobile_course_package_response(
     ensure_geometry: bool = False,
     nine: str = "all",
     back_global_id: int | None = None,
+    include_event_cursor: bool = True,
     player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode(player_id=player_id)
@@ -101,6 +102,7 @@ def build_mobile_course_package_response(
             # hazard point-in-polygon over big meshes). The app fetches per-hole prep on demand
             # (the 2D map + hazards), so the round opens immediately.
             include_course_prep=False,
+            include_event_cursor=include_event_cursor,
         )
     )
 

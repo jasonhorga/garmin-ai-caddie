@@ -1207,6 +1207,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
         self.assertIn("fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: true)", app_swift)
 
+    def test_ios_home_package_explicitly_skips_the_event_cursor(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+
+        self.assertIn("includeEventCursor: Bool = true", sync_client)
+        self.assertIn('URLQueryItem(name: "include_event_cursor", value: includeEventCursor ? "true" : "false")', sync_client)
+        self.assertIn("includeEventCursor: false", app_swift)
+
     def test_ios_app_entry_bootstraps_cached_or_fixture_package(self) -> None:
         package_swift = _read_required_source(self, Path("Package.swift"))
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")

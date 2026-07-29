@@ -1766,6 +1766,7 @@ def build_live_round_package(
     ensure_geometry: bool = False,
     geometry_ensure: dict[str, Any] | None = None,
     include_course_prep: bool = True,
+    include_event_cursor: bool = True,
     stats_data: HistoryData | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
@@ -1967,7 +1968,11 @@ def build_live_round_package(
                 "expiresAfterHours": OFFLINE_EXPIRES_AFTER_HOURS,
             },
         },
-        "eventCursor": _event_cursor(round_id, root=root, client_id=client_id, player_id=player_id),
+        "eventCursor": (
+            _event_cursor(round_id, root=root, client_id=client_id, player_id=player_id)
+            if include_event_cursor
+            else {"serverSequence": 0, "pendingEventCount": 0}
+        ),
         "recentHistory": recent_history,
         "cachedCaddieRules": _cached_caddie_rules(),
         "generatedAt": _format_time(prepared_at),
@@ -2051,6 +2056,7 @@ def build_live_round_package_for_course(
     nine: str = "all",
     back_global_id: int | None = None,
     include_course_prep: bool = True,
+    include_event_cursor: bool = True,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
@@ -2097,6 +2103,7 @@ def build_live_round_package_for_course(
         ensure_geometry=ensure_geometry and selected_round_id is not None,
         geometry_ensure=geometry_ensure,
         include_course_prep=include_course_prep,
+        include_event_cursor=include_event_cursor,
         # Build stats from the ORIGINAL history (not the template-augmented package_source) so the
         # stats cache stays warm across every course/round — see note in build_live_round_package.
         stats_data=source,
@@ -2156,6 +2163,7 @@ def build_live_round_package_for_course(
         ensure_geometry=ensure_geometry,
         nine="all",
         include_course_prep=include_course_prep,
+        include_event_cursor=include_event_cursor,
         player_id=player_id,
     )
     return _merge_nines(front_package, back_package)

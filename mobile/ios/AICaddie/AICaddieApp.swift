@@ -1096,7 +1096,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 teeBox: teeBox,
                 nine: "all",
                 capturedAt: Date(),
-                ensureGeometry: false
+                ensureGeometry: false,
+                includeEventCursor: false
             ) {
                 return fetched
             }

@@ -140,6 +140,47 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["cachedCaddieRules"]["decisionContract"], "ai-caddie-decision-v2")
         self.assertTrue(payload["cachedCaddieRules"]["offlineCapable"])
 
+    def test_home_package_skips_the_event_store_cursor(self) -> None:
+        """The read-only home preview must not scan the global event log."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.core.fixtures import fixture_history_data
+
+        with TemporaryDirectory() as tmp, patch.object(
+            mobile_live,
+            "_event_cursor",
+            side_effect=AssertionError("home preview touched the event store"),
+        ):
+            package = mobile_live.build_live_round_package(
+                "home-preview",
+                data=fixture_history_data(),
+                data_mode="fixture",
+                root=Path(tmp),
+                annotations_root=Path(tmp),
+                template_round_id="900001",
+                include_course_prep=False,
+                include_event_cursor=False,
+            )
+
+        self.assertEqual(package["eventCursor"], {"serverSequence": 0, "pendingEventCount": 0})
+
+    def test_course_package_route_forwards_event_cursor_opt_out(self) -> None:
+        from server_v2 import main as server_main
+
+        expected = object()
+        with patch.object(
+            server_main,
+            "build_mobile_course_package_response",
+            return_value=expected,
+        ) as build_package:
+            actual = server_main.mobile_course_package(
+                31796,
+                include_event_cursor=False,
+                player_id="owner",
+            )
+
+        self.assertIs(actual, expected)
+        self.assertFalse(build_package.call_args.kwargs["include_event_cursor"])
+
     def test_mobile_round_package_can_prefetch_geometry_for_offline_readiness(self) -> None:
         client = TestClient(app)
         ensured: set[tuple[int, int]] = set()
