@@ -57,6 +57,33 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertEqual(hole.hazards.waterCarry.first, [40.0, 90.0])
     }
 
+    func testResolvesTopoOverlayFromLightweightRouteAndAffineProjection() throws {
+        let json = """
+        {"schema":"ai-caddie-course-prep-v1","globalId":3881,"holeCount":1,"clubs":[],
+         "holes":[{"hole":4,"par":4,"par_source":"courseview","blue_yards":197,"route_len_m":180,
+           "route":[[0,0,0],[60,0,60],[60,120,180]],
+           "steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},
+           "holeImageProjection":{"available":true,"widthPx":720,"heightPx":1120,"refs":[
+             {"lat":36.58,"lon":-121.97,"px":300,"py":900},
+             {"lat":36.58,"lon":-121.96865,"px":420,"py":780},
+             {"lat":36.58108,"lon":-121.97,"px":180,"py":720}
+           ]}}]}
+        """
+        let response = try JSONDecoder().decode(CoursePrepResponse.self, from: Data(json.utf8))
+        let hole = try XCTUnwrap(response.holes.first)
+
+        XCTAssertNil(hole.map, "render=false must not require an embedded bitmap")
+        let overlay = try XCTUnwrap(hole.resolvedMapOverlay)
+        XCTAssertEqual(overlay.w, 720)
+        XCTAssertEqual(overlay.h, 1120)
+        XCTAssertEqual(overlay.ln, 180, accuracy: 0.01)
+        XCTAssertEqual(overlay.route, [
+            [300, 900, 0],
+            [360, 840, 60],
+            [240, 660, 180],
+        ])
+    }
+
     func testParSourceLabelsCourseViewWithoutMarkingAsEstimate() throws {
         XCTAssertEqual(coursePrepParSourceLabel("played"), "记分卡")
         XCTAssertEqual(coursePrepParSourceLabel("courseview"), "CourseView")
