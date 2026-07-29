@@ -75,4 +75,85 @@ final class CoursePrepTests: XCTestCase {
         let cleared = CoursePrepRoute.intervalReadout(currentMetres: 150, startMetres: 100, endMetres: 130)
         XCTAssertEqual(cleared, CoursePrepHazardIntervalReadout(toStartYards: 0, toClearYards: 0, isBehind: false, isInside: false, isCleared: true))
     }
+
+    func testLiveHazardsRangeFromCurrentPositionToSandAndWaterEdges() throws {
+        let refs = affineProjectionRefs()
+        let hazards = measuredHazards()
+
+        let upcoming = try XCTUnwrap(
+            CoursePrepLiveHazardReadout.upcoming(
+                hazards: hazards,
+                route: straightRoute(),
+                projectionRefs: refs,
+                playerLatitude: 0,
+                playerLongitude: 0.0005
+            ),
+            "valid topo geometry must produce live hazard ranges"
+        )
+
+        XCTAssertEqual(upcoming.map(\.label), ["沙坑", "水域"])
+        XCTAssertEqual(upcoming.map(\.detail), [
+            "到 61 · 过 97 码",
+            "到 158 · 过 182 码",
+        ])
+    }
+
+    func testLiveHazardsRemoveAnObstacleOnlyAfterItsFarEdgeIsPassed() throws {
+        let upcoming = try XCTUnwrap(
+            CoursePrepLiveHazardReadout.upcoming(
+                hazards: measuredHazards(),
+                route: straightRoute(),
+                projectionRefs: affineProjectionRefs(),
+                playerLatitude: 0,
+                playerLongitude: 0.0015
+            )
+        )
+
+        XCTAssertEqual(upcoming.map(\.label), ["水域"])
+        XCTAssertEqual(upcoming.first?.detail, "到 36 · 过 61 码")
+    }
+
+    private func measuredHazards() -> CoursePrepHazards {
+        CoursePrepHazards(
+            details: [
+                CoursePrepHazardDetail(
+                    kind: "bunker",
+                    frontM: 1_000,
+                    backM: 1_100,
+                    frontRouteM: 100,
+                    backRouteM: 130,
+                    frontPx: [100, 0],
+                    backPx: [130, 0],
+                    sideM: 9_999
+                ),
+                CoursePrepHazardDetail(
+                    kind: "water",
+                    frontM: 2_000,
+                    backM: 2_100,
+                    frontRouteM: 180,
+                    backRouteM: 200,
+                    frontPx: [180, 0],
+                    backPx: [200, 0],
+                    sideM: nil
+                ),
+            ]
+        )
+    }
+
+    private func affineProjectionRefs() -> [CoursePrepProjectionRef] {
+        [
+            CoursePrepProjectionRef(lat: 0, lon: 0, px: 0, py: 0),
+            CoursePrepProjectionRef(lat: 0, lon: 0.001, px: 100, py: 0),
+            CoursePrepProjectionRef(lat: 0.001, lon: 0, px: 0, py: 100),
+        ]
+    }
+
+    private func straightRoute() -> [[Double]] {
+        [
+            [0, 0, 0],
+            [100, 0, 100],
+            [200, 0, 200],
+            [300, 0, 300],
+        ]
+    }
 }
