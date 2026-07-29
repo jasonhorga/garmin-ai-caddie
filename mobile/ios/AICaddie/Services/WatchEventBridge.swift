@@ -307,6 +307,16 @@ public final class WatchEventBridge: NSObject {
     /// publish the two together instead of allowing one update to erase the other.
     private var pendingRoundSeed: [String: Any]?
 
+    static func isTransportEnabled(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        #if DEBUG
+        return environment["UITEST_MODE"] != "1"
+        #else
+        return true
+        #endif
+    }
+
     public init(offlineStore: OfflineStore = OfflineStore(), autoActivate: Bool = false) {
         self.offlineStore = offlineStore
         super.init()
