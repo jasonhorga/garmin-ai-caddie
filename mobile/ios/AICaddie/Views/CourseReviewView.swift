@@ -73,7 +73,9 @@ private struct CourseReviewHoleCard: View {
     @State private var didTryMap = false
 
     private var hole: CoursePrepHole { renderedHole ?? initialHole }
-    private var canLoadMap: Bool { initialHole.map == nil && !initialHole.route.isEmpty }
+    private var canLoadMap: Bool {
+        initialHole.resolvedMapOverlay == nil && initialHole.map == nil && !initialHole.route.isEmpty
+    }
 
     var body: some View {
         HolePrepCard(
@@ -98,7 +100,8 @@ private struct CourseReviewHoleCard: View {
         do {
             renderedHole = try await client.fetchHolePrep(
                 globalId: globalId,
-                localHole: initialHole.hole
+                localHole: initialHole.hole,
+                render: true
             )
         } catch is CancellationError {
             // Lazy rows are cancelled when scrolled off-screen; allow a later appearance to retry.
@@ -120,7 +123,7 @@ struct HolePrepCard: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             // 服务端真实球场图 + 推荐打法(route + 推荐落点 + 球杆)叠加。
-            if hole.map != nil {
+            if hole.resolvedMapOverlay != nil {
                 HoleImageMapView(hole: hole, topoURL: topoURL)
                     .accessibilityIdentifier("prep-hole-map-\(hole.hole)")
             } else if isLoadingMap {

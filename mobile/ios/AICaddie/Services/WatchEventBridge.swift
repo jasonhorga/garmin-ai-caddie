@@ -500,7 +500,7 @@ public final class WatchEventBridge: NSObject {
             return (latitude, longitude)
         }
         guard let prep = package.coursePrep?.holes.first(where: { $0.hole == hole }),
-              let first = prep.map?.overlay.route.first,
+              let first = prep.resolvedMapOverlay?.route.first,
               first.count >= 2,
               let refs = prep.holeImageProjection?.refs else { return nil }
         return projectFromTopoPx(

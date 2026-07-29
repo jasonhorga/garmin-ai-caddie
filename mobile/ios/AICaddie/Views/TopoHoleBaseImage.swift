@@ -17,7 +17,7 @@ import UIKit
 /// space aligns with either bitmap pixel-perfect — the caller draws that overlay as a sibling layer.
 struct TopoHoleBaseImage: View {
     let topoURL: URL?
-    let fallback: UIImage
+    let fallback: UIImage?
 
     var body: some View {
         if let topoURL {
@@ -36,8 +36,12 @@ struct TopoHoleBaseImage: View {
         }
     }
 
-    private var fallbackImage: some View {
-        Image(uiImage: fallback).resizable().scaledToFit()
+    @ViewBuilder private var fallbackImage: some View {
+        if let fallback {
+            Image(uiImage: fallback).resizable().scaledToFit()
+        } else {
+            Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255)
+        }
     }
 }
 #endif

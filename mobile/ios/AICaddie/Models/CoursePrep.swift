@@ -351,6 +351,74 @@ public struct CoursePrepHole: Codable, Equatable {
         self.playsLike = try container.decodeIfPresent(CoursePrepPlaysLike.self, forKey: .playsLike)
         self.holeImageProjection = try container.decodeIfPresent(CoursePrepHoleImageProjection.self, forKey: .holeImageProjection)
     }
+
+    /// Overlay in the shared `/topo.png` pixel frame. Rendered prep already embeds this value; the
+    /// lightweight `render=false` response instead carries the route in local metres plus three affine
+    /// anchors. The backend fixes those anchors at local (0,0), (120,0), and (0,120), in that order.
+    public var resolvedMapOverlay: CoursePrepOverlay? {
+        if let overlay = map?.overlay,
+           overlay.w > 0, overlay.h > 0, overlay.route.count >= 2 {
+            return overlay
+        }
+        guard route.count >= 2,
+              let projection = holeImageProjection,
+              projection.available,
+              let width = projection.widthPx, width > 0,
+              let height = projection.heightPx, height > 0,
+              let refs = projection.refs, refs.count >= 3 else {
+            return nil
+        }
+
+        let origin = refs[0]
+        let xReference = refs[1]
+        let yReference = refs[2]
+        let pixelValues = [
+            origin.px, origin.py,
+            xReference.px, xReference.py,
+            yReference.px, yReference.py,
+        ]
+        guard pixelValues.allSatisfy(\.isFinite) else { return nil }
+
+        let xBasis = (
+            x: (xReference.px - origin.px) / 120,
+            y: (xReference.py - origin.py) / 120
+        )
+        let yBasis = (
+            x: (yReference.px - origin.px) / 120,
+            y: (yReference.py - origin.py) / 120
+        )
+        let ppm = (hypot(xBasis.x, xBasis.y) + hypot(yBasis.x, yBasis.y)) / 2
+        guard ppm.isFinite, ppm > 0 else { return nil }
+
+        var previousLocal: (x: Double, y: Double)?
+        var cumulativeM = 0.0
+        var projectedRoute: [[Double]] = []
+        for row in route {
+            guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
+            let local = (x: row[0], y: row[1])
+            if let previousLocal {
+                cumulativeM += hypot(local.x - previousLocal.x, local.y - previousLocal.y)
+            }
+            let routeM = row.count >= 3 && row[2].isFinite ? row[2] : cumulativeM
+            projectedRoute.append([
+                origin.px + local.x * xBasis.x + local.y * yBasis.x,
+                origin.py + local.x * xBasis.y + local.y * yBasis.y,
+                routeM,
+            ])
+            previousLocal = local
+        }
+
+        let length = routeLenM.isFinite && routeLenM > 0
+            ? routeLenM
+            : (projectedRoute.last?[2] ?? 0)
+        return CoursePrepOverlay(
+            w: width,
+            h: height,
+            ppm: ppm,
+            ln: length,
+            route: projectedRoute
+        )
+    }
 }
 
 public struct CoursePrepGreenDistances: Codable, Equatable {

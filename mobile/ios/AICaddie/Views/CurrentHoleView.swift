@@ -336,7 +336,7 @@ public struct CurrentHoleView: View {
 
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
     @ViewBuilder private var liveMapBackdrop: some View {
-        if let holePrep, holePrep.map?.overlay != nil {
+        if let holePrep, holePrep.resolvedMapOverlay != nil {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
                              topoURL: liveTopoURL)
         } else {
@@ -519,7 +519,20 @@ public struct CurrentHoleView: View {
             return
         }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
-        holePrep = try? await client.fetchHolePrep(globalId: mapGlobalId, localHole: mapLocalHole)
+        let lightweight = try? await client.fetchHolePrep(globalId: mapGlobalId, localHole: mapLocalHole)
+        holePrep = lightweight
+        // Old cached/server payloads may lack the three topo anchors. Keep that compatibility path,
+        // but never make current geometry pay the cold server-render cost that lost hole 4's facts.
+        if let lightweight,
+           lightweight.resolvedMapOverlay == nil,
+           !lightweight.route.isEmpty,
+           let rendered = try? await client.fetchHolePrep(
+               globalId: mapGlobalId,
+               localHole: mapLocalHole,
+               render: true
+           ) {
+            holePrep = rendered
+        }
         // Re-push to the watch now that F/M/B + plays-like are available. The ordered bootstrap will
         // fetch and push the matching caddie decision immediately after this map step.
         if let holePrep {
@@ -539,7 +552,7 @@ public struct CurrentHoleView: View {
     /// The explicit launch flag plus DEBUG compile gate prevent test movement from entering TestFlight.
     private func moveSimulatedLocationToHoleTeeIfRequested(_ prep: CoursePrepHole) {
         guard ProcessInfo.processInfo.environment["UITEST_FOLLOW_HOLE_TEE"] == "1",
-              let first = prep.map?.overlay.route.first, first.count >= 2,
+              let first = prep.resolvedMapOverlay?.route.first, first.count >= 2,
               let refs = prep.holeImageProjection?.refs,
               let tee = WatchEventBridge.projectFromTopoPx(
                   px: first[0],
@@ -633,7 +646,7 @@ public struct CurrentHoleView: View {
     private var liveHazardReadouts: [CoursePrepLiveHazardReadout]? {
         guard let holePrep,
               let fix = locationProvider.latestFix,
-              let route = holePrep.map?.overlay.route,
+              let route = holePrep.resolvedMapOverlay?.route,
               let projection = holePrep.holeImageProjection,
               projection.available,
               let refs = projection.refs else {
@@ -1178,7 +1191,7 @@ public struct CurrentHoleView: View {
                 lat: coord.latitude, lon: coord.longitude,
                 refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) })
         }()
-        let holeMap: WatchHoleMap? = (holePrep?.map?.overlay).flatMap {
+        let holeMap: WatchHoleMap? = (holePrep?.resolvedMapOverlay).flatMap {
             WatchEventBridge.makeHoleMap(overlay: $0, landingM: holePrep?.landingM, youPxOverride: youPxOverride)
         }
         let state = watchBridge?.makeWatchRoundStatePayload(

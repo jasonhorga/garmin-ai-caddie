@@ -314,8 +314,9 @@ public final class SyncClient {
         return try decoder.decode(CoursePrepResponse.self, from: data)
     }
 
-    /// Prep for a single hole (styled map image + overlay + strategy) — used by the live 2D map.
-    public func fetchHolePrep(globalId: Int, localHole: Int) async throws -> CoursePrepHole? {
+    /// Prep for one hole. The default lightweight response carries factual geometry plus topo
+    /// projection anchors; callers may explicitly request the legacy embedded rendered bitmap.
+    public func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false) async throws -> CoursePrepHole? {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/courses/\(globalId)/prep"),
             resolvingAgainstBaseURL: false
@@ -323,6 +324,9 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         components.queryItems = [URLQueryItem(name: "holes", value: String(localHole))]
+        if !render {
+            components.queryItems?.append(URLQueryItem(name: "render", value: "false"))
+        }
         guard let url = components.url else {
             throw URLError(.badURL)
         }

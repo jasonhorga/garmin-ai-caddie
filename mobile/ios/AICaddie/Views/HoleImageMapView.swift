@@ -27,9 +27,9 @@ public struct HoleImageMapView: View {
 
     public var body: some View {
         #if canImport(UIKit)
-        if let image = decodedImage, let overlay = hole.map?.overlay, overlay.w > 0, overlay.h > 0 {
+        if let overlay = hole.resolvedMapOverlay, overlay.w > 0, overlay.h > 0 {
             ZStack {
-                TopoHoleBaseImage(topoURL: topoURL, fallback: image)
+                TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)
                 Canvas { context, size in
                     draw(&context, size: size, overlay: overlay)
                 }
@@ -42,7 +42,7 @@ public struct HoleImageMapView: View {
     }
 
     public var hasMap: Bool {
-        hole.map?.overlay != nil && (hole.map?.overlay.w ?? 0) > 0
+        hole.resolvedMapOverlay != nil
     }
 
     #if canImport(UIKit)
