@@ -687,7 +687,10 @@ final class RealFlowUITests: XCTestCase {
             let predicate = NSPredicate(format: "label CONTAINS %@", fragment)
             for query in [app.buttons, app.cells, app.staticTexts, app.otherElements] {
                 let match = query.matching(predicate).firstMatch
-                if match.waitForExistence(timeout: 4), match.isHittable { match.tap(); return true }
+                guard match.waitForExistence(timeout: 4) else { continue }
+                let frame = match.frame
+                guard !frame.isNull, !frame.isEmpty else { continue }
+                if match.isHittable { match.tap(); return true }
             }
         }
         return false
