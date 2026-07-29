@@ -146,8 +146,12 @@ final class RealFlowUITests: XCTestCase {
             "live play must not inherit the home greeting as navigation chrome"
         )
         XCTAssertTrue(
-            fullyVisible(app.buttons["保存本洞 ✓"]),
-            "the primary score action must be fully visible on the first live-play screen"
+            fullyVisible(app.buttons["记一杆"]),
+            "phone-only play must expose a fully visible GPS shot action"
+        )
+        XCTAssertTrue(
+            fullyVisible(app.buttons["确认本洞成绩"]),
+            "score confirmation must remain fully visible beside the shot action"
         )
         XCTAssertTrue(
             fullyVisible(app.buttons["本场计分卡"]),
@@ -172,7 +176,21 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(scrollTo(avoidZonesHeading, maxSwipes: 8), "expanded avoid zones must be visible")
         settle(1); save("11b-caddie-hazards"); dump("11b-caddie-hazards")
 
-        let saveHoleButton = app.buttons["保存本洞 ✓"]
+        let recordShotButton = app.buttons["记一杆"]
+        XCTAssertTrue(scrollTo(recordShotButton, maxSwipes: 14), "real hole must expose independent shot capture")
+        recordShotButton.tap()
+        XCTAssertTrue(
+            app.staticTexts["这一杆用了什么球杆？"].waitForExistence(timeout: 5),
+            "recording must capture GPS first and then ask for the actual club"
+        )
+        settle(1); save("11c-shot-club-prompt"); dump("11c-shot-club-prompt")
+        let skipClub = app.buttons["跳过球杆（位置已记录）"]
+        XCTAssertTrue(skipClub.waitForExistence(timeout: 3), "club may be skipped without discarding the GPS shot")
+        skipClub.tap()
+        XCTAssertTrue(app.staticTexts["已记第 1 杆"].waitForExistence(timeout: 5))
+        settle(1); save("11d-shot-recorded"); dump("11d-shot-recorded")
+
+        let saveHoleButton = app.buttons["确认本洞成绩"]
         XCTAssertTrue(scrollTo(saveHoleButton, maxSwipes: 14), "real hole must return to score confirmation")
         XCTAssertTrue(saveHoleButton.waitForExistence(timeout: 8), "hole root must expose score confirmation")
         saveHoleButton.tap()
@@ -184,6 +202,7 @@ final class RealFlowUITests: XCTestCase {
             acceptRecommendation.waitForExistence(timeout: 5),
             "saving a hole must ask for one-tap recommended-score acceptance before recording"
         )
+        XCTAssertEqual(acceptRecommendation.label, "接受推荐 3 杆", "one recorded shot should recommend shot + two putts")
         settle(1); save("12-score-confirmation"); dump("12-score-confirmation")
         acceptRecommendation.tap()
         XCTAssertTrue(
