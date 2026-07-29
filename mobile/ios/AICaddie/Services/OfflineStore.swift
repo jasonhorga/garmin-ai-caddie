@@ -728,6 +728,7 @@ public final class OfflineStore {
     /// SEPARATE file so it never becomes the "current round" pointer — only a started round
     /// (saveRoundPackage) is the active round that resumes on relaunch.
     public func saveHomePackage(_ package: LiveRoundPackage) throws {
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let encoded = try encoder.encode(package)
         try encoded.write(to: homePackageURL, options: [.atomic])
     }
