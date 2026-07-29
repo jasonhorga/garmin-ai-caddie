@@ -26,6 +26,7 @@ public struct CurrentHoleView: View {
     private let onPrepareCourseRound: (Int, String, String, String) -> Void
     private let onPrepareCompositeRound: (Int, Int, String, String) -> Void
     private let onDiscard: () -> Void
+    private let onAdvanceHole: (Int) -> Void
 
     @StateObject private var locationProvider = LocationProvider()
     @State private var score: Int
@@ -49,6 +50,7 @@ public struct CurrentHoleView: View {
     @State private var showManage = false
     @State private var showDiscardConfirm = false
     @State private var showCaddieDetail = false
+    @State private var scoreDraft: LiveScoreDraft?
 
     public init(
         package: LiveRoundPackage,
@@ -66,6 +68,7 @@ public struct CurrentHoleView: View {
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onDiscard: @escaping () -> Void = {},
+        onAdvanceHole: @escaping (Int) -> Void = { _ in },
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
     ) {
         self.package = package
@@ -85,6 +88,7 @@ public struct CurrentHoleView: View {
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
         self.onDiscard = onDiscard
+        self.onAdvanceHole = onAdvanceHole
         let seed = package.caddieContextSeeds.first { $0.hole == hole.number }
         let restoredHoleState = liveRoundState?.holeState(for: hole.number)
         self._score = State(initialValue: restoredHoleState?.score ?? hole.par)
@@ -98,6 +102,9 @@ public struct CurrentHoleView: View {
         self._selectedLie = State(initialValue: restoredHoleState?.lie ?? "fairway")
         self._currentHorizontalAccuracyM = State(initialValue: restoredHoleState?.horizontalAccuracyM)
         self._lastAppliedRestoredHoleState = State(initialValue: restoredHoleState)
+        self._scoreDraft = State(
+            initialValue: offlineStore.flatMap { try? $0.loadLiveScoreDraft(roundId: package.roundId) }
+        )
         if let latitude = restoredHoleState?.latitude, let longitude = restoredHoleState?.longitude {
             self._currentCoordinate = State(initialValue: CLLocationCoordinate2D(latitude: latitude, longitude: longitude))
         } else {
@@ -139,7 +146,7 @@ public struct CurrentHoleView: View {
                             onSelect: { selectClub($0) }
                         )
                         LivePlayScoreSteppers(score: $score, putts: $puttCount)
-                        LiveSaveButton(caption: recordHintText) { submitEvents() }
+                        LiveSaveButton(caption: recordHintText) { beginScoreConfirmation() }
                         LivePlayTabBar()
                     }
                     .padding(.horizontal, 10)
@@ -197,6 +204,22 @@ public struct CurrentHoleView: View {
             // Changing strategy re-plans the shot → adopt the new strategy's recommended club so the
             // club strip + landing marker move with it (保守/激进 选不同杆,图上的落点要跟着变).
             Task { await loadCaddieDecision(syncClub: true) }
+        }
+        .sheet(item: $scoreDraft) { presentedDraft in
+            LiveScoreConfirmationView(
+                draft: Binding(
+                    get: { scoreDraft ?? presentedDraft },
+                    set: { next in
+                        scoreDraft = next
+                        if let offlineStore {
+                            try? offlineStore.saveLiveScoreDraft(roundId: package.roundId, draft: next)
+                        }
+                    }
+                ),
+                nextHole: nextHole(after: presentedDraft.hole),
+                onAccept: acceptScoreConfirmation,
+                onCancel: cancelScoreConfirmation
+            )
         }
     }
 
@@ -666,8 +689,8 @@ public struct CurrentHoleView: View {
     }
 
     /// Set the selected club (chips + dropdown). round-12「选完即记」: persist the pick immediately as
-    /// a lightweight club event (clubName/打法/球位/距离 — NOT a full shot/GPS record; 保存本洞 still
-    /// records the shot) so the choice survives a quit/restart and drives the map landing marker.
+    /// a lightweight club-selection event (clubName/打法/球位/距离 — NOT a shot/GPS record) so the
+    /// choice survives a quit/restart and drives the map landing marker.
     private func selectClub(_ club: String) {
         let changed = club != selectedClub
         selectedClub = club
@@ -876,11 +899,7 @@ public struct CurrentHoleView: View {
     }
 
     private var recordHintText: String? {
-        guard currentCoordinate != nil else { return "等待 GPS 定位…" }
-        if let accuracy = currentHorizontalAccuracyM {
-            return "已定位 · 精度 ±\(Int(accuracy.rounded()))m · 球杆 \(selectedClub)"
-        }
-        return "已定位 · 球杆 \(selectedClub)"
+        "确认成绩后保存 · 随时可修改"
     }
 
     private var shotTypeOptions: [String] {
@@ -1133,57 +1152,80 @@ public struct CurrentHoleView: View {
         sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
     }
 
-    private func submitEvents() {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        if let currentCoordinate {
-            var locationPayload: [String: JSONValue] = [
-                "latitude": .number(currentCoordinate.latitude),
-                "longitude": .number(currentCoordinate.longitude),
-                "source": .string("ios_gps"),
-            ]
-            if let currentHorizontalAccuracyM {
-                locationPayload["horizontalAccuracyM"] = .number(currentHorizontalAccuracyM)
-            }
-            if let targetCoordinate {
-                locationPayload["targetLatitude"] = .number(targetCoordinate.latitude)
-                locationPayload["targetLongitude"] = .number(targetCoordinate.longitude)
-                locationPayload["targetSource"] = .string("ios_target")
-                locationPayload["targetKind"] = .string("pin")
-            }
-            emit(kind: .location, timestamp: timestamp, payload: locationPayload)
+    private func beginScoreConfirmation() {
+        if scoreDraft == nil {
+            let restoredFairway = liveRoundState?.holeState(for: hole.number)?.fairwayResult
+                .flatMap(LiveFairwayResult.init(rawValue:))
+            scoreDraft = LiveScoreDraft(
+                hole: hole.number,
+                par: hole.par,
+                recordedShotCount: recordedNonPuttShotCount,
+                currentScore: score,
+                currentPutts: puttCount,
+                currentPenalty: penaltyCount,
+                currentFairway: restoredFairway
+            )
         }
-        emit(kind: .score, timestamp: timestamp, payload: ["strokes": .number(Double(score))])
-        emit(kind: .putt, timestamp: timestamp, payload: ["putts": .number(Double(puttCount))])
-        emit(kind: .penalty, timestamp: timestamp, payload: ["penalties": .number(Double(penaltyCount))])
-        emit(kind: .club, timestamp: timestamp, payload: clubEventPayload())
-        if !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            emit(kind: .note, timestamp: timestamp, payload: ["note": .string(note)])
+        if let scoreDraft {
+            if let offlineStore {
+                try? offlineStore.saveLiveScoreDraft(roundId: package.roundId, draft: scoreDraft)
+            }
+        }
+    }
+
+    private func acceptScoreConfirmation(_ accepted: LiveScoreDraft) {
+        let events = LiveScoreSubmission.events(
+            roundId: package.roundId,
+            draft: accepted,
+            note: note,
+            timestamp: ISO8601DateFormatter().string(from: Date())
+        )
+        events.forEach(onEvent)
+        if let offlineStore {
+            try? offlineStore.clearLiveScoreDraft(roundId: package.roundId)
+        }
+        scoreDraft = nil
+        if accepted.hole == hole.number {
+            score = accepted.score
+            puttCount = accepted.putts
+            penaltyCount = accepted.penalty
+        }
+        if accepted.advanceAfterSave, let next = nextHole(after: accepted.hole) {
+            onAdvanceHole(next)
         }
         sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
     }
 
-    private func clubEventPayload() -> [String: JSONValue] {
-        var payload: [String: JSONValue] = [
-            "clubName": .string(selectedClub),
-            "shotType": .string(selectedShotType),
-            "strategyMode": .string(selectedStrategyMode),
-            "lie": .string(selectedLie),
-        ]
-        payload["distanceToPinM"] = distanceToPinPayload()
-        if let selectedOfflineOptionId = selectedOfflineOption?.optionId ?? caddieContextSeed?.selectedOfflineOptionId {
-            payload["offlineOptionId"] = .string(selectedOfflineOptionId)
+    private func cancelScoreConfirmation() {
+        let draftHole = scoreDraft?.hole
+        if let offlineStore {
+            try? offlineStore.clearLiveScoreDraft(roundId: package.roundId)
         }
-        if let decision = caddieDecision {
-            if let decisionId = decision.decisionId {
-                payload["decisionId"] = .string(decisionId)
+        scoreDraft = nil
+        if let draftHole, draftHole != hole.number {
+            onAdvanceHole(draftHole)
+        }
+    }
+
+    private func nextHole(after number: Int) -> Int? {
+        let ordered = package.holes.map(\.number)
+        guard let index = ordered.firstIndex(of: number), ordered.indices.contains(index + 1) else {
+            return nil
+        }
+        return ordered[index + 1]
+    }
+
+    private var recordedNonPuttShotCount: Int {
+        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return 0 }
+        return events.filter { event in
+            guard event.roundId == package.roundId, event.hole == hole.number, event.kind == .club else {
+                return false
             }
-            payload["decision"] = .object(decision.auditPayload)
-            payload["actualShot"] = .object(actualShotPayload())
-        }
-        if caddieDecision == nil {
-            payload["actualShot"] = .object(actualShotPayload())
-        }
-        return payload
+            if case .object = event.payload["actualShot"] ?? .null {
+                return true
+            }
+            return event.payload["source"] == .string("apple_watch")
+        }.count
     }
 
     private func distanceToPinPayload() -> JSONValue {
@@ -1191,34 +1233,6 @@ public struct CurrentHoleView: View {
             return .null
         }
         return .number(metres)
-    }
-
-    private func actualShotPayload() -> [String: JSONValue] {
-        var payload: [String: JSONValue] = [
-            "clubName": .string(selectedClub),
-            "shotOrder": .number(1),
-            "end": .object(["lie": .string(selectedLie)]),
-        ]
-        if let metres = distanceToPinMetres {
-            payload["remainingToTarget_m"] = .number(metres)
-        }
-        if let currentCoordinate {
-            payload["position"] = .object([
-                "latitude": .number(currentCoordinate.latitude),
-                "longitude": .number(currentCoordinate.longitude),
-            ])
-        }
-        if let targetCoordinate {
-            payload["targetPosition"] = .object([
-                "latitude": .number(targetCoordinate.latitude),
-                "longitude": .number(targetCoordinate.longitude),
-                "kind": .string("pin"),
-            ])
-        }
-        if let currentHorizontalAccuracyM {
-            payload["horizontalAccuracyM"] = .number(currentHorizontalAccuracyM)
-        }
-        return payload
     }
 
     private func emit(kind: LiveRoundEventKind, timestamp: String, payload: [String: JSONValue]) {

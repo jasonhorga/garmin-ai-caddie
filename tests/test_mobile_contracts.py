@@ -891,7 +891,7 @@ class MobileContractTests(unittest.TestCase):
         schema = _load_schema("live_round_event.schema.json")
         kinds = schema["properties"]["kind"]["enum"]
         canonical_payloads = {
-            "score": {"strokes": 4},
+            "score": {"strokes": 4, "fairway": "left"},
             "club": {"clubName": "8I"},
             "putt": {"putts": 2},
             "penalty": {"penalties": 1},
@@ -919,6 +919,7 @@ class MobileContractTests(unittest.TestCase):
         for kind in kinds:
             self.assertFalse(payload_rules[kind]["additionalProperties"])
         self.assertEqual(payload_rules["putt"]["required"], ["putts"])
+        self.assertEqual(payload_rules["score"]["properties"]["fairway"]["enum"], ["hit", "left", "right"])
         self.assertNotIn("count", payload_rules["putt"]["properties"])
         self.assertEqual(payload_rules["penalty"]["required"], ["penalties"])
         self.assertNotIn("count", payload_rules["penalty"]["properties"])
@@ -967,8 +968,18 @@ class MobileContractTests(unittest.TestCase):
         }
 
         _assert_json_schema_accepts(self, schema, {**base_event, "kind": "score", "payload": {"strokes": 4}})
+        _assert_json_schema_accepts(
+            self,
+            schema,
+            {**base_event, "kind": "score", "payload": {"strokes": 4, "fairway": "right"}},
+        )
         _assert_json_schema_rejects(self, schema, {**base_event, "kind": "score", "payload": {"putts": 2}})
         _assert_json_schema_rejects(self, schema, {**base_event, "kind": "score", "payload": {"strokes": 0}})
+        _assert_json_schema_rejects(
+            self,
+            schema,
+            {**base_event, "kind": "score", "payload": {"strokes": 4, "fairway": "center"}},
+        )
         _assert_json_schema_rejects(self, schema, {**base_event, "kind": "putt", "payload": {"putts": -1}})
         _assert_json_schema_rejects(self, schema, {**base_event, "eventId": "", "kind": "score", "payload": {"strokes": 4}})
         _assert_json_schema_rejects(self, schema, {**base_event, "roundId": "", "kind": "score", "payload": {"strokes": 4}})
@@ -2118,12 +2129,14 @@ class MobileContractTests(unittest.TestCase):
 
     def test_current_hole_view_emits_canonical_scoring_payload_keys(self) -> None:
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        score_confirmation = _read_required_source(self, IOS_DIR / "Models" / "LiveScoreConfirmation.swift")
 
-        self.assertIn('kind: .putt, timestamp: timestamp, payload: ["putts":', current_hole)
-        self.assertIn('kind: .penalty, timestamp: timestamp, payload: ["penalties":', current_hole)
-        self.assertIn('kind: .note, timestamp: timestamp, payload: ["note":', current_hole)
-        self.assertNotIn('payload: ["count":', current_hole)
-        self.assertNotIn('payload: ["text":', current_hole)
+        self.assertIn("LiveScoreSubmission.events(", current_hole)
+        self.assertIn('"putts": .number(Double(draft.putts))', score_confirmation)
+        self.assertIn('"penalties": .number(Double(draft.penalty))', score_confirmation)
+        self.assertIn('"note": .string(trimmedNote)', score_confirmation)
+        self.assertNotIn('payload: ["count":', score_confirmation)
+        self.assertNotIn('payload: ["text":', score_confirmation)
 
     def test_ios_media_capture_and_upload_surfaces(self) -> None:
         upload_client = _read_required_source(self, IOS_DIR / "Services" / "MediaUploadClient.swift")
@@ -2459,7 +2472,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("sampleRefs: [String]? = nil", package_model)
         self.assertIn("missingData: [[String: JSONValue]]? = nil", package_model)
 
-    def test_ios_club_events_capture_decision_and_actual_shot_for_audit(self) -> None:
+    def test_ios_club_event_builder_supports_audit_without_hole_score_fabricating_a_shot(self) -> None:
         client = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionClient.swift")
         builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
@@ -2486,19 +2499,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('payload["decision"] = .object(decision.auditPayload)', builder)
         self.assertIn('payload["actualShot"] = .object(actualShot)', builder)
 
-        self.assertIn("private func clubEventPayload() -> [String: JSONValue]", current_hole)
-        self.assertIn("private func actualShotPayload() -> [String: JSONValue]", current_hole)
         self.assertIn("caddieDecision", current_hole)
         self.assertIn('"shotType": .string(selectedShotType)', current_hole)
         self.assertIn('"strategyMode": .string(selectedStrategyMode)', current_hole)
         self.assertIn('"lie": .string(selectedLie)', current_hole)
-        self.assertIn('payload["distanceToPinM"] = distanceToPinPayload()', current_hole)
-        self.assertIn('payload["offlineOptionId"] = .string(selectedOfflineOptionId)', current_hole)
-        self.assertIn('payload["decisionId"] = .string(decisionId)', current_hole)
-        self.assertIn('payload["decision"] = .object(decision.auditPayload)', current_hole)
-        self.assertIn('payload["actualShot"] = .object(actualShotPayload())', current_hole)
-        self.assertIn("if caddieDecision == nil", current_hole)
-        self.assertIn("emit(kind: .club, timestamp: timestamp, payload: clubEventPayload())", current_hole)
+        self.assertIn('"distanceToPinM": distanceToPinPayload()', current_hole)
+        self.assertIn("LiveScoreSubmission.events(", current_hole)
+        self.assertNotIn("private func actualShotPayload()", current_hole)
+        self.assertNotIn('payload["actualShot"] = .object(actualShotPayload())', current_hole)
 
     def test_ios_caddie_request_builder_uses_offline_context_seed_and_live_inputs(self) -> None:
         builder = _read_required_source(self, IOS_DIR / "Services" / "CaddieDecisionRequestBuilder.swift")

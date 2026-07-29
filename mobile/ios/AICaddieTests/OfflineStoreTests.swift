@@ -1736,6 +1736,8 @@ final class OfflineStoreTests: XCTestCase {
         try store.saveLiveScoreDraft(roundId: package.roundId, draft: draft)
 
         let reopened = OfflineStore(directoryURL: directory)
+        XCTAssertEqual(try reopened.inProgressRoundId(), package.roundId)
+        XCTAssertTrue(try reopened.hasRecordedEvents(roundId: package.roundId))
         XCTAssertEqual(
             try reopened.restoreLiveRoundState(roundId: package.roundId, package: package).activeHole,
             2

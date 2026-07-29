@@ -70,6 +70,7 @@
             "required": ["strokes"],
             "properties": {
               "strokes": { "type": "integer", "minimum": 1 },
+              "fairway": { "type": "string", "enum": ["hit", "left", "right"] },
               "source": { "type": "string" }
             }
           }

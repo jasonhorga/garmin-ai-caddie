@@ -195,11 +195,13 @@ final class RealFlowUITests: XCTestCase {
             acceptRecommendation.waitForExistence(timeout: 5),
             "saving a hole must ask for one-tap recommended-score acceptance before recording"
         )
+        settle(1); save("12-score-confirmation"); dump("12-score-confirmation")
         acceptRecommendation.tap()
         XCTAssertTrue(
             app.staticTexts["第 2 洞"].waitForExistence(timeout: 12),
             "accepting the recommended score must move phone-only play to the ordered next hole"
         )
+        settle(1); save("13-next-hole"); dump("13-next-hole")
     }
 
     // MARK: - navigation helpers

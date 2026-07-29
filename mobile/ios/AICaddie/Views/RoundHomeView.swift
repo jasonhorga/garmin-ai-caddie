@@ -32,6 +32,7 @@ public struct RoundHomeView: View {
     public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
     public let onChangeNine: (String) -> Void
     public let onDiscard: () -> Void
+    public let onSetActiveHole: (Int) -> Void
     public let onSync: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
@@ -64,6 +65,7 @@ public struct RoundHomeView: View {
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onChangeNine: @escaping (String) -> Void = { _ in },
         onDiscard: @escaping () -> Void = {},
+        onSetActiveHole: @escaping (Int) -> Void = { _ in },
         onSync: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
@@ -90,6 +92,7 @@ public struct RoundHomeView: View {
         self.onPrepareCompositeRound = onPrepareCompositeRound
         self.onChangeNine = onChangeNine
         self.onDiscard = onDiscard
+        self.onSetActiveHole = onSetActiveHole
         self.onSync = onSync
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
@@ -175,7 +178,12 @@ public struct RoundHomeView: View {
                 offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState,
                 courseOptions: courseOptions, startingNine: startingNine, isPreparingRound: isPreparingRound,
                 onChangeNine: onChangeNine, onPrepareCourseRound: onPrepareCourseRound,
-                onPrepareCompositeRound: onPrepareCompositeRound, onDiscard: onDiscard, onEvent: onEvent
+                onPrepareCompositeRound: onPrepareCompositeRound, onDiscard: onDiscard,
+                onAdvanceHole: { next in
+                    onSetActiveHole(next)
+                    path = [.hole(next)]
+                },
+                onEvent: onEvent
             )
         }
     }

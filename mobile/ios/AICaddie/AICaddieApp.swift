@@ -79,6 +79,9 @@ public struct AICaddieApp: App {
                         onDiscard: {
                             model.discardActiveRound()
                         },
+                        onSetActiveHole: { hole in
+                            model.setActiveHole(hole)
+                        },
                         onSync: {
                             Task {
                                 await model.syncPendingEvents()
@@ -620,6 +623,24 @@ public final class LiveRoundAppModel: ObservableObject {
         syncStatus = "已结束本场"
     }
 
+    public func setActiveHole(_ hole: Int) {
+        guard let package, package.holes.contains(where: { $0.number == hole }) else {
+            return
+        }
+        do {
+            try offlineStore.saveActiveHole(roundId: package.roundId, hole: hole)
+            liveRoundState = try offlineStore.restoreLiveRoundState(roundId: package.roundId, package: package)
+            if let watchBridge {
+                watchBridge.sendRoundSeedToWatch(
+                    watchBridge.makeWatchRoundSeedPayload(package: package, activeHole: hole)
+                )
+            }
+        } catch {
+            AICaddieLog.storage.error("Active-hole save failed: \(String(describing: error), privacy: .public)")
+            syncStatus = "当前洞保存失败,请重试"
+        }
+    }
+
     public func handleEvent(_ event: LiveRoundEvent) {
         do {
             try offlineStore.appendEvent(event)
@@ -899,7 +920,9 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private func activatePackage(_ nextPackage: LiveRoundPackage, status: String) throws {
         package = nextPackage
-        liveRoundState = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)
+        let restored = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)
+        try offlineStore.saveActiveHole(roundId: nextPackage.roundId, hole: restored.activeHole)
+        liveRoundState = restored
         pendingEventCount = try offlineStore.loadPendingEvents(roundId: nextPackage.roundId).count
         syncStatus = status
         if let watchBridge,

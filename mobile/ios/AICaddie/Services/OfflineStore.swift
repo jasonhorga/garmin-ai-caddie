@@ -111,6 +111,12 @@ enum OfflineStoreError: Error, Equatable {
     case replayDurabilityVerificationFailed
 }
 
+private struct LiveRoundProgress: Codable, Equatable {
+    let roundId: String
+    var activeHole: Int
+    var scoreDraft: LiveScoreDraft?
+}
+
 private struct ReplayEventIdentity: Hashable {
     let roundId: String
     let clientId: String
@@ -552,6 +558,7 @@ public final class OfflineStore {
     private let packagesDirectoryURL: URL
     private let currentPackageURL: URL
     private let homePackageURL: URL
+    private let liveProgressURL: URL
     private let pendingMediaDirectoryURL: URL
     private let pendingMediaIndexURL: URL
     private let encoder: JSONEncoder
@@ -626,6 +633,7 @@ public final class OfflineStore {
         )
         self.currentPackageURL = resolvedDirectory.appendingPathComponent("current_package.json")
         self.homePackageURL = resolvedDirectory.appendingPathComponent("home_package.json")
+        self.liveProgressURL = resolvedDirectory.appendingPathComponent("live_progress.json")
         self.pendingMediaDirectoryURL = resolvedDirectory.appendingPathComponent(
             "pending_media",
             isDirectory: true
@@ -675,10 +683,12 @@ public final class OfflineStore {
         return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: currentPackageURL))
     }
 
-    /// The roundId of the most recent REAL hole event (score/putt/club/location, hole > 0), or nil.
-    /// The event log is the source of truth for "a round is in progress" — so resume is driven by it,
-    /// not by the `current_package.json` pointer (which non-remote/cached start paths can fail to write).
+    /// An explicit live cursor/draft is the strongest in-progress signal. Older rounds without that
+    /// file fall back to the most recent real hole event.
     public func inProgressRoundId() throws -> String? {
+        if let progress = try? loadLiveRoundProgress() {
+            return progress.roundId
+        }
         var roundId: String?
         for event in try loadEvents() where event.kind != .syncMarker && event.hole > 0 {
             roundId = event.roundId
@@ -703,11 +713,13 @@ public final class OfflineStore {
         return try loadCurrentRoundPackage()
     }
 
-    /// True iff the round has at least one real recorded hole event (score/putt/club/location/…),
-    /// i.e. play actually started. Used to decide whether to RESUME an in-progress round on
-    /// relaunch (and show the 进行中 card) vs treat the cached package as just home data.
+    /// True when play has explicit live progress (including an unfinished score draft) or at least
+    /// one real hole event. Used by bootstrap to resume instead of treating the package as home data.
     public func hasRecordedEvents(roundId: String) throws -> Bool {
-        try loadEvents().contains { event in
+        if let progress = try? loadLiveRoundProgress(), progress.roundId == roundId {
+            return true
+        }
+        return try loadEvents().contains { event in
             event.roundId == roundId && event.kind != .syncMarker && event.hole > 0
         }
     }
@@ -725,6 +737,54 @@ public final class OfflineStore {
             return nil
         }
         return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: homePackageURL))
+    }
+
+    public func saveActiveHole(roundId: String, hole: Int) throws {
+        let current = try loadLiveRoundProgress()
+        let progress = LiveRoundProgress(
+            roundId: roundId,
+            activeHole: hole,
+            scoreDraft: current?.roundId == roundId ? current?.scoreDraft : nil
+        )
+        try saveLiveRoundProgress(progress)
+    }
+
+    public func saveLiveScoreDraft(roundId: String, draft: LiveScoreDraft) throws {
+        let current = try loadLiveRoundProgress()
+        let activeHole = (current?.roundId == roundId) ? current?.activeHole ?? draft.hole : draft.hole
+        let progress = LiveRoundProgress(
+            roundId: roundId,
+            activeHole: activeHole,
+            scoreDraft: draft
+        )
+        try saveLiveRoundProgress(progress)
+    }
+
+    public func loadLiveScoreDraft(roundId: String) throws -> LiveScoreDraft? {
+        guard let progress = try loadLiveRoundProgress(), progress.roundId == roundId else {
+            return nil
+        }
+        return progress.scoreDraft
+    }
+
+    public func clearLiveScoreDraft(roundId: String) throws {
+        guard var progress = try loadLiveRoundProgress(), progress.roundId == roundId else {
+            return
+        }
+        progress.scoreDraft = nil
+        try saveLiveRoundProgress(progress)
+    }
+
+    private func loadLiveRoundProgress() throws -> LiveRoundProgress? {
+        guard FileManager.default.fileExists(atPath: liveProgressURL.path) else {
+            return nil
+        }
+        return try decoder.decode(LiveRoundProgress.self, from: Data(contentsOf: liveProgressURL))
+    }
+
+    private func saveLiveRoundProgress(_ progress: LiveRoundProgress) throws {
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try encoder.encode(progress).write(to: liveProgressURL, options: [.atomic])
     }
 
     /// Forget a round entirely (discard/cancel): clear the active-package pointer + its
@@ -756,6 +816,9 @@ public final class OfflineStore {
         }
         try? FileManager.default.removeItem(at: currentPackageURL)
         try? FileManager.default.removeItem(at: packageURL(roundId: roundId))
+        if let progress = try? loadLiveRoundProgress(), progress.roundId == roundId {
+            try? FileManager.default.removeItem(at: liveProgressURL)
+        }
         AICaddieLog.storage.debug("Discarded round \(roundId, privacy: .public)")
     }
 
@@ -1058,6 +1121,12 @@ public final class OfflineStore {
             }
             state.updatedAt = event.timestamp
             holeStates[event.hole] = state
+        }
+
+        if let progress = try? loadLiveRoundProgress(),
+           progress.roundId == roundId,
+           package.holes.contains(where: { $0.number == progress.activeHole }) {
+            activeHole = progress.activeHole
         }
 
         return LiveRoundStateSnapshot(
