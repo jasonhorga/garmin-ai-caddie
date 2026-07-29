@@ -649,6 +649,12 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
             syncStatus = "已保存"
+            // Real-flow XCUITest reads the owner's real course package/prep/map, then plays the
+            // round entirely in the simulator. Keep those events local so visual evidence can use
+            // real course data without writing a synthetic score into the owner's backend history.
+            if eventSyncSuppressedForUITests {
+                return
+            }
             // Auto-sync: push to Garmin/backend in the background after each recorded hole, so the
             // player never manages sync manually. Silently no-ops offline (events stay pending and
             // sync on the next event / app foreground).
@@ -661,10 +667,18 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Auto-sync hook for app foreground (scenePhase .active): flush anything still pending.
     public func syncOnForeground() {
-        guard package != nil, pendingEventCount > 0 else {
+        guard !eventSyncSuppressedForUITests, package != nil, pendingEventCount > 0 else {
             return
         }
         Task { await self.syncPendingEvents() }
+    }
+
+    private var eventSyncSuppressedForUITests: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["UITEST_DISABLE_EVENT_SYNC"] == "1"
+        #else
+        false
+        #endif
     }
 
     public func syncPendingEvents() async {

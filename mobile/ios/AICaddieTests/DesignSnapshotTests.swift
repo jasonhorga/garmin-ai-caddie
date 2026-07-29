@@ -43,7 +43,7 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     /// 打球屏 v2 reskin: DARK map-backdrop + Apple-Maps-style glass data panel (distance hero →
-    /// caddie strip → score steppers → save → tab bar). Rendered as a fixed non-scroll composition
+    /// caddie strip → score steppers → save → scorecard action). Rendered as a fixed non-scroll composition
     /// (ImageRenderer does not render ScrollView content) so it captures cleanly in CI.
     @MainActor
     func testRenderLivePlayReskin() throws {
@@ -81,7 +81,7 @@ final class DesignSnapshotTests: XCTestCase {
                     )
                     LivePlayScoreSteppers(score: .constant(5), putts: .constant(2))
                     LiveSaveButton(caption: "已定位 · 精度 ±4m · 球杆 3W") {}
-                    LivePlayTabBar()
+                    LiveScorecardButton()
                 }
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)

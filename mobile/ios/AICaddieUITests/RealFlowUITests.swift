@@ -30,6 +30,9 @@ final class RealFlowUITests: XCTestCase {
     }
 
     func testCaptureRealAppFlow() throws {
+        // Read every screen from the live backend, but keep the synthetic simulator round local.
+        // This lets the score flow use real 北京丽宫 data without polluting the owner's history.
+        app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
         writeDiagnostics()
         // ---- Section 1: home + the two macro tiles (stats) ----
         launchFresh()
@@ -147,8 +150,8 @@ final class RealFlowUITests: XCTestCase {
             "the primary score action must be fully visible on the first live-play screen"
         )
         XCTAssertTrue(
-            fullyVisible(app.staticTexts["洞图"]),
-            "the approved live-play rail must be fully visible above the home-indicator boundary"
+            fullyVisible(app.buttons["本场计分卡"]),
+            "the real scorecard action must be fully visible above the home-indicator boundary"
         )
         save("10-live-hole"); dump("10-live-hole")
         XCTAssertTrue(app.staticTexts["第 1 洞"].exists, "starting 北京丽宫 must enter its real first hole")
@@ -168,23 +171,9 @@ final class RealFlowUITests: XCTestCase {
         let avoidZonesHeading = app.staticTexts["避开区"]
         XCTAssertTrue(scrollTo(avoidZonesHeading, maxSwipes: 8), "expanded avoid zones must be visible")
         settle(1); save("11b-caddie-hazards"); dump("11b-caddie-hazards")
-    }
-
-    /// Product regression for IOS-03. This launch deliberately has no backend configuration, so the
-    /// DEBUG fixture runs entirely inside the simulator and accepting a score cannot write a junk
-    /// round into the owner's real history.
-    func testOfflinePhoneScoringConfirmsAndAdvancesToNextHole() throws {
-        app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = ""
-        app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = ""
-        app.launchEnvironment["UITEST_MODE"] = "1"
-        app.launchEnvironment["UITEST_FORCE_SCORING_FIXTURE"] = "1"
-        app.launch()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "offline fixture app did not foreground")
-
-        XCTAssertTrue(tapContaining(["继续"]), "offline fixture must expose its active first hole")
-        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 12), "fixture must enter hole 1")
 
         let saveHoleButton = app.buttons["保存本洞 ✓"]
+        XCTAssertTrue(scrollTo(saveHoleButton, maxSwipes: 14), "real hole must return to score confirmation")
         XCTAssertTrue(saveHoleButton.waitForExistence(timeout: 8), "hole root must expose score confirmation")
         saveHoleButton.tap()
 
@@ -203,10 +192,15 @@ final class RealFlowUITests: XCTestCase {
         )
         settle(1); save("13-next-hole"); dump("13-next-hole")
 
-        let scorecard = app.buttons["记分"]
+        let scorecard = app.buttons["本场计分卡"]
+        XCTAssertTrue(scrollTo(scorecard, maxSwipes: 8), "real hole must expose its scorecard action")
         XCTAssertTrue(scorecard.waitForExistence(timeout: 5), "live play must expose a real scorecard action")
         scorecard.tap()
         XCTAssertTrue(app.staticTexts["本场计分卡"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "北京丽宫")).firstMatch.exists,
+            "in-round scorecard must retain the real selected course"
+        )
         settle(1); save("14-live-scorecard"); dump("14-live-scorecard")
 
         let editFirstHole = app.buttons["编辑第 1 洞成绩"]
@@ -214,11 +208,37 @@ final class RealFlowUITests: XCTestCase {
         editFirstHole.tap()
         XCTAssertTrue(app.staticTexts["手动确认 · 总杆"].waitForExistence(timeout: 5))
         settle(1); save("15-edit-previous-hole"); dump("15-edit-previous-hole")
-        app.buttons["取消"].tap()
+
+        XCTAssertTrue(app.buttons["下一步 · 推杆"].waitForExistence(timeout: 3))
+        app.buttons["下一步 · 推杆"].tap()
+        XCTAssertTrue(app.buttons["下一步 · 开球结果"].waitForExistence(timeout: 3))
+        app.buttons["下一步 · 开球结果"].tap()
+        XCTAssertTrue(app.buttons["上球道"].waitForExistence(timeout: 3))
+        app.buttons["上球道"].tap()
+        XCTAssertTrue(app.buttons["保存本洞"].waitForExistence(timeout: 3))
+        app.buttons["保存本洞"].tap()
         XCTAssertTrue(
             app.staticTexts["第 2 洞"].waitForExistence(timeout: 5),
-            "leaving a historical score edit must not move the active playing hole"
+            "saving a historical score edit must not move the active playing hole"
         )
+        settle(1); save("16-saved-previous-hole"); dump("16-saved-previous-hole")
+
+        XCTAssertTrue(scrollTo(scorecard, maxSwipes: 8), "scorecard must remain available after historical save")
+        scorecard.tap()
+        XCTAssertTrue(app.staticTexts["本场计分卡"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["当前"].exists, "scorecard must still mark hole 2 as the playing hole")
+        settle(1); save("17-scorecard-after-edit"); dump("17-scorecard-after-edit")
+
+        app.buttons["关闭计分卡"].tap()
+        let manageRound = app.buttons["球局调整 · 加打 / 结束本场"]
+        XCTAssertTrue(scrollTo(manageRound, maxSwipes: 16), "test round must expose local cleanup")
+        manageRound.tap()
+        let finishRound = app.buttons["结束本场"].firstMatch
+        XCTAssertTrue(scrollTo(finishRound, maxSwipes: 4), "local test round must be discardable")
+        finishRound.tap()
+        let confirmFinish = app.sheets.buttons["结束本场"]
+        XCTAssertTrue(confirmFinish.waitForExistence(timeout: 3), "ending the local test round must ask for confirmation")
+        confirmFinish.tap()
     }
 
     // MARK: - navigation helpers

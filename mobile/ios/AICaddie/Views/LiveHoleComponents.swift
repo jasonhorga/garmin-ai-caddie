@@ -585,33 +585,36 @@ struct LiveSaveButton: View {
     }
 }
 
-/// Line-icon tab bar (洞图 / 记分 / 球童 / 球场 / 更多). IOS-03 makes the existing 记分 affordance a
-/// real in-round scorecard action; the remaining information architecture is reviewed separately.
-struct LivePlayTabBar: View {
-    var onScorecard: () -> Void = {}
+/// The live hole is already the map root, with caddie and real secondary tools embedded below it.
+/// Keep only the one separate high-frequency destination instead of presenting four inert tabs.
+struct LiveScorecardButton: View {
+    var onTap: () -> Void = {}
 
     var body: some View {
-        HStack(spacing: 0) {
-            tab("map", "洞图", on: true)
-            Button(action: onScorecard) {
-                tab("list.bullet.rectangle", "记分", on: false)
+        Button(action: onTap) {
+            HStack(spacing: 9) {
+                Image(systemName: "list.bullet.rectangle")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("本场计分卡")
+                    .font(.system(size: 14, weight: .bold))
+                Spacer(minLength: 0)
+                Text("随时修改")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.ink45)
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(LivePlayStyle.ink45)
             }
+            .foregroundStyle(LivePlayStyle.ink)
+            .padding(.vertical, 9)
+            .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
-            .buttonStyle(.plain)
-            .accessibilityLabel("记分")
-            tab("scope", "球童", on: false)
-            tab("flag", "球场", on: false)
-            tab("ellipsis", "更多", on: false)
+            .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(LivePlayStyle.stroke10))
         }
-    }
-
-    private func tab(_ symbol: String, _ label: String, on: Bool) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: symbol).font(.system(size: 18, weight: .regular))
-            Text(label).font(.system(size: 10.5, weight: .semibold))
-        }
-        .frame(maxWidth: .infinity)
-        .foregroundStyle(on ? LivePlayStyle.accentSystem : LivePlayStyle.ink45)
+        .buttonStyle(.plain)
+        .accessibilityLabel("本场计分卡")
+        .accessibilityHint("查看并修改每洞成绩")
     }
 }
 

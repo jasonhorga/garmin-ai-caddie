@@ -149,7 +149,7 @@ public struct CurrentHoleView: View {
                         )
                         LivePlayScoreSteppers(score: $score, putts: $puttCount)
                         LiveSaveButton(caption: recordHintText) { beginScoreConfirmation() }
-                        LivePlayTabBar(onScorecard: { showScorecard = true })
+                        LiveScorecardButton(onTap: { showScorecard = true })
                     }
                     .padding(.horizontal, 10)
                     .padding(.top, -46)
