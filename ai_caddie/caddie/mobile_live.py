@@ -1457,6 +1457,8 @@ def _caddie_context_seeds(
             },
             "historicalHoleIssues": hole_stats.get("repeatedIssues") or [],
         }
+        if target_distance_m > 0:
+            context["holeRemaining_m"] = round(target_distance_m, 1)
         if course_form:
             context["courseForm"] = course_form
         if diagnostic_context:

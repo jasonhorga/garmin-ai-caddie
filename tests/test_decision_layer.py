@@ -289,27 +289,41 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertIn("3H", clubs)
         self.assertNotIn("Putter", clubs)
 
-    def test_long_hole_decision_includes_multi_shot_sequences(self) -> None:
+    def test_long_hole_decision_builds_honest_multi_shot_sequences(self) -> None:
         plan = build_decision_plan(long_hole_fixture())
 
-        labels = {sequence["label"] for sequence in plan["sequences"]}
-        self.assertIn("1D-3W-58", labels)
-        self.assertIn("3W-5I-54", labels)
+        self.assertEqual([sequence["id"] for sequence in plan["sequences"]], ["safe", "stock", "attack"])
+        options = {option["id"]: option for option in plan["options"]}
+        for sequence in plan["sequences"]:
+            with self.subTest(sequence=sequence["id"]):
+                self.assertNotIn("expectedStrokes", sequence)
+                self.assertGreaterEqual(len(sequence["clubs"]), 2)
+                recommended_first = options[sequence["id"]]["clubRecommendation"]["clubs"][0]["clubName"]
+                self.assertEqual(sequence["clubs"][0]["clubName"], recommended_first)
+                self.assertGreaterEqual(sequence["expectedRemaining_m"], -10.0)
+                self.assertLessEqual(abs(sequence["expectedRemaining_m"]), 20.0)
+
+                remaining = 520.0
+                for step in sequence["clubs"]:
+                    remaining = round(remaining - step["targetCarry_m"], 1)
+                    self.assertEqual(step["expectedRemaining_m"], remaining)
+                self.assertEqual(sequence["expectedRemaining_m"], remaining)
+
         stock_sequence = next(sequence for sequence in plan["sequences"] if sequence["id"] == "stock")
-        self.assertEqual(stock_sequence["expectedStrokes"], 3)
-        self.assertLessEqual(abs(stock_sequence["expectedRemaining_m"]), 30)
-        self.assertEqual(stock_sequence["coverage"], {"ready": 153, "total": 153, "pct": 100.0})
+        self.assertEqual(stock_sequence["coverage"]["ready"], stock_sequence["coverage"]["total"])
+        self.assertEqual(stock_sequence["coverage"]["pct"], 100.0)
         self.assertEqual(stock_sequence["confidence"], "high")
-        self.assertIn("club-sample-1d-0", stock_sequence["sourceRefs"])
-        self.assertEqual(stock_sequence["clubs"][0]["clubName"], "1D")
-        self.assertEqual(stock_sequence["clubs"][0]["targetCarry_m"], 245.0)
-        self.assertEqual(stock_sequence["clubs"][0]["sampleSize"], 80)
-        self.assertEqual(stock_sequence["clubs"][0]["confidence"], "high")
-        self.assertEqual(stock_sequence["clubs"][0]["coverage"], {"ready": 80, "total": 80, "pct": 100.0})
-        self.assertEqual(stock_sequence["clubs"][0]["sourceRefs"][0], "club-sample-1d-0")
+        stock_first_ref = stock_sequence["clubs"][0]["sourceRefs"][0]
+        self.assertIn(stock_first_ref, stock_sequence["sourceRefs"])
+        self.assertEqual(
+            stock_sequence["clubs"][0]["sampleSize"],
+            next(option for option in plan["options"] if option["id"] == "stock")["clubRecommendation"]["clubs"][0]["sampleSize"],
+        )
         self.assertIn("sequence", {row["kind"] for row in plan["evidence"]})
         sequence_evidence = next(row for row in plan["evidence"] if row["kind"] == "sequence")
-        self.assertIn("club-sample-1d-0", sequence_evidence["sourceRefs"])
+        self.assertIn(stock_first_ref, sequence_evidence["sourceRefs"])
+        self.assertNotIn("shots", sequence_evidence["text"].lower())
+        self.assertNotIn("expected strokes", sequence_evidence["text"].lower())
 
     def test_recommend_approach_uses_green_and_hazard_evidence(self) -> None:
         context = approach_fixture()

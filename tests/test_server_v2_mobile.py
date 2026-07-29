@@ -938,6 +938,7 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual(package_response.status_code, 200)
         self.assertEqual(seed["context"]["routeEvidence"]["routeLength_m"], 182.0)
+        self.assertEqual(seed["context"]["holeRemaining_m"], 182.0)
         self.assertIn("route_geometry", {row["label"] for row in seed["evidence"]})
         self.assertEqual(decision_response.status_code, 200)
         decision = decision_response.json()
