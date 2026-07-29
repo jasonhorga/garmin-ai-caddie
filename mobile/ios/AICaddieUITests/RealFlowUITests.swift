@@ -267,12 +267,14 @@ final class RealFlowUITests: XCTestCase {
             fetchPrepGreenYards(globalId: 31669, hole: 2),
             "the live backend must expose real static F/M/B facts for 北京丽宫 hole 2"
         )
+        continueAfterFailure = false
         for distance in hole2TeeGreenYards.map(String.init) {
             XCTAssertTrue(
-                app.staticTexts[distance].waitForExistence(timeout: 60),
+                app.staticTexts[distance].waitForExistence(timeout: 20),
                 "the ordered next hole must move simulated GPS to its own Tee and show F/M/B \(distance)"
             )
         }
+        continueAfterFailure = true
         let nextHoleCaddieLoading = app.activityIndicators["正在更新球童建议"]
         _ = nextHoleCaddieLoading.waitForExistence(timeout: 2)
         XCTAssertTrue(
