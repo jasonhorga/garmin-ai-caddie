@@ -27,6 +27,7 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
         app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.5461531"
         app.launchEnvironment["UITEST_MODE"] = "1"
+        app.launchEnvironment["UITEST_FOLLOW_HOLE_TEE"] = "1"
     }
 
     func testCaptureRealAppFlow() throws {
@@ -262,10 +263,14 @@ final class RealFlowUITests: XCTestCase {
         // A hole heading alone is not evidence that the new hole has loaded. The prior run captured
         // an empty reticle and blank F/M/B, then navigated away while two caddie requests raced. Hold
         // this gate until the real hole-2 prep and the final structured caddie response are visible.
-        for distance in ["110", "119", "137"] {
+        let hole2TeeGreenYards = try XCTUnwrap(
+            fetchPrepGreenYards(globalId: 31669, hole: 2),
+            "the live backend must expose real static F/M/B facts for 北京丽宫 hole 2"
+        )
+        for distance in hole2TeeGreenYards.map(String.init) {
             XCTAssertTrue(
                 app.staticTexts[distance].waitForExistence(timeout: 60),
-                "the ordered next hole must load its real front/middle/back distance \(distance)"
+                "the ordered next hole must move simulated GPS to its own Tee and show F/M/B \(distance)"
             )
         }
         let nextHoleCaddieLoading = app.activityIndicators["正在更新球童建议"]
@@ -548,6 +553,42 @@ final class RealFlowUITests: XCTestCase {
         }
         try? lines.joined(separator: "\n").data(using: .utf8)?
             .write(to: realShotsDir().appendingPathComponent("diagnostics.txt"))
+    }
+
+    /// Fetches lightweight static Tee→green facts from the same real prep endpoint the app consumes.
+    /// The live screen should equal these only after the DEBUG journey moves its simulated GPS from
+    /// the prior hole to this hole's real Tee; a fixed hole-1 coordinate produces visibly wrong values.
+    private func fetchPrepGreenYards(globalId: Int, hole: Int) -> [Int]? {
+        guard let base = cfg("AI_CADDIE_API_BASE_URL"),
+              var components = URLComponents(string: base + "/api/v2/courses/\(globalId)/prep") else {
+            return nil
+        }
+        components.queryItems = [
+            URLQueryItem(name: "holes", value: String(hole)),
+            URLQueryItem(name: "render", value: "false"),
+        ]
+        guard let url = components.url else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 60
+        request.setValue(cfg("AI_CADDIE_ADMIN_TOKEN") ?? "", forHTTPHeaderField: "x-ai-caddie-admin-token")
+
+        var result: [Int]?
+        let semaphore = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            defer { semaphore.signal() }
+            guard (response as? HTTPURLResponse)?.statusCode == 200,
+                  let data,
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let prep = (root["holes"] as? [[String: Any]])?.first,
+                  let green = prep["greenDistances"] as? [String: Any],
+                  green["available"] as? Bool == true,
+                  let front = green["frontM"] as? Double,
+                  let middle = green["middleM"] as? Double,
+                  let back = green["backM"] as? Double else { return }
+            result = [front, middle, back].map { Int(($0 * 1.09361).rounded()) }
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 65)
+        return result
     }
 
     // MARK: - capture helpers
