@@ -1721,6 +1721,75 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(base).hasSameRestorableFields(as: changedScore))
     }
 
+    func testLiveProgressSurvivesStoreRecreation() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let package = try twoHoleFixturePackage()
+        let store = OfflineStore(directoryURL: directory)
+        var draft = LiveScoreDraft(
+            hole: 1, par: 4, recordedShotCount: 2,
+            currentScore: 4, currentPutts: 2, currentPenalty: 0
+        )
+        draft.startManualEntry()
+
+        try store.saveActiveHole(roundId: package.roundId, hole: 2)
+        try store.saveLiveScoreDraft(roundId: package.roundId, draft: draft)
+
+        let reopened = OfflineStore(directoryURL: directory)
+        XCTAssertEqual(
+            try reopened.restoreLiveRoundState(roundId: package.roundId, package: package).activeHole,
+            2
+        )
+        XCTAssertEqual(try reopened.loadLiveScoreDraft(roundId: package.roundId), draft)
+    }
+
+    func testEditingEarlierHoleDoesNotMoveLiveCursorBackward() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let package = try twoHoleFixturePackage()
+        let store = OfflineStore(directoryURL: directory)
+        try store.saveActiveHole(roundId: package.roundId, hole: 2)
+
+        try store.appendEvent(
+            LiveRoundEvent(
+                eventId: "edit-hole-1",
+                roundId: package.roundId,
+                timestamp: "2026-07-29T00:00:00Z",
+                hole: 1,
+                kind: .score,
+                payload: ["strokes": .number(5)]
+            )
+        )
+
+        XCTAssertEqual(
+            try store.restoreLiveRoundState(roundId: package.roundId, package: package).activeHole,
+            2
+        )
+    }
+
+    func testDiscardRoundClearsLiveProgress() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let package = try twoHoleFixturePackage()
+        let store = OfflineStore(directoryURL: directory)
+        let draft = LiveScoreDraft(
+            hole: 1, par: 4, recordedShotCount: 1,
+            currentScore: 4, currentPutts: 2, currentPenalty: 0
+        )
+        try store.saveRoundPackage(package)
+        try store.saveActiveHole(roundId: package.roundId, hole: 2)
+        try store.saveLiveScoreDraft(roundId: package.roundId, draft: draft)
+
+        try store.discardRound(roundId: package.roundId)
+
+        let reopened = OfflineStore(directoryURL: directory)
+        XCTAssertNil(try reopened.loadLiveScoreDraft(roundId: package.roundId))
+        XCTAssertEqual(
+            try reopened.restoreLiveRoundState(roundId: package.roundId, package: package).activeHole,
+            1
+        )
+    }
+
     func testLoadResumablePackageResumesFromEventLogWithoutPointer() throws {
         // round-10 bug: an offline/cached start records events but never writes current_package.json.
         // Resume must still find the in-progress round via the event log (continue card survives quit).
@@ -1903,6 +1972,42 @@ final class OfflineStoreTests: XCTestCase {
             .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: data)
+    }
+
+    private func twoHoleFixturePackage() throws -> LiveRoundPackage {
+        let package = try fixturePackage()
+        let first = try XCTUnwrap(package.holes.first)
+        let second = Hole(
+            number: 2,
+            par: 3,
+            yards: 165,
+            geometryCoverage: .missing,
+            sourceGlobalId: first.sourceGlobalId,
+            sourceLocalHole: 2
+        )
+        return LiveRoundPackage(
+            schema: package.schema,
+            roundId: package.roundId,
+            dataMode: package.dataMode,
+            sourceCoverage: package.sourceCoverage,
+            missingData: package.missingData,
+            playerProfile: package.playerProfile,
+            course: package.course,
+            holes: [first, second],
+            nine: package.nine,
+            coursePrep: package.coursePrep,
+            geometryCoverage: package.geometryCoverage,
+            readinessChecks: package.readinessChecks,
+            caddieContextSeeds: package.caddieContextSeeds,
+            weatherSnapshot: package.weatherSnapshot,
+            clubProfiles: package.clubProfiles,
+            caddieDecisionEndpoint: package.caddieDecisionEndpoint,
+            offlinePackageStatus: package.offlinePackageStatus,
+            eventCursor: package.eventCursor,
+            recentHistory: package.recentHistory,
+            cachedCaddieRules: package.cachedCaddieRules,
+            generatedAt: package.generatedAt
+        )
     }
 
     private func directoryCreationParents(from anchor: URL, to target: URL) throws -> [URL] {
