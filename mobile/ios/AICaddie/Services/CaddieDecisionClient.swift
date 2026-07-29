@@ -3,10 +3,18 @@ import Foundation
 public struct CaddieDecisionRequest: Codable, Equatable {
     public let shotType: String
     public let context: [String: JSONValue]
+    /// The live screen consumes the deterministic options/sequences, not generated prose. Keeping
+    /// this false prevents a slow or rate-limited LLM explanation from blocking the on-course plan.
+    public let includeExplanation: Bool
 
-    public init(shotType: String, context: [String: JSONValue]) {
+    public init(
+        shotType: String,
+        context: [String: JSONValue],
+        includeExplanation: Bool = false
+    ) {
         self.shotType = shotType
         self.context = context
+        self.includeExplanation = includeExplanation
     }
 }
 

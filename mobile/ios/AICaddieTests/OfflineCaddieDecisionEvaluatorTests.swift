@@ -50,6 +50,20 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertTrue(decision.missingData.contains { row in row["label"] == .string("club_profile_sample") })
     }
 
+    func testLiveStructuredDecisionDoesNotWaitForUnusedLLMExplanation() throws {
+        let seed = try XCTUnwrap(try fixturePackage().caddieContextSeeds.first)
+        let request = CaddieDecisionRequestBuilder().makeDecisionRequest(
+            seed: seed,
+            input: LiveCaddieInput(shotType: "tee", distanceToPinM: 369)
+        )
+
+        XCTAssertFalse(request.includeExplanation)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
+        )
+        XCTAssertEqual(object["includeExplanation"] as? Bool, false)
+    }
+
     func testStrategyModeSelectsCachedOptionWithoutNetwork() throws {
         let seed = try XCTUnwrap(try fixturePackage().caddieContextSeeds.first)
         let evaluator = OfflineCaddieDecisionEvaluator()

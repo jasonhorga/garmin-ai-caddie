@@ -181,7 +181,27 @@ final class RealFlowUITests: XCTestCase {
             scrollTo(planHeading, maxSwipes: 8),
             "expanded caddie plan must be scrolled into the visible simulator viewport"
         )
-        settle(2); save("11-caddie-plan"); dump("11-caddie-plan")
+        let caddieLoading = app.activityIndicators["正在更新球童建议"]
+        _ = caddieLoading.waitForExistence(timeout: 2) // a warm backend may finish before this appears
+        XCTAssertTrue(
+            waitUntilGone(caddieLoading, timeout: 75),
+            "structured on-course caddie options must not be blocked by an unused LLM explanation"
+        )
+        XCTAssertFalse(
+            app.staticTexts["联网球童暂不可用 · 已切换到离线缓存建议。"].exists,
+            "the real course screenshot must prove the online structured decision, not an offline fallback"
+        )
+        for label in ["稳妥打法", "标准打法", "进攻打法"] {
+            XCTAssertTrue(
+                app.staticTexts[label].waitForExistence(timeout: 5),
+                "a Par 4 tee decision must expose all three complete club-to-club strategy chains: \(label)"
+            )
+        }
+        XCTAssertTrue(
+            scrollTo(app.staticTexts["标准打法"], maxSwipes: 12),
+            "the selected full-hole club chain must be visible in the simulator evidence"
+        )
+        settle(1); save("11-caddie-plan"); dump("11-caddie-plan")
 
         let avoidZones = app.buttons["备选打法 · 避开区"]
         XCTAssertTrue(scrollTo(avoidZones, maxSwipes: 8), "full caddie plan must expose avoid zones")
