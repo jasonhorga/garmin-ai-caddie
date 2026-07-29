@@ -356,20 +356,96 @@ final class RealFlowUITests: XCTestCase {
             app.staticTexts["第 2 洞"].waitForExistence(timeout: 5),
             "continuing from the summary must preserve the active round and playing hole"
         )
-        XCTAssertTrue(scrollTo(manageRound, maxSwipes: 16))
-        // Continue dismisses only the summary; SwiftUI legitimately preserves whether the management
-        // DisclosureGroup was already open. Toggle it only when its finish action is not currently visible.
-        if !finishRound.exists {
-            manageRound.tap()
+        settle(1); save("19-journey-02-after-summary"); dump("19-journey-02-after-summary")
+
+        // ---- Section 6: one persisted real-course round, hole 2 → hole 18 ----
+        // Do not replace this with independent seeded screenshots. Every score below appends to the
+        // same local round started above; the app is force-quit at hole 10 and must resume that identity.
+        var didManualPar3 = false
+        var didManualPar4 = false
+        var didManualPar5 = false
+        for holeNumber in 2...18 {
+            var par = try waitForJourneyHole(holeNumber)
+
+            if holeNumber == 10 {
+                settle(1); save("journey-10-before-force-quit"); dump("journey-10-before-force-quit")
+                app.terminate()
+                app.launch()
+                XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "app must relaunch at mid-round")
+                let inProgress = app.buttons.matching(
+                    NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "进行中", "第 10 洞")
+                ).firstMatch
+                XCTAssertTrue(
+                    inProgress.waitForExistence(timeout: 30),
+                    "a force-quit must restore the same real course and active hole on the home card"
+                )
+                XCTAssertTrue(
+                    app.staticTexts["已打 9 洞 · 共 18 洞"].exists,
+                    "the restored round must retain all nine completed holes"
+                )
+                settle(1); save("journey-10-restored-home"); dump("journey-10-restored-home")
+                inProgress.tap()
+                par = try waitForJourneyHole(holeNumber)
+                settle(1); save("journey-10-restored-hole"); dump("journey-10-restored-hole")
+            }
+
+            let rootName = String(format: "journey-%02d-hole-root", holeNumber)
+            settle(1); save(rootName); dump(rootName)
+            try recordJourneyShot(selectActualClub: holeNumber == 2)
+
+            let manual: Bool
+            let fairwayLabel: String?
+            if holeNumber == 2 {
+                XCTAssertEqual(par, 4, "北京丽宫第 2 洞 must retain its real Par")
+                didManualPar4 = true
+                manual = true
+                fairwayLabel = "上球道"
+            } else if par == 3, !didManualPar3 {
+                didManualPar3 = true
+                manual = true
+                fairwayLabel = nil
+            } else if par == 5, !didManualPar5 {
+                didManualPar5 = true
+                manual = true
+                fairwayLabel = "偏左"
+            } else {
+                manual = false
+                fairwayLabel = nil
+            }
+            try confirmJourneyHole(
+                hole: holeNumber,
+                par: par,
+                manual: manual,
+                fairwayLabel: fairwayLabel
+            )
+
+            if holeNumber < 18 {
+                XCTAssertTrue(
+                    app.staticTexts["第 \(holeNumber + 1) 洞"].waitForExistence(timeout: 15),
+                    "saving hole \(holeNumber) must advance the same round to hole \(holeNumber + 1)"
+                )
+            }
         }
-        XCTAssertTrue(scrollTo(finishRound, maxSwipes: 4))
-        finishRound.tap()
-        XCTAssertTrue(app.staticTexts["本场汇总"].waitForExistence(timeout: 5))
+
+        XCTAssertTrue(didManualPar3, "the real 18-hole course must exercise Par 3's no-fairway branch")
+        XCTAssertTrue(didManualPar4, "the real 18-hole course must exercise Par 4 fairway confirmation")
+        XCTAssertTrue(didManualPar5, "the real 18-hole course must exercise Par 5 fairway confirmation")
+        XCTAssertTrue(
+            app.staticTexts["本场汇总"].waitForExistence(timeout: 8),
+            "the ordered last hole must open the shared finish summary automatically"
+        )
+        XCTAssertTrue(app.staticTexts["已完成 18/18 洞"].exists)
+        XCTAssertTrue(app.buttons["保存并结束"].exists)
+        XCTAssertTrue(app.buttons["继续打球"].exists)
+        settle(1); save("journey-18-complete-summary"); dump("journey-18-complete-summary")
+
         app.buttons["保存并结束"].tap()
         XCTAssertTrue(
             app.buttons["开始记分"].waitForExistence(timeout: 8),
-            "the synthetic CI round may clear locally only after explicit Save & End confirmation"
+            "the complete synthetic CI round may clear locally only after explicit Save & End confirmation"
         )
+        XCTAssertFalse(app.staticTexts["进行中"].exists, "the explicitly finished round must no longer be active")
+        settle(1); save("journey-finished-home"); dump("journey-finished-home")
     }
 
     // MARK: - navigation helpers
@@ -492,6 +568,115 @@ final class RealFlowUITests: XCTestCase {
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    /// Wait for one ordered real hole to be screenshot-ready and return its actual Par. F/M/B are
+    /// identified live WGS84 readings, so a heading alone or a stale prior-hole map cannot pass.
+    private func waitForJourneyHole(_ hole: Int) throws -> Int {
+        let heading = app.staticTexts["第 \(hole) 洞"]
+        XCTAssertTrue(heading.waitForExistence(timeout: 20), "journey must reach real hole \(hole)")
+        XCTAssertTrue(scrollTo(heading, maxSwipes: 18), "hole \(hole) root must return to its map header")
+
+        let parText = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Par '")).firstMatch
+        XCTAssertTrue(parText.waitForExistence(timeout: 8), "hole \(hole) must expose its real Par")
+        let tokens = parText.label.split(separator: " ")
+        let par = try XCTUnwrap(tokens.dropFirst().first.flatMap { Int($0) }, "hole \(hole) Par must be numeric")
+
+        for identifier in ["live-green-front", "live-green-middle", "live-green-back"] {
+            let distance = app.staticTexts[identifier]
+            XCTAssertTrue(distance.waitForExistence(timeout: 30), "hole \(hole) must expose \(identifier)")
+            XCTAssertNotNil(Int(distance.label), "hole \(hole) \(identifier) must be a real whole-yard range")
+        }
+        let loading = app.activityIndicators["正在更新球童建议"]
+        _ = loading.waitForExistence(timeout: 1)
+        XCTAssertTrue(
+            waitUntilGone(loading, timeout: 75),
+            "hole \(hole) must settle its real structured caddie response before capture"
+        )
+        let caddieReady = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@", "球童建议已就绪")
+        ).firstMatch
+        XCTAssertTrue(
+            caddieReady.waitForExistence(timeout: 75),
+            "hole \(hole) must expose a settled caddie-ready state before capture"
+        )
+        XCTAssertFalse(
+            app.staticTexts["联网球童暂不可用 · 已切换到离线缓存建议。"].exists,
+            "hole \(hole) must not silently replace the real journey with an offline suggestion"
+        )
+        return par
+    }
+
+    /// Record exactly the first GPS shot on each hole. Hole 2 selects an actual club; every other hole
+    /// skips the optional club while retaining the location, proving both paths and per-hole order reset.
+    private func recordJourneyShot(selectActualClub: Bool) throws {
+        let record = app.buttons["记一杆"]
+        XCTAssertTrue(scrollTo(record, maxSwipes: 18), "each journey hole must expose GPS shot capture")
+        record.tap()
+        XCTAssertTrue(app.staticTexts["这一杆用了什么球杆？"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.staticTexts["第 1 杆的位置已经保存"].exists,
+            "the first recorded shot order must reset to 1 on every hole"
+        )
+        if selectActualClub {
+            let recommendedClub = app.buttons.matching(
+                NSPredicate(format: "label CONTAINS %@", "球童建议")
+            ).firstMatch
+            XCTAssertTrue(recommendedClub.waitForExistence(timeout: 5), "actual-club prompt must expose a recommendation")
+            recommendedClub.tap()
+        } else {
+            let skip = app.buttons["跳过球杆（位置已记录）"]
+            XCTAssertTrue(skip.waitForExistence(timeout: 5))
+            skip.tap()
+        }
+        XCTAssertTrue(app.staticTexts["已记第 1 杆"].waitForExistence(timeout: 5))
+    }
+
+    /// Complete one hole either through the one-tap recommendation or the locked manual order:
+    /// total → putts → (Par 4/5 fairway only) → penalties.
+    private func confirmJourneyHole(
+        hole: Int,
+        par: Int,
+        manual: Bool,
+        fairwayLabel: String?
+    ) throws {
+        let confirm = app.buttons["确认本洞成绩"]
+        XCTAssertTrue(scrollTo(confirm, maxSwipes: 18), "hole \(hole) must expose score confirmation")
+        confirm.tap()
+        let accept = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '接受推荐 '")).firstMatch
+        XCTAssertTrue(accept.waitForExistence(timeout: 5), "hole \(hole) must offer one-tap recommendation")
+        if !manual {
+            accept.tap()
+            return
+        }
+
+        let manualButton = app.buttons["手动确认"]
+        XCTAssertTrue(manualButton.waitForExistence(timeout: 3))
+        manualButton.tap()
+        XCTAssertTrue(app.staticTexts["手动确认 · 总杆"].waitForExistence(timeout: 3))
+        // One recorded non-putt shot recommends 3. Raise the representative manual holes to par.
+        for _ in 0..<max(0, par - 3) {
+            let plus = app.buttons["＋"]
+            XCTAssertTrue(plus.waitForExistence(timeout: 2))
+            plus.tap()
+        }
+        app.buttons["下一步 · 推杆"].tap()
+
+        if par == 3 {
+            XCTAssertTrue(app.buttons["下一步 · 罚杆"].waitForExistence(timeout: 3))
+            XCTAssertFalse(app.buttons["下一步 · 开球结果"].exists)
+            app.buttons["下一步 · 罚杆"].tap()
+        } else {
+            XCTAssertTrue(app.buttons["下一步 · 开球结果"].waitForExistence(timeout: 3))
+            app.buttons["下一步 · 开球结果"].tap()
+            let fairway = try XCTUnwrap(fairwayLabel, "Par 4/5 manual flow requires a fairway result")
+            XCTAssertTrue(app.buttons[fairway].waitForExistence(timeout: 3))
+            app.buttons[fairway].tap()
+        }
+
+        let saveScore = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '保存'")).firstMatch
+        XCTAssertTrue(saveScore.waitForExistence(timeout: 3), "hole \(hole) penalty step must save the score")
+        saveScore.tap()
     }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.
