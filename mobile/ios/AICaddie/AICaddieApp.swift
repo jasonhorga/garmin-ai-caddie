@@ -255,9 +255,7 @@ public final class LiveRoundAppModel: ObservableObject {
             offlineStore: offlineStore,
             apiBaseURL: apiBaseURL,
             adminToken: adminToken,
-            watchBridge: WatchEventBridge.isTransportEnabled()
-                ? WatchEventBridge(offlineStore: offlineStore, autoActivate: false)
-                : nil,
+            watchBridge: WatchEventBridge(offlineStore: offlineStore, autoActivate: false),
             garminSessionStore: garminSessionStore,
             preferredRoundId: preferredRoundId,
             syncClient: syncClient

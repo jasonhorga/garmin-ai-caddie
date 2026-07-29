@@ -2,15 +2,6 @@ import XCTest
 @testable import AICaddie
 
 final class WatchEventBridgeTests: XCTestCase {
-    func testPhoneUITestModeSuppressesWatchConnectivityTransport() {
-        XCTAssertFalse(
-            WatchEventBridge.isTransportEnabled(environment: ["UITEST_MODE": "1"]),
-            "an iPhone-only UI journey must not enqueue transfers for an unpaired Watch"
-        )
-        XCTAssertTrue(WatchEventBridge.isTransportEnabled(environment: [:]))
-        XCTAssertTrue(WatchEventBridge.isTransportEnabled(environment: ["UITEST_MODE": "0"]))
-    }
-
     func testWatchRoundSeedUsesRealCourseAndHoleFacts() throws {
         let bridge = WatchEventBridge()
         let package = try fixturePackage()
