@@ -1896,7 +1896,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("restoredHoleState.reconciledSaveOnlyFields(", current_hole)
         self.assertIn("guard let latestFix else", current_hole)
         self.assertIn("distanceToPinText = restoredHoleState.distanceToPinM.map(Self.yardsText(fromMetres:)) ?? \"\"", current_hole)
-        self.assertIn('payload["distanceToPinM"] = distanceToPinPayload()', current_hole)
+        # Distance remains a restorable club/shot-context fact.  The live view now builds that
+        # payload as a dictionary literal; end-of-hole score confirmation deliberately does not
+        # fabricate a location/shot event merely to persist this field.
+        self.assertIn('"distanceToPinM": distanceToPinPayload()', current_hole)
         self.assertIn("private func distanceToPinPayload() -> JSONValue", current_hole)
 
         self.assertIn("testRestoreLiveRoundStateReplaysScoringClubAndLocationEvents", offline_tests)
