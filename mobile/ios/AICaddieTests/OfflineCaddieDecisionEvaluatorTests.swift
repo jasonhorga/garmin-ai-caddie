@@ -2,6 +2,22 @@ import XCTest
 @testable import AICaddie
 
 final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
+    func testLiveCaddieDistancePrefersManualThenLiveThenStaticMiddle() {
+        XCTAssertEqual(
+            LiveCaddieDistance.resolve(manualM: 141, liveMiddleM: 152, staticMiddleM: 163),
+            141
+        )
+        XCTAssertEqual(
+            LiveCaddieDistance.resolve(manualM: nil, liveMiddleM: 152, staticMiddleM: 163),
+            152
+        )
+        XCTAssertEqual(
+            LiveCaddieDistance.resolve(manualM: nil, liveMiddleM: nil, staticMiddleM: 163),
+            163
+        )
+        XCTAssertNil(LiveCaddieDistance.resolve(manualM: nil, liveMiddleM: nil, staticMiddleM: nil))
+    }
+
     func testMakesAuditableOfflineDecisionFromSeedAndStrategy() throws {
         let package = try fixturePackage()
         let seed = try XCTUnwrap(package.caddieContextSeeds.first)

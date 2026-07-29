@@ -54,17 +54,25 @@ final class WatchEventBridgeTests: XCTestCase {
             sequences: [
                 [
                     "id": .string("stock"),
-                    "label": .string("1D-3W-58"),
-                    "expectedStrokes": .number(3),
-                    "expectedRemaining_m": .number(-21),
+                    "label": .string("1D-5I-54"),
+                    "expectedRemaining_m": .number(13),
                     "sourceRefs": .array([.string("club-sample-1d-0")]),
+                    "clubs": .array([
+                        .object(["clubName": .string("1D"), "targetCarry_m": .number(245)]),
+                        .object(["clubName": .string("5I"), "targetCarry_m": .number(168)]),
+                        .object(["clubName": .string("54"), "targetCarry_m": .number(94)]),
+                    ]),
                 ]
             ],
             selectedSequence: [
                 "id": .string("stock"),
-                "label": .string("1D-3W-58"),
-                "expectedStrokes": .number(3),
-                "expectedRemaining_m": .number(-21),
+                "label": .string("1D-5I-54"),
+                "expectedRemaining_m": .number(13),
+                "clubs": .array([
+                    .object(["clubName": .string("1D"), "targetCarry_m": .number(245)]),
+                    .object(["clubName": .string("5I"), "targetCarry_m": .number(168)]),
+                    .object(["clubName": .string("54"), "targetCarry_m": .number(94)]),
+                ]),
             ],
             avoidZones: [],
             forbiddenZones: [],
@@ -117,9 +125,13 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(payload.strategyMode, "stock")
         XCTAssertEqual(payload.offlineOptionId, "stock")
         XCTAssertEqual(payload.decisionId, "decision-1")
-        XCTAssertEqual(payload.holePlanSummary, "1D-3W-58 / 3 shots / leave -21m")
-        XCTAssertEqual(payload.expectedStrokes, 3)
-        XCTAssertEqual(payload.expectedRemainingM, -21)
+        XCTAssertEqual(payload.holePlanSummary, "1D → 5I → 54 · 留 14 码")
+        XCTAssertEqual(payload.expectedRemainingM, 13)
+
+        let plans = bridge.makeWatchCaddieOptions(from: decision)
+        let stock = try XCTUnwrap(plans.first { $0.optionId == "stock" })
+        XCTAssertEqual(stock.plan?.map(\.clubName), ["1D", "5I", "54"])
+        XCTAssertEqual(stock.plan?.map(\.carryM), [245, 168, 94])
     }
 
     func testOfflineEvidenceSummaryRedactsPrivateSourceRefs() throws {

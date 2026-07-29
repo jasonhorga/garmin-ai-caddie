@@ -4,6 +4,17 @@ import XCTest
 
 /// round-10 反馈的纯逻辑回归:避开区沙坑编号/排序、issue 中文映射、策略语义着色。
 final class RoundTenUITests: XCTestCase {
+    func testUncalibratedExpectedStrokesStayOutOfPlayerFacingCopy() {
+        let option = CaddiePlanOption(
+            id: "stock", label: "标准", carryM: 180, riskScore: 1, clubName: "3W",
+            p10M: 160, p90M: 205, sampleSize: 24, confidence: "high", coverageText: "24/24",
+            expectedStrokes: 2.4, expectedStrokesDelta: -0.2, scoreImpactModel: "heuristic_v1",
+            sourceRefs: [], missingDataLabels: []
+        )
+
+        XCTAssertNil(option.scoreImpactText)
+    }
+
     func testHazardsNumberAndSortMultipleBunkersNearToFar() throws {
         let hazards = CaddiePlanHazard.from(
             CoursePrepHazards(
