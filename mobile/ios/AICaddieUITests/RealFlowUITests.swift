@@ -184,9 +184,9 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(tapContaining(["继续"]), "offline fixture must expose its active first hole")
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 12), "fixture must enter hole 1")
 
-        let save = app.buttons["保存本洞 ✓"]
-        XCTAssertTrue(save.waitForExistence(timeout: 8), "hole root must expose score confirmation")
-        save.tap()
+        let saveHoleButton = app.buttons["保存本洞 ✓"]
+        XCTAssertTrue(saveHoleButton.waitForExistence(timeout: 8), "hole root must expose score confirmation")
+        saveHoleButton.tap()
 
         let acceptRecommendation = app.buttons.matching(
             NSPredicate(format: "label CONTAINS %@", "接受推荐")
