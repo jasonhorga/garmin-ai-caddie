@@ -219,9 +219,24 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertEqual(acceptRecommendation.label, "接受推荐 3 杆", "one recorded shot should recommend shot + two putts")
         settle(1); save("12-score-confirmation"); dump("12-score-confirmation")
         acceptRecommendation.tap()
+        let nextHoleHeading = app.staticTexts["第 2 洞"]
         XCTAssertTrue(
-            app.staticTexts["第 2 洞"].waitForExistence(timeout: 12),
+            nextHoleHeading.waitForExistence(timeout: 12),
             "accepting the recommended score must move phone-only play to the ordered next hole"
+        )
+        XCTAssertTrue(
+            fullyVisible(nextHoleHeading),
+            "the ordered next hole must reset live play to its map/header instead of inheriting the prior scroll offset"
+        )
+        let nextHoleShotButton = app.buttons["记一杆"]
+        XCTAssertTrue(nextHoleShotButton.waitForExistence(timeout: 5), "the next hole must retain shot capture")
+        XCTAssertTrue(
+            nextHoleShotButton.isEnabled,
+            "changing holes must retain the latest GPS fix instead of leaving shot capture permanently disabled"
+        )
+        XCTAssertFalse(
+            app.staticTexts["等待 GPS 定位后即可记杆"].exists,
+            "a valid simulated live GPS fix must remain available after changing holes"
         )
         settle(1); save("13-next-hole"); dump("13-next-hole")
 

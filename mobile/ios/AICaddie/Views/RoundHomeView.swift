@@ -185,6 +185,12 @@ public struct RoundHomeView: View {
                 },
                 onEvent: onEvent
             )
+            // A hole owns its score/club/map/GPS presentation state and scroll position. NavigationStack
+            // otherwise reuses the same destination view when `.hole(1)` becomes `.hole(2)`, carrying
+            // the prior hole's @State and scroll offset into the next hole. Explicit round+hole identity
+            // gives every ordered transition a fresh live surface; LocationProvider immediately republishes
+            // its injected fix in UI tests and resumes Core Location normally on a real device.
+            .id("\(package.roundId):\(hole.number)")
         }
     }
 
