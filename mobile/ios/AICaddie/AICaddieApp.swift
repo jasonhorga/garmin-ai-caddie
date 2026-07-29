@@ -201,6 +201,10 @@ public struct AICaddieApp: App {
     }
 }
 
+private enum LiveRoundFinishError: Error {
+    case incompleteAcknowledgement
+}
+
 @MainActor
 public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var package: LiveRoundPackage?
@@ -209,6 +213,8 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var apiBaseURL: URL?
     @Published public private(set) var adminToken: String?
     @Published public private(set) var isPreparingRound = false
+    @Published public private(set) var isFinishingRound = false
+    @Published public private(set) var finishErrorMessage: String?
     /// True until the first bootstrap() resolves, so the root shows a loading state instead of
     /// flashing the 开始一场 form before the home package lands.
     @Published public private(set) var isBootstrapping = true
@@ -229,6 +235,7 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private var syncClient: SyncClient?
     private var mediaUploadClient: MediaUploadClient?
+    private var isSyncingPendingEvents = false
     private let preferredRoundId: String
     /// Keeps the Apple-session observer alive so the watch's standalone-sync auth tracks sign-in /
     /// refresh / sign-out (round-13 watch-auth).
@@ -623,6 +630,91 @@ public final class LiveRoundAppModel: ObservableObject {
         syncStatus = "已结束本场"
     }
 
+    /// Persist a completed round only after every local event has an explicit server identity ACK
+    /// and the idempotent finish endpoint succeeds. Any failure leaves the package, progress and
+    /// event log intact so the player can retry or keep playing.
+    @discardableResult
+    public func finishActiveRound() async -> Bool {
+        guard !isFinishingRound, let package else { return false }
+        isFinishingRound = true
+        finishErrorMessage = nil
+        defer { isFinishingRound = false }
+
+        #if DEBUG
+        // The real-flow simulator uses a real course package but deliberately keeps synthetic scores
+        // off the owner's backend. Reaching this branch still requires the user's explicit Save & End
+        // tap; only then may the local test round be cleared.
+        if eventSyncSuppressedForUITests {
+            do {
+                try clearFinishedRoundLocally(roundId: package.roundId)
+                return true
+            } catch {
+                AICaddieLog.storage.error("Test-round cleanup failed: \(String(describing: error), privacy: .public)")
+                finishErrorMessage = "本地保存状态不可用，本场已完整保留"
+                return false
+            }
+        }
+        #endif
+
+        guard let syncClient else {
+            finishErrorMessage = "尚未联网，本场已完整保留"
+            syncStatus = "结束失败,稍后重试"
+            return false
+        }
+
+        // A score tap auto-schedules background sync. Let an already-running batch settle before the
+        // finish transaction starts; new background batches are suppressed by isFinishingRound.
+        while isSyncingPendingEvents {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        do {
+            let pending = try offlineStore.loadPendingEvents(roundId: package.roundId)
+            if !pending.isEmpty {
+                try await postPendingEventsAndRequireFullAcknowledgement(
+                    pending,
+                    package: package,
+                    syncClient: syncClient
+                )
+            }
+            guard try offlineStore.loadPendingEvents(roundId: package.roundId).isEmpty else {
+                throw LiveRoundFinishError.incompleteAcknowledgement
+            }
+
+            let events = try offlineStore.loadEvents().filter { $0.roundId == package.roundId }
+            let completedHoles = Set(events.compactMap { event in
+                event.kind == .score && event.hole > 0 ? event.hole : nil
+            })
+            let metadata = MobileRoundFinishMetadata(
+                courseName: package.course.name,
+                holePars: package.holes.sorted { $0.number < $1.number }.map(\.par),
+                holesCompleted: completedHoles.count,
+                courseGlobalId: package.course.globalId
+            )
+            try await syncClient.finishRound(roundId: package.roundId, metadata: metadata)
+            try clearFinishedRoundLocally(roundId: package.roundId)
+            return true
+        } catch {
+            AICaddieLog.network.error("Round finish failed: \(String(describing: error), privacy: .public)")
+            finishErrorMessage = error is LiveRoundFinishError
+                ? "部分记录尚未确认，本场已完整保留"
+                : "保存结束失败，本场已完整保留"
+            syncStatus = "结束失败,稍后重试"
+            pendingEventCount = (try? offlineStore.loadPendingEvents(roundId: package.roundId).count) ?? pendingEventCount
+            return false
+        }
+    }
+
+    private func clearFinishedRoundLocally(roundId: String) throws {
+        try offlineStore.discardRound(roundId: roundId)
+        package = nil
+        liveRoundState = nil
+        startingNine = nil
+        pendingEventCount = 0
+        finishErrorMessage = nil
+        syncStatus = "本场已保存"
+    }
+
     public func setActiveHole(_ hole: Int) {
         guard let package, package.holes.contains(where: { $0.number == hole }) else {
             return
@@ -682,6 +774,9 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     public func syncPendingEvents() async {
+        guard !isFinishingRound, !isSyncingPendingEvents else { return }
+        isSyncingPendingEvents = true
+        defer { isSyncingPendingEvents = false }
         guard let package else {
             syncStatus = "没有进行中的球局"
             return
@@ -699,12 +794,11 @@ public final class LiveRoundAppModel: ObservableObject {
                 syncStatus = uploadedMediaCount > 0 ? "已同步 \(uploadedMediaCount) 张照片/视频" : "已是最新"
             } else {
                 syncStatus = "同步中…"
-                let result = try await syncClient.postEventBatchWithRetry(
+                let result = try await postPendingEventsAndRequireFullAcknowledgement(
                     events,
-                    roundId: package.roundId,
-                    idempotencyKey: idempotencyKey(roundId: package.roundId, events: events)
+                    package: package,
+                    syncClient: syncClient
                 )
-                try offlineStore.appendSyncMarker(roundId: package.roundId, timestamp: ISO8601DateFormatter().string(from: Date()), result: result)
                 pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
                 let mediaSuffix = uploadedMediaCount > 0 ? " · \(uploadedMediaCount) 张照片/视频" : ""
                 syncStatus = result.duplicate ? "已同步" : "已同步\(mediaSuffix)"
@@ -716,6 +810,31 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.network.error("Pending-event sync failed: \(String(describing: error), privacy: .public)")
             syncStatus = "同步失败,稍后重试"
         }
+    }
+
+    private func postPendingEventsAndRequireFullAcknowledgement(
+        _ events: [LiveRoundEvent],
+        package: LiveRoundPackage,
+        syncClient: SyncClient
+    ) async throws -> SyncResult {
+        let result = try await syncClient.postEventBatchWithRetry(
+            events,
+            roundId: package.roundId,
+            idempotencyKey: idempotencyKey(roundId: package.roundId, events: events)
+        )
+        let expected = events.map(\.eventId)
+        let acknowledged = result.acceptedEventIds + result.duplicateEventIds
+        guard Set(expected).count == expected.count,
+              Set(acknowledged) == Set(expected),
+              acknowledged.count == expected.count else {
+            throw LiveRoundFinishError.incompleteAcknowledgement
+        }
+        try offlineStore.appendSyncMarker(
+            roundId: package.roundId,
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            result: result
+        )
+        return result
     }
 
     /// round-12 sync spine (gap f): pull events authored by OTHER clients via the replay endpoint and

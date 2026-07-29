@@ -79,6 +79,29 @@ public struct EventCursorAckResponse: Codable, Equatable {
     public let pendingEventCount: Int
 }
 
+public struct MobileRoundFinishMetadata: Codable, Equatable {
+    public let courseName: String
+    public let holePars: [Int]
+    public let holesCompleted: Int
+    public let courseGlobalId: Int?
+
+    public init(
+        courseName: String,
+        holePars: [Int],
+        holesCompleted: Int,
+        courseGlobalId: Int?
+    ) {
+        self.courseName = courseName
+        self.holePars = holePars
+        self.holesCompleted = holesCompleted
+        self.courseGlobalId = courseGlobalId
+    }
+}
+
+private struct MobileRoundFinishRequest: Codable {
+    let meta: MobileRoundFinishMetadata
+}
+
 /// Typed sync transport error. Previously every non-2xx collapsed into a generic
 /// `URLError(.badServerResponse)`, discarding the HTTP status and the server's
 /// error body — useless for diagnosing a failed sync on the course. This keeps
@@ -369,6 +392,19 @@ public final class SyncClient {
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(EventCursorAckResponse.self, from: data)
+    }
+
+    public func finishRound(
+        roundId: String,
+        metadata: MobileRoundFinishMetadata
+    ) async throws {
+        var request = URLRequest(url: endpointURL("/api/v2/mobile/rounds/\(roundId)/finish"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(to: &request)
+        request.httpBody = try encoder.encode(MobileRoundFinishRequest(meta: metadata))
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
     }
 
     public func postEventBatchWithRetry(
