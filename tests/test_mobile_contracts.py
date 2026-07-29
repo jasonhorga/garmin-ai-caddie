@@ -1866,7 +1866,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("targetKind == other.targetKind", offline_store)
 
         self.assertIn("@Published public private(set) var liveRoundState: LiveRoundStateSnapshot?", app_swift)
-        self.assertIn("liveRoundState = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)", app_swift)
+        self.assertIn("let restored = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)", app_swift)
+        self.assertIn("liveRoundState = restored", app_swift)
         self.assertIn("liveRoundState = try offlineStore.restoreLiveRoundState(roundId: event.roundId, package: package)", app_swift)
         self.assertIn("liveRoundState: model.liveRoundState", app_swift)
 
@@ -2652,6 +2653,7 @@ class MobileContractTests(unittest.TestCase):
         current_hole = (IOS_DIR / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
         caddie_plan = (IOS_DIR / "Views" / "CaddiePlanView.swift").read_text(encoding="utf-8")
         location_provider = _read_required_source(self, IOS_DIR / "Services" / "LocationProvider.swift")
+        event_builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")
 
         self.assertIn("struct RoundHomeView: View", round_home)
         self.assertIn("public let onEvent", round_home)
@@ -2822,13 +2824,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("selectedOfflineOption", current_hole)
         self.assertIn("sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)", current_hole)
         self.assertIn("watchBridge?.sendStateToWatch", current_hole)
-        self.assertIn("kind: .location", current_hole)
-        self.assertIn('"latitude"', current_hole)
-        self.assertIn('"longitude"', current_hole)
-        self.assertIn('"horizontalAccuracyM"', current_hole)
-        self.assertIn('locationPayload["targetLatitude"] = .number(targetCoordinate.latitude)', current_hole)
-        self.assertIn('locationPayload["targetLongitude"] = .number(targetCoordinate.longitude)', current_hole)
-        self.assertIn('"targetPosition"', current_hole)
+        # Location is an actual-shot fact built independently from end-of-hole score confirmation.
+        # Keeping this contract on the event builder prevents the score-save view from having to
+        # fabricate one GPS/club event at the green just to satisfy a source-string audit.
+        self.assertIn("func makeLocationEvent(", event_builder)
+        self.assertIn("kind: .location", event_builder)
+        self.assertIn('"latitude"', event_builder)
+        self.assertIn('"longitude"', event_builder)
+        self.assertIn('"horizontalAccuracyM"', event_builder)
+        self.assertIn('payload["targetLatitude"] = .number(targetCoordinate.latitude)', event_builder)
+        self.assertIn('payload["targetLongitude"] = .number(targetCoordinate.longitude)', event_builder)
+        self.assertIn("LiveScoreSubmission.events(", current_hole)
         self.assertIn("struct CaddiePlanView: View", caddie_plan)
         # 球童方案: 备选打法对比表 + 避开区(course_prep hazards 区间)。
         self.assertIn("public struct CaddiePlanHazard", caddie_plan)
