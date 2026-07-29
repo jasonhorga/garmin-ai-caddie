@@ -322,11 +322,32 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(scrollTo(manageRound, maxSwipes: 16), "test round must expose local cleanup")
         manageRound.tap()
         let finishRound = app.buttons["结束本场"].firstMatch
-        XCTAssertTrue(scrollTo(finishRound, maxSwipes: 4), "local test round must be discardable")
+        XCTAssertTrue(scrollTo(finishRound, maxSwipes: 4), "menu finish must open the shared round summary")
         finishRound.tap()
-        let confirmFinish = app.sheets.buttons["结束本场"]
-        XCTAssertTrue(confirmFinish.waitForExistence(timeout: 3), "ending the local test round must ask for confirmation")
-        confirmFinish.tap()
+        XCTAssertTrue(
+            app.staticTexts["本场汇总"].waitForExistence(timeout: 5),
+            "ending from the menu must show the same non-destructive summary used after the final hole"
+        )
+        XCTAssertTrue(app.staticTexts["已完成 1/18 洞"].exists)
+        XCTAssertTrue(app.buttons["保存并结束"].exists)
+        XCTAssertTrue(app.buttons["继续打球"].exists)
+        settle(1); save("18-round-summary"); dump("18-round-summary")
+
+        app.buttons["继续打球"].tap()
+        XCTAssertTrue(
+            app.staticTexts["第 2 洞"].waitForExistence(timeout: 5),
+            "continuing from the summary must preserve the active round and playing hole"
+        )
+        XCTAssertTrue(scrollTo(manageRound, maxSwipes: 16))
+        manageRound.tap()
+        XCTAssertTrue(scrollTo(finishRound, maxSwipes: 4))
+        finishRound.tap()
+        XCTAssertTrue(app.staticTexts["本场汇总"].waitForExistence(timeout: 5))
+        app.buttons["保存并结束"].tap()
+        XCTAssertTrue(
+            app.buttons["开始记分"].waitForExistence(timeout: 8),
+            "the synthetic CI round may clear locally only after explicit Save & End confirmation"
+        )
     }
 
     // MARK: - navigation helpers
