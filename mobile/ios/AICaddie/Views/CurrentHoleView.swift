@@ -203,13 +203,11 @@ public struct CurrentHoleView: View {
             }
         }
         .task(id: hole.number) {
-            // Sync the selected club to the caddie's recommendation on a FRESH hole (so we never sit
-            // on an arbitrary default); a hole the player already recorded keeps their chosen club.
-            let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
-            await loadCaddieDecision(syncClub: !alreadyRecorded)
-        }
-        .task(id: hole.number) {
-            await loadHoleMap()
+            // One ordered bootstrap per hole: first establish the real map/F/M/B context, then make
+            // exactly one initial online caddie request from that context. The prior pair of sibling
+            // tasks issued a distance-free request and a replacement request concurrently, allowing
+            // a cancelled stale request to flash a false "联网不可用" state over the good response.
+            await loadCurrentHole()
         }
         .onChange(of: liveRoundState) { _, newState in
             applyRestoredStateIfNeeded(newState)
@@ -461,6 +459,16 @@ public struct CurrentHoleView: View {
         return SyncClient.topoImageURL(baseURL: caddieBaseURL, globalId: mapGlobalId, localHole: mapLocalHole)
     }
 
+    @MainActor
+    private func loadCurrentHole() async {
+        await loadHoleMap()
+        guard !Task.isCancelled else { return }
+        // Sync the selected club to the recommendation on a fresh hole; a hole the player already
+        // recorded keeps their actual choice.
+        let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
+        await loadCaddieDecision(syncClub: !alreadyRecorded)
+    }
+
     private func loadHoleMap() async {
         guard let caddieBaseURL else {
             return
@@ -473,11 +481,9 @@ public struct CurrentHoleView: View {
         }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
         holePrep = try? await client.fetchHolePrep(globalId: mapGlobalId, localHole: mapLocalHole)
-        // Re-push to the watch now that F/M/B + plays-like are available — the first push in
-        // loadCaddieDecision can beat this fetch and would otherwise send nil green distances.
+        // Re-push to the watch now that F/M/B + plays-like are available. The ordered bootstrap will
+        // fetch and push the matching caddie decision immediately after this map step.
         if holePrep != nil {
-            let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
-            await loadCaddieDecision(syncClub: !alreadyRecorded)
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
             // watch P1b: relay the clean topo bitmap so the watch renders the hole map offline. Keyed by
             // the round hole number (what WatchRoundState.hole carries), fetched by the source local hole.
@@ -1012,13 +1018,17 @@ public struct CurrentHoleView: View {
 
         do {
             let response = try await caddieClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
-            // If prep arrived while the initial distance-free request was in flight, loadHoleMap has
-            // already launched a replacement request. Never let the stale answer overwrite it.
+            guard !Task.isCancelled else { return }
+            // If prep arrived while a manual distance-free request was in flight, the ordered hole
+            // bootstrap will launch the context-complete request next. Never let the stale answer
+            // overwrite it.
             guard !(requestedBeforePrep && holePrep != nil) else { return }
             caddieDecision = response
             caddieErrorMessage = nil
             if syncClub { syncSelectedClubToRecommendation() }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+        } catch let error where LiveCaddieLoadFailure.isCancellation(error) {
+            return
         } catch {
             if let offlineDecision = makeOfflineCaddieDecision() {
                 caddieDecision = offlineDecision

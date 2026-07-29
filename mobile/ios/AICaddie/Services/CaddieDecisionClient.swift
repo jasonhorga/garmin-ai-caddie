@@ -83,6 +83,19 @@ public struct CaddieDecisionResponse: Codable, Equatable {
     }
 }
 
+/// SwiftUI cancels a view task when its hole identity changes or the live surface leaves the
+/// hierarchy. URLSession may surface that as either Swift `CancellationError` or
+/// `URLError.cancelled`; neither means the network is unavailable and neither should replace a
+/// valid/cached recommendation with an error banner.
+enum LiveCaddieLoadFailure {
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        return (error as? URLError)?.code == .cancelled
+    }
+}
+
 public final class CaddieDecisionClient {
     private let baseURL: URL
     private let adminToken: String?
