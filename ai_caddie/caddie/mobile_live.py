@@ -1934,7 +1934,9 @@ def build_live_round_package(
 def _geometry_only_course_template(
     global_id: int, *, round_id: str, tee_box: str | None = None, course_name: str | None = None
 ) -> dict[str, Any] | None:
+    from ai_caddie.caddie.analysis import _selected_tee, load_geometry
     from ai_caddie.courses import course_reference
+
     holes = []
     cv_par = course_reference.courseview_par(int(global_id), allow_fetch=False)
     has_geometry_source = False
@@ -1947,7 +1949,15 @@ def _geometry_only_course_template(
         if state != "missing":
             has_geometry_source = True
         par = cv_par[local_hole - 1] if (cv_par and local_hole - 1 < len(cv_par)) else 4
-        holes.append({"number": local_hole, "par": par, "yards": None, "geometryCoverage": state})
+        yards = None
+        try:
+            selected_tee = _selected_tee(load_geometry(int(global_id), local_hole), tee_box)
+            target_distance_m = float((selected_tee or {}).get("target_distance_m"))
+            if target_distance_m > 0:
+                yards = int(round(target_distance_m * 1.09361))
+        except (OSError, TypeError, ValueError, OverflowError):
+            pass
+        holes.append({"number": local_hole, "par": par, "yards": yards, "geometryCoverage": state})
     # Anchor the course on EITHER geometry OR a CourseView par table. Geometry being
     # absent (e.g. a deployment without the geometry bundle) must NOT collapse the whole
     # course to "Unknown course" — the par + name still resolve a usable round; only the

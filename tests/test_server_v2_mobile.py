@@ -425,10 +425,29 @@ class ServerV2MobileTests(unittest.TestCase):
 
         from ai_caddie.courses import course_reference
 
+        def geometry_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "hazards": {
+                    "globalId": global_id,
+                    "tees": [{
+                        "tee_index": 1,
+                        "sets": [1],
+                        "position": [0.0, 0.0],
+                        "target_distance_m": 300.0 + local_hole,
+                    }],
+                }
+            }
+
         with (
             patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "fixture")),
             patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
             patch.object(course_reference, "courseview_par", return_value=[4, 5, 3, 4, 3, 4, 4, 5, 4, 4, 5, 3, 4, 3, 4, 4, 5, 4]),
+            patch.object(
+                course_reference,
+                "courseview_tees",
+                return_value=[{"name": "Blue", "gender": "MEN", "index": 1}],
+            ),
+            patch("ai_caddie.caddie.analysis.load_geometry", side_effect=geometry_for_test),
         ):
             response = client.get(
                 "/api/v2/mobile/courses/55555/package",
@@ -440,6 +459,8 @@ class ServerV2MobileTests(unittest.TestCase):
         holes = payload["holes"]
         self.assertEqual(holes[0]["par"], 4)
         self.assertEqual(holes[1]["par"], 5)  # would be 4 under the old hardcode
+        self.assertEqual(holes[0]["yards"], round(301.0 * 1.09361))
+        self.assertEqual(holes[1]["yards"], round(302.0 * 1.09361))
         self.assertEqual(payload["roundId"], "live-new-course")
         self.assertEqual(payload["course"], {"globalId": 55555, "name": "Course 55555", "teeBox": "blue"})
         self.assertEqual(payload["sourceCoverage"]["state"], "ready")
