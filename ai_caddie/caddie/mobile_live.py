@@ -12,6 +12,7 @@ from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.reports.annotations import annotations_for_target, list_annotations
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.geometry.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
+from ai_caddie.geometry.shot_projection import local_to_world
 from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.history.history_stats import _effective_score_data
 from ai_caddie.reports.report_labels_zh import issue_label_zh
@@ -750,13 +751,28 @@ def _package_holes(
         # geometry stays nil rather than being replaced with live distance-to-green.
         source_gid, source_local = _round_hole_geometry_ref(round_row, number)
         yards = recorded_yards
+        tee_latitude: float | None = None
+        tee_longitude: float | None = None
         if tee_box:
             yards = None
             try:
-                selected_tee = _selected_tee(load_geometry(int(source_gid), int(source_local)), tee_box)
+                geometry = load_geometry(int(source_gid), int(source_local))
+                selected_tee = _selected_tee(geometry, tee_box)
                 target_distance_m = float((selected_tee or {}).get("target_distance_m"))
                 if target_distance_m > 0:
                     yards = int(round(target_distance_m * 1.09361))
+                hazards = geometry.get("hazards") or {}
+                position = (selected_tee or {}).get("position")
+                if isinstance(position, (list, tuple)) and len(position) >= 2:
+                    latitude, longitude = local_to_world(
+                        float(position[0]),
+                        float(position[1]),
+                        ref_lat=float(hazards.get("refLat")),
+                        ref_lon=float(hazards.get("refLon")),
+                    )
+                    if -90 <= latitude <= 90 and -180 <= longitude <= 180:
+                        tee_latitude = latitude
+                        tee_longitude = longitude
             except (OSError, TypeError, ValueError, OverflowError):
                 pass
         coverage = str(source_hole.get("geometryCoverage") or stats_hole.get("geometryCoverage") or "")
@@ -771,6 +787,8 @@ def _package_holes(
             "geometryCoverage": coverage or "missing",
             "sourceGlobalId": int(source_gid) if source_gid else None,
             "sourceLocalHole": int(source_local) if source_local else number,
+            "teeLatitude": tee_latitude,
+            "teeLongitude": tee_longitude,
         })
     return holes
 

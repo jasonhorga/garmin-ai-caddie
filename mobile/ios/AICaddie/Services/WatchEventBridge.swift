@@ -492,6 +492,13 @@ public final class WatchEventBridge: NSObject {
         package: LiveRoundPackage,
         hole: Int
     ) -> (latitude: Double, longitude: Double)? {
+        if let packageHole = package.holes.first(where: { $0.number == hole }),
+           let latitude = packageHole.teeLatitude,
+           let longitude = packageHole.teeLongitude,
+           latitude.isFinite, (-90...90).contains(latitude),
+           longitude.isFinite, (-180...180).contains(longitude) {
+            return (latitude, longitude)
+        }
         guard let prep = package.coursePrep?.holes.first(where: { $0.hole == hole }),
               let first = prep.map?.overlay.route.first,
               first.count >= 2,

@@ -157,6 +157,29 @@ public struct Hole: Codable, Equatable, Identifiable {
     /// in a second loop's gid). Optional → older payloads decode to nil and fall back to the course.
     public let sourceGlobalId: Int?
     public let sourceLocalHole: Int?
+    /// Selected Tee anchor from the same per-hole geometry. Optional keeps cached v1 packages valid.
+    public let teeLatitude: Double?
+    public let teeLongitude: Double?
+
+    public init(
+        number: Int,
+        par: Int,
+        yards: Int?,
+        geometryCoverage: GeometryCoverageState,
+        sourceGlobalId: Int? = nil,
+        sourceLocalHole: Int? = nil,
+        teeLatitude: Double? = nil,
+        teeLongitude: Double? = nil
+    ) {
+        self.number = number
+        self.par = par
+        self.yards = yards
+        self.geometryCoverage = geometryCoverage
+        self.sourceGlobalId = sourceGlobalId
+        self.sourceLocalHole = sourceLocalHole
+        self.teeLatitude = teeLatitude
+        self.teeLongitude = teeLongitude
+    }
 }
 
 public struct GeometryCoverage: Codable, Equatable {

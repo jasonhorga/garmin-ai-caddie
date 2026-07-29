@@ -85,6 +85,16 @@ def _assert_json_schema_rejects(testcase: unittest.TestCase, schema: dict[str, o
 
 
 class MobileContractTests(unittest.TestCase):
+    def test_live_round_package_schema_accepts_optional_tee_coordinates(self) -> None:
+        schema = _load_schema("live_round_package.schema.json")
+        package = json.loads(
+            (IOS_DIR / "Fixtures" / "live_round_package.fixture.json").read_text(encoding="utf-8")
+        )
+        package["holes"][0]["teeLatitude"] = 40.0454995
+        package["holes"][0]["teeLongitude"] = 116.5461531
+
+        _assert_json_schema_accepts(self, schema, package)
+
     def test_live_round_package_schema_accepts_fixture(self) -> None:
         schema = _load_schema("live_round_package.schema.json")
         package = {

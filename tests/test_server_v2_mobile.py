@@ -533,6 +533,61 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(package["holes"][0]["yards"], round(366.7 * 1.09361))
         self.assertEqual(package["caddieContextSeeds"][0]["context"]["yards"], round(366.7 * 1.09361))
 
+    def test_course_package_exposes_selected_tee_coordinate_without_course_prep(self) -> None:
+        """Fast live packages still carry each selected Tee's real GPS anchor."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.core.fixtures import fixture_history_data
+        from ai_caddie.courses import course_reference
+
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "hazards": {
+                    "globalId": int(global_id),
+                    "refLat": 40.0 + local_hole / 1000,
+                    "refLon": 116.0,
+                    "tees": [
+                        {
+                            "tee_index": 1,
+                            "sets": [1],
+                            "position": [900.0, 900.0],
+                            "target_distance_m": 390.0,
+                        },
+                        {
+                            "tee_index": 2,
+                            "sets": [2],
+                            "position": [100.0, 200.0],
+                            "target_distance_m": 366.7,
+                        },
+                    ],
+                }
+            }
+
+        with (
+            patch("ai_caddie.caddie.analysis.load_geometry", side_effect=ready_geometry),
+            patch.object(
+                course_reference,
+                "courseview_tees",
+                return_value=[
+                    {"name": "Gold", "gender": "MEN", "index": 1},
+                    {"name": "Blue", "gender": "MEN", "index": 2},
+                ],
+            ),
+        ):
+            package = mobile_live.build_live_round_package_for_course(
+                31795,
+                round_id="live-existing-blue",
+                tee_box="blue",
+                data=fixture_history_data(),
+                data_mode="fixture",
+                include_course_prep=False,
+            )
+
+        self.assertIsNone(package["coursePrep"])
+        self.assertIn("teeLatitude", package["holes"][0])
+        self.assertIn("teeLongitude", package["holes"][0])
+        self.assertAlmostEqual(package["holes"][0]["teeLatitude"], 40.002796630568234, places=7)
+        self.assertAlmostEqual(package["holes"][0]["teeLongitude"], 116.00117268449421, places=7)
+
     def test_mobile_course_package_resolves_course_without_geometry_bundle(self) -> None:
         # Geometry bundle absent (e.g. homeserver) but CourseView par present → the course
         # must still resolve (real name + par + courseFound), NOT collapse to "Unknown
