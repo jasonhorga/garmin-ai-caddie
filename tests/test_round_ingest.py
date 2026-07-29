@@ -102,7 +102,11 @@ class RoundIngestCoreTests(unittest.TestCase):
         # one shot row per location event
         self.assertEqual(len(shots), 3)
         self.assertEqual({s["clubName"] for s in shots}, {"1D", "8I", "7I"})
-        self.assertEqual([s["hole"] for s in shots], [1, 1, 2])
+        self.assertCountEqual([s["hole"] for s in shots], [1, 1, 2])
+        self.assertEqual(
+            {hole: sorted(s["order"] for s in shots if s["hole"] == hole) for hole in (1, 2)},
+            {1: [1, 2], 2: [1]},
+        )
         # coordinates round-trip back to ~the input degrees (stored as semicircles)
         first = shots[0]
         self.assertIsNotNone(first["start"])

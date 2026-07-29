@@ -402,7 +402,7 @@ def _build_shots_file(round_id: int, holes: dict[int, _HoleAccumulator]) -> tupl
             row = {
                 "id": round_id * 1000 + shot["order"],
                 "scorecardId": round_id,
-                "shotOrder": shot["order"],
+                "shotOrder": idx + 1,
                 "clubId": cid,
                 "holeNumber": number,
                 "shotType": _shot_type(club, idx),
