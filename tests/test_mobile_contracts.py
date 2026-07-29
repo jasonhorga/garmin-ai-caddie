@@ -1502,7 +1502,34 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("移除加打的 9 洞", current_hole)
         # The Hub forwards the round-management closures into the live screen.
         self.assertIn("onChangeNine: onChangeNine", round_home)
-        self.assertIn("onDiscard: onDiscard", round_home)
+        self.assertIn("onFinishRound: onFinishRound", round_home)
+
+    def test_ios_round_finish_uses_shared_non_destructive_summary(self) -> None:
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        summary = _read_required_source(self, IOS_DIR / "Views" / "LiveRoundFinishSummaryView.swift")
+
+        self.assertIn("struct LiveRoundFinishSummaryView: View", summary)
+        for label in ["本场汇总", "保存并结束", "继续打球", "已完成"]:
+            self.assertIn(label, summary)
+        self.assertIn("finishErrorMessage", summary)
+        self.assertIn("pendingEventCount", summary)
+
+        self.assertIn("public let onFinishRound: () async -> Bool", round_home)
+        self.assertIn("onFinishRound: onFinishRound", round_home)
+        self.assertIn("private let onFinishRound: () async -> Bool", current_hole)
+        self.assertIn("showRoundSummary = true", current_hole)
+        final_hole_branch = current_hole.index("if accepted.advanceAfterSave")
+        summary_open = current_hole.index("showRoundSummary = true", final_hole_branch)
+        self.assertIn("nextHole(after: accepted.hole)", current_hole[final_hole_branch:summary_open])
+        self.assertNotIn("未保存的记录会被丢弃", current_hole)
+        self.assertNotIn("onDiscard", current_hole)
+
+        self.assertIn("isFinishingRound: model.isFinishingRound", app_swift)
+        self.assertIn("finishErrorMessage: model.finishErrorMessage", app_swift)
+        self.assertIn("return await model.finishActiveRound()", app_swift)
+        self.assertNotIn("model.discardActiveRound()", app_swift)
 
     def test_ios_course_option_models_and_fetcher_match_backend_endpoint(self) -> None:
         course_options = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")
@@ -1572,7 +1599,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('"acceptedEventIds": .array(result.acceptedEventIds.map { .string($0) })', offline_store)
         self.assertIn('"duplicateEventIds": .array(result.duplicateEventIds.map { .string($0) })', offline_store)
         self.assertIn('"serverSequence": .number(Double(result.serverSequence))', offline_store)
-        self.assertIn("offlineStore.appendSyncMarker(roundId: package.roundId, timestamp: ISO8601DateFormatter().string(from: Date()), result: result)", app_swift)
+        # Formatting is intentionally irrelevant: the exact-ACK guard must dominate the marker write.
+        ack_guard = app_swift.index("Set(acknowledged) == Set(expected)")
+        marker_write = app_swift.index("try offlineStore.appendSyncMarker(", ack_guard)
+        marker_result = app_swift.index("result: result", marker_write)
+        self.assertLess(ack_guard, marker_write)
+        self.assertLess(marker_write, marker_result)
         self.assertNotIn("syncClient.ackEventCursor(roundId: package.roundId, serverSequence: result.serverSequence)", app_swift)
         replay_persist = app_swift.index("try offlineStore.applyReplayEvents(replay.events.map(\\.event))")
         replay_cursor = app_swift.index("latestCursor = replay.nextCursor")

@@ -29,10 +29,13 @@ public struct CurrentHoleView: View {
     private let courseOptions: [MobileCourseOption]
     private let startingNine: String?
     private let isPreparingRound: Bool
+    private let pendingEventCount: Int
+    private let isFinishingRound: Bool
+    private let finishErrorMessage: String?
     private let onChangeNine: (String) -> Void
     private let onPrepareCourseRound: (Int, String, String, String) -> Void
     private let onPrepareCompositeRound: (Int, Int, String, String) -> Void
-    private let onDiscard: () -> Void
+    private let onFinishRound: () async -> Bool
     private let onAdvanceHole: (Int) -> Void
 
     @StateObject private var locationProvider = LocationProvider()
@@ -55,7 +58,7 @@ public struct CurrentHoleView: View {
     @State private var visionFindings: [[String: JSONValue]] = []
     @State private var lastAppliedRestoredHoleState: LiveHoleStateSnapshot?
     @State private var showManage = false
-    @State private var showDiscardConfirm = false
+    @State private var showRoundSummary = false
     @State private var showCaddieDetail = false
     @State private var scoreDraft: LiveScoreDraft?
     @State private var showScorecard = false
@@ -74,10 +77,13 @@ public struct CurrentHoleView: View {
         courseOptions: [MobileCourseOption] = [],
         startingNine: String? = nil,
         isPreparingRound: Bool = false,
+        pendingEventCount: Int = 0,
+        isFinishingRound: Bool = false,
+        finishErrorMessage: String? = nil,
         onChangeNine: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
-        onDiscard: @escaping () -> Void = {},
+        onFinishRound: @escaping () async -> Bool = { false },
         onAdvanceHole: @escaping (Int) -> Void = { _ in },
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
     ) {
@@ -94,10 +100,13 @@ public struct CurrentHoleView: View {
         self.courseOptions = courseOptions
         self.startingNine = startingNine
         self.isPreparingRound = isPreparingRound
+        self.pendingEventCount = pendingEventCount
+        self.isFinishingRound = isFinishingRound
+        self.finishErrorMessage = finishErrorMessage
         self.onChangeNine = onChangeNine
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
-        self.onDiscard = onDiscard
+        self.onFinishRound = onFinishRound
         self.onAdvanceHole = onAdvanceHole
         let seed = package.caddieContextSeeds.first { $0.hole == hole.number }
         let restoredHoleState = liveRoundState?.holeState(for: hole.number)
@@ -251,6 +260,32 @@ public struct CurrentHoleView: View {
                     pendingHistoricalScoreHole = selectedHole
                     showScorecard = false
                 }
+            )
+        }
+        .sheet(isPresented: $showRoundSummary) {
+            LiveRoundFinishSummaryView(
+                courseName: package.course.name,
+                holesCompleted: completedHoleStates.count,
+                holeCount: package.holes.count,
+                totalStrokes: completedHoleStates.reduce(0) { $0 + $1.state.score },
+                toPar: completedHoleStates.isEmpty
+                    ? nil
+                    : completedHoleStates.reduce(0) { $0 + $1.state.score - $1.hole.par },
+                totalPutts: completedHoleStates.reduce(0) { $0 + $1.state.putts },
+                fairwaysHit: completedHoleStates.filter { $0.state.fairwayResult == LiveFairwayResult.hit.rawValue }.count,
+                fairwaysRecorded: completedHoleStates.filter { $0.hole.par != 3 && $0.state.fairwayResult != nil }.count,
+                totalPenalties: completedHoleStates.reduce(0) { $0 + $1.state.penaltyCount },
+                pendingEventCount: pendingEventCount,
+                isFinishingRound: isFinishingRound,
+                finishErrorMessage: finishErrorMessage,
+                onFinish: {
+                    Task {
+                        if await onFinishRound() {
+                            showRoundSummary = false
+                        }
+                    }
+                },
+                onContinue: { showRoundSummary = false }
             )
         }
     }
@@ -786,17 +821,13 @@ public struct CurrentHoleView: View {
                 nineControl
                 loopAddControl
                 if let live = liveRoundState, package.holes.contains(where: { $0.number == live.activeHole }) {
-                    Button(role: .destructive) {
-                        showDiscardConfirm = true
+                    Button {
+                        showRoundSummary = true
                     } label: {
                         Text("结束本场").font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 6)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255))
-                    .confirmationDialog("结束本场?未保存的记录会被丢弃。", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
-                        Button("结束本场", role: .destructive) { onDiscard() }
-                        Button("取消", role: .cancel) {}
-                    }
                 }
             }
             .padding(.top, 8)
@@ -1208,8 +1239,12 @@ public struct CurrentHoleView: View {
             puttCount = accepted.putts
             penaltyCount = accepted.penalty
         }
-        if accepted.advanceAfterSave, let next = nextHole(after: accepted.hole) {
-            onAdvanceHole(next)
+        if accepted.advanceAfterSave {
+            if let next = nextHole(after: accepted.hole) {
+                onAdvanceHole(next)
+            } else {
+                showRoundSummary = true
+            }
         }
         sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
     }
@@ -1237,6 +1272,17 @@ public struct CurrentHoleView: View {
             }
             return event.hole
         })
+    }
+
+    private var completedHoleStates: [(hole: Hole, state: LiveHoleStateSnapshot)] {
+        let recorded = recordedScoreHoles
+        return package.holes.compactMap { hole in
+            guard recorded.contains(hole.number),
+                  let state = liveRoundState?.holeState(for: hole.number) else {
+                return nil
+            }
+            return (hole, state)
+        }
     }
 
     private func presentPendingHistoricalScoreEdit() {

@@ -26,12 +26,14 @@ public struct RoundHomeView: View {
     public let courseOptions: [MobileCourseOption]
     public let startingNine: String?
     public let isPreparingRound: Bool
+    public let isFinishingRound: Bool
+    public let finishErrorMessage: String?
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
     public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
     public let onChangeNine: (String) -> Void
-    public let onDiscard: () -> Void
+    public let onFinishRound: () async -> Bool
     public let onSetActiveHole: (Int) -> Void
     public let onSync: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
@@ -59,12 +61,14 @@ public struct RoundHomeView: View {
         courseOptions: [MobileCourseOption] = [],
         startingNine: String? = nil,
         isPreparingRound: Bool = false,
+        isFinishingRound: Bool = false,
+        finishErrorMessage: String? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onChangeNine: @escaping (String) -> Void = { _ in },
-        onDiscard: @escaping () -> Void = {},
+        onFinishRound: @escaping () async -> Bool = { false },
         onSetActiveHole: @escaping (Int) -> Void = { _ in },
         onSync: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
@@ -86,12 +90,14 @@ public struct RoundHomeView: View {
         self.courseOptions = courseOptions
         self.startingNine = startingNine
         self.isPreparingRound = isPreparingRound
+        self.isFinishingRound = isFinishingRound
+        self.finishErrorMessage = finishErrorMessage
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
         self.onChangeNine = onChangeNine
-        self.onDiscard = onDiscard
+        self.onFinishRound = onFinishRound
         self.onSetActiveHole = onSetActiveHole
         self.onSync = onSync
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
@@ -177,8 +183,10 @@ public struct RoundHomeView: View {
                 package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken,
                 offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState,
                 courseOptions: courseOptions, startingNine: startingNine, isPreparingRound: isPreparingRound,
+                pendingEventCount: pendingEventCount, isFinishingRound: isFinishingRound,
+                finishErrorMessage: finishErrorMessage,
                 onChangeNine: onChangeNine, onPrepareCourseRound: onPrepareCourseRound,
-                onPrepareCompositeRound: onPrepareCompositeRound, onDiscard: onDiscard,
+                onPrepareCompositeRound: onPrepareCompositeRound, onFinishRound: onFinishRound,
                 onAdvanceHole: { next in
                     onSetActiveHole(next)
                     path = [.hole(next)]

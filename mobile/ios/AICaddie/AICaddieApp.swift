@@ -55,6 +55,8 @@ public struct AICaddieApp: App {
                         courseOptions: model.courseOptions,
                         startingNine: model.startingNine,
                         isPreparingRound: model.isPreparingRound,
+                        isFinishingRound: model.isFinishingRound,
+                        finishErrorMessage: model.finishErrorMessage,
                         onEvent: model.handleEvent,
                         onPrepareRound: { roundId in
                             Task {
@@ -76,8 +78,8 @@ public struct AICaddieApp: App {
                                 await model.setActiveNine(nine)
                             }
                         },
-                        onDiscard: {
-                            model.discardActiveRound()
+                        onFinishRound: {
+                            return await model.finishActiveRound()
                         },
                         onSetActiveHole: { hole in
                             model.setActiveHole(hole)
@@ -614,20 +616,6 @@ public final class LiveRoundAppModel: ObservableObject {
             teeBox: package.course.teeBox,
             nine: nine
         )
-    }
-
-    /// Cancel/discard the active round without recording it: forget it locally and return
-    /// to 开始一场 (package = nil). Nothing for this round syncs afterwards.
-    public func discardActiveRound() {
-        guard let roundId = package?.roundId else {
-            return
-        }
-        try? offlineStore.discardRound(roundId: roundId)
-        package = nil
-        liveRoundState = nil
-        startingNine = nil
-        pendingEventCount = 0
-        syncStatus = "已结束本场"
     }
 
     /// Persist a completed round only after every local event has an explicit server identity ACK
