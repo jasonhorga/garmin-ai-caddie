@@ -56,7 +56,7 @@ public enum WatchCourseTemplateBuilder {
             let distanceM = hole.yards.map { Double($0) * 0.9144 }
             let projection = watchProjection(prep?.holeImageProjection)
             let holeMap = prep?.map.flatMap { makeHoleMap($0.overlay, landingM: prep?.landingM) }
-            let tee = teeCoordinate(holeMap: holeMap, projection: projection)
+            let tee = packageTeeCoordinate(hole) ?? teeCoordinate(holeMap: holeMap, projection: projection)
             let green = prep?.greenDistances?.available == true ? prep?.greenDistances : nil
             let deltaM = prep?.playsLike?.available == true ? prep?.playsLike?.deltaM : nil
             let clubs = (prepResponse?.clubs ?? []).map {
@@ -126,6 +126,16 @@ public enum WatchCourseTemplateBuilder {
     private static func watchProjection(_ value: WatchCoursePrepProjection?) -> WatchHoleImageProjection? {
         guard let value, value.available, let refs = value.refs, refs.count >= 3 else { return nil }
         return WatchHoleImageProjection(widthPx: value.widthPx, heightPx: value.heightPx, refs: refs)
+    }
+
+    private static func packageTeeCoordinate(
+        _ hole: WatchCoursePackageHole
+    ) -> (latitude: Double, longitude: Double)? {
+        guard let latitude = hole.teeLatitude,
+              let longitude = hole.teeLongitude,
+              latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude) else { return nil }
+        return (latitude, longitude)
     }
 
     private static func teeCoordinate(

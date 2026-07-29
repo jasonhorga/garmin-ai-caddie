@@ -229,6 +229,8 @@ public struct WatchCoursePackageHole: Decodable, Equatable {
     public let geometryCoverage: String?
     public let sourceGlobalId: Int?
     public let sourceLocalHole: Int?
+    public let teeLatitude: Double?
+    public let teeLongitude: Double?
 }
 
 public struct WatchCoursePrepResponse: Decodable, Equatable {
