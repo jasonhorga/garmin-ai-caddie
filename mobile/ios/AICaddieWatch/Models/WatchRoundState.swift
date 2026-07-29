@@ -61,8 +61,18 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
     }
 }
 
-/// round-13 spec ②: one AI-caddie play option (激进/推荐/保守) to surface on the watch 球童打法 screen.
-/// Pushed from the phone — mirrors the iPhone CaddiePlanOption set. No success-% (intentionally absent).
+public struct WatchCaddiePlanStep: Codable, Equatable {
+    public let clubName: String
+    public let carryM: Double?
+
+    public init(clubName: String, carryM: Double? = nil) {
+        self.clubName = clubName
+        self.carryM = carryM
+    }
+}
+
+/// One AI-caddie route. The full `plan` is shown when available; no expected-strokes or success-%
+/// is accepted into the player-facing Watch model until a calibrated model exists.
 public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public var id: String { optionId }
 
@@ -70,7 +80,7 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let label: String             // 稳妥/标准/进攻
     public let clubName: String?
     public let carryM: Double?
-    public let expectedStrokes: Double?
+    public let plan: [WatchCaddiePlanStep]?
     public let confidence: String?
 
     public init(
@@ -78,14 +88,14 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         label: String,
         clubName: String? = nil,
         carryM: Double? = nil,
-        expectedStrokes: Double? = nil,
+        plan: [WatchCaddiePlanStep]? = nil,
         confidence: String? = nil
     ) {
         self.optionId = optionId
         self.label = label
         self.clubName = clubName
         self.carryM = carryM
-        self.expectedStrokes = expectedStrokes
+        self.plan = plan
         self.confidence = confidence
     }
 }
@@ -230,7 +240,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let decisionId: String?
     public let nextShotPrompt: String?
     public let holePlanSummary: String?
-    public let expectedStrokes: Double?
     public let expectedRemainingM: Double?
     public let evidenceSummary: String?
     public let missingDataSummary: String?
@@ -290,7 +299,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case decisionId
         case nextShotPrompt
         case holePlanSummary
-        case expectedStrokes
         case expectedRemainingM
         case evidenceSummary
         case missingDataSummary
@@ -342,7 +350,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         decisionId: String? = nil,
         nextShotPrompt: String? = nil,
         holePlanSummary: String? = nil,
-        expectedStrokes: Double? = nil,
         expectedRemainingM: Double? = nil,
         evidenceSummary: String? = nil,
         missingDataSummary: String? = nil,
@@ -392,7 +399,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.decisionId = decisionId
         self.nextShotPrompt = nextShotPrompt
         self.holePlanSummary = holePlanSummary
-        self.expectedStrokes = expectedStrokes
         self.expectedRemainingM = expectedRemainingM
         self.evidenceSummary = evidenceSummary
         self.missingDataSummary = missingDataSummary
@@ -445,7 +451,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.decisionId = try container.decodeIfPresent(String.self, forKey: .decisionId)
         self.nextShotPrompt = try container.decodeIfPresent(String.self, forKey: .nextShotPrompt)
         self.holePlanSummary = try container.decodeIfPresent(String.self, forKey: .holePlanSummary)
-        self.expectedStrokes = try container.decodeIfPresent(Double.self, forKey: .expectedStrokes)
         self.expectedRemainingM = try container.decodeIfPresent(Double.self, forKey: .expectedRemainingM)
         self.evidenceSummary = try container.decodeIfPresent(String.self, forKey: .evidenceSummary)
         self.missingDataSummary = try container.decodeIfPresent(String.self, forKey: .missingDataSummary)
@@ -498,7 +503,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             decisionId: decisionId,
             nextShotPrompt: nextShotPrompt,
             holePlanSummary: holePlanSummary,
-            expectedStrokes: expectedStrokes,
             expectedRemainingM: expectedRemainingM,
             evidenceSummary: evidenceSummary,
             missingDataSummary: missingDataSummary,
@@ -578,7 +582,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             decisionId: decisionId,
             nextShotPrompt: nextShotPrompt,
             holePlanSummary: holePlanSummary,
-            expectedStrokes: expectedStrokes,
             expectedRemainingM: expectedRemainingM,
             evidenceSummary: evidenceSummary,
             missingDataSummary: missingDataSummary,

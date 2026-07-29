@@ -675,9 +675,9 @@ public struct WatchUITestRoot: View {
     private static let demoToPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 2, 5: 0, 6: 1]
 
     static let demoOptions: [WatchCaddieOption] = [
-        WatchCaddieOption(optionId: "safe", label: "稳妥", clubName: "9号铁", carryM: 128, expectedStrokes: 3.1, confidence: "high"),
-        WatchCaddieOption(optionId: "stock", label: "标准", clubName: "8号铁", carryM: 142, expectedStrokes: 3.0, confidence: "high"),
-        WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "7号铁", carryM: 156, expectedStrokes: 3.2, confidence: "medium"),
+        WatchCaddieOption(optionId: "safe", label: "稳妥", clubName: "9号铁", carryM: 128, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 172), WatchCaddiePlanStep(clubName: "9I", carryM: 128)], confidence: "high"),
+        WatchCaddieOption(optionId: "stock", label: "标准", clubName: "8号铁", carryM: 142, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "8I", carryM: 142)], confidence: "high"),
+        WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "7号铁", carryM: 156, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "PW", carryM: 118)], confidence: "medium"),
     ]
 
     static let demoHazards: [WatchHazard] = [
@@ -710,8 +710,8 @@ public struct WatchUITestRoot: View {
         suggestedClub: "7号铁", selectedClub: "7号铁",
         availableClubs: [WatchClubOption(clubName: "7号铁", medianM: 139), WatchClubOption(clubName: "6号铁", medianM: 150)],
         shotType: "approach", strategyMode: "stock", lie: "fairway",
-        nextShotPrompt: "上果岭中心偏左", holePlanSummary: "开球 → 攻果岭",
-        expectedStrokes: 4.1, expectedRemainingM: 8,
+        nextShotPrompt: "上果岭中心偏左", holePlanSummary: "3W → 8I · 上果岭",
+        expectedRemainingM: 8,
         frontGreenM: 128, centerGreenM: 135, backGreenM: 142,
         playsLikeDistanceM: 138, elevationDeltaM: 3,
         caddieOptions: demoOptions, hazards: demoHazards,

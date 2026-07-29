@@ -456,6 +456,8 @@ public struct CurrentHoleView: View {
         // Re-push to the watch now that F/M/B + plays-like are available — the first push in
         // loadCaddieDecision can beat this fetch and would otherwise send nil green distances.
         if holePrep != nil {
+            let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
+            await loadCaddieDecision(syncClub: !alreadyRecorded)
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
             // watch P1b: relay the clean topo bitmap so the watch renders the hole map offline. Keyed by
             // the round hole number (what WatchRoundState.hole carries), fetched by the source local hole.
@@ -525,34 +527,6 @@ public struct CurrentHoleView: View {
             return []
         }
         return CaddiePlanHazard.from(holePrep.hazards)
-    }
-
-    /// round-13 spec ②: the AI-caddie play options (激进/推荐/保守) to mirror onto the watch 球童打法 screen.
-    /// Reuses the same CaddiePlanOption extraction the iPhone caddie card renders, so phone/watch agree.
-    private func watchCaddieOptions(_ decision: CaddieDecisionResponse?) -> [WatchCaddieOption] {
-        guard let decision else {
-            return []
-        }
-        return CaddiePlanOption.options(from: decision).map { option in
-            WatchCaddieOption(
-                optionId: option.id,
-                label: zhPlayLabel(id: option.id, fallback: option.label),
-                clubName: option.clubName == "-" ? nil : option.clubName,
-                carryM: option.carryM > 0 ? option.carryM : nil,
-                expectedStrokes: option.expectedStrokes,
-                confidence: option.confidence
-            )
-        }
-    }
-
-    /// 稳妥/标准/进攻 label, mapped from the option id (or its label) via the shared route-label dictionary.
-    private func zhPlayLabel(id: String, fallback: String) -> String {
-        let byId = zhCaddieRouteLabel(id)
-        if byId != id {
-            return byId
-        }
-        let byLabel = zhCaddieRouteLabel(fallback)
-        return byLabel != fallback ? byLabel : fallback
     }
 
     /// Measured hazard facts mirrored to the Watch. New prep carries true front/back boundary facts;
@@ -647,7 +621,7 @@ public struct CurrentHoleView: View {
     private var clubNames: [String] {
         let best = bagBest(filterTeeOnly: true)
         let ordered: [String]
-        if let target = distanceToPinMetres {
+        if let target = effectiveDistanceToPinMetres {
             ordered = best.sorted { abs($0.value.medianM - target) < abs($1.value.medianM - target) }.map(\.key)
         } else {
             ordered = best.sorted { $0.value.medianM > $1.value.medianM }.map(\.key)
@@ -985,7 +959,7 @@ public struct CurrentHoleView: View {
             seed: caddieContextSeed,
             input: LiveCaddieInput(
                 shotType: selectedShotType,
-                distanceToPinM: distanceToPinMetres,
+                distanceToPinM: effectiveDistanceToPinMetres,
                 lie: selectedLie,
                 coordinate: currentCoordinate,
                 targetCoordinate: targetCoordinate,
@@ -1014,13 +988,18 @@ public struct CurrentHoleView: View {
             return
         }
 
+        let requestedBeforePrep = holePrep == nil
         isLoadingCaddieDecision = true
         defer {
             isLoadingCaddieDecision = false
         }
 
         do {
-            caddieDecision = try await caddieClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
+            let response = try await caddieClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
+            // If prep arrived while the initial distance-free request was in flight, loadHoleMap has
+            // already launched a replacement request. Never let the stale answer overwrite it.
+            guard !(requestedBeforePrep && holePrep != nil) else { return }
+            caddieDecision = response
             caddieErrorMessage = nil
             if syncClub { syncSelectedClubToRecommendation() }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
@@ -1096,7 +1075,7 @@ public struct CurrentHoleView: View {
             selectedClub: selectedClub,
             decision: decision,
             offlineOption: offlineOption,
-            distanceToPinM: distanceToPinMetres,
+            distanceToPinM: effectiveDistanceToPinMetres,
             targetLatitude: targetCoordinate?.latitude,
             targetLongitude: targetCoordinate?.longitude,
             targetKind: targetCoordinate == nil ? nil : "pin",
@@ -1112,10 +1091,9 @@ public struct CurrentHoleView: View {
             holeImageProjection: watchProj,
             globalId: mapGlobalId,
             holeMap: holeMap,
-            playsLikeDistanceM: slopeM.flatMap { delta in distanceToPinMetres.map { $0 + delta } },
+            playsLikeDistanceM: slopeM.flatMap { delta in effectiveDistanceToPinMetres.map { $0 + delta } },
             elevationDeltaM: slopeM,
             geometryCoverage: hole.geometryCoverage.rawValue,
-            caddieOptions: watchCaddieOptions(decision),
             hazards: watchHazards()
         )
         if let state {
@@ -1307,6 +1285,16 @@ public struct CurrentHoleView: View {
             return nil
         }
         return CoursePrepRoute.metres(fromYards: yards)
+    }
+
+    /// One distance source for club relevance, backend planning, and Watch state. A player's manual
+    /// target wins; otherwise use live GPS→green-middle, then the downloaded tee→middle fallback.
+    private var effectiveDistanceToPinMetres: Double? {
+        LiveCaddieDistance.resolve(
+            manualM: distanceToPinMetres,
+            liveMiddleM: liveGreenMetres?.middle,
+            staticMiddleM: liveGreenDistances?.middleM
+        )
     }
 
     /// 后端存的米 → 前端显示的整码(恢复已记距离时用)。

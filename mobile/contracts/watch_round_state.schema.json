@@ -113,9 +113,6 @@
     "holePlanSummary": {
       "type": ["string", "null"]
     },
-    "expectedStrokes": {
-      "type": ["number", "null"]
-    },
     "expectedRemainingM": {
       "type": ["number", "null"]
     },
@@ -223,8 +220,23 @@
             "type": ["number", "null"],
             "minimum": 0
           },
-          "expectedStrokes": {
-            "type": ["number", "null"]
+          "plan": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["clubName"],
+              "properties": {
+                "clubName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "carryM": {
+                  "type": ["number", "null"],
+                  "minimum": 0
+                }
+              }
+            }
           },
           "confidence": {
             "type": ["string", "null"]

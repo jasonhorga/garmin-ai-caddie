@@ -1,6 +1,12 @@
 import CoreLocation
 import Foundation
 
+public enum LiveCaddieDistance {
+    public static func resolve(manualM: Double?, liveMiddleM: Double?, staticMiddleM: Double?) -> Double? {
+        manualM ?? liveMiddleM ?? staticMiddleM
+    }
+}
+
 public struct LiveCaddieInput {
     public let shotType: String
     public let distanceToPinM: Double?

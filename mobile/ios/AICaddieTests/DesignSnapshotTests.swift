@@ -150,8 +150,8 @@ final class DesignSnapshotTests: XCTestCase {
             CaddiePlanSequenceStep(id: "\(role)-\(club)", role: role, clubName: club, targetCarryM: carry,
                                    expectedRemainingM: remaining, sampleSize: 42, confidence: "high", sourceRefs: [])
         }
-        func sequence(_ id: String, _ strokes: Int, _ confidence: String, _ steps: [CaddiePlanSequenceStep]) -> CaddiePlanSequence {
-            CaddiePlanSequence(id: id, label: steps.map(\.clubName).joined(separator: "-"), expectedStrokes: strokes,
+        func sequence(_ id: String, _ confidence: String, _ steps: [CaddiePlanSequenceStep]) -> CaddiePlanSequence {
+            CaddiePlanSequence(id: id, label: steps.map(\.clubName).joined(separator: "-"),
                                expectedRemainingM: steps.last?.expectedRemainingM, riskScore: nil, confidence: confidence,
                                coverageText: nil, sourceRefs: [], steps: steps)
         }
@@ -164,9 +164,9 @@ final class DesignSnapshotTests: XCTestCase {
             ],
             selectedOptionId: "stock",
             sequences: [
-                sequence("safe", 2, "high", [step("advance", "3W", 160, 155), step("scoring", "6I", 150, 5)]),
-                sequence("stock", 2, "medium", [step("advance", "Driver", 180, 133), step("scoring", "PW", 130, 3)]),
-                sequence("attack", 2, "low", [step("advance", "Driver", 180, 133), step("scoring", "SW", 125, 8)]),
+                sequence("safe", "high", [step("advance", "3W", 160, 155), step("scoring", "6I", 150, 5)]),
+                sequence("stock", "medium", [step("advance", "Driver", 180, 133), step("scoring", "PW", 130, 3)]),
+                sequence("attack", "low", [step("advance", "Driver", 180, 133), step("scoring", "SW", 125, 8)]),
             ],
             selectedSequenceId: "stock",
             // round-10: multiple bunkers are numbered + sorted near→far (CaddiePlanHazard.from), so

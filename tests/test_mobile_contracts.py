@@ -352,9 +352,8 @@ class MobileContractTests(unittest.TestCase):
             "offlineOptionId": "stock",
             "decisionId": "decision-1",
             "nextShotPrompt": "8I / Stock / 142m",
-            "holePlanSummary": "1D-3W-58 / 3 shots / leave -21m",
-            "expectedStrokes": 3.0,
-            "expectedRemainingM": -21.0,
+            "holePlanSummary": "1D → 5I → 54 · 留 14 码",
+            "expectedRemainingM": 13.0,
             "evidenceSummary": "route: water left",
             "missingDataSummary": "wind: not cached",
             "frontGreenM": 128.0,
@@ -374,9 +373,9 @@ class MobileContractTests(unittest.TestCase):
                 "layup": [253.0, 201.0], "apex": [278.0, 273.0], "greenCtrl": [235.0, 165.0],
             },
             "caddieOptions": [
-                {"optionId": "safe", "label": "稳妥", "clubName": "9I", "carryM": 128.0, "expectedStrokes": 3.1, "confidence": "high"},
-                {"optionId": "stock", "label": "标准", "clubName": "8I", "carryM": 142.0, "expectedStrokes": 3.0, "confidence": "high"},
-                {"optionId": "attack", "label": "进攻", "clubName": "7I", "carryM": 156.0, "expectedStrokes": 3.2, "confidence": "medium"},
+                {"optionId": "safe", "label": "稳妥", "clubName": "9I", "carryM": 128.0, "plan": [{"clubName": "3W", "carryM": 172.0}, {"clubName": "9I", "carryM": 128.0}], "confidence": "high"},
+                {"optionId": "stock", "label": "标准", "clubName": "8I", "carryM": 142.0, "plan": [{"clubName": "1W", "carryM": 192.0}, {"clubName": "8I", "carryM": 142.0}], "confidence": "high"},
+                {"optionId": "attack", "label": "进攻", "clubName": "7I", "carryM": 156.0, "plan": [{"clubName": "1W", "carryM": 192.0}, {"clubName": "PW", "carryM": 118.0}], "confidence": "medium"},
             ],
             "hazards": [
                 {"kind": "bunker", "label": "沙坑 1", "startM": 120.0, "endM": 140.0},
@@ -2803,7 +2802,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("CaddieDecisionRequestBuilder", current_hole)
         self.assertIn("caddieContextSeed", current_hole)
         self.assertIn("makeCaddieDecisionRequest", current_hole)
-        self.assertIn("distanceToPinM: distanceToPinMetres", current_hole)
+        self.assertIn("distanceToPinM: effectiveDistanceToPinMetres", current_hole)
+        self.assertIn("LiveCaddieDistance.resolve", current_hole)
         self.assertIn("lie: selectedLie", current_hole)
         self.assertIn("coordinate: currentCoordinate", current_hole)
         self.assertIn("targetCoordinate: targetCoordinate", current_hole)
@@ -2866,14 +2866,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("sampleSize", caddie_plan)
         self.assertIn("confidence", caddie_plan)
         self.assertIn("coverageText", caddie_plan)
-        self.assertIn("expectedStrokes", caddie_plan)
+        self.assertIn("expectedStrokes", caddie_plan)  # retained as non-player-facing provenance
         self.assertIn("expectedStrokesDelta", caddie_plan)
         self.assertIn("scoreImpactModel", caddie_plan)
         self.assertIn("scoreImpactText", caddie_plan)
         self.assertIn('scoreImpactValue(option["scoreImpact"], key: "expectedStrokes")', caddie_plan)
         self.assertIn("scoreImpactSourceRefs", caddie_plan)
-        self.assertIn('String(format: "期望 %.2f 杆"', caddie_plan)
-        self.assertIn('String(format: "%+.2f 杆"', caddie_plan)
+        self.assertIn("never present them as player-facing expected strokes", caddie_plan)
         self.assertIn("sourceRefs", caddie_plan)
         self.assertIn("sourceRefsText", caddie_plan)
         self.assertIn("missingDataLabels", caddie_plan)
@@ -2937,7 +2936,6 @@ class MobileContractTests(unittest.TestCase):
             "decisionId",
             "nextShotPrompt",
             "holePlanSummary",
-            "expectedStrokes",
             "expectedRemainingM",
             "frontGreenM",
             "centerGreenM",
@@ -3154,12 +3152,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("nextShotPrompt: nextShotPrompt(selected: selected, offlineOption: offlineSelected)", bridge)
         self.assertIn("private func nextShotPrompt(selected: [String: JSONValue]?, offlineOption: OfflineCaddieOption?) -> String?", bridge)
         self.assertIn("public let holePlanSummary: String?", bridge)
-        self.assertIn("public let expectedStrokes: Double?", bridge)
         self.assertIn("public let expectedRemainingM: Double?", bridge)
         self.assertIn("let selectedSequence = selectedSequence(from: decision)", bridge)
         self.assertIn("holePlanSummary: sequenceSummary(from: selectedSequence)", bridge)
-        self.assertIn('expectedStrokes: number(selectedSequence?["expectedStrokes"])', bridge)
         self.assertIn('expectedRemainingM: number(selectedSequence?["expectedRemaining_m"])', bridge)
+        self.assertIn("public func makeWatchCaddieOptions", bridge)
+        self.assertIn("public let plan: [WatchCaddiePlanStep]?", bridge)
         self.assertIn("private func selectedSequence(from decision: CaddieDecisionResponse?) -> [String: JSONValue]?", bridge)
         self.assertIn("decision.selectedSequence", bridge)
         self.assertIn("decision.sequences?.first", bridge)
@@ -3174,14 +3172,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("nextShotPrompt: String? = nil", state_swift)
         self.assertIn("nextShotPrompt: nextShotPrompt", state_swift)
         self.assertIn("public let holePlanSummary: String?", state_swift)
-        self.assertIn("public let expectedStrokes: Double?", state_swift)
         self.assertIn("public let expectedRemainingM: Double?", state_swift)
         self.assertIn("holePlanSummary: String? = nil", state_swift)
-        self.assertIn("expectedStrokes: Double? = nil", state_swift)
         self.assertIn("expectedRemainingM: Double? = nil", state_swift)
         self.assertIn("holePlanSummary: holePlanSummary", state_swift)
-        self.assertIn("expectedStrokes: expectedStrokes", state_swift)
         self.assertIn("expectedRemainingM: expectedRemainingM", state_swift)
+        self.assertIn("public let plan: [WatchCaddiePlanStep]?", state_swift)
         self.assertIn("if let nextShotPrompt = state.nextShotPrompt", glance_view)
         self.assertIn('Image(systemName: "figure.golf")', glance_view)
         self.assertIn("if let holePlanSummary = state.holePlanSummary", glance_view)

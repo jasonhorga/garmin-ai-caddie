@@ -69,8 +69,18 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
     }
 }
 
-/// round-13 spec ②: one AI-caddie play option (激进/推荐/保守) pushed to the watch 球童打法 screen.
-/// Mirrors the watch-side WatchCaddieOption (same JSON shape). No success-% (intentionally absent).
+public struct WatchCaddiePlanStep: Codable, Equatable {
+    public let clubName: String
+    public let carryM: Double?
+
+    public init(clubName: String, carryM: Double? = nil) {
+        self.clubName = clubName
+        self.carryM = carryM
+    }
+}
+
+/// One AI-caddie route on Watch. `clubName/carryM` remain the current-shot fallback; `plan` carries
+/// the complete route when the backend can prove one. Expected strokes are intentionally absent.
 public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public var id: String { optionId }
 
@@ -78,7 +88,7 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let label: String
     public let clubName: String?
     public let carryM: Double?
-    public let expectedStrokes: Double?
+    public let plan: [WatchCaddiePlanStep]?
     public let confidence: String?
 
     public init(
@@ -86,14 +96,14 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         label: String,
         clubName: String? = nil,
         carryM: Double? = nil,
-        expectedStrokes: Double? = nil,
+        plan: [WatchCaddiePlanStep]? = nil,
         confidence: String? = nil
     ) {
         self.optionId = optionId
         self.label = label
         self.clubName = clubName
         self.carryM = carryM
-        self.expectedStrokes = expectedStrokes
+        self.plan = plan
         self.confidence = confidence
     }
 }
@@ -246,7 +256,6 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let decisionId: String?
     public let nextShotPrompt: String?
     public let holePlanSummary: String?
-    public let expectedStrokes: Double?
     public let expectedRemainingM: Double?
     public let evidenceSummary: String?
     public let missingDataSummary: String?
@@ -389,6 +398,7 @@ public final class WatchEventBridge: NSObject {
         let selectedOptionId = string(selected?["id"]) ?? decision?.selectedOptionId ?? offlineSelected?.optionId
         let suggestedClub = clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName
         let selectedSequence = selectedSequence(from: decision)
+        let resolvedCaddieOptions = caddieOptions.isEmpty ? makeWatchCaddieOptions(from: decision) : caddieOptions
         let tee = Self.teeCoordinate(package: package, hole: hole.number)
         return WatchRoundStatePayload(
             roundId: package.roundId,
@@ -424,7 +434,6 @@ public final class WatchEventBridge: NSObject {
             decisionId: nonEmpty(decision?.decisionId),
             nextShotPrompt: nextShotPrompt(selected: selected, offlineOption: offlineSelected),
             holePlanSummary: sequenceSummary(from: selectedSequence),
-            expectedStrokes: number(selectedSequence?["expectedStrokes"]),
             expectedRemainingM: number(selectedSequence?["expectedRemaining_m"]) ?? number(selectedSequence?["expectedRemainingM"]),
             evidenceSummary: evidenceSummary(from: decision, offlineOption: offlineSelected),
             missingDataSummary: missingDataSummary(from: decision),
@@ -447,7 +456,7 @@ public final class WatchEventBridge: NSObject {
             greenInRegulation: greenInRegulation,
             fairwayResult: fairwayResult,
             geometryCoverage: geometryCoverage,
-            caddieOptions: caddieOptions,
+            caddieOptions: resolvedCaddieOptions,
             hazards: hazards,
             score: score,
             putts: putts,
@@ -963,6 +972,24 @@ public final class WatchEventBridge: NSObject {
         return decision.sequences?.first
     }
 
+    public func makeWatchCaddieOptions(from decision: CaddieDecisionResponse?) -> [WatchCaddieOption] {
+        guard let decision else { return [] }
+        let sequences = CaddiePlanSequence.sequences(from: decision)
+        return CaddiePlanOption.options(from: decision).map { option in
+            let sequence = sequences.first { $0.id == option.id }
+            let idLabel = zhCaddieRouteLabel(option.id)
+            let fallbackLabel = zhCaddieRouteLabel(option.label)
+            return WatchCaddieOption(
+                optionId: option.id,
+                label: idLabel != option.id ? idLabel : fallbackLabel,
+                clubName: option.clubName == "-" ? nil : option.clubName,
+                carryM: option.carryM > 0 ? option.carryM : nil,
+                plan: sequence?.steps.map { WatchCaddiePlanStep(clubName: $0.clubName, carryM: $0.targetCarryM) },
+                confidence: sequence?.confidence ?? option.confidence
+            )
+        }
+    }
+
     private func selectedOfflineOption(from offlineOption: OfflineCaddieOption?) -> OfflineCaddieOption? {
         offlineOption
     }
@@ -1081,17 +1108,33 @@ public final class WatchEventBridge: NSObject {
             return nil
         }
         var parts: [String] = []
-        if let label = safeSummaryText(string(selectedSequence["label"]) ?? string(selectedSequence["id"])) {
+        let plan = sequencePlan(from: selectedSequence)
+        if !plan.isEmpty {
+            parts.append(plan.map(\.clubName).joined(separator: " → "))
+        } else if let label = safeSummaryText(string(selectedSequence["label"]) ?? string(selectedSequence["id"])) {
             parts.append(label)
         }
-        if let expectedStrokes = number(selectedSequence["expectedStrokes"]) {
-            let shotCount = Int(expectedStrokes)
-            parts.append("\(shotCount) \(shotCount == 1 ? "shot" : "shots")")
-        }
         if let expectedRemaining = number(selectedSequence["expectedRemaining_m"]) ?? number(selectedSequence["expectedRemainingM"]) {
-            parts.append("leave \(Int(expectedRemaining))m")
+            if abs(expectedRemaining) <= 10 {
+                parts.append("上果岭")
+            } else if expectedRemaining > 0 {
+                parts.append("留 \(CoursePrepRoute.yards(fromMetres: expectedRemaining)) 码")
+            }
         }
-        return parts.isEmpty ? nil : parts.joined(separator: " / ")
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func sequencePlan(from sequence: [String: JSONValue]) -> [WatchCaddiePlanStep] {
+        guard case .array(let values) = sequence["clubs"] else { return [] }
+        return values.compactMap { value in
+            guard case .object(let row) = value,
+                  let clubName = string(row["clubName"])
+            else { return nil }
+            return WatchCaddiePlanStep(
+                clubName: clubName,
+                carryM: number(row["targetCarry_m"]) ?? number(row["targetCarryM"])
+            )
+        }
     }
 
     private func clubName(_ value: JSONValue?) -> String? {

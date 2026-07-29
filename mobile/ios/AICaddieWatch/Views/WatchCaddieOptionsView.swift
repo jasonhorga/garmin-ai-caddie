@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// round-13 spec ②: the AI-caddie 球童打法 screen — 激进 / 推荐 / 保守 side by side, each with its
-/// recommended club + 目标码. The recommended (stock) option is highlighted. Expected strokes and
-/// success-% stay absent until there is a calibrated model. Driven by the phone-pushed
+/// AI-caddie 球童打法: each route shows its complete club chain when available. The recommended
+/// option is highlighted. Expected strokes and success-% stay absent until there is a calibrated model.
 /// `WatchRoundState.caddieOptions`; a plain VStack so it renders in the ImageRenderer design snapshot.
 public struct WatchCaddieOptionsView: View {
     public let options: [WatchCaddieOption]
@@ -32,23 +31,32 @@ public struct WatchCaddieOptionsView: View {
     private func optionRow(_ option: WatchCaddieOption) -> some View {
         let key = strategyKey(option.optionId)
         let isRecommended = option.optionId == (recommendedId ?? "stock")
+        let plan = option.plan ?? []
         return VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(option.label)
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(AICaddieDesignTokens.strategyColor(key))
                 Spacer()
-                if let club = option.clubName {
+                if plan.isEmpty, let club = option.clubName {
                     Text(club)
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
                 }
             }
-            HStack(spacing: 8) {
-                if let carry = option.carryM {
-                    Text("\(Self.yards(carry)) 码").monospacedDigit()
+            if !plan.isEmpty {
+                Text(plan.map(\.clubName).joined(separator: " → "))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .lineLimit(2)
+                let carries = plan.compactMap(\.carryM).map { "\(Self.yards($0))" }
+                if !carries.isEmpty {
+                    Text(carries.joined(separator: " · ") + " 码")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
+            } else if let carry = option.carryM {
+                Text("\(Self.yards(carry)) 码")
+                    .font(.caption2.monospacedDigit())
             }
-            .font(.caption2)
         }
         .padding(6)
         .frame(maxWidth: .infinity, alignment: .leading)

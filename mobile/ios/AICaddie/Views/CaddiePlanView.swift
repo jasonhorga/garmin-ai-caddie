@@ -86,19 +86,9 @@ public struct CaddiePlanOption: Identifiable, Equatable {
     }
 
     public var scoreImpactText: String? {
-        guard expectedStrokes != nil || expectedStrokesDelta != nil else {
-            return nil
-        }
-        var parts: [String] = []
-        if let expectedStrokes {
-            parts.append(String(format: "期望 %.2f 杆", expectedStrokes))
-        }
-        if let expectedStrokesDelta {
-            parts.append(String(format: "%+.2f 杆", expectedStrokesDelta))
-        }
-        // scoreImpactModel (e.g. "calibrated_history_club_v2") is an internal model id —
-        // kept on the type for provenance but never shown to the player.
-        return parts.joined(separator: " · ")
+        // These backend fields currently come from a heuristic, not a calibrated scoring model.
+        // Keep them for diagnostics, but never present them as player-facing expected strokes.
+        nil
     }
 
     public var sourceRefsText: String? {
@@ -306,7 +296,6 @@ public struct CaddiePlanSequenceStep: Identifiable, Equatable {
 public struct CaddiePlanSequence: Identifiable, Equatable {
     public let id: String
     public let label: String
-    public let expectedStrokes: Int?
     public let expectedRemainingM: Double?
     public let riskScore: Double?
     public let confidence: String?
@@ -316,11 +305,12 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
 
     public var metaText: String {
         var parts: [String] = []
-        if let expectedStrokes {
-            parts.append("\(expectedStrokes) 杆")
-        }
         if let expectedRemainingM {
-            parts.append("留 \(CoursePrepRoute.yards(fromMetres: expectedRemainingM)) 码")
+            if abs(expectedRemainingM) <= 10 {
+                parts.append("上果岭")
+            } else if expectedRemainingM > 0 {
+                parts.append("留 \(CoursePrepRoute.yards(fromMetres: expectedRemainingM)) 码")
+            }
         }
         if let riskScore {
             parts.append("风险 \(Int(riskScore))")
@@ -343,7 +333,6 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
             CaddiePlanSequence(
                 id: string(row["id"]) ?? string(row["label"]) ?? "sequence-\(index + 1)",
                 label: string(row["label"]) ?? "Sequence \(index + 1)",
-                expectedStrokes: integer(row["expectedStrokes"]),
                 expectedRemainingM: number(row["expectedRemaining_m"]) ?? number(row["expectedRemainingM"]),
                 riskScore: number(row["riskScore"]),
                 confidence: string(row["confidence"]),
@@ -652,7 +641,7 @@ public struct CaddiePlanView: View {
         }
     }
 
-    /// 推荐打法的证据明细。只显示对玩家有意义的:样本/把握/期望杆。来源 ref、模型名、
+    /// 推荐打法的证据明细。只显示对玩家有意义的样本与把握。来源 ref、模型名、
     /// 缺数据标签等工程 provenance 留在类型上(sourceRefsText/missingDataText)但不渲染。
     @ViewBuilder private func recommendedDetail(_ option: CaddiePlanOption) -> some View {
         VStack(alignment: .leading, spacing: 3) {
