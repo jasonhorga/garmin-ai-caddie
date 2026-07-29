@@ -405,6 +405,58 @@ final class OfflineStoreTests: XCTestCase {
         )
     }
 
+    func testLargeDecisionAuditAppendAndReloadDoesNotBlockClubSelection() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let auditRows: [JSONValue] = (0..<24).map { index in
+            .object([
+                "club": .string("Club \(index)"),
+                "label": .string("Stock option \(index)"),
+                "shotType": .string("approach"),
+                "targetKind": .string("planned landing"),
+                "surface": .string("fairway"),
+                "rationale": .string("Public caddie rationale \(index)"),
+            ])
+        }
+        let event = LiveRoundEvent(
+            eventId: "large-decision-club-event",
+            roundId: "round-1",
+            clientId: "ios-phone",
+            timestamp: "2026-07-29T00:00:00Z",
+            hole: 2,
+            kind: .club,
+            payload: [
+                "clubName": .string("3W"),
+                "decision": .object([
+                    "schema": .string("ai-caddie-decision-v1"),
+                    "shotType": .string("tee"),
+                    "phase": .string("planning"),
+                    "context": .object([
+                        "courseName": .string("Real course"),
+                        "holeLabel": .string("Hole 2"),
+                        "strategyMode": .string("stock"),
+                    ]),
+                    "options": .array(auditRows),
+                    "evidence": .array(auditRows),
+                    "auditCriteria": .array(auditRows),
+                ]),
+            ]
+        )
+
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        try store.appendEvent(event)
+        let reloaded = try store.loadEvents()
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+
+        XCTAssertEqual(reloaded, [event])
+        XCTAssertLessThan(
+            elapsed,
+            2.0,
+            "club selection persisted and reloaded in \(elapsed)s; this runs synchronously on tap"
+        )
+    }
+
     func testAppendAndDiscardFailClosedOnMalformedMiddleEventRow() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
