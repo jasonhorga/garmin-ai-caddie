@@ -202,6 +202,23 @@ final class RealFlowUITests: XCTestCase {
             "accepting the recommended score must move phone-only play to the ordered next hole"
         )
         settle(1); save("13-next-hole"); dump("13-next-hole")
+
+        let scorecard = app.buttons["记分"]
+        XCTAssertTrue(scorecard.waitForExistence(timeout: 5), "live play must expose a real scorecard action")
+        scorecard.tap()
+        XCTAssertTrue(app.staticTexts["本场计分卡"].waitForExistence(timeout: 5))
+        settle(1); save("14-live-scorecard"); dump("14-live-scorecard")
+
+        let editFirstHole = app.buttons["编辑第 1 洞成绩"]
+        XCTAssertTrue(editFirstHole.waitForExistence(timeout: 5), "any completed hole must be editable")
+        editFirstHole.tap()
+        XCTAssertTrue(app.staticTexts["手动确认 · 总杆"].waitForExistence(timeout: 5))
+        settle(1); save("15-edit-previous-hole"); dump("15-edit-previous-hole")
+        app.buttons["取消"].tap()
+        XCTAssertTrue(
+            app.staticTexts["第 2 洞"].waitForExistence(timeout: 5),
+            "leaving a historical score edit must not move the active playing hole"
+        )
     }
 
     // MARK: - navigation helpers
