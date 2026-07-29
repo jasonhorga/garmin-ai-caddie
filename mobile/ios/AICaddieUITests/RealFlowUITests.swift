@@ -98,8 +98,11 @@ final class RealFlowUITests: XCTestCase {
             waitUntilGone(loading, timeout: 60),
             "pre-round screenshot must wait for the live prep request to finish"
         )
+        // Bind readiness to the visible first card. LazyVStack may finish an off-screen hole first;
+        // accepting any `prep-hole-map-*` lets this card still be a 72pt loading placeholder, then
+        // expand after scrollTo and push the requested hazard below the screenshot.
         let firstPrepMap = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "prep-hole-map-")
+            NSPredicate(format: "identifier == %@", "prep-hole-map-1")
         ).firstMatch
         XCTAssertTrue(
             firstPrepMap.waitForExistence(timeout: 60),
@@ -123,6 +126,10 @@ final class RealFlowUITests: XCTestCase {
             "real pre-round cards must expose a fully visible measured hazard with 到前沿 / 过后沿"
         )
         settle(1)
+        XCTAssertTrue(
+            fullyVisible(prepHazard),
+            "hazard evidence must remain inside the safe viewport after the rendered map settles"
+        )
         save("08-prep-hazards"); dump("08-prep-hazards")
 
         // ---- Section 5: start the selected real course — GET package only, no score/backend write ----
