@@ -77,6 +77,26 @@ public struct CoursePrepHazardIntervalReadout: Equatable {
     }
 }
 
+struct CoursePrepLiveHazardReadout: Equatable {
+    let id: String
+    let kind: String
+    let label: String
+    let toYards: Int
+    let overYards: Int
+
+    var detail: String { "到 \(toYards) · 过 \(overYards) 码" }
+
+    static func upcoming(
+        hazards: CoursePrepHazards,
+        route: [[Double]],
+        projectionRefs: [CoursePrepProjectionRef],
+        playerLatitude: Double,
+        playerLongitude: Double
+    ) -> [Self]? {
+        nil
+    }
+}
+
 public enum CoursePrepRoute {
     private static let yard = 1.09361
 
