@@ -4,7 +4,7 @@ import SwiftUI
 // Pure views: plain inputs + closures, no app state or networking — so they
 // compile-check independently and can be composed into CurrentHoleView next
 // without disturbing its existing logic. Mirrors the approved HTML mockup
-// (caddie-recommendation-first, GPS record, compact score).
+// (caddie-recommendation-first, independent GPS shot capture, compact score confirmation).
 
 enum LiveHoleStyle {
     static let green = Color(red: 21 / 255, green: 128 / 255, blue: 61 / 255)
@@ -298,7 +298,7 @@ extension View {
 // MARK: - Dark play-screen (实战/记分) reskin — map-backdrop + Apple-Maps-style glass panel.
 //
 // The 打球屏 v2 design language: DARK base, the hole map as a full-screen backdrop, and a floating
-// dark-glass data panel (big-number distance readout → caddie strip → score steppers → save → tab
+// dark-glass data panel (big-number distance readout → caddie strip → shot/score actions → tab
 // bar). Colours are hard-coded (never semantic) so the surface renders identically dark regardless
 // of the app's forced light colour scheme AND inside the CI ImageRenderer snapshot (which has no
 // blur/material). Aligned to the Apple-Watch play sheet + the approved `ios_play2.html` mockup.
@@ -555,6 +555,164 @@ struct LivePlayScoreSteppers: View {
                 .background(LivePlayStyle.fill12, in: Circle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// The two high-frequency actions stay side by side: save the current shot location now, or confirm
+/// the completed hole. A location remains a recorded shot even when its optional club is skipped.
+struct LiveHolePrimaryActions: View {
+    let canRecordShot: Bool
+    let recordedShotCount: Int
+    var onRecordShot: () -> Void = {}
+    var onConfirmScore: () -> Void = {}
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 9) {
+                actionButton(
+                    title: "记一杆",
+                    systemImage: "location.fill",
+                    foreground: LivePlayStyle.ink,
+                    background: LivePlayStyle.fill12,
+                    border: LivePlayStyle.stroke14,
+                    action: onRecordShot
+                )
+                .disabled(!canRecordShot)
+                .opacity(canRecordShot ? 1 : 0.55)
+
+                actionButton(
+                    title: "确认本洞成绩",
+                    systemImage: "checkmark.circle.fill",
+                    foreground: LivePlayStyle.onAccent,
+                    background: LivePlayStyle.accent,
+                    border: LivePlayStyle.accent,
+                    action: onConfirmScore
+                )
+            }
+            if recordedShotCount > 0 {
+                Text("已记第 \(recordedShotCount) 杆")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.greenLabel)
+                    .monospacedDigit()
+            } else if !canRecordShot {
+                Text("等待 GPS 定位后即可记杆")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(LivePlayStyle.ink45)
+            }
+        }
+    }
+
+    private func actionButton(
+        title: String,
+        systemImage: String,
+        foreground: Color,
+        background: Color,
+        border: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 14, weight: .heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .foregroundStyle(foreground)
+                .background(background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(border))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+}
+
+struct LiveActualClubChoice: Identifiable, Equatable {
+    let name: String
+    let yards: Int?
+    let isRecommended: Bool
+
+    var id: String { name }
+}
+
+/// GPS is already durable before this sheet appears. Choosing a club appends a source-linked fact;
+/// skipping or dismissing the sheet never removes the saved location.
+struct LiveActualClubPromptView: View {
+    let shotNumber: Int
+    let choices: [LiveActualClubChoice]
+    let onSelect: (String) -> Void
+    let onSkip: () -> Void
+
+    var body: some View {
+        ZStack {
+            LivePlayStyle.panelFill.ignoresSafeArea()
+            VStack(spacing: 14) {
+                VStack(spacing: 4) {
+                    Text("这一杆用了什么球杆？")
+                        .font(.title3.weight(.heavy))
+                        .foregroundStyle(LivePlayStyle.ink)
+                    Text("第 \(shotNumber) 杆的位置已经保存")
+                        .font(.caption)
+                        .foregroundStyle(LivePlayStyle.ink60)
+                }
+
+                if choices.isEmpty {
+                    Spacer(minLength: 8)
+                    Text("球包暂不可用，可以先跳过球杆")
+                        .font(.subheadline)
+                        .foregroundStyle(LivePlayStyle.ink60)
+                    Spacer(minLength: 8)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(choices) { choice in
+                                Button { onSelect(choice.name) } label: {
+                                    HStack(spacing: 8) {
+                                        Text(choice.name)
+                                            .font(.headline.weight(.bold))
+                                        if let yards = choice.yards {
+                                            Text("\(yards) 码")
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(LivePlayStyle.ink50)
+                                        }
+                                        Spacer(minLength: 0)
+                                        if choice.isRecommended {
+                                            Text("球童建议")
+                                                .font(.caption2.weight(.heavy))
+                                                .foregroundStyle(LivePlayStyle.greenLabel)
+                                        }
+                                    }
+                                    .foregroundStyle(LivePlayStyle.ink)
+                                    .padding(.vertical, 12)
+                                    .padding(.horizontal, 14)
+                                    .frame(maxWidth: .infinity)
+                                    .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 13))
+                                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(LivePlayStyle.stroke14))
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(
+                                    choice.isRecommended ? "\(choice.name)，球童建议" : choice.name
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Button("跳过球杆（位置已记录）", action: onSkip)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(LivePlayStyle.ink78)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity)
+                    .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 13))
+                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(LivePlayStyle.stroke14))
+                    .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 14)
+        }
+        .preferredColorScheme(.dark)
+        .presentationDetents([.height(500), .large])
+        .presentationDragIndicator(.visible)
     }
 }
 

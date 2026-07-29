@@ -112,6 +112,71 @@ class RoundIngestCoreTests(unittest.TestCase):
         self.assertIsNotNone(first["end"])
         self.assertGreater(first["meters"], 0)
 
+    def test_ios_location_first_uses_confirmed_actual_club_not_prior_recommendation(self) -> None:
+        """The phone durably records GPS before asking for the actual club.
+
+        A prior club-selection event only drives the caddie/map and must not be attached to the
+        shot. The later actualShot event explicitly references the already-saved location event.
+        """
+        events = [
+            {
+                "eventId": "recommended-selection",
+                "clientId": "ios-phone",
+                "hole": 1,
+                "kind": "club",
+                "payload": {"clubName": "1W", "shotType": "tee", "lie": "tee"},
+            },
+            {
+                "eventId": "shot-location-1",
+                "clientId": "ios-phone",
+                "hole": 1,
+                "kind": "location",
+                "payload": {"latitude": 47.7334, "longitude": 138.8915},
+            },
+            {
+                "eventId": "actual-club-1",
+                "clientId": "ios-phone",
+                "hole": 1,
+                "kind": "club",
+                "payload": {
+                    "clubName": "3W",
+                    "shotType": "tee",
+                    "lie": "tee",
+                    "actualShot": {"sourceLocationEventId": "shot-location-1", "shotOrder": 1},
+                },
+            },
+        ]
+
+        parsed = round_ingest._parse_events(events)
+
+        self.assertEqual(len(parsed[1].shots), 1)
+        self.assertEqual(parsed[1].shots[0]["club"]["clubName"], "3W")
+        self.assertEqual(parsed[1].shots[0]["locationEventId"], "shot-location-1")
+
+    def test_ios_skipped_actual_club_keeps_location_without_using_recommendation(self) -> None:
+        events = [
+            {
+                "eventId": "recommended-selection",
+                "clientId": "ios-phone",
+                "hole": 1,
+                "kind": "club",
+                "payload": {"clubName": "1W", "shotType": "tee", "lie": "tee"},
+            },
+            {
+                "eventId": "shot-location-1",
+                "clientId": "ios-phone",
+                "hole": 1,
+                "kind": "location",
+                "payload": {"latitude": 47.7334, "longitude": 138.8915},
+            },
+        ]
+
+        parsed = round_ingest._parse_events(events)
+
+        self.assertEqual(len(parsed[1].shots), 1)
+        self.assertIsNone(parsed[1].shots[0]["club"])
+        self.assertEqual(parsed[1].shots[0]["locationEventId"], "shot-location-1")
+
     def test_idempotent_repeat_does_not_duplicate(self) -> None:
         first = round_ingest.ingest_round(
             "p_friend", _events(), _meta(), idempotency_key="rnd-1", root=self.root

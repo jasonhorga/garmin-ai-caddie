@@ -138,7 +138,11 @@ class _HoleAccumulator:
 
 
 def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
-    """Walk events in order, pairing each ``location`` with the most recent ``club``.
+    """Walk events in order, pairing each shot ``location`` with its actual ``club``.
+
+    Watch/legacy clients emit club then location. iOS deliberately persists location first, then
+    asks for the club; that club carries ``actualShot.sourceLocationEventId``. A plain iOS club event
+    is only a caddie/map selection and must never be promoted into an actual shot.
 
     Returns holes keyed by hole number (insertion-ordered: first appearance wins).
     """
@@ -146,7 +150,9 @@ def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
         raise RoundIngestError("no events to ingest")
 
     holes: dict[int, _HoleAccumulator] = {}
-    pending_club: dict[str, Any] | None = None
+    pending_club_by_hole: dict[int, dict[str, Any]] = {}
+    shots_by_location_event_id: dict[str, dict[str, Any]] = {}
+    deferred_club_by_location_event_id: dict[str, tuple[int, dict[str, Any]]] = {}
     shot_order = 0
 
     for ev in events:
@@ -164,16 +170,49 @@ def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
         if kind == "club":
             if not payload.get("clubName"):
                 raise RoundIngestError("club event missing clubName")
-            pending_club = payload
+            actual_shot = payload.get("actualShot")
+            location_event_id = (
+                str(actual_shot.get("sourceLocationEventId") or "").strip()
+                if isinstance(actual_shot, dict)
+                else ""
+            )
+            if location_event_id:
+                shot = shots_by_location_event_id.get(location_event_id)
+                if shot is not None and shot.get("hole") == hole:
+                    shot["club"] = payload
+                else:
+                    deferred_club_by_location_event_id[location_event_id] = (hole, payload)
+            elif ev.get("clientId") == "ios-phone" and not isinstance(actual_shot, dict):
+                # This is a pre-shot planning selection, not evidence of the club actually used.
+                continue
+            else:
+                # Watch and legacy phone logs retain their established club-before-location order.
+                pending_club_by_hole[hole] = payload
         elif kind == "location":
             lat = _as_float(payload.get("latitude"))
             lon = _as_float(payload.get("longitude"))
             if lat is None or lon is None:
                 raise RoundIngestError("location event missing numeric latitude/longitude")
             shot_order += 1
-            acc.shots.append({"club": pending_club, "lat": lat, "lon": lon,
-                              "target": _target_of(payload), "order": shot_order})
-            pending_club = None
+            location_event_id = str(ev.get("eventId") or "").strip()
+            deferred = deferred_club_by_location_event_id.pop(location_event_id, None)
+            club = (
+                deferred[1]
+                if deferred is not None and deferred[0] == hole
+                else pending_club_by_hole.pop(hole, None)
+            )
+            shot = {
+                "hole": hole,
+                "club": club,
+                "lat": lat,
+                "lon": lon,
+                "target": _target_of(payload),
+                "order": shot_order,
+                "locationEventId": location_event_id or None,
+            }
+            acc.shots.append(shot)
+            if location_event_id:
+                shots_by_location_event_id[location_event_id] = shot
         elif kind == "score":
             strokes = _as_int(payload.get("strokes"))
             if strokes is None or strokes < 1:

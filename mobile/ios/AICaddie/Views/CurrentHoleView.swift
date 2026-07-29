@@ -2,6 +2,13 @@ import CoreLocation
 import Foundation
 import SwiftUI
 
+private struct PendingPhoneShot: Identifiable {
+    let locationEvent: LiveRoundEvent
+    let shotOrder: Int
+
+    var id: String { locationEvent.eventId }
+}
+
 public struct CurrentHoleView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -53,6 +60,7 @@ public struct CurrentHoleView: View {
     @State private var scoreDraft: LiveScoreDraft?
     @State private var showScorecard = false
     @State private var pendingHistoricalScoreHole: Int?
+    @State private var pendingPhoneShot: PendingPhoneShot?
 
     public init(
         package: LiveRoundPackage,
@@ -128,7 +136,7 @@ public struct CurrentHoleView: View {
                 VStack(spacing: 0) {
                     heroSection
 
-                    // Dark-glass data panel: distance hero → caddie strip → score steppers → save →
+                    // Dark-glass data panel: distance hero → caddie strip → shot/score actions →
                     // tab bar. Floats up over the map's lower edge (mirrors the approved mockup).
                     LivePlayPanel {
                         LiveDistanceReadout(
@@ -147,8 +155,12 @@ public struct CurrentHoleView: View {
                             onExpand: { withAnimation(.easeInOut(duration: 0.2)) { showCaddieDetail.toggle() } },
                             onSelect: { selectClub($0) }
                         )
-                        LivePlayScoreSteppers(score: $score, putts: $puttCount)
-                        LiveSaveButton(caption: recordHintText) { beginScoreConfirmation() }
+                        LiveHolePrimaryActions(
+                            canRecordShot: currentCoordinate != nil,
+                            recordedShotCount: recordedNonPuttShotCount,
+                            onRecordShot: recordShotLocation,
+                            onConfirmScore: beginScoreConfirmation
+                        )
                         LiveScorecardButton(onTap: { showScorecard = true })
                     }
                     .padding(.horizontal, 10)
@@ -221,6 +233,14 @@ public struct CurrentHoleView: View {
                 nextHole: presentedDraft.advanceAfterSave ? nextHole(after: presentedDraft.hole) : nil,
                 onAccept: acceptScoreConfirmation,
                 onCancel: cancelScoreConfirmation
+            )
+        }
+        .sheet(item: $pendingPhoneShot) { pendingShot in
+            LiveActualClubPromptView(
+                shotNumber: pendingShot.shotOrder,
+                choices: actualClubChoices,
+                onSelect: { club in recordActualClub(club, for: pendingShot) },
+                onSkip: { pendingPhoneShot = nil }
             )
         }
         .sheet(isPresented: $showScorecard, onDismiss: presentPendingHistoricalScoreEdit) {
@@ -886,10 +906,6 @@ public struct CurrentHoleView: View {
         }
     }
 
-    private var recordHintText: String? {
-        "确认成绩后保存 · 随时可修改"
-    }
-
     private var shotTypeOptions: [String] {
         let options = caddieContextSeed?.shotTypes ?? []
         return options.isEmpty ? ["tee", "approach", "recovery"] : options
@@ -1249,14 +1265,63 @@ public struct CurrentHoleView: View {
     private var recordedNonPuttShotCount: Int {
         guard let offlineStore, let events = try? offlineStore.loadEvents() else { return 0 }
         return events.filter { event in
-            guard event.roundId == package.roundId, event.hole == hole.number, event.kind == .club else {
-                return false
-            }
-            if case .object = event.payload["actualShot"] ?? .null {
-                return true
-            }
-            return event.payload["source"] == .string("apple_watch")
+            event.roundId == package.roundId && event.hole == hole.number && event.kind == .location
         }.count
+    }
+
+    private var actualClubChoices: [LiveActualClubChoice] {
+        var choices = allBagClubs.map { club in
+            LiveActualClubChoice(
+                name: club.name,
+                yards: CoursePrepRoute.yards(fromMetres: club.metres),
+                isRecommended: club.name == recommendedClub
+            )
+        }
+        if let recommendedClub, !choices.contains(where: { $0.name == recommendedClub }) {
+            choices.insert(
+                LiveActualClubChoice(name: recommendedClub, yards: nil, isRecommended: true),
+                at: 0
+            )
+        }
+        return choices
+    }
+
+    private func recordShotLocation() {
+        guard let currentCoordinate else { return }
+        let shotOrder = recordedNonPuttShotCount + 1
+        let builder = LiveRoundEventBuilder(roundId: package.roundId)
+        let locationEvent = builder.makeLocationEvent(
+            hole: hole.number,
+            coordinate: currentCoordinate,
+            horizontalAccuracyM: currentHorizontalAccuracyM,
+            altitudeM: locationProvider.latestFix?.altitudeM,
+            targetCoordinate: targetCoordinate,
+            targetKind: targetCoordinate == nil ? nil : "pin"
+        )
+        onEvent(locationEvent)
+        pendingPhoneShot = PendingPhoneShot(locationEvent: locationEvent, shotOrder: shotOrder)
+    }
+
+    private func recordActualClub(_ club: String, for pendingShot: PendingPhoneShot) {
+        let trimmedClub = club.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedClub.isEmpty else {
+            pendingPhoneShot = nil
+            return
+        }
+        let event = LiveRoundEventBuilder(roundId: package.roundId).makeActualClubEvent(
+            hole: hole.number,
+            clubName: trimmedClub,
+            sourceLocationEventId: pendingShot.locationEvent.eventId,
+            shotOrder: pendingShot.shotOrder,
+            shotType: selectedShotType,
+            strategyMode: selectedStrategyMode,
+            lie: selectedLie,
+            distanceToPinM: effectiveDistanceToPinMetres,
+            offlineOptionId: selectedOfflineOption?.optionId,
+            decision: caddieDecision
+        )
+        onEvent(event)
+        pendingPhoneShot = nil
     }
 
     private func distanceToPinPayload() -> JSONValue {

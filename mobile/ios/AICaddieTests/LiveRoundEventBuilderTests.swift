@@ -54,6 +54,52 @@ final class LiveRoundEventBuilderTests: XCTestCase {
         XCTAssertEqual(event.payload["distanceToPinM"], .null)
     }
 
+    func testActualFirstShotReferencesSavedLocationAndUsesTeeFacts() {
+        let event = makeBuilder().makeActualClubEvent(
+            hole: 1,
+            clubName: "3W",
+            sourceLocationEventId: "location-1",
+            shotOrder: 1,
+            shotType: "approach",
+            strategyMode: "stock",
+            lie: "fairway"
+        )
+
+        XCTAssertEqual(event.kind, .club)
+        XCTAssertEqual(event.payload["clubName"], .string("3W"))
+        XCTAssertEqual(event.payload["shotType"], .string("tee"))
+        XCTAssertEqual(event.payload["lie"], .string("tee"))
+        XCTAssertEqual(
+            event.payload["actualShot"],
+            .object([
+                "sourceLocationEventId": .string("location-1"),
+                "shotOrder": .number(1),
+                "clubName": .string("3W"),
+                "shotType": .string("tee"),
+                "lie": .string("tee"),
+            ])
+        )
+    }
+
+    func testActualLaterShotKeepsSelectedShotTypeAndLie() {
+        let event = makeBuilder().makeActualClubEvent(
+            hole: 4,
+            clubName: "8I",
+            sourceLocationEventId: "location-2",
+            shotOrder: 2,
+            shotType: "recovery",
+            lie: "rough"
+        )
+
+        XCTAssertEqual(event.payload["shotType"], .string("recovery"))
+        XCTAssertEqual(event.payload["lie"], .string("rough"))
+        guard case .object(let actualShot) = event.payload["actualShot"] else {
+            return XCTFail("actual club event must carry source-linked shot facts")
+        }
+        XCTAssertEqual(actualShot["sourceLocationEventId"], .string("location-2"))
+        XCTAssertEqual(actualShot["shotOrder"], .number(2))
+    }
+
     func testLocationEventCarriesCoordinateAccuracyAndTarget() {
         let event = makeBuilder().makeLocationEvent(
             hole: 4,

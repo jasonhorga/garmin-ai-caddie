@@ -130,6 +130,46 @@ public final class LiveRoundEventBuilder {
         return event(hole: hole, kind: .club, payload: payload)
     }
 
+    /// Attach the actual club to a location that was already saved. Planning selections use
+    /// ``makeClubEvent`` directly; only this source-linked form is evidence of a club actually hit.
+    public func makeActualClubEvent(
+        hole: Int,
+        clubName: String,
+        sourceLocationEventId: String,
+        shotOrder: Int,
+        shotType: String? = nil,
+        strategyMode: String? = nil,
+        lie: String? = nil,
+        distanceToPinM: Double? = nil,
+        offlineOptionId: String? = nil,
+        decision: CaddieDecisionResponse? = nil
+    ) -> LiveRoundEvent {
+        let actualShotType = shotOrder == 1 ? "tee" : shotType
+        let actualLie = shotOrder == 1 ? "tee" : lie
+        var actualShot: [String: JSONValue] = [
+            "sourceLocationEventId": .string(sourceLocationEventId),
+            "shotOrder": .number(Double(shotOrder)),
+            "clubName": .string(clubName),
+        ]
+        if let actualShotType {
+            actualShot["shotType"] = .string(actualShotType)
+        }
+        if let actualLie {
+            actualShot["lie"] = .string(actualLie)
+        }
+        return makeClubEvent(
+            hole: hole,
+            clubName: clubName,
+            shotType: actualShotType,
+            strategyMode: strategyMode,
+            lie: actualLie,
+            distanceToPinM: distanceToPinM,
+            offlineOptionId: offlineOptionId,
+            decision: decision,
+            actualShot: actualShot
+        )
+    }
+
     public func makePuttEvent(hole: Int, putts: Int) -> LiveRoundEvent {
         event(hole: hole, kind: .putt, payload: ["putts": .number(Double(putts))])
     }
