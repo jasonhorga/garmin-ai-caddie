@@ -476,7 +476,7 @@ struct LiveClubChip: View {
 /// Caddie strip: ● 球童建议 + 展开 › · a row of club chips · one 实打 plays-like line.
 struct LiveCaddieStrip: View {
     struct Club: Identifiable {
-        let id = UUID()
+        var id: String { name }
         let name: String
         let sub: String
         let on: Bool
