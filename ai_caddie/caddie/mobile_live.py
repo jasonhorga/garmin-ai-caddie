@@ -719,7 +719,10 @@ def _package_holes(
     *,
     course_key: str,
     hole_numbers: list[int] | None = None,
+    tee_box: str | None = None,
 ) -> list[dict[str, Any]]:
+    from ai_caddie.caddie.analysis import _selected_tee, load_geometry
+
     source_holes: dict[int, dict[str, Any]] = {}
     for index, hole in enumerate(round_row.get("holes") or [], start=1):
         if not isinstance(hole, dict):
@@ -738,13 +741,29 @@ def _package_holes(
             or _hole_par_from_pars(round_row, number)
             or 4
         )
-        yards = _safe_int(source_hole.get("yards") if source_hole.get("yards") is not None else stats_hole.get("yards"))
+        recorded_yards = _safe_int(
+            source_hole.get("yards") if source_hole.get("yards") is not None else stats_hole.get("yards")
+        )
+        # A historical round only supplies the course/hole template. When the player explicitly
+        # chooses today's Tee, its release geometry is authoritative for nominal hole length;
+        # reusing a prior round's yardage could silently show a different Tee. Missing selected-Tee
+        # geometry stays nil rather than being replaced with live distance-to-green.
+        source_gid, source_local = _round_hole_geometry_ref(round_row, number)
+        yards = recorded_yards
+        if tee_box:
+            yards = None
+            try:
+                selected_tee = _selected_tee(load_geometry(int(source_gid), int(source_local)), tee_box)
+                target_distance_m = float((selected_tee or {}).get("target_distance_m"))
+                if target_distance_m > 0:
+                    yards = int(round(target_distance_m * 1.09361))
+            except (OSError, TypeError, ValueError, OverflowError):
+                pass
         coverage = str(source_hole.get("geometryCoverage") or stats_hole.get("geometryCoverage") or "")
         if not coverage or coverage == "missing":
             coverage = _geometry_coverage_for_package_hole(round_row, number)
         # Per-hole source course id + local hole, so the live 2D map fetches the RIGHT course's
         # geometry per hole — incl. composite rounds where holes 10–18 live in a second loop's gid.
-        source_gid, source_local = _round_hole_geometry_ref(round_row, number)
         holes.append({
             "number": number,
             "par": par,
@@ -1775,7 +1794,13 @@ def build_live_round_package(
     hole_numbers = _expected_package_hole_numbers(round_row, stats, course_key=course_key)
     if ensure_geometry and geometry_ensure is None:
         geometry_ensure = _ensure_geometry_for_package_holes(round_row, hole_numbers)
-    holes = _package_holes(round_row, stats, course_key=course_key, hole_numbers=hole_numbers)
+    holes = _package_holes(
+        round_row,
+        stats,
+        course_key=course_key,
+        hole_numbers=hole_numbers,
+        tee_box=tee_box,
+    )
     club_profiles = [
         {
             "clubName": row.get("club"),

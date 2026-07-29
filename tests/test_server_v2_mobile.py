@@ -477,6 +477,62 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["caddieContextSeeds"][0]["sourceRef"], "live-new-course:1")
         self.assertEqual(payload["caddieContextSeeds"][0]["context"]["globalId"], 55555)
 
+    def test_existing_course_package_uses_selected_tee_geometry_yardage(self) -> None:
+        """A prior round is only a course template; today's selected Tee owns nominal hole length."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.core.fixtures import fixture_history_data
+        from ai_caddie.courses import course_reference
+
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "hazards": {
+                    "globalId": int(global_id),
+                    "tees": [
+                        {
+                            "tee_index": 2,
+                            "sets": [2],
+                            "position": [0.0, 0.0],
+                            # Hole 1 is 401 yards from the selected Blue Tee.
+                            "target_distance_m": 366.7 + local_hole - 1,
+                        }
+                    ],
+                }
+            }
+
+        def ready_coverage(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "globalId": int(global_id),
+                "localHole": int(local_hole),
+                "coverage": "ready",
+                "hasHazards": True,
+                "hasMeshes": True,
+                "evidence": [],
+                "missingData": [],
+            }
+
+        with (
+            patch.object(mobile_live, "geometry_coverage_for_hole", side_effect=ready_coverage),
+            patch("ai_caddie.caddie.analysis.load_geometry", side_effect=ready_geometry),
+            patch.object(
+                course_reference,
+                "courseview_tees",
+                return_value=[{"name": "Blue", "gender": "MEN", "index": 2}],
+            ),
+        ):
+            package = mobile_live.build_live_round_package_for_course(
+                31795,
+                round_id="live-existing-blue",
+                tee_box="blue",
+                data=fixture_history_data(),
+                data_mode="fixture",
+                include_course_prep=False,
+            )
+
+        self.assertEqual(package["sourceCoverage"]["selectedRoundId"], "900001")
+        self.assertEqual(package["course"]["teeBox"], "blue")
+        self.assertEqual(package["holes"][0]["yards"], round(366.7 * 1.09361))
+        self.assertEqual(package["caddieContextSeeds"][0]["context"]["yards"], round(366.7 * 1.09361))
+
     def test_mobile_course_package_resolves_course_without_geometry_bundle(self) -> None:
         # Geometry bundle absent (e.g. homeserver) but CourseView par present → the course
         # must still resolve (real name + par + courseFound), NOT collapse to "Unknown
