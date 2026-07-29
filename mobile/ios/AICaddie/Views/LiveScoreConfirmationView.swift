@@ -101,7 +101,9 @@ struct LiveScoreConfirmationView: View {
                 EmptyView()
             }
 
-            if draft.step != .recommendation {
+            // A historical edit starts directly at 总杆, so there is no recommendation screen to
+            // return to. Current-hole manual confirmation still returns to its offered recommendation.
+            if draft.step != .recommendation && (draft.step != .score || draft.advanceAfterSave) {
                 Button("‹ 返回上一步") { updateDraft { $0.retreatManualEntry() } }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(LivePlayStyle.ink60)

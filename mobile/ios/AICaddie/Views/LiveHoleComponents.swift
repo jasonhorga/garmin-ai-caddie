@@ -585,13 +585,20 @@ struct LiveSaveButton: View {
     }
 }
 
-/// Line-icon tab bar (洞图 / 记分 / 球童 / 球场 / 更多). Visual language only — the live screen's real
-/// navigation is the NavigationStack back gesture; these mirror the mockup's bottom rail.
+/// Line-icon tab bar (洞图 / 记分 / 球童 / 球场 / 更多). IOS-03 makes the existing 记分 affordance a
+/// real in-round scorecard action; the remaining information architecture is reviewed separately.
 struct LivePlayTabBar: View {
+    var onScorecard: () -> Void = {}
+
     var body: some View {
         HStack(spacing: 0) {
             tab("map", "洞图", on: true)
-            tab("list.bullet.rectangle", "记分", on: false)
+            Button(action: onScorecard) {
+                tab("list.bullet.rectangle", "记分", on: false)
+            }
+            .frame(maxWidth: .infinity)
+            .buttonStyle(.plain)
+            .accessibilityLabel("记分")
             tab("scope", "球童", on: false)
             tab("flag", "球场", on: false)
             tab("ellipsis", "更多", on: false)

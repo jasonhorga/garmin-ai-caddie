@@ -51,6 +51,8 @@ public struct CurrentHoleView: View {
     @State private var showDiscardConfirm = false
     @State private var showCaddieDetail = false
     @State private var scoreDraft: LiveScoreDraft?
+    @State private var showScorecard = false
+    @State private var pendingHistoricalScoreHole: Int?
 
     public init(
         package: LiveRoundPackage,
@@ -147,7 +149,7 @@ public struct CurrentHoleView: View {
                         )
                         LivePlayScoreSteppers(score: $score, putts: $puttCount)
                         LiveSaveButton(caption: recordHintText) { beginScoreConfirmation() }
-                        LivePlayTabBar()
+                        LivePlayTabBar(onScorecard: { showScorecard = true })
                     }
                     .padding(.horizontal, 10)
                     .padding(.top, -46)
@@ -216,9 +218,21 @@ public struct CurrentHoleView: View {
                         }
                     }
                 ),
-                nextHole: nextHole(after: presentedDraft.hole),
+                nextHole: presentedDraft.advanceAfterSave ? nextHole(after: presentedDraft.hole) : nil,
                 onAccept: acceptScoreConfirmation,
                 onCancel: cancelScoreConfirmation
+            )
+        }
+        .sheet(isPresented: $showScorecard, onDismiss: presentPendingHistoricalScoreEdit) {
+            LiveRoundScorecardView(
+                courseName: package.course.name,
+                holes: package.holes,
+                liveRoundState: liveRoundState,
+                recordedScoreHoles: recordedScoreHoles,
+                onEdit: { selectedHole in
+                    pendingHistoricalScoreHole = selectedHole
+                    showScorecard = false
+                }
             )
         }
     }
@@ -1198,12 +1212,51 @@ public struct CurrentHoleView: View {
 
     private func cancelScoreConfirmation() {
         let draftHole = scoreDraft?.hole
+        let shouldReturnToDraftHole = scoreDraft?.advanceAfterSave == true && draftHole != hole.number
         if let offlineStore {
             try? offlineStore.clearLiveScoreDraft(roundId: package.roundId)
         }
         scoreDraft = nil
-        if let draftHole, draftHole != hole.number {
+        if shouldReturnToDraftHole, let draftHole {
             onAdvanceHole(draftHole)
+        }
+    }
+
+    private var recordedScoreHoles: Set<Int> {
+        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return [] }
+        let displayedHoles = Set(package.holes.map(\.number))
+        return Set(events.compactMap { event in
+            guard event.roundId == package.roundId,
+                  displayedHoles.contains(event.hole),
+                  event.kind == .score else {
+                return nil
+            }
+            return event.hole
+        })
+    }
+
+    private func presentPendingHistoricalScoreEdit() {
+        guard let selectedHoleNumber = pendingHistoricalScoreHole else { return }
+        pendingHistoricalScoreHole = nil
+        guard let selectedHole = package.holes.first(where: { $0.number == selectedHoleNumber }) else {
+            return
+        }
+
+        let restored = liveRoundState?.holeState(for: selectedHoleNumber)
+        let draft = LiveScoreDraft(
+            hole: selectedHoleNumber,
+            par: selectedHole.par,
+            recordedShotCount: 0,
+            currentScore: restored?.score ?? selectedHole.par,
+            currentPutts: restored?.putts ?? 2,
+            currentPenalty: restored?.penaltyCount ?? 0,
+            currentFairway: restored?.fairwayResult.flatMap(LiveFairwayResult.init(rawValue:)),
+            offerRecommendation: false,
+            advanceAfterSave: false
+        )
+        scoreDraft = draft
+        if let offlineStore {
+            try? offlineStore.saveLiveScoreDraft(roundId: package.roundId, draft: draft)
         }
     }
 
