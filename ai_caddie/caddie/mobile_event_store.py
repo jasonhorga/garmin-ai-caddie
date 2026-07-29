@@ -952,6 +952,28 @@ class FileEventStore:
                 and (round_key is None or str(stored.row.get("roundId") or "") == round_key)
             ]
 
+    def read_rows_and_ack(
+        self,
+        round_id: str,
+        consumer_id: str,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Read one round and its safe consumer ACK from one event-log snapshot."""
+        round_key = str(round_id)
+        client_key = str(consumer_id)
+        with self._locked(self.event_lock, shared=True):
+            stored_log = self._stored_log()
+            rows = [
+                deepcopy(stored.row)
+                for stored in stored_log.rows
+                if self._is_legacy_compatible_stored_row(stored.row)
+                and str(stored.row.get("roundId") or "") == round_key
+            ]
+            with self._locked(self.ack_lock):
+                acks = self._load_safe_acks_unlocked(stored_log.high_water)
+                ack_row = acks.get(self._ack_key(round_key, client_key), {})
+                acked_sequence = max(0, int(ack_row.get("serverSequence") or 0))
+        return rows, acked_sequence
+
     def read_events(self, round_id: str) -> list[EventReceipt]:
         receipts: list[EventReceipt] = []
         for row in self.read_rows(round_id):

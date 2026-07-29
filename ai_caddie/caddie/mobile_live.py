@@ -53,17 +53,32 @@ def _event_cursor(
     # The event log is now per-player partitioned, so the cursor reads the acting player's OWN
     # partition (owner unchanged) — no short-circuit needed; a member only ever sees their own
     # sequence/pending-count, never the owner's (different path).
-    latest_sequence = _latest_event_sequence(round_id, root=root, player_id=player_id)
-    cursor: dict[str, Any] = {"serverSequence": latest_sequence, "pendingEventCount": 0}
     clean_client_id = _clean_client_id(client_id)
+    if clean_client_id:
+        path = mobile_event_log(root, player_id=player_id)
+        rows, last_acked = open_mobile_event_store(path.parent).read_rows_and_ack(
+            str(round_id),
+            clean_client_id,
+        )
+    else:
+        rows = _event_log_rows(round_id, root=root, player_id=player_id)
+        last_acked = 0
+    latest_sequence = max(
+        (_safe_int(row.get("serverSequence")) or 0 for row in rows),
+        default=0,
+    )
+    cursor: dict[str, Any] = {"serverSequence": latest_sequence, "pendingEventCount": 0}
     if not clean_client_id:
         return cursor
-    last_acked = _client_ack_sequence(round_id, clean_client_id, root=root, player_id=player_id)
     cursor.update(
         {
             "clientId": clean_client_id,
             "lastAckedServerSequence": last_acked,
-            "pendingEventCount": _pending_event_count(round_id, after_sequence=last_acked, root=root, player_id=player_id),
+            "pendingEventCount": sum(
+                1
+                for row in rows
+                if (_safe_int(row.get("serverSequence")) or 0) > last_acked
+            ),
             "replayEndpoint": f"/api/v2/mobile/rounds/{round_id}/events/replay",
         }
     )

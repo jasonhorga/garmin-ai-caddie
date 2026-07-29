@@ -163,6 +163,57 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual(package["eventCursor"], {"serverSequence": 0, "pendingEventCount": 0})
 
+    def test_event_cursor_scans_the_event_log_once_and_preserves_client_progress(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.caddie.mobile_event_store import FileEventStore, open_mobile_event_store
+
+        round_id = "live-round-cursor-snapshot"
+        client_id = "ios-phone"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = open_mobile_event_store((root / mobile_live.EVENT_LOG).parent)
+            for sequence in (1, 2):
+                store.append_batch(
+                    round_id,
+                    [
+                        {
+                            "schema": "ai-caddie-live-round-event-v1",
+                            "roundId": round_id,
+                            "clientId": client_id,
+                            "eventId": f"score-{sequence}",
+                            "timestamp": "2026-07-29T00:00:00Z",
+                            "hole": 1,
+                            "kind": "score",
+                            "payload": {"strokes": sequence + 3},
+                        }
+                    ],
+                    request_key=f"cursor-snapshot-{sequence}",
+                )
+            store.ack(round_id, client_id, 1)
+
+            scan_count = 0
+            original_stored_log = FileEventStore._stored_log
+
+            def counted_stored_log(event_store: FileEventStore, *args: object, **kwargs: object):
+                nonlocal scan_count
+                scan_count += 1
+                return original_stored_log(event_store, *args, **kwargs)
+
+            with patch.object(FileEventStore, "_stored_log", new=counted_stored_log):
+                cursor = mobile_live._event_cursor(round_id, root=root, client_id=client_id)
+
+        self.assertEqual(
+            cursor,
+            {
+                "serverSequence": 2,
+                "pendingEventCount": 1,
+                "clientId": client_id,
+                "lastAckedServerSequence": 1,
+                "replayEndpoint": f"/api/v2/mobile/rounds/{round_id}/events/replay",
+            },
+        )
+        self.assertEqual(scan_count, 1)
+
     def test_course_package_route_forwards_event_cursor_opt_out(self) -> None:
         from server_v2 import main as server_main
 
