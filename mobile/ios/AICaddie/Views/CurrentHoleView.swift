@@ -518,13 +518,36 @@ public struct CurrentHoleView: View {
         holePrep = try? await client.fetchHolePrep(globalId: mapGlobalId, localHole: mapLocalHole)
         // Re-push to the watch now that F/M/B + plays-like are available. The ordered bootstrap will
         // fetch and push the matching caddie decision immediately after this map step.
-        if holePrep != nil {
+        if let holePrep {
+            #if DEBUG
+            moveSimulatedLocationToHoleTeeIfRequested(holePrep)
+            #endif
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
             // watch P1b: relay the clean topo bitmap so the watch renders the hole map offline. Keyed by
             // the round hole number (what WatchRoundState.hole carries), fetched by the source local hole.
             await pushTopoToWatch(globalId: mapGlobalId, sourceLocalHole: mapLocalHole, watchHole: hole.number)
         }
     }
+
+    #if DEBUG
+    /// A simulator cannot physically walk between holes. For the continuous real-course UI journey,
+    /// recover this prep route's Tee GPS from the same calibrated topo projection used by the product.
+    /// The explicit launch flag plus DEBUG compile gate prevent test movement from entering TestFlight.
+    private func moveSimulatedLocationToHoleTeeIfRequested(_ prep: CoursePrepHole) {
+        guard ProcessInfo.processInfo.environment["UITEST_FOLLOW_HOLE_TEE"] == "1",
+              let first = prep.map?.overlay.route.first, first.count >= 2,
+              let refs = prep.holeImageProjection?.refs,
+              let tee = WatchEventBridge.projectFromTopoPx(
+                  px: first[0],
+                  py: first[1],
+                  refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+              ) else { return }
+        locationProvider.moveSimulatedFixForUITest(
+            latitude: tee.latitude,
+            longitude: tee.longitude
+        )
+    }
+    #endif
 
     /// watch P1b: fetch this hole's clean topo bitmap (/topo.png) and relay it to the watch over
     /// WatchConnectivity (transferFile) so the watch draws the hole map from local storage. Best-effort —

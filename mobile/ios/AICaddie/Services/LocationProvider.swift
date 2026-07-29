@@ -67,6 +67,23 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
         manager.stopUpdatingLocation()
     }
 
+    #if DEBUG
+    /// Move the deterministic simulator fix while a real multi-hole UI journey advances. The guard
+    /// keeps this inert unless the process was launched with UITEST_GPS_LAT/LON; Release/TestFlight
+    /// builds do not compile this entry point at all.
+    public func moveSimulatedFixForUITest(latitude: Double, longitude: Double) {
+        guard simulatedFix != nil,
+              latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude) else { return }
+        latestFix = LocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+            horizontalAccuracyM: latestFix?.horizontalAccuracyM ?? 5,
+            altitudeM: latestFix?.altitudeM,
+            capturedAt: formatter.string(from: Date())
+        )
+    }
+    #endif
+
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
         AICaddieLog.location.debug("Location authorization changed: \(manager.authorizationStatus.rawValue, privacy: .public)")

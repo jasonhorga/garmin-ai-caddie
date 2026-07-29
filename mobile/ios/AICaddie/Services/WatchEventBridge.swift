@@ -512,7 +512,7 @@ public final class WatchEventBridge: NSObject {
 
     /// Inverse of `projectToTopoPx`, used once on the phone to put each real tee anchor into the
     /// compact Watch round seed.
-    private static func projectFromTopoPx(
+    static func projectFromTopoPx(
         px: Double,
         py: Double,
         refs: [(lat: Double, lon: Double, px: Double, py: Double)]
