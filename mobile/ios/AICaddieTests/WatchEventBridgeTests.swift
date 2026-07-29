@@ -29,6 +29,28 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(seed.holes.first?.teeLongitude), 0.2, accuracy: 0.000001)
     }
 
+    func testWatchRoundSeedUsesHoleTeeCoordinateWhenFastPackageOmitsCoursePrep() throws {
+        let bridge = WatchEventBridge()
+        let base = try fixturePackage()
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(base)) as? [String: Any]
+        )
+        var holes = try XCTUnwrap(object["holes"] as? [[String: Any]])
+        holes[0]["teeLatitude"] = 40.0454995
+        holes[0]["teeLongitude"] = 116.5461531
+        object["holes"] = holes
+        object["coursePrep"] = NSNull()
+        let package = try JSONDecoder().decode(
+            LiveRoundPackage.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+
+        let seed = bridge.makeWatchRoundSeedPayload(package: package, activeHole: 1)
+
+        XCTAssertEqual(try XCTUnwrap(seed.holes.first?.teeLatitude), 40.0454995, accuracy: 0.000001)
+        XCTAssertEqual(try XCTUnwrap(seed.holes.first?.teeLongitude), 116.5461531, accuracy: 0.000001)
+    }
+
     func testWatchRoundStatePayloadCompactsDecisionEvidenceWithoutDroppingContext() throws {
         let bridge = WatchEventBridge()
         let package = try fixturePackage()
