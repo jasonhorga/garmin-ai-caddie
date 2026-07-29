@@ -64,6 +64,12 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertEqual(object["includeExplanation"] as? Bool, false)
     }
 
+    func testCancelledLiveCaddieRequestIsNotReportedAsConnectivityFailure() {
+        XCTAssertTrue(LiveCaddieLoadFailure.isCancellation(CancellationError()))
+        XCTAssertTrue(LiveCaddieLoadFailure.isCancellation(URLError(.cancelled)))
+        XCTAssertFalse(LiveCaddieLoadFailure.isCancellation(URLError(.timedOut)))
+    }
+
     func testStrategyModeSelectsCachedOptionWithoutNetwork() throws {
         let seed = try XCTUnwrap(try fixturePackage().caddieContextSeeds.first)
         let evaluator = OfflineCaddieDecisionEvaluator()

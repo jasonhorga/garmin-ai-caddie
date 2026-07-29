@@ -258,6 +258,26 @@ final class RealFlowUITests: XCTestCase {
             app.staticTexts["等待 GPS 定位后即可记杆"].exists,
             "a valid simulated live GPS fix must remain available after changing holes"
         )
+
+        // A hole heading alone is not evidence that the new hole has loaded. The prior run captured
+        // an empty reticle and blank F/M/B, then navigated away while two caddie requests raced. Hold
+        // this gate until the real hole-2 prep and the final structured caddie response are visible.
+        for distance in ["110", "119", "137"] {
+            XCTAssertTrue(
+                app.staticTexts[distance].waitForExistence(timeout: 60),
+                "the ordered next hole must load its real front/middle/back distance \(distance)"
+            )
+        }
+        let nextHoleCaddieLoading = app.activityIndicators["正在更新球童建议"]
+        _ = nextHoleCaddieLoading.waitForExistence(timeout: 2)
+        XCTAssertTrue(
+            waitUntilGone(nextHoleCaddieLoading, timeout: 75),
+            "the ordered next hole must settle its structured caddie request before screenshot or navigation"
+        )
+        XCTAssertFalse(
+            app.staticTexts["联网球童暂不可用 · 已切换到离线缓存建议。"].exists,
+            "task cancellation during a hole transition must not be presented as a connectivity failure"
+        )
         settle(1); save("13-next-hole"); dump("13-next-hole")
 
         let scorecard = app.buttons["本场计分卡"]
