@@ -41,7 +41,10 @@ public struct WatchUITestRoot: View {
              "standalone-course-live-home":
             standaloneCourseRound
         case "real-course-download-seed", "real-course-download-restore",
-             "real-course-hazard-map", "real-course-hazard-mid-map":
+             "real-course-hazard-map", "real-course-hazard-mid-map",
+             "real-course-journey-start", "real-course-journey-advance",
+             "real-course-journey-restore", "real-course-journey-history-edit",
+             "real-course-journey-finish":
             realCourseRound
         case "course-picker":
             cachedCoursePicker
@@ -222,6 +225,16 @@ public struct WatchUITestRoot: View {
             Task { @MainActor in
                 if screen == "real-course-download-seed" {
                     await seedRealCourse()
+                } else if screen == "real-course-journey-start" {
+                    await startRealCourseJourney()
+                } else if screen == "real-course-journey-advance" {
+                    advanceRealCourseJourney()
+                } else if screen == "real-course-journey-restore" {
+                    verifyRealCourseJourney(stage: "restored")
+                } else if screen == "real-course-journey-history-edit" {
+                    editRealCourseJourneyHistory()
+                } else if screen == "real-course-journey-finish" {
+                    finishRealCourseJourney()
                 } else {
                     await restoreRealCourseOffline(selectHazardHole: isRealCourseHazardScreen)
                 }
@@ -231,6 +244,10 @@ public struct WatchUITestRoot: View {
 
     private var isRealCourseHazardScreen: Bool {
         screen == "real-course-hazard-map" || screen == "real-course-hazard-mid-map"
+    }
+
+    private var isRealCourseJourneyScreen: Bool {
+        screen.hasPrefix("real-course-journey-")
     }
 
     private var realCourseGeometry: WatchHoleMapGeometry? {
@@ -371,6 +388,258 @@ public struct WatchUITestRoot: View {
         }
     }
 
+    /// Begin exactly one production-store Cypress round. All later journey launches restore this
+    /// `round.json`; they must never call `startCourse` or seed a replacement round.
+    @MainActor
+    private func startRealCourseJourney() async {
+        removeJourneyCoverageMarkers()
+        let previousRoundId = model.round?.roundId
+        await restoreRealCourseOffline()
+        guard let startedRoundId = model.round?.roundId,
+              startedRoundId != previousRoundId else {
+            if !FileManager.default.fileExists(
+                atPath: realCourseMarkerURL("real-course-journey-failed").path
+            ) {
+                failRealCourseJourney("真实缓存没有建立新的连续旅程 round")
+            }
+            return
+        }
+        model.backToHome()
+        verifyRealCourseJourney(stage: "started")
+    }
+
+    /// Record one real-GPS-origin shot and finish only the currently active hole. The first occurrence
+    /// of each real Par uses the locked manual order; remaining holes exercise one-tap recommendation.
+    @MainActor
+    private func advanceRealCourseJourney() {
+        removeJourneyResultMarkers()
+        guard let round = model.round,
+              let state = model.activeHoleState,
+              round.holeStates.sorted(by: { $0.hole < $1.hole }).firstIndex(where: {
+                  $0.hole == state.hole
+              }) == model.scoredHoles,
+              state.score == 0,
+              journeyLocationCount(hole: state.hole, round: round) == 0,
+              let teeLatitude = state.teeLatitude,
+              let teeLongitude = state.teeLongitude else {
+            failRealCourseJourney("当前洞不是按顺序等待首杆，或缺少真实 Tee GPS")
+            return
+        }
+
+        model.backToHome()
+        model.beginManualShot(
+            latitude: teeLatitude,
+            longitude: teeLongitude,
+            horizontalAccuracyM: 5,
+            capturedAt: String(format: "2026-07-29T12:%02d:00Z", state.hole)
+        )
+        guard let pending = model.pendingManualShot,
+              pending.hole == state.hole,
+              pending.candidateFromHole == nil,
+              pending.shotNumber == 1 else {
+            failRealCourseJourney("第 \(state.hole) 洞没有把真实 Tee 定位暂存为第 1 杆")
+            return
+        }
+        model.completePendingManualShot(clubName: state.hole == 1 ? state.suggestedClub : nil)
+        guard let afterShot = model.round,
+              journeyLocationCount(hole: state.hole, round: afterShot) == 1 else {
+            failRealCourseJourney("第 \(state.hole) 洞首杆没有唯一持久化")
+            return
+        }
+
+        model.startScoringActiveHole()
+        let manualMarker = journeyManualParMarker(state.par)
+        if FileManager.default.fileExists(atPath: manualMarker.path) {
+            model.acceptRecommendedScore()
+        } else {
+            model.startManualScoreEntry()
+            guard model.scoreFlowStep == .score else {
+                failRealCourseJourney("第 \(state.hole) 洞未进入手动总杆")
+                return
+            }
+            model.advanceScoreEntry()
+            guard model.scoreFlowStep == .putts else {
+                failRealCourseJourney("第 \(state.hole) 洞未按总杆进入推杆")
+                return
+            }
+            model.advanceScoreEntry()
+            if state.par == 3 {
+                guard model.scoreFlowStep == .penalty else {
+                    failRealCourseJourney("Par 3 不应要求球道结果")
+                    return
+                }
+            } else {
+                guard model.scoreFlowStep == .fairway else {
+                    failRealCourseJourney("Par 4/5 必须在推杆后确认球道结果")
+                    return
+                }
+                model.selectDraftFairway(state.par == 5 ? .left : .hit)
+            }
+            guard model.scoreFlowStep == .penalty else {
+                failRealCourseJourney("第 \(state.hole) 洞没有以罚杆步骤收口")
+                return
+            }
+            model.saveManualScore()
+            try? Data("covered".utf8).write(to: manualMarker, options: .atomic)
+        }
+
+        guard model.scoredHoles == afterShot.holeStates.filter({ $0.score > 0 }).count + 1 else {
+            failRealCourseJourney("第 \(state.hole) 洞成绩没有写入同一 round")
+            return
+        }
+        model.backToHome()
+        verifyRealCourseJourney(stage: "completed-hole-\(state.hole)")
+    }
+
+    /// Mid-round edit deliberately changes hole 1 but must leave hole 10 as the live cursor.
+    @MainActor
+    private func editRealCourseJourneyHistory() {
+        removeJourneyResultMarkers()
+        guard let first = model.allHoleStates.first,
+              first.score > 0,
+              model.activeHole == 10,
+              model.scoredHoles == 9 else {
+            failRealCourseJourney("历史修改必须发生在同一 round 的第 10 洞")
+            return
+        }
+        let activeHole = model.activeHole
+        let scoreBefore = first.score
+        model.startEditingHole(first.hole)
+        model.adjustDraftScore(1)
+        model.advanceScoreEntry()
+        model.advanceScoreEntry()
+        if first.par != 3 {
+            model.selectDraftFairway(.right)
+        }
+        guard model.scoreFlowStep == .penalty else {
+            failRealCourseJourney("历史洞修改没有走到罚杆确认")
+            return
+        }
+        model.saveManualScore()
+        guard model.activeHole == activeHole,
+              model.allHoleStates.first?.score == scoreBefore + 1,
+              model.scoredHoles == 9 else {
+            failRealCourseJourney("修改历史洞错误地移动了实战洞")
+            return
+        }
+        model.backToHome()
+        verifyRealCourseJourney(stage: "edited-hole-1")
+    }
+
+    @MainActor
+    private func finishRealCourseJourney() {
+        removeJourneyResultMarkers()
+        let realPars = Set(model.allHoleStates.map(\.par))
+        guard model.scoredHoles == 18,
+              model.holeCount == 18,
+              realPars.allSatisfy({
+                  FileManager.default.fileExists(atPath: journeyManualParMarker($0).path)
+              }) else {
+            failRealCourseJourney("结束汇总前并未完成同一 round 的 18 洞")
+            return
+        }
+        model.requestFinish()
+        guard model.screen == .finishing else {
+            failRealCourseJourney("完整一轮没有进入真实结束汇总")
+            return
+        }
+        verifyRealCourseJourney(stage: "finish-summary")
+    }
+
+    @MainActor
+    private func verifyRealCourseJourney(stage: String) {
+        removeJourneyResultMarkers()
+        guard let round = model.round,
+              round.holeStates.count == 18,
+              Set(round.holeStates.map(\.hole)) == Set(1...18),
+              round.holeStates.allSatisfy({
+                  $0.roundId == round.roundId && $0.globalId == Self.realCourseGlobalId
+              }),
+              let active = model.activeHoleState else {
+            failRealCourseJourney("旅程不是 Cypress Point 的同一 18 洞 round")
+            return
+        }
+
+        let expectedHole = ProcessInfo.processInfo.environment["UITEST_JOURNEY_EXPECTED_HOLE"]
+            .flatMap(Int.init)
+        let expectedScored = ProcessInfo.processInfo.environment["UITEST_JOURNEY_EXPECTED_SCORED"]
+            .flatMap(Int.init)
+        guard expectedHole == nil || expectedHole == model.activeHole,
+              expectedScored == nil || expectedScored == model.scoredHoles else {
+            failRealCourseJourney(
+                "期望第 \(expectedHole ?? -1) 洞/完成 \(expectedScored ?? -1)，实际第 \(model.activeHole) 洞/完成 \(model.scoredHoles)"
+            )
+            return
+        }
+
+        let imageStore = WatchHoleImageStore()
+        let mappedHoles = round.holeStates.filter { state in
+            guard state.holeMap != nil,
+                  let image = imageStore.image(globalId: Self.realCourseGlobalId, hole: state.hole) else {
+                return false
+            }
+            return WatchHoleMapGeometry.from(holeMap: state.holeMap, image: image) != nil
+        }.count
+        guard mappedHoles == 18 else {
+            failRealCourseJourney("18 洞 production image store 只有 \(mappedHoles) 洞可渲染")
+            return
+        }
+
+        for state in round.holeStates {
+            let shotCount = journeyLocationCount(hole: state.hole, round: round)
+            if state.score > 0, shotCount != 1 {
+                failRealCourseJourney("已完成第 \(state.hole) 洞不是唯一一条第 1 杆 GPS")
+                return
+            }
+            if state.score == 0, shotCount != 0 {
+                failRealCourseJourney("未完成第 \(state.hole) 洞提前收到杆事件")
+                return
+            }
+        }
+
+        let currentShots = journeyLocationCount(hole: active.hole, round: round)
+        let evidence = [
+            "stage=\(stage)",
+            "round_id=\(round.roundId)",
+            "global_id=\(Self.realCourseGlobalId)",
+            "active_hole=\(model.activeHole)",
+            "scored_holes=\(model.scoredHoles)",
+            "hole_count=\(model.holeCount)",
+            "current_hole_shots=\(currentShots)",
+            "mapped_holes=\(mappedHoles)",
+            "pending_uploads=\(model.pendingUploads)",
+        ].joined(separator: "\n")
+        writeRealCourseMarker("real-course-journey-ready", contents: evidence)
+    }
+
+    private func journeyLocationCount(
+        hole: Int,
+        round: WatchRoundStore.PersistedRound
+    ) -> Int {
+        round.pendingEvents.filter { $0.hole == hole && $0.kind == .location }.count
+    }
+
+    private func journeyManualParMarker(_ par: Int) -> URL {
+        realCourseMarkerURL("real-course-journey-manual-par-\(par)")
+    }
+
+    private func removeJourneyCoverageMarkers() {
+        for par in 3...5 {
+            try? FileManager.default.removeItem(at: journeyManualParMarker(par))
+        }
+    }
+
+    private func removeJourneyResultMarkers() {
+        for name in ["real-course-journey-ready", "real-course-journey-failed"] {
+            try? FileManager.default.removeItem(at: realCourseMarkerURL(name))
+        }
+    }
+
+    private func failRealCourseJourney(_ message: String) {
+        realCourseStatus = message
+        writeRealCourseMarker("real-course-journey-failed", contents: message)
+    }
+
     @MainActor
     private func failRealCourse(_ message: String) {
         realCourseStatus = message
@@ -381,6 +650,8 @@ public struct WatchUITestRoot: View {
             writeRealCourseMarker(screen == "real-course-hazard-mid-map"
                 ? "real-course-hazard-mid-failed"
                 : "real-course-hazard-failed")
+        case _ where isRealCourseJourneyScreen:
+            failRealCourseJourney(message)
         default:
             writeRealCourseMarker("real-course-offline-failed")
         }
@@ -391,8 +662,8 @@ public struct WatchUITestRoot: View {
             .appendingPathComponent(name)
     }
 
-    private func writeRealCourseMarker(_ name: String) {
-        try? Data(name.utf8).write(to: realCourseMarkerURL(name), options: .atomic)
+    private func writeRealCourseMarker(_ name: String, contents: String? = nil) {
+        try? Data((contents ?? name).utf8).write(to: realCourseMarkerURL(name), options: .atomic)
     }
 
     private func removeRealCourseMarkers() {
@@ -401,6 +672,7 @@ public struct WatchUITestRoot: View {
             "real-course-offline-ready", "real-course-offline-failed",
             "real-course-hazard-ready", "real-course-hazard-failed",
             "real-course-hazard-mid-ready", "real-course-hazard-mid-failed",
+            "real-course-journey-ready", "real-course-journey-failed",
         ] {
             try? FileManager.default.removeItem(at: realCourseMarkerURL(name))
         }

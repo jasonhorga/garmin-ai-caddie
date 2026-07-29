@@ -96,10 +96,13 @@ jobs:
           xcrun simctl install "$WATCH_UDID" "$APP"
           xcrun simctl privacy "$WATCH_UDID" grant location "$BID"
           mkdir -p watch-runtime-artifacts
+          JOURNEY_ROUND_ID=""
 
           launch_and_capture() {
             local mode="$1"
             local screenshot="$2"
+            local expected_hole="${3:-}"
+            local expected_scored="${4:-}"
             local launch_output
             local marker=""
             local failed_marker=""
@@ -126,10 +129,22 @@ jobs:
               elif [[ "$mode" == "real-course-hazard-mid-map" ]]; then
                 marker="real-course-hazard-mid-ready"
                 failed_marker="real-course-hazard-mid-failed"
+              elif [[ "$mode" == real-course-journey-* ]]; then
+                marker="real-course-journey-ready"
+                failed_marker="real-course-journey-failed"
+              fi
+              if [ -n "$marker" ]; then
+                local existing_container
+                existing_container=$(xcrun simctl get_app_container "$WATCH_UDID" "$BID" data)
+                rm -f \
+                  "$existing_container/Documents/$marker" \
+                  "$existing_container/Documents/$failed_marker"
               fi
               if ! launch_output=$(env \
                 SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
                 SIMCTL_CHILD_UITEST_GPS_LON=116.5461531 \
+                SIMCTL_CHILD_UITEST_JOURNEY_EXPECTED_HOLE="$expected_hole" \
+                SIMCTL_CHILD_UITEST_JOURNEY_EXPECTED_SCORED="$expected_scored" \
                 xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$mode" 2>&1); then
                 printf '%s\n' "$launch_output"
                 exit 1
@@ -157,6 +172,26 @@ jobs:
               # the first frame (the focused hazard Canvas is the slowest surface). Give that frame
               # a short settle window so a successful state transition cannot yield a black image.
               sleep 2
+              if [[ "$mode" == real-course-journey-* ]]; then
+                local evidence_file="$app_container/Documents/$marker"
+                local actual_round_id actual_hole actual_scored
+                actual_round_id=$(sed -n 's/^round_id=//p' "$evidence_file")
+                actual_hole=$(sed -n 's/^active_hole=//p' "$evidence_file")
+                actual_scored=$(sed -n 's/^scored_holes=//p' "$evidence_file")
+                test -n "$actual_round_id"
+                test "$actual_hole" = "$expected_hole"
+                test "$actual_scored" = "$expected_scored"
+                grep -qx 'global_id=3881' "$evidence_file"
+                grep -qx 'hole_count=18' "$evidence_file"
+                grep -qx 'mapped_holes=18' "$evidence_file"
+                if [ -z "$JOURNEY_ROUND_ID" ]; then
+                  JOURNEY_ROUND_ID="$actual_round_id"
+                else
+                  test "$actual_round_id" = "$JOURNEY_ROUND_ID"
+                fi
+                cp "$evidence_file" \
+                  "watch-runtime-artifacts/${screenshot%.png}-evidence.txt"
+              fi
             else
               sleep 5
             fi
@@ -194,6 +229,38 @@ jobs:
           # Move the simulated wrist fix along that same retained route until the first real hazard is
           # about 120 yards ahead, matching the approved mid-hole hazard-instrument state.
           launch_and_capture real-course-hazard-mid-map watch-real-course-hazard-mid-map.png
+
+          # One and only one real Cypress Point round now advances through every production-store hole.
+          # Each launch restores the prior round.json; only the start mode is allowed to seed a round.
+          launch_and_capture \
+            real-course-journey-start watch-journey-01-hole-root.png 1 0
+          for completed_hole in $(seq 1 9); do
+            rendered_hole=$((completed_hole + 1))
+            printf -v rendered_label '%02d' "$rendered_hole"
+            launch_and_capture \
+              real-course-journey-advance \
+              "watch-journey-${rendered_label}-hole-root.png" \
+              "$rendered_hole" "$completed_hole"
+          done
+          # This launch performs no mutation: hole 10 and its first nine scores must survive a kill.
+          launch_and_capture \
+            real-course-journey-restore watch-journey-10-restored-root.png 10 9
+          # Editing hole 1 must retain hole 10 as the live-play cursor and the same round identity.
+          launch_and_capture \
+            real-course-journey-history-edit watch-journey-10-after-history-edit.png 10 9
+          for completed_hole in $(seq 10 17); do
+            rendered_hole=$((completed_hole + 1))
+            printf -v rendered_label '%02d' "$rendered_hole"
+            launch_and_capture \
+              real-course-journey-advance \
+              "watch-journey-${rendered_label}-hole-root.png" \
+              "$rendered_hole" "$completed_hole"
+          done
+          launch_and_capture \
+            real-course-journey-advance watch-journey-18-scored-root.png 18 18
+          launch_and_capture \
+            real-course-journey-finish watch-journey-18-finish-summary.png 18 18
+
           launch_and_capture milestone-seed watch-round-seeded.png
           # Do not reinstall or reseed here: the second process must load the first launch's stored round.
           launch_and_capture milestone-restore watch-round-restored.png
