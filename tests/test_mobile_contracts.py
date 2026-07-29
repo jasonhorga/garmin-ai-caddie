@@ -891,7 +891,7 @@ class MobileContractTests(unittest.TestCase):
         schema = _load_schema("live_round_event.schema.json")
         kinds = schema["properties"]["kind"]["enum"]
         canonical_payloads = {
-            "score": {"strokes": 4, "fairway": "left"},
+            "score": {"strokes": 4},
             "club": {"clubName": "8I"},
             "putt": {"putts": 2},
             "penalty": {"penalties": 1},
@@ -919,7 +919,6 @@ class MobileContractTests(unittest.TestCase):
         for kind in kinds:
             self.assertFalse(payload_rules[kind]["additionalProperties"])
         self.assertEqual(payload_rules["putt"]["required"], ["putts"])
-        self.assertEqual(payload_rules["score"]["properties"]["fairway"]["enum"], ["hit", "left", "right"])
         self.assertNotIn("count", payload_rules["putt"]["properties"])
         self.assertEqual(payload_rules["penalty"]["required"], ["penalties"])
         self.assertNotIn("count", payload_rules["penalty"]["properties"])
@@ -968,18 +967,8 @@ class MobileContractTests(unittest.TestCase):
         }
 
         _assert_json_schema_accepts(self, schema, {**base_event, "kind": "score", "payload": {"strokes": 4}})
-        _assert_json_schema_accepts(
-            self,
-            schema,
-            {**base_event, "kind": "score", "payload": {"strokes": 4, "fairway": "right"}},
-        )
         _assert_json_schema_rejects(self, schema, {**base_event, "kind": "score", "payload": {"putts": 2}})
         _assert_json_schema_rejects(self, schema, {**base_event, "kind": "score", "payload": {"strokes": 0}})
-        _assert_json_schema_rejects(
-            self,
-            schema,
-            {**base_event, "kind": "score", "payload": {"strokes": 4, "fairway": "center"}},
-        )
         _assert_json_schema_rejects(self, schema, {**base_event, "kind": "putt", "payload": {"putts": -1}})
         _assert_json_schema_rejects(self, schema, {**base_event, "eventId": "", "kind": "score", "payload": {"strokes": 4}})
         _assert_json_schema_rejects(self, schema, {**base_event, "roundId": "", "kind": "score", "payload": {"strokes": 4}})
