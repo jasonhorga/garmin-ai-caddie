@@ -339,7 +339,11 @@ final class RealFlowUITests: XCTestCase {
             "continuing from the summary must preserve the active round and playing hole"
         )
         XCTAssertTrue(scrollTo(manageRound, maxSwipes: 16))
-        manageRound.tap()
+        // Continue dismisses only the summary; SwiftUI legitimately preserves whether the management
+        // DisclosureGroup was already open. Toggle it only when its finish action is not currently visible.
+        if !finishRound.exists {
+            manageRound.tap()
+        }
         XCTAssertTrue(scrollTo(finishRound, maxSwipes: 4))
         finishRound.tap()
         XCTAssertTrue(app.staticTexts["本场汇总"].waitForExistence(timeout: 5))
