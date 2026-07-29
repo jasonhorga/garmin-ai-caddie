@@ -190,6 +190,172 @@ private func capturedRequestBodyData(from request: URLRequest) throws -> Data {
 
 @MainActor
 final class LiveRoundAppModelTests: XCTestCase {
+    func testFinishActiveRoundAcknowledgesEventsBeforeFinishAndOnlyThenClearsLocalRound() async throws {
+        let fixture = try completedFixtureRound()
+        let requestLock = NSLock()
+        var requestedPaths: [String] = []
+        var finishBody: Data?
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            requestLock.lock()
+            requestedPaths.append(path)
+            requestLock.unlock()
+            switch path {
+            case "/api/v2/mobile/rounds/\(fixture.package.roundId)/events":
+                let batch = try JSONDecoder().decode(
+                    EventBatch.self,
+                    from: try capturedRequestBodyData(from: request)
+                )
+                let ids = batch.events.map(\.eventId)
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url), statusCode: 200,
+                        httpVersion: nil, headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: [
+                        "accepted": ids.count,
+                        "duplicate": false,
+                        "acceptedEventIds": ids,
+                        "duplicateEventIds": [],
+                        "serverSequence": ids.count,
+                    ])
+                )
+            case "/api/v2/mobile/rounds/\(fixture.package.roundId)/finish":
+                requestLock.lock()
+                finishBody = try capturedRequestBodyData(from: request)
+                requestLock.unlock()
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url), statusCode: 201,
+                        httpVersion: nil, headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data("{}".utf8)
+                )
+            default:
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url), statusCode: 500,
+                        httpVersion: nil, headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data("{}".utf8)
+                )
+            }
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: nil,
+            adminToken: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            preferredRoundId: fixture.package.roundId,
+            syncClient: SyncClient(
+                baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+                clientId: "ios-phone",
+                session: session
+            )
+        )
+
+        await model.bootstrap()
+        requestLock.lock()
+        requestedPaths.removeAll()
+        requestLock.unlock()
+
+        let didFinish = await model.finishActiveRound()
+        XCTAssertTrue(didFinish)
+
+        requestLock.lock()
+        let paths = requestedPaths
+        let capturedFinishBody = finishBody
+        requestLock.unlock()
+        let eventsPath = "/api/v2/mobile/rounds/\(fixture.package.roundId)/events"
+        let finishPath = "/api/v2/mobile/rounds/\(fixture.package.roundId)/finish"
+        XCTAssertLessThan(
+            try XCTUnwrap(paths.firstIndex(of: eventsPath)),
+            try XCTUnwrap(paths.firstIndex(of: finishPath))
+        )
+        let body = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try XCTUnwrap(capturedFinishBody)) as? [String: Any]
+        )
+        let meta = try XCTUnwrap(body["meta"] as? [String: Any])
+        XCTAssertEqual(meta["courseName"] as? String, fixture.package.course.name)
+        XCTAssertEqual(meta["courseGlobalId"] as? Int, fixture.package.course.globalId)
+        XCTAssertEqual(meta["holePars"] as? [Int], [4])
+        XCTAssertEqual(meta["holesCompleted"] as? Int, 1)
+        XCTAssertNil(model.package)
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertNil(try fixture.store.loadCurrentRoundPackage())
+        XCTAssertFalse(try fixture.store.loadEvents().contains { $0.roundId == fixture.package.roundId })
+    }
+
+    func testFinishActiveRoundRejectsPartialAcknowledgementAndPreservesWholeRound() async throws {
+        let fixture = try completedFixtureRound()
+        let requestLock = NSLock()
+        var requestedPaths: [String] = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            requestLock.lock()
+            requestedPaths.append(path)
+            requestLock.unlock()
+            let status = path.hasSuffix("/events") ? 200 : 500
+            let data = path.hasSuffix("/events")
+                ? Data(
+                    """
+                    {"accepted":1,"duplicate":false,"acceptedEventIds":["finish-score"],"duplicateEventIds":[],"serverSequence":1}
+                    """.utf8
+                )
+                : Data("{}".utf8)
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url), statusCode: status,
+                    httpVersion: nil, headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: nil,
+            adminToken: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            preferredRoundId: fixture.package.roundId,
+            syncClient: SyncClient(
+                baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+                clientId: "ios-phone",
+                session: session
+            )
+        )
+
+        await model.bootstrap()
+        requestLock.lock()
+        requestedPaths.removeAll()
+        requestLock.unlock()
+
+        let didFinish = await model.finishActiveRound()
+        XCTAssertFalse(didFinish)
+
+        requestLock.lock()
+        let paths = requestedPaths
+        requestLock.unlock()
+        XCTAssertTrue(paths.contains("/api/v2/mobile/rounds/\(fixture.package.roundId)/events"))
+        XCTAssertFalse(paths.contains("/api/v2/mobile/rounds/\(fixture.package.roundId)/finish"))
+        XCTAssertEqual(model.package?.roundId, fixture.package.roundId)
+        XCTAssertNotNil(model.liveRoundState)
+        XCTAssertEqual(
+            Set(try fixture.store.loadPendingEvents(roundId: fixture.package.roundId).map(\.eventId)),
+            Set(fixture.events.map(\.eventId))
+        )
+        XCTAssertNotNil(try fixture.store.loadCurrentRoundPackage())
+    }
+
     func testResponseLostEventRetryStaysExactAfterLaterMediaUploadSuccess() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -899,6 +1065,35 @@ final class LiveRoundAppModelTests: XCTestCase {
         let fixture = try String(contentsOf: url, encoding: .utf8)
             .replacingOccurrences(of: #""dataMode": "fixture""#, with: #""dataMode": "local""#)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: Data(fixture.utf8))
+    }
+
+    private func completedFixtureRound() throws -> (
+        store: OfflineStore,
+        package: LiveRoundPackage,
+        events: [LiveRoundEvent]
+    ) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let package = try localFixturePackage()
+        try store.saveRoundPackage(package)
+        let timestamp = "2026-07-29T05:00:00Z"
+        let events = [
+            LiveRoundEvent(
+                eventId: "finish-score", roundId: package.roundId, timestamp: timestamp,
+                hole: 1, kind: .score, payload: ["strokes": .number(5), "fairway": .string("hit")]
+            ),
+            LiveRoundEvent(
+                eventId: "finish-putt", roundId: package.roundId, timestamp: timestamp,
+                hole: 1, kind: .putt, payload: ["putts": .number(2)]
+            ),
+            LiveRoundEvent(
+                eventId: "finish-penalty", roundId: package.roundId, timestamp: timestamp,
+                hole: 1, kind: .penalty, payload: ["penalties": .number(0)]
+            ),
+        ]
+        try events.forEach(store.appendEvent)
+        return (store, package, events)
     }
 }
 #endif
