@@ -83,6 +83,30 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertEqual(hole.penaltyCount, 0)
     }
 
+    func testBuildUsesSelectedPackageTeeWhenRenderedPrepIsAbsent() throws {
+        let option = WatchCourseOption(
+            globalId: 31669,
+            name: "北京丽宫",
+            holes: 18,
+            teeBox: "Blue",
+            tees: ["Blue", "White"]
+        )
+        let package = try client.decodeCoursePackage(Data(
+            #"{"roundId":"watch-fast-tee","course":{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1,"teeLatitude":40.0454995,"teeLongitude":116.5461531}]}"#.utf8
+        ))
+
+        let download = try WatchCourseTemplateBuilder.build(
+            option: option,
+            package: package,
+            prepsByGlobalId: [:],
+            cachedAt: "2026-07-29T00:00:00Z"
+        )
+        let hole = try XCTUnwrap(download.template.holeStates.first)
+
+        XCTAssertEqual(try XCTUnwrap(hole.teeLatitude), 40.0454995, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(hole.teeLongitude), 116.5461531, accuracy: 0.000_001)
+    }
+
     func testNewCourseTemplateKeepsSearchResultNameWhenPackageOnlyHasGenericIdName() throws {
         let option = WatchCourseOption(
             globalId: 31870,
