@@ -6,16 +6,32 @@ import SwiftUI
 public struct WatchCaddieOptionsView: View {
     public let options: [WatchCaddieOption]
     public let recommendedId: String?
+    public let onBack: (() -> Void)?
 
-    public init(options: [WatchCaddieOption], recommendedId: String? = nil) {
+    public init(
+        options: [WatchCaddieOption],
+        recommendedId: String? = nil,
+        onBack: (() -> Void)? = nil
+    ) {
         self.options = options
         self.recommendedId = recommendedId
+        self.onBack = onBack
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("球童打法")
-                .font(.headline)
+            HStack(spacing: 5) {
+                if let onBack {
+                    Button(action: onBack) {
+                        Image(systemName: "chevron.backward")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("返回球洞")
+                }
+                Text("球童打法")
+                    .font(.headline)
+            }
             if options.isEmpty {
                 Text("暂无方案")
                     .font(.caption)
@@ -83,4 +99,68 @@ public struct WatchCaddieOptionsView: View {
     }
 
     static func yards(_ metres: Double) -> Int { Int((metres * 1.09361).rounded()) }
+}
+
+/// Opening the recommendation from Hole Root goes straight to the complete play chains. The older
+/// single-shot facts remain an honest fallback only for companion payloads that have no full plans.
+public struct WatchCaddieScreen: View {
+    public let state: WatchRoundState
+    public let frontYd: Int?
+    public let centerYd: Int?
+    public let backYd: Int?
+    public let lastShotDistanceM: Double?
+    public let onBack: () -> Void
+
+    public init(
+        state: WatchRoundState,
+        frontYd: Int? = nil,
+        centerYd: Int? = nil,
+        backYd: Int? = nil,
+        lastShotDistanceM: Double? = nil,
+        onBack: @escaping () -> Void = {}
+    ) {
+        self.state = state
+        self.frontYd = frontYd
+        self.centerYd = centerYd
+        self.backYd = backYd
+        self.lastShotDistanceM = lastShotDistanceM
+        self.onBack = onBack
+    }
+
+    var showsPlanOptionsFirst: Bool { !state.caddieOptions.isEmpty }
+
+    public var body: some View {
+        ScrollView {
+            if showsPlanOptionsFirst {
+                WatchCaddieOptionsView(
+                    options: state.caddieOptions,
+                    recommendedId: state.offlineOptionId,
+                    onBack: onBack
+                )
+                .padding(8)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 5) {
+                        Button(action: onBack) {
+                            Image(systemName: "chevron.backward")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("返回球洞")
+                        Text("球童建议")
+                            .font(.headline)
+                    }
+                    WatchCaddieGlanceView(
+                        state: state,
+                        frontYd: frontYd,
+                        centerYd: centerYd,
+                        backYd: backYd,
+                        lastShotDistanceM: lastShotDistanceM
+                    )
+                }
+                .padding(8)
+            }
+        }
+        .scrollIndicators(.hidden)
+    }
 }

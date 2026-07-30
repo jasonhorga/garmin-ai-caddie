@@ -121,29 +121,16 @@ public struct WatchRoundContainerView: View {
             )
         case .caddie:
             if let state = model.activeHoleState, model.caddieDetailAvailable {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
-                        instrumentBackButton
-                        Text("球童建议").font(.headline)
-                        WatchCaddieGlanceView(
-                            state: state,
-                            frontYd: watchGreenYards?.front,
-                            centerYd: watchGreenYards?.center,
-                            backYd: watchGreenYards?.back,
-                            lastShotDistanceM: latestShotDistanceM(state)
-                        )
-                        if !state.caddieOptions.isEmpty {
-                            Divider()
-                            WatchCaddieOptionsView(
-                                options: state.caddieOptions,
-                                recommendedId: state.offlineOptionId
-                            )
-                        }
-                    }
-                    .padding(8)
-                }
+                WatchCaddieScreen(
+                    state: state,
+                    frontYd: watchGreenYards?.front,
+                    centerYd: watchGreenYards?.center,
+                    backYd: watchGreenYards?.back,
+                    lastShotDistanceM: latestShotDistanceM(state),
+                    onBack: { model.backToHome() }
+                )
             } else {
-                Color.black.onAppear { model.backToMenu() }
+                Color.black.onAppear { model.backToHome() }
             }
         case .hazards:
             if let state = model.activeHoleState, model.hazardDetailAvailable {
