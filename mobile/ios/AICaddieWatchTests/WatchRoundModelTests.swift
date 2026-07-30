@@ -759,16 +759,55 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(noHazards.screen, .home)
     }
 
-    func testRootCaddieLayerStaysHiddenUntilTheFullRecommendationGateExists() {
-        let apparentlyStrongRecommendation = WatchRoundState(
-            roundId: "r1", hole: 1, par: 4, distanceM: 320,
-            suggestedClub: "一号木", selectedClub: nil,
-            decisionId: "decision-1",
-            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "high"
+    func testRootCaddieLayerAppearsForACompleteCurrentLiveRecommendation() throws {
+        let data = Data(
+            #"""
+            {
+              "roundId": "r1",
+              "hole": 1,
+              "par": 4,
+              "distanceM": 320,
+              "suggestedClub": "3W",
+              "decisionId": "decision-1",
+              "holeMap": {
+                "w": 1000,
+                "h": 1000,
+                "you": [500, 900],
+                "pin": [500, 100],
+                "layup": [500, 500],
+                "apex": [500, 700],
+                "greenCtrl": [500, 300],
+                "route": [[500, 900, 0], [500, 500, 200], [500, 100, 400]]
+              },
+              "rootCaddieRecommendation": {
+                "decisionId": "decision-1",
+                "clubName": "3W",
+                "aimCarryM": 205,
+                "carryP10M": 188,
+                "carryP90M": 220,
+                "sampleSize": 24,
+                "confidence": "high",
+                "source": "live",
+                "mode": "automatic",
+                "generatedAt": "2026-06-20T00:00:00Z",
+                "validUntil": "2026-06-20T00:00:12Z",
+                "originLatitude": 40.0455,
+                "originLongitude": 116.5462,
+                "originAccuracyM": 5,
+                "maximumMovementM": 25,
+                "evidenceCount": 2
+              },
+              "score": 0,
+              "putts": 0,
+              "penaltyCount": 0,
+              "caddieConfidence": "high"
+            }
+            """#.utf8
         )
-        let model = seededModel(holes: [apparentlyStrongRecommendation])
+        let recommendation = try JSONDecoder().decode(WatchRoundState.self, from: data)
+        let model = seededModel(holes: [recommendation])
 
-        XCTAssertFalse(model.rootCaddieLayerAvailable)
+        XCTAssertTrue(model.rootCaddieLayerAvailable)
     }
 
     func testPlaysLikeDeltaConvertsMetresToUserFacingYards() {
