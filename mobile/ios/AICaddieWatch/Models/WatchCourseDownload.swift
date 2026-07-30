@@ -102,6 +102,30 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
             roundCount: roundCount
         )
     }
+
+    /// A full-catalogue search row has no coordinates. Once its real package has supplied a
+    /// validated Tee coordinate, retain that as the downloaded course location for offline nearby
+    /// sorting. Existing mobile-option coordinates remain authoritative.
+    public func withFallbackLocation(latitude: Double?, longitude: Double?) -> WatchCourseOption {
+        guard self.latitude == nil || self.longitude == nil,
+              let latitude, latitude.isFinite, (-90...90).contains(latitude),
+              let longitude, longitude.isFinite, (-180...180).contains(longitude) else {
+            return self
+        }
+        return WatchCourseOption(
+            globalId: globalId,
+            name: name,
+            holes: holes,
+            teeBox: teeBox,
+            venueName: venueName,
+            segmentLabel: segmentLabel,
+            segmentHoles: segmentHoles,
+            latitude: latitude,
+            longitude: longitude,
+            tees: tees,
+            roundCount: roundCount
+        )
+    }
 }
 
 /// A ranked row from Garmin's full course catalogue. It remains ephemeral until the selected

@@ -172,7 +172,7 @@ public final class WatchCourseLibrary: ObservableObject {
             try store.save(download.template)
             cachedCourseIds.insert(selection.front.globalId)
             courses = Self.uniqueOptions(
-                from: courses + [selection.front, selection.back].compactMap { $0 }
+                from: [download.template.option, download.template.backOption].compactMap { $0 } + courses
             )
             return download.template.makeRound(roundId: package.roundId)
         } catch {

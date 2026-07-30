@@ -100,15 +100,30 @@ public enum WatchCourseTemplateBuilder {
             )
         }
 
+        let locatedOption = locatedCourseOption(option, from: states)
+        let locatedBackOption = backOption.map { locatedCourseOption($0, from: states) }
         let template = WatchCourseTemplate(
-            option: option,
-            backOption: backOption,
+            option: locatedOption,
+            backOption: locatedBackOption,
             courseName: resolvedCourseName(package: package, option: option),
             teeBox: package.course.teeBox,
             holeStates: states,
             cachedAt: cachedAt
         )
         return WatchCourseDownload(template: template, images: images)
+    }
+
+    private static func locatedCourseOption(
+        _ option: WatchCourseOption,
+        from states: [WatchRoundState]
+    ) -> WatchCourseOption {
+        let tee = states.first {
+            $0.globalId == option.globalId && $0.teeLatitude != nil && $0.teeLongitude != nil
+        }
+        return option.withFallbackLocation(
+            latitude: tee?.teeLatitude,
+            longitude: tee?.teeLongitude
+        )
     }
 
     private static func resolvedCourseName(
