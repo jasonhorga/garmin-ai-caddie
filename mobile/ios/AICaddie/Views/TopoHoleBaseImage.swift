@@ -12,7 +12,7 @@ import UIKit
 /// While a real topo request is still in flight, the fallback remains underneath an explicit loading
 /// state. This prevents a slow first render from looking like a completed but empty course map.
 ///
-/// Mirrors the web `HoleBaseImage`. The topo png and the flat render share the SAME 720×1120
+/// Mirrors the web `HoleBaseImage`. The topo png and flat render share the SAME variable-width
 /// projection frame (`hole_render._frame`), so a route/shot overlay drawn on top in overlay-pixel
 /// space aligns with either bitmap pixel-perfect — the caller draws that overlay as a sibling layer.
 struct TopoHoleBaseImage: View {
@@ -26,10 +26,18 @@ struct TopoHoleBaseImage: View {
                 case .empty:
                     loadingImage
                 case .success(let image):
-                    image.resizable().scaledToFit()
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("球场地图")
-                        .accessibilityIdentifier("topo-hole-base-ready")
+                    ZStack {
+                        // topo-v4 has a transparent off-course canvas. Prep/review may retain their
+                        // flat map underneath; live play intentionally has no fallback and therefore
+                        // reveals the dark instrument surface supplied by its parent.
+                        if fallback != nil {
+                            fallbackImage.accessibilityHidden(true)
+                        }
+                        image.resizable().scaledToFit()
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("球场地图")
+                            .accessibilityIdentifier("topo-hole-base-ready")
+                    }
                 case .failure:
                     fallbackImage
                 @unknown default:

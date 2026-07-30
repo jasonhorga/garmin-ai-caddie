@@ -19,6 +19,28 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 class TopoRenderModuleTests(unittest.TestCase):
+    def test_topo_v4_starts_overlays_on_a_transparent_course_canvas(self) -> None:
+        from PIL import Image
+
+        self.assertEqual(topo_render.STYLE_VERSION, "topo-v4")
+        self.assertTrue(hasattr(topo_render, "_clip_to_transparent_canvas"))
+
+        source = Image.new("RGB", (2, 1), topo_render.PAL["bg"])
+        source.putpixel((1, 0), topo_render.PAL["Fairway"])
+        course_mask = Image.new("L", source.size, 0)
+        course_mask.putpixel((1, 0), 255)
+        rendered = topo_render._clip_to_transparent_canvas(source, course_mask)
+
+        self.assertEqual(rendered.mode, "RGBA")
+        self.assertEqual(rendered.getpixel((0, 0)), (0, 0, 0, 0))
+        self.assertEqual(rendered.getpixel((1, 0)), topo_render.PAL["Fairway"] + (255,))
+
+        # Tree shadows and canopies are applied after the course corridor is clipped. Starting that
+        # pass on transparency preserves their own alpha instead of baking them into a blue canvas.
+        shadow = Image.new("RGBA", source.size, (32, 54, 32, 92))
+        with_shadow = Image.alpha_composite(rendered, shadow)
+        self.assertEqual(with_shadow.getpixel((0, 0)), (32, 54, 32, 92))
+
     @unittest.skipUnless(_HAVE_GEOMETRY, "requires decoded prodgeometry meshes (absent in CI)")
     def test_renders_reference_hole_to_aligned_png(self) -> None:
         from ai_caddie.geometry import hole_render
@@ -31,6 +53,8 @@ class TopoRenderModuleTests(unittest.TestCase):
         # The topo base MUST share hole_render's overlay frame so the web/mobile vector overlays
         # (route/shots/ball) line up on it by construction.
         img = topo_render.render_hole_topo_image(31795, 1)
+        self.assertEqual(img.mode, "RGBA")
+        self.assertEqual(img.getpixel((0, 0))[3], 0)
         md, by = hole_render.load_mesh(31795, 1)
         route, route_len = course_prep.derive_route(md)
         _image, overlay = hole_render.render_hole(31795, 1, route, route_len)
@@ -50,6 +74,7 @@ class TopoRenderModuleTests(unittest.TestCase):
         mx, my, _cum = overlay["route"][len(overlay["route"]) // 2]
         px, py = int(round(mx)), int(round(my))
         self.assertTrue(0 <= px < overlay["w"] and 0 <= py < overlay["h"])
+        self.assertGreater(img.getpixel((px, py))[3], 0)
         self.assertGreater(int(np.abs(arr[py, px] - np.array(bg)).sum()), 40,
                            "mid-route point landed on the sky background, not the hole")
 

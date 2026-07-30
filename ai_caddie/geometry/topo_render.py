@@ -6,7 +6,9 @@ draw their live vector overlays (playing line, shot dots, ball, reticle, yardage
 Built ON TOP of ``hole_render`` and never modifies it. It reuses ``hole_render._frame`` so the
 PNG shares the EXACT projection + canvas size as ``hole_render.overlay_projector`` — the overlay
 pixel coordinates the prep / shot-map responses already return line up with the topo base by
-construction (same 720x1120 portrait frame, ~0.64 aspect, hole centred with sky on the sides).
+construction (variable-width portrait frame, ~0.64 minimum aspect). The off-course canvas is
+transparent so iPhone/Watch/Web can place the same course asset on their platform-appropriate map
+surface instead of baking a phone-style sky colour into every client.
 
 The rich topo texturing is ported from the standalone prototype
 (``docs/superpowers/specs/assets/hole-render-topo-prototype.py``) and the locked rules in
@@ -51,7 +53,7 @@ from ai_caddie.geometry import hole_render
 # topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
-STYLE_VERSION = "topo-v3"  # v3: 发球台小 tee 台标记(route[0] 处,和果岭旗遥相呼应)
+STYLE_VERSION = "topo-v4"  # v4: 球洞外画布透明;三端各自提供正确地图表面
 
 SS = hole_render.SS  # supersample factor — MUST match hole_render so the frame downsamples identically
 AZ = math.radians(135)  # sun FROM the south-east (Garmin-matched: light in the lower-right)
@@ -113,6 +115,19 @@ def _font(sz):  # kept for callers that want their own labels; the base map itse
     return ImageFont.load_default()
 
 
+def _clip_to_transparent_canvas(img: Image.Image, course_mask: Image.Image) -> Image.Image:
+    """Place the clipped course on transparency before shadows/canopies are composited.
+
+    Chroma-keying the final RGB render is insufficient: a tree shadow outside ``course_mask`` has
+    already darkened the old blue canvas and therefore no longer equals ``PAL["bg"]``. Starting the
+    overlay pass on a real transparent canvas preserves each overlay's own colour and alpha without
+    baking any phone-specific sky into the shared asset.
+    """
+    result = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    result.paste(img.convert("RGBA"), (0, 0), course_mask)
+    return result
+
+
 def _fbm(w, h, seed, octaves=5, base_cells=6, persistence=0.55):
     """Fractal value noise (0..1, mean ~0.5) from upscaled random grids. No scipy needed."""
     rng = np.random.default_rng(seed)
@@ -130,7 +145,7 @@ def _fbm(w, h, seed, octaves=5, base_cells=6, persistence=0.55):
 
 
 def _build(md, by, route, project, sc, w, h, gid, hole):
-    """The rich topo texture pass. Returns (RGB PIL image at SS resolution)."""
+    """The rich topo texture pass. Returns an RGBA image at SS resolution."""
     _mcache: dict[str, Image.Image | None] = {}
 
     def mask_L(name):
@@ -309,12 +324,11 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     if water_keep is not None:
         hole_mask = ImageChops.lighter(hole_mask, water_keep)
     hole_mask = ImageChops.multiply(hole_mask, corr).point(lambda v: 255 if v >= 128 else 0)
-    bg = Image.new("RGB", (w, h), PAL["bg"])
-    bg.paste(img, (0, 0), hole_mask)
+    img = _clip_to_transparent_canvas(img, hole_mask)
     outline = ImageChops.difference(hole_mask, hole_mask.filter(ImageFilter.MinFilter(3)))
     stroke = Image.new("RGBA", (w, h), PAL["edge"] + (0,))
     stroke.putalpha(outline.point(lambda v: int(v * 0.55)))
-    img = Image.alpha_composite(bg.convert("RGBA"), stroke).convert("RGB")
+    img = Image.alpha_composite(img, stroke)
 
     # ---- crisp material boundary strokes (clean edges; no blur) ----
     def add_stroke(name, rgb, wpx, a):
@@ -331,7 +345,7 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
                                ("Green", (70, 146, 52), 1, 205)]:
         _ov = add_stroke(_nm, _rgb, _wp, _a)
         if _ov is not None:
-            img = Image.alpha_composite(img.convert("RGBA"), _ov).convert("RGB")
+            img = Image.alpha_composite(img, _ov)
 
     # ---- trees: species-differentiated canopies (treeline in rough; none on the fairway) ----
     fmask = mask_L("Fairway")
@@ -371,7 +385,7 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     shp = shp.filter(ImageFilter.GaussianBlur(3.4 * SS))
     sa = np.asarray(shp.split()[3], np.float32) * (1 - 0.92 * mown[..., 0])  # keep shadows off mown turf
     shp.putalpha(Image.fromarray(np.clip(sa, 0, 255).astype(np.uint8)))
-    img = Image.alpha_composite(img.convert("RGBA"), shp).convert("RGB")
+    img = Image.alpha_composite(img, shp)
 
     # (2) canopies on a dedicated layer, composited once at the end
     canopy = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -414,7 +428,7 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     for px, py, r, spec, sd in placed:
         draw_broadleaf(px, py, r, spec, random.Random(sd))
 
-    img = Image.alpha_composite(img.convert("RGBA"), canopy).convert("RGB")
+    img = Image.alpha_composite(img, canopy)
     return img
 
 
@@ -426,7 +440,9 @@ def _draw_green_marker(img, project, by, route):
     gm = by.get("Green.drc")
     if not gm:
         return img
-    d = ImageDraw.Draw(img, "RGBA")
+    input_mode = img.mode
+    marker = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(marker, "RGBA")
     gl = [_local(p) for p in gm["positions"]]
     tgt = route[-1]
     nv = min(gl, key=lambda p: math.hypot(p[0] - tgt[0], p[1] - tgt[1]))
@@ -446,7 +462,8 @@ def _draw_green_marker(img, project, by, route):
     d.polygon([(gcx, gcy - pole), (gcx + 17 * SS, gcy - pole + 7 * SS), (gcx, gcy - pole + 14 * SS)],
               fill=(228, 58, 58, 255))
     d.ellipse((gcx - 3 * SS, gcy - 3 * SS, gcx + 3 * SS, gcy + 3 * SS), fill=(30, 30, 30, 255))
-    return img
+    composited = Image.alpha_composite(img.convert("RGBA"), marker)
+    return composited if input_mode == "RGBA" else composited.convert(input_mode)
 
 
 def _draw_tee_marker(img, project, by, route):
@@ -455,7 +472,9 @@ def _draw_tee_marker(img, project, by, route):
     lands on the actual tee (not the frame edge). Drawn on the SS image, downsampled with the rest."""
     if not route or len(route) < 2:
         return img
-    d = ImageDraw.Draw(img, "RGBA")
+    input_mode = img.mode
+    marker = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(marker, "RGBA")
     tpx, tpy = project(route[0])
     npx, npy = project(route[1])
     dx, dy = npx - tpx, npy - tpy
@@ -477,12 +496,13 @@ def _draw_tee_marker(img, project, by, route):
     for s in (1.0, -1.0):
         mx, my = fx + qx * hw * 0.62 * s, fy + qy * hw * 0.62 * s
         d.ellipse((mx - 3 * SS, my - 3 * SS, mx + 3 * SS, my + 3 * SS), fill=(250, 250, 250, 240))
-    return img
+    composited = Image.alpha_composite(img.convert("RGBA"), marker)
+    return composited if input_mode == "RGBA" else composited.convert(input_mode)
 
 
 def render_hole_topo_image(gid: int, hole: int) -> Image.Image:
-    """Render the LOCKED realistic topo base for (gid, hole) as a downsampled RGB PIL image
-    (720x1120, the same frame as ``hole_render.overlay_projector``).
+    """Render the LOCKED realistic topo base for (gid, hole) as a downsampled RGBA PIL image
+    (the same variable-width frame as ``hole_render.overlay_projector``).
 
     Raises ``TopoGeometryUnavailable`` when the hole has no decoded geometry or no derivable
     route — the caller turns that into a 404. Any other rendering error propagates as a

@@ -1869,6 +1869,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('.accessibilityElement(children: .ignore)', topo_base)
         self.assertIn('.accessibilityIdentifier("topo-hole-base-ready")', topo_base)
         self.assertIn("case .failure:", topo_base)
+        self.assertIn("if fallback != nil", topo_base)
+        self.assertIn("fallbackImage", topo_base)
 
     def test_ios_club_naming_and_lie_filter(self) -> None:
         golf_club = _read_required_source(self, IOS_DIR / "Views" / "GolfClub.swift")
