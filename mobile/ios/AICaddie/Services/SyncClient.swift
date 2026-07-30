@@ -449,7 +449,16 @@ public final class SyncClient {
     /// layer degrades to the fallback at load time.
     public static func topoImageURL(baseURL: URL, globalId: Int, localHole: Int) -> URL? {
         guard globalId != 0, localHole > 0 else { return nil }
-        return baseURL.appendingPathComponent("api/v2/courses/\(globalId)/holes/\(localHole)/topo.png")
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("api/v2/courses/\(globalId)/holes/\(localHole)/topo.png"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            return nil
+        }
+        // The endpoint is cached immutable for one year. Tie that browser/URLSession cache key to
+        // the renderer style so topo-v4 can never reuse a previously downloaded topo-v3 bitmap.
+        components.queryItems = [URLQueryItem(name: "v", value: "topo-v4")]
+        return components.url
     }
 
     /// 开局提前备料:让后端把这个球场每个 geometry 洞的 topo 底图渲好缓存

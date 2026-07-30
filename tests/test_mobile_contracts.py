@@ -1856,6 +1856,7 @@ class MobileContractTests(unittest.TestCase):
             sync_client,
         )
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
+        self.assertIn('URLQueryItem(name: "v", value: "topo-v4")', sync_client)
         self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)", hole_map_view)
         self.assertIn("topoURL: liveTopoURL", current_hole)
         self.assertIn("SyncClient.topoImageURL(baseURL: caddieBaseURL", current_hole)
