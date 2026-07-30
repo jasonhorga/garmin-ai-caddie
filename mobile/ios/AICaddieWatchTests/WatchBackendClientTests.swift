@@ -216,8 +216,10 @@ final class WatchBackendClientTests: XCTestCase {
     func testCoursePayloadsDecodeOnlyWatchStartFacts() throws {
         let client = makeClient()
         let options = try client.decodeCourseOptions(Data(
-            #"{"schema":"ai-caddie-mobile-course-options-v1","dataMode":"real","total":1,"courses":[{"globalId":31669,"name":"北京丽宫","roundCount":4,"holes":18,"teeBox":"Blue","geometryCoverage":"ready","sourceRefs":[],"venueName":"北京丽宫","segmentLabel":null,"segmentHoles":18,"tees":["Blue","White"]}],"generatedAt":"2026-07-26T00:00:00Z"}"#.utf8
+            #"{"schema":"ai-caddie-mobile-course-options-v1","dataMode":"real","total":1,"courses":[{"globalId":31669,"name":"北京丽宫","roundCount":4,"holes":18,"teeBox":"Blue","geometryCoverage":"ready","sourceRefs":[],"venueName":"北京丽宫","segmentLabel":null,"segmentHoles":18,"latitude":40.0455,"longitude":116.5462,"tees":["Blue","White"]}],"generatedAt":"2026-07-26T00:00:00Z"}"#.utf8
         ))
+        XCTAssertEqual(options.first?.latitude, 40.0455)
+        XCTAssertEqual(options.first?.longitude, 116.5462)
         XCTAssertEqual(options, [
             WatchCourseOption(
                 globalId: 31669,
