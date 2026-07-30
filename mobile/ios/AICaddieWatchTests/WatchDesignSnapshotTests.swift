@@ -87,7 +87,14 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let screen = WatchCaddieScreen(state: state)
         XCTAssertTrue(screen.showsPlanOptionsFirst)
 
-        let view = screen
+        // ImageRenderer does not materialize ScrollView contents on watchOS. Render the exact primary
+        // content used by WatchCaddieScreen; the assertion above separately locks the production order.
+        let view = WatchCaddieOptionsView(
+            options: state.caddieOptions,
+            recommendedId: state.offlineOptionId,
+            onBack: {}
+        )
+        .padding(8)
         .frame(width: 198, height: 242)
         .background(Color.black)
         try render(view, named: "watch-caddie-options")
