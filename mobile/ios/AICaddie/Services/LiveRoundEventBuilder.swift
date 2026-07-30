@@ -122,7 +122,9 @@ public final class LiveRoundEventBuilder {
             if let decisionId = decision.decisionId {
                 payload["decisionId"] = .string(decisionId)
             }
-            payload["decision"] = .object(decision.auditPayload)
+            if decision.isOfflineFallback {
+                payload["decision"] = .object(decision.auditPayload)
+            }
         }
         if let actualShot {
             payload["actualShot"] = .object(actualShot)

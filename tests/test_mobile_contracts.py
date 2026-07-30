@@ -2478,8 +2478,11 @@ class MobileContractTests(unittest.TestCase):
             "missingData",
         ]:
             self.assertIn(field, client)
-        self.assertIn('payload["sequences"] = .array(sequences.map { .object($0) })', client)
-        self.assertIn('payload["selectedSequence"] = .object(selectedSequence)', client)
+        self.assertIn("var isOfflineFallback: Bool", client)
+        self.assertIn('"offline_package_seed"', client)
+        self.assertIn('"ai-caddie-decision-audit-snapshot-v1"', client)
+        self.assertNotIn('payload["sequences"] =', client)
+        self.assertNotIn('payload["selectedSequence"] =', client)
 
     def test_ios_offline_caddie_decision_evaluator_builds_auditable_fallback(self) -> None:
         evaluator = _read_required_source(self, IOS_DIR / "Services" / "OfflineCaddieDecisionEvaluator.swift")
@@ -2545,6 +2548,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('payload["distanceToPinM"] = jsonNumberOrNull(distanceToPinM)', builder)
         self.assertIn('payload["offlineOptionId"] = jsonStringOrNull(offlineOptionId)', builder)
         self.assertIn('payload["decisionId"] = .string(decisionId)', builder)
+        self.assertIn("if decision.isOfflineFallback", builder)
         self.assertIn('payload["decision"] = .object(decision.auditPayload)', builder)
         self.assertIn('payload["actualShot"] = .object(actualShot)', builder)
 

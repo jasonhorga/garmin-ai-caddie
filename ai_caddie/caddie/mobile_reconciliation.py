@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_caddie.reports.annotations import add_annotation, list_annotations
-from ai_caddie.caddie.decision import audit_decision, store_decision_audit
+from ai_caddie.caddie.decision import audit_decision, latest_decision_record, store_decision_audit
 from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.caddie.mobile_live import mobile_event_log
@@ -539,6 +539,7 @@ def apply_mobile_reconciliation_suggestions(
     root: Path | str | None = None,
     annotations_root: Path | str | None = None,
     decision_audit_root: Path | str | None = None,
+    decision_ledger_root: Path | str | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     reconciliation = reconcile_mobile_round_events(round_id, data, root=root, player_id=player_id)
@@ -574,6 +575,7 @@ def apply_mobile_reconciliation_suggestions(
             row,
             events_by_id=events_by_id,
             root=decision_audit_root,
+            decision_ledger_root=decision_ledger_root,
             player_id=player_id,
         )
         if audit_record:
@@ -597,6 +599,7 @@ def _store_caddie_feedback_audit(
     *,
     events_by_id: dict[str, dict[str, Any]],
     root: Path | str | None = None,
+    decision_ledger_root: Path | str | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any] | None:
     if suggestion.get("kind") != "caddie_feedback":
@@ -607,10 +610,23 @@ def _store_caddie_feedback_audit(
     if not isinstance(event_payload, dict):
         return None
     decision = event_payload.get("decision")
+    decision_id = str(payload.get("decisionId") or suggestion.get("targetId") or "")
     if not isinstance(decision, dict):
-        return None
+        record = latest_decision_record(
+            decision_id,
+            root=decision_ledger_root,
+            player_id=player_id,
+        )
+        decision = record.get("decision") if isinstance(record, dict) else None
+        if not isinstance(decision, dict):
+            return None
     actual_shot = payload.get("actualShot")
     if not isinstance(actual_shot, dict):
         actual_shot = event_payload.get("actualShot")
     audit = audit_decision(decision, actual_shot if isinstance(actual_shot, dict) else None)
-    return store_decision_audit(audit, decision_id=str(payload.get("decisionId") or suggestion.get("targetId") or ""), root=root, player_id=player_id)
+    return store_decision_audit(
+        audit,
+        decision_id=decision_id,
+        root=root,
+        player_id=player_id,
+    )

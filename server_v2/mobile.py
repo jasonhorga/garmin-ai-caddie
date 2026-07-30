@@ -40,6 +40,7 @@ from .models import (
 MOBILE_ROOT = Path(".")
 ANNOTATION_ROOT = Path(".")
 DECISION_AUDIT_ROOT = Path(".")
+DECISION_LEDGER_ROOT = Path(".")
 OPEN_METEO_TRANSPORT: WeatherTransport | None = None
 
 
@@ -212,5 +213,6 @@ def apply_mobile_round_reconciliation_response(
             root=MOBILE_ROOT,
             annotations_root=ANNOTATION_ROOT,
             decision_audit_root=DECISION_AUDIT_ROOT,
+            decision_ledger_root=DECISION_LEDGER_ROOT,
         )
     )
