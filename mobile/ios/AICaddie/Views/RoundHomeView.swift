@@ -249,7 +249,7 @@ public struct RoundHomeView: View {
     private var recordedScoreHoleCount: Int {
         guard let offlineStore, let events = try? offlineStore.loadEvents() else { return 0 }
         let displayedHoles = Set(package.holes.map(\.number))
-        return Set(events.compactMap { event in
+        return Set<Int>(events.compactMap { event in
             guard event.roundId == package.roundId,
                   event.kind == .score,
                   displayedHoles.contains(event.hole) else {
