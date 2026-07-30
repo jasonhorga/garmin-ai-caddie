@@ -61,112 +61,149 @@ public struct WatchScoreHoleView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 8) {
             Text("第 \(hole) 洞 · Par \(par)")
                 .font(.headline.weight(.bold))
+                .frame(maxWidth: .infinity)
 
             stepContent
-
-            if step != .recommendation {
-                cancelButton
-            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(8)
     }
+
+    var stepLabel: String {
+        switch step {
+        case .recommendation:
+            return "推荐成绩"
+        case .score:
+            return "1/\(manualStepCount) · 总杆"
+        case .putts:
+            return "2/\(manualStepCount) · 推杆"
+        case .fairway:
+            return "3/4 · 开球结果"
+        case .penalty:
+            return "\(par == 3 ? 3 : 4)/\(manualStepCount) · 罚杆"
+        }
+    }
+
+    private var manualStepCount: Int { par == 3 ? 3 : 4 }
 
     @ViewBuilder
     private var stepContent: some View {
         switch step {
         case .recommendation:
-            VStack(spacing: 4) {
-                Text("推荐 \(score) 杆")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .monospacedDigit()
+            VStack(spacing: 6) {
+                Text(stepLabel)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                VStack(spacing: 0) {
+                    Text("\(score)")
+                        .font(.system(size: 42, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                    Text(diffText)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: score - par))
+                }
                 Text(recommendationNote)
                     .font(.caption2)
-                    .foregroundStyle(candidateNextHole == nil ? Color.secondary : AICaddieDesignTokens.par)
-            }
-            .frame(maxWidth: .infinity)
-            Button(action: onAcceptRecommended) {
-                Text("确认 \(score) 杆")
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(AICaddieDesignTokens.par)
-            HStack(spacing: 6) {
-                Button(action: onManualEntry) {
-                    Text("手动确认").font(.caption).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                cancelButton
-            }
-        case .score:
-            Text("总杆").font(.caption).foregroundStyle(.secondary)
-            scoreStepper
-            nextButton
-        case .putts:
-            Text("推杆").font(.caption).foregroundStyle(.secondary)
-            stepperRow(label: "推杆", value: putts) { onPuttsDelta($0) }
-            nextButton
-        case .fairway:
-            Text("开球结果").font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 5) {
-                fairwayButton("偏左", .left)
-                fairwayButton("上球道", .hit)
-                fairwayButton("偏右", .right)
-            }
-        case .penalty:
-            Text("罚杆").font(.caption).foregroundStyle(.secondary)
-            stepperRow(label: "罚杆", value: penalty) { onPenaltyDelta($0) }
-            Button(action: onSave) {
-                Text("保存本洞")
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(AICaddieDesignTokens.par)
-        }
-    }
-
-    private var scoreStepper: some View {
-        HStack(spacing: 14) {
-            stepButton("minus") { onScoreDelta(-1) }
-            VStack(spacing: 0) {
-                Text("\(score)")
-                    .font(.system(size: 40, weight: .bold, design: .rounded))
                     .monospacedDigit()
-                Text(diffText)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: score - par))
+                    .foregroundStyle(candidateNextHole == nil ? Color.secondary : AICaddieDesignTokens.par)
+                Spacer(minLength: 0)
+                actionButton("确认 \(score) 杆", primary: true, action: onAcceptRecommended)
+                HStack(spacing: 6) {
+                    actionButton("手动确认", action: onManualEntry)
+                    actionButton("取消", action: onCancel)
+                }
             }
-            .frame(maxWidth: .infinity)
-            stepButton("plus") { onScoreDelta(1) }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .score:
+            numericStep(
+                value: score,
+                detail: diffText,
+                onDelta: onScoreDelta,
+                primaryTitle: "下一步",
+                onPrimary: onAdvance
+            )
+        case .putts:
+            numericStep(
+                value: putts,
+                onDelta: onPuttsDelta,
+                primaryTitle: "下一步",
+                onPrimary: onAdvance
+            )
+        case .fairway:
+            VStack(spacing: 8) {
+                Text(stepLabel)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 5) {
+                    fairwayButton("偏左", .left)
+                    fairwayButton("上球道", .hit)
+                    fairwayButton("偏右", .right)
+                }
+                Spacer(minLength: 0)
+                actionButton("取消", action: onCancel)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .penalty:
+            numericStep(
+                value: penalty,
+                onDelta: onPenaltyDelta,
+                primaryTitle: "保存本洞",
+                onPrimary: onSave
+            )
         }
     }
 
-    private var nextButton: some View {
-        Button(action: onAdvance) {
-            Text("下一步")
-                .foregroundStyle(.white)
+    private func numericStep(
+        value: Int,
+        detail: String? = nil,
+        onDelta: @escaping (Int) -> Void,
+        primaryTitle: String,
+        onPrimary: @escaping () -> Void
+    ) -> some View {
+        VStack(spacing: 8) {
+            Text(stepLabel)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 14) {
+                stepButton("minus") { onDelta(-1) }
+                VStack(spacing: 0) {
+                    Text("\(value)")
+                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                    if let detail {
+                        Text(detail)
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: score - par))
+                    }
+                }
                 .frame(maxWidth: .infinity)
+                stepButton("plus") { onDelta(1) }
+            }
+            Spacer(minLength: 0)
+            actionButton(primaryTitle, primary: true, action: onPrimary)
+            actionButton("取消", action: onCancel)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(AICaddieDesignTokens.par)
-    }
-
-    private var cancelButton: some View {
-        Button(action: onCancel) {
-            Text("取消").font(.caption).frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func fairwayButton(_ label: String, _ result: WatchFairwayResult) -> some View {
         Button(action: { onFairway(result) }) {
-            Text(label).font(.caption2).frame(maxWidth: .infinity)
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .tint(fairway == result ? AICaddieDesignTokens.par : .gray)
+        .buttonStyle(.plain)
+        .frame(height: 44)
+        .background(
+            RoundedRectangle(cornerRadius: 15)
+                .fill(fairway == result ? AICaddieDesignTokens.par : Color.white.opacity(0.27))
+        )
         .accessibilityLabel("\(label), \(result.rawValue)")
     }
 
@@ -183,20 +220,38 @@ public struct WatchScoreHoleView: View {
         return "默认 \(putts) 推 · \(penalty) 罚"
     }
 
-    private func stepperRow(label: String, value: Int, onDelta: @escaping (Int) -> Void) -> some View {
-        HStack(spacing: 8) {
-            Text(label).font(.caption).foregroundStyle(.secondary)
-            Spacer()
-            stepButton("minus") { onDelta(-1) }
-            Text("\(value)").font(.body.monospacedDigit()).frame(minWidth: 22)
-            stepButton("plus") { onDelta(1) }
+    private func actionButton(
+        _ title: String,
+        primary: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .buttonStyle(.plain)
+        .frame(height: 36)
+        .background(
+            Capsule()
+                .fill(primary ? AICaddieDesignTokens.par : Color.white.opacity(0.27))
+        )
     }
 
     private func stepButton(_ systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 42, height: 42)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 15)
+                .fill(Color.white.opacity(0.27))
+        )
     }
 }
