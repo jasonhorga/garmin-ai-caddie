@@ -150,6 +150,13 @@ Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆
 - RED [run 30571521221](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30571521221) 因旧页面缺少新的展示契约而失败；GREEN [run 30572101827](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30572101827) 的 Watch `141/141`、396×484 截图上传和独立 Watch build 成功，随后主动取消本切片无关的整轮回放。当前截图 SHA256 为 `b17e991b27e9e9ae6d4d7963c76d4d46413d0d10bc0da6524ed973052bf6d3e9`。
 - 本项状态仅为 `CANDIDATE / OWNER VISUAL GATE OPEN`。一对一审批页将旧概念稿归一到与 production SwiftUI 截图相同画布，并明确两者的证据边界；Owner 批准前不标记最终完成、不发布 TestFlight。
 
+### Watch 球场选择视觉候选（2026-07-30，等待 Owner 批准）
+
+- 实现 HEAD `dab9b46c5dd0144f1bc279db31bf947b53408c09`。根因不是球场数据或下载链路，而是 production `WatchStartView` 直接使用 watchOS 默认 `List/Section/NavigationTitle`，把每行放大成厚重系统卡片并让 “AI Caddie” 标题占据首屏。当前改用项目已有的紧凑 `ScrollView + 自定义行`模式；Apple 系统时间照常保留。
+- 真实 GPS 的附近/已知分组、距离排序、缓存可离线状态、刷新、全库搜索、远端结果、Tee/洞组设置与下载开局均未删除。真实长球场名允许两行完整显示；批准稿中的球场数量、简称与 Par 只作为示意，不用伪造数据填满列表。绿点只表达已缓存，灰点表达需下载，不把“附近”与“缓存”混为同一事实。
+- RED [run 30573195316](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30573195316) 因旧 View 缺少附近/已知展示契约而失败；GREEN [run 30573790489 attempt 2](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30573790489/attempts/2) 的 Watch `142/142`、设计截图上传和独立 Watch build 成功。取得普通附近列表、缓存开局设置、全库结果和远端开局设置等 12 个真实进程状态后，主动取消无关后续旅程。附近/全库截图 SHA256 分别为 `dbf6af6cd457fb0901a95cf0301f0068c93dce18676e77944843ea52d249b870` / `e345a85b88ca548fa8cefc71697856442a0b8bc072fc31267f54856deb85abd0`。
+- 本项状态仅为 `CANDIDATE / OWNER VISUAL GATE OPEN`。审批页同时展示原批准概念、production 附近页和全库搜索状态；Owner 批准前不标记最终完成。下一可见状态继续审计开局设置，不因球场列表变紧凑就把整个开局流程提前关闭。
+
 ### 真实 18 洞闭环结果（2026-07-30）
 
 - iPhone 在 SHA `d6f57d96e0c6acb92af345c15276a8d370df357b` 的 [Native run 30507566447](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30507566447) 整体成功。同一北京丽宫真实球局连续完成 1–18 洞；第 10 洞强杀恢复后仍显示已打 9/18 洞，修改第 1 洞不移动当前洞；每洞 F/M/B 为真实整数，球童等待真实结构化结果且不使用离线 fallback；第 18 洞明确保存结束后清除进行中球局并返回首页。最终汇总为 `57 杆 / -15`、`36 推`、球道 `2/3`、`0` 罚杆，结束前安全保存 76 条记录。
