@@ -389,6 +389,115 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(view.courseGroups[1].rows.first?.isCached, false)
     }
 
+    @MainActor
+    func testRoundSetupPresentsPlayableLoopsInStableCompactOrder() {
+        let front = WatchCourseOption(
+            globalId: 301,
+            name: "黑骑士 ~ A",
+            holes: 9,
+            teeBox: "Blue",
+            venueName: "黑骑士",
+            segmentLabel: "A",
+            segmentHoles: 9,
+            tees: ["Blue", "White"]
+        )
+        let backB = WatchCourseOption(
+            globalId: 302,
+            name: "黑骑士 ~ B",
+            holes: 9,
+            teeBox: "Blue",
+            venueName: "黑骑士",
+            segmentLabel: "B",
+            segmentHoles: 9,
+            tees: ["Blue", "White"]
+        )
+        let backC = WatchCourseOption(
+            globalId: 303,
+            name: "黑骑士 ~ C",
+            holes: 9,
+            teeBox: "Blue",
+            venueName: "黑骑士",
+            segmentLabel: "C",
+            segmentHoles: 9,
+            tees: ["Blue", "White"]
+        )
+        let view = WatchRoundSetupView(
+            front: front,
+            courses: [backC, front, backB],
+            hasCachedVersion: true
+        )
+
+        XCTAssertEqual(view.loopChoices.map(\.title), ["只打 A", "A + B", "A + C"])
+        XCTAssertEqual(view.loopChoices.map(\.detail), ["9 洞", "18 洞", "18 洞"])
+        XCTAssertEqual(view.loopChoices.map(\.isSelected), [true, false, false])
+    }
+
+    @MainActor
+    func testRoundSetupKeepsRealTeeNameAndHonestYardage() {
+        let front = WatchCourseOption(
+            globalId: 301,
+            name: "黑骑士 ~ A",
+            holes: 9,
+            teeBox: "Blue",
+            venueName: "黑骑士",
+            segmentLabel: "A",
+            segmentHoles: 9,
+            tees: ["Blue", "White"]
+        )
+        let view = WatchRoundSetupView(front: front, courses: [front])
+
+        XCTAssertEqual(view.teeChoices.map(\.title), ["蓝 T", "白 T"])
+        XCTAssertEqual(view.teeChoices.map(\.detail), ["码数未知", "码数未知"])
+        XCTAssertEqual(view.teeChoices.map(\.isSelected), [true, false])
+
+        let downloaded = WatchCourseTee(
+            teeBox: "blue",
+            name: "Blue",
+            geometrySet: 2,
+            yards: 3210,
+            holeCount: 9,
+            isDefault: true
+        )
+        XCTAssertEqual(
+            WatchRoundSetupView.teeChoice(for: downloaded, isSelected: true),
+            WatchRoundSetupChoicePresentation(
+                id: "tee:blue",
+                title: "蓝 T",
+                detail: "3210 码",
+                isSelected: true
+            )
+        )
+    }
+
+    @MainActor
+    func testRoundSetupExplainsCachedAndFirstDownloadStatesWithoutChangingStartSemantics() {
+        let front = WatchCourseOption(
+            globalId: 301,
+            name: "黑骑士 ~ A",
+            holes: 9,
+            teeBox: "Blue",
+            tees: ["Blue"]
+        )
+
+        let cached = WatchRoundSetupView(
+            front: front,
+            courses: [front],
+            hasCachedVersion: true
+        )
+        XCTAssertEqual(cached.availabilityText, "已有离线版本")
+        XCTAssertEqual(cached.availabilityDetail, "更换洞组或发球台时需要联网更新")
+        XCTAssertEqual(cached.startActionLabel, "准备并开始")
+
+        let firstDownload = WatchRoundSetupView(
+            front: front,
+            courses: [front],
+            ensureGeometry: true
+        )
+        XCTAssertEqual(firstDownload.availabilityText, "首次开局需下载")
+        XCTAssertEqual(firstDownload.availabilityDetail, "将获取真实球场与地图数据")
+        XCTAssertEqual(firstDownload.startActionLabel, "准备并开始")
+    }
+
     // WatchStartView keeps real NavigationStack/search behavior. The workflow therefore captures its
     // compact course rows from the running simulator rather than treating ImageRenderer as final proof.
 
