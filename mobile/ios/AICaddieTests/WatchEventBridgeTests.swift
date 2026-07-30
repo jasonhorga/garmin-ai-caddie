@@ -184,6 +184,91 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(payload.evidenceSummary).contains("/Users/"))
     }
 
+    func testLiveDecisionBuildsCompleteRootRecommendationFromItsInputAndMeasuredCarryRange() throws {
+        let bridge = WatchEventBridge()
+        let package = try fixturePackage()
+        let selected: [String: JSONValue] = [
+            "id": .string("stock"),
+            "label": .string("推进"),
+            "carry_m": .number(205),
+            "clubName": .string("3W"),
+            "dispersion": .object([
+                "state": .string("modeled"),
+                "clubName": .string("3W"),
+                "sampleSize": .number(24),
+                "carryP10_m": .number(188),
+                "carryP90_m": .number(220),
+            ]),
+        ]
+        let decision = CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v1",
+            decisionId: "decision-live-1",
+            sourceRef: "round:live-round-1:hole:1",
+            evidenceRefs: ["club-profile:3W", "route:1"],
+            shotType: "tee",
+            phase: "tee",
+            context: [
+                "source": .string("ios_live"),
+                "strategyMode": .string("stock"),
+                "currentLocation": .object([
+                    "latitude": .number(40.0455),
+                    "longitude": .number(116.5462),
+                    "horizontalAccuracyM": .number(5),
+                    "capturedAt": .string("2026-06-20T00:00:00Z"),
+                ]),
+            ],
+            options: [selected],
+            selected: selected,
+            selectedOptionId: "stock",
+            selectedOption: selected,
+            sequences: nil,
+            selectedSequence: nil,
+            avoidZones: [],
+            forbiddenZones: [],
+            acceptableMiss: [:],
+            evidence: [["label": .string("route"), "state": .string("ready")]],
+            confidence: ["level": .string("high"), "source": .string("live_decision")],
+            missingData: [],
+            auditCriteria: []
+        )
+        let holeMap = WatchHoleMap(
+            w: 1000,
+            h: 1000,
+            you: [500, 900],
+            pin: [500, 100],
+            layup: [500, 500],
+            apex: [500, 700],
+            greenCtrl: [500, 300],
+            route: [[500, 900, 0], [500, 500, 200], [500, 100, 400]]
+        )
+
+        let payload = bridge.makeWatchRoundStatePayload(
+            package: package,
+            hole: try XCTUnwrap(package.holes.first),
+            score: 0,
+            putts: 0,
+            penaltyCount: 0,
+            selectedClub: nil,
+            decision: decision,
+            holeMap: holeMap
+        )
+
+        let object = try XCTUnwrap(try Self.jsonObject(from: payload) as? [String: Any])
+        let recommendation = try XCTUnwrap(object["rootCaddieRecommendation"] as? [String: Any])
+        XCTAssertEqual(recommendation["decisionId"] as? String, "decision-live-1")
+        XCTAssertEqual(recommendation["clubName"] as? String, "3W")
+        XCTAssertEqual(recommendation["aimCarryM"] as? Double, 205)
+        XCTAssertEqual(recommendation["carryP10M"] as? Double, 188)
+        XCTAssertEqual(recommendation["carryP90M"] as? Double, 220)
+        XCTAssertEqual(recommendation["sampleSize"] as? Int, 24)
+        XCTAssertEqual(recommendation["source"] as? String, "live")
+        XCTAssertEqual(recommendation["mode"] as? String, "automatic")
+        XCTAssertEqual(recommendation["generatedAt"] as? String, "2026-06-20T00:00:00Z")
+        XCTAssertEqual(recommendation["validUntil"] as? String, "2026-06-20T00:03:00Z")
+        XCTAssertEqual(recommendation["maximumMovementM"] as? Double, 25)
+        XCTAssertEqual(recommendation["evidenceCount"] as? Int, 2)
+    }
+
     func testWatchInputAcknowledgementReportsAcceptedAndDuplicateEventIds() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
