@@ -863,6 +863,7 @@ class MobilePackageAdminOnlyTests(unittest.TestCase):
             captured_at=None,
             client_id=None,
             ensure_geometry=False,
+            include_event_cursor=True,
             nine="all",
             back_global_id=None,
             player_id=self.member_id,
