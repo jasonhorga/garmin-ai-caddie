@@ -5,8 +5,8 @@ import XCTest
 
 /// round-12 P3 (Watch standalone): render watch SwiftUI surfaces to PNGs in the watchOS SIMULATOR so
 /// the UI can be reviewed from CI without a physical Apple Watch — the same idea as the iOS
-/// DesignSnapshotTests. native-mobile.yml collects `Documents/watch-snapshots/*.png` after the Watch
-/// test and uploads them as the `watch-snapshots` artifact. (Only real GPS / HealthKit / motion need a
+/// DesignSnapshotTests. The native-mobile and focused watch-runtime workflows collect
+/// `Documents/watch-snapshots/*.png` after the Watch test. (Only real GPS / HealthKit / motion need a
 /// physical watch — the UI/scoring layout is fully reviewable here.)
 final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
@@ -359,6 +359,45 @@ final class WatchDesignSnapshotTests: XCTestCase {
         .frame(width: 198, height: 242)   // ≈ 46mm Apple Watch logical size
         .background(Color.black)
         try render(view, named: "watch-holemap")
+    }
+
+    @MainActor
+    func testRenderWatchHoleMapCurrentShotCaddie() throws {
+        let route = [
+            [435.0, 981.0, 0.0],
+            [504.0, 702.0, 200.0],
+            [556.0, 562.0, 303.0],
+            [506.0, 403.0, 419.0],
+            [435.0, 279.0, 518.8],
+        ]
+        let layout = try XCTUnwrap(WatchCurrentShotLayout.resolve(
+            route: route,
+            playerImagePoint: WatchHoleMapSample.youPx,
+            aimCarryM: 205,
+            carryP10M: 188,
+            carryP90M: 220
+        ))
+        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let pips = (1...18).map {
+            WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4)
+        }
+        let view = WatchHoleMapView(
+            holeNumber: 4,
+            par: 5,
+            frontGreen: 273,
+            centerGreen: 287,
+            backGreen: 300,
+            playsLikeDelta: 8,
+            lastShot: 200,
+            caddieClub: "3号木",
+            caddieNote: "推进 · 留100",
+            showCaddieRecommendation: true,
+            currentShotLayout: layout,
+            ringPips: pips
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-holemap-current-shot")
     }
 
     func testMapZoomExpandsOnlyAfterCrownLeavesItsRestingPosition() {

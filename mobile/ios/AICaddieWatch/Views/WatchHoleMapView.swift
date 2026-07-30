@@ -148,6 +148,7 @@ public struct WatchHoleMapView: View {
         geometry: WatchHoleMapGeometry = WatchHoleMapSample.geometry,
         measuredPxOverride: CGPoint? = nil,
         pinDragOverride: CGSize? = nil,
+        onOpenCaddie: @escaping () -> Void = {},
         onToggleBigText: @escaping () -> Void = {}
     ) {
         self.holeNumber = holeNumber
@@ -169,9 +170,11 @@ public struct WatchHoleMapView: View {
         self.geometry = geometry
         self.measuredPxOverride = measuredPxOverride
         self.pinDragOverride = pinDragOverride
+        self.onOpenCaddie = onOpenCaddie
         self.onToggleBigText = onToggleBigText
     }
 
+    private let onOpenCaddie: () -> Void
     private let onToggleBigText: () -> Void
 
     /// Yards per image-pixel, derived from the known you→green pixel span vs the 中 green yardage — so
@@ -295,12 +298,16 @@ public struct WatchHoleMapView: View {
 
                     if showCaddieRecommendation {
                         // Current-shot recommendation only; the map itself never draws a whole-hole route.
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(caddieClub).font(.system(size: 16, weight: .bold)).foregroundStyle(.white).fixedSize()
-                            Text(caddieNote).font(.system(size: 9.5, weight: .medium)).foregroundStyle(caddieGreen).fixedSize()
+                        Button(action: onOpenCaddie) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(caddieClub).font(.system(size: 16, weight: .bold)).foregroundStyle(.white).fixedSize()
+                                Text(caddieNote).font(.system(size: 9.5, weight: .medium)).foregroundStyle(caddieGreen).fixedSize()
+                            }
+                            .padding(.horizontal, 8).padding(.vertical, 5)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(caddieGreen.opacity(0.16)))
                         }
-                        .padding(.horizontal, 8).padding(.vertical, 5)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(caddieGreen.opacity(0.16)))
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("球童建议 \(caddieClub) \(caddieNote)")
                         Spacer().frame(height: 14)
                     } else {
                         Spacer().frame(height: 8)

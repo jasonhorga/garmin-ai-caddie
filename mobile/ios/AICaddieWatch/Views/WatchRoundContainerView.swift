@@ -313,6 +313,7 @@ public struct WatchRoundContainerView: View {
             fullMap: WatchHoleMapView.isFullMap(crownScale: holeMapCrownScale),
             mapScale: CGFloat(holeMapCrownScale),
             geometry: geometry,
+            onOpenCaddie: { model.openCaddie() },
             onToggleBigText: { holeMapBigText = true }
         )
         .focusable(true)

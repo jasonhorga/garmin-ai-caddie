@@ -68,6 +68,23 @@ jobs:
             -scheme AICaddieWatch \
             -destination "platform=watchOS Simulator,id=$WATCH_UDID"
 
+      - name: Collect Watch design snapshots
+        if: always()
+        run: |
+          mkdir -p watch-design-snapshots
+          find ~/Library/Developer/CoreSimulator \
+            -path "*Documents/watch-snapshots/*.png" \
+            -exec cp {} watch-design-snapshots/ \; 2>/dev/null || true
+          ls -la watch-design-snapshots
+
+      - name: Upload Watch design snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: watch-design-snapshots
+          path: watch-design-snapshots/
+          if-no-files-found: warn
+
       - name: Build Watch app for the resolved simulator
         run: |
           set -euo pipefail
