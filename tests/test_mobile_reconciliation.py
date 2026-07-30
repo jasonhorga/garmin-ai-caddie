@@ -7,7 +7,7 @@ import unittest
 
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.reports.annotations import list_annotations
-from ai_caddie.caddie.decision import list_decision_audits
+from ai_caddie.caddie.decision import list_decision_audits, store_decision
 from ai_caddie.history.history import HistoryData
 from ai_caddie.caddie.mobile_live import append_event_batch
 from ai_caddie.caddie.mobile_reconciliation import (
@@ -568,6 +568,79 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(len(audits), 1)
         self.assertEqual(audits[0]["classification"], "execution")
         self.assertEqual(audits[0]["sourceRef"], "900001:3")
+        self.assertEqual(audits[0]["actualShotRefs"], ["900001:3:1"])
+
+    def test_apply_reconciliation_resolves_online_decision_id_without_embedded_copy(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store_decision(
+                {
+                    "decisionId": "900001:3:tee-online",
+                    "sourceRef": "900001:3",
+                    "shotType": "tee",
+                    "phase": "tee_shot",
+                    "selectedOptionId": "stock",
+                    "selectedOption": {
+                        "id": "stock",
+                        "carry_m": 145.0,
+                        "clubRecommendation": {"clubs": [{"clubName": "9I"}]},
+                    },
+                    "options": [
+                        {"id": "safe", "carry_m": 120.0},
+                        {"id": "stock", "carry_m": 145.0},
+                        {"id": "attack", "carry_m": 175.0},
+                    ],
+                    "confidence": {"level": "medium"},
+                    "evidenceRefs": ["900001:3"],
+                    "auditCriteria": [
+                        {"label": "club_match", "rule": "match selected club"},
+                        {"label": "carry_window", "rule": "match selected carry"},
+                        {"label": "avoid_zones", "rule": "avoid known risks"},
+                    ],
+                },
+                root=root,
+            )
+            append_event_batch(
+                "900001",
+                [
+                    {
+                        "eventId": "online-shot-audit",
+                        "roundId": "900001",
+                        "hole": 3,
+                        "kind": "club",
+                        "payload": {
+                            "clubName": "9I",
+                            "decisionId": "900001:3:tee-online",
+                            "actualShot": {
+                                "roundId": "900001",
+                                "hole": 3,
+                                "shotOrder": 1,
+                                "clubName": "9I",
+                                "meters": 146.0,
+                                "end": {"lie": "fairway"},
+                            },
+                        },
+                    },
+                ],
+                idempotency_key="online-audit-apply",
+                root=root,
+            )
+
+            result = apply_mobile_reconciliation_suggestions(
+                "900001",
+                fixture_history_data(),
+                suggestion_ids=["online-shot-audit:caddie-feedback"],
+                root=root,
+                annotations_root=root,
+                decision_audit_root=root,
+                decision_ledger_root=root,
+            )
+            audits = list_decision_audits(root=root)
+
+        self.assertEqual(result["decisionAuditCount"], 1)
+        self.assertEqual(audits[0]["decisionId"], "900001:3:tee-online")
+        self.assertEqual(audits[0]["classification"], "unknown")
+        self.assertEqual(audits[0]["selectedOptionId"], "stock")
         self.assertEqual(audits[0]["actualShotRefs"], ["900001:3:1"])
 
     def test_apply_reconciliation_writes_mobile_note_as_hole_note_idempotently(self) -> None:

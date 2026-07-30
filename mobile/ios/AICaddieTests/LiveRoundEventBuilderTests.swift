@@ -100,6 +100,70 @@ final class LiveRoundEventBuilderTests: XCTestCase {
         XCTAssertEqual(actualShot["shotOrder"], .number(2))
     }
 
+    func testActualClubEventReferencesLargeOnlineDecisionWithoutEmbeddingIt() throws {
+        let decision = makeLargeDecision(confidenceSource: "live_decision")
+        XCTAssertGreaterThan(try JSONEncoder().encode(decision).count, 1_000_000)
+
+        let event = makeBuilder().makeActualClubEvent(
+            hole: 4,
+            clubName: "8I",
+            sourceLocationEventId: "location-online",
+            shotOrder: 2,
+            shotType: "approach",
+            lie: "fairway",
+            decision: decision
+        )
+
+        XCTAssertEqual(event.payload["decisionId"], .string("online-decision-4"))
+        XCTAssertNil(event.payload["decision"], "online decisions are authoritative in the server ledger")
+        XCTAssertNotNil(event.payload["actualShot"])
+        XCTAssertLessThan(
+            try JSONEncoder().encode(event).count,
+            2_048,
+            "an actual club event must not duplicate a megabyte online decision"
+        )
+    }
+
+    func testActualClubEventEmbedsOnlyCompactOfflineAuditSnapshot() throws {
+        let decision = makeLargeDecision(confidenceSource: "offline_package_seed")
+        let event = makeBuilder().makeActualClubEvent(
+            hole: 4,
+            clubName: "8I",
+            sourceLocationEventId: "location-offline",
+            shotOrder: 2,
+            shotType: "approach",
+            lie: "rough",
+            decision: decision
+        )
+
+        guard case .object(let snapshot) = event.payload["decision"] else {
+            return XCTFail("offline decisions need an embedded audit snapshot")
+        }
+        XCTAssertEqual(snapshot["schema"], .string("ai-caddie-decision-audit-snapshot-v1"))
+        XCTAssertEqual(snapshot["decisionId"], .string("online-decision-4"))
+        XCTAssertEqual(snapshot["selectedOptionId"], .string("stock"))
+        XCTAssertEqual(snapshot["evidenceRefs"], .array([.string("round-1:4")]))
+        guard case .object(let context) = snapshot["context"] else {
+            return XCTFail("offline snapshot needs source identity context")
+        }
+        XCTAssertEqual(context["globalId"], .number(31_676))
+        XCTAssertNil(context["geometry"])
+        guard case .object(let selected) = snapshot["selectedOption"] else {
+            return XCTFail("offline snapshot needs the selected option")
+        }
+        XCTAssertEqual(selected["carry_m"], .number(145))
+        XCTAssertNil(selected["historyAdjustment"])
+        XCTAssertNil(snapshot["selected"])
+        XCTAssertNil(snapshot["evidence"])
+        XCTAssertNil(snapshot["sequences"])
+        XCTAssertNotNil(event.payload["actualShot"])
+        XCTAssertLessThan(
+            try JSONEncoder().encode(event).count,
+            8_192,
+            "offline auditability must not reintroduce the full decision payload"
+        )
+    }
+
     func testLocationEventCarriesCoordinateAccuracyAndTarget() {
         let event = makeBuilder().makeLocationEvent(
             hole: 4,
@@ -130,5 +194,67 @@ final class LiveRoundEventBuilderTests: XCTestCase {
         XCTAssertEqual(first.eventId, "evt-1")
         XCTAssertEqual(second.eventId, "evt-2")
         XCTAssertNotEqual(first.eventId, second.eventId)
+    }
+
+    private func makeLargeDecision(confidenceSource: String) -> CaddieDecisionResponse {
+        let largeBlob = String(repeating: "x", count: 300_000)
+        let selected: [String: JSONValue] = [
+            "id": .string("stock"),
+            "label": .string("Stock"),
+            "carry_m": .number(145),
+            "riskScore": .number(1),
+            "targetWindow": .object([
+                "frontCarry_m": .number(135),
+                "backCarry_m": .number(155),
+            ]),
+            "clubRecommendation": .object([
+                "clubs": .array([
+                    .object([
+                        "clubName": .string("8I"),
+                        "sourceRefs": .array([.string(largeBlob)]),
+                    ]),
+                ]),
+            ]),
+            "historyAdjustment": .object(["rawSamples": .string(largeBlob)]),
+        ]
+        return CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v2",
+            decisionId: "online-decision-4",
+            sourceRef: "round-1:4",
+            evidenceRefs: ["round-1:4"],
+            shotType: "approach",
+            phase: "Approach",
+            context: [
+                "sourceRef": .string("round-1:4"),
+                "roundId": .string("round-1"),
+                "hole": .number(4),
+                "localHole": .number(4),
+                "globalId": .number(31_676),
+                "geometry": .string(largeBlob),
+            ],
+            options: [
+                ["id": .string("safe"), "carry_m": .number(125)],
+                selected,
+                ["id": .string("attack"), "carry_m": .number(165)],
+            ],
+            selected: selected,
+            selectedOptionId: "stock",
+            selectedOption: selected,
+            sequences: [["rawRoute": .string(largeBlob)]],
+            selectedSequence: ["rawRoute": .string(largeBlob)],
+            avoidZones: [],
+            forbiddenZones: [],
+            acceptableMiss: [:],
+            evidence: [["rawEvidence": .string(largeBlob)]],
+            confidence: [
+                "level": .string("medium"),
+                "source": .string(confidenceSource),
+            ],
+            missingData: [],
+            auditCriteria: [
+                ["label": .string("club_match"), "rule": .string("match selected club")],
+                ["label": .string("carry_window"), "rule": .string("match selected carry")],
+            ]
+        )
     }
 }
