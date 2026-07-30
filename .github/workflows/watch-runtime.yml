@@ -283,7 +283,10 @@ jobs:
 
           # Relaunch without the DEBUG screenshot root. The production app root must now resolve to
           # WatchStartView because the successfully finished round no longer exists on disk.
-          STANDARD_LAUNCH_OUTPUT=$(xcrun simctl launch "$WATCH_UDID" "$BID" 2>&1)
+          STANDARD_LAUNCH_OUTPUT=$(env \
+            SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
+            SIMCTL_CHILD_UITEST_GPS_LON=116.5461531 \
+            xcrun simctl launch "$WATCH_UDID" "$BID" 2>&1)
           printf '%s\n' "$STANDARD_LAUNCH_OUTPUT" \
             | tee watch-runtime-artifacts/launch-watch-journey-finished-home.txt
           sleep 5

@@ -40,3 +40,63 @@ public enum WatchGeoMath {
         return yards(metres(lat, lon, toLat, toLon))
     }
 }
+
+/// Presentation math for the Watch start screen. It ranks only the real course coordinates already
+/// present in the mobile options payload; missing or invalid coordinates remain selectable but never
+/// receive a fabricated distance.
+public enum WatchCourseProximity {
+    public static func distanceM(
+        to course: WatchCourseOption,
+        fromLatitude latitude: Double,
+        longitude: Double
+    ) -> Double? {
+        guard isValid(latitude: latitude, longitude: longitude),
+              let courseLatitude = course.latitude,
+              let courseLongitude = course.longitude,
+              isValid(latitude: courseLatitude, longitude: courseLongitude) else {
+            return nil
+        }
+        return WatchGeoMath.metres(latitude, longitude, courseLatitude, courseLongitude)
+    }
+
+    public static func ranked(
+        _ courses: [WatchCourseOption],
+        fromLatitude latitude: Double,
+        longitude: Double
+    ) -> [WatchCourseOption] {
+        courses.enumerated().sorted { left, right in
+            let leftDistance = distanceM(
+                to: left.element,
+                fromLatitude: latitude,
+                longitude: longitude
+            )
+            let rightDistance = distanceM(
+                to: right.element,
+                fromLatitude: latitude,
+                longitude: longitude
+            )
+            switch (leftDistance, rightDistance) {
+            case let (lhs?, rhs?) where lhs != rhs:
+                return lhs < rhs
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            default:
+                return left.offset < right.offset
+            }
+        }.map(\.element)
+    }
+
+    public static func distanceLabel(_ metres: Double) -> String? {
+        guard metres.isFinite, metres >= 0 else { return nil }
+        let tenthsOfAKilometre = Int((metres / 100).rounded())
+        return "\(tenthsOfAKilometre / 10).\(tenthsOfAKilometre % 10) km"
+    }
+
+    private static func isValid(latitude: Double, longitude: Double) -> Bool {
+        latitude.isFinite && longitude.isFinite
+            && (-90...90).contains(latitude)
+            && (-180...180).contains(longitude)
+    }
+}

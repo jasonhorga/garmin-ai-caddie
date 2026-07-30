@@ -142,7 +142,9 @@ public struct WatchUITestRoot: View {
         return WatchStartView(
             phoneReachable: false,
             courses: options,
-            cachedCourseIds: Set(cached.map { $0.option.globalId })
+            cachedCourseIds: Set(cached.map { $0.option.globalId }),
+            currentLatitude: 40.0454995,
+            currentLongitude: 116.5461531
         )
     }
 
@@ -882,6 +884,8 @@ public struct WatchUITestRoot: View {
         holes: 18,
         teeBox: "Blue",
         venueName: "北京丽宫体育公园高尔夫俱乐部",
+        latitude: 40.0491,
+        longitude: 116.5461531,
         tees: ["Blue", "White"]
     )
 

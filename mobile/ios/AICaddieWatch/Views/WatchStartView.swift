@@ -11,6 +11,8 @@ public struct WatchStartView: View {
     public let isSearchingCourses: Bool
     public let preparingCourseId: Int?
     public let errorMessage: String?
+    public let currentLatitude: Double?
+    public let currentLongitude: Double?
     public let onRefresh: () -> Void
     public let onSearchAllCourses: (String) -> Void
     public let onLoadCourseTees: (Int) async -> [WatchCourseTee]
@@ -27,6 +29,8 @@ public struct WatchStartView: View {
         isSearchingCourses: Bool = false,
         preparingCourseId: Int? = nil,
         errorMessage: String? = nil,
+        currentLatitude: Double? = nil,
+        currentLongitude: Double? = nil,
         onRefresh: @escaping () -> Void = {},
         onSearchAllCourses: @escaping (String) -> Void = { _ in },
         onLoadCourseTees: @escaping (Int) async -> [WatchCourseTee] = { _ in [] },
@@ -40,6 +44,8 @@ public struct WatchStartView: View {
         self.isSearchingCourses = isSearchingCourses
         self.preparingCourseId = preparingCourseId
         self.errorMessage = errorMessage
+        self.currentLatitude = currentLatitude
+        self.currentLongitude = currentLongitude
         self.onRefresh = onRefresh
         self.onSearchAllCourses = onSearchAllCourses
         self.onLoadCourseTees = onLoadCourseTees
@@ -82,7 +88,7 @@ public struct WatchStartView: View {
     }
 
     private var knownCourseSection: some View {
-        Section("选择球场") {
+        Section(knownCourseSectionTitle) {
             if filteredCourses.isEmpty {
                 if isLoadingCourses {
                     ProgressView("正在获取球场")
@@ -92,7 +98,7 @@ public struct WatchStartView: View {
                 }
             } else {
                 ForEach(filteredCourses) { course in
-                    courseButton(course)
+                    courseButton(course, subtitle: nearbySubtitle(for: course))
                 }
             }
 
@@ -205,12 +211,17 @@ public struct WatchStartView: View {
 
     private var filteredCourses: [WatchCourseOption] {
         let query = trimmedSearchText
-        guard !query.isEmpty else { return courses }
-        return courses.filter { course in
+        let matches = query.isEmpty ? courses : courses.filter { course in
             [course.name, course.venueName, course.segmentLabel]
                 .compactMap { $0 }
                 .contains { $0.localizedCaseInsensitiveContains(query) }
         }
+        guard let currentLatitude, let currentLongitude else { return matches }
+        return WatchCourseProximity.ranked(
+            matches,
+            fromLatitude: currentLatitude,
+            longitude: currentLongitude
+        )
     }
 
     private var trimmedSearchText: String {
@@ -225,6 +236,29 @@ public struct WatchStartView: View {
 
     private var showRemoteSectionFirst: Bool {
         !trimmedSearchText.isEmpty || isSearchingCourses || !searchMatches.isEmpty
+    }
+
+    private var knownCourseSectionTitle: String {
+        let locatedCount = filteredCourses.filter { nearbyDistance(to: $0) != nil }.count
+        guard locatedCount > 0 else { return "选择球场" }
+        return locatedCount == filteredCourses.count ? "附近球场" : "附近/已知球场"
+    }
+
+    private func nearbySubtitle(for course: WatchCourseOption) -> String? {
+        guard let distance = nearbyDistance(to: course),
+              let label = WatchCourseProximity.distanceLabel(distance) else {
+            return nil
+        }
+        return "\(course.playableHoleCount) 洞 · \(label)"
+    }
+
+    private func nearbyDistance(to course: WatchCourseOption) -> Double? {
+        guard let currentLatitude, let currentLongitude else { return nil }
+        return WatchCourseProximity.distanceM(
+            to: course,
+            fromLatitude: currentLatitude,
+            longitude: currentLongitude
+        )
     }
 
     private var visibleSearchMatches: [WatchCourseSearchMatch] {

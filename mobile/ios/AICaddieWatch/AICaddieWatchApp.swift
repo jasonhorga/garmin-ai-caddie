@@ -106,6 +106,8 @@ public struct AICaddieWatchApp: App {
                     isSearchingCourses: courseLibrary.isSearchingCourses,
                     preparingCourseId: courseLibrary.preparingCourseId,
                     errorMessage: courseLibrary.errorMessage,
+                    currentLatitude: watchLocation.latestFix?.coordinate.latitude,
+                    currentLongitude: watchLocation.latestFix?.coordinate.longitude,
                     onRefresh: {
                         Task { await courseLibrary.refresh(config: syncClient.config) }
                     },
