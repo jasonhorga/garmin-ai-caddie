@@ -115,7 +115,10 @@ final class LiveRoundEventBuilderTests: XCTestCase {
         )
 
         XCTAssertEqual(event.payload["decisionId"], .string("online-decision-4"))
-        XCTAssertNil(event.payload["decision"], "online decisions are authoritative in the server ledger")
+        XCTAssertFalse(
+            event.payload.keys.contains("decision"),
+            "online decisions are authoritative in the server ledger"
+        )
         XCTAssertNotNil(event.payload["actualShot"])
         XCTAssertLessThan(
             try JSONEncoder().encode(event).count,
@@ -147,15 +150,15 @@ final class LiveRoundEventBuilderTests: XCTestCase {
             return XCTFail("offline snapshot needs source identity context")
         }
         XCTAssertEqual(context["globalId"], .number(31_676))
-        XCTAssertNil(context["geometry"])
+        XCTAssertFalse(context.keys.contains("geometry"))
         guard case .object(let selected) = snapshot["selectedOption"] else {
             return XCTFail("offline snapshot needs the selected option")
         }
         XCTAssertEqual(selected["carry_m"], .number(145))
-        XCTAssertNil(selected["historyAdjustment"])
-        XCTAssertNil(snapshot["selected"])
-        XCTAssertNil(snapshot["evidence"])
-        XCTAssertNil(snapshot["sequences"])
+        XCTAssertFalse(selected.keys.contains("historyAdjustment"))
+        XCTAssertFalse(snapshot.keys.contains("selected"))
+        XCTAssertFalse(snapshot.keys.contains("evidence"))
+        XCTAssertFalse(snapshot.keys.contains("sequences"))
         XCTAssertNotNil(event.payload["actualShot"])
         XCTAssertLessThan(
             try JSONEncoder().encode(event).count,
