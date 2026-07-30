@@ -197,24 +197,25 @@ final class LiveRoundEventBuilderTests: XCTestCase {
     }
 
     private func makeLargeDecision(confidenceSource: String) -> CaddieDecisionResponse {
-        let largeBlob = String(repeating: "x", count: 300_000)
+        let largeBlob = String(repeating: "x", count: 150_000)
+        let club: [String: JSONValue] = [
+            "clubName": .string("8I"),
+            "sourceRefs": .array([.string(largeBlob)]),
+        ]
+        let clubRecommendation: [String: JSONValue] = [
+            "clubs": .array([.object(club)]),
+        ]
+        let targetWindow: [String: JSONValue] = [
+            "frontCarry_m": .number(135),
+            "backCarry_m": .number(155),
+        ]
         let selected: [String: JSONValue] = [
             "id": .string("stock"),
             "label": .string("Stock"),
             "carry_m": .number(145),
             "riskScore": .number(1),
-            "targetWindow": .object([
-                "frontCarry_m": .number(135),
-                "backCarry_m": .number(155),
-            ]),
-            "clubRecommendation": .object([
-                "clubs": .array([
-                    .object([
-                        "clubName": .string("8I"),
-                        "sourceRefs": .array([.string(largeBlob)]),
-                    ]),
-                ]),
-            ]),
+            "targetWindow": .object(targetWindow),
+            "clubRecommendation": .object(clubRecommendation),
             "historyAdjustment": .object(["rawSamples": .string(largeBlob)]),
         ]
         return CaddieDecisionResponse(
