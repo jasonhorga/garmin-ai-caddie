@@ -37,6 +37,13 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertNil(WatchCourseProximity.distanceLabel(-1))
     }
 
+    func testNearbyRadiusDoesNotMislabelADistantKnownCourse() {
+        XCTAssertTrue(WatchCourseProximity.isNearby(distanceM: 49_999))
+        XCTAssertTrue(WatchCourseProximity.isNearby(distanceM: 50_000))
+        XCTAssertFalse(WatchCourseProximity.isNearby(distanceM: 50_001))
+        XCTAssertFalse(WatchCourseProximity.isNearby(distanceM: .infinity))
+    }
+
     func testPreferredTeeDoesNotTreatUnknownAsARealTee() {
         let option = WatchCourseOption(
             globalId: 31669,
