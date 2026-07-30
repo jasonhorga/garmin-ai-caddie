@@ -516,7 +516,7 @@ public struct WatchHoleMapView: View {
             )
         }
 
-        let radius: CGFloat = 8
+        let radius: CGFloat = 4.2
         let targetRect = CGRect(
             x: target.x - radius,
             y: target.y - radius,
