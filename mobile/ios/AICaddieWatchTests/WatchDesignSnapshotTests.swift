@@ -209,6 +209,60 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testManualScoreStepLabelsFollowTheConfirmedParFlow() {
+        XCTAssertEqual(
+            WatchScoreHoleView(
+                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+                step: .score
+            ).stepLabel,
+            "1/4 · 总杆"
+        )
+        XCTAssertEqual(
+            WatchScoreHoleView(
+                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+                step: .putts
+            ).stepLabel,
+            "2/4 · 推杆"
+        )
+        XCTAssertEqual(
+            WatchScoreHoleView(
+                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+                step: .fairway
+            ).stepLabel,
+            "3/4 · 开球结果"
+        )
+        XCTAssertEqual(
+            WatchScoreHoleView(
+                hole: 7, par: 3, score: 3, putts: 2, penalty: 0,
+                step: .penalty
+            ).stepLabel,
+            "3/3 · 罚杆"
+        )
+    }
+
+    @MainActor
+    func testRenderWatchScoreTotalStep() throws {
+        let view = WatchScoreHoleView(
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+            step: .score
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-score-total")
+    }
+
+    @MainActor
+    func testRenderWatchScorePuttsStep() throws {
+        let view = WatchScoreHoleView(
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+            step: .putts
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-score-putts")
+    }
+
+    @MainActor
     func testRenderWatchScoreFairwayStep() throws {
         let view = WatchScoreHoleView(
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
@@ -217,6 +271,17 @@ final class WatchDesignSnapshotTests: XCTestCase {
         .frame(width: 198, height: 242)
         .background(Color.black)
         try render(view, named: "watch-score-fairway")
+    }
+
+    @MainActor
+    func testRenderWatchScorePenaltyStep() throws {
+        let view = WatchScoreHoleView(
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+            step: .penalty
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-score-penalty")
     }
 
     @MainActor
