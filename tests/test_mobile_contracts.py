@@ -1866,6 +1866,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("case .empty:", topo_base)
         self.assertIn('ProgressView("球场地图加载中…")', topo_base)
         self.assertIn('.accessibilityIdentifier("topo-hole-base-loading")', topo_base)
+        self.assertIn('.accessibilityElement(children: .ignore)', topo_base)
         self.assertIn('.accessibilityIdentifier("topo-hole-base-ready")', topo_base)
         self.assertIn("case .failure:", topo_base)
 

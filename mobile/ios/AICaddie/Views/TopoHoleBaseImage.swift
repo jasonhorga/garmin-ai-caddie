@@ -27,6 +27,7 @@ struct TopoHoleBaseImage: View {
                     loadingImage
                 case .success(let image):
                     image.resizable().scaledToFit()
+                        .accessibilityElement(children: .ignore)
                         .accessibilityLabel("球场地图")
                         .accessibilityIdentifier("topo-hole-base-ready")
                 case .failure:
