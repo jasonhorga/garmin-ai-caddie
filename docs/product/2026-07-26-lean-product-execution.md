@@ -120,7 +120,7 @@
 
 ## 当前工作：真实整轮逐屏复核进行中
 
-Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆盖差异已经收口；Hole Root 条件球童层与完整球童打法首屏已有模拟器生产 View 候选，正在等待 Owner 视觉批准，尚不算最终获批。iPhone 与 Watch 都已用同一真实球场、同一 local round 连续走完并结束 18 洞；用户明确批准前不发布 TestFlight。风、空气密度、假成功率和推杆级果岭等高线继续后置。
+Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆盖差异已经收口；Hole Root 条件球童层、完整球童打法首屏与顺序成绩确认已有模拟器生产 View 候选，正在等待 Owner 视觉批准，尚不算最终获批。iPhone 与 Watch 都已用同一真实球场、同一 local round 连续走完并结束 18 洞；用户明确批准前不发布 TestFlight。风、空气密度、假成功率和推杆级果岭等高线继续后置。
 
 ### Watch Hole Root 条件球童层候选（2026-07-30，等待 Owner 批准）
 
@@ -135,6 +135,13 @@ Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆
 - 保留批准稿的三卡顺序、策略色、暗色层级和标准方案蓝框。后续已确认的产品逻辑优先于旧稿示意：卡片显示完整 club chain 与每杆 carry；未经校准的 expected strokes / 成功率继续不展示，也不把工程说明写给球员。
 - Actions RED run `30568220558` 明确因缺少 `WatchCaddieScreen` 失败；GREEN run `30569084237` 的 Watch 全测试、设计截图上传和独立 Watch build 成功，随后主动取消无关整轮回放。截图是在 watchOS Simulator 中渲染 production 三卡内容；它不是物理手表证据。
 - 本项状态仅为 `CANDIDATE / OWNER VISUAL GATE OPEN`。一对一审批页已生成；Owner 批准前不标记最终完成。
+
+### Watch 顺序成绩确认候选（2026-07-30，等待 Owner 批准）
+
+- 实现 HEAD `3226b04b657c9abf5b79f1e408fbdc3c85f76f99`。保留后来确认的产品逻辑：推荐成绩可一键接受并直接保存；手动才按 Par 4/5 的总杆 → 推杆 → Fairway（偏左/上球道/偏右）→ 罚杆推进，Par 3 跳过 Fairway。旧批准稿的一页式 stepper 只作为视觉语言，不恢复为交互。
+- 下一洞首杆暂存页面仍以“上一洞成绩确认”为当前任务：确认后换洞并把暂存位置作为下一洞第一杆；取消后不换洞，把位置归回上一洞 recovery 并进入实际球杆确认。本切片没有修改模型、持久化、事件或跨端协议。
+- 标题、数字、± 控件、绿色主操作和灰色取消现在复用同一紧凑几何；手动页明确显示 `1/4…4/4`，Par 3 显示 `1/3…3/3`。Actions RED run `30570137572` 明确因顺序标签缺失失败；GREEN run `30570474610` 的 Watch 全测试、六张截图上传和独立 Watch build 成功，随后主动取消无关整轮回放。
+- 本项状态仅为 `CANDIDATE / OWNER VISUAL GATE OPEN`。旧批准稿没有后来流程对应的同状态画面，因此审批页明确把旧图标为视觉语言，并把六个生产 View 状态作为新的批准候选；Owner 批准前不把它们称为最终基线。
 
 ### 真实 18 洞闭环结果（2026-07-30）
 
