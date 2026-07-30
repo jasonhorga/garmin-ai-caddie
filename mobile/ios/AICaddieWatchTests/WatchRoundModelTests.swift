@@ -1,3 +1,4 @@
+import CoreLocation
 import XCTest
 @testable import AICaddieWatch
 
@@ -807,7 +808,27 @@ final class WatchRoundModelTests: XCTestCase {
         let recommendation = try JSONDecoder().decode(WatchRoundState.self, from: data)
         let model = seededModel(holes: [recommendation])
 
-        XCTAssertTrue(model.rootCaddieLayerAvailable)
+        XCTAssertTrue(model.rootCaddieLayerAvailable(at: WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.0455, longitude: 116.5462),
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-06-20T00:00:00Z"
+        )))
+        XCTAssertFalse(model.rootCaddieLayerAvailable(at: nil))
+        XCTAssertFalse(model.rootCaddieLayerAvailable(at: WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.0455, longitude: 116.5462),
+            horizontalAccuracyM: 16,
+            capturedAt: "2026-06-20T00:00:00Z"
+        )))
+        XCTAssertFalse(model.rootCaddieLayerAvailable(at: WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.0455, longitude: 116.5462),
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-06-19T23:59:44Z"
+        )))
+        XCTAssertFalse(model.rootCaddieLayerAvailable(at: WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.0458, longitude: 116.5462),
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-06-20T00:00:00Z"
+        )))
     }
 
     func testPlaysLikeDeltaConvertsMetresToUserFacingYards() {
