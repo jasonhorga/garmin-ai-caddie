@@ -43,6 +43,7 @@ public enum WatchCourseTemplateBuilder {
         backOption: WatchCourseOption? = nil,
         package: WatchCoursePackage,
         prepsByGlobalId: [Int: WatchCoursePrepResponse],
+        topoImagesByGlobalId: [Int: [Int: Data]] = [:],
         cachedAt: String
     ) throws -> WatchCourseDownload {
         guard !package.holes.isEmpty else { throw WatchCourseTemplateBuilderError.emptyPackage }
@@ -63,7 +64,9 @@ public enum WatchCourseTemplateBuilder {
                 WatchClubOption(clubName: $0.name, medianM: $0.m, source: "course-prep")
             }
 
-            if let image = prep?.map?.image, let data = imageData(from: image) {
+            if let data = topoImagesByGlobalId[globalId]?[localHole] {
+                images.append(WatchCourseImage(globalId: globalId, hole: hole.number, data: data))
+            } else if let image = prep?.map?.image, let data = imageData(from: image) {
                 images.append(WatchCourseImage(globalId: globalId, hole: hole.number, data: data))
             }
 

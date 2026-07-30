@@ -151,12 +151,21 @@ public final class WatchCourseLibrary: ObservableObject {
                 requestedByGlobalId[globalId, default: []].insert(localHole)
             }
             var preps: [Int: WatchCoursePrepResponse] = [:]
+            var topoImages: [Int: [Int: Data]] = [:]
             for globalId in requestedByGlobalId.keys.sorted() {
                 let localHoles = requestedByGlobalId[globalId, default: []].sorted()
                 preps[globalId] = try await client.fetchCoursePrep(
                     globalId: globalId,
                     localHoles: localHoles
                 )
+                for localHole in localHoles {
+                    if let data = try? await client.fetchCourseTopo(
+                        globalId: globalId,
+                        localHole: localHole
+                    ), !data.isEmpty {
+                        topoImages[globalId, default: [:]][localHole] = data
+                    }
+                }
             }
 
             let download = try WatchCourseTemplateBuilder.build(
@@ -164,6 +173,7 @@ public final class WatchCourseLibrary: ObservableObject {
                 backOption: selection.back,
                 package: package,
                 prepsByGlobalId: preps,
+                topoImagesByGlobalId: topoImages,
                 cachedAt: now()
             )
             for image in download.images {

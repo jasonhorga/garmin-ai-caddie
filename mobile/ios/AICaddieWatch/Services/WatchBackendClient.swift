@@ -232,6 +232,20 @@ public final class WatchBackendClient {
         return request
     }
 
+    /// The same immutable realistic-topo bitmap used by iPhone and Web. This endpoint is public
+    /// course knowledge, so the Watch does not attach member credentials to the image request.
+    public func makeCourseTopoRequest(globalId: Int, localHole: Int) throws -> URLRequest {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/\(globalId)/holes/\(localHole)/topo.png"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "v", value: "topo-v4")]
+        guard let url = components.url else { throw URLError(.badURL) }
+        return URLRequest(url: url)
+    }
+
     public func decodeCourseOptions(_ data: Data) throws -> [WatchCourseOption] {
         try JSONDecoder().decode(WatchCourseOptionsEnvelope.self, from: data).courses
     }
@@ -292,6 +306,10 @@ public final class WatchBackendClient {
         let request = try makeCoursePrepRequest(globalId: globalId, localHoles: localHoles)
         let data = try await sendForData(request)
         return try decodeCoursePrep(data)
+    }
+
+    public func fetchCourseTopo(globalId: Int, localHole: Int) async throws -> Data {
+        try await sendForData(makeCourseTopoRequest(globalId: globalId, localHole: localHole))
     }
 
     /// Build the POST /events request (headers + mapped batch body). Split out from `postEvents` so it
