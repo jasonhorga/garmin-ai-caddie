@@ -230,7 +230,7 @@ public struct RoundHomeView: View {
                 HubInProgressCard(
                     courseName: package.course.name,
                     activeHole: liveRoundState.activeHole,
-                    recorded: liveRoundState.holes.count,
+                    recorded: recordedScoreHoleCount,
                     total: package.holes.count
                 )
             }
@@ -241,6 +241,22 @@ public struct RoundHomeView: View {
             HubPlayTile()
         }
         .buttonStyle(.plain)
+    }
+
+    /// A restored snapshot contains one default state for every package hole, including holes the
+    /// player has not scored. Home progress therefore comes from the durable score events, matching
+    /// the in-round scorecard, rather than from `liveRoundState.holes.count`.
+    private var recordedScoreHoleCount: Int {
+        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return 0 }
+        let displayedHoles = Set(package.holes.map(\.number))
+        return Set(events.compactMap { event in
+            guard event.roundId == package.roundId,
+                  event.kind == .score,
+                  displayedHoles.contains(event.hole) else {
+                return nil
+            }
+            return event.hole
+        }).count
     }
 
     // MARK: - 备战 · 复盘 · 统计 磁贴(复盘=单场逐洞,统计=历史宏观,分开)

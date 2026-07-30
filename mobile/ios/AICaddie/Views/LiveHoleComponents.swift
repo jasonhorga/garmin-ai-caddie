@@ -485,6 +485,7 @@ struct LiveCaddieStrip: View {
     let clubs: [Club]
     var playsText: String?
     var isLoading: Bool = false
+    var isReady: Bool = true
     var errorText: String?
     var onExpand: () -> Void = {}
     var onSelect: (String) -> Void = { _ in }
@@ -503,7 +504,9 @@ struct LiveCaddieStrip: View {
                     }
                 }
                 .frame(width: 7, height: 7)
-                .accessibilityLabel(isLoading ? "正在更新球童建议" : "球童建议已就绪")
+                .accessibilityLabel(
+                    isLoading ? "正在更新球童建议" : (isReady ? "球童建议已就绪" : "球童建议待更新")
+                )
                 Text("球童建议").font(.system(size: 13, weight: .heavy)).foregroundStyle(LivePlayStyle.greenLabel)
                 Spacer(minLength: 0)
                 Button(action: onExpand) {

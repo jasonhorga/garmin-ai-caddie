@@ -585,8 +585,10 @@ final class RealFlowUITests: XCTestCase {
 
         for identifier in ["live-green-front", "live-green-middle", "live-green-back"] {
             let distance = app.staticTexts[identifier]
-            XCTAssertTrue(distance.waitForExistence(timeout: 30), "hole \(hole) must expose \(identifier)")
-            XCTAssertNotNil(Int(distance.label), "hole \(hole) \(identifier) must be a real whole-yard range")
+            XCTAssertTrue(
+                waitForWholeYardValue(distance, timeout: 30),
+                "hole \(hole) \(identifier) must settle to a real whole-yard range"
+            )
         }
         let loading = app.activityIndicators["正在更新球童建议"]
         _ = loading.waitForExistence(timeout: 1)
@@ -606,6 +608,17 @@ final class RealFlowUITests: XCTestCase {
             "hole \(hole) must not silently replace the real journey with an offline suggestion"
         )
         return par
+    }
+
+    private func waitForWholeYardValue(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement, element.exists else { return false }
+                return Int(element.label) != nil
+            },
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
     /// Record exactly the first GPS shot on each hole. Hole 2 selects an actual club; every other hole

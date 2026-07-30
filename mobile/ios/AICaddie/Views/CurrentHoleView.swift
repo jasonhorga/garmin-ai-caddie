@@ -160,6 +160,7 @@ public struct CurrentHoleView: View {
                             clubs: caddieClubChips,
                             playsText: caddiePlaysText,
                             isLoading: isLoadingCaddieDecision,
+                            isReady: caddieDecision != nil,
                             errorText: caddieErrorMessage,
                             onExpand: { withAnimation(.easeInOut(duration: 0.2)) { showCaddieDetail.toggle() } },
                             onSelect: { selectClub($0) }
@@ -500,6 +501,8 @@ public struct CurrentHoleView: View {
 
     @MainActor
     private func loadCurrentHole() async {
+        isLoadingCaddieDecision = true
+        defer { isLoadingCaddieDecision = false }
         await loadHoleMap()
         guard !Task.isCancelled else { return }
         // Sync the selected club to the recommendation on a fresh hole; a hole the player already
