@@ -123,6 +123,34 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertEqual(hole.penaltyCount, 0)
     }
 
+    func testBuildPrefersSharedTopoBitmapOverLegacyPrepJPEG() throws {
+        let option = WatchCourseOption(
+            globalId: 31669,
+            name: "北京丽宫",
+            holes: 18,
+            teeBox: "Blue"
+        )
+        let package = try client.decodeCoursePackage(Data(
+            #"{"roundId":"watch-topo-v4","course":{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1}]}"#.utf8
+        ))
+        let prep = try client.decodeCoursePrep(Data(
+            #"{"globalId":31669,"clubs":[],"holes":[{"hole":1,"hazards":{},"map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":678,"h":1060,"route":[]}}}]}"#.utf8
+        ))
+        let sharedTopo = Data([9, 8, 7])
+
+        let download = try WatchCourseTemplateBuilder.build(
+            option: option,
+            package: package,
+            prepsByGlobalId: [31669: prep],
+            topoImagesByGlobalId: [31669: [1: sharedTopo]],
+            cachedAt: "2026-07-30T00:00:00Z"
+        )
+
+        XCTAssertEqual(download.images, [
+            WatchCourseImage(globalId: 31669, hole: 1, data: sharedTopo)
+        ])
+    }
+
     func testBuildUsesSelectedPackageTeeWhenRenderedPrepIsAbsent() throws {
         let option = WatchCourseOption(
             globalId: 31669,
