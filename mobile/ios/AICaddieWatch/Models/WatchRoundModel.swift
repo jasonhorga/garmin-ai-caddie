@@ -231,9 +231,47 @@ public final class WatchRoundModel: ObservableObject {
         !(activeHoleState?.hazards.isEmpty ?? true)
     }
 
-    /// D02/C′ safety gate. The current state has no complete recommendation freshness, mode or real
-    /// lateral-dispersion contract, so the production root must stay on its facts-only fallback.
-    public var rootCaddieLayerAvailable: Bool { false }
+    /// D02/C′ safety gate. Detail-only legacy fields cannot open this layer: it requires one coherent
+    /// live recommendation, a current time window, trustworthy measured carry depth and a real route.
+    public var rootCaddieLayerAvailable: Bool {
+        guard let state = activeHoleState,
+              let recommendation = state.rootCaddieRecommendation,
+              state.decisionId == recommendation.decisionId,
+              state.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines)
+                == recommendation.clubName.trimmingCharacters(in: .whitespacesAndNewlines),
+              (state.holeMap?.route?.count ?? 0) >= 2,
+              recommendation.source == "live",
+              ["automatic", "manual"].contains(recommendation.mode),
+              ["high", "medium"].contains(recommendation.confidence),
+              recommendation.sampleSize >= 10,
+              recommendation.evidenceCount > 0,
+              recommendation.aimCarryM.isFinite, recommendation.aimCarryM > 0,
+              recommendation.carryP10M.isFinite, recommendation.carryP10M > 0,
+              recommendation.carryP90M.isFinite,
+              recommendation.carryP90M >= recommendation.carryP10M,
+              recommendation.originLatitude.isFinite,
+              (-90...90).contains(recommendation.originLatitude),
+              recommendation.originLongitude.isFinite,
+              (-180...180).contains(recommendation.originLongitude),
+              recommendation.originAccuracyM.isFinite,
+              (0...15).contains(recommendation.originAccuracyM),
+              recommendation.maximumMovementM.isFinite,
+              recommendation.maximumMovementM > 0
+        else {
+            return false
+        }
+
+        let formatter = ISO8601DateFormatter()
+        guard let generatedAt = formatter.date(from: recommendation.generatedAt),
+              let validUntil = formatter.date(from: recommendation.validUntil),
+              let current = formatter.date(from: now()),
+              generatedAt < validUntil,
+              generatedAt <= current,
+              current < validUntil else {
+            return false
+        }
+        return true
+    }
 
     /// Source elevation is metres; every player-facing Watch distance is yards (L21).
     public var activePlaysLikeDeltaYards: Int {

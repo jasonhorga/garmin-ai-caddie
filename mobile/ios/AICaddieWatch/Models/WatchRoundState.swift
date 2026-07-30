@@ -213,6 +213,65 @@ public struct WatchRoundSeed: Codable, Equatable {
     }
 }
 
+/// The complete, fail-closed contract for showing one current-shot recommendation on Hole Root.
+/// Legacy `suggestedClub` / `caddieOptions` remain useful in Caddie detail, but cannot independently
+/// opt the root into an apparently live recommendation. The range is longitudinal only: p10/p90 are
+/// measured carry facts and must never be rendered as a fabricated lateral ellipse.
+public struct WatchRootCaddieRecommendation: Codable, Equatable {
+    public let decisionId: String
+    public let clubName: String
+    public let aimCarryM: Double
+    public let carryP10M: Double
+    public let carryP90M: Double
+    public let sampleSize: Int
+    public let confidence: String
+    public let source: String
+    public let mode: String
+    public let generatedAt: String
+    public let validUntil: String
+    public let originLatitude: Double
+    public let originLongitude: Double
+    public let originAccuracyM: Double
+    public let maximumMovementM: Double
+    public let evidenceCount: Int
+
+    public init(
+        decisionId: String,
+        clubName: String,
+        aimCarryM: Double,
+        carryP10M: Double,
+        carryP90M: Double,
+        sampleSize: Int,
+        confidence: String,
+        source: String,
+        mode: String,
+        generatedAt: String,
+        validUntil: String,
+        originLatitude: Double,
+        originLongitude: Double,
+        originAccuracyM: Double,
+        maximumMovementM: Double,
+        evidenceCount: Int
+    ) {
+        self.decisionId = decisionId
+        self.clubName = clubName
+        self.aimCarryM = aimCarryM
+        self.carryP10M = carryP10M
+        self.carryP90M = carryP90M
+        self.sampleSize = sampleSize
+        self.confidence = confidence
+        self.source = source
+        self.mode = mode
+        self.generatedAt = generatedAt
+        self.validUntil = validUntil
+        self.originLatitude = originLatitude
+        self.originLongitude = originLongitude
+        self.originAccuracyM = originAccuracyM
+        self.maximumMovementM = maximumMovementM
+        self.evidenceCount = evidenceCount
+    }
+}
+
 public struct WatchRoundState: Codable, Equatable, Identifiable {
     public var id: String { "\(roundId)-\(hole)" }
     public var availableClubNames: [String] {
@@ -272,6 +331,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     // the phone. Additive/optional — default [] so older payloads decode unchanged.
     public let caddieOptions: [WatchCaddieOption]
     public let hazards: [WatchHazard]
+    public let rootCaddieRecommendation: WatchRootCaddieRecommendation?
     public let score: Int
     public let putts: Int
     public let penaltyCount: Int
@@ -323,6 +383,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case geometryCoverage
         case caddieOptions
         case hazards
+        case rootCaddieRecommendation
         case score
         case putts
         case penaltyCount
@@ -374,6 +435,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         geometryCoverage: String? = nil,
         caddieOptions: [WatchCaddieOption] = [],
         hazards: [WatchHazard] = [],
+        rootCaddieRecommendation: WatchRootCaddieRecommendation? = nil,
         score: Int,
         putts: Int,
         penaltyCount: Int,
@@ -423,6 +485,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.geometryCoverage = geometryCoverage
         self.caddieOptions = caddieOptions
         self.hazards = hazards
+        self.rootCaddieRecommendation = rootCaddieRecommendation
         self.score = score
         self.putts = putts
         self.penaltyCount = penaltyCount
@@ -475,6 +538,10 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage)
         self.caddieOptions = try container.decodeIfPresent([WatchCaddieOption].self, forKey: .caddieOptions) ?? []
         self.hazards = try container.decodeIfPresent([WatchHazard].self, forKey: .hazards) ?? []
+        self.rootCaddieRecommendation = try container.decodeIfPresent(
+            WatchRootCaddieRecommendation.self,
+            forKey: .rootCaddieRecommendation
+        )
         self.score = try container.decode(Int.self, forKey: .score)
         self.putts = try container.decode(Int.self, forKey: .putts)
         self.penaltyCount = try container.decode(Int.self, forKey: .penaltyCount)
@@ -527,6 +594,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             geometryCoverage: geometryCoverage,
             caddieOptions: caddieOptions,
             hazards: hazards,
+            rootCaddieRecommendation: rootCaddieRecommendation,
             score: score,
             putts: putts,
             penaltyCount: penaltyCount,
@@ -606,6 +674,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             geometryCoverage: geometryCoverage,
             caddieOptions: caddieOptions,
             hazards: hazards,
+            rootCaddieRecommendation: rootCaddieRecommendation,
             score: nextScore,
             putts: nextPutts,
             penaltyCount: nextPenaltyCount,
