@@ -299,7 +299,7 @@ public struct WatchRoundContainerView: View {
             lastShot: latestShotDistanceM(s).map(WatchUnits.yards) ?? 0,
             caddieClub: caddieClub(s),
             caddieNote: caddieNote(s),
-            showCaddieRecommendation: model.rootCaddieLayerAvailable,
+            showCaddieRecommendation: model.rootCaddieLayerAvailable(at: shotLocation),
             // owner 2026-07-08 (Fable audit): KEEP the scoring ring — real per-hole scores, current hole hi.
             ringPips: model.allHoleStates.map {
                 WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
@@ -333,7 +333,7 @@ public struct WatchRoundContainerView: View {
             frontYd: watchGreenYards?.front ?? s.frontGreenM.map { WatchUnits.yards($0) },
             centerYd: watchGreenYards?.center ?? s.centerGreenM.map { WatchUnits.yards($0) },
             backYd: watchGreenYards?.back ?? s.backGreenM.map { WatchUnits.yards($0) },
-            caddieLine: model.rootCaddieLayerAvailable ? caddieLine(s) : nil,
+            caddieLine: model.rootCaddieLayerAvailable(at: shotLocation) ? caddieLine(s) : nil,
             bigText: big
         )
     }

@@ -232,9 +232,17 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     /// D02/C′ safety gate. Detail-only legacy fields cannot open this layer: it requires one coherent
-    /// live recommendation, a current time window, trustworthy measured carry depth and a real route.
-    public var rootCaddieLayerAvailable: Bool {
-        guard let state = activeHoleState,
+    /// live recommendation, a current time window, trustworthy measured carry depth, a real route and
+    /// one fresh, accurate Watch fix that has not moved beyond the recommendation's origin window.
+    public func rootCaddieLayerAvailable(at fix: WatchLocationFix?) -> Bool {
+        guard let fix,
+              fix.coordinate.latitude.isFinite,
+              (-90...90).contains(fix.coordinate.latitude),
+              fix.coordinate.longitude.isFinite,
+              (-180...180).contains(fix.coordinate.longitude),
+              fix.horizontalAccuracyM.isFinite,
+              (0...15).contains(fix.horizontalAccuracyM),
+              let state = activeHoleState,
               let recommendation = state.rootCaddieRecommendation,
               state.decisionId == recommendation.decisionId,
               state.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -264,10 +272,19 @@ public final class WatchRoundModel: ObservableObject {
         let formatter = ISO8601DateFormatter()
         guard let generatedAt = formatter.date(from: recommendation.generatedAt),
               let validUntil = formatter.date(from: recommendation.validUntil),
+              let fixCapturedAt = formatter.date(from: fix.capturedAt),
               let current = formatter.date(from: now()),
               generatedAt < validUntil,
               generatedAt <= current,
-              current < validUntil else {
+              current < validUntil,
+              fixCapturedAt <= current,
+              current.timeIntervalSince(fixCapturedAt) <= 15,
+              WatchGeoMath.metres(
+                recommendation.originLatitude,
+                recommendation.originLongitude,
+                fix.coordinate.latitude,
+                fix.coordinate.longitude
+              ) <= recommendation.maximumMovementM else {
             return false
         }
         return true

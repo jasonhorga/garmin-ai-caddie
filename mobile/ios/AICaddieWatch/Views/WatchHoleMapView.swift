@@ -54,8 +54,8 @@ public struct WatchHoleMapView: View {
     public let lastShot: Int
     public let caddieClub: String
     public let caddieNote: String
-    /// D02/C′ gate for the lightweight recommendation chip. The standalone production model currently
-    /// supplies false because freshness, mode and real dispersion are not yet in the Watch contract.
+    /// D02/C′ gate for the lightweight recommendation chip. Production supplies true only for a live,
+    /// current recommendation whose evidence and current Watch location pass every fail-closed check.
     public let showCaddieRecommendation: Bool
     public let ringPips: [WatchRingPip]
     public let showTextOverlay: Bool
