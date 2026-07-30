@@ -309,6 +309,37 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testFinishSummaryRestoresApprovedHierarchyWithoutInventingStatistics() {
+        let view = WatchFinishRoundView(
+            courseName: "北京丽宫 · 前九",
+            holesPlayed: 9, holeCount: 9,
+            totalStrokes: 41, toPar: 5, totalPutts: 16,
+            fairwaySummary: WatchOutcomeSummary(hits: 5, recorded: 7),
+            girSummary: WatchOutcomeSummary(hits: 4, recorded: 9),
+            pendingUploads: 2
+        )
+
+        XCTAssertEqual(
+            view.headlineMetrics,
+            [
+                WatchFinishMetric(value: "+5", label: "成绩", tone: .score),
+                WatchFinishMetric(value: "41", label: "总杆", tone: .neutral),
+                WatchFinishMetric(value: "16", label: "推杆", tone: .neutral),
+            ]
+        )
+        XCTAssertEqual(
+            view.outcomeMetrics,
+            [
+                WatchFinishMetric(value: "44%", label: "GIR", detail: "4/9", tone: .gir),
+                WatchFinishMetric(value: "71%", label: "球道", detail: "5/7", tone: .fairway),
+            ]
+        )
+        XCTAssertEqual(view.pendingUploadText, "结束前保存 2 条")
+        XCTAssertEqual(view.primaryActionLabel, "保存并结束")
+        XCTAssertEqual(view.secondaryActionLabel, "继续打球")
+    }
+
+    @MainActor
     func testRenderWatchFinishRound() throws {
         let view = WatchFinishRoundView(
             courseName: "北京丽宫 · 前九",
@@ -318,7 +349,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             girSummary: WatchOutcomeSummary(hits: 4, recorded: 9),
             pendingUploads: 2
         )
-        .frame(width: 198)
+        .frame(width: 198, height: 242)
         .background(Color.black)
         try render(view, named: "watch-finish-round")
     }
