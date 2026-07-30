@@ -71,17 +71,24 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderWatchCaddieOptions() throws {
-        // round-13 spec ②: 激进/推荐/保守 options pushed from the phone; 标准 (stock) highlighted.
-        let view = WatchCaddieOptionsView(
-            options: [
+        // The Hole Root already shows the current-shot call. Opening it must make the complete
+        // 稳妥/标准/进攻 plans primary instead of repeating another full screen of single-shot facts.
+        let state = WatchRoundState(
+            roundId: "r1", hole: 4, par: 5, distanceM: 262,
+            suggestedClub: "3号木", selectedClub: nil,
+            offlineOptionId: "stock",
+            caddieOptions: [
                 WatchCaddieOption(optionId: "safe", label: "稳妥", clubName: "9号铁", carryM: 128, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 172), WatchCaddiePlanStep(clubName: "9I", carryM: 128)], confidence: "high"),
                 WatchCaddieOption(optionId: "stock", label: "标准", clubName: "8号铁", carryM: 142, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "8I", carryM: 142)], confidence: "high"),
                 WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "7号铁", carryM: 156, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "PW", carryM: 118)], confidence: "medium"),
             ],
-            recommendedId: "stock"
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "high"
         )
-        .padding(8)
-        .frame(width: 198)
+        let screen = WatchCaddieScreen(state: state)
+        XCTAssertTrue(screen.showsPlanOptionsFirst)
+
+        let view = screen
+        .frame(width: 198, height: 242)
         .background(Color.black)
         try render(view, named: "watch-caddie-options")
     }
