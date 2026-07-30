@@ -103,6 +103,35 @@ final class DesignSnapshotTests: XCTestCase {
         try render(view, named: "live-play")
     }
 
+    func testLivePlayAuxiliaryCardTokenStaysDark() {
+        let color = UIColor(LivePlayStyle.auxiliaryFill)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+
+        XCTAssertTrue(color.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+        XCTAssertLessThan(max(red, green, blue), 0.20)
+        XCTAssertEqual(alpha, 1, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testRenderLivePlayAuxiliaryCard() throws {
+        let view = VStack(alignment: .leading, spacing: 8) {
+            Label("更多调整", systemImage: "slider.horizontal.3")
+                .font(.headline)
+            Text("球杆 · 打法 · 球位 · 距离 · 目标 · 备注")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .livePlayAuxiliaryCard()
+        .padding(14)
+        .frame(width: 390)
+        .background(LivePlayStyle.base)
+
+        try render(view, named: "live-play-auxiliary-card")
+    }
+
     @MainActor
     func testRenderRecentReview() throws {
         let fixtureURL = URL(fileURLWithPath: #filePath)
