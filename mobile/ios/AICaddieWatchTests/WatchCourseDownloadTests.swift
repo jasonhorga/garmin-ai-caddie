@@ -138,6 +138,16 @@ final class WatchCourseDownloadTests: XCTestCase {
 
         XCTAssertEqual(try XCTUnwrap(hole.teeLatitude), 40.0454995, accuracy: 0.000_001)
         XCTAssertEqual(try XCTUnwrap(hole.teeLongitude), 116.5461531, accuracy: 0.000_001)
+        XCTAssertEqual(
+            try XCTUnwrap(download.template.option.latitude),
+            40.0454995,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(download.template.option.longitude),
+            116.5461531,
+            accuracy: 0.000_001
+        )
     }
 
     func testNewCourseTemplateKeepsSearchResultNameWhenPackageOnlyHasGenericIdName() throws {
