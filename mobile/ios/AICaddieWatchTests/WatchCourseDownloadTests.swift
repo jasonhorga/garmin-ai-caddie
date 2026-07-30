@@ -4,6 +4,39 @@ import XCTest
 final class WatchCourseDownloadTests: XCTestCase {
     private let client = WatchBackendClient(baseURL: URL(string: "https://caddie.example")!)
 
+    func testNearbyRankingPlacesNearestKnownCourseFirstAndUnknownLast() {
+        let farther = WatchCourseOption(
+            globalId: 2,
+            name: "Farther",
+            holes: 18,
+            latitude: 40.0755,
+            longitude: 116.5462
+        )
+        let unknown = WatchCourseOption(globalId: 3, name: "Unknown", holes: 18)
+        let nearest = WatchCourseOption(
+            globalId: 1,
+            name: "Nearest",
+            holes: 18,
+            latitude: 40.0491,
+            longitude: 116.5462
+        )
+
+        let ranked = WatchCourseProximity.ranked(
+            [farther, unknown, nearest],
+            fromLatitude: 40.0455,
+            longitude: 116.5462
+        )
+
+        XCTAssertEqual(ranked.map(\.globalId), [1, 2, 3])
+    }
+
+    func testNearbyDistanceLabelMatchesApprovedPicker() {
+        XCTAssertEqual(WatchCourseProximity.distanceLabel(400), "0.4 km")
+        XCTAssertEqual(WatchCourseProximity.distanceLabel(3_140), "3.1 km")
+        XCTAssertNil(WatchCourseProximity.distanceLabel(.infinity))
+        XCTAssertNil(WatchCourseProximity.distanceLabel(-1))
+    }
+
     func testPreferredTeeDoesNotTreatUnknownAsARealTee() {
         let option = WatchCourseOption(
             globalId: 31669,
