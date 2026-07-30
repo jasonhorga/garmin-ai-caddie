@@ -21,18 +21,66 @@ enum WatchHoleMapViewport {
     }
 }
 
+/// Image-space facts for one recommendation. There is deliberately no lateral-radius field: the live
+/// decision currently carries measured carry depth only, so the Watch can render p10/p90 longitudinally
+/// without manufacturing a dispersion ellipse.
+public struct WatchCurrentShotLayout: Equatable {
+    public let player: CGPoint
+    public let target: CGPoint
+    public let carryP10: CGPoint
+    public let carryP90: CGPoint
+
+    public static func resolve(
+        route: [[Double]],
+        playerImagePoint: CGPoint,
+        aimCarryM: Double,
+        carryP10M: Double,
+        carryP90M: Double
+    ) -> WatchCurrentShotLayout? {
+        guard aimCarryM.isFinite, aimCarryM > 0,
+              carryP10M.isFinite, carryP10M > 0,
+              carryP90M.isFinite, carryP90M >= carryP10M,
+              carryP10M <= aimCarryM, aimCarryM <= carryP90M,
+              let progress = WatchHazardMapLayout.playerProgressMetres(
+                on: route,
+                playerImagePoint: playerImagePoint
+              ),
+              let target = WatchHazardMapLayout.imagePoint(
+                on: route,
+                atMetres: progress + aimCarryM
+              ),
+              let carryP10 = WatchHazardMapLayout.imagePoint(
+                on: route,
+                atMetres: progress + carryP10M
+              ),
+              let carryP90 = WatchHazardMapLayout.imagePoint(
+                on: route,
+                atMetres: progress + carryP90M
+              ),
+              hypot(target.x - playerImagePoint.x, target.y - playerImagePoint.y) > 1 else {
+            return nil
+        }
+        return WatchCurrentShotLayout(
+            player: playerImagePoint,
+            target: target,
+            carryP10: carryP10,
+            carryP90: carryP90
+        )
+    }
+}
+
 /// round-14 (Watch standalone, DESIGN REVIEW): the player's **hole view** — a Garmin-Approach-S70-inspired
 /// SPLIT (LEFT data column | RIGHT hole-map panel) on the REAL server-rendered CourseView image
 /// (`WatchHoleMapSample`), DECLUTTERED toward Garmin's progressive disclosure.
 ///
 /// This snapshot is a par-5 SECOND shot (gid31669 h4). Layout after the "太挤" review:
 ///  • Left column shows only the essentials: 第N洞·P and the green distance block 后/中/前, with
-///    **中 = distance to the pin you drag in Green Preview**. A recommendation chip is independently
-///    gated and stays absent in production until the complete D02 freshness/mode contract exists.
+///    **中 = distance to the pin you drag in Green Preview**. The recommendation chip and current-shot
+///    overlay appear together only after the complete D02 evidence/freshness/location gate passes.
 ///  • The distance block is a **TOGGLE**: default shows the raw yardage; `showPlaysLike` flips it to the
 ///    slope/elevation-adjusted **实打** values with a ↑/↓ arrow (Garmin taps the distance for this).
-///  • The map is facts-only: real image, player, pin, measurements and score ring. Static route anchors
-///    are not presented as an AI trajectory and no decorative dispersion ellipse is drawn.
+///  • The permanent map layer is facts-only. A gated recommendation adds only the current shot's target
+///    and measured longitudinal p10/p90; no whole-hole AI trajectory or decorative ellipse is drawn.
 ///
 /// RENDERING: one `Canvas` for image + vectors (free `Path{}.fill()` child views nil `ImageRenderer` on
 /// watchOS); TEXT is a SwiftUI overlay; every point `safe(_:)`-guarded.
@@ -57,6 +105,7 @@ public struct WatchHoleMapView: View {
     /// D02/C′ gate for the lightweight recommendation chip. Production supplies true only for a live,
     /// current recommendation whose evidence and current Watch location pass every fail-closed check.
     public let showCaddieRecommendation: Bool
+    public let currentShotLayout: WatchCurrentShotLayout?
     public let ringPips: [WatchRingPip]
     public let showTextOverlay: Bool
     /// Distance block toggle: false = raw yardage; true = 实打 (slope-adjusted) with a ↑/↓ arrow.
@@ -90,6 +139,7 @@ public struct WatchHoleMapView: View {
         caddieClub: String = "3号木",
         caddieNote: String = "推进 · 留100",
         showCaddieRecommendation: Bool = false,
+        currentShotLayout: WatchCurrentShotLayout? = nil,
         ringPips: [WatchRingPip] = WatchHoleMapView.sampleRing,
         showTextOverlay: Bool = true,
         showPlaysLike: Bool = false,
@@ -110,6 +160,7 @@ public struct WatchHoleMapView: View {
         self.caddieClub = caddieClub
         self.caddieNote = caddieNote
         self.showCaddieRecommendation = showCaddieRecommendation
+        self.currentShotLayout = currentShotLayout
         self.ringPips = ringPips
         self.showTextOverlay = showTextOverlay
         self.showPlaysLike = showPlaysLike
@@ -357,6 +408,10 @@ public struct WatchHoleMapView: View {
                         Gradient(colors: [.black.opacity(0), .black.opacity(0.05), .black.opacity(0.82)]),
                         center: player, startRadius: size.height * 0.12, endRadius: size.height * 0.62))
 
+        if showCaddieRecommendation, let currentShotLayout {
+            drawCurrentShot(&context, layout: currentShotLayout, transform: a.t)
+        }
+
         // Pin + flag.
         let pr: CGFloat = 5
         let pinRect = CGRect(x: green.x - pr, y: green.y - pr, width: pr * 2, height: pr * 2)
@@ -416,6 +471,57 @@ public struct WatchHoleMapView: View {
         // Scoring ring ONLY on the outermost hole map — not in the zoomed/focused state (matches Garmin:
         // the on-screen score indicator lives on the hole-info view, sub-screens are full content).
         if !fullMap { drawRing(&context, size: size) }
+    }
+
+    private func drawCurrentShot(
+        _ context: inout GraphicsContext,
+        layout: WatchCurrentShotLayout,
+        transform: (CGPoint) -> CGPoint
+    ) {
+        let player = transform(layout.player)
+        let target = transform(layout.target)
+        let p10 = transform(layout.carryP10)
+        let p90 = transform(layout.carryP90)
+
+        var aim = Path()
+        aim.move(to: player)
+        aim.addLine(to: target)
+        context.stroke(
+            aim,
+            with: .color(.white.opacity(0.94)),
+            style: StrokeStyle(lineWidth: 2.2, lineCap: .round, dash: [6, 5])
+        )
+
+        var depth = Path()
+        depth.move(to: p10)
+        depth.addLine(to: target)
+        depth.addLine(to: p90)
+        context.stroke(
+            depth,
+            with: .color(caddieGreen.opacity(0.82)),
+            style: StrokeStyle(lineWidth: 3.4, lineCap: .round, lineJoin: .round)
+        )
+
+        for endpoint in [p10, p90] {
+            context.fill(
+                Path(ellipseIn: CGRect(x: endpoint.x - 2.5, y: endpoint.y - 2.5, width: 5, height: 5)),
+                with: .color(caddieGreen)
+            )
+        }
+
+        let radius: CGFloat = 8
+        let targetRect = CGRect(
+            x: target.x - radius,
+            y: target.y - radius,
+            width: radius * 2,
+            height: radius * 2
+        )
+        context.fill(Path(ellipseIn: targetRect), with: .color(caddieGreen.opacity(0.92)))
+        context.stroke(
+            Path(ellipseIn: targetRect),
+            with: .color(.white),
+            style: StrokeStyle(lineWidth: 2.4)
+        )
     }
 
     /// A small opaque distance pill centered at `p`, tinted by the marker it belongs to.

@@ -289,6 +289,7 @@ public struct WatchRoundContainerView: View {
 
     @ViewBuilder
     private func holeMapView(_ s: WatchRoundState, _ geometry: WatchHoleMapGeometry) -> some View {
+        let currentShot = currentShotLayout(for: s, geometry: geometry)
         WatchHoleMapView(
             holeNumber: s.hole,
             par: s.par,
@@ -299,7 +300,8 @@ public struct WatchRoundContainerView: View {
             lastShot: latestShotDistanceM(s).map(WatchUnits.yards) ?? 0,
             caddieClub: caddieClub(s),
             caddieNote: caddieNote(s),
-            showCaddieRecommendation: model.rootCaddieLayerAvailable(at: shotLocation),
+            showCaddieRecommendation: currentShot != nil,
+            currentShotLayout: currentShot,
             // owner 2026-07-08 (Fable audit): KEEP the scoring ring — real per-hole scores, current hole hi.
             ringPips: model.allHoleStates.map {
                 WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
@@ -326,6 +328,24 @@ public struct WatchRoundContainerView: View {
         .onChange(of: s.hole) { _ in
             holeMapCrownScale = WatchHoleMapView.restingCrownScale
         }
+    }
+
+    private func currentShotLayout(
+        for state: WatchRoundState,
+        geometry: WatchHoleMapGeometry
+    ) -> WatchCurrentShotLayout? {
+        guard model.rootCaddieLayerAvailable(at: shotLocation),
+              let recommendation = state.rootCaddieRecommendation,
+              let route = state.holeMap?.route else {
+            return nil
+        }
+        return WatchCurrentShotLayout.resolve(
+            route: route,
+            playerImagePoint: geometry.youPx,
+            aimCarryM: recommendation.aimCarryM,
+            carryP10M: recommendation.carryP10M,
+            carryP90M: recommendation.carryP90M
+        )
     }
 
     private func distanceHero(_ s: WatchRoundState, big: Bool) -> some View {

@@ -257,6 +257,8 @@ public final class WatchRoundModel: ObservableObject {
               recommendation.carryP10M.isFinite, recommendation.carryP10M > 0,
               recommendation.carryP90M.isFinite,
               recommendation.carryP90M >= recommendation.carryP10M,
+              recommendation.carryP10M <= recommendation.aimCarryM,
+              recommendation.aimCarryM <= recommendation.carryP90M,
               recommendation.originLatitude.isFinite,
               (-90...90).contains(recommendation.originLatitude),
               recommendation.originLongitude.isFinite,
