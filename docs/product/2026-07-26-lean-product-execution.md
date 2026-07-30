@@ -143,6 +143,13 @@ Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆
 - 标题、数字、± 控件、绿色主操作和灰色取消现在复用同一紧凑几何；手动页明确显示 `1/4…4/4`，Par 3 显示 `1/3…3/3`。Actions RED run `30570137572` 明确因顺序标签缺失失败；GREEN run `30570474610` 的 Watch 全测试、六张截图上传和独立 Watch build 成功，随后主动取消无关整轮回放。
 - 本项状态仅为 `CANDIDATE / OWNER VISUAL GATE OPEN`。旧批准稿没有后来流程对应的同状态画面，因此审批页明确把旧图标为视觉语言，并把六个生产 View 状态作为新的批准候选；Owner 批准前不把它们称为最终基线。
 
+### Watch 结束球局视觉候选（2026-07-30，等待 Owner 批准）
+
+- 实现 HEAD `6bd9116ae123433e9690eb51090e1e791e9ab590`。保留已验证的安全结束事务：待同步事件必须全部获得 identity ACK 且远端 `/finish` 成功后才清除本地球局；`继续打球` 始终非破坏性返回。本切片没有修改模型、持久化、协议或后端。
+- 页面恢复原批准稿的两层统计网格与黄/绿/蓝视觉语言：成绩/总杆/推杆为首行，GIR/球道为第二行。百分比由明确 outcome 计算，同时用小字保留 `hits/recorded`；未知与异常旧值继续不进分母。原“稍后同步”改为更准确的“结束前保存”，并只保留一个绿色主动作和一个弱化的继续入口，不恢复旧稿中的暂停、放弃或重复编辑动作。
+- RED [run 30571521221](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30571521221) 因旧页面缺少新的展示契约而失败；GREEN [run 30572101827](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30572101827) 的 Watch `141/141`、396×484 截图上传和独立 Watch build 成功，随后主动取消本切片无关的整轮回放。当前截图 SHA256 为 `b17e991b27e9e9ae6d4d7963c76d4d46413d0d10bc0da6524ed973052bf6d3e9`。
+- 本项状态仅为 `CANDIDATE / OWNER VISUAL GATE OPEN`。一对一审批页将旧概念稿归一到与 production SwiftUI 截图相同画布，并明确两者的证据边界；Owner 批准前不标记最终完成、不发布 TestFlight。
+
 ### 真实 18 洞闭环结果（2026-07-30）
 
 - iPhone 在 SHA `d6f57d96e0c6acb92af345c15276a8d370df357b` 的 [Native run 30507566447](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30507566447) 整体成功。同一北京丽宫真实球局连续完成 1–18 洞；第 10 洞强杀恢复后仍显示已打 9/18 洞，修改第 1 洞不移动当前洞；每洞 F/M/B 为真实整数，球童等待真实结构化结果且不使用离线 fallback；第 18 洞明确保存结束后清除进行中球局并返回首页。最终汇总为 `57 杆 / -15`、`36 推`、球道 `2/3`、`0` 罚杆，结束前安全保存 76 条记录。
