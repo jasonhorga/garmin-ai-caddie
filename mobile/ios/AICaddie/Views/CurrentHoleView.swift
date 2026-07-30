@@ -339,7 +339,7 @@ public struct CurrentHoleView: View {
     @ViewBuilder private var liveMapBackdrop: some View {
         if let holePrep, holePrep.resolvedMapOverlay != nil {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
-                             topoURL: liveTopoURL)
+                             topoURL: liveTopoURL, showsCardChrome: false)
         } else {
             LinearGradient(
                 colors: [Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255), LivePlayStyle.base],

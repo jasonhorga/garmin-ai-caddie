@@ -17,27 +17,36 @@ public struct HoleImageMapView: View {
     /// payload 里的 flat 渲染图(`hole.map.image`);加载中会明确标示,不会把 fallback 冒充完成态。
     /// 两者共用同一投影,叠加层像素级对齐。
     public let topoURL: URL?
+    /// Prep/review use a bounded map card. Live play places the same map directly into its hero, so
+    /// the shared map must not add a second rounded card boundary around the instrument backdrop.
+    public let showsCardChrome: Bool
 
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
-                topoURL: URL? = nil) {
+                topoURL: URL? = nil, showsCardChrome: Bool = true) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
         self.topoURL = topoURL
+        self.showsCardChrome = showsCardChrome
     }
 
     public var body: some View {
         #if canImport(UIKit)
         if let overlay = hole.resolvedMapOverlay, overlay.w > 0, overlay.h > 0 {
-            ZStack {
+            let map = ZStack {
                 TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)
                 Canvas { context, size in
                     draw(&context, size: size, overlay: overlay)
                 }
             }
             .aspectRatio(CGFloat(overlay.w) / CGFloat(overlay.h), contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
+            if showsCardChrome {
+                map
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
+            } else {
+                map
+            }
         }
         #endif
     }
