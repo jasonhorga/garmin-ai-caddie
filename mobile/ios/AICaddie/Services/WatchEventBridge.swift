@@ -234,6 +234,28 @@ public struct WatchRoundSeedPayload: Codable, Equatable {
     }
 }
 
+/// Phone-side mirror of the Watch's fail-closed Hole Root recommendation contract. This is emitted
+/// only from a live decision whose exact input location and measured carry distribution survived the
+/// backend round trip. It intentionally carries no lateral ellipse or whole-hole route.
+public struct WatchRootCaddieRecommendationPayload: Codable, Equatable {
+    public let decisionId: String
+    public let clubName: String
+    public let aimCarryM: Double
+    public let carryP10M: Double
+    public let carryP90M: Double
+    public let sampleSize: Int
+    public let confidence: String
+    public let source: String
+    public let mode: String
+    public let generatedAt: String
+    public let validUntil: String
+    public let originLatitude: Double
+    public let originLongitude: Double
+    public let originAccuracyM: Double
+    public let maximumMovementM: Double
+    public let evidenceCount: Int
+}
+
 public struct WatchRoundStatePayload: Codable, Equatable {
     public let schema: String = "ai-caddie-watch-round-state-v1"
     public let roundId: String
@@ -284,6 +306,7 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let geometryCoverage: String?
     public let caddieOptions: [WatchCaddieOption]
     public let hazards: [WatchHazard]
+    public let rootCaddieRecommendation: WatchRootCaddieRecommendationPayload?
     public let score: Int
     public let putts: Int
     public let penaltyCount: Int
@@ -458,6 +481,11 @@ public final class WatchEventBridge: NSObject {
             geometryCoverage: geometryCoverage,
             caddieOptions: resolvedCaddieOptions,
             hazards: hazards,
+            rootCaddieRecommendation: rootCaddieRecommendation(
+                from: decision,
+                selected: selected,
+                suggestedClub: suggestedClub
+            ),
             score: score,
             putts: putts,
             penaltyCount: penaltyCount,
@@ -999,6 +1027,74 @@ public final class WatchEventBridge: NSObject {
 
     private func selectedOfflineOption(from offlineOption: OfflineCaddieOption?) -> OfflineCaddieOption? {
         offlineOption
+    }
+
+    private func rootCaddieRecommendation(
+        from decision: CaddieDecisionResponse?,
+        selected: [String: JSONValue]?,
+        suggestedClub: String?
+    ) -> WatchRootCaddieRecommendationPayload? {
+        guard let decision,
+              !decision.isOfflineFallback,
+              string(decision.context["source"]) == "ios_live",
+              let selected,
+              let decisionId = nonEmpty(decision.decisionId),
+              let clubName = nonEmpty(suggestedClub),
+              case .object(let dispersion) = selected["dispersion"],
+              string(dispersion["state"]) == "modeled",
+              nonEmpty(string(dispersion["clubName"])) == clubName,
+              let aimCarryM = number(selected["carry_m"]) ?? number(selected["carryM"]),
+              let carryP10M = number(dispersion["carryP10_m"]),
+              let carryP90M = number(dispersion["carryP90_m"]),
+              let rawSampleSize = number(dispersion["sampleSize"]),
+              rawSampleSize.rounded() == rawSampleSize,
+              rawSampleSize >= 10,
+              rawSampleSize <= Double(Int.max),
+              let confidence = nonEmpty(string(decision.confidence["level"])),
+              ["high", "medium"].contains(confidence),
+              case .object(let location) = decision.context["currentLocation"],
+              let latitude = number(location["latitude"]),
+              let longitude = number(location["longitude"]),
+              let accuracyM = number(location["horizontalAccuracyM"]),
+              let capturedAt = nonEmpty(string(location["capturedAt"])),
+              latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude),
+              accuracyM.isFinite, (0...15).contains(accuracyM),
+              aimCarryM.isFinite, aimCarryM > 0,
+              carryP10M.isFinite, carryP10M > 0,
+              carryP90M.isFinite, carryP90M >= carryP10M
+        else {
+            return nil
+        }
+
+        let evidenceCount = max(decision.evidenceRefs?.count ?? 0, decision.evidence.count)
+        let mode = nonEmpty(string(decision.context["guidanceMode"])) ?? "automatic"
+        let formatter = ISO8601DateFormatter()
+        guard evidenceCount > 0,
+              ["automatic", "manual"].contains(mode),
+              let generatedAt = formatter.date(from: capturedAt)
+        else {
+            return nil
+        }
+
+        return WatchRootCaddieRecommendationPayload(
+            decisionId: decisionId,
+            clubName: clubName,
+            aimCarryM: aimCarryM,
+            carryP10M: carryP10M,
+            carryP90M: carryP90M,
+            sampleSize: Int(rawSampleSize),
+            confidence: confidence,
+            source: "live",
+            mode: mode,
+            generatedAt: formatter.string(from: generatedAt),
+            validUntil: formatter.string(from: generatedAt.addingTimeInterval(180)),
+            originLatitude: latitude,
+            originLongitude: longitude,
+            originAccuracyM: accuracyM,
+            maximumMovementM: 25,
+            evidenceCount: evidenceCount
+        )
     }
 
     private func confidenceLevel(from decision: CaddieDecisionResponse?, offlineOption: OfflineCaddieOption?) -> String {
