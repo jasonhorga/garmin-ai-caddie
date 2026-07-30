@@ -44,7 +44,7 @@ public struct WatchUITestRoot: View {
              "real-course-hazard-map", "real-course-hazard-mid-map",
              "real-course-journey-start", "real-course-journey-advance",
              "real-course-journey-restore", "real-course-journey-history-edit",
-             "real-course-journey-finish":
+             "real-course-journey-finish", "real-course-journey-finish-confirm":
             realCourseRound
         case "course-picker":
             cachedCoursePicker
@@ -235,6 +235,8 @@ public struct WatchUITestRoot: View {
                     editRealCourseJourneyHistory()
                 } else if screen == "real-course-journey-finish" {
                     finishRealCourseJourney()
+                } else if screen == "real-course-journey-finish-confirm" {
+                    await confirmRealCourseJourneyFinish()
                 } else {
                     await restoreRealCourseOffline(selectHazardHole: isRealCourseHazardScreen)
                 }
@@ -544,6 +546,83 @@ public struct WatchUITestRoot: View {
             return
         }
         verifyRealCourseJourney(stage: "finish-summary")
+    }
+
+    /// Close the exact persisted 18-hole journey through the production Watch sync path. This is a
+    /// second launch after the summary screenshot, so it proves queued offline facts survive a process
+    /// boundary before all acknowledgements and `/finish` permit the local round to be cleared.
+    @MainActor
+    private func confirmRealCourseJourneyFinish() async {
+        removeJourneyResultMarkers()
+        guard let config = realCourseRuntimeConfig else {
+            failRealCourseJourney("结束确认缺少真实 API 配置")
+            return
+        }
+        guard let before = model.round,
+              before.holeStates.count == 18,
+              Set(before.holeStates.map(\.hole)) == Set(1...18),
+              before.holeStates.allSatisfy({
+                  $0.roundId == before.roundId
+                      && $0.globalId == Self.realCourseGlobalId
+                      && $0.score > 0
+                      && journeyLocationCount(hole: $0.hole, round: before) == 1
+              }),
+              before.pendingEvents.count == 56 else {
+            failRealCourseJourney("结束确认前不是同一轮完整的 18 洞/56 条待同步记录")
+            return
+        }
+
+        let imageStore = WatchHoleImageStore()
+        let mappedHoles = before.holeStates.filter { state in
+            guard state.holeMap != nil,
+                  let image = imageStore.image(
+                      globalId: Self.realCourseGlobalId,
+                      hole: state.hole
+                  ) else {
+                return false
+            }
+            return WatchHoleMapGeometry.from(holeMap: state.holeMap, image: image) != nil
+        }.count
+        guard mappedHoles == 18 else {
+            failRealCourseJourney("结束确认前只有 \(mappedHoles) 洞真实地图可恢复")
+            return
+        }
+
+        let roundId = before.roundId
+        let activeHole = before.activeHole
+        model.config = config
+        model.requestFinish()
+        await model.confirmFinish()
+
+        guard model.round == nil,
+              WatchRoundStore().load() == nil,
+              model.pendingUploads == 0,
+              model.screen == .home,
+              model.uploadError == nil,
+              !model.isUploading else {
+            failRealCourseJourney(
+                "真实 ACK/finish 未闭环：\(model.uploadError ?? "本地 round 未清除")"
+            )
+            return
+        }
+
+        realCourseStatus = "18 洞已保存并结束"
+        let evidence = [
+            "stage=finish-confirmed",
+            "round_id=\(roundId)",
+            "global_id=\(Self.realCourseGlobalId)",
+            "active_hole=\(activeHole)",
+            "scored_holes=18",
+            "hole_count=18",
+            "current_hole_shots=1",
+            "mapped_holes=\(mappedHoles)",
+            "pending_uploads_before=56",
+            "pending_uploads=0",
+            "persisted_round_after=absent",
+            "screen_after=home",
+            "remote_finish=success",
+        ].joined(separator: "\n")
+        writeRealCourseMarker("real-course-journey-ready", contents: evidence)
     }
 
     @MainActor

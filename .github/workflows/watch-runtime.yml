@@ -140,11 +140,20 @@ jobs:
                   "$existing_container/Documents/$marker" \
                   "$existing_container/Documents/$failed_marker"
               fi
-              if ! launch_output=$(env \
-                SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
-                SIMCTL_CHILD_UITEST_GPS_LON=116.5461531 \
-                SIMCTL_CHILD_UITEST_JOURNEY_EXPECTED_HOLE="$expected_hole" \
-                SIMCTL_CHILD_UITEST_JOURNEY_EXPECTED_SCORED="$expected_scored" \
+              local -a launch_env=(
+                "SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995"
+                "SIMCTL_CHILD_UITEST_GPS_LON=116.5461531"
+                "SIMCTL_CHILD_UITEST_JOURNEY_EXPECTED_HOLE=$expected_hole"
+                "SIMCTL_CHILD_UITEST_JOURNEY_EXPECTED_SCORED=$expected_scored"
+              )
+              if [[ "$mode" == "real-course-journey-finish-confirm" ]]; then
+                test -n "$REAL_COURSE_ADMIN_TOKEN"
+                launch_env+=(
+                  "SIMCTL_CHILD_AI_CADDIE_API_BASE_URL=$REAL_COURSE_API_BASE_URL"
+                  "SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN=$REAL_COURSE_ADMIN_TOKEN"
+                )
+              fi
+              if ! launch_output=$(env "${launch_env[@]}" \
                 xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$mode" 2>&1); then
                 printf '%s\n' "$launch_output"
                 exit 1
@@ -191,6 +200,15 @@ jobs:
                 fi
                 cp "$evidence_file" \
                   "watch-runtime-artifacts/${screenshot%.png}-evidence.txt"
+                if [[ "$mode" == "real-course-journey-finish-confirm" ]]; then
+                  grep -qx 'stage=finish-confirmed' "$evidence_file"
+                  grep -qx 'pending_uploads_before=56' "$evidence_file"
+                  grep -qx 'pending_uploads=0' "$evidence_file"
+                  grep -qx 'persisted_round_after=absent' "$evidence_file"
+                  grep -qx 'screen_after=home' "$evidence_file"
+                  grep -qx 'remote_finish=success' "$evidence_file"
+                  test ! -f "$app_container/Documents/watch-round/round.json"
+                fi
               fi
             else
               sleep 5
@@ -260,6 +278,20 @@ jobs:
             real-course-journey-advance watch-journey-18-scored-root.png 18 18
           launch_and_capture \
             real-course-journey-finish watch-journey-18-finish-summary.png 18 18
+          launch_and_capture \
+            real-course-journey-finish-confirm watch-journey-18-finish-confirmed.png 18 18
+
+          # Relaunch without the DEBUG screenshot root. The production app root must now resolve to
+          # WatchStartView because the successfully finished round no longer exists on disk.
+          STANDARD_LAUNCH_OUTPUT=$(xcrun simctl launch "$WATCH_UDID" "$BID" 2>&1)
+          printf '%s\n' "$STANDARD_LAUNCH_OUTPUT" \
+            | tee watch-runtime-artifacts/launch-watch-journey-finished-home.txt
+          sleep 5
+          STANDARD_CONTAINER=$(xcrun simctl get_app_container "$WATCH_UDID" "$BID" data)
+          test ! -f "$STANDARD_CONTAINER/Documents/watch-round/round.json"
+          xcrun simctl io "$WATCH_UDID" screenshot \
+            watch-runtime-artifacts/watch-journey-finished-home.png
+          xcrun simctl terminate "$WATCH_UDID" "$BID"
 
           launch_and_capture milestone-seed watch-round-seeded.png
           # Do not reinstall or reseed here: the second process must load the first launch's stored round.
