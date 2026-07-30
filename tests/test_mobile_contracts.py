@@ -1828,7 +1828,10 @@ class MobileContractTests(unittest.TestCase):
         # 实战 (CurrentHoleView) + 备战 (CourseReviewView). Per-hole source gid → composite back
         # nines fetch the right loop's geometry.
         self.assertIn("struct HoleImageMapView", hole_map_view)
-        self.assertIn("func fetchHolePrep(globalId: Int, localHole: Int) async throws -> CoursePrepHole?", sync_client)
+        self.assertIn(
+            "func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false) async throws -> CoursePrepHole?",
+            sync_client,
+        )
         self.assertIn("HoleImageMapView(hole: hole, topoURL: topoURL)", course_review)
         self.assertIn("hole.sourceGlobalId ?? package.course.globalId", current_hole)
         self.assertIn("func loadHoleMap()", current_hole)
@@ -1843,7 +1846,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("private var selectedClubMetres: Double?", current_hole)
         # Base layer = server-rendered realistic TOPO png (…/holes/{hole}/topo.png), fetched over the
         # SAME projection as the overlay so route/club markers align; degrades to the flat render when
-        # there's no gid/geometry OR the request fails / hasn't loaded (no-network CI snapshots).
+        # there's no gid/geometry or the request fails, and marks an in-flight image explicitly.
         topo_base = _read_required_source(self, IOS_DIR / "Views" / "TopoHoleBaseImage.swift")
         self.assertIn("struct TopoHoleBaseImage", topo_base)
         self.assertIn("AsyncImage(url: topoURL)", topo_base)
@@ -1853,9 +1856,18 @@ class MobileContractTests(unittest.TestCase):
             sync_client,
         )
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
-        self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: image)", hole_map_view)
+        self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)", hole_map_view)
         self.assertIn("topoURL: liveTopoURL", current_hole)
         self.assertIn("SyncClient.topoImageURL(baseURL: caddieBaseURL", current_hole)
+
+    def test_ios_topo_map_distinguishes_loading_ready_and_failure(self) -> None:
+        topo_base = _read_required_source(self, IOS_DIR / "Views" / "TopoHoleBaseImage.swift")
+
+        self.assertIn("case .empty:", topo_base)
+        self.assertIn('ProgressView("球场地图加载中…")', topo_base)
+        self.assertIn('.accessibilityIdentifier("topo-hole-base-loading")', topo_base)
+        self.assertIn('.accessibilityIdentifier("topo-hole-base-ready")', topo_base)
+        self.assertIn("case .failure:", topo_base)
 
     def test_ios_club_naming_and_lie_filter(self) -> None:
         golf_club = _read_required_source(self, IOS_DIR / "Views" / "GolfClub.swift")

@@ -14,7 +14,8 @@ public struct HoleImageMapView: View {
     /// 实战:当前选中球杆的典型距离(米)。传入则落点标记移到该距离处。
     public let selectedClubMetres: Double?
     /// 服务端真实地形底图 URL(`…/holes/{hole}/topo.png`)。有则底图用它,否则/加载失败回退到
-    /// payload 里的 flat 渲染图(`hole.map.image`)。两者共用同一投影,叠加层像素级对齐。
+    /// payload 里的 flat 渲染图(`hole.map.image`);加载中会明确标示,不会把 fallback 冒充完成态。
+    /// 两者共用同一投影,叠加层像素级对齐。
     public let topoURL: URL?
 
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,

@@ -8,9 +8,9 @@ import UIKit
 /// (`…/api/v2/courses/{gid}/holes/{hole}/topo.png`), degrading gracefully to the flat-geometry
 /// render (`fallback`) whenever:
 ///   • there is no topo URL — the course has no CourseView geometry / gid (`topoURL == nil`), or
-///   • the topo request fails / 404s, or
-///   • it hasn't loaded yet — notably CI design snapshots have **no network**, so the `AsyncImage`
-///     never resolves; the `.empty` phase still shows the fallback so the map is never a blank box.
+///   • the topo request fails / 404s.
+/// While a real topo request is still in flight, the fallback remains underneath an explicit loading
+/// state. This prevents a slow first render from looking like a completed but empty course map.
 ///
 /// Mirrors the web `HoleBaseImage`. The topo png and the flat render share the SAME 720×1120
 /// projection frame (`hole_render._frame`), so a route/shot overlay drawn on top in overlay-pixel
@@ -23,17 +23,34 @@ struct TopoHoleBaseImage: View {
         if let topoURL {
             AsyncImage(url: topoURL) { phase in
                 switch phase {
+                case .empty:
+                    loadingImage
                 case .success(let image):
                     image.resizable().scaledToFit()
-                default:
-                    // .empty (loading — incl. no-network CI snapshots) / .failure / unknown:
-                    // fall back to the flat render so the map is never a broken/empty box.
+                        .accessibilityLabel("球场地图")
+                        .accessibilityIdentifier("topo-hole-base-ready")
+                case .failure:
+                    fallbackImage
+                @unknown default:
                     fallbackImage
                 }
             }
         } else {
             fallbackImage
         }
+    }
+
+    private var loadingImage: some View {
+        ZStack {
+            fallbackImage
+            Color.black.opacity(0.24)
+            ProgressView("球场地图加载中…")
+                .tint(.white)
+                .foregroundStyle(.white)
+                .font(.caption.weight(.semibold))
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("topo-hole-base-loading")
     }
 
     @ViewBuilder private var fallbackImage: some View {

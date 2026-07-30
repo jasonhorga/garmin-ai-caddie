@@ -147,6 +147,13 @@ final class RealFlowUITests: XCTestCase {
             app.staticTexts["363"].waitForExistence(timeout: 60),
             "cold-loaded 北京丽宫 hole prep must expose the blue-tee center-green distance"
         )
+        let liveTopoReady = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == %@", "topo-hole-base-ready")
+        ).firstMatch
+        XCTAssertTrue(
+            liveTopoReady.waitForExistence(timeout: 75),
+            "live-hole evidence must wait for the real topo bitmap, never capture the loading fallback as complete"
+        )
         XCTAssertTrue(
             app.buttons["返回球局首页"].waitForExistence(timeout: 5),
             "immersive live play must retain an explicit way back to the round home"

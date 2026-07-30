@@ -246,6 +246,18 @@ class DeploymentManifestTests(unittest.TestCase):
         self.assertNotIn("JWT_WEB", docker_text + compose_text)
         self.assertNotIn("connect-csrf-token", docker_text + compose_text)
 
+    def test_compose_persists_topo_render_cache_inside_private_volume(self) -> None:
+        compose = self._load_compose()
+        api = compose["services"]["api"]
+        environment = api["environment"]
+
+        cache_dir = environment.get("AI_CADDIE_TOPO_CACHE_DIR")
+        private_root = environment["AI_CADDIE_PRIVATE_ROOT"].rstrip("/")
+
+        self.assertEqual(cache_dir, "/var/lib/ai-caddie/topo_render_cache")
+        self.assertTrue(cache_dir.startswith(f"{private_root}/"))
+        self.assertIn(f"ai-caddie-private:{private_root}", api["volumes"])
+
     def test_api_image_packages_and_smokes_canonical_contracts(self) -> None:
         docker_text = Path("Dockerfile").read_text(encoding="utf-8")
         workflow_text = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
