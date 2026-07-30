@@ -389,8 +389,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(view.courseGroups[1].rows.first?.isCached, false)
     }
 
-    // WatchStartView is a real NavigationStack/List. ImageRenderer cannot flatten those watchOS
-    // platform views reliably, so the workflow captures it from the running simulator instead.
+    // WatchStartView keeps real NavigationStack/search behavior. The workflow therefore captures its
+    // compact course rows from the running simulator rather than treating ImageRenderer as final proof.
 
     @MainActor
     func testRenderWatchRoundContainerHome() throws {

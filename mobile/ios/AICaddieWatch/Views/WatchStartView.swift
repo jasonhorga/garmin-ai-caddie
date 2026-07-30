@@ -1,5 +1,21 @@
 import SwiftUI
 
+struct WatchCourseRowPresentation: Equatable, Identifiable {
+    var id: String { "\(course.globalId):\(course.segmentLabel ?? course.name)" }
+
+    let course: WatchCourseOption
+    let subtitle: String
+    let isCached: Bool
+}
+
+struct WatchCourseGroupPresentation: Equatable, Identifiable {
+    var id: String { title }
+
+    let title: String
+    let rows: [WatchCourseRowPresentation]
+    let showsRefresh: Bool
+}
+
 /// Home-before-a-round. Every production path starts from a real course; downloaded rows remain
 /// available with no phone or network, while unavailable course data stays unavailable.
 public struct WatchStartView: View {
@@ -54,96 +70,134 @@ public struct WatchStartView: View {
 
     public var body: some View {
         NavigationStack {
-            List {
-                if showRemoteSectionFirst {
-                    remoteCourseSection
-                }
-
-                courseSections
-
-                if !showRemoteSectionFirst {
-                    remoteCourseSection
-                }
-
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if showRemoteSectionFirst {
+                        remoteCourseSection
                     }
-                }
 
-                Section {
-                    Label(
-                        phoneReachable ? "iPhone 已连接" : "已下载球场可离线开局",
-                        systemImage: phoneReachable ? "iphone.radiowaves.left.and.right" : "applewatch"
-                    )
-                    .font(.caption2)
+                    courseSections
+
+                    if !showRemoteSectionFirst {
+                        remoteCourseSection
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.orange)
+                            .padding(7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.orange.opacity(0.10))
+                            )
+                    }
+
+                    HStack(spacing: 4) {
+                        Image(
+                            systemName: phoneReachable
+                                ? "iphone.radiowaves.left.and.right"
+                                : "applewatch"
+                        )
+                        Text(phoneReachable ? "iPhone 已连接" : "已下载球场可离线开局")
+                    }
+                    .font(.system(size: 8, weight: .medium))
                     .foregroundStyle(.secondary)
                 }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
             }
-            .navigationTitle("AI Caddie")
+            .scrollIndicators(.hidden)
             .searchable(text: $searchText, prompt: "搜索球场")
         }
     }
 
     @ViewBuilder
     private var courseSections: some View {
-        if hasCurrentLocation, !nearbyCourses.isEmpty {
-            Section("附近球场") {
-                ForEach(nearbyCourses) { course in
-                    courseButton(course, subtitle: nearbySubtitle(for: course))
-                }
+        ForEach(courseGroups) { group in
+            VStack(alignment: .leading, spacing: 5) {
+                sectionHeader(group.title)
 
-                if knownCourses.isEmpty {
-                    refreshCoursesButton
-                }
-            }
-        }
-
-        if !hasCurrentLocation || !knownCourses.isEmpty || nearbyCourses.isEmpty {
-            Section(hasCurrentLocation ? "已知球场" : "选择球场") {
-                if knownCourses.isEmpty {
+                if group.rows.isEmpty {
                     if isLoadingCourses {
-                        ProgressView("正在获取球场")
+                        HStack(spacing: 5) {
+                            ProgressView().controlSize(.small)
+                            Text("正在获取球场")
+                        }
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(7)
                     } else {
                         Text(searchText.isEmpty ? "暂无已知球场" : "已知球场中没有匹配")
+                            .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
-                    }
-                } else {
-                    ForEach(knownCourses) { course in
-                        courseButton(course)
+                            .padding(7)
                     }
                 }
 
-                refreshCoursesButton
+                ForEach(group.rows) { row in
+                    courseButton(row)
+                }
+
+                if group.showsRefresh {
+                    refreshCoursesButton
+                }
             }
         }
     }
 
     private var refreshCoursesButton: some View {
         Button(action: onRefresh) {
-            Label(isLoadingCourses ? "正在更新" : "更新已知球场", systemImage: "arrow.clockwise")
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.clockwise")
+                Text(isLoadingCourses ? "正在更新" : "刷新球场")
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .padding(7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.white.opacity(0.06))
+            )
         }
+        .buttonStyle(.plain)
         .disabled(isLoadingCourses || preparingCourseId != nil)
     }
 
     private var remoteCourseSection: some View {
-        Section("全部球场") {
+        VStack(alignment: .leading, spacing: 5) {
+            sectionHeader("全部球场")
+
             Button {
                 onSearchAllCourses(trimmedSearchText)
             } label: {
                 if isSearchingCourses {
-                    HStack {
+                    HStack(spacing: 6) {
                         ProgressView()
                             .controlSize(.small)
                         Text("正在搜索")
+                        Spacer(minLength: 0)
                     }
                 } else {
-                    Label("搜索全部球场", systemImage: "magnifyingglass")
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                        Text("搜索全部球场")
+                        Spacer(minLength: 0)
+                    }
                 }
             }
+            .font(.system(size: 11, weight: .semibold))
+            .padding(7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .buttonStyle(.plain)
             .disabled(!canSearchAllCourses)
+            .opacity(canSearchAllCourses ? 1 : 0.58)
 
             ForEach(visibleSearchMatches) { match in
                 searchResultRow(match)
@@ -167,19 +221,30 @@ public struct WatchStartView: View {
             )
         } else {
             HStack(spacing: 6) {
+                Circle()
+                    .fill(Color.orange)
+                    .frame(width: 6, height: 6)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(match.name)
-                        .font(.body.weight(.semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .lineLimit(2)
                     Text(searchResultSubtitle(match))
-                        .font(.caption2)
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 2)
                 Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.orange)
                     .accessibilityLabel("洞数未知，无法开局")
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(Color.white.opacity(0.06))
+            )
         }
     }
 
@@ -189,12 +254,27 @@ public struct WatchStartView: View {
         subtitle: String? = nil,
         ensureGeometry: Bool = false
     ) -> some View {
+        courseButton(
+            WatchCourseRowPresentation(
+                course: course,
+                subtitle: subtitle ?? standardSubtitle(for: course),
+                isCached: cachedCourseIds.contains(course.globalId)
+            ),
+            ensureGeometry: ensureGeometry
+        )
+    }
+
+    @ViewBuilder
+    private func courseButton(
+        _ row: WatchCourseRowPresentation,
+        ensureGeometry: Bool = false
+    ) -> some View {
         NavigationLink {
             WatchRoundSetupView(
-                front: course,
+                front: row.course,
                 courses: allSelectableCourses,
-                hasCachedVersion: cachedCourseIds.contains(course.globalId),
-                isPreparing: preparingCourseId == course.globalId,
+                hasCachedVersion: row.isCached,
+                isPreparing: preparingCourseId == row.course.globalId,
                 errorMessage: errorMessage,
                 ensureGeometry: ensureGeometry,
                 onLoadTees: onLoadCourseTees,
@@ -202,30 +282,93 @@ public struct WatchStartView: View {
             )
         } label: {
             HStack(spacing: 6) {
+                Circle()
+                    .fill(row.isCached ? Color(red: 0.28, green: 0.86, blue: 0.46) : Color.gray)
+                    .frame(width: 6, height: 6)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(course.displayName)
-                        .font(.body.weight(.semibold))
+                    Text(row.course.displayName)
+                        .font(.system(size: 13, weight: .semibold))
                         .lineLimit(2)
-                    Text(subtitle ?? "\(course.playableHoleCount) 洞 · \(course.preferredTee)")
-                        .font(.caption2)
+                        .minimumScaleFactor(0.78)
+                    Text(row.subtitle)
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 2)
-                if preparingCourseId == course.globalId {
+                if preparingCourseId == row.course.globalId {
                     ProgressView()
                         .controlSize(.small)
-                } else if cachedCourseIds.contains(course.globalId) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(AICaddieDesignTokens.par)
-                        .accessibilityLabel("已下载，可离线")
                 } else {
-                    Image(systemName: "arrow.down.circle")
+                    Image(systemName: "chevron.forward")
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.secondary)
-                        .accessibilityLabel("需要下载")
                 }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(
+                        row.isCached
+                            ? Color(red: 0.08, green: 0.28, blue: 0.15)
+                            : Color.white.opacity(0.06)
+                    )
+            )
+            .accessibilityHint(row.isCached ? "已下载，可离线" : "需要下载")
         }
+        .buttonStyle(.plain)
         .disabled(preparingCourseId != nil)
+    }
+
+    var courseGroups: [WatchCourseGroupPresentation] {
+        var groups: [WatchCourseGroupPresentation] = []
+
+        if hasCurrentLocation, !nearbyCourses.isEmpty {
+            groups.append(
+                WatchCourseGroupPresentation(
+                    title: "附近球场",
+                    rows: nearbyCourses.map {
+                        courseRow($0, subtitle: nearbySubtitle(for: $0))
+                    },
+                    showsRefresh: knownCourses.isEmpty
+                )
+            )
+        }
+
+        if !hasCurrentLocation || !knownCourses.isEmpty || nearbyCourses.isEmpty {
+            groups.append(
+                WatchCourseGroupPresentation(
+                    title: hasCurrentLocation ? "已知球场" : "选择球场",
+                    rows: knownCourses.map { courseRow($0) },
+                    showsRefresh: true
+                )
+            )
+        }
+
+        return groups
+    }
+
+    private func courseRow(
+        _ course: WatchCourseOption,
+        subtitle: String? = nil
+    ) -> WatchCourseRowPresentation {
+        WatchCourseRowPresentation(
+            course: course,
+            subtitle: subtitle ?? standardSubtitle(for: course),
+            isCached: cachedCourseIds.contains(course.globalId)
+        )
+    }
+
+    private func standardSubtitle(for course: WatchCourseOption) -> String {
+        "\(course.playableHoleCount) 洞 · \(course.preferredTee)"
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 2)
     }
 
     private var filteredCourses: [WatchCourseOption] {
