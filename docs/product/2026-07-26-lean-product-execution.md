@@ -157,6 +157,13 @@ Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆
 - RED [run 30573195316](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30573195316) 因旧 View 缺少附近/已知展示契约而失败；GREEN [run 30573790489 attempt 2](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30573790489/attempts/2) 的 Watch `142/142`、设计截图上传和独立 Watch build 成功。取得普通附近列表、缓存开局设置、全库结果和远端开局设置等 12 个真实进程状态后，主动取消无关后续旅程。附近/全库截图 SHA256 分别为 `dbf6af6cd457fb0901a95cf0301f0068c93dce18676e77944843ea52d249b870` / `e345a85b88ca548fa8cefc71697856442a0b8bc072fc31267f54856deb85abd0`。
 - 本项状态仅为 `CANDIDATE / OWNER VISUAL GATE OPEN`。审批页同时展示原批准概念、production 附近页和全库搜索状态；Owner 批准前不标记最终完成。下一可见状态继续审计开局设置，不因球场列表变紧凑就把整个开局流程提前关闭。
 
+### Watch 开局设置视觉候选（2026-07-30，等待 Owner 批准）
+
+- 实现 HEAD `0aec841b99651679082089fa84afbc7290196486`。根因仍是 production `WatchRoundSetupView` 的默认 `List/Section/NavigationTitle`：巨型“开局设置”标题和系统卡片令 9 洞页面首屏只能看到一个完整洞组选项。当前只改成与球场选择相同的紧凑 `ScrollView + 自定义行`层级；生产 `NavigationStack` 返回、真实洞组/Tee、缓存匹配、首次下载、`ensureGeometry` 和 `onStart` 均未改。
+- 9 洞仍可只打当前洞组或按稳定顺序组合第二个 9 洞；真实 Tee 有码数就显示码数，没有就明确显示“码数未知”。已有缓存与首次下载分别说明离线版本和下载动作；加载不到真实 Tee 时继续禁用开局，不加入猜测值。
+- RED [run 30575900711](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30575900711) 因旧 View 缺少洞组/Tee/可用状态展示契约而失败；GREEN [run 30576444240](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30576444240) 的 Watch `145/145` 与独立 Watch build 成功。取得缓存/远端开局设置在内的 12 个真实进程状态后主动取消无关整轮回放；两张 416×496 截图 SHA256 分别为 `ed6f0186456dec4df757a5ffce43c0476eb020cfa784274e0b63553c4d2cdb59` / `a9fe1c0203b430882b0927ec384b785f88891e91f05f74c7a3e42baba329fc5a`。
+- 自审仍保留一个可见取舍：首次下载状态的主按钮在初始视口底部只露出上半部分，滚动后可完整操作。本项因此只标 `CANDIDATE / OWNER VISUAL GATE OPEN`；审批页明确展示批准视觉语言、修改前页面和两个 production 候选，Owner 批准前不发布 TestFlight。
+
 ### 真实 18 洞闭环结果（2026-07-30）
 
 - iPhone 在 SHA `d6f57d96e0c6acb92af345c15276a8d370df357b` 的 [Native run 30507566447](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30507566447) 整体成功。同一北京丽宫真实球局连续完成 1–18 洞；第 10 洞强杀恢复后仍显示已打 9/18 洞，修改第 1 洞不移动当前洞；每洞 F/M/B 为真实整数，球童等待真实结构化结果且不使用离线 fallback；第 18 洞明确保存结束后清除进行中球局并返回首页。最终汇总为 `57 杆 / -15`、`36 推`、球道 `2/3`、`0` 罚杆，结束前安全保存 76 条记录。
