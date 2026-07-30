@@ -59,7 +59,7 @@ public struct WatchStartView: View {
                     remoteCourseSection
                 }
 
-                knownCourseSection
+                courseSections
 
                 if !showRemoteSectionFirst {
                     remoteCourseSection
@@ -87,26 +87,45 @@ public struct WatchStartView: View {
         }
     }
 
-    private var knownCourseSection: some View {
-        Section(knownCourseSectionTitle) {
-            if filteredCourses.isEmpty {
-                if isLoadingCourses {
-                    ProgressView("正在获取球场")
-                } else {
-                    Text(searchText.isEmpty ? "暂无已知球场" : "已知球场中没有匹配")
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                ForEach(filteredCourses) { course in
+    @ViewBuilder
+    private var courseSections: some View {
+        if hasCurrentLocation, !nearbyCourses.isEmpty {
+            Section("附近球场") {
+                ForEach(nearbyCourses) { course in
                     courseButton(course, subtitle: nearbySubtitle(for: course))
                 }
-            }
 
-            Button(action: onRefresh) {
-                Label(isLoadingCourses ? "正在更新" : "更新已知球场", systemImage: "arrow.clockwise")
+                if knownCourses.isEmpty {
+                    refreshCoursesButton
+                }
             }
-            .disabled(isLoadingCourses || preparingCourseId != nil)
         }
+
+        if !hasCurrentLocation || !knownCourses.isEmpty || nearbyCourses.isEmpty {
+            Section(hasCurrentLocation ? "已知球场" : "选择球场") {
+                if knownCourses.isEmpty {
+                    if isLoadingCourses {
+                        ProgressView("正在获取球场")
+                    } else {
+                        Text(searchText.isEmpty ? "暂无已知球场" : "已知球场中没有匹配")
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(knownCourses) { course in
+                        courseButton(course)
+                    }
+                }
+
+                refreshCoursesButton
+            }
+        }
+    }
+
+    private var refreshCoursesButton: some View {
+        Button(action: onRefresh) {
+            Label(isLoadingCourses ? "正在更新" : "更新已知球场", systemImage: "arrow.clockwise")
+        }
+        .disabled(isLoadingCourses || preparingCourseId != nil)
     }
 
     private var remoteCourseSection: some View {
@@ -216,7 +235,9 @@ public struct WatchStartView: View {
                 .compactMap { $0 }
                 .contains { $0.localizedCaseInsensitiveContains(query) }
         }
-        guard let currentLatitude, let currentLongitude else { return matches }
+        guard hasCurrentLocation,
+              let currentLatitude,
+              let currentLongitude else { return matches }
         return WatchCourseProximity.ranked(
             matches,
             fromLatitude: currentLatitude,
@@ -238,10 +259,25 @@ public struct WatchStartView: View {
         !trimmedSearchText.isEmpty || isSearchingCourses || !searchMatches.isEmpty
     }
 
-    private var knownCourseSectionTitle: String {
-        let locatedCount = filteredCourses.filter { nearbyDistance(to: $0) != nil }.count
-        guard locatedCount > 0 else { return "选择球场" }
-        return locatedCount == filteredCourses.count ? "附近球场" : "附近/已知球场"
+    private var hasCurrentLocation: Bool {
+        guard let currentLatitude, let currentLongitude else { return false }
+        return currentLatitude.isFinite && currentLongitude.isFinite
+            && (-90...90).contains(currentLatitude)
+            && (-180...180).contains(currentLongitude)
+    }
+
+    private var nearbyCourses: [WatchCourseOption] {
+        guard hasCurrentLocation else { return [] }
+        return filteredCourses.filter { course in
+            guard let distance = nearbyDistance(to: course) else { return false }
+            return WatchCourseProximity.isNearby(distanceM: distance)
+        }
+    }
+
+    private var knownCourses: [WatchCourseOption] {
+        guard hasCurrentLocation else { return filteredCourses }
+        let nearbyIds = Set(nearbyCourses.map(\.globalId))
+        return filteredCourses.filter { !nearbyIds.contains($0.globalId) }
     }
 
     private func nearbySubtitle(for course: WatchCourseOption) -> String? {

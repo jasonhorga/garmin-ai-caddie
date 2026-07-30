@@ -283,14 +283,29 @@ jobs:
 
           # Relaunch without the DEBUG screenshot root. The production app root must now resolve to
           # WatchStartView because the successfully finished round no longer exists on disk.
+          STANDARD_CONTAINER=$(xcrun simctl get_app_container "$WATCH_UDID" "$BID" data)
+          COURSE_CACHE="$STANDARD_CONTAINER/Documents/watch-courses/courses.json"
+          test -s "$COURSE_CACHE"
+          CYPRESS_LOCATION=$(jq -er '
+            map(select(.option.globalId == 3881))[0].option
+            | select((.latitude | type) == "number" and (.longitude | type) == "number")
+            | select(.latitude >= -90 and .latitude <= 90)
+            | select(.longitude >= -180 and .longitude <= 180)
+            | "\(.latitude)\t\(.longitude)"
+          ' "$COURSE_CACHE")
+          IFS=$'\t' read -r CYPRESS_LAT CYPRESS_LON <<< "$CYPRESS_LOCATION"
+          test -n "$CYPRESS_LAT"
+          test -n "$CYPRESS_LON"
+          printf 'global_id=3881\nlatitude=%s\nlongitude=%s\n' \
+            "$CYPRESS_LAT" "$CYPRESS_LON" \
+            > watch-runtime-artifacts/watch-journey-finished-home-location.txt
           STANDARD_LAUNCH_OUTPUT=$(env \
-            SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
-            SIMCTL_CHILD_UITEST_GPS_LON=116.5461531 \
+            SIMCTL_CHILD_UITEST_GPS_LAT="$CYPRESS_LAT" \
+            SIMCTL_CHILD_UITEST_GPS_LON="$CYPRESS_LON" \
             xcrun simctl launch "$WATCH_UDID" "$BID" 2>&1)
           printf '%s\n' "$STANDARD_LAUNCH_OUTPUT" \
             | tee watch-runtime-artifacts/launch-watch-journey-finished-home.txt
           sleep 5
-          STANDARD_CONTAINER=$(xcrun simctl get_app_container "$WATCH_UDID" "$BID" data)
           test ! -f "$STANDARD_CONTAINER/Documents/watch-round/round.json"
           xcrun simctl io "$WATCH_UDID" screenshot \
             watch-runtime-artifacts/watch-journey-finished-home.png

@@ -45,6 +45,8 @@ public enum WatchGeoMath {
 /// present in the mobile options payload; missing or invalid coordinates remain selectable but never
 /// receive a fabricated distance.
 public enum WatchCourseProximity {
+    private static let nearbyRadiusM = 50_000.0
+
     public static func distanceM(
         to course: WatchCourseOption,
         fromLatitude latitude: Double,
@@ -92,6 +94,10 @@ public enum WatchCourseProximity {
         guard metres.isFinite, metres >= 0 else { return nil }
         let tenthsOfAKilometre = Int((metres / 100).rounded())
         return "\(tenthsOfAKilometre / 10).\(tenthsOfAKilometre % 10) km"
+    }
+
+    public static func isNearby(distanceM: Double) -> Bool {
+        distanceM.isFinite && distanceM >= 0 && distanceM <= nearbyRadiusM
     }
 
     private static func isValid(latitude: Double, longitude: Double) -> Bool {
