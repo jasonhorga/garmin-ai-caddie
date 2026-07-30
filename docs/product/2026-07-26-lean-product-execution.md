@@ -171,6 +171,13 @@ Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆
 - 人工看真实截图又发现独立阻塞：第一张根页截图只出现路线/障碍和暗色 fallback，约 30 秒后的同进程截图才出现完整北京丽宫 topo。直接测同一冷 topo URL 得到首字节 `14.630684s`、总计 `15.996948s`；第二次为 `1.559103s` / `3.008855s`。当前 Compose 只持久化 `/var/lib/ai-caddie`，但 topo 默认缓存位于容器内 `output/topo_render_cache`，容器重建会丢缓存；iPhone 又在 fire-and-forget prewarm 后立刻进第一洞，形成首屏竞速。
 - 因此暗色连续性只标 `CANDIDATE`，审批页同时公开修改前/后、同进程稍后完整地图和上述阻塞。下一产品切片先让 topo 缓存跨部署持久化，并让第一洞在可用地图或明确加载态之间有确定门；真正同状态根页证据出现前，iPhone Live Hole 不标最终完成、不发布 TestFlight。
 
+#### 首屏 topo ready 修正（2026-07-30，地图阻塞已关闭）
+
+- 实现 HEAD `310d0bc235f090255b90b5cc8662563f0dd0f959`。Compose 现在把 `AI_CADDIE_TOPO_CACHE_DIR` 固定到现有持久卷下的 `/var/lib/ai-caddie/topo_render_cache`；冷图请求进行中明确显示“球场地图加载中…”，成功与失败不再共用静默 fallback。真实流程在保存第一张 Live Hole 截图前必须看到 `topo-hole-base-ready`，因此以后不能再把未完成地图冒充最终证据。
+- [RED run 30582646507](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30582646507) 的真实根页实际已经显示完整 topo，但 success 图片没有进入 accessibility tree，新增证据门按预期失败；只加显式 accessibility element 后，[GREEN run 30584958817](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30584958817) 的 iOS `145/145` 与真实 App XCUITest `3/3` 均通过，截图/视频上传成功。取得 iOS 证据后主动取消无关 Watch 重跑，因此整个 workflow 结论为 cancelled，不冒充全 workflow 成功。
+- 当前北京丽宫第 1 洞根页、展开球童、避开区与第 2 洞截图 SHA256 分别为 `8e635150840ad47e62a29c7d632ae5c38a5c8fce4e34d834b2df79e6383880cd` / `40d735d33bb65e2093f606770b90a3aeb374ed1e1fdda3797c9bfd5e9a68c995` / `900e41e50acd0d4d20555251373d78fb192d42db73c43e18ffd8718429eafead` / `5cf6b2962ec6abb7f40843473de2387dc42dc64ab4be69561f084b33b2a9c925`；第 1 洞、记杆后和第 2 洞 tree 都有地图 ready 标识，diagnostics 无 crash/fatal/unknown screen/restore failure。
+- 本项只关闭“首屏地图交付”阻塞。整个 Live Hole 仍为 `CANDIDATE / OWNER VISUAL GATE OPEN`；排版、颜色、控件位置与 S70 体感继续按主线逐屏比较，Owner 批准最终审批页前不发布 TestFlight。
+
 ### 真实 18 洞闭环结果（2026-07-30）
 
 - iPhone 在 SHA `d6f57d96e0c6acb92af345c15276a8d370df357b` 的 [Native run 30507566447](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30507566447) 整体成功。同一北京丽宫真实球局连续完成 1–18 洞；第 10 洞强杀恢复后仍显示已打 9/18 洞，修改第 1 洞不移动当前洞；每洞 F/M/B 为真实整数，球童等待真实结构化结果且不使用离线 fallback；第 18 洞明确保存结束后清除进行中球局并返回首页。最终汇总为 `57 杆 / -15`、`36 推`、球道 `2/3`、`0` 罚杆，结束前安全保存 76 条记录。
