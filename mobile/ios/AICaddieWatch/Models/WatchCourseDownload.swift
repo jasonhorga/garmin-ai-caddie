@@ -12,6 +12,10 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
     public let venueName: String?
     public let segmentLabel: String?
     public let segmentHoles: Int?
+    /// Course coordinates already supplied by `/mobile/courses/options`; retained so the Watch can
+    /// rank known courses from its own GPS without another backend or phone dependency.
+    public let latitude: Double?
+    public let longitude: Double?
     public let tees: [String]
     public let roundCount: Int
 
@@ -23,6 +27,8 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
         venueName: String? = nil,
         segmentLabel: String? = nil,
         segmentHoles: Int? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
         tees: [String] = [],
         roundCount: Int = 0
     ) {
@@ -33,12 +39,15 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
         self.venueName = venueName
         self.segmentLabel = segmentLabel
         self.segmentHoles = segmentHoles
+        self.latitude = latitude
+        self.longitude = longitude
         self.tees = tees
         self.roundCount = roundCount
     }
 
     private enum CodingKeys: String, CodingKey {
-        case globalId, name, holes, teeBox, venueName, segmentLabel, segmentHoles, tees, roundCount
+        case globalId, name, holes, teeBox, venueName, segmentLabel, segmentHoles
+        case latitude, longitude, tees, roundCount
     }
 
     public init(from decoder: Decoder) throws {
@@ -50,6 +59,8 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
         venueName = try container.decodeIfPresent(String.self, forKey: .venueName)
         segmentLabel = try container.decodeIfPresent(String.self, forKey: .segmentLabel)
         segmentHoles = try container.decodeIfPresent(Int.self, forKey: .segmentHoles)
+        latitude = try container.decodeIfPresent(Double.self, forKey: .latitude)
+        longitude = try container.decodeIfPresent(Double.self, forKey: .longitude)
         tees = try container.decodeIfPresent([String].self, forKey: .tees) ?? []
         roundCount = try container.decodeIfPresent(Int.self, forKey: .roundCount) ?? 0
     }
@@ -85,6 +96,8 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
             venueName: venueName,
             segmentLabel: segmentLabel,
             segmentHoles: segmentHoles,
+            latitude: latitude,
+            longitude: longitude,
             tees: teeOptions.map(\.teeBox),
             roundCount: roundCount
         )

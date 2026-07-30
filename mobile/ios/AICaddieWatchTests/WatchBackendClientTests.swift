@@ -229,6 +229,8 @@ final class WatchBackendClientTests: XCTestCase {
                 venueName: "北京丽宫",
                 segmentLabel: nil,
                 segmentHoles: 18,
+                latitude: 40.0455,
+                longitude: 116.5462,
                 tees: ["Blue", "White"],
                 roundCount: 4
             )
