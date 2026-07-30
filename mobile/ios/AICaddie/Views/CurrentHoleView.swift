@@ -1092,6 +1092,7 @@ public struct CurrentHoleView: View {
                 targetCoordinate: targetCoordinate,
                 targetKind: targetCoordinate == nil ? nil : "pin",
                 horizontalAccuracyM: currentHorizontalAccuracyM,
+                capturedAt: locationProvider.latestFix?.capturedAt,
                 strategyMode: selectedStrategyMode,
                 visionFindings: visionFindings
             )
