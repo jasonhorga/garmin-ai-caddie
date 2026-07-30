@@ -1,5 +1,12 @@
 import SwiftUI
 
+struct WatchRoundSetupChoicePresentation: Equatable, Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+    let isSelected: Bool
+}
+
 /// The last explicit gate before a real Watch round starts: choose the playable loop(s) and tee.
 /// It intentionally has no synthetic score-only fallback; unavailable data stays unavailable.
 public struct WatchRoundSetupView: View {
@@ -41,55 +48,60 @@ public struct WatchRoundSetupView: View {
     }
 
     public var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(front.displayName)
-                        .font(.headline)
-                    Text(selectionSummary)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                setupHeader
 
-            if !backOptions.isEmpty {
-                Section("洞组") {
-                    choiceRow(
-                        title: "只打 \(loopName(front)) · \(front.playableHoleCount) 洞",
-                        selected: selectedBackGlobalId == nil
-                    ) {
-                        selectedBackGlobalId = nil
-                    }
-                    ForEach(backOptions) { option in
-                        choiceRow(
-                            title: "\(loopName(front)) + \(loopName(option)) · 18 洞",
-                            selected: selectedBackGlobalId == option.globalId
-                        ) {
-                            selectedBackGlobalId = option.globalId
+                if !backOptions.isEmpty {
+                    setupSection("洞组") {
+                        ForEach(loopChoices) { choice in
+                            choiceRow(choice) {
+                                selectedBackGlobalId = backOptions.first {
+                                    choice.id == "loop:\($0.globalId)"
+                                }?.globalId
+                            }
                         }
                     }
                 }
-            }
 
-            Section("发球台") {
-                if isLoadingTees {
-                    ProgressView("正在获取发球台")
-                } else if teeOptions.isEmpty {
-                    Text("暂无可用发球台")
+                setupSection("发球台") {
+                    if isLoadingTees {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("正在获取真实发球台")
+                        }
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
-                } else {
-                    ForEach(teeOptions) { tee in
-                        choiceRow(
-                            title: teeLabel(tee),
-                            selected: tee.teeBox.caseInsensitiveCompare(selectedTee) == .orderedSame
-                        ) {
-                            selectedTee = tee.teeBox
+                        .padding(7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else if teeChoices.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(.orange)
+                            Text("暂无可用发球台")
+                        }
+                        .font(.system(size: 10, weight: .semibold))
+                        .padding(7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.orange.opacity(0.10))
+                        )
+                    } else {
+                        ForEach(teeChoices) { choice in
+                            choiceRow(choice) {
+                                guard let tee = teeOptions.first(where: {
+                                    choice.id == "tee:\($0.teeBox.lowercased())"
+                                }) else { return }
+                                selectedTee = tee.teeBox
+                            }
                         }
                     }
                 }
-            }
 
-            Section {
+                availabilityRow
+
                 Button {
                     onStart(WatchCourseSelection(
                         front: configuredFront,
@@ -98,52 +110,193 @@ public struct WatchRoundSetupView: View {
                         ensureGeometry: ensureGeometry
                     ))
                 } label: {
-                    HStack {
+                    HStack(spacing: 5) {
                         if isPreparing {
                             ProgressView()
                                 .controlSize(.small)
                         }
-                        Text(isPreparing ? "正在准备" : "准备并开始")
-                            .fontWeight(.semibold)
+                        Text(isPreparing ? "正在准备" : startActionLabel)
                     }
-                    .frame(maxWidth: .infinity)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .background(
+                        AICaddieDesignTokens.par,
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    )
                 }
-                .disabled(isPreparing || isLoadingTees || teeOptions.isEmpty)
-            } footer: {
-                if hasCachedVersion {
-                    Text("已有离线版本；更换洞组或发球台时需要联网更新。")
-                } else if teeLoadAttempted, teeOptions.isEmpty, !isLoadingTees {
-                    Text("无法取得真实发球台时不会用猜测值开局。")
-                }
-            }
+                .buttonStyle(.plain)
+                .disabled(isPreparing || isLoadingTees || teeChoices.isEmpty)
+                .opacity(isPreparing || isLoadingTees || teeChoices.isEmpty ? 0.52 : 1)
 
-            if let errorMessage {
-                Section {
+                if teeLoadAttempted, teeChoices.isEmpty, !isLoadingTees {
+                    Text("无法取得真实发球台时不会用猜测值开局。")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+
+                if let errorMessage {
                     Text(errorMessage)
-                        .font(.caption2)
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.orange)
+                        .padding(7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.orange.opacity(0.10))
+                        )
                 }
             }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
         }
-        .navigationTitle("开局设置")
+        .scrollIndicators(.hidden)
         .task(id: front.globalId) {
             await loadTeesIfNeeded()
         }
     }
 
+    private var setupHeader: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(front.displayName)
+                .font(.system(size: 14, weight: .bold))
+                .lineLimit(2)
+                .minimumScaleFactor(0.78)
+            Text(selectionSummary)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.white.opacity(0.06))
+        )
+    }
+
+    private var availabilityRow: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(hasCachedVersion ? AICaddieDesignTokens.par : .orange)
+                .frame(width: 6, height: 6)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(availabilityText)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(availabilityDetail)
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+    }
+
+    private func setupSection<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 2)
+            content()
+        }
+    }
+
     @ViewBuilder
-    private func choiceRow(title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    private func choiceRow(
+        _ choice: WatchRoundSetupChoicePresentation,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selected ? AICaddieDesignTokens.par : .secondary)
-                Text(title)
+            HStack(spacing: 6) {
+                Image(systemName: choice.isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(choice.isSelected ? AICaddieDesignTokens.par : .secondary)
+                Text(choice.title)
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.primary)
                 Spacer(minLength: 0)
+                Text(choice.detail)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(
+                        choice.isSelected
+                            ? Color(red: 0.08, green: 0.28, blue: 0.15)
+                            : Color.white.opacity(0.06)
+                    )
+            )
         }
-        .accessibilityValue(selected ? "已选择" : "未选择")
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(choice.title) \(choice.detail)")
+        .accessibilityValue(choice.isSelected ? "已选择" : "未选择")
     }
+
+    var loopChoices: [WatchRoundSetupChoicePresentation] {
+        [
+            WatchRoundSetupChoicePresentation(
+                id: "loop:front",
+                title: "只打 \(loopName(front))",
+                detail: "\(front.playableHoleCount) 洞",
+                isSelected: selectedBackGlobalId == nil
+            ),
+        ] + backOptions.map { option in
+            WatchRoundSetupChoicePresentation(
+                id: "loop:\(option.globalId)",
+                title: "\(loopName(front)) + \(loopName(option))",
+                detail: "18 洞",
+                isSelected: selectedBackGlobalId == option.globalId
+            )
+        }
+    }
+
+    var teeChoices: [WatchRoundSetupChoicePresentation] {
+        teeOptions.map { tee in
+            Self.teeChoice(
+                for: tee,
+                isSelected: tee.teeBox.caseInsensitiveCompare(selectedTee) == .orderedSame
+            )
+        }
+    }
+
+    static func teeChoice(
+        for tee: WatchCourseTee,
+        isSelected: Bool
+    ) -> WatchRoundSetupChoicePresentation {
+        WatchRoundSetupChoicePresentation(
+            id: "tee:\(tee.teeBox.lowercased())",
+            title: teeTitle(tee),
+            detail: tee.yards.map { "\($0) 码" } ?? "码数未知",
+            isSelected: isSelected
+        )
+    }
+
+    var availabilityText: String {
+        hasCachedVersion ? "已有离线版本" : "首次开局需下载"
+    }
+
+    var availabilityDetail: String {
+        if hasCachedVersion {
+            return "更换洞组或发球台时需要联网更新"
+        }
+        return ensureGeometry ? "将获取真实球场与地图数据" : "将获取真实球场数据"
+    }
+
+    var startActionLabel: String { "准备并开始" }
 
     private var selectedBack: WatchCourseOption? {
         guard let selectedBackGlobalId else { return nil }
@@ -190,22 +343,11 @@ public struct WatchRoundSetupView: View {
         if let selectedBack {
             return "\(loopName(front)) + \(loopName(selectedBack)) · \(teeSummary) · 18 洞"
         }
-        return "\(loopName(front)) · \(teeSummary) · \(front.playableHoleCount) 洞"
+        return "\(teeSummary) · \(front.playableHoleCount) 洞"
     }
 
     private var selectedTeeSummary: String {
-        guard let tee = teeOptions.first(where: {
-            $0.teeBox.caseInsensitiveCompare(selectedTee) == .orderedSame
-        }) else {
-            return "\(selectedTee.capitalized) T"
-        }
-        let code = tee.teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = tee.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let canonicalNames = [code.lowercased(), "\(code.lowercased()) tee"]
-        if !name.isEmpty, !canonicalNames.contains(name.lowercased()) {
-            return name.hasSuffix("台") ? name : "\(name) T"
-        }
-        return "\(code.capitalized) T"
+        teeChoices.first(where: \.isSelected)?.title ?? "\(selectedTee.capitalized) T"
     }
 
     private func venueName(_ option: WatchCourseOption) -> String {
@@ -219,8 +361,8 @@ public struct WatchRoundSetupView: View {
         return option.playableHoleCount == 18 ? "全场" : option.displayName
     }
 
-    private func teeLabel(_ tee: WatchCourseTee) -> String {
-        let label = switch tee.teeBox.lowercased() {
+    private static func teeTitle(_ tee: WatchCourseTee) -> String {
+        switch tee.teeBox.lowercased() {
         case "blue": "蓝 T"
         case "white": "白 T"
         case "red": "红 T"
@@ -229,9 +371,11 @@ public struct WatchRoundSetupView: View {
         case "green": "绿 T"
         case "yellow": "黄 T"
         case "silver": "银 T"
-        default: "\(tee.name) T"
+        default:
+            tee.name.hasSuffix("台") || tee.name.uppercased().hasSuffix(" T")
+                ? tee.name
+                : "\(tee.name) T"
         }
-        return tee.yards.map { "\(label) · \($0) 码" } ?? label
     }
 
     @MainActor
