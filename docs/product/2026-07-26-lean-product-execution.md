@@ -164,6 +164,13 @@ Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆
 - RED [run 30575900711](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30575900711) 因旧 View 缺少洞组/Tee/可用状态展示契约而失败；GREEN [run 30576444240](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30576444240) 的 Watch `145/145` 与独立 Watch build 成功。取得缓存/远端开局设置在内的 12 个真实进程状态后主动取消无关整轮回放；两张 416×496 截图 SHA256 分别为 `ed6f0186456dec4df757a5ffce43c0476eb020cfa784274e0b63553c4d2cdb59` / `a9fe1c0203b430882b0927ec384b785f88891e91f05f74c7a3e42baba329fc5a`。
 - 自审仍保留一个可见取舍：首次下载状态的主按钮在初始视口底部只露出上半部分，滚动后可完整操作。本项因此只标 `CANDIDATE / OWNER VISUAL GATE OPEN`；审批页明确展示批准视觉语言、修改前页面和两个 production 候选，Owner 批准前不发布 TestFlight。
 
+### iPhone Live Hole 暗色连续性候选（2026-07-30，地图首屏阻塞仍开放）
+
+- 实现 HEAD `fe3d44a09de060ae07673303a5d147fb28aa8535`。根因是通用 `liveCard()` 固定为白色；7 月暗色 Hole Root 只覆盖地图与主控制台，展开球童、更多调整、拍照取证和球局调整继续复用白卡。当前新增 Hole Root 专用 `#121720` 辅助表面，只替换这四块的颜色系统；球童决策、地图数据、记一杆、球杆确认、推荐成绩一键接受、手动顺序确认和跨端事件均未改，共享浅色卡也未改。
+- RED [run 30577872422](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30577872422) 因缺少暗色辅助表面契约而失败。GREEN [run 30578222735](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30578222735) 的 iOS `145/145`、真实 App XCUITest `3/3`、设计图与真实截图/视频步骤成功；取得所需 artifact 后主动取消无关 Watch 重跑，因此 workflow 最终结论为 cancelled，不冒充整条 workflow 成功。根页、球童方案与避开区截图 SHA256 分别为 `7313ff5a27efc7f7af0b59f6f959725a3934dff6bb8159cc2fe1f5ef8037a9b3` / `9e9fe8904e221cf63df731893e4af371a4c61643c8ca8d1b3f3d7112a200220d` / `7a5c77762a70308a5327cabed6d5d3c483cdde8c68c79857b35b535f2923c268`。
+- 人工看真实截图又发现独立阻塞：第一张根页截图只出现路线/障碍和暗色 fallback，约 30 秒后的同进程截图才出现完整北京丽宫 topo。直接测同一冷 topo URL 得到首字节 `14.630684s`、总计 `15.996948s`；第二次为 `1.559103s` / `3.008855s`。当前 Compose 只持久化 `/var/lib/ai-caddie`，但 topo 默认缓存位于容器内 `output/topo_render_cache`，容器重建会丢缓存；iPhone 又在 fire-and-forget prewarm 后立刻进第一洞，形成首屏竞速。
+- 因此暗色连续性只标 `CANDIDATE`，审批页同时公开修改前/后、同进程稍后完整地图和上述阻塞。下一产品切片先让 topo 缓存跨部署持久化，并让第一洞在可用地图或明确加载态之间有确定门；真正同状态根页证据出现前，iPhone Live Hole 不标最终完成、不发布 TestFlight。
+
 ### 真实 18 洞闭环结果（2026-07-30）
 
 - iPhone 在 SHA `d6f57d96e0c6acb92af345c15276a8d370df357b` 的 [Native run 30507566447](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30507566447) 整体成功。同一北京丽宫真实球局连续完成 1–18 洞；第 10 洞强杀恢复后仍显示已打 9/18 洞，修改第 1 洞不移动当前洞；每洞 F/M/B 为真实整数，球童等待真实结构化结果且不使用离线 fallback；第 18 洞明确保存结束后清除进行中球局并返回首页。最终汇总为 `57 杆 / -15`、`36 推`、球道 `2/3`、`0` 罚杆，结束前安全保存 76 条记录。
