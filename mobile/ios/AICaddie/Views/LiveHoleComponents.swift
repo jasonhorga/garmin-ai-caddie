@@ -305,6 +305,7 @@ extension View {
 enum LivePlayStyle {
     static let base = Color(red: 5 / 255, green: 7 / 255, blue: 12 / 255)           // #05070c
     static let panelFill = Color(red: 14 / 255, green: 18 / 255, blue: 26 / 255)     // rgba(14,18,26,·)
+    static let auxiliaryFill = Color(red: 18 / 255, green: 23 / 255, blue: 32 / 255) // #121720
     static let accent = Color(red: 34 / 255, green: 197 / 255, blue: 94 / 255)       // #22c55e
     static let accentSystem = Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255) // #34c759
     static let onAccent = Color(red: 4 / 255, green: 20 / 255, blue: 10 / 255)       // #04140a
@@ -327,6 +328,33 @@ enum LivePlayStyle {
         colors: [base.opacity(0.94), base.opacity(0.6), base.opacity(0)],
         startPoint: .top, endPoint: .bottom
     )
+}
+
+private struct LivePlayAuxiliaryCardModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(LivePlayStyle.ink)
+            .tint(LivePlayStyle.accentSystem)
+            .environment(\.colorScheme, .dark)
+            .background(
+                LivePlayStyle.auxiliaryFill,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(LivePlayStyle.stroke14)
+            )
+    }
+}
+
+extension View {
+    /// Secondary tools on the immersive Hole Root stay in the same explicit dark colour system as
+    /// the map and primary panel. The shared `liveCard()` remains light for non-playing screens.
+    func livePlayAuxiliaryCard() -> some View {
+        modifier(LivePlayAuxiliaryCardModifier())
+    }
 }
 
 /// Header over the map: 第 N 洞 + Par/码/Tee (left) + 本场 to-par chip (right).

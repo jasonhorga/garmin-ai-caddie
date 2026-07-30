@@ -176,7 +176,7 @@ public struct CurrentHoleView: View {
                     .padding(.horizontal, 10)
                     .padding(.top, -46)
 
-                    // Secondary controls stay on readable light cards below the dark hero: the full
+                    // Secondary controls remain part of the same dark playing instrument: the full
                     // caddie plan (球童完整方案), 更多调整, 拍照取证, and 球局调整 — all behaviour intact.
                     VStack(spacing: 12) {
                         if showCaddieDetail { caddieDetailCard }
@@ -348,10 +348,10 @@ public struct CurrentHoleView: View {
         }
     }
 
-    // MARK: - Secondary light cards below the dark hero (behaviour unchanged)
+    // MARK: - Secondary dark cards below the hero (behaviour unchanged)
 
     /// 球童完整方案:strategy switch (护分/标准/进攻) + the proven CaddiePlanView + refresh.
-    /// Revealed by the caddie strip's 展开; kept on a readable light card.
+    /// Revealed by the caddie strip's 展开; kept on the same dark instrument surface.
     private var caddieDetailCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("球童完整方案").font(.caption).foregroundStyle(.secondary)
@@ -378,7 +378,7 @@ public struct CurrentHoleView: View {
             }
             .disabled(isLoadingCaddieDecision)
         }
-        .liveCard()
+        .livePlayAuxiliaryCard()
     }
 
     /// All the original secondary inputs are preserved, tucked into 更多调整.
@@ -409,7 +409,7 @@ public struct CurrentHoleView: View {
             }
             .padding(.top, 6)
         }
-        .liveCard()
+        .livePlayAuxiliaryCard()
     }
 
     /// Media capture (unchanged behavior).
@@ -429,7 +429,7 @@ public struct CurrentHoleView: View {
                 }
             )
         }
-        .liveCard()
+        .livePlayAuxiliaryCard()
     }
 
     // MARK: - 打球屏 v2 display values (derived, read-only)
@@ -909,7 +909,7 @@ public struct CurrentHoleView: View {
             Label("球局调整 · 加打 / 结束本场", systemImage: "slider.horizontal.3")
                 .font(.subheadline).foregroundStyle(.secondary)
         }
-        .liveCard()
+        .livePlayAuxiliaryCard()
     }
 
     /// 起始九洞的加打 / 撤销:nine 是对一局 18 洞的视图过滤,已记杆按 roundId 保留。
