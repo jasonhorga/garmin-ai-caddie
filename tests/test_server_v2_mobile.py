@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from ai_caddie.history import stats_cache
 from ai_caddie.reports.annotations import add_annotation
-from ai_caddie.caddie.decision import list_decision_audits, store_decision_audit
+from ai_caddie.caddie.decision import list_decision_audits, store_decision, store_decision_audit
 from ai_caddie.history.history import HistoryData
 from ai_caddie.caddie.mobile_live import _hole_issue_label_zh
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
@@ -2420,11 +2420,30 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["annotations"][0]["targetId"], "900001:7")
         self.assertEqual(payload["annotations"][0]["payload"]["text"], "Into wind; take one more club.")
 
-    def test_mobile_reconciliation_apply_endpoint_persists_decision_audit(self) -> None:
+    def test_mobile_reconciliation_apply_endpoint_resolves_online_decision_audit(self) -> None:
         client = TestClient(app)
+        decision = {
+            "decisionId": "900001:3:tee",
+            "sourceRef": "900001:3",
+            "shotType": "tee",
+            "phase": "tee_shot",
+            "selectedOptionId": "stock",
+            "selectedOption": {
+                "id": "stock",
+                "carry_m": 145.0,
+                "clubRecommendation": {"clubs": [{"clubName": "9I"}]},
+            },
+            "options": [
+                {"id": "safe", "carry_m": 120.0},
+                {"id": "stock", "carry_m": 145.0},
+                {"id": "attack", "carry_m": 175.0},
+            ],
+            "confidence": {"level": "medium"},
+            "evidenceRefs": ["900001:3"],
+        }
         event = {
             "schema": "ai-caddie-live-round-event-v1",
-            "eventId": "offline-shot-audit",
+            "eventId": "online-shot-audit",
             "roundId": "900001",
             "timestamp": "2026-05-25T00:00:00Z",
             "hole": 3,
@@ -2432,25 +2451,6 @@ class ServerV2MobileTests(unittest.TestCase):
             "payload": {
                 "clubName": "9I",
                 "decisionId": "900001:3:tee",
-                "decision": {
-                    "decisionId": "900001:3:tee",
-                    "sourceRef": "900001:3",
-                    "shotType": "tee",
-                    "phase": "tee_shot",
-                    "selectedOptionId": "stock",
-                    "selectedOption": {
-                        "id": "stock",
-                        "carry_m": 145.0,
-                        "clubRecommendation": {"clubs": [{"clubName": "9I"}]},
-                    },
-                    "options": [
-                        {"id": "safe", "carry_m": 120.0},
-                        {"id": "stock", "carry_m": 145.0},
-                        {"id": "attack", "carry_m": 175.0},
-                    ],
-                    "confidence": {"level": "medium"},
-                    "evidence": [{"sourceRefs": ["900001:3"]}],
-                },
                 "actualShot": {
                     "roundId": "900001",
                     "hole": 3,
@@ -2468,8 +2468,10 @@ class ServerV2MobileTests(unittest.TestCase):
                 patch("server_v2.mobile.MOBILE_ROOT", root),
                 patch("server_v2.mobile.ANNOTATION_ROOT", root),
                 patch("server_v2.mobile.DECISION_AUDIT_ROOT", root),
+                patch("server_v2.mobile.DECISION_LEDGER_ROOT", root, create=True),
                 patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
             ):
+                store_decision(decision, root=root)
                 event_response = client.post(
                     "/api/v2/mobile/rounds/900001/events",
                     headers={"Idempotency-Key": "audit-apply"},
@@ -2477,7 +2479,7 @@ class ServerV2MobileTests(unittest.TestCase):
                 )
                 apply_response = client.post(
                     "/api/v2/mobile/rounds/900001/reconciliation/apply",
-                    json={"suggestionIds": ["offline-shot-audit:caddie-feedback"]},
+                    json={"suggestionIds": ["online-shot-audit:caddie-feedback"]},
                 )
                 audits = list_decision_audits(root=root)
 
