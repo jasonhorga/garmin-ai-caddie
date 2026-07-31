@@ -16,6 +16,7 @@ public enum WatchRoundScreen: Equatable {
     case scoring
     case finishing
     case scorecard   // round-13: 计分卡逐洞列表
+    case currentHoleShots // 当前洞已记录的 GPS 击球事实与手动补杆入口
     case holeSelect  // round-13: 选洞
     case menu        // round-13: 菜单 hub(纯文字,S70 式)
     case holeMap     // watch P1b: 全屏球道图(真几何底图 + 事实标记)
@@ -44,6 +45,42 @@ public struct WatchOutcomeSummary: Equatable {
     public init(hits: Int, recorded: Int) {
         self.hits = hits
         self.recorded = recorded
+    }
+}
+
+/// One recorded shot reconstructed from the Watch's existing club/location event pair. The location
+/// event is the identity-bearing fact; club may be nil when the player skipped Club Prompt. Carry is
+/// measured only when a following shot origin exists, so the UI never invents a last-shot distance.
+public struct WatchRecordedShot: Equatable, Identifiable {
+    public var id: String { eventId }
+
+    public let eventId: String
+    public let hole: Int
+    public let number: Int
+    public let clubName: String?
+    public let shotType: String?
+    public let location: WatchShotLocationValue
+    public let capturedAt: String
+    public let distanceToNextM: Double?
+
+    public init(
+        eventId: String,
+        hole: Int,
+        number: Int,
+        clubName: String?,
+        shotType: String?,
+        location: WatchShotLocationValue,
+        capturedAt: String,
+        distanceToNextM: Double?
+    ) {
+        self.eventId = eventId
+        self.hole = hole
+        self.number = number
+        self.clubName = clubName
+        self.shotType = shotType
+        self.location = location
+        self.capturedAt = capturedAt
+        self.distanceToNextM = distanceToNextM
     }
 }
 
@@ -189,6 +226,55 @@ public final class WatchRoundModel: ObservableObject {
         recordedShotCount(for: activeHole)
     }
 
+    /// Current-hole shot facts in capture order. This is a projection of the already-persisted event
+    /// queue, not a second shot store or protocol. Club Prompt writes club immediately before location
+    /// with the same timestamp; skipped Club Prompt therefore remains an honest nil club.
+    public var currentHoleShots: [WatchRecordedShot] {
+        guard let round else { return [] }
+        var unmatchedClubs: [String: [String]] = [:]
+        var captured: [(event: WatchInputEvent, location: WatchShotLocationValue, club: String?)] = []
+
+        for event in round.pendingEvents where event.hole == round.activeHole {
+            switch event.kind {
+            case .club:
+                let club = (event.contextClub ?? event.value)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !club.isEmpty {
+                    unmatchedClubs[event.createdAt, default: []].append(club)
+                }
+            case .location:
+                guard let location = WatchShotLocationValue(encodedValue: event.value) else { continue }
+                var clubs = unmatchedClubs[event.createdAt] ?? []
+                let club = clubs.isEmpty ? nil : clubs.removeFirst()
+                unmatchedClubs[event.createdAt] = clubs
+                captured.append((event, location, club))
+            default:
+                continue
+            }
+        }
+
+        return captured.enumerated().map { index, item in
+            let distanceToNextM = captured.indices.contains(index + 1)
+                ? WatchGeoMath.metres(
+                    item.location.latitude,
+                    item.location.longitude,
+                    captured[index + 1].location.latitude,
+                    captured[index + 1].location.longitude
+                )
+                : nil
+            return WatchRecordedShot(
+                eventId: item.event.eventId,
+                hole: item.event.hole,
+                number: index + 1,
+                clubName: item.club,
+                shotType: item.event.shotType,
+                location: item.location,
+                capturedAt: item.event.createdAt,
+                distanceToNextM: distanceToNextM
+            )
+        }
+    }
+
     /// Live distance from the active hole's latest recorded shot origin to the Watch's current fix.
     /// Location events are the existing durable shot facts; malformed or other-hole events cannot
     /// replace the last usable origin.
@@ -299,6 +385,7 @@ public final class WatchRoundModel: ObservableObject {
 
     // round-13 navigation between the standalone round screens (menu hub → scorecard / hole select).
     public func openScorecard() { screen = .scorecard }
+    public func openCurrentHoleShots() { screen = .currentHoleShots }
     public func openHoleSelect() { screen = .holeSelect }
     public func openMenu() { screen = .menu }
     public func openHoleMap() { screen = .holeMap }

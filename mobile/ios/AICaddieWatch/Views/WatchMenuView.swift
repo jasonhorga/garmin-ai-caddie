@@ -15,6 +15,7 @@ public struct WatchMenuView: View {
     public let onHazards: () -> Void
     public let onToggleAutoShot: () -> Void
     public let onScorecard: () -> Void
+    public let onCurrentHoleShots: () -> Void
     public let onHoleSelect: () -> Void
     public let onFinish: () -> Void
     public let onClose: () -> Void
@@ -32,6 +33,7 @@ public struct WatchMenuView: View {
         onHazards: @escaping () -> Void = {},
         onToggleAutoShot: @escaping () -> Void = {},
         onScorecard: @escaping () -> Void = {},
+        onCurrentHoleShots: @escaping () -> Void = {},
         onHoleSelect: @escaping () -> Void = {},
         onFinish: @escaping () -> Void = {},
         onClose: @escaping () -> Void = {}
@@ -48,6 +50,7 @@ public struct WatchMenuView: View {
         self.onHazards = onHazards
         self.onToggleAutoShot = onToggleAutoShot
         self.onScorecard = onScorecard
+        self.onCurrentHoleShots = onCurrentHoleShots
         self.onHoleSelect = onHoleSelect
         self.onFinish = onFinish
         self.onClose = onClose
@@ -61,6 +64,7 @@ public struct WatchMenuView: View {
                     .disabled(!canRecordShot)
                     .accessibilityHint(canRecordShot ? "先保存当前位置，再选择实际球杆" : "等待 GPS 定位")
                 menuRow("本洞成绩", action: onScoreHole)
+                menuRow("本洞击球", action: onCurrentHoleShots)
                 if hasCaddie { menuRow("球童建议", action: onCaddie) }
                 if hasHazards { menuRow("障碍", action: onHazards) }
                 menuRow(

@@ -123,6 +123,7 @@ public struct WatchRoundContainerView: View {
                     model.setAutoShotEnabled(!model.autoShotEnabled)
                 },
                 onScorecard: { model.openScorecard() },
+                onCurrentHoleShots: { model.openCurrentHoleShots() },
                 onHoleSelect: { model.openHoleSelect() },
                 onFinish: { model.requestFinish() },
                 onClose: { model.backToHome() }
@@ -190,6 +191,25 @@ public struct WatchRoundContainerView: View {
                     onSelectHole: { model.startEditingHole($0) },
                     onBack: { model.openMenu() }
                 )
+            }
+        case .currentHoleShots:
+            if let state = model.activeHoleState {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        instrumentBackButton
+                        WatchCurrentHoleShotsView(
+                            hole: state.hole,
+                            par: state.par,
+                            shots: model.currentHoleShots,
+                            latestShotDistanceM: latestShotDistanceM(state),
+                            canAddShot: shotLocation != nil,
+                            onAddShot: { recordManualShot() }
+                        )
+                    }
+                    .padding(.horizontal, 4)
+                }
+            } else {
+                Color.black.onAppear { model.backToMenu() }
             }
         case .holeSelect:
             ScrollView {

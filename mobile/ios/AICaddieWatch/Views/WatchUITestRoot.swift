@@ -94,6 +94,16 @@ public struct WatchUITestRoot: View {
             WatchScorecardView(holes: Self.demoScorecard, totalToPar: 2)
         case "hole-select":
             WatchHoleSelectView(holes: Array(1...18), activeHole: 7)
+        case "current-hole-shots":
+            ScrollView {
+                WatchCurrentHoleShotsView(
+                    hole: 7,
+                    par: 4,
+                    shots: Self.demoRecordedShots,
+                    latestShotDistanceM: 38,
+                    canAddShot: true
+                )
+            }
         case "menu":
             WatchMenuView(
                 hasCaddie: true,
@@ -1090,6 +1100,24 @@ public struct WatchUITestRoot: View {
         WatchScorecardRow(hole: 3, par: 3, score: 2),
         WatchScorecardRow(hole: 4, par: 4, score: 5),
         WatchScorecardRow(hole: 5, par: 4, score: 0),
+    ]
+
+    static let demoRecordedShots: [WatchRecordedShot] = [
+        WatchRecordedShot(
+            eventId: "shot-1", hole: 7, number: 1, clubName: "一号木", shotType: "tee",
+            location: WatchShotLocationValue(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 4)!,
+            capturedAt: "2026-07-26T08:00:00Z", distanceToNextM: 224
+        ),
+        WatchRecordedShot(
+            eventId: "shot-2", hole: 7, number: 2, clubName: "七号铁", shotType: "approach",
+            location: WatchShotLocationValue(latitude: 40.001, longitude: 116.0, horizontalAccuracyM: 4)!,
+            capturedAt: "2026-07-26T08:05:00Z", distanceToNextM: 139
+        ),
+        WatchRecordedShot(
+            eventId: "shot-3", hole: 7, number: 3, clubName: nil, shotType: "recovery",
+            location: WatchShotLocationValue(latitude: 40.002, longitude: 116.0, horizontalAccuracyM: 4)!,
+            capturedAt: "2026-07-26T08:10:00Z", distanceToNextM: nil
+        ),
     ]
 
     static let demoState = WatchRoundState(
