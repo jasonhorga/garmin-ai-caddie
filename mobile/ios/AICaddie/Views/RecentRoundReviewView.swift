@@ -75,9 +75,6 @@ struct RecentReviewContent: View {
             } else {
                 Text("点一场看逐洞复盘 →").font(.caption2).foregroundStyle(LiveHoleStyle.green)
                 ForEach(package.recentHistory.rounds) { round in
-                    // This history screen is already a pushed destination. On iOS 18.5 a second
-                    // value-based HubRoute link here can accept the tap without advancing the stack;
-                    // a destination link keeps this nested transition owned by the visible row.
                     NavigationLink {
                         RoundReviewView(
                             roundRef: round.roundId,
@@ -138,6 +135,9 @@ struct RecentReviewContent: View {
             .foregroundStyle(.secondary)
         }
         .padding(.vertical, 6)
+        // The plain-styled link's visual centre is an empty Spacer. Give the whole visible row a
+        // hit shape so centre/blank-area taps open the round instead of being swallowed by ScrollView.
+        .contentShape(Rectangle())
         .overlay(alignment: .bottom) { Divider() }
     }
 
