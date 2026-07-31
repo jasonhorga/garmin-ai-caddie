@@ -11,6 +11,7 @@ on:
         options:
           - full
           - setup-visual
+          - real-course-visual
   # The workflow is new on this branch, so GitHub cannot dispatch it until it reaches the default
   # branch. Keep the current implementation branch self-testing while the runtime check is built.
   push:
@@ -294,6 +295,10 @@ jobs:
           # Move the simulated wrist fix along that same retained route until the first real hazard is
           # about 120 yards ahead, matching the approved mid-hole hazard-instrument state.
           launch_and_capture real-course-hazard-mid-map watch-real-course-hazard-mid-map.png
+          if [[ "$WATCH_RUNTIME_SCOPE" == "real-course-visual" ]]; then
+            echo "Real-course visual evidence complete; skipping score-writing journey and Web evidence."
+            exit 0
+          fi
 
           # One and only one real Cypress Point round now advances through every production-store hole.
           # Each launch restores the prior round.json; only the start mode is allowed to seed a round.
@@ -413,7 +418,7 @@ jobs:
 
   web-live-evidence:
     needs: watch-runtime
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.runtime_scope != 'setup-visual'
+    if: github.event_name != 'workflow_dispatch' || (github.event.inputs.runtime_scope != 'setup-visual' && github.event.inputs.runtime_scope != 'real-course-visual')
     runs-on: ubuntu-latest
     env:
       AI_CADDIE_CI_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}

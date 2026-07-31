@@ -475,6 +475,24 @@ class CIWorkflowTests(unittest.TestCase):
         ]:
             self.assertIn(f"launch_and_capture {mode} ", script)
 
+    def test_watch_runtime_real_course_visual_scope_stops_before_score_writes_and_web(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
+        scopes = workflow[True]["workflow_dispatch"]["inputs"]["runtime_scope"]["options"]
+        runtime_steps = {
+            step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]
+        }
+        script = runtime_steps["Seed and restore a real Watch round"]["run"]
+
+        self.assertIn("real-course-visual", scopes)
+        visual_exit = 'if [[ "$WATCH_RUNTIME_SCOPE" == "real-course-visual" ]]; then'
+        self.assertIn(visual_exit, script)
+        self.assertLess(script.index("real-course-hazard-mid-map"), script.index(visual_exit))
+        self.assertLess(script.index(visual_exit), script.index("real-course-journey-start"))
+
+        web_condition = workflow["jobs"]["web-live-evidence"]["if"]
+        self.assertIn("runtime_scope != 'setup-visual'", web_condition)
+        self.assertIn("runtime_scope != 'real-course-visual'", web_condition)
+
     def test_watch_runtime_hands_the_isolated_round_to_png_only_web_evidence(self) -> None:
         workflow_path = Path(".github/workflows/watch-runtime.yml")
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
