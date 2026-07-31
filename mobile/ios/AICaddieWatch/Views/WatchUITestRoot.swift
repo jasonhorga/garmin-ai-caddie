@@ -72,7 +72,8 @@ public struct WatchUITestRoot: View {
                 )
             }
         case "interaction-club-seed", "interaction-club-restore",
-             "interaction-score-seed", "interaction-score-restore":
+             "interaction-score-seed", "interaction-score-restore",
+             "interaction-current-hole-shots":
             interactionRound
         case "home":
             WatchRoundHomeView(
@@ -884,7 +885,12 @@ public struct WatchUITestRoot: View {
     private var interactionRound: some View {
         Group {
             if model.round != nil {
-                WatchRoundContainerView(model: model)
+                WatchRoundContainerView(
+                    model: model,
+                    shotLocation: screen == "interaction-current-hole-shots"
+                        ? Self.interactionCurrentHoleFix
+                        : nil
+                )
             } else {
                 Text("interaction restore unavailable")
             }
@@ -907,10 +913,36 @@ public struct WatchUITestRoot: View {
                     horizontalAccuracyM: 5,
                     capturedAt: "2026-07-26T12:10:00Z"
                 )
+            case "interaction-current-hole-shots":
+                seedInteractionCurrentHoleShots()
             default:
                 break
             }
         }
+    }
+
+    /// Runtime approval evidence must exercise the production model/container path, not mount the
+    /// list view directly. The eastward points are spaced at roughly 245 yd, 152 yd and 42 yd so the
+    /// rendered facts remain easy to compare with the approved design while still being calculated.
+    private func seedInteractionCurrentHoleShots() {
+        model.applyRoundSeed(Self.interactionCurrentHoleShotsSeed)
+        if model.recordedShotCount == 0 {
+            let shots: [(longitude: Double, club: String?, capturedAt: String)] = [
+                (116.00000, "一号木", "2026-07-26T08:00:00Z"),
+                (116.00263, "七号铁", "2026-07-26T08:05:00Z"),
+                (116.00426, nil, "2026-07-26T08:10:00Z"),
+            ]
+            for shot in shots {
+                model.beginManualShot(
+                    latitude: 40.0,
+                    longitude: shot.longitude,
+                    horizontalAccuracyM: 4,
+                    capturedAt: shot.capturedAt
+                )
+                model.completePendingManualShot(clubName: shot.club)
+            }
+        }
+        model.openCurrentHoleShots()
     }
 
     private static let milestoneSeed = WatchRoundSeed(
@@ -1067,6 +1099,19 @@ public struct WatchUITestRoot: View {
         courseName: "北京丽宫 · 前九",
         activeHole: 7,
         holes: interactionClubSeed.holes
+    )
+
+    private static let interactionCurrentHoleShotsSeed = WatchRoundSeed(
+        roundId: "ci-interaction-current-hole-shots-round",
+        courseName: "北京丽宫 · 前九",
+        activeHole: 7,
+        holes: interactionClubSeed.holes
+    )
+
+    private static let interactionCurrentHoleFix = WatchLocationFix(
+        coordinate: CLLocationCoordinate2D(latitude: 40.0, longitude: 116.00471),
+        horizontalAccuracyM: 4,
+        capturedAt: "2026-07-26T08:11:00Z"
     )
 
     // MARK: - demo data (mirrors the design-snapshot fixtures)

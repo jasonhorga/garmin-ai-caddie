@@ -266,8 +266,9 @@ jobs:
           # Full-catalogue discovery remains explicit; a selected remote result loads real tee rows.
           launch_and_capture course-search-results watch-course-search-results.png
           launch_and_capture course-remote-setup watch-course-remote-setup.png
-          # Read-only product evidence for the locked D10/L11 current-hole correction surface.
-          launch_and_capture current-hole-shots watch-current-hole-shots-runtime.png
+          # Production model + container evidence for the locked D10/L11 current-hole correction
+          # surface. The fixture records real club/location events, then navigates through model.screen.
+          launch_and_capture interaction-current-hole-shots watch-current-hole-shots-runtime.png
           launch_and_capture menu watch-menu-shot-list.png
           swift mobile/ios/scripts/verify_watch_setup_cta.swift \
             watch-runtime-artifacts/watch-course-remote-setup.png
