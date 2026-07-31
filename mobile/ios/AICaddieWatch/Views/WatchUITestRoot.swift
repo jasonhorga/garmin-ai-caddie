@@ -73,7 +73,7 @@ public struct WatchUITestRoot: View {
             }
         case "interaction-club-seed", "interaction-club-restore",
              "interaction-score-seed", "interaction-score-restore",
-             "interaction-current-hole-shots":
+             "interaction-current-hole-shots", "interaction-gps-acquiring":
             interactionRound
         case "home":
             WatchRoundHomeView(
@@ -235,7 +235,8 @@ public struct WatchUITestRoot: View {
                     WatchRoundContainerView(
                         model: model,
                         holeGeometry: realCourseGeometry,
-                        shotLocation: nil,
+                        watchGreenYards: realCourseGreenYards,
+                        shotLocation: realCourseRuntimeFix,
                         measuredPxOverride: screen == "real-course-map-measured"
                             ? realCourseMeasuredPoint
                             : nil,
@@ -302,6 +303,39 @@ public struct WatchUITestRoot: View {
             x: geometry.youPx.x + (geometry.pinPx.x - geometry.youPx.x) * 0.55,
             y: geometry.youPx.y + (geometry.pinPx.y - geometry.youPx.y) * 0.55
         )
+    }
+
+    /// Runtime screenshots place the simulated wrist at the production course's active Tee. Distances
+    /// are then recomputed from the retained green coordinates instead of displaying prepared Tee facts
+    /// through the live-distance UI.
+    private var realCourseRuntimeFix: WatchLocationFix? {
+        guard let state = model.activeHoleState,
+              let latitude = state.teeLatitude,
+              let longitude = state.teeLongitude else {
+            return nil
+        }
+        return WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-31T00:00:00Z"
+        )
+    }
+
+    private var realCourseGreenYards: (front: Int?, center: Int?, back: Int?)? {
+        guard let state = model.activeHoleState, let fix = realCourseRuntimeFix else { return nil }
+        let latitude = fix.coordinate.latitude
+        let longitude = fix.coordinate.longitude
+        let front = WatchGeoMath.yards(
+            from: latitude, longitude, toLat: state.frontGreenLat, state.frontGreenLon
+        )
+        let center = WatchGeoMath.yards(
+            from: latitude, longitude, toLat: state.centerGreenLat, state.centerGreenLon
+        )
+        let back = WatchGeoMath.yards(
+            from: latitude, longitude, toLat: state.backGreenLat, state.backGreenLon
+        )
+        guard center != nil else { return nil }
+        return (front: front, center: center, back: back)
     }
 
     /// Same downloaded Cypress geometry, with a deterministic simulated GPS fix about 120 yards
@@ -805,15 +839,12 @@ public struct WatchUITestRoot: View {
     }
 
     private var standaloneHomeGreenYards: (front: Int?, center: Int?, back: Int?)? {
-        guard screen == "standalone-course-live-home" else { return nil }
-        return (front: 199, center: 211, back: 223)
+        screen == "standalone-course-live-home"
+            ? (front: 199, center: 211, back: 223)
+            : (front: 248, center: 262, back: 274)
     }
 
     private var standaloneLastShotFix: WatchLocationFix? {
-        guard screen == "standalone-course-last-shot"
-                || screen == "standalone-course-caddie-last-shot" else {
-            return nil
-        }
         return WatchLocationFix(
             coordinate: CLLocationCoordinate2D(latitude: 40.0454995, longitude: 116.5461531),
             horizontalAccuracyM: 5,
@@ -870,7 +901,7 @@ public struct WatchUITestRoot: View {
     private var milestoneRound: some View {
         Group {
             if model.round != nil {
-                WatchRoundContainerView(model: model)
+                WatchRoundContainerView(model: model, shotLocation: Self.milestoneWatchFix)
             } else {
                 Text("round restore unavailable")
             }
@@ -915,6 +946,9 @@ public struct WatchUITestRoot: View {
                 )
             case "interaction-current-hole-shots":
                 seedInteractionCurrentHoleShots()
+            case "interaction-gps-acquiring":
+                model.applyRoundSeed(Self.interactionGPSAcquiringSeed)
+                model.backToHome()
             default:
                 break
             }
@@ -1108,10 +1142,23 @@ public struct WatchUITestRoot: View {
         holes: interactionClubSeed.holes
     )
 
+    private static let interactionGPSAcquiringSeed = WatchRoundSeed(
+        roundId: "ci-interaction-gps-acquiring-round",
+        courseName: "北京丽宫 · 前九",
+        activeHole: 7,
+        holes: interactionClubSeed.holes
+    )
+
     private static let interactionCurrentHoleFix = WatchLocationFix(
         coordinate: CLLocationCoordinate2D(latitude: 40.0, longitude: 116.00471),
         horizontalAccuracyM: 4,
         capturedAt: "2026-07-26T08:11:00Z"
+    )
+
+    private static let milestoneWatchFix = WatchLocationFix(
+        coordinate: CLLocationCoordinate2D(latitude: 40.0, longitude: 116.0),
+        horizontalAccuracyM: 5,
+        capturedAt: "2026-07-31T00:00:00Z"
     )
 
     // MARK: - demo data (mirrors the design-snapshot fixtures)

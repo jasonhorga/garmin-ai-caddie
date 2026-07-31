@@ -15,21 +15,33 @@ final class WatchHoleRootPresentationTests: XCTestCase {
 
     func testRealGeometryMakesTheMapTheCurrentHoleRoot() {
         XCTAssertEqual(
-            WatchHoleRootPresentation.resolve(hasGeometry: true, hasCenterDistance: true),
+            WatchHoleRootPresentation.resolve(
+                hasQualifiedWristFix: true,
+                hasGeometry: true,
+                hasLiveCenterDistance: true
+            ),
             .map
         )
     }
 
     func testDistanceFactsProvideTheRootWhenGeometryIsUnavailable() {
         XCTAssertEqual(
-            WatchHoleRootPresentation.resolve(hasGeometry: false, hasCenterDistance: true),
+            WatchHoleRootPresentation.resolve(
+                hasQualifiedWristFix: true,
+                hasGeometry: false,
+                hasLiveCenterDistance: true
+            ),
             .distances
         )
     }
 
     func testMissingMapAndDistanceFactsFallsBackToHonestScoring() {
         XCTAssertEqual(
-            WatchHoleRootPresentation.resolve(hasGeometry: false, hasCenterDistance: false),
+            WatchHoleRootPresentation.resolve(
+                hasQualifiedWristFix: true,
+                hasGeometry: false,
+                hasLiveCenterDistance: false
+            ),
             .scoreOnly
         )
     }

@@ -82,7 +82,7 @@ public struct AICaddieWatchApp: App {
                     model: roundModel,
                     holeGeometry: activeHoleGeometry,
                     watchGreenYards: watchGreenYards,
-                    shotLocation: watchLocation.latestFix,
+                    shotLocation: qualifiedWatchFix,
                     autoShotSupported: autoShotProvider.isSupported,
                     autoShotStatus: autoShotProvider.state.menuDetail
                 )
@@ -166,17 +166,32 @@ public struct AICaddieWatchApp: App {
         guard let geo = WatchHoleMapGeometry.from(holeMap: hm, image: img) else { return nil }
         // watch P3: if the watch has its OWN fix + this hole's projection refs, place YOU from the wrist GPS
         // (else keep the phone-pushed you = tee/phone-GPS). Pin/lay-up/route anchors are unchanged.
-        if let fix = watchLocation.latestFix, let refs = s.holeImageProjection?.refs,
+        if let fix = qualifiedWatchFix, let refs = s.holeImageProjection?.refs,
            let px = WatchGeoMath.projectToTopoPx(lat: fix.coordinate.latitude, lon: fix.coordinate.longitude, refs: refs) {
             return geo.withYou(px)
         }
         return geo
     }
 
-    /// watch P3: front/center/back green distances (码) recomputed from the watch's OWN fix + the hole's
-    /// green coordinates. nil when there is no fix / no green coords → the container keeps the phone values.
+    /// A cold or coarse Core Location sample is not yet a rangefinder fix. Fifteen metres matches the
+    /// existing live-caddie accuracy gate; until then the Hole Root stays on the frozen 搜星 state.
+    private var qualifiedWatchFix: WatchLocationFix? {
+        guard let fix = watchLocation.latestFix,
+              fix.coordinate.latitude.isFinite,
+              (-90...90).contains(fix.coordinate.latitude),
+              fix.coordinate.longitude.isFinite,
+              (-180...180).contains(fix.coordinate.longitude),
+              fix.horizontalAccuracyM.isFinite,
+              (0...15).contains(fix.horizontalAccuracyM) else {
+            return nil
+        }
+        return fix
+    }
+
+    /// watch P3: front/center/back green distances (码) recomputed from the watch's OWN qualified fix +
+    /// the hole's green coordinates. nil keeps the current-hole root in acquiring/score-only truth states.
     private var watchGreenYards: (front: Int?, center: Int?, back: Int?)? {
-        guard let s = roundModel.activeHoleState, let fix = watchLocation.latestFix else { return nil }
+        guard let s = roundModel.activeHoleState, let fix = qualifiedWatchFix else { return nil }
         let c = fix.coordinate
         let front = WatchGeoMath.yards(from: c.latitude, c.longitude, toLat: s.frontGreenLat, s.frontGreenLon)
         let center = WatchGeoMath.yards(from: c.latitude, c.longitude, toLat: s.centerGreenLat, s.centerGreenLon)

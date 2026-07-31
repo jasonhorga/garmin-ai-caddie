@@ -269,6 +269,9 @@ jobs:
           # Production model + container evidence for the locked D10/L11 current-hole correction
           # surface. The fixture records real club/location events, then navigates through model.screen.
           launch_and_capture interaction-current-hole-shots watch-current-hole-shots-runtime.png
+          # Missing wrist GPS must render the frozen acquiring state through the production container;
+          # prepared Tee distances are deliberately present in the seed but must remain hidden.
+          launch_and_capture interaction-gps-acquiring watch-gps-acquiring-runtime.png
           launch_and_capture menu watch-menu-shot-list.png
           swift mobile/ios/scripts/verify_watch_setup_cta.swift \
             watch-runtime-artifacts/watch-course-remote-setup.png

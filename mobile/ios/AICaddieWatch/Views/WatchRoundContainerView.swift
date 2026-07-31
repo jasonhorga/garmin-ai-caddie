@@ -3,14 +3,43 @@ import SwiftUI
 /// The permanent current-hole surface. Geometry and distance availability select an honest visual
 /// projection; they never change the scoring or shot state machine behind it.
 public enum WatchHoleRootPresentation: Equatable {
+    case acquiringGPS
     case map
     case distances
     case scoreOnly
 
-    public static func resolve(hasGeometry: Bool, hasCenterDistance: Bool) -> Self {
-        if hasGeometry { return .map }
-        if hasCenterDistance { return .distances }
+    public static func resolve(
+        hasQualifiedWristFix: Bool,
+        hasGeometry: Bool,
+        hasLiveCenterDistance: Bool
+    ) -> Self {
+        guard hasQualifiedWristFix else { return .acquiringGPS }
+        if hasGeometry, hasLiveCenterDistance { return .map }
+        if hasLiveCenterDistance { return .distances }
         return .scoreOnly
+    }
+}
+
+/// Honest cold-GPS state for the current-hole root. Prepared Tee distances remain useful course facts,
+/// but they are never presented as the player's current range while the Watch is still acquiring.
+public struct WatchGPSAcquiringView: View {
+    public init() {}
+
+    public var body: some View {
+        VStack(spacing: 11) {
+            Image(systemName: "location.magnifyingglass")
+                .font(.system(size: 42, weight: .semibold))
+                .foregroundStyle(.blue)
+            Text("搜星中...")
+                .font(.title3.weight(.bold))
+            Text("定位就绪前不显示距离，\n免得报假数")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -273,15 +302,7 @@ public struct WatchRoundContainerView: View {
     }
 
     var distanceText: String? {
-        if let liveCenterYd = watchGreenYards?.center {
-            return "\(liveCenterYd) 码"
-        }
-        guard let state = model.activeHoleState else { return nil }
-        if let centerGreenM = state.centerGreenM {
-            return "\(WatchUnits.yards(centerGreenM)) 码"
-        }
-        guard let distanceM = state.distanceM else { return nil }
-        return "\(WatchUnits.yards(distanceM)) 码"
+        watchGreenYards?.center.map { "\($0) 码" }
     }
 
     // A prepared/offline recommendation is useful inside the caddie detail surface, but D02 forbids it
@@ -368,9 +389,9 @@ public struct WatchRoundContainerView: View {
 
     private func distanceHero(_ s: WatchRoundState, big: Bool) -> some View {
         WatchDistanceHero(
-            frontYd: watchGreenYards?.front ?? s.frontGreenM.map { WatchUnits.yards($0) },
-            centerYd: watchGreenYards?.center ?? s.centerGreenM.map { WatchUnits.yards($0) },
-            backYd: watchGreenYards?.back ?? s.backGreenM.map { WatchUnits.yards($0) },
+            frontYd: watchGreenYards?.front,
+            centerYd: watchGreenYards?.center,
+            backYd: watchGreenYards?.back,
             caddieLine: model.rootCaddieLayerAvailable(at: shotLocation) ? caddieLine(s) : nil,
             bigText: big
         )
@@ -379,9 +400,14 @@ public struct WatchRoundContainerView: View {
     @ViewBuilder
     private func currentHoleRoot(_ s: WatchRoundState) -> some View {
         switch WatchHoleRootPresentation.resolve(
+            hasQualifiedWristFix: shotLocation != nil,
             hasGeometry: holeGeometry != nil,
-            hasCenterDistance: watchGreenYards?.center != nil || s.centerGreenM != nil
+            hasLiveCenterDistance: watchGreenYards?.center != nil
         ) {
+        case .acquiringGPS:
+            currentHoleInstrument {
+                WatchGPSAcquiringView()
+            }
         case .map:
             currentHoleInstrument {
                 if holeMapBigText {

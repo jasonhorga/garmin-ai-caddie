@@ -1,3 +1,4 @@
+import CoreLocation
 import ImageIO
 import SwiftUI
 import XCTest
@@ -535,7 +536,11 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testRenderWatchRoundContainerHome() throws {
         let model = makeSeededModel(scoring: false)   // hold a strong ref through render
-        let view = WatchRoundContainerView(model: model)
+        let view = WatchRoundContainerView(
+            model: model,
+            watchGreenYards: (front: 164, center: 173, back: 181),
+            shotLocation: Self.snapshotWatchFix
+        )
             .frame(width: 198)
             .background(Color.black)
         try render(view, named: "watch-container-home")
@@ -583,10 +588,23 @@ final class WatchDesignSnapshotTests: XCTestCase {
         model.seedRound(holes, activeHole: 4, courseName: "测试球场")
         model.openHoleMap()
         let geometry = try XCTUnwrap(WatchHoleMapGeometry.from(holeMap: hm, image: WatchHoleMapSample.image))
-        let view = WatchRoundContainerView(model: model, holeGeometry: geometry)
+        let view = WatchRoundContainerView(
+            model: model,
+            holeGeometry: geometry,
+            watchGreenYards: (front: 248, center: 262, back: 274),
+            shotLocation: Self.snapshotWatchFix
+        )
             .frame(width: 198, height: 242)
             .background(Color.black)
         try render(view, named: "watch-container-holemap")
+    }
+
+    @MainActor
+    func testRenderWatchGPSAcquiring() throws {
+        let view = WatchGPSAcquiringView()
+            .frame(width: 198, height: 198)
+            .background(Color.black)
+        try render(view, named: "watch-gps-acquiring")
     }
 
     @MainActor
@@ -626,6 +644,12 @@ final class WatchDesignSnapshotTests: XCTestCase {
         if scoring { model.startScoringActiveHole() }
         return model
     }
+
+    private static let snapshotWatchFix = WatchLocationFix(
+        coordinate: CLLocationCoordinate2D(latitude: 40.0, longitude: 116.0),
+        horizontalAccuracyM: 5,
+        capturedAt: "2026-07-31T00:00:00Z"
+    )
 
     @MainActor
     func testRenderWatchHoleMap() throws {
