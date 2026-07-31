@@ -384,3 +384,45 @@ jobs:
           name: watch-runtime-evidence
           path: watch-runtime-artifacts/
           if-no-files-found: error
+
+  web-live-evidence:
+    needs: watch-runtime
+    runs-on: ubuntu-latest
+    env:
+      AI_CADDIE_CI_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+      VITE_AI_CADDIE_API_BASE_URL: ${{ vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+      VITE_AI_CADDIE_REQUIRE_LINK: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web_v2/package-lock.json
+
+      - name: Install Web dependencies
+        working-directory: web_v2
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: web_v2
+        run: npx playwright install --with-deps chromium
+
+      - name: Capture real Web player evidence
+        working-directory: web_v2
+        run: |
+          set -euo pipefail
+          test -n "$AI_CADDIE_CI_PLAYER_TOKEN"
+          npx playwright test e2e/live-ci-player-evidence.spec.ts \
+            --config=playwright.live.config.ts \
+            --project=desktop-chromium \
+            --reporter=line
+
+      - name: Upload real Web player evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-live-evidence
+          path: web_v2/web-live-evidence/*.png
+          if-no-files-found: error
+          retention-days: 7

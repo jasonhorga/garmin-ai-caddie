@@ -475,6 +475,56 @@ class CIWorkflowTests(unittest.TestCase):
         ]:
             self.assertIn(f"launch_and_capture {mode} ", script)
 
+    def test_watch_runtime_hands_the_isolated_round_to_png_only_web_evidence(self) -> None:
+        workflow_path = Path(".github/workflows/watch-runtime.yml")
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        web = workflow["jobs"]["web-live-evidence"]
+        steps = {step.get("name"): step for step in web["steps"]}
+
+        self.assertEqual("watch-runtime", web["needs"])
+        self.assertEqual("ubuntu-latest", web["runs-on"])
+        self.assertEqual(
+            "${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}",
+            web["env"]["AI_CADDIE_CI_PLAYER_TOKEN"],
+        )
+        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", json.dumps(web))
+
+        capture = steps["Capture real Web player evidence"]
+        self.assertEqual("web_v2", capture["working-directory"])
+        self.assertIn("live-ci-player-evidence.spec.ts", capture["run"])
+        self.assertIn("--config=playwright.live.config.ts", capture["run"])
+        self.assertIn("--project=desktop-chromium", capture["run"])
+        self.assertIn("--reporter=line", capture["run"])
+
+        upload = steps["Upload real Web player evidence"]
+        self.assertEqual("actions/upload-artifact@v4", upload["uses"])
+        self.assertEqual("web-live-evidence", upload["with"]["name"])
+        self.assertEqual(
+            "web_v2/web-live-evidence/*.png",
+            upload["with"]["path"],
+        )
+        self.assertNotIn("test-results", json.dumps(upload))
+        self.assertNotIn("playwright-report", json.dumps(upload))
+
+    def test_real_web_player_evidence_scrubs_the_token_and_disables_debug_artifacts(self) -> None:
+        spec_path = Path("web_v2/e2e/live-ci-player-evidence.spec.ts")
+        self.assertTrue(spec_path.exists())
+        text = spec_path.read_text(encoding="utf-8")
+
+        self.assertIn("process.env.AI_CADDIE_CI_PLAYER_TOKEN", text)
+        self.assertIn("test.skip(!playerToken", text)
+        self.assertIn("trace: 'off'", text)
+        self.assertIn("screenshot: 'off'", text)
+        self.assertIn("video: 'off'", text)
+        self.assertIn("window.history.replaceState", text)
+        for filename in [
+            "review-workbench.png",
+            "rounds-list.png",
+            "round-review.png",
+        ]:
+            self.assertIn(filename, text)
+        self.assertNotIn("console.log", text)
+
     def test_backend_fly_deploy_workflow_is_manual_secret_driven_and_runs_remote_preflight(self) -> None:
         workflow_path = Path(".github/workflows/backend-fly-deploy.yml")
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
