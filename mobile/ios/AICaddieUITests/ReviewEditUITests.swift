@@ -51,10 +51,7 @@ final class ReviewEditUITests: XCTestCase {
 
         // The scorecard rows are buttons ("点一洞看落点图 →"); tapping one opens the 落点图 pager sheet.
         guard tapFirstHoleRow() else { save("nohole"); dump("nohole"); return }
-        let shotMap = app.navigationBars.matching(
-            NSPredicate(format: #"identifier CONTAINS "落点""#)
-        ).firstMatch
-        guard shotMap.waitForExistence(timeout: 12) else {
+        guard app.buttons["关闭"].waitForExistence(timeout: 12) else {
             XCTFail("review-edit evidence must enter the shot-map pager before capture")
             return
         }

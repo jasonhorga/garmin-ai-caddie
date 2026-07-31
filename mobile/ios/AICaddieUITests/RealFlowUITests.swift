@@ -67,10 +67,9 @@ final class RealFlowUITests: XCTestCase {
                 }
                 if loadedRound, holeRow.isHittable {
                     holeRow.tap()
-                    let shotMap = app.navigationBars.matching(
-                        NSPredicate(format: #"identifier CONTAINS "落点""#)
-                    ).firstMatch
-                    let enteredShotMap = shotMap.waitForExistence(timeout: 12)
+                    // The pager's navigationTitle is intentionally not visible in this sheet style.
+                    // Its explicit close action is the stable, user-visible proof that presentation occurred.
+                    let enteredShotMap = app.buttons["关闭"].waitForExistence(timeout: 12)
                     XCTAssertTrue(enteredShotMap, "shot-map evidence must enter the pager before capture")
                     let editButton = app.buttons["编辑"]
                     let loadedShotMap = enteredShotMap && editButton.waitForExistence(timeout: 60)

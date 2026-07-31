@@ -2995,7 +2995,8 @@ class MobileContractTests(unittest.TestCase):
             self.assertIn('matching(identifier: "history-round-row")', ui_test)
             self.assertIn('app.navigationBars["单场复盘"]', ui_test)
             self.assertIn('identifier BEGINSWITH "round-review-hole-"', ui_test)
-        self.assertIn('identifier CONTAINS "落点"', ui_test)
+            self.assertIn('app.buttons["关闭"]', ui_test)
+            self.assertNotIn('identifier CONTAINS "落点"', ui_test)
         self.assertIn('matching(identifier: "home-last-round-row")', real_flow)
         # The modal pager's close action and its edit toggle must not both render as trailing
         # "完成" buttons. Close is leading and explicitly named; 编辑/完成 remains trailing.
