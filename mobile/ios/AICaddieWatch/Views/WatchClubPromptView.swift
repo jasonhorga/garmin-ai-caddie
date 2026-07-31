@@ -1,6 +1,21 @@
 import Foundation
 import SwiftUI
 
+enum WatchClubPromptLayout {
+    static let verticalPadding: CGFloat = 6
+    static let stackSpacing: CGFloat = 5
+    static let headerHeight: CGFloat = 34
+    static let clubRowHeight: CGFloat = 32
+    static let clubRowSpacing: CGFloat = 4
+    static let skipHeight: CGFloat = 24
+
+    static func firstScreenClubRows(viewportHeight: CGFloat) -> Int {
+        let fixedHeight = (verticalPadding * 2) + headerHeight + skipHeight + (stackSpacing * 2)
+        let availableHeight = max(0, viewportHeight - fixedHeight)
+        return Int((availableHeight + clubRowSpacing) / (clubRowHeight + clubRowSpacing))
+    }
+}
+
 /// The shot location is already staged by the model. This screen only lets the player attach the
 /// actual club; choosing Skip still records the location and never treats the suggested club as fact.
 public struct WatchClubPromptView: View {
@@ -28,14 +43,15 @@ public struct WatchClubPromptView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: WatchClubPromptLayout.stackSpacing) {
             VStack(spacing: 1) {
                 Text(locationTitle)
-                    .font(.headline.weight(.bold))
+                    .font(.system(size: 15, weight: .bold))
                 Text("选择实际球杆")
-                    .font(.caption2)
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+            .frame(height: WatchClubPromptLayout.headerHeight)
 
             if clubChoices.isEmpty {
                 Spacer(minLength: 4)
@@ -45,36 +61,52 @@ public struct WatchClubPromptView: View {
                 Spacer(minLength: 4)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 5) {
+                    LazyVStack(spacing: WatchClubPromptLayout.clubRowSpacing) {
                         ForEach(clubChoices, id: \.self) { club in
+                            let isRecommended = club == normalizedRecommendedClub
                             Button(action: { onSelectClub(club) }) {
                                 HStack(spacing: 4) {
                                     Text(club)
+                                        .font(.system(size: 15, weight: .semibold))
                                         .lineLimit(1)
                                     Spacer(minLength: 2)
-                                    if club == normalizedRecommendedClub {
+                                    if isRecommended {
                                         Text("建议")
                                             .font(.caption2.weight(.bold))
-                                            .foregroundStyle(AICaddieDesignTokens.par)
                                     }
                                 }
+                                .foregroundStyle(isRecommended ? Color.black : Color.white)
+                                .padding(.horizontal, 10)
                                 .frame(maxWidth: .infinity)
+                                .frame(height: WatchClubPromptLayout.clubRowHeight)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(isRecommended ? AICaddieDesignTokens.par : Color.white.opacity(0.09))
+                                )
                             }
-                            .buttonStyle(.bordered)
-                            .accessibilityLabel(club == normalizedRecommendedClub ? "\(club)，推荐球杆" : club)
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(isRecommended ? "\(club)，推荐球杆" : club)
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
             }
 
             Button(action: onSkipClub) {
                 Text("跳过球杆 · 保存位置")
-                    .font(.caption)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.72))
                     .frame(maxWidth: .infinity)
+                    .frame(height: WatchClubPromptLayout.skipHeight)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.white.opacity(0.07))
+                    )
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
         }
-        .padding(8)
+        .padding(.horizontal, 8)
+        .padding(.vertical, WatchClubPromptLayout.verticalPadding)
     }
 
     private var normalizedRecommendedClub: String? {

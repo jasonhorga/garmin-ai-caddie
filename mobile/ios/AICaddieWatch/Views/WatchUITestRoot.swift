@@ -929,13 +929,7 @@ public struct WatchUITestRoot: View {
         .onAppear {
             switch screen {
             case "interaction-club-seed":
-                model.applyRoundSeed(Self.interactionClubSeed)
-                model.beginManualShot(
-                    latitude: 40.0,
-                    longitude: 116.0,
-                    horizontalAccuracyM: 5,
-                    capturedAt: "2026-07-26T12:00:00Z"
-                )
+                seedInteractionClubPrompt()
             case "interaction-score-seed":
                 model.applyRoundSeed(Self.interactionScoreSeed)
                 model.beginManualShot(
@@ -953,6 +947,42 @@ public struct WatchUITestRoot: View {
                 break
             }
         }
+    }
+
+    /// Runtime visual evidence for the production model/container path. The pending location is real
+    /// model state; the four clubs mirror a downloaded bag so the first-screen density is reviewable.
+    private func seedInteractionClubPrompt() {
+        let roundId = "ci-interaction-club-round"
+        model.seedRound(
+            [
+                WatchRoundState(
+                    roundId: roundId, hole: 7, par: 4, distanceM: 139,
+                    teeLatitude: 40.0, teeLongitude: 116.0,
+                    suggestedClub: "一号木", selectedClub: nil,
+                    availableClubs: [
+                        WatchClubOption(clubName: "一号木", medianM: 201),
+                        WatchClubOption(clubName: "三号木", medianM: 183),
+                        WatchClubOption(clubName: "5号铁", medianM: 165),
+                        WatchClubOption(clubName: "7号铁", medianM: 139),
+                    ],
+                    score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+                ),
+                WatchRoundState(
+                    roundId: roundId, hole: 8, par: 5, distanceM: 472,
+                    teeLatitude: 40.001, teeLongitude: 116.0,
+                    selectedClub: nil,
+                    score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+                ),
+            ],
+            activeHole: 7,
+            courseName: "北京丽宫 · 前九"
+        )
+        model.beginManualShot(
+            latitude: 40.0,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T12:00:00Z"
+        )
     }
 
     /// Runtime approval evidence must exercise the production model/container path, not mount the

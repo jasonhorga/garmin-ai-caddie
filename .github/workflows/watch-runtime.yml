@@ -276,7 +276,10 @@ jobs:
           swift mobile/ios/scripts/verify_watch_setup_cta.swift \
             watch-runtime-artifacts/watch-course-remote-setup.png
           if [[ "$WATCH_RUNTIME_SCOPE" == "setup-visual" ]]; then
-            echo "Setup visual evidence complete; skipping real-course and score-writing journey."
+            # Production model + container evidence for the club prompt, without starting the
+            # credentialed real-course journey or writing a remote score.
+            launch_and_capture interaction-club-seed watch-club-prompt-runtime.png
+            echo "Setup and club-prompt visual evidence complete; skipping real-course and score-writing journey."
             exit 0
           fi
           # Real production installer: search a new course, fetch its Tee metadata, download package +
