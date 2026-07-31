@@ -3151,7 +3151,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("bigText", hero)
         self.assertIn("WatchDistanceHero(", container)
         self.assertIn("holeMapBigText", container)     # 大字 toggle state
-        self.assertIn("hasCenterDistance:", container) # root degrades map → distances → score honestly
+        self.assertIn("hasLiveCenterDistance:", container) # root degrades map → distances → score honestly
         self.assertIn(".onTapGesture", container)      # hero tap ↔ map
         # watch P2 map interactions: 选点测距(tap→distance)+ 拖旗(drag flag)+ 大字(long-press).
         map_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift")
