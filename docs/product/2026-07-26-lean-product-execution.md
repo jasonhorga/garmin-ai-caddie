@@ -122,7 +122,7 @@
 
 Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆盖差异已经收口；Hole Root 条件球童层、完整球童打法首屏与顺序成绩确认已有模拟器生产 View 候选，正在等待 Owner 视觉批准，尚不算最终获批。iPhone 与 Watch 都已用同一真实球场、同一 local round 连续走完并结束 18 洞；用户明确批准前不发布 TestFlight。风、空气密度、假成功率和推杆级果岭等高线继续后置。
 
-统一视觉审批工作台 working copy 位于 `/home/ubuntu/claude-web-data/review-artifacts/final-visual-approval-current/index.html`：当前把 Watch Hole Root、GPS 搜星、球童、成绩确认、本洞击球、结束、球场选择、开局设置、iPhone Live Hole 与 IOS-07 首页修改前后共 10 组、24 张批准/production 图放在同一页，并明确把 Web 同一真实球局和透明 topo 留为待替换证据。所有图片引用已由 homeserver Chromium 验证存在，broken image 为 `0`；整页渲染为 `1440×9582`，回传图 `/home/ubuntu/claude-web-data/review-artifacts/final-visual-approval-current/render-homeserver.png` 的 SHA256 为 `e037294dd73f1fc0d602d808415a3f63da15ab0d2aba7ec42eca4b28137e6a9e`。这只是可持续更新的审批入口，不是 Owner 已批准结论；公网 topo-v4 和隔离 CI player 闭环后仍须替换受影响图，再请求最终批准。
+统一视觉审批工作台 working copy 位于 `/home/ubuntu/claude-web-data/review-artifacts/final-visual-approval-current/index.html`：当前把 Watch Hole Root、GPS 搜星、球童、成绩确认、本洞击球、击球后实际球杆、结束、球场选择、开局设置、iPhone Live Hole 与 IOS-07 首页修改前后共 11 组、27 张批准/production 图放在同一页，并明确把 Web 同一真实球局和透明 topo 留为待替换证据。所有图片引用已由 homeserver Chromium 验证存在，broken image 为 `0`；整页渲染为 `1440×10372`，回传图 `/home/ubuntu/claude-web-data/review-artifacts/final-visual-approval-current/render-homeserver.png` 的 SHA256 为 `c38c03259d64df6ed7a5f387d8da2a65451bdcfee1bb4e160760ff068595c8e9`。这只是可持续更新的审批入口，不是 Owner 已批准结论；公网 topo-v4 和隔离 CI player 闭环后仍须替换受影响图，再请求最终批准。
 
 ### Watch Hole Root 条件球童层候选（2026-07-30，等待 Owner 批准）
 
@@ -158,6 +158,13 @@ Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆
 - 搜星页不会遮住更高优先级的未决任务：`.scoring/.clubPrompt/.menu` 与强杀恢复继续优先；底部球局工具入口也保留。真实球场截图 harness 使用 production course 当前 Tee 和真实 Green 坐标重新计算距离，不再以静态字段伪装实时 GPS。
 - RED [run 30602272558](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30602272558) 在 `7d3cbac` 精确暴露缺失的 `hasQualifiedWristFix` 与 `.acquiringGPS` 契约；GREEN [run 30602996584](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30602996584) 在 `339b57e` 完整成功：Watch `150/150`、独立 Watch build、真实 `WatchRoundModel + WatchRoundContainerView` 截图和 diagnostics 均通过。日志存在模拟器卸载/WatchConnectivity 系统噪声，但没有 App crash report、unknown-screen、restore-unavailable 或 product failure marker。
 - production 图 `/home/ubuntu/claude-web-data/review-artifacts/watch-gps-truth-339b57e-run-30602996584/runtime/watch-gps-acquiring-runtime.png` 的 SHA256 为 `8ed6b5443e952c23786ef14c2760193bbac08e54b996a2eb3155fb618052c0f8`；审批页单项截图 `/home/ubuntu/claude-web-data/review-artifacts/final-visual-approval-current/watch-gps-acquiring-section.png` 为 `1408×738`，SHA256 `8a88bc37a29b65cc09c7af4d17997cfcb35d909a2ad43172d5233a3c9e4db2c3`。本项关闭的是“定位前报假距离”的产品真实性缺陷；最终视觉仍随整页一起等待 Owner 审批。
+
+### Watch 击球后实际球杆首屏密度（2026-07-31，运行态已验证）
+
+- 根因是 `WatchClubPromptView` 同时给球杆行和 Skip 使用 watchOS 默认 `.bordered`；系统把 Skip 扩成约 52pt 高并固定在滚动区外，真实 46mm Watch 安全内容区只剩一支杆。实现 `5f3c67b` 改用项目已有的紧凑 plain 行，推荐杆恢复绿色层级，随后 `d19c43f` 把明确的“跳过球杆 · 位置已存”移入标题次操作行，释放底部整行但不删除 Skip。
+- 位置仍在进入页面前由 model 暂存；推荐杆不会自动成为实际杆，点击某杆才写 club event，跳过只保存既有 location。更多球杆继续滚动。DEBUG runtime seed 现在也通过真实 `WatchRoundModel → WatchRoundContainerView` 建立 pending shot，并带四支下载球包数据；不再把孤立 View 当作真实容器证据。
+- 第一轮 RED [run 30603920249](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30603920249) 因缺少布局契约失败；第一轮 GREEN [run 30604248922](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30604248922) 虽然 `151/151`、build 和 runtime 成功，但人工看图只露出两行半，因此没有接受。按真实约 160pt 安全高度加强后的 RED [run 30604761266](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30604761266) 精确失败为 `2 < 3`；最终 GREEN [run 30605033686](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30605033686) 完整成功：Watch `151/151`、独立 build、setup-only 真实容器 runtime 与 diagnostics 均通过，不启动 18 洞或写远端成绩。
+- 最终 `416×496` production 图 `/home/ubuntu/claude-web-data/review-artifacts/watch-club-prompt-density-d19c43f-run-30605033686/runtime/watch-club-prompt-runtime.png` 完整露出推荐杆、第二杆和第三杆，第四杆可滚动，SHA256 `dc53f2ab900a1d5d43b12d53a54eb11925c665ef3d29154f31b326c15562e451`。审批页单项截图 SHA256 为 `1b6053f220b7566a038875457914c4bea51fead0afec8b52af8093cdb2e80d8c`。本切片只关闭首屏密度与巨大 Skip 偏差；旧批准图中的球杆 carry 数字尚未由当前 View 展示，作为下一轮逐屏数据复用项继续审计，不冒充完整视觉一致。
 
 ### Watch 结束球局视觉候选（2026-07-30，等待 Owner 批准）
 
