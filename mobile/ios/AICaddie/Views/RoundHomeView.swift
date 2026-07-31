@@ -10,6 +10,8 @@ import SwiftUI
 public enum HubRoute: Hashable {
     case start
     case hole(Int)
+    case history
+    case roundReview(roundRef: String, courseName: String?)
 }
 
 public struct RoundHomeView: View {
@@ -145,6 +147,19 @@ public struct RoundHomeView: View {
                     startRoundView
                 case .hole(let number):
                     currentHoleView(number)
+                case .history:
+                    RecentRoundReviewView(
+                        package: package,
+                        apiBaseURL: apiBaseURL,
+                        adminToken: adminToken
+                    )
+                case .roundReview(let roundRef, let courseName):
+                    RoundReviewView(
+                        roundRef: roundRef,
+                        fallbackCourseName: courseName,
+                        apiBaseURL: apiBaseURL,
+                        adminToken: adminToken
+                    )
                 }
             }
             .toolbar {
@@ -272,9 +287,7 @@ public struct RoundHomeView: View {
                 }
                 .buttonStyle(.plain)
             }
-            NavigationLink {
-                RecentRoundReviewView(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)
-            } label: {
+            NavigationLink(value: HubRoute.history) {
                 HubTile(icon: "clock.arrow.circlepath", title: "历史复盘", subtitle: "逐洞落点")
             }
             .buttonStyle(.plain)
@@ -293,10 +306,12 @@ public struct RoundHomeView: View {
         if let last = package.recentHistory.rounds.first {
             VStack(alignment: .leading, spacing: 9) {
                 HubSectionLabel("上一场")
-                NavigationLink {
-                    RoundReviewView(roundRef: last.roundId, fallbackCourseName: last.courseName,
-                                    apiBaseURL: apiBaseURL, adminToken: adminToken)
-                } label: {
+                NavigationLink(
+                    value: HubRoute.roundReview(
+                        roundRef: last.roundId,
+                        courseName: last.courseName
+                    )
+                ) {
                     HubLastRoundCard(
                         courseName: last.courseName,
                         date: last.date,

@@ -2741,7 +2741,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("PackageReadinessSection", round_home)
         self.assertIn("CurrentHoleView(", round_home)
         self.assertIn("liveRoundState: liveRoundState,", round_home)
-        self.assertIn("RecentRoundReviewView(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
+        self.assertIn("case history", round_home)
+        self.assertIn("case roundReview(roundRef: String, courseName: String?)", round_home)
+        self.assertIn("NavigationLink(value: HubRoute.history)", round_home)
         self.assertIn('title: "历史复盘"', round_home)
         self.assertIn("struct RecentRoundReviewView: View", recent_review)
         self.assertIn("package.recentHistory.rounds", recent_review)
@@ -2762,7 +2764,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchRoundDetail(roundRef:", round_review)
         self.assertIn("detail.scorecard", round_review)
         self.assertIn("detail.missingData", round_review)  # graceful, never blank
-        self.assertIn("RoundReviewView(roundRef: round.roundId", recent_review)
+        self.assertIn("value: HubRoute.roundReview(", recent_review)
+        self.assertIn("roundRef: round.roundId", recent_review)
         # 复盘逐洞落点图: tap a scorecard hole → that hole's 2D map with this round's actual shots.
         shot_map_view = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         shot_map_model = _read_required_source(self, IOS_DIR / "Models" / "RoundShotMap.swift")
@@ -2979,6 +2982,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('.accessibilityIdentifier("home-last-round-row")', round_home)
         self.assertIn('.accessibilityIdentifier("history-round-row")', recent_review)
         self.assertIn('.accessibilityIdentifier("round-review-hole-\\(hole.hole)")', round_review)
+        self.assertIn("NavigationLink(value: HubRoute.history)", round_home)
+        self.assertIn("value: HubRoute.roundReview(", recent_review)
         self.assertIn('· 落点 · 左右滑', shot_map)
         for ui_test in [real_flow, review_edit]:
             self.assertIn('matching(identifier: "history-round-row")', ui_test)
