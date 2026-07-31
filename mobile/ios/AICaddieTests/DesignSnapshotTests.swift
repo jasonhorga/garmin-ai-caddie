@@ -163,16 +163,42 @@ final class DesignSnapshotTests: XCTestCase {
             }
             VStack(alignment: .leading, spacing: 9) {
                 HubSectionLabel("上一场")
-                HubLastRoundCard(courseName: "北京天竺黑骑士 C/A", date: "06-11", score: 89, toPar: 17,
-                                 holesCompleted: 18, par: 72,
+                HubLastRoundCard(courseName: "Cypress Point Club", date: "2026-07-30", score: 55, toPar: -20,
+                                 holesCompleted: 18, par: 75,
                                  topoURL: SyncClient.topoImageURL(
-                                     baseURL: URL(string: "https://caddie.example")!, globalId: 31795, localHole: 1))
+                                     baseURL: URL(string: "https://caddie.example")!, globalId: 3881, localHole: 1))
             }
         }
         .padding(16)
         .frame(width: 390)
         .background(HubStyle.grouped)
         try render(view, named: "round-home")
+    }
+
+    @MainActor
+    func testLastRoundCardKeepsLongCourseNameWithinTwoLineCardHeight() {
+        let card = HubLastRoundCard(
+            courseName: "Cypress Point Club",
+            date: "2026-07-30",
+            score: 55,
+            toPar: -20,
+            holesCompleted: 18,
+            par: 75,
+            topoURL: SyncClient.topoImageURL(
+                baseURL: URL(string: "https://caddie.example")!,
+                globalId: 3881,
+                localHole: 1
+            )
+        )
+        .frame(width: 358)
+        let host = UIHostingController(rootView: card)
+        let measured = host.sizeThatFits(in: CGSize(width: 358, height: 1_000))
+
+        XCTAssertLessThanOrEqual(
+            measured.height,
+            112,
+            "the last-round card must not grow into a four-line course-name tower"
+        )
     }
 
     @MainActor
