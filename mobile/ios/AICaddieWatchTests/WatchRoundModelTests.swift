@@ -278,6 +278,38 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.recordedShotCount, 1)
     }
 
+    func testCurrentHoleShotListReusesRecordedClubAndLocationFacts() throws {
+        let model = seededModel(holes: [hole(1), hole(2)])
+        model.beginManualShot(
+            latitude: 40.0,
+            longitude: 116.0,
+            horizontalAccuracyM: 4,
+            capturedAt: "2026-07-26T08:00:00Z"
+        )
+        model.completePendingManualShot(clubName: "一号木")
+        model.beginManualShot(
+            latitude: 40.001,
+            longitude: 116.0,
+            horizontalAccuracyM: 4,
+            capturedAt: "2026-07-26T08:05:00Z"
+        )
+        model.completePendingManualShot(clubName: nil)
+
+        let shots = model.currentHoleShots
+
+        XCTAssertEqual(shots.map(\.number), [1, 2])
+        XCTAssertEqual(shots.map(\.clubName), ["一号木", nil])
+        XCTAssertEqual(
+            try XCTUnwrap(shots.first?.distanceToNextM),
+            WatchGeoMath.metres(40.0, 116.0, 40.001, 116.0),
+            accuracy: 0.01
+        )
+        XCTAssertNil(shots.last?.distanceToNextM)
+        model.openCurrentHoleShots()
+        XCTAssertEqual(model.screen, .currentHoleShots)
+        XCTAssertEqual(model.activeHole, 1)
+    }
+
     func testDistanceFromLatestShotUsesLastValidLocationOnActiveHole() throws {
         let store = makeStore()
         let events = [

@@ -191,6 +191,37 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchCurrentHoleShots() throws {
+        let shots = [
+            WatchRecordedShot(
+                eventId: "shot-1", hole: 7, number: 1, clubName: "一号木", shotType: "tee",
+                location: WatchShotLocationValue(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 4)!,
+                capturedAt: "2026-07-26T08:00:00Z", distanceToNextM: 224
+            ),
+            WatchRecordedShot(
+                eventId: "shot-2", hole: 7, number: 2, clubName: "七号铁", shotType: "approach",
+                location: WatchShotLocationValue(latitude: 40.001, longitude: 116.0, horizontalAccuracyM: 4)!,
+                capturedAt: "2026-07-26T08:05:00Z", distanceToNextM: 139
+            ),
+            WatchRecordedShot(
+                eventId: "shot-3", hole: 7, number: 3, clubName: nil, shotType: "recovery",
+                location: WatchShotLocationValue(latitude: 40.002, longitude: 116.0, horizontalAccuracyM: 4)!,
+                capturedAt: "2026-07-26T08:10:00Z", distanceToNextM: nil
+            ),
+        ]
+        let view = WatchCurrentHoleShotsView(
+            hole: 7,
+            par: 4,
+            shots: shots,
+            latestShotDistanceM: 38,
+            canAddShot: true
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-current-hole-shots")
+    }
+
+    @MainActor
     func testRenderWatchMenu() throws {
         let view = WatchMenuView(hasCaddie: true, hasHazards: true)
             .frame(width: 198)
