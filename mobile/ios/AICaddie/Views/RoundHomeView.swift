@@ -151,12 +151,7 @@ public struct RoundHomeView: View {
                     RecentRoundReviewView(
                         package: package,
                         apiBaseURL: apiBaseURL,
-                        adminToken: adminToken,
-                        onOpenRound: { roundRef, courseName in
-                            path.append(
-                                .roundReview(roundRef: roundRef, courseName: courseName)
-                            )
-                        }
+                        adminToken: adminToken
                     )
                 case .roundReview(let roundRef, let courseName):
                     RoundReviewView(

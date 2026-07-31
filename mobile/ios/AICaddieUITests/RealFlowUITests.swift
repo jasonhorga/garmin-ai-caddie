@@ -57,22 +57,29 @@ final class RealFlowUITests: XCTestCase {
             let enteredRoundReview = tappedRound && roundReview.waitForExistence(timeout: 12)
             XCTAssertTrue(enteredRoundReview, "round evidence must enter 单场复盘 before capture")
             if enteredRoundReview {
-                settle(2); save("04-round-review"); dump("04-round-review")
                 let holeRow = app.buttons.matching(
                     NSPredicate(format: #"identifier BEGINSWITH "round-review-hole-""#)
                 ).firstMatch
-                XCTAssertTrue(holeRow.waitForExistence(timeout: 8), "单场复盘 must expose a stable hole row")
-                if holeRow.exists, holeRow.isHittable {
+                let loadedRound = holeRow.waitForExistence(timeout: 60)
+                XCTAssertTrue(loadedRound, "单场复盘 must finish loading and expose a stable hole row")
+                if loadedRound {
+                    settle(2); save("04-round-review"); dump("04-round-review")
+                }
+                if loadedRound, holeRow.isHittable {
                     holeRow.tap()
                     let shotMap = app.navigationBars.matching(
                         NSPredicate(format: #"identifier CONTAINS "落点""#)
                     ).firstMatch
                     let enteredShotMap = shotMap.waitForExistence(timeout: 12)
                     XCTAssertTrue(enteredShotMap, "shot-map evidence must enter the pager before capture")
-                    if enteredShotMap {
+                    let editButton = app.buttons["编辑"]
+                    let loadedShotMap = enteredShotMap && editButton.waitForExistence(timeout: 60)
+                    XCTAssertTrue(loadedShotMap, "shot-map evidence must finish loading before capture")
+                    if loadedShotMap {
                         settle(2); save("04b-shot-map"); dump("04b-shot-map")
                     }
-                    if enteredShotMap, tapContaining(["编辑"]) {
+                    if loadedShotMap, editButton.isHittable {
+                        editButton.tap()
                         settle(3); save("04c-edit-mode"); dump("04c-edit-mode")
                         // Tap the map render area to open the 补一杆/改杆 sheet (best-effort centre tap).
                         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.42)).tap()
@@ -93,7 +100,14 @@ final class RealFlowUITests: XCTestCase {
             let enteredRoundReview = roundReview.waitForExistence(timeout: 12)
             XCTAssertTrue(enteredRoundReview, "last-round evidence must enter 单场复盘 before capture")
             if enteredRoundReview {
-                settle(2); save("05-last-round-review"); dump("05-last-round-review")
+                let holeRow = app.buttons.matching(
+                    NSPredicate(format: #"identifier BEGINSWITH "round-review-hole-""#)
+                ).firstMatch
+                let loadedRound = holeRow.waitForExistence(timeout: 60)
+                XCTAssertTrue(loadedRound, "last-round evidence must finish loading before capture")
+                if loadedRound {
+                    settle(2); save("05-last-round-review"); dump("05-last-round-review")
+                }
             }
         }
         if cfg("UITEST_CAPTURE_SCOPE") == "review" { return }

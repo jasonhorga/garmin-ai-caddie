@@ -5,23 +5,24 @@ public struct RecentRoundReviewView: View {
     public let package: LiveRoundPackage
     public let apiBaseURL: URL?
     public let adminToken: String?
-    public let onOpenRound: (String, String?) -> Void
 
     public init(
         package: LiveRoundPackage,
         apiBaseURL: URL? = nil,
-        adminToken: String? = nil,
-        onOpenRound: @escaping (String, String?) -> Void = { _, _ in }
+        adminToken: String? = nil
     ) {
         self.package = package
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
-        self.onOpenRound = onOpenRound
     }
 
     public var body: some View {
         ScrollView {
-            RecentReviewContent(package: package, onOpenRound: onOpenRound)
+            RecentReviewContent(
+                package: package,
+                apiBaseURL: apiBaseURL,
+                adminToken: adminToken
+            )
         }
         .background(HubStyle.grouped)
         // 与首页磁贴「历史复盘」一致(原为「赛后复盘」,单场仍叫「单场复盘」)。
@@ -33,7 +34,8 @@ public struct RecentRoundReviewView: View {
 /// in the CI design-snapshot (ImageRenderer does not render ScrollView content).
 struct RecentReviewContent: View {
     let package: LiveRoundPackage
-    var onOpenRound: (String, String?) -> Void = { _, _ in }
+    var apiBaseURL: URL? = nil
+    var adminToken: String? = nil
 
     var body: some View {
         VStack(spacing: 12) {
@@ -73,8 +75,13 @@ struct RecentReviewContent: View {
             } else {
                 Text("点一场看逐洞复盘 →").font(.caption2).foregroundStyle(LiveHoleStyle.green)
                 ForEach(package.recentHistory.rounds) { round in
-                    Button {
-                        onOpenRound(round.roundId, round.courseName)
+                    NavigationLink {
+                        RoundReviewView(
+                            roundRef: round.roundId,
+                            fallbackCourseName: round.courseName,
+                            apiBaseURL: apiBaseURL,
+                            adminToken: adminToken
+                        )
                     } label: {
                         roundRow(round)
                     }
