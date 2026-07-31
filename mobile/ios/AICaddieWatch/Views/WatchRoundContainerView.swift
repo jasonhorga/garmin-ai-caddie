@@ -40,19 +40,27 @@ public struct WatchRoundContainerView: View {
     private let shotLocation: WatchLocationFix?
     private let autoShotSupported: Bool
     private let autoShotStatus: String
+    /// DEBUG runtime evidence may start the real map in a deterministic interaction state. Production
+    /// callers leave both nil, so live tap/drag state remains owned by WatchHoleMapView.
+    private let measuredPxOverride: CGPoint?
+    private let pinDragOverride: CGSize?
 
     public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil,
                 watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
                 shotLocation: WatchLocationFix? = nil,
                 autoShotSupported: Bool = false,
                 autoShotStatus: String = "本机不支持",
-                initialHoleMapCrownScale: Double = WatchHoleMapView.restingCrownScale) {
+                initialHoleMapCrownScale: Double = WatchHoleMapView.restingCrownScale,
+                measuredPxOverride: CGPoint? = nil,
+                pinDragOverride: CGSize? = nil) {
         self.model = model
         self.holeGeometry = holeGeometry
         self.watchGreenYards = watchGreenYards
         self.shotLocation = shotLocation
         self.autoShotSupported = autoShotSupported
         self.autoShotStatus = autoShotStatus
+        self.measuredPxOverride = measuredPxOverride
+        self.pinDragOverride = pinDragOverride
         self._holeMapCrownScale = State(initialValue: initialHoleMapCrownScale)
     }
 
@@ -300,6 +308,8 @@ public struct WatchRoundContainerView: View {
             fullMap: WatchHoleMapView.isFullMap(crownScale: holeMapCrownScale),
             mapScale: CGFloat(holeMapCrownScale),
             geometry: geometry,
+            measuredPxOverride: measuredPxOverride,
+            pinDragOverride: pinDragOverride,
             onOpenCaddie: { model.openCaddie() },
             onToggleBigText: { holeMapBigText = true }
         )

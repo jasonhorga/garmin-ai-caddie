@@ -41,6 +41,7 @@ public struct WatchUITestRoot: View {
              "standalone-course-live-home":
             standaloneCourseRound
         case "real-course-download-seed", "real-course-download-restore",
+             "real-course-map-measured", "real-course-map-pin-drag",
              "real-course-hazard-map", "real-course-hazard-mid-map",
              "real-course-journey-start", "real-course-journey-advance",
              "real-course-journey-restore", "real-course-journey-history-edit",
@@ -223,7 +224,13 @@ public struct WatchUITestRoot: View {
                     WatchRoundContainerView(
                         model: model,
                         holeGeometry: realCourseGeometry,
-                        shotLocation: nil
+                        shotLocation: nil,
+                        measuredPxOverride: screen == "real-course-map-measured"
+                            ? realCourseMeasuredPoint
+                            : nil,
+                        pinDragOverride: screen == "real-course-map-pin-drag"
+                            ? CGSize(width: 16, height: 20)
+                            : nil
                     )
                 }
             } else {
@@ -276,6 +283,14 @@ public struct WatchUITestRoot: View {
             return nil
         }
         return WatchHoleMapGeometry.from(holeMap: state.holeMap, image: image)
+    }
+
+    private var realCourseMeasuredPoint: CGPoint? {
+        guard let geometry = realCourseGeometry else { return nil }
+        return CGPoint(
+            x: geometry.youPx.x + (geometry.pinPx.x - geometry.youPx.x) * 0.55,
+            y: geometry.youPx.y + (geometry.pinPx.y - geometry.youPx.y) * 0.55
+        )
     }
 
     /// Same downloaded Cypress geometry, with a deterministic simulated GPS fix about 120 yards

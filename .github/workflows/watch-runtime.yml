@@ -137,7 +137,9 @@ jobs:
                 exit 1
               fi
             else
-              if [[ "$mode" == "real-course-download-restore" ]]; then
+              if [[ "$mode" == "real-course-download-restore" \
+                    || "$mode" == "real-course-map-measured" \
+                    || "$mode" == "real-course-map-pin-drag" ]]; then
                 marker="real-course-offline-ready"
                 failed_marker="real-course-offline-failed"
               elif [[ "$mode" == "real-course-hazard-map" ]]; then
@@ -258,6 +260,8 @@ jobs:
           # prep into the existing course/image store, then terminate before the offline-only restore.
           launch_and_capture real-course-download-seed watch-real-course-download.png
           launch_and_capture real-course-download-restore watch-real-course-offline.png
+          launch_and_capture real-course-map-measured watch-real-course-map-measured.png
+          launch_and_capture real-course-map-pin-drag watch-real-course-map-pin-drag.png
           # Reuse the same offline cache and select its first real hazard-bearing hole. This proves the
           # map callouts are placed from retained production route data rather than a screenshot fixture.
           launch_and_capture real-course-hazard-map watch-real-course-hazard-map.png
