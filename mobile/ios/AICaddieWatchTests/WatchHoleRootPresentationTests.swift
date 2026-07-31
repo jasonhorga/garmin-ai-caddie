@@ -2,6 +2,17 @@ import XCTest
 @testable import AICaddieWatch
 
 final class WatchHoleRootPresentationTests: XCTestCase {
+    func testMissingWristFixShowsGPSAcquisitionBeforeMapOrPreparedDistances() {
+        XCTAssertEqual(
+            WatchHoleRootPresentation.resolve(
+                hasQualifiedWristFix: false,
+                hasGeometry: true,
+                hasLiveCenterDistance: false
+            ),
+            .acquiringGPS
+        )
+    }
+
     func testRealGeometryMakesTheMapTheCurrentHoleRoot() {
         XCTAssertEqual(
             WatchHoleRootPresentation.resolve(hasGeometry: true, hasCenterDistance: true),
