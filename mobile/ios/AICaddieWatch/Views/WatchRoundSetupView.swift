@@ -101,6 +101,8 @@ public struct WatchRoundSetupView: View {
                         }
                     }
 
+                    availabilityRow
+
                     if teeLoadAttempted, teeChoices.isEmpty, !isLoadingTees {
                         Text("无法取得真实发球台时不会用猜测值开局。")
                             .font(.system(size: 8, weight: .medium))
@@ -124,12 +126,9 @@ public struct WatchRoundSetupView: View {
             }
             .scrollIndicators(.hidden)
 
-            VStack(spacing: 6) {
-                availabilityRow
-                startAction
-            }
-            .padding(.horizontal, 6)
-            .padding(.bottom, 4)
+            startAction
+                .padding(.horizontal, 6)
+                .padding(.bottom, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: front.globalId) {
@@ -306,7 +305,9 @@ public struct WatchRoundSetupView: View {
         return ensureGeometry ? "将获取真实球场与地图数据" : "将获取真实球场数据"
     }
 
-    var startActionLabel: String { "准备并开始" }
+    var startActionLabel: String {
+        hasCachedVersion ? "准备并开始" : "下载并开始"
+    }
 
     private var selectedBack: WatchCourseOption? {
         guard let selectedBackGlobalId else { return nil }
