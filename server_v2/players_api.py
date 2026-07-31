@@ -222,8 +222,8 @@ def admin_request_disposition(request: Request) -> str:
 def is_player_scoped_route(method: str, path: str) -> bool:
     """Routes whose access may be granted by a per-player token (not only admin).
 
-    These are the player-side GET reads: history, review reports, course prep /
-    prep-tips, the mobile course-options list, AND the four mobile/caddie aggregator
+    These are the player-side GET reads: history, review reports, course catalogue search,
+    course prep / prep-tips, the mobile course-options list, AND the four mobile/caddie aggregator
     reads — the mobile round package, the mobile course package, the reconciliation-GET,
     and the caddie-context read. Each loads only the caller's own data (or public,
     course-keyed geometry), so a family member sees only their own data.
@@ -259,6 +259,7 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep"))
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
             or (path.startswith("/api/v2/courses/") and path.endswith("/tees"))
+            or path == "/api/v2/courses/search"
             or path == "/api/v2/mobile/courses/options"
             # Annotation READS — the annotation store is now per-player partitioned (the handlers thread
             # current_player_id into list_annotations/annotations_for_target via evidence_root), so a

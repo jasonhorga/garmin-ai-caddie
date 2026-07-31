@@ -471,6 +471,20 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertLess(script.index(length_gate), script.index(first_launch))
         self.assertLess(script.index(placeholder_gate), script.index(first_launch))
 
+    def test_watch_runtime_redacts_the_player_secret_from_every_diagnostic_artifact(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]}
+        diagnostics = steps["Collect Watch runtime diagnostics"]
+        script = diagnostics["run"]
+
+        self.assertIn("env", diagnostics)
+        self.assertEqual(
+            "${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}",
+            diagnostics["env"]["REAL_COURSE_PLAYER_TOKEN"],
+        )
+        self.assertIn('sed "s|$REAL_COURSE_PLAYER_TOKEN|[REDACTED]|g"', script)
+        self.assertNotIn("-exec cp {} watch-runtime-artifacts/diagnostics/", script)
+
     def test_watch_runtime_captures_full_device_approval_states(self) -> None:
         workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
         steps = {step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]}

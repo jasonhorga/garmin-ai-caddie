@@ -392,8 +392,17 @@ jobs:
 
       - name: Collect Watch runtime diagnostics
         if: always()
+        env:
+          REAL_COURSE_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
         run: |
           mkdir -p watch-runtime-artifacts/diagnostics
+          redact_stream() {
+            if [ -n "${REAL_COURSE_PLAYER_TOKEN:-}" ]; then
+              sed "s|$REAL_COURSE_PLAYER_TOKEN|[REDACTED]|g"
+            else
+              cat
+            fi
+          }
           xcrun simctl list devices available \
             > watch-runtime-artifacts/diagnostics/devices.txt 2>&1 || true
           xcrun simctl list pairs \
@@ -403,14 +412,18 @@ jobs:
               --last 10m \
               --style compact \
               --predicate 'process == "AICaddieWatch" OR eventMessage CONTAINS[c] "AICaddieWatch" OR eventMessage CONTAINS[c] "com.ai-caddie.mobile.watchkitapp"' \
-              > watch-runtime-artifacts/diagnostics/watch.log 2>&1 || true
-            find "$HOME/Library/Developer/CoreSimulator/Devices/$WATCH_UDID/data/Library/Logs/CrashReporter" \
-              -type f -iname '*AICaddieWatch*' \
-              -exec cp {} watch-runtime-artifacts/diagnostics/ \; 2>/dev/null || true
+              2>&1 | redact_stream > watch-runtime-artifacts/diagnostics/watch.log || true
+            while IFS= read -r -d '' report; do
+              redact_stream < "$report" \
+                > "watch-runtime-artifacts/diagnostics/$(basename "$report")"
+            done < <(find "$HOME/Library/Developer/CoreSimulator/Devices/$WATCH_UDID/data/Library/Logs/CrashReporter" \
+              -type f -iname '*AICaddieWatch*' -print0 2>/dev/null)
           fi
-          find "$HOME/Library/Logs/DiagnosticReports" \
-            -type f -iname '*AICaddieWatch*' \
-            -exec cp {} watch-runtime-artifacts/diagnostics/ \; 2>/dev/null || true
+          while IFS= read -r -d '' report; do
+            redact_stream < "$report" \
+              > "watch-runtime-artifacts/diagnostics/$(basename "$report")"
+          done < <(find "$HOME/Library/Logs/DiagnosticReports" \
+            -type f -iname '*AICaddieWatch*' -print0 2>/dev/null)
           find watch-runtime-artifacts -maxdepth 2 -type f -print
 
       - name: Upload Watch runtime evidence
