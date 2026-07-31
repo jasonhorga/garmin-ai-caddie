@@ -45,7 +45,11 @@ public struct RoundReviewView: View {
                     roundRef: roundRef, holes: roundHoles, startHole: item.hole,
                     apiBaseURL: apiBaseURL, adminToken: adminToken
                 )
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { shotMapHole = nil } } }
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("关闭") { shotMapHole = nil }
+                    }
+                }
             }
         }
     }
