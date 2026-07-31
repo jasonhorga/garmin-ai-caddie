@@ -82,6 +82,14 @@ class RoundShotMapCorrectionsTests(unittest.TestCase):
         self.assertIn("五号铁", clubs)
         self.assertLess(clubs.index("五号铁"), clubs.index("七号铁"))
 
+    def test_add_shot_keeps_start_and_end_lie_independent(self):
+        corr = [{"op": "addShot", "px": [360, 500], "club": "五号铁", "lie": "rough", "insertAfterShotId": "s:r1:201"}]
+        out = self._build(corr)
+        added = next(shot for shot in out["shots"] if shot.get("club") == "五号铁")
+
+        self.assertEqual(added["lie"], "rough")
+        self.assertIsNone(added["endLie"], "startLie must not be copied into the independent endLie field")
+
     def test_add_shot_on_empty_hole_does_not_crash(self):
         # 永不变砖:空洞也能加回一杆。
         corr = [{"op": "addShot", "px": [360, 500], "club": "五号铁", "lie": "fairway", "insertAfterShotId": None}]

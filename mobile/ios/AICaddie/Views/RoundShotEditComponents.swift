@@ -5,10 +5,11 @@ import UIKit
 
 // MARK: - shared options
 
-/// Lie choices for the pickers (value, 中文). Mirrors `shotLieLabel` / the legend.
+/// Where this shot was played from. `endLie` is a separate observed landing fact, so the editor
+/// never offers water/green as a start lie for the non-putt shots this product records.
 public let roundEditLieOptions: [(String, String)] = [
-    ("fairway", "球道"), ("rough", "长草"), ("bunker", "沙坑"),
-    ("water", "水"), ("green", "果岭"), ("teebox", "发球台"),
+    ("teebox", "发球台"), ("fairway", "球道"), ("rough", "长草"),
+    ("bunker", "沙坑"), ("fringe", "果岭边"), ("trees", "树下"), ("unknown", "未知"),
 ]
 
 /// Fallback club list when the player's real bag hasn't loaded (the picker prefers the real bag,
@@ -275,11 +276,10 @@ public struct ShotEditSheet: View {
                         ForEach(clubs, id: \.self) { Text($0).tag($0) }
                     }
                 }
-                Section("球位(球落哪)") {
-                    Picker("球位", selection: Binding(
-                        get: { shot.endLie ?? shot.lie ?? "" },
+                Section("击球时球位") {
+                    Picker("击球时球位", selection: Binding(
+                        get: { (shot.lie ?? "unknown").lowercased() },
                         set: { if !$0.isEmpty { onLie($0) } })) {
-                        Text("—").tag("")
                         ForEach(roundEditLieOptions, id: \.0) { Text($0.1).tag($0.0) }
                     }
                 }
@@ -303,7 +303,7 @@ public struct AddShotSheet: View {
     let clubs: [String]
     let onAdd: (String?, String?) -> Void
     @State private var club: String = ""
-    @State private var lie: String = "fairway"
+    @State private var lie: String = "unknown"
     @Environment(\.dismiss) private var dismiss
 
     public init(clubs: [String], onAdd: @escaping (String?, String?) -> Void) {
@@ -320,8 +320,8 @@ public struct AddShotSheet: View {
                         ForEach(clubs, id: \.self) { Text($0).tag($0) }
                     }
                 }
-                Section("球落哪") {
-                    Picker("球位", selection: $lie) {
+                Section("击球时球位") {
+                    Picker("击球时球位", selection: $lie) {
                         ForEach(roundEditLieOptions, id: \.0) { Text($0.1).tag($0.0) }
                     }
                 }
@@ -357,7 +357,7 @@ public struct RoundShotEditContent: View {
             RoundShotMapView(shotMap: editModel.map, topoURL: topoURL, editModel: editModel)
             PenaltyStepper(value: editModel.map.manualPenalty) { editModel.setPenalty($0) }
                 .hubCard()
-            Text("按住落点拖动微调(带放大镜)· 点空白补一杆 · 点落点改球杆/球位/删")
+            Text("按住落点拖动微调(带放大镜)· 点空白补一杆 · 点落点改球杆/击球球位/删")
                 .font(.caption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)

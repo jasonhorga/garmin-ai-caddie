@@ -38,7 +38,7 @@ public final class RoundEditModel: ObservableObject {
         let prevEnd = idx > 0 ? map.shots[idx - 1].end : nil
         let endPx = [Int(px[0].rounded()), Int(px[1].rounded())]
         let shot = RoundShot(shotId: "local-\(UUID().uuidString)", start: prevEnd ?? endPx, end: endPx,
-                             club: club, lie: lie, endLie: lie, shotType: "MANUAL", order: nil,
+                             club: club, lie: lie, endLie: nil, shotType: "MANUAL", order: nil,
                              clubSource: club != nil ? "manual" : nil,
                              lieSource: lie != nil ? "manual" : nil, synthetic: false)
         map.shots.insert(shot, at: idx)

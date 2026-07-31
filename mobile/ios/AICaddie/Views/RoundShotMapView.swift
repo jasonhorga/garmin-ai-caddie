@@ -167,6 +167,8 @@ public func shotLieLabel(_ lie: String?) -> String {
     case "green": return "果岭"
     case "bunker", "sand": return "沙坑"
     case "rough": return "长草"
+    case "fringe": return "果岭边"
+    case "trees", "tree_area": return "树下"
     case "water", "hazard": return "水"
     case "teebox", "tee": return "发球台"
     default: return "—"

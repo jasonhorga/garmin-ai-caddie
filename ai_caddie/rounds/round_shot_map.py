@@ -145,7 +145,7 @@ def build_round_hole_shot_map(
             "id": f"m{_added}", "scorecardId": str(row.get("id")), "hole": hole,
             "order": (prev.get("order") if prev else 0),
             "start": {**start, "lie": e.get("lie")}, "end": {"lat": lat, "lon": lon},
-            "endLie": e.get("lie"), "clubName": e.get("club"), "type": "MANUAL", "manualAdded": True,
+            "endLie": None, "clubName": e.get("club"), "type": "MANUAL", "manualAdded": True,
         })
         _added += 1
 
