@@ -495,7 +495,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
         XCTAssertEqual(firstDownload.availabilityText, "首次开局需下载")
         XCTAssertEqual(firstDownload.availabilityDetail, "将获取真实球场与地图数据")
-        XCTAssertEqual(firstDownload.startActionLabel, "准备并开始")
+        XCTAssertEqual(firstDownload.startActionLabel, "下载并开始")
     }
 
     // WatchStartView keeps real NavigationStack/search behavior. The workflow therefore captures its
