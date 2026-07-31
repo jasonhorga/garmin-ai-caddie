@@ -2,6 +2,15 @@ name: Watch Runtime Visual Check
 
 on:
   workflow_dispatch:
+    inputs:
+      runtime_scope:
+        description: Runtime evidence scope
+        type: choice
+        required: true
+        default: full
+        options:
+          - full
+          - setup-visual
   # The workflow is new on this branch, so GitHub cannot dispatch it until it reaches the default
   # branch. Keep the current implementation branch self-testing while the runtime check is built.
   push:
@@ -98,6 +107,7 @@ jobs:
         env:
           REAL_COURSE_API_BASE_URL: ${{ vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
           REAL_COURSE_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+          WATCH_RUNTIME_SCOPE: ${{ github.event.inputs.runtime_scope || 'full' }}
         run: |
           set -euo pipefail
           APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
@@ -256,6 +266,12 @@ jobs:
           # Full-catalogue discovery remains explicit; a selected remote result loads real tee rows.
           launch_and_capture course-search-results watch-course-search-results.png
           launch_and_capture course-remote-setup watch-course-remote-setup.png
+          swift mobile/ios/scripts/verify_watch_setup_cta.swift \
+            watch-runtime-artifacts/watch-course-remote-setup.png
+          if [[ "$WATCH_RUNTIME_SCOPE" == "setup-visual" ]]; then
+            echo "Setup visual evidence complete; skipping real-course and score-writing journey."
+            exit 0
+          fi
           # Real production installer: search a new course, fetch its Tee metadata, download package +
           # prep into the existing course/image store, then terminate before the offline-only restore.
           launch_and_capture real-course-download-seed watch-real-course-download.png
@@ -387,6 +403,7 @@ jobs:
 
   web-live-evidence:
     needs: watch-runtime
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.runtime_scope != 'setup-visual'
     runs-on: ubuntu-latest
     env:
       AI_CADDIE_CI_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
