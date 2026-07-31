@@ -2964,6 +2964,29 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("didUpdateLocations", location_provider)
         self.assertIn("horizontalAccuracyM", location_provider)
 
+    def test_ios_round_review_runtime_capture_uses_stable_navigation_identifiers(self) -> None:
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        recent_review = _read_required_source(self, IOS_DIR / "Views" / "RecentRoundReviewView.swift")
+        round_review = _read_required_source(self, IOS_DIR / "Views" / "RoundReviewView.swift")
+        shot_map = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
+        real_flow = _read_required_source(
+            self, Path("mobile") / "ios" / "AICaddieUITests" / "RealFlowUITests.swift"
+        )
+        review_edit = _read_required_source(
+            self, Path("mobile") / "ios" / "AICaddieUITests" / "ReviewEditUITests.swift"
+        )
+
+        self.assertIn('.accessibilityIdentifier("home-last-round-row")', round_home)
+        self.assertIn('.accessibilityIdentifier("history-round-row")', recent_review)
+        self.assertIn('.accessibilityIdentifier("round-review-hole-\\(hole.hole)")', round_review)
+        self.assertIn('· 落点 · 左右滑', shot_map)
+        for ui_test in [real_flow, review_edit]:
+            self.assertIn('matching(identifier: "history-round-row")', ui_test)
+            self.assertIn('app.navigationBars["单场复盘"]', ui_test)
+            self.assertIn('identifier BEGINSWITH "round-review-hole-"', ui_test)
+            self.assertIn('identifier CONTAINS "落点"', ui_test)
+        self.assertIn('matching(identifier: "home-last-round-row")', real_flow)
+
     def test_native_visual_tokens_share_garmin_pro_score_semantics(self) -> None:
         ios_tokens = _read_required_source(self, IOS_DIR / "Design" / "AICaddieDesignTokens.swift")
         watch_tokens = _read_required_source(self, WATCH_DIR / "Design" / "AICaddieDesignTokens.swift")

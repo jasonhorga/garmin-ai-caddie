@@ -74,6 +74,7 @@ struct RecentReviewContent: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.primary)
+                    .accessibilityIdentifier("history-round-row")
                 }
             }
         }

@@ -42,11 +42,23 @@ final class ReviewEditUITests: XCTestCase {
         settle(6); save("01-history-list"); dump("01-history-list")
 
         guard tapFirstRoundRow() else { save("noround"); dump("noround"); return }
-        settle(6); save("02-round-review"); dump("02-round-review")
+        let roundReview = app.navigationBars["单场复盘"]
+        guard roundReview.waitForExistence(timeout: 12) else {
+            XCTFail("review-edit evidence must enter 单场复盘 before capture")
+            return
+        }
+        settle(2); save("02-round-review"); dump("02-round-review")
 
         // The scorecard rows are buttons ("点一洞看落点图 →"); tapping one opens the 落点图 pager sheet.
         guard tapFirstHoleRow() else { save("nohole"); dump("nohole"); return }
-        settle(6); save("03-shot-map"); dump("03-shot-map")
+        let shotMap = app.navigationBars.matching(
+            NSPredicate(format: #"identifier CONTAINS "落点""#)
+        ).firstMatch
+        guard shotMap.waitForExistence(timeout: 12) else {
+            XCTFail("review-edit evidence must enter the shot-map pager before capture")
+            return
+        }
+        settle(2); save("03-shot-map"); dump("03-shot-map")
 
         // Some holes are "这一洞暂无落点数据" (no geometry → no 编辑 toggle). Swipe the pager to a hole
         // that actually has a map so the edit affordances are reachable (try up to 12 holes).
@@ -131,11 +143,8 @@ final class ReviewEditUITests: XCTestCase {
 
     @discardableResult
     private func tapFirstRoundRow() -> Bool {
-        let cell = app.cells.firstMatch
-        if cell.waitForExistence(timeout: 6), cell.isHittable { cell.tap(); return true }
-        let predicate = NSPredicate(format: "label CONTAINS '杆' OR label CONTAINS '20' OR label MATCHES '.*[0-9]+.*'")
-        let row = app.buttons.matching(predicate).firstMatch
-        if row.waitForExistence(timeout: 4), row.isHittable { row.tap(); return true }
+        let row = app.buttons.matching(identifier: "history-round-row").firstMatch
+        if row.waitForExistence(timeout: 8), row.isHittable { row.tap(); return true }
         return false
     }
 
@@ -143,11 +152,9 @@ final class ReviewEditUITests: XCTestCase {
     /// a button whose label mentions par, else the first hittable button in the scorecard area.
     @discardableResult
     private func tapFirstHoleRow() -> Bool {
-        let predicate = NSPredicate(format: "label CONTAINS 'P' OR label MATCHES '.*[0-9]+.*'")
+        let predicate = NSPredicate(format: #"identifier BEGINSWITH "round-review-hole-""#)
         let holeButton = app.buttons.matching(predicate).firstMatch
-        if holeButton.waitForExistence(timeout: 5), holeButton.isHittable { holeButton.tap(); return true }
-        let anyButton = app.buttons.firstMatch
-        if anyButton.waitForExistence(timeout: 3), anyButton.isHittable { anyButton.tap(); return true }
+        if holeButton.waitForExistence(timeout: 8), holeButton.isHittable { holeButton.tap(); return true }
         return false
     }
 

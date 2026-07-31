@@ -242,6 +242,7 @@ struct RoundReviewContent: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.primary)
+                .accessibilityIdentifier("round-review-hole-\(hole.hole)")
             }
             totalRow(holes)
         }

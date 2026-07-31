@@ -51,14 +51,28 @@ final class RealFlowUITests: XCTestCase {
         launchFresh()
         if tapContaining(["历史复盘", "逐场逐洞"]) {
             settle(6); save("03-history-list"); dump("03-history-list")
-            if tapFirstRoundRow() {
-                settle(6); save("04-round-review"); dump("04-round-review")
-                // Tap a hole row (label like "1, 推 2, P5, 8") → that hole's shot-map (has the 编辑 toggle).
-                let holeRow = app.buttons.matching(NSPredicate(format: "label CONTAINS ', P'")).firstMatch
-                if holeRow.waitForExistence(timeout: 5), holeRow.isHittable {
+            let tappedRound = tapFirstRoundRow()
+            XCTAssertTrue(tappedRound, "history must expose a stable tappable round row")
+            let roundReview = app.navigationBars["单场复盘"]
+            let enteredRoundReview = tappedRound && roundReview.waitForExistence(timeout: 12)
+            XCTAssertTrue(enteredRoundReview, "round evidence must enter 单场复盘 before capture")
+            if enteredRoundReview {
+                settle(2); save("04-round-review"); dump("04-round-review")
+                let holeRow = app.buttons.matching(
+                    NSPredicate(format: #"identifier BEGINSWITH "round-review-hole-""#)
+                ).firstMatch
+                XCTAssertTrue(holeRow.waitForExistence(timeout: 8), "单场复盘 must expose a stable hole row")
+                if holeRow.exists, holeRow.isHittable {
                     holeRow.tap()
-                    settle(6); save("04b-shot-map"); dump("04b-shot-map")
-                    if tapContaining(["编辑"]) {
+                    let shotMap = app.navigationBars.matching(
+                        NSPredicate(format: #"identifier CONTAINS "落点""#)
+                    ).firstMatch
+                    let enteredShotMap = shotMap.waitForExistence(timeout: 12)
+                    XCTAssertTrue(enteredShotMap, "shot-map evidence must enter the pager before capture")
+                    if enteredShotMap {
+                        settle(2); save("04b-shot-map"); dump("04b-shot-map")
+                    }
+                    if enteredShotMap, tapContaining(["编辑"]) {
                         settle(3); save("04c-edit-mode"); dump("04c-edit-mode")
                         // Tap the map render area to open the 补一杆/改杆 sheet (best-effort centre tap).
                         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.42)).tap()
@@ -70,8 +84,17 @@ final class RealFlowUITests: XCTestCase {
 
         // ---- Section 3: last-round review shortcut from home ----
         launchFresh()
-        if tapContaining(["上一场"]) {
-            settle(6); save("05-last-round-review"); dump("05-last-round-review")
+        let lastRound = app.buttons.matching(identifier: "home-last-round-row").firstMatch
+        let tappedLastRound = lastRound.waitForExistence(timeout: 8) && lastRound.isHittable
+        XCTAssertTrue(tappedLastRound, "home must expose a stable last-round link")
+        if tappedLastRound {
+            lastRound.tap()
+            let roundReview = app.navigationBars["单场复盘"]
+            let enteredRoundReview = roundReview.waitForExistence(timeout: 12)
+            XCTAssertTrue(enteredRoundReview, "last-round evidence must enter 单场复盘 before capture")
+            if enteredRoundReview {
+                settle(2); save("05-last-round-review"); dump("05-last-round-review")
+            }
         }
 
         // ---- Section 4: pre-round prep on a real downloaded course ----
@@ -733,12 +756,8 @@ final class RealFlowUITests: XCTestCase {
     /// First list row in a history list — try cells then buttons (SwiftUI List rows surface either way).
     @discardableResult
     private func tapFirstRoundRow() -> Bool {
-        let cell = app.cells.firstMatch
-        if cell.waitForExistence(timeout: 6), cell.isHittable { cell.tap(); return true }
-        // a date/score-bearing button row
-        let predicate = NSPredicate(format: "label CONTAINS '杆' OR label CONTAINS '20' OR label MATCHES '.*[0-9]+.*'")
-        let row = app.buttons.matching(predicate).firstMatch
-        if row.waitForExistence(timeout: 4), row.isHittable { row.tap(); return true }
+        let row = app.buttons.matching(identifier: "history-round-row").firstMatch
+        if row.waitForExistence(timeout: 8), row.isHittable { row.tap(); return true }
         return false
     }
 

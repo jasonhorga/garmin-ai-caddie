@@ -308,6 +308,7 @@ public struct RoundHomeView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("home-last-round-row")
             }
             .padding(.top, 6)
         }
