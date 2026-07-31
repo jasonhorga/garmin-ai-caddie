@@ -3002,6 +3002,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('ToolbarItem(placement: .topBarLeading)', round_review)
         self.assertIn('Button("关闭") { shotMapHole = nil }', round_review)
         self.assertNotIn('Button("完成") { shotMapHole = nil }', round_review)
+        # 04d is valid evidence only when the coordinate tap really opened the add-shot sheet.
+        self.assertIn('app.navigationBars["补一杆"]', real_flow)
+        self.assertIn('app.staticTexts["击球时球位"]', real_flow)
 
     def test_native_visual_tokens_share_garmin_pro_score_semantics(self) -> None:
         ios_tokens = _read_required_source(self, IOS_DIR / "Design" / "AICaddieDesignTokens.swift")

@@ -81,9 +81,20 @@ final class RealFlowUITests: XCTestCase {
                     if loadedShotMap, editButton.isHittable {
                         editButton.tap()
                         settle(3); save("04c-edit-mode"); dump("04c-edit-mode")
-                        // Tap the map render area to open the 补一杆/改杆 sheet (best-effort centre tap).
+                        // Tap an empty part of the map. 04d is acceptable evidence only when this
+                        // actually opens the add-shot sheet, never when the tap missed or hit a handle.
                         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.42)).tap()
-                        settle(2); save("04d-edit-sheet"); dump("04d-edit-sheet")
+                        let addShotSheet = app.navigationBars["补一杆"]
+                        let openedAddShotSheet = addShotSheet.waitForExistence(timeout: 5)
+                        XCTAssertTrue(openedAddShotSheet, "04d must show the add-shot sheet titled 补一杆")
+                        let liePicker = app.staticTexts["击球时球位"]
+                        let exposedLiePicker = openedAddShotSheet && liePicker.waitForExistence(timeout: 3)
+                        XCTAssertTrue(exposedLiePicker, "04d must expose the shot-origin lie picker")
+                        if exposedLiePicker {
+                            settle(2); save("04d-edit-sheet"); dump("04d-edit-sheet")
+                        } else {
+                            save("04d-edit-sheet-missing"); dump("04d-edit-sheet-missing")
+                        }
                     }
                 }
             }
