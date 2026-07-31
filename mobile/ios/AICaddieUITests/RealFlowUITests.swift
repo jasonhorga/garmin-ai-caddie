@@ -96,6 +96,7 @@ final class RealFlowUITests: XCTestCase {
                 settle(2); save("05-last-round-review"); dump("05-last-round-review")
             }
         }
+        if cfg("UITEST_CAPTURE_SCOPE") == "review" { return }
 
         // ---- Section 4: pre-round prep on a real downloaded course ----
         // READ-ONLY (GET /courses/{id}/prep) — shows real geometry F/M/B + caddie + hazards WITHOUT

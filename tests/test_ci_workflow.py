@@ -435,6 +435,33 @@ class CIWorkflowTests(unittest.TestCase):
 
         self.assertEqual("python3 ops/write_native_build_evidence.py", steps["Write native build evidence"]["run"])
 
+    def test_native_review_capture_scope_exits_normally_after_post_round_evidence(self) -> None:
+        workflow_path = Path(".github/workflows/native-mobile.yml")
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        dispatch = workflow[True]["workflow_dispatch"] or {}
+        inputs = dispatch.get("inputs", {})
+        real_step = {
+            step.get("name"): step for step in workflow["jobs"]["native-mobile"]["steps"]
+        }["Real-simulator screenshots (iOS, XCUITest against live backend)"]
+        real_flow = Path("mobile/ios/AICaddieUITests/RealFlowUITests.swift").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("capture_scope", inputs)
+        self.assertEqual(["full", "review"], inputs["capture_scope"]["options"])
+        self.assertEqual("full", inputs["capture_scope"]["default"])
+        self.assertIn("UITEST_CAPTURE_SCOPE", real_step["env"])
+        self.assertIn("TEST_RUNNER_UITEST_CAPTURE_SCOPE", real_step["env"])
+        self.assertIn('if [[ "$UITEST_CAPTURE_SCOPE" == "review" ]]', real_step["run"])
+        self.assertIn(
+            "-only-testing:AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow",
+            real_step["run"],
+        )
+        review_exit = 'if cfg("UITEST_CAPTURE_SCOPE") == "review" { return }'
+        self.assertIn(review_exit, real_flow)
+        self.assertGreater(real_flow.index(review_exit), real_flow.index('save("05-last-round-review")'))
+        self.assertLess(real_flow.index(review_exit), real_flow.index("// ---- Section 4:"))
+
     def test_watch_runtime_uses_an_isolated_player_bearer_instead_of_the_owner_admin_token(self) -> None:
         workflow_path = Path(".github/workflows/watch-runtime.yml")
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
