@@ -255,7 +255,7 @@ public struct WatchRoundContainerView: View {
                     hole: pending.hole,
                     shotNumber: pending.shotNumber,
                     recommendedClub: model.allHoleStates.first(where: { $0.hole == pending.hole })?.suggestedClub,
-                    clubs: model.allHoleStates.first(where: { $0.hole == pending.hole })?.availableClubNames ?? [],
+                    clubs: model.allHoleStates.first(where: { $0.hole == pending.hole })?.availableClubs ?? [],
                     onSelectClub: { model.completePendingManualShot(clubName: $0) },
                     onSkipClub: { model.completePendingManualShot(clubName: nil) }
                 )

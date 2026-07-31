@@ -15,13 +15,48 @@ enum WatchClubPromptLayout {
     }
 }
 
+enum WatchClubPromptPresentation {
+    static func choices(
+        recommendedClub: String?,
+        clubs: [WatchClubOption]
+    ) -> [WatchClubOption] {
+        let recommended = recommendedClub?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var ordered = clubs.compactMap { option -> WatchClubOption? in
+            let name = option.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return nil }
+            return WatchClubOption(
+                clubName: name,
+                sampleSize: option.sampleSize,
+                medianM: option.medianM,
+                source: option.source
+            )
+        }
+
+        if let recommended, !recommended.isEmpty {
+            if let index = ordered.firstIndex(where: { $0.clubName == recommended }) {
+                ordered.insert(ordered.remove(at: index), at: 0)
+            } else {
+                ordered.insert(WatchClubOption(clubName: recommended), at: 0)
+            }
+        }
+
+        var seen = Set<String>()
+        return ordered.filter { seen.insert($0.clubName).inserted }
+    }
+
+    static func distanceText(for option: WatchClubOption) -> String? {
+        guard let metres = option.medianM, metres.isFinite, metres > 0 else { return nil }
+        return "\(WatchUnits.yards(metres))"
+    }
+}
+
 /// The shot location is already staged by the model. This screen only lets the player attach the
 /// actual club; choosing Skip still records the location and never treats the suggested club as fact.
 public struct WatchClubPromptView: View {
     public let hole: Int?
     public let shotNumber: Int
     public let recommendedClub: String?
-    public let clubs: [String]
+    public let clubs: [WatchClubOption]
     public let onSelectClub: (String) -> Void
     public let onSkipClub: () -> Void
 
@@ -29,7 +64,7 @@ public struct WatchClubPromptView: View {
         hole: Int? = nil,
         shotNumber: Int,
         recommendedClub: String? = nil,
-        clubs: [String] = [],
+        clubs: [WatchClubOption] = [],
         onSelectClub: @escaping (String) -> Void = { _ in },
         onSkipClub: @escaping () -> Void = {}
     ) {
@@ -73,14 +108,24 @@ public struct WatchClubPromptView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: WatchClubPromptLayout.clubRowSpacing) {
-                        ForEach(clubChoices, id: \.self) { club in
-                            let isRecommended = club == normalizedRecommendedClub
-                            Button(action: { onSelectClub(club) }) {
+                        ForEach(clubChoices) { club in
+                            let isRecommended = club.clubName == normalizedRecommendedClub
+                            Button(action: { onSelectClub(club.clubName) }) {
                                 HStack(spacing: 4) {
-                                    Text(club)
+                                    Text(club.clubName)
                                         .font(.system(size: 15, weight: .semibold))
                                         .lineLimit(1)
                                     Spacer(minLength: 2)
+                                    if let distance = WatchClubPromptPresentation.distanceText(for: club) {
+                                        Text(distance)
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundStyle(
+                                                isRecommended
+                                                    ? Color.black.opacity(0.58)
+                                                    : Color.white.opacity(0.52)
+                                            )
+                                            .monospacedDigit()
+                                    }
                                     if isRecommended {
                                         Text("建议")
                                             .font(.caption2.weight(.bold))
@@ -96,7 +141,7 @@ public struct WatchClubPromptView: View {
                                 )
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel(isRecommended ? "\(club)，推荐球杆" : club)
+                            .accessibilityLabel(accessibilityLabel(for: club, isRecommended: isRecommended))
                         }
                     }
                 }
@@ -118,10 +163,21 @@ public struct WatchClubPromptView: View {
         return "第 \(hole) 洞 · 第 \(shotNumber) 杆已定位"
     }
 
-    private var clubChoices: [String] {
-        var seen = Set<String>()
-        return ([normalizedRecommendedClub].compactMap { $0 } + clubs)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    private var clubChoices: [WatchClubOption] {
+        WatchClubPromptPresentation.choices(
+            recommendedClub: normalizedRecommendedClub,
+            clubs: clubs
+        )
+    }
+
+    private func accessibilityLabel(for club: WatchClubOption, isRecommended: Bool) -> String {
+        var parts = [club.clubName]
+        if let distance = WatchClubPromptPresentation.distanceText(for: club) {
+            parts.append("\(distance)码")
+        }
+        if isRecommended {
+            parts.append("推荐球杆")
+        }
+        return parts.joined(separator: "，")
     }
 }

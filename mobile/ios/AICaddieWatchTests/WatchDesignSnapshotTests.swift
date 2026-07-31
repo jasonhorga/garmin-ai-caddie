@@ -355,7 +355,12 @@ final class WatchDesignSnapshotTests: XCTestCase {
             hole: 8,
             shotNumber: 1,
             recommendedClub: "一号木",
-            clubs: ["一号木", "三号木", "5号铁", "7号铁"]
+            clubs: [
+                WatchClubOption(clubName: "一号木", medianM: 201),
+                WatchClubOption(clubName: "三号木", medianM: 183),
+                WatchClubOption(clubName: "5号铁", medianM: 165),
+                WatchClubOption(clubName: "7号铁", medianM: 139),
+            ]
         )
         .frame(width: 198, height: 242)
         .background(Color.black)
