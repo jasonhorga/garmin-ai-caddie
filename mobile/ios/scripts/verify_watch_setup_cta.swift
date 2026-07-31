@@ -22,8 +22,9 @@ guard width > 0, height > 0 else {
     exit(2)
 }
 
-// The setup fixture has one darker selected-Tee row and one brighter primary CTA. Match only the
-// latter, allowing normal antialiasing and colour-management variation in the simulator screenshot.
+// Both the selected setup row and the primary CTA are green. Their exact RGB values vary with
+// simulator colour management, so distinguish them by separate full-width horizontal bands rather
+// than a brittle colour bucket: the CTA is the tallest band and the selected row is above it.
 func isPrimaryActionGreen(_ x: Int, _ y: Int) -> Bool {
     guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
     let red = Int((color.redComponent * 255).rounded())
@@ -32,48 +33,53 @@ func isPrimaryActionGreen(_ x: Int, _ y: Int) -> Bool {
     return green >= 85 && green >= red + 35 && green >= blue + 20
 }
 
-func isSelectedChoiceGreen(_ x: Int, _ y: Int) -> Bool {
-    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
-    let red = Int((color.redComponent * 255).rounded())
-    let green = Int((color.greenComponent * 255).rounded())
-    let blue = Int((color.blueComponent * 255).rounded())
-    return (55...82).contains(green) && green >= red + 30 && green >= blue + 20
+struct GreenBand {
+    let startY: Int
+    let endY: Int
+
+    var height: Int { endY - startY + 1 }
 }
 
-var minY = height
-var maxY = -1
 var matchingPixels = 0
 var firstEdgePixels = 0
 var lastEdgePixels = 0
-var selectedChoiceRun = 0
-var longestSelectedChoiceRun = 0
+var greenBands: [GreenBand] = []
+var bandStartY: Int?
 
 for y in 0..<height {
-    var selectedChoicePixels = 0
+    var greenPixels = 0
     for x in 0..<width where isPrimaryActionGreen(x, y) {
         matchingPixels += 1
-        minY = min(minY, y)
-        maxY = max(maxY, y)
+        greenPixels += 1
         if y == 0 { firstEdgePixels += 1 }
         if y == height - 1 { lastEdgePixels += 1 }
     }
-    for x in 0..<width where isSelectedChoiceGreen(x, y) {
-        selectedChoicePixels += 1
-    }
-    if selectedChoicePixels >= width * 55 / 100 {
-        selectedChoiceRun += 1
-        longestSelectedChoiceRun = max(longestSelectedChoiceRun, selectedChoiceRun)
-    } else {
-        selectedChoiceRun = 0
+    if greenPixels >= width * 55 / 100 {
+        bandStartY = bandStartY ?? y
+    } else if let startY = bandStartY {
+        greenBands.append(GreenBand(startY: startY, endY: y - 1))
+        bandStartY = nil
     }
 }
+if let startY = bandStartY {
+    greenBands.append(GreenBand(startY: startY, endY: height - 1))
+}
 
-let actionHeight = maxY >= minY ? maxY - minY + 1 : 0
+let actionBand = greenBands.max { $0.height < $1.height }
+let actionHeight = actionBand?.height ?? 0
+let selectedChoiceHeight = greenBands
+    .filter { band in
+        guard let actionBand else { return false }
+        return band.endY < actionBand.startY
+    }
+    .map(\.height)
+    .max() ?? 0
 let edgePixels = max(firstEdgePixels, lastEdgePixels)
 print(
     "WATCH_SETUP_CTA width=\(width) height=\(height) pixels=\(matchingPixels) "
         + "actionHeight=\(actionHeight) edgePixels=\(edgePixels) "
-        + "selectedChoiceHeight=\(longestSelectedChoiceRun)"
+        + "selectedChoiceHeight=\(selectedChoiceHeight) "
+        + "bands=\(greenBands.map(\.height))"
 )
 
 guard matchingPixels >= width * 20 else {
@@ -88,10 +94,10 @@ guard edgePixels <= 4 else {
     fputs("primary setup action is clipped by the Watch viewport edge (\(edgePixels) green edge pixels)\n", stderr)
     exit(1)
 }
-guard longestSelectedChoiceRun >= 48 else {
+guard selectedChoiceHeight >= 48 else {
     fputs(
         "selected setup choice is clipped by the fixed action area "
-            + "(only \(longestSelectedChoiceRun)px visible)\n",
+            + "(only \(selectedChoiceHeight)px visible)\n",
         stderr
     )
     exit(1)
