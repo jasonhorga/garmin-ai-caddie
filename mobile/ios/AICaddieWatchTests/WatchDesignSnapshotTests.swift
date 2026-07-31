@@ -330,7 +330,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testClubPromptKeepsAtLeastThreeClubChoicesAboveSkipOn46mmWatch() {
         XCTAssertGreaterThanOrEqual(
-            WatchClubPromptLayout.firstScreenClubRows(viewportHeight: 198),
+            WatchClubPromptLayout.firstScreenClubRows(viewportHeight: 160),
             3
         )
     }
