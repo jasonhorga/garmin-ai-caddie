@@ -75,12 +75,17 @@ struct RecentReviewContent: View {
             } else {
                 Text("点一场看逐洞复盘 →").font(.caption2).foregroundStyle(LiveHoleStyle.green)
                 ForEach(package.recentHistory.rounds) { round in
-                    NavigationLink(
-                        value: HubRoute.roundReview(
+                    // This history screen is already a pushed destination. On iOS 18.5 a second
+                    // value-based HubRoute link here can accept the tap without advancing the stack;
+                    // a destination link keeps this nested transition owned by the visible row.
+                    NavigationLink {
+                        RoundReviewView(
                             roundRef: round.roundId,
-                            courseName: round.courseName
+                            fallbackCourseName: round.courseName,
+                            apiBaseURL: apiBaseURL,
+                            adminToken: adminToken
                         )
-                    ) {
+                    } label: {
                         roundRow(round)
                     }
                     .buttonStyle(.plain)
