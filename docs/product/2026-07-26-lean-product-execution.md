@@ -159,12 +159,13 @@ Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆
 - RED [run 30573195316](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30573195316) 因旧 View 缺少附近/已知展示契约而失败；GREEN [run 30573790489 attempt 2](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30573790489/attempts/2) 的 Watch `142/142`、设计截图上传和独立 Watch build 成功。取得普通附近列表、缓存开局设置、全库结果和远端开局设置等 12 个真实进程状态后，主动取消无关后续旅程。附近/全库截图 SHA256 分别为 `dbf6af6cd457fb0901a95cf0301f0068c93dce18676e77944843ea52d249b870` / `e345a85b88ca548fa8cefc71697856442a0b8bc072fc31267f54856deb85abd0`。
 - 本项状态仅为 `CANDIDATE / OWNER VISUAL GATE OPEN`。审批页同时展示原批准概念、production 附近页和全库搜索状态；Owner 批准前不标记最终完成。下一可见状态继续审计开局设置，不因球场列表变紧凑就把整个开局流程提前关闭。
 
-### Watch 开局设置视觉候选（2026-07-30，等待 Owner 批准）
+### Watch 开局设置视觉候选（2026-07-30/31，等待 Owner 批准）
 
-- 实现 HEAD `0aec841b99651679082089fa84afbc7290196486`。根因仍是 production `WatchRoundSetupView` 的默认 `List/Section/NavigationTitle`：巨型“开局设置”标题和系统卡片令 9 洞页面首屏只能看到一个完整洞组选项。当前只改成与球场选择相同的紧凑 `ScrollView + 自定义行`层级；生产 `NavigationStack` 返回、真实洞组/Tee、缓存匹配、首次下载、`ensureGeometry` 和 `onStart` 均未改。
-- 9 洞仍可只打当前洞组或按稳定顺序组合第二个 9 洞；真实 Tee 有码数就显示码数，没有就明确显示“码数未知”。已有缓存与首次下载分别说明离线版本和下载动作；加载不到真实 Tee 时继续禁用开局，不加入猜测值。
-- RED [run 30575900711](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30575900711) 因旧 View 缺少洞组/Tee/可用状态展示契约而失败；GREEN [run 30576444240](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30576444240) 的 Watch `145/145` 与独立 Watch build 成功。取得缓存/远端开局设置在内的 12 个真实进程状态后主动取消无关整轮回放；两张 416×496 截图 SHA256 分别为 `ed6f0186456dec4df757a5ffce43c0476eb020cfa784274e0b63553c4d2cdb59` / `a9fe1c0203b430882b0927ec384b785f88891e91f05f74c7a3e42baba329fc5a`。
-- 自审仍保留一个可见取舍：首次下载状态的主按钮在初始视口底部只露出上半部分，滚动后可完整操作。本项因此只标 `CANDIDATE / OWNER VISUAL GATE OPEN`；审批页明确展示批准视觉语言、修改前页面和两个 production 候选，Owner 批准前不发布 TestFlight。
+- 原紧凑化实现 `0aec841` 仍把主动作放在内容 `ScrollView` 中，首次下载页的按钮初始只露出上半部分；第一轮固定 footer 又把“离线/下载说明”和主动作一起固定，虽然按钮完整，却把当前洞组/Tee 挤成一条绿色边。最终 production 修正 `003b2bc6506dcf55b254a30385b518e10e5b8bfd` 只固定主动作，把说明留在可滚动内容中；cached 当前洞组和 remote 当前 Tee 均完整可见，下一选项露出一部分作为可滚动提示。
+- 首次下载主动作明确写“下载并开始”，已有匹配缓存才写“准备并开始”。9/18 洞、9+9、真实 Tee/码数、缓存匹配、`ensureGeometry`、禁用条件和 `onStart` 均未改；无法取得真实 Tee 时仍不会用猜测值开局。
+- 初始视觉 RED [run 30597449279](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30597449279) 测得旧按钮底边有 `322` 个绿色像素；中间 GREEN [run 30597916127](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30597916127) 虽通过第一版按钮门，但人工复核拒绝了只剩 `20px` 的选中项。加强后的 RED [run 30598539958](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30598539958) 只因首次下载仍显示“准备并开始”失败。最终 [run 30599249180](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30599249180) 在证据 HEAD `e5431137647342993bab1562aae797918344d750` 完整成功：Watch `146/146`、独立 build、真实 cached/remote 进程截图和像素门均通过；主动作 `68px`、当前选择 `54px`、视口边缘绿色像素 `0`。
+- 本次 workflow 使用 `setup-visual` 安全范围，在截图后明确跳过 `real-course`、计分写入旅程和 Web job；artifact 中没有 `real-course` 或 `journey` 文件。cached/remote 两张 `416×496` 最终图 SHA256 分别为 `ac26882c2451f8a338c321bc9f964c81c0e57a5c2a026863011cfda707b921f0` / `467ade7cfb302692175f3615c04b8369f8063ab91965b5ba94df0ed0cc717f57`。
+- 本项现在关闭的是明确的裁切缺陷，状态仍为 `CANDIDATE / OWNER VISUAL GATE OPEN`，不是 Owner 已批准；最终审批前不发布 TestFlight。
 
 ### iPhone Live Hole 暗色连续性候选（2026-07-30，地图首屏阻塞仍开放）
 
