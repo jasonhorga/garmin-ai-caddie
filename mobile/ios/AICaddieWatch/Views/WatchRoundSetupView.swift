@@ -48,112 +48,122 @@ public struct WatchRoundSetupView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
-                setupHeader
+        VStack(spacing: 6) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    setupHeader
 
-                if !backOptions.isEmpty {
-                    setupSection("洞组") {
-                        ForEach(loopChoices) { choice in
-                            choiceRow(choice) {
-                                selectedBackGlobalId = backOptions.first {
-                                    choice.id == "loop:\($0.globalId)"
-                                }?.globalId
+                    if !backOptions.isEmpty {
+                        setupSection("洞组") {
+                            ForEach(loopChoices) { choice in
+                                choiceRow(choice) {
+                                    selectedBackGlobalId = backOptions.first {
+                                        choice.id == "loop:\($0.globalId)"
+                                    }?.globalId
+                                }
                             }
                         }
                     }
-                }
 
-                setupSection("发球台") {
-                    if isLoadingTees {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("正在获取真实发球台")
-                        }
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    } else if teeChoices.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle")
-                                .foregroundStyle(.orange)
-                            Text("暂无可用发球台")
-                        }
-                        .font(.system(size: 10, weight: .semibold))
-                        .padding(7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.orange.opacity(0.10))
-                        )
-                    } else {
-                        ForEach(teeChoices) { choice in
-                            choiceRow(choice) {
-                                guard let tee = teeOptions.first(where: {
-                                    choice.id == "tee:\($0.teeBox.lowercased())"
-                                }) else { return }
-                                selectedTee = tee.teeBox
+                    setupSection("发球台") {
+                        if isLoadingTees {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("正在获取真实发球台")
+                            }
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        } else if teeChoices.isEmpty {
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .foregroundStyle(.orange)
+                                Text("暂无可用发球台")
+                            }
+                            .font(.system(size: 10, weight: .semibold))
+                            .padding(7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color.orange.opacity(0.10))
+                            )
+                        } else {
+                            ForEach(teeChoices) { choice in
+                                choiceRow(choice) {
+                                    guard let tee = teeOptions.first(where: {
+                                        choice.id == "tee:\($0.teeBox.lowercased())"
+                                    }) else { return }
+                                    selectedTee = tee.teeBox
+                                }
                             }
                         }
                     }
-                }
 
+                    if teeLoadAttempted, teeChoices.isEmpty, !isLoadingTees {
+                        Text("无法取得真实发球台时不会用猜测值开局。")
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.orange)
+                            .padding(7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color.orange.opacity(0.10))
+                            )
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.top, 4)
+            }
+            .scrollIndicators(.hidden)
+
+            VStack(spacing: 6) {
                 availabilityRow
-
-                Button {
-                    onStart(WatchCourseSelection(
-                        front: configuredFront,
-                        back: selectedBack,
-                        teeBox: selectedTee,
-                        ensureGeometry: ensureGeometry
-                    ))
-                } label: {
-                    HStack(spacing: 5) {
-                        if isPreparing {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        Text(isPreparing ? "正在准备" : startActionLabel)
-                    }
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity, minHeight: 34)
-                    .background(
-                        AICaddieDesignTokens.par,
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(isPreparing || isLoadingTees || teeChoices.isEmpty)
-                .opacity(isPreparing || isLoadingTees || teeChoices.isEmpty ? 0.52 : 1)
-
-                if teeLoadAttempted, teeChoices.isEmpty, !isLoadingTees {
-                    Text("无法取得真实发球台时不会用猜测值开局。")
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.orange)
-                        .padding(7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.orange.opacity(0.10))
-                        )
-                }
+                startAction
             }
             .padding(.horizontal, 6)
-            .padding(.vertical, 4)
+            .padding(.bottom, 4)
         }
-        .scrollIndicators(.hidden)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task(id: front.globalId) {
             await loadTeesIfNeeded()
         }
+    }
+
+    private var startAction: some View {
+        Button {
+            onStart(WatchCourseSelection(
+                front: configuredFront,
+                back: selectedBack,
+                teeBox: selectedTee,
+                ensureGeometry: ensureGeometry
+            ))
+        } label: {
+            HStack(spacing: 5) {
+                if isPreparing {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Text(isPreparing ? "正在准备" : startActionLabel)
+            }
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(.black)
+            .frame(maxWidth: .infinity, minHeight: 34)
+            .background(
+                AICaddieDesignTokens.par,
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isPreparing || isLoadingTees || teeChoices.isEmpty)
+        .opacity(isPreparing || isLoadingTees || teeChoices.isEmpty ? 0.52 : 1)
     }
 
     private var setupHeader: some View {
