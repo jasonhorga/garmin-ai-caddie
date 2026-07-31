@@ -337,13 +337,16 @@ public struct WatchStartView: View {
         }
 
         if !hasCurrentLocation || !knownCourses.isEmpty || nearbyCourses.isEmpty {
-            groups.append(
-                WatchCourseGroupPresentation(
-                    title: hasCurrentLocation ? "已知球场" : "选择球场",
-                    rows: knownCourses.map { courseRow($0) },
-                    showsRefresh: true
+            let rows = knownCourses.map { courseRow($0) }
+            if !rows.isEmpty || visibleSearchMatches.isEmpty {
+                groups.append(
+                    WatchCourseGroupPresentation(
+                        title: hasCurrentLocation ? "已知球场" : "选择球场",
+                        rows: rows,
+                        showsRefresh: true
+                    )
                 )
-            )
+            }
         }
 
         return groups
