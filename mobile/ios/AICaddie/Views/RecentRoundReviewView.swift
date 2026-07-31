@@ -75,14 +75,12 @@ struct RecentReviewContent: View {
             } else {
                 Text("点一场看逐洞复盘 →").font(.caption2).foregroundStyle(LiveHoleStyle.green)
                 ForEach(package.recentHistory.rounds) { round in
-                    NavigationLink {
-                        RoundReviewView(
+                    NavigationLink(
+                        value: HubRoute.roundReview(
                             roundRef: round.roundId,
-                            fallbackCourseName: round.courseName,
-                            apiBaseURL: apiBaseURL,
-                            adminToken: adminToken
+                            courseName: round.courseName
                         )
-                    } label: {
+                    ) {
                         roundRow(round)
                     }
                     .buttonStyle(.plain)
