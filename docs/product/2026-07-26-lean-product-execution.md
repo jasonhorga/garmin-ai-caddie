@@ -122,6 +122,8 @@
 
 Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆盖差异已经收口；Hole Root 条件球童层、完整球童打法首屏与顺序成绩确认已有模拟器生产 View 候选，正在等待 Owner 视觉批准，尚不算最终获批。iPhone 与 Watch 都已用同一真实球场、同一 local round 连续走完并结束 18 洞；用户明确批准前不发布 TestFlight。风、空气密度、假成功率和推杆级果岭等高线继续后置。
 
+统一视觉审批工作台 working copy 位于 `/home/ubuntu/claude-web-data/review-artifacts/final-visual-approval-current/index.html`：当前把 Watch Hole Root、球童、成绩确认、结束、球场选择、开局设置、iPhone Live Hole 与 IOS-07 首页修改前后共 8 组、19 张批准/production 图放在同一页，并明确把 Web 同一真实球局和透明 topo 留为待替换证据。所有图片引用已验证存在；homeserver Chromium 整页渲染为 `1440×7828`，回传图 `/home/ubuntu/claude-web-data/review-artifacts/final-visual-approval-current/render-homeserver.png` 的 SHA256 为 `124c0ee7fa5eb1c7e469c6f1f88170064fc8e59b00293c4bf394fe8829f02eeb`。这只是可持续更新的审批入口，不是 Owner 已批准结论；公网 topo-v4 和隔离 CI player 闭环后仍须替换受影响图，再请求最终批准。
+
 ### Watch Hole Root 条件球童层候选（2026-07-30，等待 Owner 批准）
 
 - 当前候选 HEAD：`12261af57b6e2cfda8b25e692a3a19a16745c155`。iPhone 将真实 GPS `capturedAt` 写入 live decision；Watch 根页只有在 live decision、允许模式、high/medium confidence、样本不少于 10、evidence、180 秒推荐有效期、15 秒腕上 fix、15 米定位精度、距推荐原点 25 米以内、杆/decision/route 一致以及 aim 位于真实 p10/p90 内同时成立时才显示推荐，否则完整退回事实层。
