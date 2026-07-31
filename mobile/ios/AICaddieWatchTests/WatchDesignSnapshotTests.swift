@@ -449,6 +449,25 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testCoursePickerHidesContradictoryEmptyKnownSectionWhenRemoteResultsExist() {
+        let view = WatchStartView(
+            phoneReachable: false,
+            searchMatches: [
+                WatchCourseSearchMatch(
+                    globalId: 31870,
+                    name: "Mission Hills ~ A",
+                    holes: 9,
+                    city: "深圳",
+                    province: "广东",
+                    ratio: 0.96
+                )
+            ]
+        )
+
+        XCTAssertTrue(view.courseGroups.isEmpty)
+    }
+
+    @MainActor
     func testRoundSetupPresentsPlayableLoopsInStableCompactOrder() {
         let front = WatchCourseOption(
             globalId: 301,
