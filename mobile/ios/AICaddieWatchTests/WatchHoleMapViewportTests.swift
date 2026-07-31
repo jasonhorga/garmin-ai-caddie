@@ -2,6 +2,28 @@ import XCTest
 @testable import AICaddieWatch
 
 final class WatchHoleMapViewportTests: XCTestCase {
+    func testDistancePillMovesBelowMarkerWhenClockWouldCoverItsPreferredPosition() {
+        let viewport = CGSize(width: 208, height: 248)
+        let marker = CGPoint(x: 159.5, y: 40)
+        let pillSize = CGSize(width: 68, height: 18)
+
+        let center = WatchHoleMapViewport.distancePillCenter(
+            marker: marker,
+            pillSize: pillSize,
+            viewportSize: viewport,
+            preferredOffset: 20
+        )
+
+        let pillRect = CGRect(
+            x: center.x - pillSize.width / 2,
+            y: center.y - pillSize.height / 2,
+            width: pillSize.width,
+            height: pillSize.height
+        )
+        XCTAssertGreaterThan(center.y, marker.y)
+        XCTAssertFalse(pillRect.intersects(WatchHoleMapViewport.systemTimeRect(in: viewport)))
+    }
+
     func testCompactRuntimeViewportFitsTheFlagWithoutChangingPlayerAnchor() {
         let scale = WatchHoleMapViewport.effectiveRestingScale(
             requestedScale: WatchHoleMapView.restingCrownScale,
