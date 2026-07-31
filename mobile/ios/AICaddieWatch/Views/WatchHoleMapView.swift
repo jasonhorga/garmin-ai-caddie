@@ -2,6 +2,49 @@ import SwiftUI
 
 enum WatchHoleMapViewport {
     static let flagTopClearance = 20.0
+    private static let pillMargin: CGFloat = 4
+
+    /// watchOS can retain the clock even when system overlays are requested hidden. Keep dynamic map
+    /// callouts out of the same top-right lane already reserved by the full-map controls.
+    static func systemTimeRect(in viewportSize: CGSize) -> CGRect {
+        let width = min(max(viewportSize.width, 0), 52)
+        let height = min(max(viewportSize.height, 0), 50)
+        return CGRect(x: max(viewportSize.width - width, 0), y: 0, width: width, height: height)
+    }
+
+    static func distancePillCenter(
+        marker: CGPoint,
+        pillSize: CGSize,
+        viewportSize: CGSize,
+        preferredOffset: CGFloat
+    ) -> CGPoint {
+        let halfWidth = max(pillSize.width, 0) / 2
+        let halfHeight = max(pillSize.height, 0) / 2
+        let minX = halfWidth + pillMargin
+        let maxX = max(minX, viewportSize.width - halfWidth - pillMargin)
+        let x = min(max(marker.x, minX), maxX)
+        let offset = abs(preferredOffset)
+        let timeRect = systemTimeRect(in: viewportSize)
+
+        var y = marker.y - offset
+        var pillRect = CGRect(
+            x: x - halfWidth,
+            y: y - halfHeight,
+            width: pillSize.width,
+            height: pillSize.height
+        )
+        if pillRect.minY < pillMargin || pillRect.intersects(timeRect) {
+            y = marker.y + offset
+            pillRect.origin.y = y - halfHeight
+            if pillRect.intersects(timeRect) {
+                y = timeRect.maxY + halfHeight + pillMargin
+            }
+        }
+
+        let minY = halfHeight + pillMargin
+        let maxY = max(minY, viewportSize.height - halfHeight - pillMargin)
+        return CGPoint(x: x, y: min(max(y, minY), maxY))
+    }
 
     static func effectiveRestingScale(
         requestedScale: Double,
@@ -458,7 +501,14 @@ public struct WatchHoleMapView: View {
 
         // 拖旗: live "到旗" distance from the dragged flag.
         if pinDrag != .zero, let d = yards(toImagePx: imagePx(fromCanvas: green, size: size)) {
-            pill(&context, at: CGPoint(x: green.x, y: green.y - 20), text: "到旗 \(d)", tint: flagRed)
+            pill(
+                &context,
+                at: green,
+                text: "到旗 \(d)",
+                tint: flagRed,
+                viewportSize: size,
+                preferredOffset: 20
+            )
         }
         // 选点测距: crosshair + distance-from-you at the tapped point.
         if let m = measuredPx {
@@ -471,7 +521,14 @@ public struct WatchHoleMapView: View {
             context.stroke(Path(ellipseIn: CGRect(x: mc.x - r, y: mc.y - r, width: r * 2, height: r * 2)),
                            with: .color(.white), style: StrokeStyle(lineWidth: 1.3))
             if let d = yards(toImagePx: m) {
-                pill(&context, at: CGPoint(x: mc.x, y: mc.y - 18), text: "\(d) 码", tint: youBlue)
+                pill(
+                    &context,
+                    at: mc,
+                    text: "\(d) 码",
+                    tint: youBlue,
+                    viewportSize: size,
+                    preferredOffset: 18
+                )
             }
         }
 
@@ -531,9 +588,22 @@ public struct WatchHoleMapView: View {
         )
     }
 
-    /// A small opaque distance pill centered at `p`, tinted by the marker it belongs to.
-    private func pill(_ context: inout GraphicsContext, at p: CGPoint, text: String, tint: Color) {
+    /// A small opaque distance pill near its marker, tinted by the marker it belongs to.
+    private func pill(
+        _ context: inout GraphicsContext,
+        at marker: CGPoint,
+        text: String,
+        tint: Color,
+        viewportSize: CGSize,
+        preferredOffset: CGFloat
+    ) {
         let w = CGFloat(text.count) * 8 + 20
+        let p = WatchHoleMapViewport.distancePillCenter(
+            marker: marker,
+            pillSize: CGSize(width: w, height: 18),
+            viewportSize: viewportSize,
+            preferredOffset: preferredOffset
+        )
         let rect = CGRect(x: p.x - w / 2, y: p.y - 9, width: w, height: 18)
         context.fill(Path(roundedRect: rect, cornerRadius: 9), with: .color(.black.opacity(0.72)))
         context.stroke(Path(roundedRect: rect, cornerRadius: 9), with: .color(tint), style: StrokeStyle(lineWidth: 1))
