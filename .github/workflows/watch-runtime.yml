@@ -97,7 +97,7 @@ jobs:
       - name: Seed and restore a real Watch round
         env:
           REAL_COURSE_API_BASE_URL: ${{ vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
-          REAL_COURSE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          REAL_COURSE_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
         run: |
           set -euo pipefail
           APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
@@ -126,12 +126,12 @@ jobs:
             if [[ "$mode" == "real-course-download-seed" ]]; then
               marker="real-course-download-ready"
               failed_marker="real-course-download-failed"
-              test -n "$REAL_COURSE_ADMIN_TOKEN"
+              test -n "$REAL_COURSE_PLAYER_TOKEN"
               if ! launch_output=$(env \
                 SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
                 SIMCTL_CHILD_UITEST_GPS_LON=116.5461531 \
                 SIMCTL_CHILD_AI_CADDIE_API_BASE_URL="$REAL_COURSE_API_BASE_URL" \
-                SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN="$REAL_COURSE_ADMIN_TOKEN" \
+                SIMCTL_CHILD_AI_CADDIE_PLAYER_TOKEN="$REAL_COURSE_PLAYER_TOKEN" \
                 xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$mode" 2>&1); then
                 printf '%s\n' "$launch_output"
                 exit 1
@@ -164,10 +164,10 @@ jobs:
                 "SIMCTL_CHILD_UITEST_JOURNEY_EXPECTED_SCORED=$expected_scored"
               )
               if [[ "$mode" == "real-course-journey-finish-confirm" ]]; then
-                test -n "$REAL_COURSE_ADMIN_TOKEN"
+                test -n "$REAL_COURSE_PLAYER_TOKEN"
                 launch_env+=(
                   "SIMCTL_CHILD_AI_CADDIE_API_BASE_URL=$REAL_COURSE_API_BASE_URL"
-                  "SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN=$REAL_COURSE_ADMIN_TOKEN"
+                  "SIMCTL_CHILD_AI_CADDIE_PLAYER_TOKEN=$REAL_COURSE_PLAYER_TOKEN"
                 )
               fi
               if ! launch_output=$(env "${launch_env[@]}" \
@@ -336,9 +336,15 @@ jobs:
           launch_and_capture interaction-score-seed watch-interaction-score-seeded.png
           launch_and_capture interaction-score-restore watch-interaction-score-restored.png
           launch_and_capture home watch-round-home.png
+          launch_and_capture caddie-options watch-caddie-options.png
           launch_and_capture score-recommendation watch-score-recommendation.png
+          launch_and_capture score-total watch-score-total.png
+          launch_and_capture score-putts watch-score-putts.png
           launch_and_capture score-next-tee-candidate watch-score-next-tee-candidate.png
           launch_and_capture score-fairway watch-score-fairway.png
+          launch_and_capture score-penalty watch-score-penalty.png
+          launch_and_capture scorecard watch-scorecard.png
+          launch_and_capture hole-select watch-hole-select.png
           launch_and_capture club-prompt watch-club-prompt.png
           launch_and_capture autoshot-candidate watch-autoshot-candidate.png
           launch_and_capture menu watch-menu-autoshot.png

@@ -102,6 +102,16 @@ public struct WatchUITestRoot: View {
             )
         case "score", "score-recommendation":
             WatchScoreHoleView(hole: 7, par: 4, score: 5, putts: 2, penalty: 0)
+        case "score-total":
+            WatchScoreHoleView(
+                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+                step: .score
+            )
+        case "score-putts":
+            WatchScoreHoleView(
+                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+                step: .putts
+            )
         case "score-next-tee-candidate":
             WatchScoreHoleView(
                 hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
@@ -111,6 +121,11 @@ public struct WatchUITestRoot: View {
             WatchScoreHoleView(
                 hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
                 step: .fairway
+            )
+        case "score-penalty":
+            WatchScoreHoleView(
+                hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
+                step: .penalty
             )
         case "club-prompt":
             WatchClubPromptView(
@@ -296,11 +311,15 @@ public struct WatchUITestRoot: View {
         let environment = ProcessInfo.processInfo.environment
         guard let rawBaseURL = environment["AI_CADDIE_API_BASE_URL"],
               let baseURL = URL(string: rawBaseURL),
-              let adminToken = environment["AI_CADDIE_ADMIN_TOKEN"],
-              !adminToken.isEmpty else {
+              let playerToken = environment["AI_CADDIE_PLAYER_TOKEN"],
+              !playerToken.isEmpty else {
             return nil
         }
-        return WatchRoundConfig(baseURL: baseURL, adminToken: adminToken)
+        return WatchRoundConfig(
+            baseURL: baseURL,
+            adminToken: nil,
+            sessionToken: playerToken
+        )
     }
 
     @MainActor

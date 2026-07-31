@@ -435,6 +435,44 @@ class CIWorkflowTests(unittest.TestCase):
 
         self.assertEqual("python3 ops/write_native_build_evidence.py", steps["Write native build evidence"]["run"])
 
+    def test_watch_runtime_uses_an_isolated_player_bearer_instead_of_the_owner_admin_token(self) -> None:
+        workflow_path = Path(".github/workflows/watch-runtime.yml")
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        runtime = workflow["jobs"]["watch-runtime"]
+        steps = {step.get("name"): step for step in runtime["steps"]}
+        journey = steps["Seed and restore a real Watch round"]
+        script = journey["run"]
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+
+        self.assertIn("REAL_COURSE_PLAYER_TOKEN", journey["env"])
+        self.assertEqual(
+            "${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}",
+            journey["env"]["REAL_COURSE_PLAYER_TOKEN"],
+        )
+        self.assertNotIn("REAL_COURSE_ADMIN_TOKEN", journey["env"])
+        self.assertIn("test -n \"$REAL_COURSE_PLAYER_TOKEN\"", script)
+        self.assertIn(
+            "SIMCTL_CHILD_AI_CADDIE_PLAYER_TOKEN=\"$REAL_COURSE_PLAYER_TOKEN\"",
+            script,
+        )
+        self.assertNotIn("SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN", script)
+        self.assertNotIn("secrets.AI_CADDIE_ADMIN_TOKEN", workflow_text)
+
+    def test_watch_runtime_captures_full_device_approval_states(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]}
+        script = steps["Seed and restore a real Watch round"]["run"]
+
+        for mode in [
+            "caddie-options",
+            "score-total",
+            "score-putts",
+            "score-penalty",
+            "scorecard",
+            "hole-select",
+        ]:
+            self.assertIn(f"launch_and_capture {mode} ", script)
+
     def test_backend_fly_deploy_workflow_is_manual_secret_driven_and_runs_remote_preflight(self) -> None:
         workflow_path = Path(".github/workflows/backend-fly-deploy.yml")
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
