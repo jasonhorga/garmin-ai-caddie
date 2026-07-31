@@ -11,6 +11,11 @@ on:
         options:
           - full
           - review
+      api_base_url:
+        description: Optional public API origin for live simulator capture
+        type: string
+        required: false
+        default: ''
   pull_request:
     paths:
       - 'mobile/ios/**'
