@@ -488,6 +488,25 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertNotIn("SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN", script)
         self.assertNotIn("secrets.AI_CADDIE_ADMIN_TOKEN", workflow_text)
 
+    def test_watch_runtime_accepts_one_api_override_for_watch_and_web_evidence(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
+        dispatch_inputs = workflow[True]["workflow_dispatch"]["inputs"]
+        watch_steps = {
+            step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]
+        }
+        journey = watch_steps["Seed and restore a real Watch round"]
+        web = workflow["jobs"]["web-live-evidence"]
+        expected = (
+            "${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL "
+            "|| 'https://caddie.taile36706.ts.net' }}"
+        )
+
+        self.assertIn("api_base_url", dispatch_inputs)
+        self.assertFalse(dispatch_inputs["api_base_url"]["required"])
+        self.assertEqual("", dispatch_inputs["api_base_url"]["default"])
+        self.assertEqual(expected, journey["env"]["REAL_COURSE_API_BASE_URL"])
+        self.assertEqual(expected, web["env"]["VITE_AI_CADDIE_API_BASE_URL"])
+
     def test_watch_runtime_rejects_a_placeholder_or_truncated_player_secret_before_launch(self) -> None:
         workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
         steps = {step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]}
