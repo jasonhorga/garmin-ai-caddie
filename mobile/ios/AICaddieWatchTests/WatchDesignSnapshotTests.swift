@@ -328,6 +328,20 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testClubPromptKeepsMeasuredCarryWhenRecommendationMovesFirst() {
+        let choices = WatchClubPromptPresentation.choices(
+            recommendedClub: "7号铁",
+            clubs: [
+                WatchClubOption(clubName: "6号铁", medianM: 150),
+                WatchClubOption(clubName: "7号铁", medianM: 139),
+            ]
+        )
+
+        XCTAssertEqual(choices.map(\.clubName), ["7号铁", "6号铁"])
+        XCTAssertEqual(WatchClubPromptPresentation.distanceText(for: choices[0]), "152")
+    }
+
+    @MainActor
     func testClubPromptKeepsAtLeastThreeClubChoicesAboveSkipOn46mmWatch() {
         XCTAssertGreaterThanOrEqual(
             WatchClubPromptLayout.firstScreenClubRows(viewportHeight: 160),
