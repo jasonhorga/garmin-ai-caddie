@@ -122,7 +122,7 @@
 
 Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆盖差异已经收口；Hole Root 条件球童层、完整球童打法首屏与顺序成绩确认已有模拟器生产 View 候选，正在等待 Owner 视觉批准，尚不算最终获批。iPhone 与 Watch 都已用同一真实球场、同一 local round 连续走完并结束 18 洞；用户明确批准前不发布 TestFlight。风、空气密度、假成功率和推杆级果岭等高线继续后置。
 
-统一视觉审批工作台 working copy 位于 `/home/ubuntu/claude-web-data/review-artifacts/final-visual-approval-current/index.html`：当前把 Watch Hole Root、球童、成绩确认、结束、球场选择、开局设置、iPhone Live Hole 与 IOS-07 首页修改前后共 8 组、19 张批准/production 图放在同一页，并明确把 Web 同一真实球局和透明 topo 留为待替换证据。所有图片引用已验证存在；homeserver Chromium 整页渲染为 `1440×7828`，回传图 `/home/ubuntu/claude-web-data/review-artifacts/final-visual-approval-current/render-homeserver.png` 的 SHA256 为 `124c0ee7fa5eb1c7e469c6f1f88170064fc8e59b00293c4bf394fe8829f02eeb`。这只是可持续更新的审批入口，不是 Owner 已批准结论；公网 topo-v4 和隔离 CI player 闭环后仍须替换受影响图，再请求最终批准。
+统一视觉审批工作台 working copy 位于 `/home/ubuntu/claude-web-data/review-artifacts/final-visual-approval-current/index.html`：当前把 Watch Hole Root、GPS 搜星、球童、成绩确认、本洞击球、结束、球场选择、开局设置、iPhone Live Hole 与 IOS-07 首页修改前后共 10 组、24 张批准/production 图放在同一页，并明确把 Web 同一真实球局和透明 topo 留为待替换证据。所有图片引用已由 homeserver Chromium 验证存在，broken image 为 `0`；整页渲染为 `1440×9582`，回传图 `/home/ubuntu/claude-web-data/review-artifacts/final-visual-approval-current/render-homeserver.png` 的 SHA256 为 `e037294dd73f1fc0d602d808415a3f63da15ab0d2aba7ec42eca4b28137e6a9e`。这只是可持续更新的审批入口，不是 Owner 已批准结论；公网 topo-v4 和隔离 CI player 闭环后仍须替换受影响图，再请求最终批准。
 
 ### Watch Hole Root 条件球童层候选（2026-07-30，等待 Owner 批准）
 
@@ -144,6 +144,20 @@ Watch 的事实型 Hole Root、地图比例、障碍前后沿和 Apple 系统覆
 - 下一洞首杆暂存页面仍以“上一洞成绩确认”为当前任务：确认后换洞并把暂存位置作为下一洞第一杆；取消后不换洞，把位置归回上一洞 recovery 并进入实际球杆确认。本切片没有修改模型、持久化、事件或跨端协议。
 - 标题、数字、± 控件、绿色主操作和灰色取消现在复用同一紧凑几何；手动页明确显示 `1/4…4/4`，Par 3 显示 `1/3…3/3`。Actions RED run `30570137572` 明确因顺序标签缺失失败；GREEN run `30570474610` 的 Watch 全测试、六张截图上传和独立 Watch build 成功，随后主动取消无关整轮回放。
 - 本项状态仅为 `CANDIDATE / OWNER VISUAL GATE OPEN`。旧批准稿没有后来流程对应的同状态画面，因此审批页明确把旧图标为视觉语言，并把六个生产 View 状态作为新的批准候选；Owner 批准前不把它们称为最终基线。
+
+### Watch 本洞击球列表候选（2026-07-31，等待 Owner 批准）
+
+- 实现提交 `6c10f8f`，真实容器证据 HEAD `4027067`。当前列表只显示本洞已持久化的 GPS 击球事实，按顺序展示球杆与相邻位置的距离；推杆仍在洞末成绩确认，不把推杆伪造成有 GPS 起点的逐杆记录。“补记一杆”复用既有定位、球杆提示和 live-round location event，不新增第二套击球协议。
+- 旧批准图的第 4/5 行把推杆混进逐杆 GPS 列表，因此只保留其黑底、紧凑分隔线、顺序号和绿色补记动作的视觉语言；production 以三条真实 location event 和明确返回入口重排。真实截图不是直接渲染孤立 View，而是通过 `WatchRoundModel` 写入事件，再由 `WatchRoundContainerView` 从菜单导航进入。
+- [Watch run 30602074451](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30602074451) 的 Watch tests、独立 build、真实容器 runtime 与 diagnostics 全部成功。production 截图 `/home/ubuntu/claude-web-data/review-artifacts/watch-shot-list-container-4027067-run-30602074451/runtime/watch-current-hole-shots-runtime.png` 的 SHA256 为 `723faee9e270e146f62f5053c95eae46bff9a6d5bef9b9ec399fc36507e668bf`。
+- 本项状态仅为 `CANDIDATE / OWNER VISUAL GATE OPEN`。审批工作台同时展示错误的旧业务示意、正确逻辑下的重排目标和 production 真实容器；Owner 批准前不标记最终视觉完成。
+
+### Watch GPS 搜星真实性门（2026-07-31，运行态已验证）
+
+- 根因是 Hole Root 在 `watchGreenYards == nil` 时回退到球场准备阶段的静态 F/M/B，玩家离开 Tee 后也可能把 Tee 距离看成当前位置距离。实现 `339b57e` 只接受精度 `≤15 m` 的腕上 fix；`.home/.holeMap` 在合格定位到达前进入明确的“搜星中…”状态，完全不显示码数。静态 `distanceM/frontGreenM/centerGreenM/backGreenM` 不再充当 Hole Root 实时距离。
+- 搜星页不会遮住更高优先级的未决任务：`.scoring/.clubPrompt/.menu` 与强杀恢复继续优先；底部球局工具入口也保留。真实球场截图 harness 使用 production course 当前 Tee 和真实 Green 坐标重新计算距离，不再以静态字段伪装实时 GPS。
+- RED [run 30602272558](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30602272558) 在 `7d3cbac` 精确暴露缺失的 `hasQualifiedWristFix` 与 `.acquiringGPS` 契约；GREEN [run 30602996584](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30602996584) 在 `339b57e` 完整成功：Watch `150/150`、独立 Watch build、真实 `WatchRoundModel + WatchRoundContainerView` 截图和 diagnostics 均通过。日志存在模拟器卸载/WatchConnectivity 系统噪声，但没有 App crash report、unknown-screen、restore-unavailable 或 product failure marker。
+- production 图 `/home/ubuntu/claude-web-data/review-artifacts/watch-gps-truth-339b57e-run-30602996584/runtime/watch-gps-acquiring-runtime.png` 的 SHA256 为 `8ed6b5443e952c23786ef14c2760193bbac08e54b996a2eb3155fb618052c0f8`；审批页单项截图 `/home/ubuntu/claude-web-data/review-artifacts/final-visual-approval-current/watch-gps-acquiring-section.png` 为 `1408×738`，SHA256 `8a88bc37a29b65cc09c7af4d17997cfcb35d909a2ad43172d5233a3c9e4db2c3`。本项关闭的是“定位前报假距离”的产品真实性缺陷；最终视觉仍随整页一起等待 Owner 审批。
 
 ### Watch 结束球局视觉候选（2026-07-30，等待 Owner 批准）
 
