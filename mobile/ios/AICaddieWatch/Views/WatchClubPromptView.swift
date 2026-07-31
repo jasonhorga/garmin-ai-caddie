@@ -4,13 +4,12 @@ import SwiftUI
 enum WatchClubPromptLayout {
     static let verticalPadding: CGFloat = 6
     static let stackSpacing: CGFloat = 5
-    static let headerHeight: CGFloat = 34
+    static let headerHeight: CGFloat = 36
     static let clubRowHeight: CGFloat = 32
     static let clubRowSpacing: CGFloat = 4
-    static let skipHeight: CGFloat = 24
 
     static func firstScreenClubRows(viewportHeight: CGFloat) -> Int {
-        let fixedHeight = (verticalPadding * 2) + headerHeight + skipHeight + (stackSpacing * 2)
+        let fixedHeight = (verticalPadding * 2) + headerHeight + stackSpacing
         let availableHeight = max(0, viewportHeight - fixedHeight)
         return Int((availableHeight + clubRowSpacing) / (clubRowHeight + clubRowSpacing))
     }
@@ -47,9 +46,21 @@ public struct WatchClubPromptView: View {
             VStack(spacing: 1) {
                 Text(locationTitle)
                     .font(.system(size: 15, weight: .bold))
-                Text("选择实际球杆")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Text("选择实际球杆")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 2)
+                    Button(action: onSkipClub) {
+                        Text("跳过球杆 · 位置已存")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.72))
+                            .frame(minHeight: 20)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("当前位置已保存，不记录球杆")
+                }
             }
             .frame(height: WatchClubPromptLayout.headerHeight)
 
@@ -91,19 +102,6 @@ public struct WatchClubPromptView: View {
                 }
                 .scrollIndicators(.hidden)
             }
-
-            Button(action: onSkipClub) {
-                Text("跳过球杆 · 保存位置")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.72))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: WatchClubPromptLayout.skipHeight)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.white.opacity(0.07))
-                    )
-            }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, WatchClubPromptLayout.verticalPadding)
