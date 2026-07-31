@@ -482,19 +482,34 @@ struct HubLastRoundCard: View {
                 thumbnail(topoURL)
             }
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(courseName).font(.title3.weight(.bold)).foregroundStyle(.primary)
-                    Text(aiCaddieShortDate(date)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(courseName)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .layoutPriority(1)
                     Spacer(minLength: 8)
-                    Text("\(score)").font(.system(size: 26, weight: .heavy)).monospacedDigit().foregroundStyle(.primary)
-                    Text(toParText)
-                        .font(.subheadline.weight(.bold))
-                        .monospacedDigit()
-                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text("\(score)")
+                            .font(.system(size: 26, weight: .heavy))
+                            .monospacedDigit()
+                            .foregroundStyle(.primary)
+                        Text(toParText)
+                            .font(.subheadline.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+                    }
+                    .fixedSize()
                 }
-                if let subtitle = holesParText {
-                    Text(subtitle).font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 5) {
+                    Text(aiCaddieShortDate(date)).font(.caption.weight(.semibold))
+                    if let subtitle = holesParText {
+                        Text("· \(subtitle)").font(.caption2)
+                    }
                 }
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             }
         }
         .hubCard()
