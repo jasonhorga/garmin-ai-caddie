@@ -126,6 +126,11 @@ jobs:
           mkdir -p watch-runtime-artifacts
           JOURNEY_ROUND_ID=""
 
+          if [[ "$WATCH_RUNTIME_SCOPE" != "setup-visual" ]]; then
+            test "${#REAL_COURSE_PLAYER_TOKEN}" -ge 32
+            test "$REAL_COURSE_PLAYER_TOKEN" != "-"
+          fi
+
           launch_and_capture() {
             local mode="$1"
             local screenshot="$2"

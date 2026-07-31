@@ -458,6 +458,19 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertNotIn("SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN", script)
         self.assertNotIn("secrets.AI_CADDIE_ADMIN_TOKEN", workflow_text)
 
+    def test_watch_runtime_rejects_a_placeholder_or_truncated_player_secret_before_launch(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]}
+        script = steps["Seed and restore a real Watch round"]["run"]
+
+        length_gate = 'test "${#REAL_COURSE_PLAYER_TOKEN}" -ge 32'
+        placeholder_gate = 'test "$REAL_COURSE_PLAYER_TOKEN" != "-"'
+        first_launch = "launch_and_capture standalone-course-seed"
+        self.assertIn(length_gate, script)
+        self.assertIn(placeholder_gate, script)
+        self.assertLess(script.index(length_gate), script.index(first_launch))
+        self.assertLess(script.index(placeholder_gate), script.index(first_launch))
+
     def test_watch_runtime_captures_full_device_approval_states(self) -> None:
         workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
         steps = {step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]}
