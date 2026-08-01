@@ -143,6 +143,7 @@ public struct WatchRoundContainerView: View {
                 autoShotSupported: autoShotSupported,
                 autoShotEnabled: model.autoShotEnabled,
                 autoShotStatus: autoShotStatus,
+                hasClubStats: model.clubStatsAvailable,
                 onRecordShot: { recordManualShot() },
                 onScoreHole: { model.startScoringActiveHole() },
                 onCaddie: { model.openCaddie() },
@@ -154,6 +155,7 @@ public struct WatchRoundContainerView: View {
                 onScorecard: { model.openScorecard() },
                 onCurrentHoleShots: { model.openCurrentHoleShots() },
                 onHoleSelect: { model.openHoleSelect() },
+                onClubStats: { model.openClubStats() },
                 onFinish: { model.requestFinish() },
                 onClose: { model.backToHome() }
             )
@@ -212,6 +214,11 @@ public struct WatchRoundContainerView: View {
             } else {
                 Color.black.onAppear { model.backToMenu() }
             }
+        case .clubStats:
+            WatchClubStatsView(
+                clubs: model.allHoleStates.flatMap(\.availableClubs),
+                onBack: { model.backToMenu() }
+            )
         case .scorecard:
             ScrollView {
                 WatchScorecardView(

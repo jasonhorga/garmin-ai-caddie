@@ -9,6 +9,7 @@ public struct WatchMenuView: View {
     public let autoShotSupported: Bool
     public let autoShotEnabled: Bool
     public let autoShotStatus: String
+    public let hasClubStats: Bool
     public let onRecordShot: () -> Void
     public let onScoreHole: () -> Void
     public let onCaddie: () -> Void
@@ -17,6 +18,7 @@ public struct WatchMenuView: View {
     public let onScorecard: () -> Void
     public let onCurrentHoleShots: () -> Void
     public let onHoleSelect: () -> Void
+    public let onClubStats: () -> Void
     public let onFinish: () -> Void
     public let onClose: () -> Void
 
@@ -27,6 +29,7 @@ public struct WatchMenuView: View {
         autoShotSupported: Bool = false,
         autoShotEnabled: Bool = false,
         autoShotStatus: String = "本机不支持",
+        hasClubStats: Bool = false,
         onRecordShot: @escaping () -> Void = {},
         onScoreHole: @escaping () -> Void = {},
         onCaddie: @escaping () -> Void = {},
@@ -35,6 +38,7 @@ public struct WatchMenuView: View {
         onScorecard: @escaping () -> Void = {},
         onCurrentHoleShots: @escaping () -> Void = {},
         onHoleSelect: @escaping () -> Void = {},
+        onClubStats: @escaping () -> Void = {},
         onFinish: @escaping () -> Void = {},
         onClose: @escaping () -> Void = {}
     ) {
@@ -44,6 +48,7 @@ public struct WatchMenuView: View {
         self.autoShotSupported = autoShotSupported
         self.autoShotEnabled = autoShotEnabled
         self.autoShotStatus = autoShotStatus
+        self.hasClubStats = hasClubStats
         self.onRecordShot = onRecordShot
         self.onScoreHole = onScoreHole
         self.onCaddie = onCaddie
@@ -52,6 +57,7 @@ public struct WatchMenuView: View {
         self.onScorecard = onScorecard
         self.onCurrentHoleShots = onCurrentHoleShots
         self.onHoleSelect = onHoleSelect
+        self.onClubStats = onClubStats
         self.onFinish = onFinish
         self.onClose = onClose
     }
@@ -78,6 +84,7 @@ public struct WatchMenuView: View {
                 menuRow("本洞击球", action: onCurrentHoleShots)
                 if hasCaddie { menuRow("球童建议", action: onCaddie) }
                 if hasHazards { menuRow("障碍", action: onHazards) }
+                if hasClubStats { menuRow("球杆数据", action: onClubStats) }
                 menuRow(
                     "AutoShot Beta · \(autoShotEnabled ? autoShotStatus : (autoShotSupported ? "关闭" : "本机不支持"))",
                     action: onToggleAutoShot

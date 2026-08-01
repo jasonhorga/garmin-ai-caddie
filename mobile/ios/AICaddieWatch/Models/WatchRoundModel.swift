@@ -22,6 +22,7 @@ public enum WatchRoundScreen: Equatable {
     case holeMap     // watch P1b: 全屏球道图(真几何底图 + 事实标记)
     case caddie      // S70 式浅层仪表面: 当前洞球童详情
     case hazards     // S70 式浅层仪表面: 当前洞障碍距离
+    case clubStats   // 下载球包内的真实球杆 median 距离
 }
 
 public enum WatchScoreFlowStep: String, Codable, Equatable {
@@ -417,6 +418,10 @@ public final class WatchRoundModel: ObservableObject {
     public func openCurrentHoleShots() { screen = .currentHoleShots }
     public func openHoleSelect() { screen = .holeSelect }
     public func openMenu() { screen = .menu }
+    public func openClubStats() {
+        guard clubStatsAvailable else { return }
+        screen = .clubStats
+    }
     public func openHoleMap() { screen = .holeMap }
     public func openCaddie() {
         guard caddieDetailAvailable else { return }
@@ -431,6 +436,15 @@ public final class WatchRoundModel: ObservableObject {
     public func selectHole(_ hole: Int) {
         setActiveHole(hole)
         screen = .home
+    }
+
+    public var clubStatsAvailable: Bool {
+        allHoleStates.contains { state in
+            state.availableClubs.contains { club in
+                guard let metres = club.medianM else { return false }
+                return metres.isFinite && metres > 0
+            }
+        }
     }
 
     private var scoredHoleStates: [WatchRoundState] {

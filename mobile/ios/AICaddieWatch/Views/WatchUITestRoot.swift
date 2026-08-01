@@ -74,7 +74,8 @@ public struct WatchUITestRoot: View {
             }
         case "interaction-club-seed", "interaction-club-restore",
              "interaction-score-seed", "interaction-score-restore",
-             "interaction-current-hole-shots", "interaction-gps-acquiring":
+             "interaction-current-hole-shots", "interaction-gps-acquiring",
+             "interaction-club-stats":
             interactionRound
         case "home":
             WatchRoundHomeView(
@@ -952,6 +953,8 @@ public struct WatchUITestRoot: View {
             case "interaction-gps-acquiring":
                 model.applyRoundSeed(Self.interactionGPSAcquiringSeed)
                 model.backToHome()
+            case "interaction-club-stats":
+                seedInteractionClubStats()
             default:
                 break
             }
@@ -992,6 +995,29 @@ public struct WatchUITestRoot: View {
             horizontalAccuracyM: 5,
             capturedAt: "2026-07-26T12:00:00Z"
         )
+    }
+
+    private func seedInteractionClubStats() {
+        let roundId = "ci-interaction-club-stats-round"
+        model.seedRound(
+            [
+                WatchRoundState(
+                    roundId: roundId, hole: 1, par: 4, distanceM: 365,
+                    selectedClub: nil,
+                    availableClubs: [
+                        WatchClubOption(clubName: "一号木", medianM: 224),
+                        WatchClubOption(clubName: "三号木", medianM: 199),
+                        WatchClubOption(clubName: "五号铁", medianM: 163),
+                        WatchClubOption(clubName: "七号铁", medianM: 139),
+                        WatchClubOption(clubName: "挖起杆", medianM: 87),
+                    ],
+                    score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+                ),
+            ],
+            activeHole: 1,
+            courseName: "北京丽宫"
+        )
+        model.openClubStats()
     }
 
     /// Runtime approval evidence must exercise the production model/container path, not mount the

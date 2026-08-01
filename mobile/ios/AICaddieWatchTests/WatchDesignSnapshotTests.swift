@@ -578,6 +578,23 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(firstDownload.startActionLabel, "下载并开始")
     }
 
+    @MainActor
+    func testClubStatsUsesOnlyUniqueMeasuredDistancesInBagOrder() {
+        let view = WatchClubStatsView(clubs: [
+            WatchClubOption(clubName: "一号木", medianM: 224),
+            WatchClubOption(clubName: "一号木", medianM: 999),
+            WatchClubOption(clubName: "七号铁", medianM: nil),
+            WatchClubOption(clubName: "七号铁", medianM: 139),
+            WatchClubOption(clubName: "未知", medianM: nil),
+            WatchClubOption(clubName: "坏数据", medianM: -1),
+        ])
+
+        XCTAssertEqual(view.rows, [
+            WatchClubStatRow(name: "一号木", yards: 245),
+            WatchClubStatRow(name: "七号铁", yards: 152),
+        ])
+    }
+
     // WatchStartView keeps real NavigationStack/search behavior. The workflow therefore captures its
     // compact course rows from the running simulator rather than treating ImageRenderer as final proof.
 

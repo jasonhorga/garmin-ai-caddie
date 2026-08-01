@@ -287,6 +287,7 @@ jobs:
           # prepared Tee distances are deliberately present in the seed but must remain hidden.
           launch_and_capture interaction-gps-acquiring watch-gps-acquiring-runtime.png
           launch_and_capture menu watch-menu-shot-list.png
+          launch_and_capture interaction-club-stats watch-club-stats-runtime.png
           swift mobile/ios/scripts/verify_watch_setup_cta.swift \
             watch-runtime-artifacts/watch-course-remote-setup.png
           if [[ "$WATCH_RUNTIME_SCOPE" == "setup-visual" ]]; then
