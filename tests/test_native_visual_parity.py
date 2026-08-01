@@ -58,6 +58,19 @@ class NativeVisualParityTests(unittest.TestCase):
             self.assertIn('app.buttons["round-review-hole-1"]', source)
             self.assertNotIn('app.buttons["round-review-hole-4"]', source)
 
+    def test_watch_runtime_captures_caddie_from_the_downloaded_production_course(self) -> None:
+        root = Path("mobile/ios/AICaddieWatch/Views/WatchUITestRoot.swift").read_text(
+            encoding="utf-8"
+        )
+        workflow = Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8")
+
+        self.assertIn('"real-course-download-caddie"', root)
+        self.assertIn('screen == "real-course-download-caddie"', root)
+        self.assertIn(
+            "launch_and_capture real-course-download-caddie watch-real-course-caddie.png",
+            workflow,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

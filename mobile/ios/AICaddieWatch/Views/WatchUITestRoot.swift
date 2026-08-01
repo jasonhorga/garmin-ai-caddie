@@ -41,6 +41,7 @@ public struct WatchUITestRoot: View {
              "standalone-course-live-home":
             standaloneCourseRound
         case "real-course-download-seed", "real-course-download-restore",
+             "real-course-download-caddie",
              "real-course-map-measured", "real-course-map-pin-drag",
              "real-course-hazard-map", "real-course-hazard-mid-map",
              "real-course-journey-start", "real-course-journey-advance",
@@ -467,6 +468,9 @@ public struct WatchUITestRoot: View {
             activeHole: activeHole,
             courseName: prepared.courseName
         )
+        if screen == "real-course-download-caddie" {
+            model.openCaddie()
+        }
         if selectHazardHole {
             writeRealCourseMarker(screen == "real-course-hazard-mid-map"
                 ? "real-course-hazard-mid-ready"

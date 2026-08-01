@@ -393,7 +393,7 @@ public struct WatchRoundContainerView: View {
     private func distanceHero(_ s: WatchRoundState, big: Bool) -> some View {
         let showCaddie = model.rootCaddieLayerAvailable(at: shotLocation)
             || model.preparedRootCaddieLayerAvailable(at: shotLocation)
-        WatchDistanceHero(
+        return WatchDistanceHero(
             frontYd: watchGreenYards?.front,
             centerYd: watchGreenYards?.center,
             backYd: watchGreenYards?.back,
