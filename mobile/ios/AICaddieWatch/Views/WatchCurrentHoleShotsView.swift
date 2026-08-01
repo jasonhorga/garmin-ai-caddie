@@ -96,7 +96,7 @@ public struct WatchCurrentHoleShotsView: View {
     }
 
     private func shotLabel(_ shot: WatchRecordedShot) -> String {
-        let club = shot.clubName ?? "未选球杆"
+        let club = shot.clubName.map(WatchClubDisplay.name) ?? "未选球杆"
         return shot.number == 1 && shot.shotType == "tee" ? "开球 \(club)" : club
     }
 

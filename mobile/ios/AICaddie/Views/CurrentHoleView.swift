@@ -174,7 +174,7 @@ public struct CurrentHoleView: View {
                         LiveScorecardButton(onTap: { showScorecard = true })
                     }
                     .padding(.horizontal, 10)
-                    .padding(.top, -46)
+                    .padding(.top, -22)
 
                     // Secondary controls remain part of the same dark playing instrument: the full
                     // caddie plan (球童完整方案), 更多调整, 拍照取证, and 球局调整 — all behaviour intact.
@@ -190,10 +190,9 @@ public struct CurrentHoleView: View {
                 .padding(.bottom, 24)
             }
         }
-        // A live round is an immersive instrument, not another light NavigationStack page. Keeping
-        // the inherited bar produced a black-on-black status row, a stale “晚上好” back label, and
-        // pushed the save action below the first glance. The map owns the surface and supplies its
-        // own explicit return affordance instead.
+        // The map owns the live surface and supplies a stable navigation-style return row. The
+        // inherited NavigationStack label is intentionally hidden because it can expose a stale
+        // greeting from the round home rather than the approved live-play hierarchy.
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .onAppear {
@@ -330,7 +329,7 @@ public struct CurrentHoleView: View {
                 onBack: { dismiss() }
             )
             .padding(.horizontal, 20)
-            .padding(.top, 12)
+            .padding(.top, 4)
         }
         .frame(height: 360)
     }

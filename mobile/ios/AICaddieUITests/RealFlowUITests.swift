@@ -228,9 +228,30 @@ final class RealFlowUITests: XCTestCase {
             liveTopoReady.waitForExistence(timeout: 75),
             "live-hole evidence must wait for the real topo bitmap, never capture the loading fallback as complete"
         )
+        let liveBackButton = app.buttons["返回球局首页"]
         XCTAssertTrue(
-            app.buttons["返回球局首页"].waitForExistence(timeout: 5),
+            liveBackButton.waitForExistence(timeout: 5),
             "immersive live play must retain an explicit way back to the round home"
+        )
+        let liveHoleHeading = app.staticTexts["第 1 洞"]
+        XCTAssertTrue(liveHoleHeading.waitForExistence(timeout: 5))
+        let liveWindowFrame = app.windows.firstMatch.frame
+        XCTAssertLessThanOrEqual(
+            liveBackButton.frame.maxY,
+            liveHoleHeading.frame.minY,
+            "the approved live layout has a separate navigation-style return row above the hole heading"
+        )
+        XCTAssertLessThan(
+            liveHoleHeading.frame.minX,
+            liveWindowFrame.width * 0.10,
+            "the approved hole heading is left-aligned, not indented by an inline circular back button"
+        )
+        let livePlayPanel = app.descendants(matching: .any)["live-play-panel"].firstMatch
+        XCTAssertTrue(livePlayPanel.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(
+            livePlayPanel.frame.minY,
+            liveWindowFrame.height * 0.37,
+            "the approved map keeps roughly two-fifths of the first screen before the data panel begins"
         )
         XCTAssertLessThan(
             visibleStatusChromePixelFraction(in: XCUIScreen.main.screenshot()),

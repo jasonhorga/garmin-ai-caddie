@@ -3,6 +3,21 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum MediaCaptureCopy {
+    static let empty = "尚未添加照片或视频"
+    static let unavailable = "无法读取所选媒体"
+    static let confirmed = "识别结果已确认，可用于球童建议"
+    static let rejected = "识别结果已驳回"
+    static let confirmationFailed = "识别结果确认失败"
+
+    static func kindName(_ kind: String) -> String { kind == "video" ? "视频" : "照片" }
+    static func tooLarge(kind: String) -> String { "\(kindName(kind))超过上传大小限制" }
+    static func savedOffline(kind: String) -> String { "\(kindName(kind))已离线保存，待联网后上传" }
+    static func attached(kind: String) -> String { "\(kindName(kind))已添加" }
+    static func analyzed(kind: String) -> String { "\(kindName(kind))已分析，请先确认识别结果" }
+    static func attachFailed(kind: String) -> String { "\(kindName(kind))添加失败" }
+}
+
 public struct MediaCaptureView: View {
     public let roundId: String
     public let hole: Int
@@ -14,7 +29,7 @@ public struct MediaCaptureView: View {
 
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var selectedVideoItem: PhotosPickerItem?
-    @State private var statusText: String = "No media attached"
+    @State private var statusText: String = MediaCaptureCopy.empty
     @State private var pendingFindings: [VisionFinding] = []
     @State private var confirmedFindings: [VisionFinding] = []
 
@@ -100,12 +115,12 @@ public struct MediaCaptureView: View {
         }
         do {
             guard let data = try await item.loadTransferable(type: Data.self) else {
-                statusText = "Media unavailable"
+                statusText = MediaCaptureCopy.unavailable
                 return
             }
             let maxBytes = mediaKind == "video" ? maxVideoBytes : maxPhotoBytes
             guard data.count <= maxBytes else {
-                statusText = "\(mediaKind.capitalized) exceeds upload limit"
+                statusText = MediaCaptureCopy.tooLarge(kind: mediaKind)
                 return
             }
             let capturedAt = formatter.string(from: Date())
@@ -167,12 +182,14 @@ public struct MediaCaptureView: View {
                 eventId: mediaEventId
             )
             if uploadDeferred {
-                statusText = "\(mediaKind.capitalized) saved offline; upload retry pending"
+                statusText = MediaCaptureCopy.savedOffline(kind: mediaKind)
             } else {
-                statusText = analyzedCount == 0 ? "\(mediaKind.capitalized) attached" : "\(mediaKind.capitalized) analyzed; confirm findings before caddie use"
+                statusText = analyzedCount == 0
+                    ? MediaCaptureCopy.attached(kind: mediaKind)
+                    : MediaCaptureCopy.analyzed(kind: mediaKind)
             }
         } catch {
-            statusText = "\(mediaKind.capitalized) attach failed"
+            statusText = MediaCaptureCopy.attachFailed(kind: mediaKind)
         }
     }
 
@@ -199,12 +216,12 @@ public struct MediaCaptureView: View {
                 confirmedFindings.removeAll { $0.id == findingId }
                 confirmedFindings.append(response.finding)
                 onVisionFindings(confirmedFindings.map { $0.contextPayload })
-                statusText = "Finding confirmed for caddie"
+                statusText = MediaCaptureCopy.confirmed
             } else {
-                statusText = "Finding rejected"
+                statusText = MediaCaptureCopy.rejected
             }
         } catch {
-            statusText = "Finding confirmation failed"
+            statusText = MediaCaptureCopy.confirmationFailed
         }
     }
 

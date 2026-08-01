@@ -363,7 +363,7 @@ public struct WatchRoundContainerView: View {
     // A prepared Tee plan may appear on Hole Root only while a qualified Watch fix still places the
     // player at that Tee. Away from the Tee, Root requires the stricter fresh live-decision contract.
     private func caddieClub(_ s: WatchRoundState) -> String {
-        s.suggestedClub ?? s.caddieOptions.first?.clubName ?? s.selectedClub ?? "—"
+        WatchClubDisplay.name(s.suggestedClub ?? s.caddieOptions.first?.clubName ?? s.selectedClub ?? "—")
     }
 
     private func caddieNote(_ s: WatchRoundState) -> String {

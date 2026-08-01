@@ -71,7 +71,7 @@ public struct WatchCaddieGlanceView: View {
             }
             HStack {
                 Image(systemName: "scope")
-                Text(state.suggestedClub ?? state.selectedClub ?? "--")
+                Text(WatchClubDisplay.name(state.suggestedClub ?? state.selectedClub ?? "--"))
                     .font(.headline)
             }
             if let targetNote = state.targetNote {

@@ -357,10 +357,12 @@ public struct RoundShotEditContent: View {
             RoundShotMapView(shotMap: editModel.map, topoURL: topoURL, editModel: editModel)
             PenaltyStepper(value: editModel.map.manualPenalty) { editModel.setPenalty($0) }
                 .hubCard()
-            Text("按住落点拖动微调(带放大镜)· 点空白补一杆 · 点落点改球杆/击球球位/删")
+            Text("拖动落点微调 · 点空白补杆 · 点落点修改/删除")
                 .font(.caption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             RoundShotReorderList(editModel: editModel, ppm: editModel.map.map?.overlay.ppm)
             RoundShotMapLegend()
             if let err = editModel.pendingError {

@@ -115,6 +115,14 @@ final class DesignSnapshotTests: XCTestCase {
         XCTAssertEqual(alpha, 1, accuracy: 0.001)
     }
 
+    func testMediaCaptureCustomerCopyIsChinese() {
+        XCTAssertEqual(MediaCaptureCopy.empty, "尚未添加照片或视频")
+        XCTAssertEqual(MediaCaptureCopy.unavailable, "无法读取所选媒体")
+        XCTAssertEqual(MediaCaptureCopy.savedOffline(kind: "photo"), "照片已离线保存，待联网后上传")
+        XCTAssertEqual(MediaCaptureCopy.attached(kind: "video"), "视频已添加")
+        XCTAssertEqual(MediaCaptureCopy.confirmed, "识别结果已确认，可用于球童建议")
+    }
+
     @MainActor
     func testRenderLivePlayAuxiliaryCard() throws {
         let view = VStack(alignment: .leading, spacing: 8) {

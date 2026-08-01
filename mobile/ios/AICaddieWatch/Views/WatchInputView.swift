@@ -40,7 +40,7 @@ public struct WatchInputView: View {
             }
             Picker("球杆", selection: $selectedClub) {
                 ForEach(inputClubs, id: \.self) { club in
-                    Text(club).tag(club)
+                    Text(WatchClubDisplay.name(club)).tag(club)
                 }
             }
             .disabled(inputClubs.isEmpty)

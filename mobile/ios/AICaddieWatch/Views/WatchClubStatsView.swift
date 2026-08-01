@@ -71,7 +71,7 @@ public struct WatchClubStatsView: View {
     var rows: [WatchClubStatRow] {
         var seen = Set<String>()
         return clubs.compactMap { club in
-            let name = club.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = WatchClubDisplay.name(club.clubName)
             let key = name.lowercased()
             guard !name.isEmpty,
                   let metres = club.medianM,

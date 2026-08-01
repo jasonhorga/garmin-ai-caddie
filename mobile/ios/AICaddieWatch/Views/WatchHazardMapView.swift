@@ -405,7 +405,7 @@ public struct WatchHazardMapView: View {
                 .shadow(color: .black, radius: 2)
             }
             .padding(.top, 5)
-            .padding(.bottom, 5)
+            .padding(.bottom, 16)
 
             if upcoming.count > 1 {
                 HStack {

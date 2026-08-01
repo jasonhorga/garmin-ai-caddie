@@ -50,7 +50,7 @@ public struct WatchCaddieOptionsView: View {
         let key = strategyKey(option.optionId)
         let isRecommended = option.optionId == (recommendedId ?? "stock")
         let plan = option.plan ?? []
-        let chain = plan.map(\.clubName).joined(separator: " → ")
+        let chain = plan.map { WatchClubDisplay.name($0.clubName) }.joined(separator: " → ")
         let carries = plan.compactMap(\.carryM).map { "\(Self.yards($0))" }
         return VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 5) {
@@ -65,7 +65,7 @@ public struct WatchCaddieOptionsView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.62)
                 } else if let club = option.clubName {
-                    Text(club)
+                    Text(WatchClubDisplay.name(club))
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .lineLimit(1)
                 }

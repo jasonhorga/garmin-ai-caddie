@@ -168,8 +168,6 @@ public struct WatchRoundSetupView: View {
                         }
                     }
 
-                    availabilityRow
-
                     if teeLoadAttempted, teeChoices.isEmpty, !isLoadingTees {
                         Text("无法取得真实发球台时不会用猜测值开局。")
                             .font(.system(size: 8, weight: .medium))
@@ -193,9 +191,27 @@ public struct WatchRoundSetupView: View {
             }
             .scrollIndicators(.hidden)
 
-            startAction
+            setupFooter
                 .padding(.horizontal, 6)
                 .padding(.bottom, 4)
+        }
+    }
+
+    private var setupFooter: some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(hasCachedVersion ? AICaddieDesignTokens.par : .orange)
+                    .frame(width: 5, height: 5)
+                Text("\(availabilityText) · \(availabilityDetail)")
+                    .font(.system(size: 8.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 3)
+            startAction
         }
     }
 
@@ -226,29 +242,6 @@ public struct WatchRoundSetupView: View {
         .buttonStyle(.plain)
         .disabled(isPreparing || isLoadingTees || teeChoices.isEmpty)
         .opacity(isPreparing || isLoadingTees || teeChoices.isEmpty ? 0.52 : 1)
-    }
-
-    private var availabilityRow: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(hasCachedVersion ? AICaddieDesignTokens.par : .orange)
-                .frame(width: 6, height: 6)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(availabilityText)
-                    .font(.system(size: 10, weight: .semibold))
-                Text(availabilityDetail)
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 5)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.white.opacity(0.04))
-        )
     }
 
     private func teeChoiceRow(

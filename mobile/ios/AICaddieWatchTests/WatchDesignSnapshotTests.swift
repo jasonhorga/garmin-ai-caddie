@@ -10,6 +10,15 @@ import XCTest
 /// `Documents/watch-snapshots/*.png` after the Watch test. (Only real GPS / HealthKit / motion need a
 /// physical watch — the UI/scoring layout is fully reviewable here.)
 final class WatchDesignSnapshotTests: XCTestCase {
+    func testWatchClubDisplayNamesMatchApprovedChineseCopy() {
+        XCTAssertEqual(WatchClubDisplay.name("1W"), "一号木")
+        XCTAssertEqual(WatchClubDisplay.name("3W"), "三号木")
+        XCTAssertEqual(WatchClubDisplay.name("9I"), "九号铁")
+        XCTAssertEqual(WatchClubDisplay.name("PW"), "P 杆")
+        XCTAssertEqual(WatchClubDisplay.name("putter"), "推杆")
+        XCTAssertEqual(WatchClubDisplay.name("自定义杆"), "自定义杆")
+    }
+
     @MainActor
     func testRenderAutoShotCandidateConfirmation() throws {
         let view = WatchAutoShotCandidateView()

@@ -122,7 +122,7 @@ public struct WatchClubPromptView: View {
                             let isRecommended = club.clubName == normalizedRecommendedClub
                             Button(action: { onSelectClub(club.clubName) }) {
                                 HStack(spacing: 4) {
-                                    Text(club.clubName)
+                                    Text(WatchClubDisplay.name(club.clubName))
                                         .font(.system(size: 15, weight: .semibold))
                                         .lineLimit(1)
                                     Spacer(minLength: 2)
@@ -180,7 +180,7 @@ public struct WatchClubPromptView: View {
     }
 
     private func accessibilityLabel(for club: WatchClubOption, isRecommended: Bool) -> String {
-        var parts = [club.clubName]
+        var parts = [WatchClubDisplay.name(club.clubName)]
         if let distance = WatchClubPromptPresentation.distanceText(for: club) {
             parts.append("\(distance)码")
         }
