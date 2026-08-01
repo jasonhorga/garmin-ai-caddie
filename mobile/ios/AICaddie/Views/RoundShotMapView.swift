@@ -327,7 +327,7 @@ public struct RoundHoleShotMapScreen: View {
         do {
             let sync = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
             let m = try await sync.fetchRoundShotMap(roundRef: roundRef, hole: hole)
-            trace("load.response found=\(m.found) map=\(m.map != nil) shots=\(m.shots.count) imageChars=\(m.map?.image?.count ?? 0)")
+            trace("load.response found=\(m.found) map=\(m.map != nil) shots=\(m.shots.count) imageChars=\(m.map?.image.count ?? 0)")
             shotMap = m
             editModel = RoundEditModel(map: m, sync: sync, roundRef: roundRef)
         } catch {
