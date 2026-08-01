@@ -1,4 +1,5 @@
 import SwiftUI
+import WatchKit
 
 /// The approved compact end-of-round summary. The richer GIR/fairway facts remain in the model for
 /// history and phone review, but this glance deliberately shows only the facts present in render #16.
@@ -75,7 +76,7 @@ public struct WatchFinishRoundView: View {
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
-                    .padding(.top, 5)
+                    .padding(.top, 10)
             }
 
             if let pendingUploadText {
@@ -85,7 +86,7 @@ public struct WatchFinishRoundView: View {
                 }
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(AICaddieDesignTokens.offline)
-                .padding(.top, 5)
+                .padding(.top, 9)
             }
 
             Spacer(minLength: 3)
@@ -118,7 +119,11 @@ public struct WatchFinishRoundView: View {
         .padding(.horizontal, 25)
         .padding(.top, 8)
         .padding(.bottom, 6)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(
+            height: WKInterfaceDevice.current().screenBounds.height,
+            alignment: .topLeading
+        )
         .background(Color.black)
         .ignoresSafeArea()
     }
@@ -173,6 +178,7 @@ public struct WatchFinishConfirmationView: View {
             Text(titleText)
                 .font(.system(size: 16, weight: .bold))
                 .multilineTextAlignment(.center)
+                .offset(y: 10)
 
             Text(statusText)
                 .font(.system(size: 11))
@@ -181,6 +187,7 @@ public struct WatchFinishConfirmationView: View {
                 )
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
+                .offset(y: 10)
 
             Spacer(minLength: 4)
 
