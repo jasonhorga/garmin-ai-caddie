@@ -110,6 +110,21 @@ public struct WatchUITestRoot: View {
             }
         case "always-on-distance":
             WatchAlwaysOnDistanceView(hole: 4, par: 5, centerYd: 262)
+        case "distance-hero-big":
+            WatchDistanceHero(
+                frontYd: 248,
+                centerYd: 262,
+                backYd: 274,
+                caddieLine: "3号木 · 稳妥",
+                bigText: true
+            )
+        case "distance-hero-fallback":
+            WatchDistanceHero(
+                frontYd: 248,
+                centerYd: 262,
+                backYd: 274,
+                caddieLine: "3号木 · 稳妥"
+            )
         case "menu":
             WatchMenuView(
                 hasCaddie: true,

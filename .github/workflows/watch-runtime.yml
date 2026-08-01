@@ -319,6 +319,8 @@ jobs:
           launch_and_capture always-on-distance watch-always-on-distance-runtime.png
           swift mobile/ios/scripts/verify_watch_aod_geometry.swift \
             watch-runtime-artifacts/watch-always-on-distance-runtime.png
+          launch_and_capture distance-hero-big watch-distance-hero-big-runtime.png
+          launch_and_capture distance-hero-fallback watch-distance-hero-fallback-runtime.png
           launch_and_capture menu watch-menu-shot-list.png
           launch_and_capture interaction-club-stats watch-club-stats-runtime.png
           launch_and_capture interaction-settings watch-settings-runtime.png
