@@ -48,7 +48,15 @@ test.describe('real isolated CI player evidence', () => {
     await captureWithoutCredentialInLocation(page, 'rounds-list.png')
 
     await firstRound.click()
-    await expect(page.getByRole('heading', { name: '球局回顾', exact: true })).toBeVisible()
+    const roundDetail = page.locator('.round-detail-panel')
+    await expect(roundDetail.getByRole('heading', { name: '球局回顾', exact: true })).toBeVisible()
+    // The heading also exists in the loading shell. Evidence is valid only after the protected
+    // detail GET has resolved into the real scorecard, otherwise the browser can close after the
+    // CORS preflight and leave a misleading "正在加载球局…" screenshot behind.
+    await expect(roundDetail.getByLabel('球局数据')).toBeVisible({ timeout: 60_000 })
+    await expect(roundDetail).toContainText('Cypress Point Club')
+    await expect(roundDetail.getByText('正在加载球局…')).toHaveCount(0)
+    await roundDetail.scrollIntoViewIfNeeded()
     await captureWithoutCredentialInLocation(page, 'round-review.png')
 
     // Leave no capability token in the final page URL when the browser context closes.
