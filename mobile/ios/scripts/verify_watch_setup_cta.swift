@@ -22,9 +22,8 @@ guard width > 0, height > 0 else {
     exit(2)
 }
 
-// Both the selected setup row and the primary CTA are green. Their exact RGB values vary with
-// simulator colour management, so distinguish them by separate full-width horizontal bands rather
-// than a brittle colour bucket: the CTA is the tallest band and the selected row is above it.
+// The approved Tee screen uses a dark row plus a compact green checkmark for selection; only the
+// primary CTA is a full-width green band. RGB varies slightly with simulator colour management.
 func isPrimaryActionGreen(_ x: Int, _ y: Int) -> Bool {
     guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
     let red = Int((color.redComponent * 255).rounded())
@@ -67,18 +66,27 @@ if let startY = bandStartY {
 
 let actionBand = greenBands.max { $0.height < $1.height }
 let actionHeight = actionBand?.height ?? 0
-let selectedChoiceHeight = greenBands
-    .filter { band in
-        guard let actionBand else { return false }
-        return band.endY < actionBand.startY
+var selectedIndicatorPixels = 0
+var selectedIndicatorMinY = height
+var selectedIndicatorMaxY = -1
+if let actionBand {
+    for y in 0..<max(actionBand.startY - 4, 0) {
+        for x in (width / 2)..<width where isPrimaryActionGreen(x, y) {
+            selectedIndicatorPixels += 1
+            selectedIndicatorMinY = min(selectedIndicatorMinY, y)
+            selectedIndicatorMaxY = max(selectedIndicatorMaxY, y)
+        }
     }
-    .map(\.height)
-    .max() ?? 0
+}
+let selectedIndicatorHeight = selectedIndicatorMaxY >= selectedIndicatorMinY
+    ? selectedIndicatorMaxY - selectedIndicatorMinY + 1
+    : 0
 let edgePixels = max(firstEdgePixels, lastEdgePixels)
 print(
     "WATCH_SETUP_CTA width=\(width) height=\(height) pixels=\(matchingPixels) "
         + "actionHeight=\(actionHeight) edgePixels=\(edgePixels) "
-        + "selectedChoiceHeight=\(selectedChoiceHeight) "
+        + "selectedIndicatorPixels=\(selectedIndicatorPixels) "
+        + "selectedIndicatorHeight=\(selectedIndicatorHeight) "
         + "bands=\(greenBands.map(\.height))"
 )
 
@@ -94,10 +102,10 @@ guard edgePixels <= 4 else {
     fputs("primary setup action is clipped by the Watch viewport edge (\(edgePixels) green edge pixels)\n", stderr)
     exit(1)
 }
-guard selectedChoiceHeight >= 48 else {
+guard selectedIndicatorPixels >= 20, selectedIndicatorHeight >= 8 else {
     fputs(
-        "selected setup choice is clipped by the fixed action area "
-            + "(only \(selectedChoiceHeight)px visible)\n",
+        "selected Tee checkmark is missing or clipped above the fixed action area "
+            + "(pixels=\(selectedIndicatorPixels), height=\(selectedIndicatorHeight))\n",
         stderr
     )
     exit(1)

@@ -440,7 +440,9 @@ public struct WatchRoundContainerView: View {
         ZStack { content() }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
-            .overlay(alignment: .bottomLeading) { roundToolsButton }
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }
+            .accessibilityAction(named: Text("球局工具")) { model.openMenu() }
             .onChange(of: model.activeHole) { _ in
                 holeMapBigText = false
                 holeMapCrownScale = WatchHoleMapView.restingCrownScale
@@ -493,18 +495,4 @@ public struct WatchRoundContainerView: View {
         .buttonStyle(.plain)
     }
 
-    private var roundToolsButton: some View {
-        Button(action: { model.openMenu() }) {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(7)
-                .background(Circle().fill(Color.white.opacity(0.18)))
-                .overlay(Circle().stroke(Color.white.opacity(0.55), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("球局工具")
-        .padding(.leading, 5)
-        .padding(.bottom, 5)
-    }
 }
