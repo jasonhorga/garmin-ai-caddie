@@ -68,6 +68,7 @@ public struct WatchRoundContainerView: View {
     /// Latest fix from the Watch itself. Manual shot capture is disabled until this exists; no
     /// placeholder coordinate is ever manufactured.
     private let shotLocation: WatchLocationFix?
+    private let watchHeading: WatchHeadingFix?
     private let autoShotSupported: Bool
     private let autoShotStatus: String
     /// DEBUG runtime evidence may start the real map in a deterministic interaction state. Production
@@ -78,6 +79,7 @@ public struct WatchRoundContainerView: View {
     public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil,
                 watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
                 shotLocation: WatchLocationFix? = nil,
+                watchHeading: WatchHeadingFix? = nil,
                 autoShotSupported: Bool = false,
                 autoShotStatus: String = "本机不支持",
                 initialHoleMapCrownScale: Double = WatchHoleMapView.restingCrownScale,
@@ -87,6 +89,7 @@ public struct WatchRoundContainerView: View {
         self.holeGeometry = holeGeometry
         self.watchGreenYards = watchGreenYards
         self.shotLocation = shotLocation
+        self.watchHeading = watchHeading
         self.autoShotSupported = autoShotSupported
         self.autoShotStatus = autoShotStatus
         self.measuredPxOverride = measuredPxOverride
@@ -145,6 +148,7 @@ public struct WatchRoundContainerView: View {
                 autoShotEnabled: model.autoShotEnabled,
                 autoShotStatus: autoShotStatus,
                 hasClubStats: model.clubStatsAvailable,
+                hasFlagDirection: activeFlagCoordinate != nil,
                 onRecordShot: { recordManualShot() },
                 onScoreHole: { model.startScoringActiveHole() },
                 onCaddie: { model.openCaddie() },
@@ -158,6 +162,7 @@ public struct WatchRoundContainerView: View {
                 onHoleSelect: { model.openHoleSelect() },
                 onClubStats: { model.openClubStats() },
                 onSettings: { model.openSettings() },
+                onFlagDirection: { model.openFlagDirection() },
                 onFinish: { model.requestFinish() },
                 onClose: { model.backToHome() }
             )
@@ -225,6 +230,11 @@ public struct WatchRoundContainerView: View {
             WatchSettingsView(
                 gpsPreheatEnabled: $gpsPreheatEnabled,
                 bigTextMode: $holeMapBigText,
+                onBack: { model.backToMenu() }
+            )
+        case .flagDirection:
+            WatchFlagDirectionView(
+                state: flagDirectionState,
                 onBack: { model.backToMenu() }
             )
         case .scorecard:
@@ -318,6 +328,37 @@ public struct WatchRoundContainerView: View {
 
     var distanceText: String? {
         watchGreenYards?.center.map { "\($0) 码" }
+    }
+
+    private var activeFlagCoordinate: (latitude: Double, longitude: Double)? {
+        guard let state = model.activeHoleState else { return nil }
+        if let latitude = state.targetLatitude,
+           let longitude = state.targetLongitude,
+           validCoordinate(latitude: latitude, longitude: longitude) {
+            return (latitude, longitude)
+        }
+        if let latitude = state.centerGreenLat,
+           let longitude = state.centerGreenLon,
+           validCoordinate(latitude: latitude, longitude: longitude) {
+            return (latitude, longitude)
+        }
+        return nil
+    }
+
+    private var flagDirectionState: WatchFlagDirectionState {
+        WatchFlagDirectionResolver.resolve(
+            playerLatitude: shotLocation?.coordinate.latitude,
+            playerLongitude: shotLocation?.coordinate.longitude,
+            flagLatitude: activeFlagCoordinate?.latitude,
+            flagLongitude: activeFlagCoordinate?.longitude,
+            heading: watchHeading
+        )
+    }
+
+    private func validCoordinate(latitude: Double, longitude: Double) -> Bool {
+        latitude.isFinite && longitude.isFinite
+            && (-90...90).contains(latitude)
+            && (-180...180).contains(longitude)
     }
 
     // A prepared Tee plan may appear on Hole Root only while a qualified Watch fix still places the

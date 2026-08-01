@@ -75,7 +75,8 @@ public struct WatchUITestRoot: View {
         case "interaction-club-seed", "interaction-club-restore",
              "interaction-score-seed", "interaction-score-restore",
              "interaction-current-hole-shots", "interaction-gps-acquiring",
-             "interaction-club-stats", "interaction-settings":
+             "interaction-club-stats", "interaction-settings",
+             "interaction-flag-direction":
             interactionRound
         case "home":
             WatchRoundHomeView(
@@ -928,9 +929,8 @@ public struct WatchUITestRoot: View {
             if model.round != nil {
                 WatchRoundContainerView(
                     model: model,
-                    shotLocation: screen == "interaction-current-hole-shots"
-                        ? Self.interactionCurrentHoleFix
-                        : nil
+                    shotLocation: interactionShotLocation,
+                    watchHeading: interactionHeading
                 )
             } else {
                 Text("interaction restore unavailable")
@@ -958,6 +958,8 @@ public struct WatchUITestRoot: View {
             case "interaction-settings":
                 model.applyRoundSeed(Self.interactionGPSAcquiringSeed)
                 model.openSettings()
+            case "interaction-flag-direction":
+                seedInteractionFlagDirection()
             default:
                 break
             }
@@ -1021,6 +1023,50 @@ public struct WatchUITestRoot: View {
             courseName: "北京丽宫"
         )
         model.openClubStats()
+    }
+
+    private func seedInteractionFlagDirection() {
+        let roundId = "ci-interaction-flag-direction-round"
+        model.seedRound(
+            [
+                WatchRoundState(
+                    roundId: roundId,
+                    hole: 7,
+                    par: 4,
+                    distanceM: 139,
+                    teeLatitude: 40.0,
+                    teeLongitude: 116.0,
+                    selectedClub: nil,
+                    centerGreenM: 139,
+                    centerGreenLat: 40.0,
+                    centerGreenLon: 116.00163,
+                    score: 0,
+                    putts: 0,
+                    penaltyCount: 0,
+                    caddieConfidence: "offline"
+                ),
+            ],
+            activeHole: 7,
+            courseName: "北京丽宫"
+        )
+        model.openFlagDirection()
+    }
+
+    private var interactionShotLocation: WatchLocationFix? {
+        switch screen {
+        case "interaction-current-hole-shots": return Self.interactionCurrentHoleFix
+        case "interaction-flag-direction": return Self.interactionFlagFix
+        default: return nil
+        }
+    }
+
+    private var interactionHeading: WatchHeadingFix? {
+        guard screen == "interaction-flag-direction" else { return nil }
+        return WatchHeadingFix(
+            trueDegrees: 110,
+            accuracyDegrees: 6,
+            capturedAt: Date()
+        )
     }
 
     /// Runtime approval evidence must exercise the production model/container path, not mount the
@@ -1219,6 +1265,12 @@ public struct WatchUITestRoot: View {
 
     private static let interactionCurrentHoleFix = WatchLocationFix(
         coordinate: CLLocationCoordinate2D(latitude: 40.0, longitude: 116.00471),
+        horizontalAccuracyM: 4,
+        capturedAt: "2026-07-26T08:11:00Z"
+    )
+
+    private static let interactionFlagFix = WatchLocationFix(
+        coordinate: CLLocationCoordinate2D(latitude: 40.0, longitude: 116.0),
         horizontalAccuracyM: 4,
         capturedAt: "2026-07-26T08:11:00Z"
     )

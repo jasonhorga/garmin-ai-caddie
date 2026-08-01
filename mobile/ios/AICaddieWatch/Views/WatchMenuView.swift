@@ -10,6 +10,7 @@ public struct WatchMenuView: View {
     public let autoShotEnabled: Bool
     public let autoShotStatus: String
     public let hasClubStats: Bool
+    public let hasFlagDirection: Bool
     public let onRecordShot: () -> Void
     public let onScoreHole: () -> Void
     public let onCaddie: () -> Void
@@ -20,6 +21,7 @@ public struct WatchMenuView: View {
     public let onHoleSelect: () -> Void
     public let onClubStats: () -> Void
     public let onSettings: () -> Void
+    public let onFlagDirection: () -> Void
     public let onFinish: () -> Void
     public let onClose: () -> Void
 
@@ -31,6 +33,7 @@ public struct WatchMenuView: View {
         autoShotEnabled: Bool = false,
         autoShotStatus: String = "本机不支持",
         hasClubStats: Bool = false,
+        hasFlagDirection: Bool = false,
         onRecordShot: @escaping () -> Void = {},
         onScoreHole: @escaping () -> Void = {},
         onCaddie: @escaping () -> Void = {},
@@ -41,6 +44,7 @@ public struct WatchMenuView: View {
         onHoleSelect: @escaping () -> Void = {},
         onClubStats: @escaping () -> Void = {},
         onSettings: @escaping () -> Void = {},
+        onFlagDirection: @escaping () -> Void = {},
         onFinish: @escaping () -> Void = {},
         onClose: @escaping () -> Void = {}
     ) {
@@ -51,6 +55,7 @@ public struct WatchMenuView: View {
         self.autoShotEnabled = autoShotEnabled
         self.autoShotStatus = autoShotStatus
         self.hasClubStats = hasClubStats
+        self.hasFlagDirection = hasFlagDirection
         self.onRecordShot = onRecordShot
         self.onScoreHole = onScoreHole
         self.onCaddie = onCaddie
@@ -61,6 +66,7 @@ public struct WatchMenuView: View {
         self.onHoleSelect = onHoleSelect
         self.onClubStats = onClubStats
         self.onSettings = onSettings
+        self.onFlagDirection = onFlagDirection
         self.onFinish = onFinish
         self.onClose = onClose
     }
@@ -87,6 +93,7 @@ public struct WatchMenuView: View {
                 menuRow("本洞击球", action: onCurrentHoleShots)
                 if hasCaddie { menuRow("球童建议", action: onCaddie) }
                 if hasHazards { menuRow("障碍", action: onHazards) }
+                if hasFlagDirection { menuRow("旗向指引", action: onFlagDirection) }
                 if hasClubStats { menuRow("球杆数据", action: onClubStats) }
                 menuRow("设置", action: onSettings)
                 menuRow(

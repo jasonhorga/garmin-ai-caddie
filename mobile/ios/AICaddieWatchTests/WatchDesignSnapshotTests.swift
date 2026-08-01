@@ -606,6 +606,16 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(view.wristLabel, "左手")
     }
 
+    @MainActor
+    func testRenderWatchFlagDirection() throws {
+        let view = WatchFlagDirectionView(
+            state: .ready(relativeDegrees: -20, distanceYards: 152)
+        )
+            .frame(width: 198, height: 198)
+            .background(Color.black)
+        try render(view, named: "watch-flag-direction")
+    }
+
     // WatchStartView keeps real NavigationStack/search behavior. The workflow therefore captures its
     // compact course rows from the running simulator rather than treating ImageRenderer as final proof.
 

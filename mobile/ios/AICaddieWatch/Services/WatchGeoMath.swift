@@ -39,6 +39,35 @@ public enum WatchGeoMath {
         guard let toLat, let toLon else { return nil }
         return yards(metres(lat, lon, toLat, toLon))
     }
+
+    /// Initial great-circle bearing in degrees clockwise from true north. A same-point target has no
+    /// meaningful direction and therefore returns nil instead of manufacturing a north arrow.
+    public static func initialBearingDegrees(
+        from latitude: Double,
+        _ longitude: Double,
+        to targetLatitude: Double,
+        _ targetLongitude: Double
+    ) -> Double? {
+        guard valid(latitude: latitude, longitude: longitude),
+              valid(latitude: targetLatitude, longitude: targetLongitude),
+              metres(latitude, longitude, targetLatitude, targetLongitude) >= 0.5 else {
+            return nil
+        }
+        let lat1 = latitude * .pi / 180
+        let lat2 = targetLatitude * .pi / 180
+        let deltaLongitude = (targetLongitude - longitude) * .pi / 180
+        let y = sin(deltaLongitude) * cos(lat2)
+        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(deltaLongitude)
+        let degrees = atan2(y, x) * 180 / .pi
+        guard degrees.isFinite else { return nil }
+        return (degrees + 360).truncatingRemainder(dividingBy: 360)
+    }
+
+    private static func valid(latitude: Double, longitude: Double) -> Bool {
+        latitude.isFinite && longitude.isFinite
+            && (-90...90).contains(latitude)
+            && (-180...180).contains(longitude)
+    }
 }
 
 /// Presentation math for the Watch start screen. It ranks only the real course coordinates already

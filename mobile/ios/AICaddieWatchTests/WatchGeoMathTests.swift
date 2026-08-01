@@ -31,4 +31,18 @@ final class WatchGeoMathTests: XCTestCase {
         XCTAssertEqual(WatchGeoMath.yards(from: 0, 0, toLat: 0.001, 0), 122)
         XCTAssertNil(WatchGeoMath.yards(from: 0, 0, toLat: nil, 0))
     }
+
+    func testInitialBearingUsesTrueNorthAndRejectsAnUndefinedDirection() {
+        XCTAssertEqual(
+            WatchGeoMath.initialBearingDegrees(from: 0, 0, to: 0, 1) ?? -1,
+            90,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            WatchGeoMath.initialBearingDegrees(from: 0, 0, to: 1, 0) ?? -1,
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertNil(WatchGeoMath.initialBearingDegrees(from: 0, 0, to: 0, 0))
+    }
 }
