@@ -9,6 +9,7 @@ public struct AICaddieApp: App {
     @StateObject private var sessionStore = SessionStore.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var showNoPackageSettings = false
+    @State private var usesDarkLiveChrome = false
 
     public init() {}
 
@@ -103,6 +104,9 @@ public struct AICaddieApp: App {
                         pendingLiveHole: model.pendingLiveHole,
                         onConsumePendingLiveHole: {
                             model.consumePendingLiveHole()
+                        },
+                        onLiveAppearanceChanged: { isLive in
+                            usesDarkLiveChrome = isLive
                         }
                     )
                 } else {
@@ -154,10 +158,10 @@ public struct AICaddieApp: App {
                     }
                 }
             }
-            // The app has a single deliberate light visual identity (green + white cards on a
-            // light gray field). Lock it to light so it never renders white-on-white in the
-            // system's Dark Mode (cards are Color.white but text is semantic .primary).
-            .preferredColorScheme(.light)
+            // Product chrome is light except for the immersive live-hole instrument. Drive the
+            // presentation-level scheme here (rather than from the destination child) because the
+            // hosting controller owns status-bar contrast for the whole NavigationStack.
+            .preferredColorScheme(usesDarkLiveChrome ? .dark : .light)
             .task {
                 await model.bootstrap()
             }

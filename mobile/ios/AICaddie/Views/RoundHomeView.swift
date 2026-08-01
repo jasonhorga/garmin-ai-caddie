@@ -45,6 +45,7 @@ public struct RoundHomeView: View {
     /// Set to a hole number right after a fresh round is prepared → auto-navigate into that hole.
     public let pendingLiveHole: Int?
     public let onConsumePendingLiveHole: () -> Void
+    public let onLiveAppearanceChanged: (Bool) -> Void
 
     @State private var showSettings = false
     @State private var path: [HubRoute] = []
@@ -77,7 +78,8 @@ public struct RoundHomeView: View {
         onClearBackendConfiguration: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
         pendingLiveHole: Int? = nil,
-        onConsumePendingLiveHole: @escaping () -> Void = {}
+        onConsumePendingLiveHole: @escaping () -> Void = {},
+        onLiveAppearanceChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self.package = package
         self.pendingEventCount = pendingEventCount
@@ -107,6 +109,7 @@ public struct RoundHomeView: View {
         self.onLoadCourseTees = onLoadCourseTees
         self.pendingLiveHole = pendingLiveHole
         self.onConsumePendingLiveHole = onConsumePendingLiveHole
+        self.onLiveAppearanceChanged = onLiveAppearanceChanged
     }
 
     /// Nameless, time-of-day greeting (早上好 / 中午好 / 下午好 / 晚上好) — the home's large title.
@@ -179,6 +182,20 @@ public struct RoundHomeView: View {
             path = [.hole(hole)]
             onConsumePendingLiveHole()
         }
+        .onChange(of: path) { _, routes in
+            onLiveAppearanceChanged(Self.isLiveHoleRoute(routes.last))
+        }
+        .onAppear {
+            onLiveAppearanceChanged(Self.isLiveHoleRoute(path.last))
+        }
+        .onDisappear {
+            onLiveAppearanceChanged(false)
+        }
+    }
+
+    private static func isLiveHoleRoute(_ route: HubRoute?) -> Bool {
+        guard case .hole = route else { return false }
+        return true
     }
 
     @ViewBuilder private func currentHoleView(_ number: Int) -> some View {
