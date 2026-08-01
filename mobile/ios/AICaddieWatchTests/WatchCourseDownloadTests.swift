@@ -151,6 +151,45 @@ final class WatchCourseDownloadTests: XCTestCase {
         ])
     }
 
+    func testBuildProjectsLightweightPrepRouteOntoSharedTopoWithoutLegacyMap() throws {
+        let option = WatchCourseOption(
+            globalId: 3881,
+            name: "Cypress Point Club",
+            holes: 18,
+            teeBox: "championship"
+        )
+        let package = try client.decodeCoursePackage(Data(
+            #"{"roundId":"watch-light-prep","course":{"globalId":3881,"name":"Cypress Point Club","teeBox":"championship"},"holes":[{"number":1,"par":5,"yards":407,"geometryCoverage":"ready","sourceGlobalId":3881,"sourceLocalHole":1}]}"#.utf8
+        ))
+        let prep = try client.decodeCoursePrep(Data(
+            #"{"globalId":3881,"clubs":[],"holes":[{"hole":1,"par":5,"geometryCoverage":"ready","landing_m":220.0,"tee_club":"1W","route":[[0.0,0.0,0.0],[0.0,200.0,200.0],[30.0,320.0,323.7]],"hazards":{},"holeImageProjection":{"available":true,"widthPx":678,"heightPx":1060,"refs":[{"lat":36.58,"lon":-121.97,"px":100.0,"py":700.0},{"lat":36.58,"lon":-121.9686,"px":220.0,"py":700.0},{"lat":36.5811,"lon":-121.97,"px":100.0,"py":580.0}]}}]}"#.utf8
+        ))
+        let sharedTopo = Data([9, 8, 7])
+
+        let download = try WatchCourseTemplateBuilder.build(
+            option: option,
+            package: package,
+            prepsByGlobalId: [3881: prep],
+            topoImagesByGlobalId: [3881: [1: sharedTopo]],
+            cachedAt: "2026-08-01T00:00:00Z"
+        )
+
+        let hole = try XCTUnwrap(download.template.holeStates.first)
+        let map = try XCTUnwrap(hole.holeMap)
+        XCTAssertEqual(map.w, 678)
+        XCTAssertEqual(map.h, 1060)
+        XCTAssertEqual(map.you, [100, 700])
+        XCTAssertEqual(map.pin, [130, 380])
+        XCTAssertEqual(map.route ?? [], [
+            [100, 700, 0],
+            [100, 500, 200],
+            [130, 380, 323.7],
+        ])
+        XCTAssertEqual(download.images, [
+            WatchCourseImage(globalId: 3881, hole: 1, data: sharedTopo)
+        ])
+    }
+
     func testBuildUsesSelectedPackageTeeWhenRenderedPrepIsAbsent() throws {
         let option = WatchCourseOption(
             globalId: 31669,

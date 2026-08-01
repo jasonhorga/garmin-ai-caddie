@@ -210,13 +210,22 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(prep.timeoutInterval, 900)
         let prepQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(prep.url), resolvingAgainstBaseURL: false))
         XCTAssertEqual(prepQuery.queryItems?.filter { $0.name == "holes" }.compactMap(\.value), ["1", "2", "9"])
-        XCTAssertEqual(prepQuery.queryItems?.first(where: { $0.name == "render" })?.value, "true")
+        XCTAssertEqual(prepQuery.queryItems?.first(where: { $0.name == "render" })?.value, "false")
 
         let topo = try client.makeCourseTopoRequest(globalId: 31669, localHole: 4)
         XCTAssertEqual(topo.url?.path, "/api/v2/courses/31669/holes/4/topo.png")
         let topoQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(topo.url), resolvingAgainstBaseURL: false))
         XCTAssertEqual(topoQuery.queryItems?.first(where: { $0.name == "v" })?.value, "topo-v4")
         XCTAssertNil(topo.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testCoursePrepRequestRejectsAnEdgeUnsafeHoleBatch() throws {
+        XCTAssertThrowsError(
+            try makeClient().makeCoursePrepRequest(
+                globalId: 3881,
+                localHoles: [1, 2, 3, 4]
+            )
+        )
     }
 
     func testCoursePayloadsDecodeOnlyWatchStartFacts() throws {
