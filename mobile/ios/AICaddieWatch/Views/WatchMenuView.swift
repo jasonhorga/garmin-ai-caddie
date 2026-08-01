@@ -60,6 +60,17 @@ public struct WatchMenuView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 Text("菜单").font(.headline.weight(.bold)).padding(.bottom, 2)
+                // Keep the approved S70-like round-navigation quartet on the first glance. The
+                // additional correction and telemetry tools remain reachable immediately below.
+                menuRow("计分卡", action: onScorecard)
+                menuRow("选洞", action: onHoleSelect)
+                menuRow("结束本场", role: .destructive, action: onFinish)
+                menuRow("继续打球", action: onClose)
+
+                Text("本洞")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 5)
                 menuRow("记一杆", action: onRecordShot)
                     .disabled(!canRecordShot)
                     .accessibilityHint(canRecordShot ? "先保存当前位置，再选择实际球杆" : "等待 GPS 定位")
@@ -72,10 +83,6 @@ public struct WatchMenuView: View {
                     action: onToggleAutoShot
                 )
                 .disabled(!autoShotSupported)
-                menuRow("计分卡", action: onScorecard)
-                menuRow("选洞", action: onHoleSelect)
-                menuRow("结束本场", role: .destructive, action: onFinish)
-                menuRow("继续打球", action: onClose)
             }
             .padding(.horizontal, 6)
             .padding(.top, 18)

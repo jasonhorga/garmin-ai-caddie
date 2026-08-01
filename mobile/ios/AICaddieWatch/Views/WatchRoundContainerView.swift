@@ -495,8 +495,8 @@ public struct WatchRoundContainerView: View {
 
     private var roundToolsButton: some View {
         Button(action: { model.openMenu() }) {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .bold))
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(7)
                 .background(Circle().fill(Color.white.opacity(0.18)))

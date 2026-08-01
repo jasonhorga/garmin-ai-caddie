@@ -7,6 +7,11 @@ struct WatchRoundSetupChoicePresentation: Equatable, Identifiable {
     let isSelected: Bool
 }
 
+enum WatchRoundSetupStage: Equatable {
+    case holes
+    case tees
+}
+
 /// The last explicit gate before a real Watch round starts: choose the playable loop(s) and tee.
 /// It intentionally has no synthetic score-only fallback; unavailable data stays unavailable.
 public struct WatchRoundSetupView: View {
@@ -24,6 +29,8 @@ public struct WatchRoundSetupView: View {
     @State private var loadedTees: [WatchCourseTee] = []
     @State private var isLoadingTees = false
     @State private var teeLoadAttempted = false
+    @State private var stage: WatchRoundSetupStage
+    let initialStage: WatchRoundSetupStage
 
     public init(
         front: WatchCourseOption,
@@ -45,58 +52,118 @@ public struct WatchRoundSetupView: View {
         self.onStart = onStart
         _selectedTee = State(initialValue: front.preferredTee)
         _selectedBackGlobalId = State(initialValue: nil)
+        let startsWithHoles = Self.hasCompatibleBackLoop(front: front, courses: courses)
+        let initialStage: WatchRoundSetupStage = startsWithHoles ? .holes : .tees
+        self.initialStage = initialStage
+        _stage = State(initialValue: initialStage)
     }
 
     public var body: some View {
-        VStack(spacing: 6) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    setupHeader
+        Group {
+            if stage == .holes {
+                holeSelection
+            } else {
+                teeSelection
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .task(id: front.globalId) {
+            await loadTeesIfNeeded()
+        }
+    }
 
-                    if !backOptions.isEmpty {
-                        setupSection("洞组") {
-                            ForEach(loopChoices) { choice in
-                                choiceRow(choice) {
-                                    selectedBackGlobalId = backOptions.first {
-                                        choice.id == "loop:\($0.globalId)"
-                                    }?.globalId
-                                }
+    private var holeSelection: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 7) {
+                Text("打几洞")
+                    .font(.system(size: 16, weight: .bold))
+                    .padding(.horizontal, 2)
+
+                ForEach(loopChoices) { choice in
+                    Button {
+                        selectedBackGlobalId = backOptions.first {
+                            choice.id == "loop:\($0.globalId)"
+                        }?.globalId
+                        withAnimation(.easeOut(duration: 0.16)) { stage = .tees }
+                    } label: {
+                        HStack(spacing: 7) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(choice.title)
+                                    .font(.system(size: 14, weight: .semibold))
+                                Text(choice.detail)
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(.secondary)
                             }
+                            Spacer(minLength: 2)
+                            Image(systemName: "chevron.forward")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.secondary)
                         }
+                        .padding(.horizontal, 10)
+                        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.white.opacity(0.07))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private var teeSelection: some View {
+        VStack(spacing: 5) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        if initialStage == .holes {
+                            Button {
+                                withAnimation(.easeOut(duration: 0.16)) { stage = .holes }
+                            } label: {
+                                Image(systemName: "chevron.backward")
+                                    .font(.system(size: 12, weight: .bold))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("返回选择洞数")
+                        }
+                        Text("发球台")
+                            .font(.system(size: 16, weight: .bold))
                     }
 
-                    setupSection("发球台") {
-                        if isLoadingTees {
-                            HStack(spacing: 6) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("正在获取真实发球台")
-                            }
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .padding(7)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        } else if teeChoices.isEmpty {
-                            HStack(spacing: 6) {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .foregroundStyle(.orange)
-                                Text("暂无可用发球台")
-                            }
-                            .font(.system(size: 10, weight: .semibold))
-                            .padding(7)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Color.orange.opacity(0.10))
-                            )
-                        } else {
-                            ForEach(teeChoices) { choice in
-                                choiceRow(choice) {
-                                    guard let tee = teeOptions.first(where: {
-                                        choice.id == "tee:\($0.teeBox.lowercased())"
-                                    }) else { return }
-                                    selectedTee = tee.teeBox
-                                }
+                    if isLoadingTees {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("正在获取真实发球台")
+                        }
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else if teeChoices.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(.orange)
+                            Text("暂无可用发球台")
+                        }
+                        .font(.system(size: 10, weight: .semibold))
+                        .padding(7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.orange.opacity(0.10))
+                        )
+                    } else {
+                        ForEach(teeChoices) { choice in
+                            teeChoiceRow(choice) {
+                                guard let tee = teeOptions.first(where: {
+                                    choice.id == "tee:\($0.teeBox.lowercased())"
+                                }) else { return }
+                                selectedTee = tee.teeBox
                             }
                         }
                     }
@@ -130,10 +197,6 @@ public struct WatchRoundSetupView: View {
                 .padding(.horizontal, 6)
                 .padding(.bottom, 4)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .task(id: front.globalId) {
-            await loadTeesIfNeeded()
-        }
     }
 
     private var startAction: some View {
@@ -165,25 +228,6 @@ public struct WatchRoundSetupView: View {
         .opacity(isPreparing || isLoadingTees || teeChoices.isEmpty ? 0.52 : 1)
     }
 
-    private var setupHeader: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(front.displayName)
-                .font(.system(size: 14, weight: .bold))
-                .lineLimit(2)
-                .minimumScaleFactor(0.78)
-            Text(selectionSummary)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 7)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-        )
-    }
-
     private var availabilityRow: some View {
         HStack(spacing: 6) {
             Circle()
@@ -207,52 +251,53 @@ public struct WatchRoundSetupView: View {
         )
     }
 
-    private func setupSection<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 2)
-            content()
-        }
-    }
-
-    @ViewBuilder
-    private func choiceRow(
+    private func teeChoiceRow(
         _ choice: WatchRoundSetupChoicePresentation,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: choice.isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(choice.isSelected ? AICaddieDesignTokens.par : .secondary)
+                Circle()
+                    .fill(teeColor(choice.id))
+                    .frame(width: 12, height: 12)
                 Text(choice.title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
                 Spacer(minLength: 0)
                 Text(choice.detail)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .monospacedDigit()
+                if choice.isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(AICaddieDesignTokens.par)
+                }
             }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 9)
+            .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        choice.isSelected
-                            ? Color(red: 0.08, green: 0.28, blue: 0.15)
-                            : Color.white.opacity(0.06)
-                    )
+                    .fill(Color.white.opacity(choice.isSelected ? 0.10 : 0.06))
             )
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(choice.title) \(choice.detail)")
         .accessibilityValue(choice.isSelected ? "已选择" : "未选择")
+    }
+
+    private func teeColor(_ id: String) -> Color {
+        let key = id.replacingOccurrences(of: "tee:", with: "").lowercased()
+        switch key {
+        case "blue": return .blue
+        case "white": return .white
+        case "red": return .red
+        case "gold", "yellow": return .yellow
+        case "black", "championship", "tips": return Color(white: 0.32)
+        case "green": return .green
+        case "silver": return Color(white: 0.72)
+        default: return .gray
+        }
     }
 
     var loopChoices: [WatchRoundSetupChoicePresentation] {
@@ -323,6 +368,24 @@ public struct WatchRoundSetupView: View {
                     && venueName($0) == venueName(front)
             }
             .sorted { loopName($0).localizedStandardCompare(loopName($1)) == .orderedAscending }
+    }
+
+    private static func hasCompatibleBackLoop(
+        front: WatchCourseOption,
+        courses: [WatchCourseOption]
+    ) -> Bool {
+        guard front.playableHoleCount == 9 else { return false }
+        let venue = front.venueName
+            ?? front.name.components(separatedBy: " ~ ").first
+            ?? front.name
+        return courses.contains {
+            let candidateVenue = $0.venueName
+                ?? $0.name.components(separatedBy: " ~ ").first
+                ?? $0.name
+            return $0.globalId != front.globalId
+                && $0.playableHoleCount == 9
+                && candidateVenue == venue
+        }
     }
 
     private var teeOptions: [WatchCourseTee] {

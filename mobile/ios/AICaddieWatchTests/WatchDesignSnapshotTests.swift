@@ -508,6 +508,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(view.loopChoices.map(\.title), ["只打 A", "A + B", "A + C"])
         XCTAssertEqual(view.loopChoices.map(\.detail), ["9 洞", "18 洞", "18 洞"])
         XCTAssertEqual(view.loopChoices.map(\.isSelected), [true, false, false])
+        XCTAssertEqual(view.initialStage, .holes)
     }
 
     @MainActor
@@ -524,6 +525,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
         let view = WatchRoundSetupView(front: front, courses: [front])
 
+        XCTAssertEqual(view.initialStage, .tees)
         XCTAssertEqual(view.teeChoices.map(\.title), ["蓝 T", "白 T"])
         XCTAssertEqual(view.teeChoices.map(\.detail), ["码数未知", "码数未知"])
         XCTAssertEqual(view.teeChoices.map(\.isSelected), [true, false])

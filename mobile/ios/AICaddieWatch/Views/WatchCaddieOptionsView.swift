@@ -19,7 +19,7 @@ public struct WatchCaddieOptionsView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 5) {
                 if let onBack {
                     Button(action: onBack) {
@@ -30,7 +30,7 @@ public struct WatchCaddieOptionsView: View {
                     .accessibilityLabel("返回球洞")
                 }
                 Text("球童打法")
-                    .font(.headline)
+                    .font(.system(size: 15, weight: .bold))
             }
             if options.isEmpty {
                 Text("暂无方案")
@@ -48,33 +48,41 @@ public struct WatchCaddieOptionsView: View {
         let key = strategyKey(option.optionId)
         let isRecommended = option.optionId == (recommendedId ?? "stock")
         let plan = option.plan ?? []
-        return VStack(alignment: .leading, spacing: 2) {
-            HStack {
+        let chain = plan.map(\.clubName).joined(separator: " → ")
+        let carries = plan.compactMap(\.carryM).map { "\(Self.yards($0))" }
+        return VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 5) {
                 Text(option.label)
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(AICaddieDesignTokens.strategyColor(key))
-                Spacer()
-                if plan.isEmpty, let club = option.clubName {
+                    .fixedSize()
+                Spacer(minLength: 2)
+                if !chain.isEmpty {
+                    Text(chain)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.62)
+                } else if let club = option.clubName {
                     Text(club)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
                 }
             }
-            if !plan.isEmpty {
-                Text(plan.map(\.clubName).joined(separator: " → "))
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .lineLimit(2)
-                let carries = plan.compactMap(\.carryM).map { "\(Self.yards($0))" }
-                if !carries.isEmpty {
-                    Text(carries.joined(separator: " · ") + " 码")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
+            if !carries.isEmpty {
+                Text(carries.joined(separator: " · ") + " 码")
+                    .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
             } else if let carry = option.carryM {
                 Text("\(Self.yards(carry)) 码")
-                    .font(.caption2.monospacedDigit())
+                    .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding(6)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .frame(minHeight: 43)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 8)
