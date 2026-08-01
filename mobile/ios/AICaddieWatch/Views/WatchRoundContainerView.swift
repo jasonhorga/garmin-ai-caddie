@@ -54,7 +54,8 @@ public struct WatchRoundContainerView: View {
     private let holeGeometry: WatchHoleMapGeometry?
     /// watch P1f (spec D1 大字模式): tap the hole view to blow the center distance up for arm's-length /
     /// bright-sun reading. Toggled on the .holeMap screen; the map + the no-geometry hero both honor it.
-    @State private var holeMapBigText = false
+    @AppStorage("watch.bigTextMode") private var holeMapBigText = false
+    @AppStorage("watch.gpsPreheatEnabled") private var gpsPreheatEnabled = true
     /// Map Detail owns the Crown. The resting position keeps the facts column and score ring; turning it
     /// enters the existing full-map presentation and continuously changes the real image transform.
     @State private var holeMapCrownScale: Double
@@ -156,6 +157,7 @@ public struct WatchRoundContainerView: View {
                 onCurrentHoleShots: { model.openCurrentHoleShots() },
                 onHoleSelect: { model.openHoleSelect() },
                 onClubStats: { model.openClubStats() },
+                onSettings: { model.openSettings() },
                 onFinish: { model.requestFinish() },
                 onClose: { model.backToHome() }
             )
@@ -217,6 +219,12 @@ public struct WatchRoundContainerView: View {
         case .clubStats:
             WatchClubStatsView(
                 clubs: model.allHoleStates.flatMap(\.availableClubs),
+                onBack: { model.backToMenu() }
+            )
+        case .settings:
+            WatchSettingsView(
+                gpsPreheatEnabled: $gpsPreheatEnabled,
+                bigTextMode: $holeMapBigText,
                 onBack: { model.backToMenu() }
             )
         case .scorecard:
@@ -361,8 +369,7 @@ public struct WatchRoundContainerView: View {
             geometry: geometry,
             measuredPxOverride: measuredPxOverride,
             pinDragOverride: pinDragOverride,
-            onOpenCaddie: { model.openCaddie() },
-            onToggleBigText: { holeMapBigText = true }
+            onOpenCaddie: { model.openCaddie() }
         )
         .focusable(true)
         .digitalCrownRotation(
@@ -451,7 +458,6 @@ public struct WatchRoundContainerView: View {
             .onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }
             .accessibilityAction(named: Text("球局工具")) { model.openMenu() }
             .onChange(of: model.activeHole) { _ in
-                holeMapBigText = false
                 holeMapCrownScale = WatchHoleMapView.restingCrownScale
             }
     }

@@ -595,6 +595,17 @@ final class WatchDesignSnapshotTests: XCTestCase {
         ])
     }
 
+    @MainActor
+    func testSettingsUsesTheSystemWristFact() {
+        let view = WatchSettingsView(
+            gpsPreheatEnabled: .constant(true),
+            bigTextMode: .constant(false),
+            wristLabel: "左手"
+        )
+
+        XCTAssertEqual(view.wristLabel, "左手")
+    }
+
     // WatchStartView keeps real NavigationStack/search behavior. The workflow therefore captures its
     // compact course rows from the running simulator rather than treating ImageRenderer as final proof.
 

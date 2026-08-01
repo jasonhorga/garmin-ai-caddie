@@ -75,7 +75,7 @@ public struct WatchUITestRoot: View {
         case "interaction-club-seed", "interaction-club-restore",
              "interaction-score-seed", "interaction-score-restore",
              "interaction-current-hole-shots", "interaction-gps-acquiring",
-             "interaction-club-stats":
+             "interaction-club-stats", "interaction-settings":
             interactionRound
         case "home":
             WatchRoundHomeView(
@@ -955,6 +955,9 @@ public struct WatchUITestRoot: View {
                 model.backToHome()
             case "interaction-club-stats":
                 seedInteractionClubStats()
+            case "interaction-settings":
+                model.applyRoundSeed(Self.interactionGPSAcquiringSeed)
+                model.openSettings()
             default:
                 break
             }

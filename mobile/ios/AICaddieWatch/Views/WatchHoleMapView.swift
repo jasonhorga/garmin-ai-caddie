@@ -195,8 +195,7 @@ public struct WatchHoleMapView: View {
         geometry: WatchHoleMapGeometry = WatchHoleMapSample.geometry,
         measuredPxOverride: CGPoint? = nil,
         pinDragOverride: CGSize? = nil,
-        onOpenCaddie: @escaping () -> Void = {},
-        onToggleBigText: @escaping () -> Void = {}
+        onOpenCaddie: @escaping () -> Void = {}
     ) {
         self.holeNumber = holeNumber
         self.par = par
@@ -219,11 +218,9 @@ public struct WatchHoleMapView: View {
         self.measuredPxOverride = measuredPxOverride
         self.pinDragOverride = pinDragOverride
         self.onOpenCaddie = onOpenCaddie
-        self.onToggleBigText = onToggleBigText
     }
 
     private let onOpenCaddie: () -> Void
-    private let onToggleBigText: () -> Void
 
     /// Yards per image-pixel, derived from the known you→green pixel span vs the 中 green yardage — so
     /// tap-to-measure needs no extra payload. nil if degenerate (no center distance / you==pin).
@@ -305,10 +302,11 @@ public struct WatchHoleMapView: View {
                 }
             }
             .contentShape(Rectangle())
-            // 拖旗: drag the flag; 选点测距: tap to measure; 大字: long-press. (Touch verified on device.)
+            // 拖旗: drag the flag; 选点测距: tap to measure. The container exclusively owns
+            // long-press so this map cannot race the round-menu gesture. 大字模式 is entered
+            // from the distance presentation or the persisted round setting.
             .gesture(pinDragGesture(geo.size))
             .simultaneousGesture(SpatialTapGesture().onEnded { handleTap($0.location, size: geo.size) })
-            .onLongPressGesture(minimumDuration: 0.45) { onToggleBigText() }
         }
         .background(Color.black)
         .persistentSystemOverlays(.hidden)

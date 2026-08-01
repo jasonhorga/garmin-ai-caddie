@@ -19,6 +19,7 @@ public struct WatchMenuView: View {
     public let onCurrentHoleShots: () -> Void
     public let onHoleSelect: () -> Void
     public let onClubStats: () -> Void
+    public let onSettings: () -> Void
     public let onFinish: () -> Void
     public let onClose: () -> Void
 
@@ -39,6 +40,7 @@ public struct WatchMenuView: View {
         onCurrentHoleShots: @escaping () -> Void = {},
         onHoleSelect: @escaping () -> Void = {},
         onClubStats: @escaping () -> Void = {},
+        onSettings: @escaping () -> Void = {},
         onFinish: @escaping () -> Void = {},
         onClose: @escaping () -> Void = {}
     ) {
@@ -58,6 +60,7 @@ public struct WatchMenuView: View {
         self.onCurrentHoleShots = onCurrentHoleShots
         self.onHoleSelect = onHoleSelect
         self.onClubStats = onClubStats
+        self.onSettings = onSettings
         self.onFinish = onFinish
         self.onClose = onClose
     }
@@ -85,6 +88,7 @@ public struct WatchMenuView: View {
                 if hasCaddie { menuRow("球童建议", action: onCaddie) }
                 if hasHazards { menuRow("障碍", action: onHazards) }
                 if hasClubStats { menuRow("球杆数据", action: onClubStats) }
+                menuRow("设置", action: onSettings)
                 menuRow(
                     "AutoShot Beta · \(autoShotEnabled ? autoShotStatus : (autoShotSupported ? "关闭" : "本机不支持"))",
                     action: onToggleAutoShot

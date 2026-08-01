@@ -9,6 +9,7 @@ public struct AICaddieWatchApp: App {
     // watch P3: the watch's own GPS — recomputes you/green distances from the wrist (less phone-dependence).
     @StateObject private var watchLocation = WatchLocationProvider()
     @StateObject private var autoShotProvider = WatchAutoShotProvider()
+    @AppStorage("watch.gpsPreheatEnabled") private var gpsPreheatEnabled = true
 
     public init() {}
 
@@ -34,6 +35,10 @@ public struct AICaddieWatchApp: App {
                 }
                 .onChange(of: roundModel.round?.roundId, initial: true) { _, _ in
                     reconcileAutoShot()
+                    reconcileLocationServices()
+                }
+                .onChange(of: gpsPreheatEnabled, initial: true) { _, _ in
+                    reconcileLocationServices()
                 }
                 .onChange(of: autoShotProvider.latestSignal) { _, signal in
                     guard signal != nil, let fix = watchLocation.latestFix else { return }
@@ -47,10 +52,7 @@ public struct AICaddieWatchApp: App {
                     }
                 }
                 .onAppear {
-                    if WatchLocationLaunchPolicy.shouldStartLocationServices() {
-                        watchLocation.requestAuthorization()
-                        watchLocation.startUpdatingLocation()
-                    }
+                    reconcileLocationServices()
                 }
         }
     }
@@ -158,6 +160,20 @@ public struct AICaddieWatchApp: App {
         }
     }
 
+    /// `GPS 预热` keeps a fix warm while choosing a course. Once a round begins, location is always
+    /// on because the rangefinder and shot positions must not be silently disabled by a setup preference.
+    private func reconcileLocationServices() {
+        if WatchLocationLaunchPolicy.shouldStartLocationServices(
+            hasActiveRound: roundModel.round != nil,
+            gpsPreheatEnabled: gpsPreheatEnabled
+        ) {
+            watchLocation.requestAuthorization()
+            watchLocation.startUpdatingLocation()
+        } else {
+            watchLocation.stopUpdatingLocation()
+        }
+    }
+
     /// watch P1b: the active hole's render geometry — the phone-pushed overlay anchors (`holeMap`) + the
     /// cached /topo.png. nil until both arrive, so the map entry stays hidden and we fall back to the hub.
     private var activeHoleGeometry: WatchHoleMapGeometry? {
@@ -203,15 +219,17 @@ public struct AICaddieWatchApp: App {
 
 public enum WatchLocationLaunchPolicy {
     public static func shouldStartLocationServices(
+        hasActiveRound: Bool = true,
+        gpsPreheatEnabled: Bool = true,
         arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> Bool {
 #if DEBUG
         guard let index = arguments.firstIndex(of: "-uitest-screen"), index + 1 < arguments.count else {
-            return true
+            return hasActiveRound || gpsPreheatEnabled
         }
         return false
 #else
-        return true
+        return hasActiveRound || gpsPreheatEnabled
 #endif
     }
 }

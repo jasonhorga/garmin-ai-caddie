@@ -23,6 +23,7 @@ public enum WatchRoundScreen: Equatable {
     case caddie      // S70 式浅层仪表面: 当前洞球童详情
     case hazards     // S70 式浅层仪表面: 当前洞障碍距离
     case clubStats   // 下载球包内的真实球杆 median 距离
+    case settings    // 腕上真实设置与系统状态
 }
 
 public enum WatchScoreFlowStep: String, Codable, Equatable {
@@ -418,6 +419,7 @@ public final class WatchRoundModel: ObservableObject {
     public func openCurrentHoleShots() { screen = .currentHoleShots }
     public func openHoleSelect() { screen = .holeSelect }
     public func openMenu() { screen = .menu }
+    public func openSettings() { screen = .settings }
     public func openClubStats() {
         guard clubStatsAvailable else { return }
         screen = .clubStats
