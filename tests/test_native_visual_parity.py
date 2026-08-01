@@ -25,12 +25,12 @@ class NativeVisualParityTests(unittest.TestCase):
             source,
         )
 
-    def test_watch_round_tools_button_has_visible_boundary(self) -> None:
+    def test_watch_round_tools_use_the_approved_shallow_long_press_entry(self) -> None:
         source = (WATCH_VIEWS / "WatchRoundContainerView.swift").read_text(encoding="utf-8")
-        button = source.split("private var roundToolsButton", 1)[1]
 
-        self.assertIn("Circle().fill(Color.white.opacity", button)
-        self.assertIn("Circle().stroke(Color.white.opacity", button)
+        self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }", source)
+        self.assertIn('accessibilityAction(named: Text("球局工具"))', source)
+        self.assertNotIn("private var roundToolsButton", source)
 
     def test_live_hole_more_adjust_label_matches_compact_approved_card(self) -> None:
         source = (IOS_VIEWS / "CurrentHoleView.swift").read_text(encoding="utf-8")
