@@ -61,6 +61,20 @@ final class RealFlowUITests: XCTestCase {
             if enteredRoundReview {
                 // Match the approved edit render's first-hole state. The latest real Cypress round
                 // has enough non-putt positions on hole 1 for all reorder handles; hole 4 does not.
+                let reviewTitle = app.staticTexts["单场复盘"]
+                XCTAssertTrue(reviewTitle.waitForExistence(timeout: 5))
+                XCTAssertGreaterThan(
+                    reviewTitle.frame.height,
+                    30,
+                    "the approved review uses a large navigation title, not a centred inline title"
+                )
+                let historyBackButton = app.buttons["历史复盘"]
+                XCTAssertTrue(historyBackButton.waitForExistence(timeout: 5))
+                XCTAssertGreaterThan(
+                    historyBackButton.frame.width,
+                    60,
+                    "the approved review keeps the visible 历史复盘 return label beside its chevron"
+                )
                 let holeRow = app.buttons["round-review-hole-1"]
                 let loadedRound = holeRow.waitForExistence(timeout: 60)
                 XCTAssertTrue(loadedRound, "the real round must load its first hole")
@@ -246,17 +260,22 @@ final class RealFlowUITests: XCTestCase {
             liveWindowFrame.width * 0.10,
             "the approved hole heading is left-aligned, not indented by an inline circular back button"
         )
-        let livePlayPanel = app.descendants(matching: .any)["live-play-panel"].firstMatch
+        let livePlayPanel = app.descendants(matching: .any)["live-play-panel-anchor"].firstMatch
         XCTAssertTrue(livePlayPanel.waitForExistence(timeout: 5))
         XCTAssertGreaterThanOrEqual(
             livePlayPanel.frame.minY,
-            liveWindowFrame.height * 0.37,
-            "the approved map keeps roughly two-fifths of the first screen before the data panel begins"
+            liveWindowFrame.height * 0.50,
+            "the approved map keeps the upper half of the first screen before the data panel begins"
         )
-        XCTAssertLessThan(
-            visibleStatusChromePixelFraction(in: XCUIScreen.main.screenshot()),
-            0.005,
-            "the live-play NavigationStack must not render the black-on-black system time, Wi-Fi, or battery chrome"
+        XCTAssertLessThanOrEqual(
+            livePlayPanel.frame.minY,
+            liveWindowFrame.height * 0.55,
+            "the data panel must still begin in the approved lower-map band, not drift below the first glance"
+        )
+        XCTAssertGreaterThan(
+            visibleStatusChromeBrightPixelFraction(in: XCUIScreen.main.screenshot()),
+            0.01,
+            "the approved live screen retains the system time, Wi-Fi, and battery status region"
         )
         XCTAssertFalse(
             app.buttons["晚上好"].exists || app.buttons["早上好"].exists
@@ -602,26 +621,26 @@ final class RealFlowUITests: XCTestCase {
     }
 
     /// `app.statusBars` is empty on the iPhone 16 simulator even while SpringBoard visibly draws the
-    /// black time / Wi-Fi / battery glyphs over this app's near-black top inset. Inspect the two status
-    /// chrome lanes in the actual screen pixels instead. Mirrored bottom lanes make this independent
-    /// of CGImage's row orientation; those corner lanes contain no pure-black app content.
-    private func visibleStatusChromePixelFraction(in screenshot: XCUIScreenshot) -> Double {
+    /// white time / Wi-Fi / battery glyphs over this app's near-black top inset. Inspect the two status
+    /// lanes in the actual screen pixels instead. Mirrored bottom lanes make this independent of
+    /// CGImage's row orientation; the app itself has no bright content in those four corner lanes.
+    private func visibleStatusChromeBrightPixelFraction(in screenshot: XCUIScreenshot) -> Double {
         let lanes = [
             CGRect(x: 0.08, y: 0.015, width: 0.19, height: 0.06),
             CGRect(x: 0.68, y: 0.015, width: 0.26, height: 0.06),
             CGRect(x: 0.08, y: 0.925, width: 0.19, height: 0.06),
             CGRect(x: 0.68, y: 0.925, width: 0.26, height: 0.06),
         ]
-        return lanes.map { nearBlackPixelFraction(in: screenshot, normalizedRect: $0) }.max() ?? 1
+        return lanes.map { brightPixelFraction(in: screenshot, normalizedRect: $0) }.max() ?? 0
     }
 
-    private func nearBlackPixelFraction(
+    private func brightPixelFraction(
         in screenshot: XCUIScreenshot,
         normalizedRect: CGRect
     ) -> Double {
         guard let image = screenshot.image.cgImage else {
             XCTFail("screen capture must expose CGImage pixels")
-            return 1
+            return 0
         }
         let cropRect = CGRect(
             x: normalizedRect.minX * CGFloat(image.width),
@@ -631,7 +650,7 @@ final class RealFlowUITests: XCTestCase {
         ).integral
         guard let crop = image.cropping(to: cropRect) else {
             XCTFail("status-chrome pixel crop must be valid")
-            return 1
+            return 0
         }
 
         let bytesPerPixel = 4
@@ -652,16 +671,16 @@ final class RealFlowUITests: XCTestCase {
         }
         guard rendered else {
             XCTFail("status-chrome pixel crop must render")
-            return 1
+            return 0
         }
 
-        var nearBlack = 0
+        var bright = 0
         for offset in stride(from: 0, to: pixels.count, by: bytesPerPixel) {
-            if pixels[offset] <= 1, pixels[offset + 1] <= 1, pixels[offset + 2] <= 1 {
-                nearBlack += 1
+            if pixels[offset] >= 180, pixels[offset + 1] >= 180, pixels[offset + 2] >= 180 {
+                bright += 1
             }
         }
-        return Double(nearBlack) / Double(crop.width * crop.height)
+        return Double(bright) / Double(crop.width * crop.height)
     }
 
     private func waitUntilGone(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

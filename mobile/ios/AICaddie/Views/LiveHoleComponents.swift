@@ -861,7 +861,12 @@ struct LivePlayPanel<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Capsule().fill(Color.white.opacity(0.22)).frame(width: 36, height: 5)
+            Capsule()
+                .fill(Color.white.opacity(0.22))
+                .frame(width: 36, height: 5)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("实战面板起点")
+                .accessibilityIdentifier("live-play-panel-anchor")
             content
         }
         .padding(.horizontal, 18)
@@ -870,7 +875,6 @@ struct LivePlayPanel<Content: View>: View {
         .frame(maxWidth: .infinity)
         .background(LivePlayStyle.panelFill.opacity(0.94), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 28).stroke(LivePlayStyle.stroke10))
-        .accessibilityIdentifier("live-play-panel")
     }
 }
 

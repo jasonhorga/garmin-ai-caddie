@@ -174,7 +174,7 @@ public struct CurrentHoleView: View {
                         LiveScorecardButton(onTap: { showScorecard = true })
                     }
                     .padding(.horizontal, 10)
-                    .padding(.top, -22)
+                    .padding(.top, 16)
 
                     // Secondary controls remain part of the same dark playing instrument: the full
                     // caddie plan (球童完整方案), 更多调整, 拍照取证, and 球局调整 — all behaviour intact.
