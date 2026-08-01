@@ -20,18 +20,8 @@ public struct WatchCaddieOptionsView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 5) {
-                if let onBack {
-                    Button(action: onBack) {
-                        Image(systemName: "chevron.backward")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("返回球洞")
-                }
-                Text("球童打法")
-                    .font(.system(size: 15, weight: .bold))
-            }
+            Text("球童打法")
+                .font(.system(size: 15, weight: .bold))
             if options.isEmpty {
                 Text("暂无方案")
                     .font(.caption)
@@ -42,6 +32,18 @@ public struct WatchCaddieOptionsView: View {
                 }
             }
         }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard let onBack,
+                          WatchEdgeBackGesture.shouldTrigger(
+                            startX: value.startLocation.x,
+                            translation: value.translation
+                          ) else { return }
+                    onBack()
+                }
+        )
+        .accessibilityAction(named: Text("返回球洞")) { onBack?() }
     }
 
     private func optionRow(_ option: WatchCaddieOption) -> some View {

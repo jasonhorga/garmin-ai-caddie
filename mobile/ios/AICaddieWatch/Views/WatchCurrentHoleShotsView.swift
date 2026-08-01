@@ -10,6 +10,7 @@ public struct WatchCurrentHoleShotsView: View {
     public let latestShotDistanceM: Double?
     public let canAddShot: Bool
     public let onAddShot: () -> Void
+    public let onBack: () -> Void
 
     public init(
         hole: Int,
@@ -17,7 +18,8 @@ public struct WatchCurrentHoleShotsView: View {
         shots: [WatchRecordedShot],
         latestShotDistanceM: Double? = nil,
         canAddShot: Bool,
-        onAddShot: @escaping () -> Void = {}
+        onAddShot: @escaping () -> Void = {},
+        onBack: @escaping () -> Void = {}
     ) {
         self.hole = hole
         self.par = par
@@ -25,6 +27,7 @@ public struct WatchCurrentHoleShotsView: View {
         self.latestShotDistanceM = latestShotDistanceM
         self.canAddShot = canAddShot
         self.onAddShot = onAddShot
+        self.onBack = onBack
     }
 
     public var body: some View {
@@ -79,6 +82,17 @@ public struct WatchCurrentHoleShotsView: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(8)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard WatchEdgeBackGesture.shouldTrigger(
+                        startX: value.startLocation.x,
+                        translation: value.translation
+                    ) else { return }
+                    onBack()
+                }
+        )
+        .accessibilityAction(named: Text("返回菜单"), onBack)
     }
 
     private func shotLabel(_ shot: WatchRecordedShot) -> String {

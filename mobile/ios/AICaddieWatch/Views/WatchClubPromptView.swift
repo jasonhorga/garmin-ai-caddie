@@ -6,7 +6,7 @@ enum WatchClubPromptLayout {
     // 45mm viewport left below watchOS's clock lane without shrinking the club names.
     static let verticalPadding: CGFloat = 2
     static let stackSpacing: CGFloat = 3
-    static let headerHeight: CGFloat = 30
+    static let headerHeight: CGFloat = 32
     static let clubRowHeight: CGFloat = 28
     static let clubRowSpacing: CGFloat = 3
 
@@ -99,8 +99,10 @@ public struct WatchClubPromptView: View {
                         Text("跳过球杆")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.72))
+                            .frame(minWidth: 60, minHeight: 28)
                             .contentShape(Rectangle())
                     }
+                    .padding(.vertical, -4)
                     .buttonStyle(.plain)
                     .accessibilityHint("当前位置已保存，不记录球杆")
                 }

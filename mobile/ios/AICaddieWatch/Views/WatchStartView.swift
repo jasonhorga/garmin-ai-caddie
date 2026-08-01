@@ -281,10 +281,11 @@ public struct WatchStartView: View {
                 onStart: onStartCourse
             )
         } label: {
-            HStack(spacing: 6) {
+            HStack(alignment: .top, spacing: 6) {
                 Circle()
                     .fill(row.isCached ? Color(red: 0.28, green: 0.86, blue: 0.46) : Color.gray)
                     .frame(width: 6, height: 6)
+                    .padding(.top, 4)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.course.displayName)
                         .font(.system(size: 13, weight: .semibold))

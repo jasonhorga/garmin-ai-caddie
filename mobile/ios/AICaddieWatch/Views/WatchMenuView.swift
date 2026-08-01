@@ -103,7 +103,7 @@ public struct WatchMenuView: View {
                 .disabled(!autoShotSupported)
             }
             .padding(.horizontal, 6)
-            .padding(.top, 18)
+            .padding(.top, 2)
             .padding(.bottom, 8)
         }
         .scrollIndicators(.hidden)

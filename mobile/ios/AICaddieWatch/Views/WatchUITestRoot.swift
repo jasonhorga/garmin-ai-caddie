@@ -193,7 +193,10 @@ public struct WatchUITestRoot: View {
                     shotLocation: standaloneLastShotFix,
                     initialHoleMapCrownScale: screen == "standalone-course-map-zoom"
                         ? WatchHoleMapView.restingCrownScale + 0.02
-                        : WatchHoleMapView.restingCrownScale
+                        : WatchHoleMapView.restingCrownScale,
+                    initialSelectedHazardID: screen == "standalone-course-hazards"
+                        ? model.activeHoleState?.hazards.first?.id
+                        : nil
                 )
             } else {
                 Text("offline course restore unavailable")
@@ -1183,56 +1186,75 @@ public struct WatchUITestRoot: View {
         option: standaloneCourseOption,
         courseName: "北京丽宫体育公园高尔夫俱乐部",
         teeBox: "Blue",
-        holeStates: [
-            WatchRoundState(
-                roundId: "download-template-only",
-                hole: 4,
-                par: 5,
-                distanceM: 518.8,
-                teeLatitude: 40.0454995,
-                teeLongitude: 116.5461531,
-                suggestedClub: "3号木",
-                selectedClub: nil,
-                availableClubs: [
-                    WatchClubOption(clubName: "3号木", medianM: 205, source: "course-prep"),
-                    WatchClubOption(clubName: "5号铁", medianM: 170, source: "course-prep"),
-                ],
-                frontGreenM: 227,
-                centerGreenM: 240,
-                backGreenM: 251,
-                globalId: 31669,
-                holeMap: WatchHoleMap(
-                    w: Int(WatchHoleMapSample.imageSize.width),
-                    h: Int(WatchHoleMapSample.imageSize.height),
-                    you: [504, 702],
-                    pin: [435, 279],
-                    layup: [506, 403],
-                    apex: [556, 562],
-                    greenCtrl: [498, 375],
-                    route: [
-                        [504, 702, 0],
-                        [506, 403, 210],
-                        [435, 279, 400],
-                    ]
-                ),
-                playsLikeDistanceM: 525.8,
-                elevationDeltaM: 7,
-                geometryCoverage: "ready",
-                caddieOptions: demoOptions,
-                hazards: [
-                    WatchHazard(
-                        kind: "bunker", label: "沙坑", startM: 170, endM: 190,
-                        frontDistanceM: 168, backDistanceM: 184
-                    ),
-                ],
-                score: 0,
-                putts: 0,
-                penaltyCount: 0,
-                caddieConfidence: "offline"
-            ),
-        ],
+        holeStates: [standaloneMappedHole] + (1...18)
+            .filter { $0 != 4 }
+            .map { standaloneRingHole($0) },
         cachedAt: "2026-07-26T00:00:00Z"
     )
+
+    private static let standaloneMappedHole = WatchRoundState(
+        roundId: "download-template-only",
+        hole: 4,
+        par: 5,
+        distanceM: 518.8,
+        teeLatitude: 40.0454995,
+        teeLongitude: 116.5461531,
+        suggestedClub: "3号木",
+        selectedClub: nil,
+        availableClubs: [
+            WatchClubOption(clubName: "3号木", medianM: 205, source: "course-prep"),
+            WatchClubOption(clubName: "5号铁", medianM: 170, source: "course-prep"),
+        ],
+        frontGreenM: 227,
+        centerGreenM: 240,
+        backGreenM: 251,
+        globalId: 31669,
+        holeMap: WatchHoleMap(
+            w: Int(WatchHoleMapSample.imageSize.width),
+            h: Int(WatchHoleMapSample.imageSize.height),
+            you: [504, 702],
+            pin: [435, 279],
+            layup: [506, 403],
+            apex: [556, 562],
+            greenCtrl: [498, 375],
+            route: [
+                [504, 702, 0],
+                [506, 403, 210],
+                [435, 279, 400],
+            ]
+        ),
+        playsLikeDistanceM: 525.8,
+        elevationDeltaM: 7,
+        geometryCoverage: "ready",
+        caddieOptions: demoOptions,
+        hazards: [
+            WatchHazard(
+                kind: "bunker", label: "沙坑", startM: 170, endM: 190,
+                frontDistanceM: 168, backDistanceM: 184
+            ),
+        ],
+        score: 0,
+        putts: 0,
+        penaltyCount: 0,
+        caddieConfidence: "offline"
+    )
+
+    private static func standaloneRingHole(_ hole: Int) -> WatchRoundState {
+        let par = hole % 3 == 0 ? 3 : (hole % 3 == 1 ? 4 : 5)
+        let toPar: [Int: Int] = [1: 0, 2: 1, 3: -1]
+        let score = toPar[hole].map { par + $0 } ?? 0
+        return WatchRoundState(
+            roundId: "download-template-only",
+            hole: hole,
+            par: par,
+            distanceM: par == 3 ? 145 : (par == 4 ? 360 : 480),
+            globalId: 31669,
+            score: score,
+            putts: score > 0 ? 2 : 0,
+            penaltyCount: 0,
+            caddieConfidence: "offline"
+        )
+    }
 
     private static let interactionClubSeed = WatchRoundSeed(
         roundId: "ci-interaction-club-round",

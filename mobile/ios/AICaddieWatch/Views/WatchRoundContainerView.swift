@@ -60,7 +60,7 @@ public struct WatchRoundContainerView: View {
     /// enters the existing full-map presentation and continuously changes the real image transform.
     @State private var holeMapCrownScale: Double
     /// A hazard row opens a focused map instrument. nil keeps the first-level S70-style hazard list.
-    @State private var selectedHazardID: String? = nil
+    @State private var selectedHazardID: String?
 
     /// watch P3: F/M/B green distances (码) from the watch's OWN GPS; when present they override the
     /// phone-pushed static distances so the hole view is a live rangefinder even without the phone.
@@ -83,6 +83,7 @@ public struct WatchRoundContainerView: View {
                 autoShotSupported: Bool = false,
                 autoShotStatus: String = "本机不支持",
                 initialHoleMapCrownScale: Double = WatchHoleMapView.restingCrownScale,
+                initialSelectedHazardID: String? = nil,
                 measuredPxOverride: CGPoint? = nil,
                 pinDragOverride: CGSize? = nil) {
         self.model = model
@@ -95,6 +96,7 @@ public struct WatchRoundContainerView: View {
         self.measuredPxOverride = measuredPxOverride
         self.pinDragOverride = pinDragOverride
         self._holeMapCrownScale = State(initialValue: initialHoleMapCrownScale)
+        self._selectedHazardID = State(initialValue: initialSelectedHazardID)
     }
 
     // watch P3: effective F/M/B — the watch-GPS value when available, else the phone-pushed distance.
@@ -249,18 +251,15 @@ public struct WatchRoundContainerView: View {
         case .currentHoleShots:
             if let state = model.activeHoleState {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
-                        instrumentBackButton
-                        WatchCurrentHoleShotsView(
-                            hole: state.hole,
-                            par: state.par,
-                            shots: model.currentHoleShots,
-                            latestShotDistanceM: latestShotDistanceM(state),
-                            canAddShot: shotLocation != nil,
-                            onAddShot: { recordManualShot() }
-                        )
-                    }
-                    .padding(.horizontal, 4)
+                    WatchCurrentHoleShotsView(
+                        hole: state.hole,
+                        par: state.par,
+                        shots: model.currentHoleShots,
+                        latestShotDistanceM: latestShotDistanceM(state),
+                        canAddShot: shotLocation != nil,
+                        onAddShot: { recordManualShot() },
+                        onBack: { model.backToMenu() }
+                    )
                 }
             } else {
                 Color.black.onAppear { model.backToMenu() }

@@ -219,6 +219,17 @@ public struct WatchHazardMapView: View {
         .onChange(of: upcoming.count) { count in
             crownSelection = min(crownSelection, Double(max(count - 1, 0)))
         }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard WatchEdgeBackGesture.shouldTrigger(
+                        startX: value.startLocation.x,
+                        translation: value.translation
+                    ) else { return }
+                    onBack()
+                }
+        )
+        .accessibilityAction(named: Text("返回障碍列表"), onBack)
         .persistentSystemOverlays(.hidden)
         .ignoresSafeArea()
     }
@@ -371,22 +382,6 @@ public struct WatchHazardMapView: View {
             / CGFloat(max(upcoming.count - 1, 1))
 
         return ZStack {
-            VStack {
-                HStack {
-                    Button(action: onBack) {
-                        Image(systemName: "chevron.backward")
-                            .font(.system(size: 12, weight: .bold))
-                            .padding(6)
-                            .background(Circle().fill(.black.opacity(0.72)))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("返回障碍列表")
-                    Spacer()
-                }
-                Spacer()
-            }
-            .padding(6)
-
             VStack {
                 if centerGreenYards > 0 {
                     Text("中 \(centerGreenYards) 码 · 到果岭")
