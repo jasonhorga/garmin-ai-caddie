@@ -30,13 +30,13 @@ public struct WatchSettingsView: View {
 
                 Toggle("GPS 预热", isOn: $gpsPreheatEnabled)
                     .font(.system(size: 17, weight: .regular))
-                    .tint(AICaddieDesignTokens.par)
+                    .toggleStyle(WatchApprovedToggleStyle())
                     .padding(.vertical, 7)
                 Divider()
 
                 Toggle("大字模式", isOn: $bigTextMode)
                     .font(.system(size: 17, weight: .regular))
-                    .tint(AICaddieDesignTokens.par)
+                    .toggleStyle(WatchApprovedToggleStyle())
                     .padding(.vertical, 7)
                 Divider()
 
@@ -68,5 +68,31 @@ public struct WatchSettingsView: View {
 
     public static var currentWristLabel: String {
         WKInterfaceDevice.current().wristLocation == .right ? "右手" : "左手"
+    }
+}
+
+private struct WatchApprovedToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                configuration.label
+                Spacer(minLength: 4)
+                ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                    Capsule()
+                        .fill(configuration.isOn
+                            ? Color(red: 0.10, green: 0.50, blue: 0.29)
+                            : Color.white.opacity(0.18))
+                    Circle()
+                        .fill(.white)
+                        .padding(2)
+                }
+                .frame(width: 38, height: 22)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(configuration.isOn ? "开启" : "关闭")
     }
 }

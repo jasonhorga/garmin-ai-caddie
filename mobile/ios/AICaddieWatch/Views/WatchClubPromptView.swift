@@ -2,11 +2,13 @@ import Foundation
 import SwiftUI
 
 enum WatchClubPromptLayout {
-    static let verticalPadding: CGFloat = 6
-    static let stackSpacing: CGFloat = 5
-    static let headerHeight: CGFloat = 36
-    static let clubRowHeight: CGFloat = 32
-    static let clubRowSpacing: CGFloat = 4
+    // The approved prompt shows four clubs at a glance. These values fit that density inside the
+    // 45mm viewport left below watchOS's clock lane without shrinking the club names.
+    static let verticalPadding: CGFloat = 2
+    static let stackSpacing: CGFloat = 3
+    static let headerHeight: CGFloat = 30
+    static let clubRowHeight: CGFloat = 28
+    static let clubRowSpacing: CGFloat = 3
 
     static func firstScreenClubRows(viewportHeight: CGFloat) -> Int {
         let fixedHeight = (verticalPadding * 2) + headerHeight + stackSpacing
@@ -78,19 +80,25 @@ public struct WatchClubPromptView: View {
 
     public var body: some View {
         VStack(spacing: WatchClubPromptLayout.stackSpacing) {
-            VStack(spacing: 1) {
-                Text(locationTitle)
-                    .font(.system(size: 15, weight: .bold))
+            VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
-                    Text("选择实际球杆")
-                        .font(.system(size: 11))
+                    Text(hole.map { "记进第\($0)洞" } ?? "记录第\(shotNumber)杆")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(recommendedGreen)
+                    Spacer(minLength: 2)
+                    Text("第\(shotNumber)杆 · 位置已存")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 4) {
+                    Text("刚才这杆用的？")
+                        .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 2)
                     Button(action: onSkipClub) {
-                        Text("跳过球杆 · 位置已存")
+                        Text("跳过球杆")
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.72))
-                            .frame(minHeight: 20)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -137,7 +145,7 @@ public struct WatchClubPromptView: View {
                                 .frame(height: WatchClubPromptLayout.clubRowHeight)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(isRecommended ? AICaddieDesignTokens.par : Color.white.opacity(0.09))
+                                        .fill(isRecommended ? recommendedGreen : Color.white.opacity(0.09))
                                 )
                             }
                             .buttonStyle(.plain)
@@ -152,15 +160,14 @@ public struct WatchClubPromptView: View {
         .padding(.vertical, WatchClubPromptLayout.verticalPadding)
     }
 
+    private var recommendedGreen: Color {
+        Color(red: 0.26, green: 0.83, blue: 0.45)
+    }
+
     private var normalizedRecommendedClub: String? {
         guard let value = recommendedClub?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else { return nil }
         return value
-    }
-
-    private var locationTitle: String {
-        guard let hole else { return "第 \(shotNumber) 杆已定位" }
-        return "第 \(hole) 洞 · 第 \(shotNumber) 杆已定位"
     }
 
     private var clubChoices: [WatchClubOption] {

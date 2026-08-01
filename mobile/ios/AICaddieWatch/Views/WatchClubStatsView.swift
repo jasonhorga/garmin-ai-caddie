@@ -26,7 +26,7 @@ public struct WatchClubStatsView: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text("球杆数据 · 典型")
                     .font(.system(size: 15, weight: .bold))
-                    .padding(.bottom, 5)
+                    .padding(.bottom, 3)
 
                 if rows.isEmpty {
                     Text("暂无真实球杆距离")
@@ -47,13 +47,13 @@ public struct WatchClubStatsView: View {
                                 .font(.system(size: 9, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
-                        .padding(.vertical, 7)
+                        .padding(.vertical, 4)
                         .overlay(alignment: .bottom) { Divider() }
                     }
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.top, 4)
+            .padding(.top, 2)
         }
         .scrollIndicators(.hidden)
         .simultaneousGesture(

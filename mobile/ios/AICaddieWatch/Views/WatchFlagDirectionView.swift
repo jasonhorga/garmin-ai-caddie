@@ -112,21 +112,23 @@ public struct WatchFlagDirectionView: View {
         Group {
             switch state {
             case let .ready(relativeDegrees, distanceYards):
-                VStack(spacing: 9) {
+                VStack(spacing: 6) {
                     Text("旗向指引")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.secondary)
                     WatchFlagCompassDial(relativeDegrees: relativeDegrees)
-                        .frame(width: 110, height: 110)
+                        .frame(width: 104, height: 104)
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text("\(distanceYards)")
-                            .font(.system(size: 40, weight: .bold, design: .rounded))
+                            .font(.system(size: 38, weight: .bold, design: .rounded))
                             .monospacedDigit()
                         Text("码 · 到旗杆")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
                 }
+                .padding(.top, 4)
+                .frame(maxHeight: .infinity, alignment: .top)
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("旗向指引，\(distanceYards) 码")
             case let .blocked(reason):

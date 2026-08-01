@@ -1189,6 +1189,8 @@ public struct WatchUITestRoot: View {
                 hole: 4,
                 par: 5,
                 distanceM: 518.8,
+                teeLatitude: 40.0454995,
+                teeLongitude: 116.5461531,
                 suggestedClub: "3号木",
                 selectedClub: nil,
                 availableClubs: [
@@ -1206,11 +1208,17 @@ public struct WatchUITestRoot: View {
                     pin: [435, 279],
                     layup: [506, 403],
                     apex: [556, 562],
-                    greenCtrl: [498, 375]
+                    greenCtrl: [498, 375],
+                    route: [
+                        [504, 702, 0],
+                        [506, 403, 210],
+                        [435, 279, 400],
+                    ]
                 ),
                 playsLikeDistanceM: 525.8,
                 elevationDeltaM: 7,
                 geometryCoverage: "ready",
+                caddieOptions: demoOptions,
                 hazards: [
                     WatchHazard(
                         kind: "bunker", label: "沙坑", startM: 170, endM: 190,
