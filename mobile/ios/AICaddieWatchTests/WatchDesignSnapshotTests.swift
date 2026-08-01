@@ -720,6 +720,14 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-distance-hero-big")
     }
 
+    @MainActor
+    func testRenderWatchAlwaysOnDistance() throws {
+        let view = WatchAlwaysOnDistanceView(hole: 4, par: 5, centerYd: 262)
+            .frame(width: 198, height: 242)
+            .background(Color.black)
+        try render(view, named: "watch-always-on-distance")
+    }
+
     /// A standalone round seeded into a real (temp-dir) store, so the container snapshot exercises the
     /// full `WatchRoundModel` → view wiring rather than hand-built props.
     @MainActor
