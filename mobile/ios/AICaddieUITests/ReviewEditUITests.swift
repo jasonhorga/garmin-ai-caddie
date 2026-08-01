@@ -39,9 +39,10 @@ final class ReviewEditUITests: XCTestCase {
         guard tapContaining(["历史复盘", "逐场逐洞"]) else {
             save("nohistory"); dump("nohistory"); return
         }
-        settle(6); save("01-history-list"); dump("01-history-list")
-
-        guard tapFirstRoundRow() else { save("noround"); dump("noround"); return }
+        settle(6)
+        guard tapRoundRow(containing: "2026-06-11", beforeTap: {
+            save("01-history-list"); dump("01-history-list")
+        }) else { save("noround"); dump("noround"); return }
         let roundReview = app.navigationBars["单场复盘"]
         guard roundReview.waitForExistence(timeout: 12) else {
             XCTFail("review-edit evidence must enter 单场复盘 before capture")
@@ -50,29 +51,38 @@ final class ReviewEditUITests: XCTestCase {
         settle(2); save("02-round-review"); dump("02-round-review")
 
         // The scorecard rows are buttons ("点一洞看落点图 →"); tapping one opens the 落点图 pager sheet.
-        guard tapFirstHoleRow() else { save("nohole"); dump("nohole"); return }
+        let holeButton = app.buttons["round-review-hole-4"]
+        guard holeButton.waitForExistence(timeout: 60), bringIntoViewAndTap(holeButton, maxSwipes: 4) else {
+            save("nohole"); dump("nohole"); return
+        }
         guard app.buttons["关闭"].waitForExistence(timeout: 12) else {
             XCTFail("review-edit evidence must enter the shot-map pager before capture")
             return
         }
+        let topoReady = app.descendants(matching: .any)
+            .matching(identifier: "topo-hole-base-ready").firstMatch
+        guard topoReady.waitForExistence(timeout: 75) else {
+            XCTFail("review-edit evidence must load the real fourth-hole topo")
+            return
+        }
         settle(2); save("03-shot-map"); dump("03-shot-map")
 
-        // Some holes are "这一洞暂无落点数据" (no geometry → no 编辑 toggle). Swipe the pager to a hole
-        // that actually has a map so the edit affordances are reachable (try up to 12 holes).
-        var reachedEdit = false
-        for i in 0..<12 {
-            if app.buttons["编辑"].waitForExistence(timeout: 3) { reachedEdit = true; break }
-            app.swipeLeft(); settle(2)
-            if i == 3 || i == 7 { save("03b-hole-\(i)"); dump("03b-hole-\(i)") }
+        guard app.buttons["编辑"].waitForExistence(timeout: 12) else {
+            save("noeditbtn"); dump("noeditbtn"); return
         }
-        guard reachedEdit else { save("noeditbtn"); dump("noeditbtn"); return }
 
         // ---- Enter edit mode → drag handles appear on every landing ----
         guard tapButton("编辑") else { save("noeditbtn2"); dump("noeditbtn2"); return }
-        settle(3); save("04-edit-handles"); dump("04-edit-handles")
+        let editTopoReady = app.descendants(matching: .any)
+            .matching(identifier: "topo-hole-base-ready").firstMatch
+        guard editTopoReady.waitForExistence(timeout: 75), app.buttons["Reorder 3"].waitForExistence(timeout: 12) else {
+            XCTFail("edit evidence requires the real topo and at least three recorded shots")
+            return
+        }
+        settle(2); save("04-edit-handles"); dump("04-edit-handles")
 
         // ---- 补一杆: tap empty map → the add sheet appears; cancel (no write) ----
-        mapPoint(dx: 0.5, dy: 0.30).tap()
+        mapPoint(dx: 0.18, dy: 0.42).tap()
         settle(2); save("05-add-sheet"); dump("05-add-sheet")
         _ = tapButton("取消")
         settle(1)
@@ -139,19 +149,30 @@ final class ReviewEditUITests: XCTestCase {
     }
 
     @discardableResult
-    private func tapFirstRoundRow() -> Bool {
-        let row = app.buttons.matching(identifier: "history-round-row").firstMatch
-        if row.waitForExistence(timeout: 8), row.isHittable { row.tap(); return true }
+    private func tapRoundRow(containing text: String, beforeTap: () -> Void = {}) -> Bool {
+        let row = app.buttons.matching(identifier: "history-round-row")
+            .matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+        guard row.waitForExistence(timeout: 8) else { return false }
+        for _ in 0..<12 {
+            if row.exists, row.isHittable {
+                beforeTap()
+                row.tap()
+                return true
+            }
+            app.swipeUp()
+            settle(0.6)
+        }
         return false
     }
 
-    /// A scorecard hole row inside the round review — buttons carrying "P<par>" / a score chip. Prefer
-    /// a button whose label mentions par, else the first hittable button in the scorecard area.
     @discardableResult
-    private func tapFirstHoleRow() -> Bool {
-        let predicate = NSPredicate(format: #"identifier BEGINSWITH "round-review-hole-""#)
-        let holeButton = app.buttons.matching(predicate).firstMatch
-        if holeButton.waitForExistence(timeout: 8), holeButton.isHittable { holeButton.tap(); return true }
+    private func bringIntoViewAndTap(_ element: XCUIElement, maxSwipes: Int) -> Bool {
+        for _ in 0..<maxSwipes {
+            if element.exists, element.isHittable { element.tap(); return true }
+            app.swipeUp()
+            settle(0.6)
+        }
+        if element.exists, element.isHittable { element.tap(); return true }
         return false
     }
 

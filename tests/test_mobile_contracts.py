@@ -822,7 +822,32 @@ class MobileContractTests(unittest.TestCase):
                 "sourceRefs": ["900001"],
             },
         )
-        self.assertLessEqual(len(package["recentHistory"]["rounds"]), 5)
+        self.assertLessEqual(len(package["recentHistory"]["rounds"]), 10)
+
+    def test_live_round_package_keeps_ten_recent_rounds_reachable_from_history(self) -> None:
+        from ai_caddie.caddie.mobile_live import _recent_history
+
+        rounds = [
+            {
+                "id": f"round-{day:02d}",
+                "date": f"2026-07-{day:02d}",
+                "course": "Review Course",
+                "courseKey": "review_course",
+                "score": 80 + day,
+                "par": 72,
+                "holesCompleted": 18,
+            }
+            for day in range(1, 12)
+        ]
+        history = _recent_history(
+            HistoryData(raw_rounds=[], rounds=rounds, shots=[]),
+            {"courses": [], "holes": []},
+            {"courseKey": "review_course", "course": "Review Course", "holes": []},
+        )
+
+        self.assertEqual(len(history["rounds"]), 10)
+        self.assertEqual(history["rounds"][0]["roundId"], "round-11")
+        self.assertEqual(history["rounds"][-1]["roundId"], "round-02")
 
     def test_live_round_package_marks_recent_history_missing_without_same_course_scores(self) -> None:
         holes = [{"number": index, "par": 4} for index in range(1, 19)]
@@ -2994,9 +3019,12 @@ class MobileContractTests(unittest.TestCase):
         for ui_test in [real_flow, review_edit]:
             self.assertIn('matching(identifier: "history-round-row")', ui_test)
             self.assertIn('app.navigationBars["单场复盘"]', ui_test)
-            self.assertIn('identifier BEGINSWITH "round-review-hole-"', ui_test)
+            self.assertIn('2026-06-11', ui_test)
+            self.assertIn('app.buttons["round-review-hole-4"]', ui_test)
             self.assertIn('app.buttons["关闭"]', ui_test)
             self.assertNotIn('identifier CONTAINS "落点"', ui_test)
+            self.assertIn('matching(identifier: "topo-hole-base-ready")', ui_test)
+            self.assertIn('app.buttons["Reorder 3"]', ui_test)
         self.assertIn('matching(identifier: "home-last-round-row")', real_flow)
         # The modal pager's close action and its edit toggle must not both render as trailing
         # "完成" buttons. Close is leading and explicitly named; 编辑/完成 remains trailing.

@@ -50,49 +50,63 @@ final class RealFlowUITests: XCTestCase {
         // ---- Section 2: history list → a round review → shot-map → review-edit (merged #276) ----
         launchFresh()
         if tapContaining(["历史复盘", "逐场逐洞"]) {
-            settle(6); save("03-history-list"); dump("03-history-list")
-            let tappedRound = tapFirstRoundRow()
-            XCTAssertTrue(tappedRound, "history must expose a stable tappable round row")
+            settle(6)
+            let tappedRound = tapRoundRow(containing: "2026-06-11") {
+                save("03-history-list"); dump("03-history-list")
+            }
+            XCTAssertTrue(tappedRound, "history must expose the real 2026-06-11 round")
             let roundReview = app.navigationBars["单场复盘"]
             let enteredRoundReview = tappedRound && roundReview.waitForExistence(timeout: 12)
             XCTAssertTrue(enteredRoundReview, "round evidence must enter 单场复盘 before capture")
             if enteredRoundReview {
-                let holeRow = app.buttons.matching(
-                    NSPredicate(format: #"identifier BEGINSWITH "round-review-hole-""#)
-                ).firstMatch
+                let holeRow = app.buttons["round-review-hole-4"]
                 let loadedRound = holeRow.waitForExistence(timeout: 60)
-                XCTAssertTrue(loadedRound, "单场复盘 must finish loading and expose a stable hole row")
+                XCTAssertTrue(loadedRound, "the real round must load its fourth hole")
                 if loadedRound {
                     settle(2); save("04-round-review"); dump("04-round-review")
                 }
-                if loadedRound, holeRow.isHittable {
+                let reachableHole = loadedRound && scrollTo(holeRow, maxSwipes: 4)
+                XCTAssertTrue(reachableHole, "the fourth hole must be tappable")
+                if reachableHole {
                     holeRow.tap()
                     // The pager's navigationTitle is intentionally not visible in this sheet style.
                     // Its explicit close action is the stable, user-visible proof that presentation occurred.
                     let enteredShotMap = app.buttons["关闭"].waitForExistence(timeout: 12)
                     XCTAssertTrue(enteredShotMap, "shot-map evidence must enter the pager before capture")
+                    let topoReady = app.descendants(matching: .any)
+                        .matching(identifier: "topo-hole-base-ready").firstMatch
                     let editButton = app.buttons["编辑"]
-                    let loadedShotMap = enteredShotMap && editButton.waitForExistence(timeout: 60)
-                    XCTAssertTrue(loadedShotMap, "shot-map evidence must finish loading before capture")
+                    let loadedShotMap = enteredShotMap
+                        && editButton.waitForExistence(timeout: 60)
+                        && topoReady.waitForExistence(timeout: 75)
+                    XCTAssertTrue(loadedShotMap, "shot-map evidence must finish loading the real topo before capture")
                     if loadedShotMap {
                         settle(2); save("04b-shot-map"); dump("04b-shot-map")
                     }
                     if loadedShotMap, editButton.isHittable {
                         editButton.tap()
-                        settle(3); save("04c-edit-mode"); dump("04c-edit-mode")
-                        // Tap an empty part of the map. 04d is acceptable evidence only when this
-                        // actually opens the add-shot sheet, never when the tap missed or hit a handle.
-                        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.42)).tap()
-                        let addShotSheet = app.navigationBars["补一杆"]
-                        let openedAddShotSheet = addShotSheet.waitForExistence(timeout: 5)
-                        XCTAssertTrue(openedAddShotSheet, "04d must show the add-shot sheet titled 补一杆")
-                        let liePicker = app.staticTexts["击球时球位"]
-                        let exposedLiePicker = openedAddShotSheet && liePicker.waitForExistence(timeout: 3)
-                        XCTAssertTrue(exposedLiePicker, "04d must expose the shot-origin lie picker")
-                        if exposedLiePicker {
-                            settle(2); save("04d-edit-sheet"); dump("04d-edit-sheet")
-                        } else {
-                            save("04d-edit-sheet-missing"); dump("04d-edit-sheet-missing")
+                        let editTopoReady = app.descendants(matching: .any)
+                            .matching(identifier: "topo-hole-base-ready").firstMatch
+                        let thirdReorderHandle = app.buttons["Reorder 3"]
+                        let loadedEditMap = editTopoReady.waitForExistence(timeout: 75)
+                            && thirdReorderHandle.waitForExistence(timeout: 12)
+                        XCTAssertTrue(loadedEditMap, "edit evidence requires the real topo and at least three recorded shots")
+                        if loadedEditMap {
+                            settle(2); save("04c-edit-mode"); dump("04c-edit-mode")
+                            // Tap an empty part of the map. 04d is acceptable evidence only when this
+                            // actually opens the add-shot sheet, never when the tap missed or hit a handle.
+                            app.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.42)).tap()
+                            let addShotSheet = app.navigationBars["补一杆"]
+                            let openedAddShotSheet = addShotSheet.waitForExistence(timeout: 5)
+                            XCTAssertTrue(openedAddShotSheet, "04d must show the add-shot sheet titled 补一杆")
+                            let liePicker = app.staticTexts["击球时球位"]
+                            let exposedLiePicker = openedAddShotSheet && liePicker.waitForExistence(timeout: 3)
+                            XCTAssertTrue(exposedLiePicker, "04d must expose the shot-origin lie picker")
+                            if exposedLiePicker {
+                                settle(2); save("04d-edit-sheet"); dump("04d-edit-sheet")
+                            } else {
+                                save("04d-edit-sheet-missing"); dump("04d-edit-sheet-missing")
+                            }
                         }
                     }
                 }
@@ -778,12 +792,15 @@ final class RealFlowUITests: XCTestCase {
         return false
     }
 
-    /// First list row in a history list — try cells then buttons (SwiftUI List rows surface either way).
+    /// Select an explicit real round instead of whichever synthetic validation round happens to be newest.
     @discardableResult
-    private func tapFirstRoundRow() -> Bool {
-        let row = app.buttons.matching(identifier: "history-round-row").firstMatch
-        if row.waitForExistence(timeout: 8), row.isHittable { row.tap(); return true }
-        return false
+    private func tapRoundRow(containing text: String, beforeTap: () -> Void = {}) -> Bool {
+        let row = app.buttons.matching(identifier: "history-round-row")
+            .matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+        guard row.waitForExistence(timeout: 8), scrollTo(row, maxSwipes: 12) else { return false }
+        beforeTap()
+        row.tap()
+        return true
     }
 
     // MARK: - diagnostics

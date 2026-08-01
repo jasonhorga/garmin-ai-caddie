@@ -160,7 +160,7 @@ def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[
                 "sourceRefs": source_refs,
             }
         )
-        if len(recent_rounds) >= 5:
+        if len(recent_rounds) >= 10:
             break
     holes = []
     for hole in round_row.get("holes") or []:
