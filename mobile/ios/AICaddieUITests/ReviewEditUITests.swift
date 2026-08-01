@@ -51,8 +51,8 @@ final class ReviewEditUITests: XCTestCase {
         settle(2); save("02-round-review"); dump("02-round-review")
 
         // The scorecard rows are buttons ("点一洞看落点图 →"); tapping one opens the 落点图 pager sheet.
-        // The approved edit evidence is hole 1, and the latest real Cypress round has the three
-        // non-putt positions required to expose all reorder handles on that hole.
+        // The approved edit evidence is hole 1. The current real Cypress round returns two
+        // non-putt GPS positions there; both must remain editable before the add-shot flow counts.
         let holeButton = app.buttons["round-review-hole-1"]
         guard holeButton.waitForExistence(timeout: 60), bringIntoViewAndTap(holeButton, maxSwipes: 4) else {
             save("nohole"); dump("nohole"); return
@@ -61,6 +61,9 @@ final class ReviewEditUITests: XCTestCase {
             XCTFail("review-edit evidence must enter the shot-map pager before capture")
             return
         }
+        // As in RealFlowUITests, leave a quiet main-thread window for the real response to decode
+        // and commit before XCUITest begins repeated accessibility hierarchy snapshots.
+        settle(12)
         let topoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
         guard topoReady.waitForExistence(timeout: 75) else {
@@ -77,8 +80,8 @@ final class ReviewEditUITests: XCTestCase {
         guard tapButton("编辑") else { save("noeditbtn2"); dump("noeditbtn2"); return }
         let editTopoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
-        guard editTopoReady.waitForExistence(timeout: 75), app.buttons["Reorder 3"].waitForExistence(timeout: 12) else {
-            XCTFail("edit evidence requires the real topo and at least three recorded shots")
+        guard editTopoReady.waitForExistence(timeout: 75), app.buttons["Reorder 2"].waitForExistence(timeout: 12) else {
+            XCTFail("edit evidence requires the real topo and the two real recorded shots returned for this hole")
             return
         }
         settle(2); save("04-edit-handles"); dump("04-edit-handles")

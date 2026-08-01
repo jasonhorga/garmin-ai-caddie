@@ -76,15 +76,11 @@ final class RealFlowUITests: XCTestCase {
                     let enteredShotMap = app.buttons["关闭"].waitForExistence(timeout: 12)
                     XCTAssertTrue(enteredShotMap, "shot-map evidence must enter the pager before capture")
                     if enteredShotMap {
-                        // Preserve the real screen before any accessibility query can time out. Three
-                        // timestamps distinguish a slow request from "loaded briefly, then recreated"
-                        // without weakening the production-ready gate below.
-                        save("04a-shot-map-entered")
-                        dump("04a-shot-map-entered")
-                        settle(5)
-                        save("04a-shot-map-after-5s")
-                        settle(10)
-                        save("04a-shot-map-after-15s")
+                        // Give the real network/decode/render task one quiet window before asking
+                        // XCUITest for another accessibility snapshot. Repeated `waitForExistence`
+                        // snapshots can monopolize the main thread and prevent SwiftUI from
+                        // committing the already-decoded map state on the simulator.
+                        settle(12)
                     }
                     let topoReady = app.descendants(matching: .any)
                         .matching(identifier: "topo-hole-base-ready").firstMatch
@@ -103,10 +99,10 @@ final class RealFlowUITests: XCTestCase {
                         editButton.tap()
                         let editTopoReady = app.descendants(matching: .any)
                             .matching(identifier: "topo-hole-base-ready").firstMatch
-                        let thirdReorderHandle = app.buttons["Reorder 3"]
+                        let secondReorderHandle = app.buttons["Reorder 2"]
                         let loadedEditMap = editTopoReady.waitForExistence(timeout: 75)
-                            && thirdReorderHandle.waitForExistence(timeout: 12)
-                        XCTAssertTrue(loadedEditMap, "edit evidence requires the real topo and at least three recorded shots")
+                            && secondReorderHandle.waitForExistence(timeout: 12)
+                        XCTAssertTrue(loadedEditMap, "edit evidence requires the real topo and the two real recorded shots returned for this hole")
                         if loadedEditMap {
                             settle(2); save("04c-edit-mode"); dump("04c-edit-mode")
                             // Tap an empty part of the map. 04d is acceptable evidence only when this

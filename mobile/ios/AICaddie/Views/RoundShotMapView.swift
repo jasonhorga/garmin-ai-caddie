@@ -266,8 +266,6 @@ public struct RoundHoleShotMapScreen: View {
             }
         }
         .task(id: hole) { await load() }
-        .onAppear { trace("view.appear loading=\(isLoading)") }
-        .onDisappear { trace("view.disappear loading=\(isLoading)") }
     }
 
     @ViewBuilder private var content: some View {
@@ -315,36 +313,18 @@ public struct RoundHoleShotMapScreen: View {
 
     @MainActor
     private func load() async {
-        trace("load.start")
-        guard let apiBaseURL else {
-            isLoading = false
-            errorText = "未配置后端地址"
-            trace("load.no-base-url")
-            return
-        }
+        guard let apiBaseURL else { isLoading = false; errorText = "未配置后端地址"; return }
         isLoading = true
         errorText = nil
         do {
             let sync = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
             let m = try await sync.fetchRoundShotMap(roundRef: roundRef, hole: hole)
-            trace("load.response found=\(m.found) map=\(m.map != nil) shots=\(m.shots.count) imageChars=\(m.map?.image.count ?? 0)")
             shotMap = m
             editModel = RoundEditModel(map: m, sync: sync, roundRef: roundRef)
         } catch {
             errorText = "这一洞落点暂时取不到"
-            trace("load.error type=\(String(describing: type(of: error))) cancelled=\(Task.isCancelled)")
         }
         isLoading = false
-        trace("load.finish map=\(shotMap?.map != nil) editing=\(editModel != nil)")
-    }
-
-    /// DEBUG/UI-test-only lifecycle trace. The real simulator evidence can otherwise show a spinner
-    /// without telling us whether the request stalled, decoding failed, or SwiftUI recreated the page
-    /// after it had already loaded. Release builds compile this to a no-op and record no user data.
-    private func trace(_ message: String) {
-        #if DEBUG
-        UITestEventLatencyTrace.record("shotmap.\(message) hole=\(hole)")
-        #endif
     }
 }
 
