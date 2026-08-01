@@ -40,7 +40,7 @@ final class ReviewEditUITests: XCTestCase {
             save("nohistory"); dump("nohistory"); return
         }
         settle(6)
-        guard tapRoundRow(containing: "2026-06-11", beforeTap: {
+        guard tapFirstRoundRow(beforeTap: {
             save("01-history-list"); dump("01-history-list")
         }) else { save("noround"); dump("noround"); return }
         let roundReview = app.navigationBars["单场复盘"]
@@ -149,9 +149,8 @@ final class ReviewEditUITests: XCTestCase {
     }
 
     @discardableResult
-    private func tapRoundRow(containing text: String, beforeTap: () -> Void = {}) -> Bool {
-        let row = app.buttons.matching(identifier: "history-round-row")
-            .matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+    private func tapFirstRoundRow(beforeTap: () -> Void = {}) -> Bool {
+        let row = app.buttons.matching(identifier: "history-round-row").firstMatch
         guard row.waitForExistence(timeout: 8) else { return false }
         for _ in 0..<12 {
             if row.exists, row.isHittable {

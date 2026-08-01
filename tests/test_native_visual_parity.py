@@ -7,6 +7,15 @@ WATCH_VIEWS = Path("mobile/ios/AICaddieWatch/Views")
 
 
 class NativeVisualParityTests(unittest.TestCase):
+    def test_real_review_capture_selects_current_history_instead_of_expired_date(self) -> None:
+        ui_tests = Path("mobile/ios/AICaddieUITests")
+        real_flow = (ui_tests / "RealFlowUITests.swift").read_text(encoding="utf-8")
+        review_edit = (ui_tests / "ReviewEditUITests.swift").read_text(encoding="utf-8")
+
+        for source in (real_flow, review_edit):
+            self.assertNotIn("2026-06-11", source)
+            self.assertIn("tapFirstRoundRow", source)
+
     def test_watch_score_header_reserves_system_time_area(self) -> None:
         source = (WATCH_VIEWS / "WatchScoreHoleView.swift").read_text(encoding="utf-8")
 
