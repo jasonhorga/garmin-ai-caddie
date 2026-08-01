@@ -46,15 +46,16 @@ jobs:
       - name: Generate native project
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
 
-      - name: Resolve diagnostic Watch simulator
+      - name: Resolve approved 45mm Watch simulator
         shell: bash
         run: |
           set -euo pipefail
+          WATCH_NAME="Apple Watch Series 9 (45mm)"
           WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
             [.devices | to_entries[]
               | .key as $runtime
               | .value[]
-              | select(.isAvailable == true and .name == "Apple Watch Series 10 (46mm)")
+              | select(.isAvailable == true and .name == "Apple Watch Series 9 (45mm)")
               | {
                   udid: .udid,
                   runtime: $runtime,
@@ -64,6 +65,31 @@ jobs:
                 }]
             | sort_by(.version)
             | first')
+
+          # GitHub's macOS image does not instantiate every supported device. Create the exact
+          # 396x484 Series 9 canvas used by the approved renders when only newer Watches are listed.
+          if [[ "$WATCH_DEVICE" == "null" ]]; then
+            WATCH_TYPE_ID=$(xcrun simctl list devicetypes -j | jq -er \
+              --arg name "$WATCH_NAME" \
+              '[.devicetypes[] | select(.name == $name) | .identifier] | first')
+            WATCH_RUNTIME=$(xcrun simctl list runtimes available -j | jq -er '
+              [.runtimes[]
+                | select(.isAvailable == true)
+                | select(.identifier | contains(".watchOS-"))
+                | {
+                    identifier: .identifier,
+                    version: (.version | split(".") | map(tonumber))
+                  }]
+              | sort_by(.version)
+              | first
+              | .identifier')
+            WATCH_UDID=$(xcrun simctl create "AI Caddie Visual 45mm" "$WATCH_TYPE_ID" "$WATCH_RUNTIME")
+            WATCH_DEVICE=$(jq -cn \
+              --arg udid "$WATCH_UDID" \
+              --arg runtime "$WATCH_RUNTIME" \
+              '{udid: $udid, runtime: $runtime}')
+          fi
+
           test "$WATCH_DEVICE" != "null"
           WATCH_UDID=$(jq -r .udid <<< "$WATCH_DEVICE")
           WATCH_RUNTIME=$(jq -r .runtime <<< "$WATCH_DEVICE")
@@ -258,6 +284,10 @@ jobs:
             fi
             printf '%s\n' "$launch_output" | tee "watch-runtime-artifacts/launch-$mode.txt"
             xcrun simctl io "$WATCH_UDID" screenshot "watch-runtime-artifacts/$screenshot"
+            # Visual approval is locked to the same 45mm canvas as the 396px-wide reference set.
+            # A compatible 42/46/49mm build may still pass tests, but cannot adjudicate pixel parity.
+            test "$(sips -g pixelWidth "watch-runtime-artifacts/$screenshot" | awk '/pixelWidth/{print $2}')" = "396"
+            test "$(sips -g pixelHeight "watch-runtime-artifacts/$screenshot" | awk '/pixelHeight/{print $2}')" = "484"
             # A successful terminate proves the app was still running when the screenshot was taken.
             xcrun simctl terminate "$WATCH_UDID" "$BID"
           }
