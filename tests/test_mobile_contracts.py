@@ -822,9 +822,9 @@ class MobileContractTests(unittest.TestCase):
                 "sourceRefs": ["900001"],
             },
         )
-        self.assertLessEqual(len(package["recentHistory"]["rounds"]), 10)
+        self.assertLessEqual(len(package["recentHistory"]["rounds"]), 25)
 
-    def test_live_round_package_keeps_ten_recent_rounds_reachable_from_history(self) -> None:
+    def test_live_round_package_keeps_twenty_five_recent_rounds_reachable_from_history(self) -> None:
         from ai_caddie.caddie.mobile_live import _recent_history
 
         rounds = [
@@ -837,7 +837,7 @@ class MobileContractTests(unittest.TestCase):
                 "par": 72,
                 "holesCompleted": 18,
             }
-            for day in range(1, 12)
+            for day in range(1, 27)
         ]
         history = _recent_history(
             HistoryData(raw_rounds=[], rounds=rounds, shots=[]),
@@ -845,8 +845,8 @@ class MobileContractTests(unittest.TestCase):
             {"courseKey": "review_course", "course": "Review Course", "holes": []},
         )
 
-        self.assertEqual(len(history["rounds"]), 10)
-        self.assertEqual(history["rounds"][0]["roundId"], "round-11")
+        self.assertEqual(len(history["rounds"]), 25)
+        self.assertEqual(history["rounds"][0]["roundId"], "round-26")
         self.assertEqual(history["rounds"][-1]["roundId"], "round-02")
 
     def test_live_round_package_marks_recent_history_missing_without_same_course_scores(self) -> None:
