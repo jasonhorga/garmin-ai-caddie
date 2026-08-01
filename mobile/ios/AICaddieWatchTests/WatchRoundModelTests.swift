@@ -936,6 +936,17 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .home)
     }
 
+    func testFinishSummaryRequiresExplicitConfirmationBeforeUpload() {
+        let model = seededModel(holes: [hole(1)])
+
+        model.requestFinish()
+        model.requestFinishConfirmation()
+        XCTAssertEqual(model.screen, .finishConfirmation)
+
+        model.cancelFinishConfirmation()
+        XCTAssertEqual(model.screen, .finishing)
+    }
+
     func testCancelScoringDiscardsDraftAndReturnsHome() {
         let model = seededModel(holes: [hole(1, par: 4)])
         model.startScoringActiveHole()
