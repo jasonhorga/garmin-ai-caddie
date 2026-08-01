@@ -52,9 +52,12 @@ public struct WatchRoundFinishMetadata: Equatable {
 
 public enum WatchBackendClientError: Error {
     case invalidShotLocation
+    case coursePrepBatchTooLarge
 }
 
 public final class WatchBackendClient {
+    static let maximumCoursePrepHolesPerRequest = 3
+
     private let baseURL: URL
     private let adminToken: String?
     private let sessionToken: String?
@@ -216,6 +219,9 @@ public final class WatchBackendClient {
     }
 
     public func makeCoursePrepRequest(globalId: Int, localHoles: [Int]) throws -> URLRequest {
+        guard localHoles.count <= Self.maximumCoursePrepHolesPerRequest else {
+            throw WatchBackendClientError.coursePrepBatchTooLarge
+        }
         guard var components = URLComponents(
             url: endpointURL("/api/v2/courses/\(globalId)/prep"),
             resolvingAgainstBaseURL: false
@@ -224,7 +230,7 @@ public final class WatchBackendClient {
         }
         components.queryItems = localHoles.map {
             URLQueryItem(name: "holes", value: String($0))
-        } + [URLQueryItem(name: "render", value: "true")]
+        } + [URLQueryItem(name: "render", value: "false")]
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         request.timeoutInterval = 900

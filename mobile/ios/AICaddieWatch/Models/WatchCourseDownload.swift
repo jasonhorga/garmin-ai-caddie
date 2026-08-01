@@ -287,6 +287,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
     public let geometryCoverage: String?
     public let landingM: Double?
     public let teeClub: String?
+    public let route: [[Double]]
     public let hazards: WatchCoursePrepHazards
     public let map: WatchCoursePrepMap?
     public let greenDistances: WatchCoursePrepGreenDistances?
@@ -294,7 +295,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
     public let holeImageProjection: WatchCoursePrepProjection?
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, geometryCoverage, hazards, map, greenDistances, playsLike, holeImageProjection
+        case hole, par, geometryCoverage, route, hazards, map, greenDistances, playsLike, holeImageProjection
         case landingM = "landing_m"
         case teeClub = "tee_club"
     }
@@ -306,6 +307,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
         geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage)
         landingM = try container.decodeIfPresent(Double.self, forKey: .landingM)
         teeClub = try container.decodeIfPresent(String.self, forKey: .teeClub)
+        route = try container.decodeIfPresent([[Double]].self, forKey: .route) ?? []
         hazards = try container.decodeIfPresent(WatchCoursePrepHazards.self, forKey: .hazards)
             ?? WatchCoursePrepHazards()
         map = try container.decodeIfPresent(WatchCoursePrepMap.self, forKey: .map)

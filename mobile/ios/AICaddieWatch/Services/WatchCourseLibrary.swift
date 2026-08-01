@@ -154,9 +154,25 @@ public final class WatchCourseLibrary: ObservableObject {
             var topoImages: [Int: [Int: Data]] = [:]
             for globalId in requestedByGlobalId.keys.sorted() {
                 let localHoles = requestedByGlobalId[globalId, default: []].sorted()
-                preps[globalId] = try await client.fetchCoursePrep(
+                var prepParts: [WatchCoursePrepResponse] = []
+                for start in stride(
+                    from: 0,
+                    to: localHoles.count,
+                    by: WatchBackendClient.maximumCoursePrepHolesPerRequest
+                ) {
+                    let end = min(
+                        start + WatchBackendClient.maximumCoursePrepHolesPerRequest,
+                        localHoles.count
+                    )
+                    prepParts.append(try await client.fetchCoursePrep(
+                        globalId: globalId,
+                        localHoles: Array(localHoles[start..<end])
+                    ))
+                }
+                preps[globalId] = WatchCoursePrepResponse(
                     globalId: globalId,
-                    localHoles: localHoles
+                    clubs: prepParts.first?.clubs ?? [],
+                    holes: prepParts.flatMap(\.holes)
                 )
                 for localHole in localHoles {
                     if let data = try? await client.fetchCourseTopo(

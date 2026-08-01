@@ -56,7 +56,8 @@ public enum WatchCourseTemplateBuilder {
             let prep = prepResponse?.holes.first { $0.hole == localHole }
             let distanceM = hole.yards.map { Double($0) * 0.9144 }
             let projection = watchProjection(prep?.holeImageProjection)
-            let holeMap = prep?.map.flatMap { makeHoleMap($0.overlay, landingM: prep?.landingM) }
+            let overlay = prep.flatMap { prepOverlay($0, projection: projection) }
+            let holeMap = overlay.flatMap { makeHoleMap($0, landingM: prep?.landingM) }
             let tee = packageTeeCoordinate(hole) ?? teeCoordinate(holeMap: holeMap, projection: projection)
             let green = prep?.greenDistances?.available == true ? prep?.greenDistances : nil
             let deltaM = prep?.playsLike?.available == true ? prep?.playsLike?.deltaM : nil
@@ -201,6 +202,44 @@ public enum WatchCourseTemplateBuilder {
             greenCtrl: interpolate(route, atM: landing + (total - landing) * 0.5),
             route: route
         )
+    }
+
+    private static func prepOverlay(
+        _ prep: WatchCoursePrepHole,
+        projection: WatchHoleImageProjection?
+    ) -> WatchCoursePrepOverlay? {
+        if let overlay = prep.map?.overlay { return overlay }
+        guard let width = projection?.widthPx, width > 0,
+              let height = projection?.heightPx, height > 0,
+              let refs = projection?.refs, refs.count >= 3,
+              prep.route.count >= 2 else { return nil }
+
+        // The lightweight prep contract defines refs[0...2] as local (0,0), (120,0), and
+        // (0,120) metres in the exact affine frame shared by /topo.png. Reconstruct only the
+        // route pixels here; the expensive legacy JPEG is neither rendered nor downloaded.
+        let origin = refs[0]
+        let xRef = refs[1]
+        let yRef = refs[2]
+        var pixelRoute: [[Double]] = []
+        for row in prep.route {
+            guard row.count >= 3 else { return nil }
+            let localX = row[0]
+            let localY = row[1]
+            let cumulative = row[2]
+            let x = origin.px
+                + (localX / 120) * (xRef.px - origin.px)
+                + (localY / 120) * (yRef.px - origin.px)
+            let y = origin.py
+                + (localX / 120) * (xRef.py - origin.py)
+                + (localY / 120) * (yRef.py - origin.py)
+            guard x.isFinite, y.isFinite, cumulative.isFinite else { return nil }
+            pixelRoute.append([
+                (x * 10).rounded() / 10,
+                (y * 10).rounded() / 10,
+                cumulative,
+            ])
+        }
+        return WatchCoursePrepOverlay(w: width, h: height, route: pixelRoute)
     }
 
     private static func interpolate(_ route: [[Double]], atM: Double) -> [Double] {
