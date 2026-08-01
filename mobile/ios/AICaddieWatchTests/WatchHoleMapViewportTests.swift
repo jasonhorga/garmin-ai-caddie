@@ -2,6 +2,27 @@ import XCTest
 @testable import AICaddieWatch
 
 final class WatchHoleMapViewportTests: XCTestCase {
+    func testEdgeBackGestureAcceptsAHorizontalSwipeFromTheLeftEdge() {
+        XCTAssertTrue(WatchEdgeBackGesture.shouldTrigger(
+            startX: 20,
+            translation: CGSize(width: 72, height: 8)
+        ))
+    }
+
+    func testEdgeBackGestureRejectsSwipesThatStartAwayFromTheLeftEdge() {
+        XCTAssertFalse(WatchEdgeBackGesture.shouldTrigger(
+            startX: 48,
+            translation: CGSize(width: 72, height: 8)
+        ))
+    }
+
+    func testEdgeBackGestureRejectsMostlyVerticalMovement() {
+        XCTAssertFalse(WatchEdgeBackGesture.shouldTrigger(
+            startX: 20,
+            translation: CGSize(width: 72, height: 64)
+        ))
+    }
+
     func testDistancePillMovesBelowMarkerWhenClockWouldCoverItsPreferredPosition() {
         let viewport = CGSize(width: 208, height: 248)
         let marker = CGPoint(x: 159.5, y: 40)
