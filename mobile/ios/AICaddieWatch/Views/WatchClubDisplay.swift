@@ -21,6 +21,17 @@ enum WatchClubDisplay {
         if lower.contains("hybrid") || lower.contains("rescue") || lower.hasSuffix("h") {
             return numbered(value, suffix: "号小鸡腿") ?? "小鸡腿"
         }
+
+        // Wedge abbreviations also end in "w". Resolve them before the generic fairway-wood
+        // branch so PW/GW/SW/LW do not leak through as raw backend tokens.
+        switch lower.replacingOccurrences(of: " ", with: "") {
+        case "pw", "p", "pwedge", "p杆": return "P 杆"
+        case "gw", "aw", "a", "ap", "gap", "a杆": return "A 杆"
+        case "sw", "s", "sand", "s杆": return "S 杆"
+        case "lw", "l", "lob", "l杆": return "L 杆"
+        case "putter", "putt", "pt", "推杆": return "推杆"
+        default: break
+        }
         if lower.hasSuffix("w") || value.contains("号木") {
             return numbered(value, suffix: "号木") ?? value
         }
@@ -28,14 +39,7 @@ enum WatchClubDisplay {
             return numbered(value, suffix: "号铁") ?? value
         }
 
-        switch lower.replacingOccurrences(of: " ", with: "") {
-        case "pw", "p", "pwedge", "p杆": return "P 杆"
-        case "gw", "aw", "a", "ap", "gap", "a杆": return "A 杆"
-        case "sw", "s", "sand", "s杆": return "S 杆"
-        case "lw", "l", "lob", "l杆": return "L 杆"
-        case "putter", "putt", "pt", "推杆": return "推杆"
-        default: return value
-        }
+        return value
     }
 
     private static func numbered(_ value: String, suffix: String) -> String? {
