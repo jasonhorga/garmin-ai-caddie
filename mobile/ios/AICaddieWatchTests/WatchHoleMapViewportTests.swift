@@ -57,6 +57,17 @@ final class WatchHoleMapViewportTests: XCTestCase {
         })
     }
 
+    func testEighteenHoleRingKeepsEverySegmentSeparatedAfterTheClockLane() {
+        let centers = (0 ..< 18).map {
+            WatchHoleMapView.scoringRingCenterFraction(index: $0, count: 18)
+        }
+        let separations = zip(centers, centers.dropFirst()).map { next, following in
+            following - next
+        }
+
+        XCTAssertGreaterThanOrEqual(separations.min() ?? 0, 0.03)
+    }
+
     func testCompactRuntimeViewportFitsTheFlagWithoutChangingPlayerAnchor() {
         let scale = WatchHoleMapViewport.effectiveRestingScale(
             requestedScale: WatchHoleMapView.restingCrownScale,
