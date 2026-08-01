@@ -863,6 +863,44 @@ final class WatchRoundModelTests: XCTestCase {
         )))
     }
 
+    func testPreparedRootCaddieAppearsAtTeeAndExpiresAfterLeavingTee() {
+        let state = WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, distanceM: 400,
+            teeLatitude: 40.0455, teeLongitude: 116.5462,
+            suggestedClub: "1W", selectedClub: nil,
+            holeMap: WatchHoleMap(
+                w: 1000,
+                h: 1000,
+                you: [500, 900],
+                pin: [500, 100],
+                layup: [500, 500],
+                apex: [500, 700],
+                greenCtrl: [500, 300],
+                route: [[500, 900, 0], [500, 500, 220], [500, 100, 400]]
+            ),
+            caddieOptions: [
+                WatchCaddieOption(
+                    optionId: "stock", label: "标准", clubName: "1W", carryM: 220,
+                    plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 220)],
+                    confidence: "offline"
+                ),
+            ],
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [state])
+
+        XCTAssertTrue(model.preparedRootCaddieLayerAvailable(at: WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.0455, longitude: 116.5462),
+            horizontalAccuracyM: 6,
+            capturedAt: "2026-06-20T00:00:00Z"
+        )))
+        XCTAssertFalse(model.preparedRootCaddieLayerAvailable(at: WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.0461, longitude: 116.5462),
+            horizontalAccuracyM: 6,
+            capturedAt: "2026-06-20T00:00:00Z"
+        )))
+    }
+
     func testPlaysLikeDeltaConvertsMetresToUserFacingYards() {
         let uphill = WatchRoundState(
             roundId: "r1", hole: 1, par: 4, distanceM: 320,

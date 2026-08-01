@@ -59,14 +59,16 @@ final class RealFlowUITests: XCTestCase {
             let enteredRoundReview = tappedRound && roundReview.waitForExistence(timeout: 12)
             XCTAssertTrue(enteredRoundReview, "round evidence must enter 单场复盘 before capture")
             if enteredRoundReview {
-                let holeRow = app.buttons["round-review-hole-4"]
+                // Match the approved edit render's first-hole state. The latest real Cypress round
+                // has enough non-putt positions on hole 1 for all reorder handles; hole 4 does not.
+                let holeRow = app.buttons["round-review-hole-1"]
                 let loadedRound = holeRow.waitForExistence(timeout: 60)
-                XCTAssertTrue(loadedRound, "the real round must load its fourth hole")
+                XCTAssertTrue(loadedRound, "the real round must load its first hole")
                 if loadedRound {
                     settle(2); save("04-round-review"); dump("04-round-review")
                 }
                 let reachableHole = loadedRound && scrollTo(holeRow, maxSwipes: 4)
-                XCTAssertTrue(reachableHole, "the fourth hole must be tappable")
+                XCTAssertTrue(reachableHole, "the first hole must be tappable")
                 if reachableHole {
                     holeRow.tap()
                     // The pager's navigationTitle is intentionally not visible in this sheet style.

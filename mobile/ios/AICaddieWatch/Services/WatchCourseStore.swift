@@ -58,12 +58,25 @@ public enum WatchCourseTemplateBuilder {
             let projection = watchProjection(prep?.holeImageProjection)
             let overlay = prep.flatMap { prepOverlay($0, projection: projection) }
             let holeMap = overlay.flatMap { makeHoleMap($0, landingM: prep?.landingM) }
+            let routeDistanceM = overlay?.route.last.flatMap { $0.count >= 3 ? $0[2] : nil }
             let tee = packageTeeCoordinate(hole) ?? teeCoordinate(holeMap: holeMap, projection: projection)
             let green = prep?.greenDistances?.available == true ? prep?.greenDistances : nil
             let deltaM = prep?.playsLike?.available == true ? prep?.playsLike?.deltaM : nil
             let clubs = (prepResponse?.clubs ?? []).map {
                 WatchClubOption(clubName: $0.name, medianM: $0.m, source: "course-prep")
             }
+            let preparedOptions = routeDistanceM.map {
+                preparedCaddieOptions(
+                    clubs: clubs,
+                    suggestedClub: prep?.teeClub,
+                    routeDistanceM: $0,
+                    landingM: prep?.landingM
+                )
+            } ?? []
+            let preparedNote = preparedTargetNote(
+                routeDistanceM: routeDistanceM,
+                landingM: prep?.landingM
+            )
 
             if let data = topoImagesByGlobalId[globalId]?[localHole] {
                 images.append(WatchCourseImage(globalId: globalId, hole: hole.number, data: data))
@@ -78,9 +91,12 @@ public enum WatchCourseTemplateBuilder {
                 distanceM: distanceM,
                 teeLatitude: tee?.latitude,
                 teeLongitude: tee?.longitude,
+                targetNote: preparedNote,
                 suggestedClub: prep?.teeClub,
                 selectedClub: nil,
                 availableClubs: clubs,
+                strategyMode: preparedOptions.isEmpty ? nil : "stock",
+                offlineOptionId: preparedOptions.isEmpty ? nil : "stock",
                 frontGreenM: green?.frontM,
                 centerGreenM: green?.middleM,
                 backGreenM: green?.backM,
@@ -96,6 +112,7 @@ public enum WatchCourseTemplateBuilder {
                 playsLikeDistanceM: deltaM.flatMap { delta in distanceM.map { $0 + delta } },
                 elevationDeltaM: deltaM,
                 geometryCoverage: prep?.geometryCoverage ?? hole.geometryCoverage,
+                caddieOptions: preparedOptions,
                 hazards: watchHazards(prep?.hazards),
                 score: 0,
                 putts: 0,
@@ -115,6 +132,96 @@ public enum WatchCourseTemplateBuilder {
             cachedAt: cachedAt
         )
         return WatchCourseDownload(template: template, images: images)
+    }
+
+    /// Build the three on-watch route choices from facts already downloaded for offline play: the
+    /// player's measured bag, the prepared Tee club and this hole's real route length. These are
+    /// deterministic planning choices, not success probabilities or fabricated shot dispersion.
+    static func preparedCaddieOptions(
+        clubs: [WatchClubOption],
+        suggestedClub: String?,
+        routeDistanceM: Double,
+        landingM: Double?
+    ) -> [WatchCaddieOption] {
+        let usable = clubs
+            .filter { option in
+                guard let carry = option.medianM else { return false }
+                return carry.isFinite && carry > 0
+            }
+            .sorted { ($0.medianM ?? 0) > ($1.medianM ?? 0) }
+        guard routeDistanceM.isFinite, routeDistanceM > 0, !usable.isEmpty else { return [] }
+
+        let normalizedSuggestion = suggestedClub?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let preparedCarry = landingM.flatMap { value in
+            value.isFinite && value > 0 ? min(value, routeDistanceM) : nil
+        }
+        let stockIndex = usable.firstIndex {
+            $0.clubName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                == normalizedSuggestion
+        } ?? usable.indices.min {
+            abs((usable[$0].medianM ?? 0) - (preparedCarry ?? routeDistanceM * 0.55))
+                < abs((usable[$1].medianM ?? 0) - (preparedCarry ?? routeDistanceM * 0.55))
+        } ?? usable.startIndex
+
+        let safeIndex = min(stockIndex + 1, usable.index(before: usable.endIndex))
+        let attackIndex = max(stockIndex - 1, usable.startIndex)
+        let variants: [(id: String, label: String, first: WatchClubOption, bias: Double)] = [
+            ("safe", "稳妥", usable[safeIndex], 0.84),
+            ("stock", "标准", usable[stockIndex], 0.92),
+            ("attack", "进攻", usable[attackIndex], 1.05),
+        ]
+
+        return variants.map { variant in
+            let plan = preparedPlan(
+                first: variant.first,
+                clubs: usable,
+                routeDistanceM: routeDistanceM,
+                completionBias: variant.bias
+            )
+            return WatchCaddieOption(
+                optionId: variant.id,
+                label: variant.label,
+                clubName: variant.first.clubName,
+                carryM: variant.first.medianM,
+                plan: plan,
+                confidence: "offline"
+            )
+        }
+    }
+
+    private static func preparedPlan(
+        first: WatchClubOption,
+        clubs: [WatchClubOption],
+        routeDistanceM: Double,
+        completionBias: Double
+    ) -> [WatchCaddiePlanStep] {
+        var remaining = routeDistanceM
+        var selected = first
+        var plan: [WatchCaddiePlanStep] = []
+
+        while remaining > 25, plan.count < 3, let carry = selected.medianM {
+            plan.append(WatchCaddiePlanStep(clubName: selected.clubName, carryM: carry))
+            remaining -= carry
+            guard remaining > 25 else { break }
+            let target = remaining * completionBias
+            selected = clubs.min {
+                abs(($0.medianM ?? 0) - target) < abs(($1.medianM ?? 0) - target)
+            } ?? selected
+        }
+        return plan
+    }
+
+    private static func preparedTargetNote(
+        routeDistanceM: Double?,
+        landingM: Double?
+    ) -> String? {
+        guard let routeDistanceM, routeDistanceM.isFinite, routeDistanceM > 0,
+              let landingM, landingM.isFinite, landingM > 0 else { return nil }
+        let remainingM = max(routeDistanceM - min(landingM, routeDistanceM), 0)
+        guard remainingM > 25 else { return "攻果岭" }
+        return "推进 · 留\(WatchUnits.yards(remainingM))"
     }
 
     private static func locatedCourseOption(

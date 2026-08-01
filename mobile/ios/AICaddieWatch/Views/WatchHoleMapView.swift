@@ -149,6 +149,9 @@ public struct WatchHoleMapView: View {
     /// current recommendation whose evidence and current Watch location pass every fail-closed check.
     public let showCaddieRecommendation: Bool
     public let currentShotLayout: WatchCurrentShotLayout?
+    /// Offline Tee plan from the downloaded route/landing facts. Unlike a live decision it has no
+    /// dispersion, so it draws only the two grounded route legs and their prepared landing target.
+    public let showPreparedPlan: Bool
     public let ringPips: [WatchRingPip]
     public let showTextOverlay: Bool
     /// Distance block toggle: false = raw yardage; true = 实打 (slope-adjusted) with a ↑/↓ arrow.
@@ -183,6 +186,7 @@ public struct WatchHoleMapView: View {
         caddieNote: String = "推进 · 留100",
         showCaddieRecommendation: Bool = false,
         currentShotLayout: WatchCurrentShotLayout? = nil,
+        showPreparedPlan: Bool = false,
         ringPips: [WatchRingPip] = WatchHoleMapView.sampleRing,
         showTextOverlay: Bool = true,
         showPlaysLike: Bool = false,
@@ -205,6 +209,7 @@ public struct WatchHoleMapView: View {
         self.caddieNote = caddieNote
         self.showCaddieRecommendation = showCaddieRecommendation
         self.currentShotLayout = currentShotLayout
+        self.showPreparedPlan = showPreparedPlan
         self.ringPips = ringPips
         self.showTextOverlay = showTextOverlay
         self.showPlaysLike = showPlaysLike
@@ -460,6 +465,8 @@ public struct WatchHoleMapView: View {
 
         if showCaddieRecommendation, let currentShotLayout {
             drawCurrentShot(&context, layout: currentShotLayout, transform: a.t)
+        } else if showCaddieRecommendation, showPreparedPlan {
+            drawPreparedPlan(&context, transform: a.t)
         }
 
         // Pin + flag.
@@ -585,6 +592,51 @@ public struct WatchHoleMapView: View {
             Path(ellipseIn: targetRect),
             with: .color(.white),
             style: StrokeStyle(lineWidth: 2.4)
+        )
+    }
+
+    /// The prepared route is already part of the downloaded course package: player → landing → pin.
+    /// No ellipse or success percentage is added because the offline package carries neither fact.
+    private func drawPreparedPlan(
+        _ context: inout GraphicsContext,
+        transform: (CGPoint) -> CGPoint
+    ) {
+        let player = transform(geometry.youPx)
+        let target = transform(geometry.layupPx)
+        let firstControl = transform(geometry.apexPx)
+        let pin = transform(geometry.pinPx)
+        let secondControl = transform(geometry.greenCtrlPx)
+
+        var firstLeg = Path()
+        firstLeg.move(to: player)
+        firstLeg.addQuadCurve(to: target, control: firstControl)
+        context.stroke(
+            firstLeg,
+            with: .color(caddieGreen.opacity(0.95)),
+            style: StrokeStyle(lineWidth: 2.8, lineCap: .round)
+        )
+
+        var nextLeg = Path()
+        nextLeg.move(to: target)
+        nextLeg.addQuadCurve(to: pin, control: secondControl)
+        context.stroke(
+            nextLeg,
+            with: .color(.white.opacity(0.92)),
+            style: StrokeStyle(lineWidth: 2.2, lineCap: .round, dash: [6, 5])
+        )
+
+        let radius: CGFloat = 5
+        let targetRect = CGRect(
+            x: target.x - radius,
+            y: target.y - radius,
+            width: radius * 2,
+            height: radius * 2
+        )
+        context.fill(Path(ellipseIn: targetRect), with: .color(caddieGreen.opacity(0.9)))
+        context.stroke(
+            Path(ellipseIn: targetRect),
+            with: .color(.white),
+            style: StrokeStyle(lineWidth: 2)
         )
     }
 

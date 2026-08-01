@@ -51,7 +51,9 @@ final class ReviewEditUITests: XCTestCase {
         settle(2); save("02-round-review"); dump("02-round-review")
 
         // The scorecard rows are buttons ("点一洞看落点图 →"); tapping one opens the 落点图 pager sheet.
-        let holeButton = app.buttons["round-review-hole-4"]
+        // The approved edit evidence is hole 1, and the latest real Cypress round has the three
+        // non-putt positions required to expose all reorder handles on that hole.
+        let holeButton = app.buttons["round-review-hole-1"]
         guard holeButton.waitForExistence(timeout: 60), bringIntoViewAndTap(holeButton, maxSwipes: 4) else {
             save("nohole"); dump("nohole"); return
         }
@@ -62,7 +64,7 @@ final class ReviewEditUITests: XCTestCase {
         let topoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
         guard topoReady.waitForExistence(timeout: 75) else {
-            XCTFail("review-edit evidence must load the real fourth-hole topo")
+            XCTFail("review-edit evidence must load the real first-hole topo")
             return
         }
         settle(2); save("03-shot-map"); dump("03-shot-map")

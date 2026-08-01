@@ -378,6 +378,35 @@ public final class WatchRoundModel: ObservableObject {
         return true
     }
 
+    /// A downloaded course already contains a real Tee recommendation, landing point, route and the
+    /// player's bag distances. Keep that prepared plan visible while the player is still at this Tee;
+    /// once they leave, only a fresh live recommendation may remain on Hole Root.
+    public func preparedRootCaddieLayerAvailable(at fix: WatchLocationFix?) -> Bool {
+        guard let fix,
+              fix.coordinate.latitude.isFinite,
+              (-90...90).contains(fix.coordinate.latitude),
+              fix.coordinate.longitude.isFinite,
+              (-180...180).contains(fix.coordinate.longitude),
+              fix.horizontalAccuracyM.isFinite,
+              (0...20).contains(fix.horizontalAccuracyM),
+              let state = activeHoleState,
+              let teeLatitude = state.teeLatitude,
+              let teeLongitude = state.teeLongitude,
+              teeLatitude.isFinite, (-90...90).contains(teeLatitude),
+              teeLongitude.isFinite, (-180...180).contains(teeLongitude),
+              state.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              !state.caddieOptions.isEmpty,
+              (state.holeMap?.route?.count ?? 0) >= 2 else {
+            return false
+        }
+        return WatchGeoMath.metres(
+            teeLatitude,
+            teeLongitude,
+            fix.coordinate.latitude,
+            fix.coordinate.longitude
+        ) <= 35 + fix.horizontalAccuracyM
+    }
+
     /// Source elevation is metres; every player-facing Watch distance is yards (L21).
     public var activePlaysLikeDeltaYards: Int {
         WatchUnits.yards(activeHoleState?.elevationDeltaM ?? 0)

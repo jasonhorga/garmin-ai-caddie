@@ -4,6 +4,28 @@ import XCTest
 final class WatchCourseDownloadTests: XCTestCase {
     private let client = WatchBackendClient(baseURL: URL(string: "https://caddie.example")!)
 
+    func testPreparedCourseBuildsThreeGroundedBagPlans() throws {
+        let clubs = [
+            WatchClubOption(clubName: "1W", medianM: 220, source: "course-prep"),
+            WatchClubOption(clubName: "3W", medianM: 190, source: "course-prep"),
+            WatchClubOption(clubName: "5I", medianM: 160, source: "course-prep"),
+            WatchClubOption(clubName: "8I", medianM: 125, source: "course-prep"),
+        ]
+
+        let options = WatchCourseTemplateBuilder.preparedCaddieOptions(
+            clubs: clubs,
+            suggestedClub: "1W",
+            routeDistanceM: 400,
+            landingM: 220
+        )
+
+        XCTAssertEqual(options.map(\.optionId), ["safe", "stock", "attack"])
+        XCTAssertEqual(options.map(\.label), ["稳妥", "标准", "进攻"])
+        XCTAssertEqual(options[1].plan?.first?.clubName, "1W")
+        XCTAssertTrue(options.allSatisfy { !($0.plan ?? []).isEmpty })
+        XCTAssertTrue(options.allSatisfy { ($0.plan ?? []).allSatisfy { ($0.carryM ?? 0) > 0 } })
+    }
+
     func testNearbyRankingPlacesNearestKnownCourseFirstAndUnknownLast() {
         let farther = WatchCourseOption(
             globalId: 2,

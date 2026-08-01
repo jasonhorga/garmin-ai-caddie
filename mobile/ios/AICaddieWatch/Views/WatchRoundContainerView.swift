@@ -305,8 +305,8 @@ public struct WatchRoundContainerView: View {
         watchGreenYards?.center.map { "\($0) 码" }
     }
 
-    // A prepared/offline recommendation is useful inside the caddie detail surface, but D02 forbids it
-    // from appearing on the root until freshness/mode/dispersion are all explicitly gated.
+    // A prepared Tee plan may appear on Hole Root only while a qualified Watch fix still places the
+    // player at that Tee. Away from the Tee, Root requires the stricter fresh live-decision contract.
     private func caddieClub(_ s: WatchRoundState) -> String {
         s.suggestedClub ?? s.caddieOptions.first?.clubName ?? s.selectedClub ?? "—"
     }
@@ -326,6 +326,8 @@ public struct WatchRoundContainerView: View {
     @ViewBuilder
     private func holeMapView(_ s: WatchRoundState, _ geometry: WatchHoleMapGeometry) -> some View {
         let currentShot = currentShotLayout(for: s, geometry: geometry)
+        let preparedRootCaddieLayerAvailable = currentShot == nil
+            && model.preparedRootCaddieLayerAvailable(at: shotLocation)
         WatchHoleMapView(
             holeNumber: s.hole,
             par: s.par,
@@ -336,8 +338,9 @@ public struct WatchRoundContainerView: View {
             lastShot: latestShotDistanceM(s).map(WatchUnits.yards) ?? 0,
             caddieClub: caddieClub(s),
             caddieNote: caddieNote(s),
-            showCaddieRecommendation: currentShot != nil,
+            showCaddieRecommendation: currentShot != nil || preparedRootCaddieLayerAvailable,
             currentShotLayout: currentShot,
+            showPreparedPlan: preparedRootCaddieLayerAvailable,
             // owner 2026-07-08 (Fable audit): KEEP the scoring ring — real per-hole scores, current hole hi.
             ringPips: model.allHoleStates.map {
                 WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
@@ -388,11 +391,13 @@ public struct WatchRoundContainerView: View {
     }
 
     private func distanceHero(_ s: WatchRoundState, big: Bool) -> some View {
+        let showCaddie = model.rootCaddieLayerAvailable(at: shotLocation)
+            || model.preparedRootCaddieLayerAvailable(at: shotLocation)
         WatchDistanceHero(
             frontYd: watchGreenYards?.front,
             centerYd: watchGreenYards?.center,
             backYd: watchGreenYards?.back,
-            caddieLine: model.rootCaddieLayerAvailable(at: shotLocation) ? caddieLine(s) : nil,
+            caddieLine: showCaddie ? caddieLine(s) : nil,
             bigText: big
         )
     }

@@ -755,6 +755,26 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-holemap-current-shot")
     }
 
+    @MainActor
+    func testRenderWatchHoleMapPreparedTeePlan() throws {
+        let view = WatchHoleMapView(
+            holeNumber: 4,
+            par: 5,
+            frontGreen: 273,
+            centerGreen: 287,
+            backGreen: 300,
+            playsLikeDelta: 8,
+            lastShot: 0,
+            caddieClub: "3号木",
+            caddieNote: "推进 · 留100",
+            showCaddieRecommendation: true,
+            showPreparedPlan: true
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-holemap-prepared-plan")
+    }
+
     func testMapZoomExpandsOnlyAfterCrownLeavesItsRestingPosition() {
         XCTAssertFalse(WatchHoleMapView.isFullMap(crownScale: WatchHoleMapView.restingCrownScale))
         XCTAssertTrue(WatchHoleMapView.isFullMap(crownScale: WatchHoleMapView.restingCrownScale + 0.02))
