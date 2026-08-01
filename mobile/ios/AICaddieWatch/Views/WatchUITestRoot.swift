@@ -215,8 +215,10 @@ public struct WatchUITestRoot: View {
                     holeGeometry: standaloneCourseGeometry,
                     watchGreenYards: standaloneHomeGreenYards,
                     shotLocation: standaloneLastShotFix,
+                    // A reachable mid-Crown detent whose rendered topo occupancy matches approved
+                    // state #6; +0.02 only proved mode entry and was not meaningful zoom evidence.
                     initialHoleMapCrownScale: screen == "standalone-course-map-zoom"
-                        ? WatchHoleMapView.restingCrownScale + 0.02
+                        ? WatchHoleMapView.restingCrownScale + 0.14
                         : WatchHoleMapView.restingCrownScale,
                     initialSelectedHazardID: screen == "standalone-course-hazards"
                         ? model.activeHoleState?.hazards.first?.id
