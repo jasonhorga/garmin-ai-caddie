@@ -108,6 +108,8 @@ public struct WatchUITestRoot: View {
                     canAddShot: true
                 )
             }
+        case "always-on-distance":
+            WatchAlwaysOnDistanceView(hole: 4, par: 5, centerYd: 262)
         case "menu":
             WatchMenuView(
                 hasCaddie: true,

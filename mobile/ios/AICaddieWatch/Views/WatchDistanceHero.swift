@@ -96,3 +96,41 @@ public struct WatchDistanceHero: View {
         }
     }
 }
+
+/// Low-luminance current-hole glance for Apple Watch Always On. It deliberately removes colour,
+/// map detail, controls, and secondary distances so the approved center-green fact remains readable
+/// without presenting stale Tee data as a live range.
+public struct WatchAlwaysOnDistanceView: View {
+    public let hole: Int
+    public let par: Int
+    public let centerYd: Int?
+
+    public init(hole: Int, par: Int, centerYd: Int?) {
+        self.hole = hole
+        self.par = par
+        self.centerYd = centerYd
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            Text("第\(hole)洞 · P\(par)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.42))
+            Spacer().frame(height: 18)
+            Text(centerYd.map(String.init) ?? "—")
+                .font(.system(size: 68, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.62))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(centerYd == nil ? "等待定位" : "码 · 到果岭")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.40))
+            Spacer(minLength: 18)
+        }
+        .padding(.top, 39)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black)
+        .accessibilityElement(children: .combine)
+    }
+}

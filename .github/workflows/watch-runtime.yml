@@ -316,6 +316,7 @@ jobs:
           # Missing wrist GPS must render the frozen acquiring state through the production container;
           # prepared Tee distances are deliberately present in the seed but must remain hidden.
           launch_and_capture interaction-gps-acquiring watch-gps-acquiring-runtime.png
+          launch_and_capture always-on-distance watch-always-on-distance-runtime.png
           launch_and_capture menu watch-menu-shot-list.png
           launch_and_capture interaction-club-stats watch-club-stats-runtime.png
           launch_and_capture interaction-settings watch-settings-runtime.png

@@ -48,6 +48,7 @@ public struct WatchGPSAcquiringView: View {
 /// views' callbacks back to the model — the model owns all state, this view owns none. Switching on
 /// `model.screen` (rather than a NavigationStack) keeps each screen full-bleed on the small watch face.
 public struct WatchRoundContainerView: View {
+    @Environment(\.isLuminanceReduced) private var isLuminanceReduced
     @ObservedObject private var model: WatchRoundModel
     /// watch P1b: the active hole's render geometry (topo image + overlay anchors), built by the app from
     /// the pushed WatchHoleMap + cached /topo.png. nil ⇒ no map yet ⇒ the home 「球道图」 entry stays hidden.
@@ -117,6 +118,19 @@ public struct WatchRoundContainerView: View {
     }
 
     public var body: some View {
+        if isLuminanceReduced, let state = model.activeHoleState {
+            WatchAlwaysOnDistanceView(
+                hole: state.hole,
+                par: state.par,
+                centerYd: watchGreenYards?.center
+            )
+        } else {
+            activeScreen
+        }
+    }
+
+    @ViewBuilder
+    private var activeScreen: some View {
         switch model.screen {
         case .home:
             if let state = model.activeHoleState {
