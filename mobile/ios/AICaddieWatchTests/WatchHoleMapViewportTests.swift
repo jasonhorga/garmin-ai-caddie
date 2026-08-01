@@ -45,6 +45,18 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertFalse(pillRect.intersects(WatchHoleMapViewport.systemTimeRect(in: viewport)))
     }
 
+    func testEighteenHoleRingLeavesThePersistentClockLaneClear() {
+        let centers = (0 ..< 18).map {
+            WatchHoleMapView.scoringRingCenterFraction(index: $0, count: 18)
+        }
+
+        XCTAssertLessThan(centers[0], 0.07)
+        XCTAssertTrue(centers[1 ... 3].allSatisfy { $0 > 0.13 })
+        XCTAssertTrue(zip(centers, centers.dropFirst()).allSatisfy { pair in
+            pair.0 < pair.1
+        })
+    }
+
     func testCompactRuntimeViewportFitsTheFlagWithoutChangingPlayerAnchor() {
         let scale = WatchHoleMapViewport.effectiveRestingScale(
             requestedScale: WatchHoleMapView.restingCrownScale,
