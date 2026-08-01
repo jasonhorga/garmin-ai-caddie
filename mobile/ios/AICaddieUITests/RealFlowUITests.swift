@@ -75,12 +75,26 @@ final class RealFlowUITests: XCTestCase {
                     // Its explicit close action is the stable, user-visible proof that presentation occurred.
                     let enteredShotMap = app.buttons["关闭"].waitForExistence(timeout: 12)
                     XCTAssertTrue(enteredShotMap, "shot-map evidence must enter the pager before capture")
+                    if enteredShotMap {
+                        // Preserve the real screen before any accessibility query can time out. Three
+                        // timestamps distinguish a slow request from "loaded briefly, then recreated"
+                        // without weakening the production-ready gate below.
+                        save("04a-shot-map-entered")
+                        dump("04a-shot-map-entered")
+                        settle(5)
+                        save("04a-shot-map-after-5s")
+                        settle(10)
+                        save("04a-shot-map-after-15s")
+                    }
                     let topoReady = app.descendants(matching: .any)
                         .matching(identifier: "topo-hole-base-ready").firstMatch
                     let editButton = app.buttons["编辑"]
-                    let loadedShotMap = enteredShotMap
-                        && editButton.waitForExistence(timeout: 60)
-                        && topoReady.waitForExistence(timeout: 75)
+                    let loading = app.staticTexts["载入落点…"]
+                    let loadingFinished = enteredShotMap && waitUntilGone(loading, timeout: 20)
+                    XCTAssertTrue(loadingFinished, "shot-map request must leave its loading state")
+                    let loadedShotMap = loadingFinished
+                        && editButton.waitForExistence(timeout: 20)
+                        && topoReady.waitForExistence(timeout: 30)
                     XCTAssertTrue(loadedShotMap, "shot-map evidence must finish loading the real topo before capture")
                     if loadedShotMap {
                         settle(2); save("04b-shot-map"); dump("04b-shot-map")
