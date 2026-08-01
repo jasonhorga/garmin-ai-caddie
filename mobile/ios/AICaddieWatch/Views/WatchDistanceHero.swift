@@ -114,21 +114,25 @@ public struct WatchAlwaysOnDistanceView: View {
     public var body: some View {
         VStack(spacing: 0) {
             Text("第\(hole)洞 · P\(par)")
-                .font(.caption.weight(.semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.42))
-            Spacer().frame(height: 18)
+            Spacer().frame(height: 7)
             Text(centerYd.map(String.init) ?? "—")
-                .font(.system(size: 68, weight: .bold, design: .rounded))
+                .font(.system(size: 76, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.62))
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                // The real watchOS root proposes a narrower safe width than ImageRenderer. Without
+                // fixed sizing SwiftUI shrinks this line to 60%, even though three digits fit the glass.
+                .fixedSize(horizontal: true, vertical: false)
             Text(centerYd == nil ? "等待定位" : "码 · 到果岭")
-                .font(.caption2)
+                .font(.system(size: 9))
                 .foregroundStyle(.white.opacity(0.40))
             Spacer(minLength: 18)
         }
-        .padding(.top, 39)
+        // watchOS has already reserved the system-time lane. This is the remaining approved inset,
+        // not the full-canvas inset used by the design renderer.
+        .padding(.top, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
         .accessibilityElement(children: .combine)
