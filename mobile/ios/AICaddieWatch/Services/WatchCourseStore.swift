@@ -157,13 +157,22 @@ public enum WatchCourseTemplateBuilder {
         let preparedCarry = landingM.flatMap { value in
             value.isFinite && value > 0 ? min(value, routeDistanceM) : nil
         }
-        let stockIndex = usable.firstIndex {
-            $0.clubName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                == normalizedSuggestion
-        } ?? usable.indices.min {
-            abs((usable[$0].medianM ?? 0) - (preparedCarry ?? routeDistanceM * 0.55))
-                < abs((usable[$1].medianM ?? 0) - (preparedCarry ?? routeDistanceM * 0.55))
-        } ?? usable.startIndex
+        let suggestedIndex: Int?
+        if let normalizedSuggestion, !normalizedSuggestion.isEmpty {
+            suggestedIndex = usable.firstIndex { option in
+                option.clubName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    == normalizedSuggestion
+            }
+        } else {
+            suggestedIndex = nil
+        }
+        let targetCarry = preparedCarry ?? routeDistanceM * 0.55
+        let nearestIndex = usable.indices.min { lhs, rhs in
+            let lhsDelta = abs((usable[lhs].medianM ?? 0) - targetCarry)
+            let rhsDelta = abs((usable[rhs].medianM ?? 0) - targetCarry)
+            return lhsDelta < rhsDelta
+        }
+        let stockIndex = suggestedIndex ?? nearestIndex ?? usable.startIndex
 
         let safeIndex = min(stockIndex + 1, usable.index(before: usable.endIndex))
         let attackIndex = max(stockIndex - 1, usable.startIndex)
