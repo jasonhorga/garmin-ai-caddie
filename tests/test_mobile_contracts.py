@@ -3016,9 +3016,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("value: HubRoute.roundReview(", recent_review)
         self.assertNotIn("onOpenRound", recent_review)
         self.assertIn(".navigationBarTitleDisplayMode(.inline)", recent_review)
-        self.assertIn(".navigationBarBackButtonDisplayMode(.minimal)", recent_review)
+        self.assertIn(".toolbarRole(.editor)", recent_review)
+        self.assertNotIn(".navigationBarBackButtonDisplayMode", recent_review)
         self.assertIn(".navigationBarTitleDisplayMode(.inline)", round_review)
-        self.assertIn(".navigationBarBackButtonDisplayMode(.minimal)", round_review)
+        self.assertIn(".toolbarRole(.editor)", round_review)
+        self.assertNotIn(".navigationBarBackButtonDisplayMode", round_review)
         self.assertIn('· 落点 · 左右滑', shot_map)
         for ui_test in [real_flow, review_edit]:
             self.assertIn('matching(identifier: "history-round-row")', ui_test)

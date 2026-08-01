@@ -28,7 +28,7 @@ public struct RecentRoundReviewView: View {
         // 与首页磁贴「历史复盘」一致(原为「赛后复盘」,单场仍叫「单场复盘」)。
         .navigationTitle("历史复盘")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonDisplayMode(.minimal)
+        .toolbarRole(.editor)
     }
 }
 

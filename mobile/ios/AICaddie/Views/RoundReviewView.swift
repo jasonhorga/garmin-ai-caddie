@@ -39,7 +39,7 @@ public struct RoundReviewView: View {
         .background(HubStyle.grouped)
         .navigationTitle("单场复盘")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonDisplayMode(.minimal)
+        .toolbarRole(.editor)
         .task(id: roundRef) { await load() }
         .sheet(item: $shotMapHole) { item in
             NavigationStack {
