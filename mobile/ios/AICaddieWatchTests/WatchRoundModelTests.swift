@@ -947,6 +947,28 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .finishing)
     }
 
+    func testFinishCannotUploadUntilConfirmationScreenIsAccepted() async {
+        var finishCalls = 0
+        let model = seededModel(
+            holes: [hole(1, score: 4)],
+            finisher: { _, _ in finishCalls += 1 }
+        )
+
+        model.requestFinish()
+        await model.confirmFinish()
+
+        XCTAssertEqual(finishCalls, 0)
+        XCTAssertNotNil(model.round)
+        XCTAssertEqual(model.screen, .finishing)
+
+        model.requestFinishConfirmation()
+        await model.confirmFinish()
+
+        XCTAssertEqual(finishCalls, 1)
+        XCTAssertNil(model.round)
+        XCTAssertEqual(model.screen, .home)
+    }
+
     func testCancelScoringDiscardsDraftAndReturnsHome() {
         let model = seededModel(holes: [hole(1, par: 4)])
         model.startScoringActiveHole()

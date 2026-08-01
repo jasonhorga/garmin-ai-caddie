@@ -377,7 +377,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    func testFinishSummaryRestoresApprovedHierarchyWithoutInventingStatistics() {
+    func testFinishSummaryUsesTheApprovedCompactFactsAndActions() {
         let view = WatchFinishRoundView(
             courseName: "北京丽宫 · 前九",
             holesPlayed: 9, holeCount: 9,
@@ -387,22 +387,11 @@ final class WatchDesignSnapshotTests: XCTestCase {
             pendingUploads: 2
         )
 
-        XCTAssertEqual(
-            view.headlineMetrics,
-            [
-                WatchFinishMetric(value: "+5", label: "成绩", tone: .score),
-                WatchFinishMetric(value: "41", label: "总杆", tone: .neutral),
-                WatchFinishMetric(value: "16", label: "推杆", tone: .neutral),
-            ]
-        )
-        XCTAssertEqual(
-            view.outcomeMetrics,
-            [
-                WatchFinishMetric(value: "44%", label: "GIR", detail: "4/9", tone: .gir),
-                WatchFinishMetric(value: "71%", label: "球道", detail: "5/7", tone: .fairway),
-            ]
-        )
-        XCTAssertEqual(view.pendingUploadText, "结束前保存 2 条")
+        XCTAssertEqual(view.scoreText, "+5")
+        XCTAssertEqual(view.totalStrokesText, "41 杆")
+        XCTAssertEqual(view.holesText, "9/9 洞")
+        XCTAssertEqual(view.puttsText, "推杆 16")
+        XCTAssertEqual(view.pendingUploadText, "稍后同步 2")
         XCTAssertEqual(view.primaryActionLabel, "保存并结束")
         XCTAssertEqual(view.secondaryActionLabel, "继续打球")
     }
@@ -420,6 +409,32 @@ final class WatchDesignSnapshotTests: XCTestCase {
         .frame(width: 198, height: 242)
         .background(Color.black)
         try render(view, named: "watch-finish-round")
+    }
+
+    @MainActor
+    func testFinishConfirmationUsesTheApprovedQuestionAndSummary() {
+        let view = WatchFinishConfirmationView(
+            holesPlayed: 9,
+            toPar: 5,
+            pendingUploads: 2
+        )
+
+        XCTAssertEqual(view.titleText, "结束本场?")
+        XCTAssertEqual(view.summaryText, "9 洞 · +5 · 保存并上传")
+        XCTAssertEqual(view.cancelLabel, "返回")
+        XCTAssertEqual(view.confirmLabel, "确认")
+    }
+
+    @MainActor
+    func testRenderWatchFinishConfirmation() throws {
+        let view = WatchFinishConfirmationView(
+            holesPlayed: 9,
+            toPar: 5,
+            pendingUploads: 2
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-finish-confirmation")
     }
 
     @MainActor
