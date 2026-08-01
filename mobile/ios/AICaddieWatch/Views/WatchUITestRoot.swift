@@ -46,7 +46,8 @@ public struct WatchUITestRoot: View {
              "real-course-hazard-map", "real-course-hazard-mid-map",
              "real-course-journey-start", "real-course-journey-advance",
              "real-course-journey-restore", "real-course-journey-history-edit",
-             "real-course-journey-finish", "real-course-journey-finish-confirm":
+             "real-course-journey-finish", "real-course-journey-finish-confirmation",
+             "real-course-journey-finish-confirm":
             realCourseRound
         case "course-picker":
             cachedCoursePicker
@@ -181,6 +182,12 @@ public struct WatchUITestRoot: View {
                 girSummary: WatchOutcomeSummary(hits: 4, recorded: 9),
                 pendingUploads: 2
             )
+        case "finish-confirmation":
+            WatchFinishConfirmationView(
+                holesPlayed: 9,
+                toPar: 5,
+                pendingUploads: 2
+            )
         case "start":
             WatchStartView(phoneReachable: false)
         default:
@@ -299,6 +306,8 @@ public struct WatchUITestRoot: View {
                     editRealCourseJourneyHistory()
                 } else if screen == "real-course-journey-finish" {
                     finishRealCourseJourney()
+                } else if screen == "real-course-journey-finish-confirmation" {
+                    showRealCourseJourneyFinishConfirmation()
                 } else if screen == "real-course-journey-finish-confirm" {
                     await confirmRealCourseJourneyFinish()
                 } else {
@@ -660,6 +669,22 @@ public struct WatchUITestRoot: View {
         verifyRealCourseJourney(stage: "finish-summary")
     }
 
+    @MainActor
+    private func showRealCourseJourneyFinishConfirmation() {
+        removeJourneyResultMarkers()
+        guard model.scoredHoles == 18, model.holeCount == 18 else {
+            failRealCourseJourney("结束确认页前并未完成同一 round 的 18 洞")
+            return
+        }
+        model.requestFinish()
+        model.requestFinishConfirmation()
+        guard model.screen == .finishConfirmation else {
+            failRealCourseJourney("结束汇总没有进入独立二次确认页")
+            return
+        }
+        verifyRealCourseJourney(stage: "finish-confirmation")
+    }
+
     /// Close the exact persisted 18-hole journey through the production Watch sync path. This is a
     /// second launch after the summary screenshot, so it proves queued offline facts survive a process
     /// boundary before all acknowledgements and `/finish` permit the local round to be cleared.
@@ -704,6 +729,11 @@ public struct WatchUITestRoot: View {
         let activeHole = before.activeHole
         model.config = config
         model.requestFinish()
+        model.requestFinishConfirmation()
+        guard model.screen == .finishConfirmation else {
+            failRealCourseJourney("真实结束事务绕过了二次确认页")
+            return
+        }
         await model.confirmFinish()
 
         guard model.round == nil,

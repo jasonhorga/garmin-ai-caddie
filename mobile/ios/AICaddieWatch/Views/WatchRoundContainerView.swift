@@ -333,8 +333,18 @@ public struct WatchRoundContainerView: View {
                 fairwaySummary: model.fairwaySummary,
                 girSummary: model.girSummary,
                 pendingUploads: model.pendingUploads,
-                onConfirmFinish: { Task { await model.confirmFinish() } },
+                onConfirmFinish: { model.requestFinishConfirmation() },
                 onKeepPlaying: { model.keepPlaying() }
+            )
+        case .finishConfirmation:
+            WatchFinishConfirmationView(
+                holesPlayed: model.scoredHoles,
+                toPar: model.toPar,
+                pendingUploads: model.pendingUploads,
+                isUploading: model.isUploading,
+                uploadError: model.uploadError,
+                onConfirm: { Task { await model.confirmFinish() } },
+                onCancel: { model.cancelFinishConfirmation() }
             )
         }
     }

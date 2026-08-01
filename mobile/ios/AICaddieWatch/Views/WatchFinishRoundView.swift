@@ -1,35 +1,7 @@
 import SwiftUI
 
-enum WatchFinishMetricTone: Equatable {
-    case score
-    case neutral
-    case gir
-    case fairway
-}
-
-struct WatchFinishMetric: Equatable {
-    let value: String
-    let label: String
-    let detail: String?
-    let tone: WatchFinishMetricTone
-
-    init(
-        value: String,
-        label: String,
-        detail: String? = nil,
-        tone: WatchFinishMetricTone
-    ) {
-        self.value = value
-        self.label = label
-        self.detail = detail
-        self.tone = tone
-    }
-}
-
-/// round-12 P3.3 (Watch standalone): the round-finish summary reached from `WatchRoundHomeView`'s
-/// "结束". It restores the approved compact result grid while retaining honest outcome denominators
-/// and the safe finish transaction: pending events are saved before the round is finalized, and keep
-/// playing remains non-destructive. Kept as plain stacks so CI's ImageRenderer captures the real view.
+/// The approved compact end-of-round summary. The richer GIR/fairway facts remain in the model for
+/// history and phone review, but this glance deliberately shows only the facts present in render #16.
 public struct WatchFinishRoundView: View {
     public let courseName: String
     public let holesPlayed: Int
@@ -70,36 +42,40 @@ public struct WatchFinishRoundView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("结束球局")
-                    .font(.system(size: 15, weight: .bold))
-                HStack(spacing: 4) {
-                    Text(courseName)
-                        .lineLimit(1)
-                    Spacer(minLength: 2)
-                    Text("\(holesPlayed)/\(holeCount) 洞")
-                        .fixedSize()
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            Text("结束本场")
+                .font(.system(size: 15, weight: .bold))
+
+            Text(courseName)
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.secondary)
-            }
+                .lineLimit(1)
+                .padding(.top, 1)
 
-            HStack(spacing: 4) {
-                ForEach(Array(headlineMetrics.enumerated()), id: \.offset) { _, metric in
-                    finishMetric(metric, valueSize: 20)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(scoreText)
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(totalStrokesText)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                    Text(holesText)
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
                 }
             }
-            .frame(maxWidth: .infinity)
+            .padding(.top, 6)
 
-            if !outcomeMetrics.isEmpty {
-                HStack(spacing: 14) {
-                    ForEach(Array(outcomeMetrics.enumerated()), id: \.offset) { _, metric in
-                        finishMetric(metric, valueSize: 20)
-                    }
-                }
-                .padding(.horizontal, 13)
-                .frame(maxWidth: .infinity)
+            if totalPutts != nil {
+                Text(puttsText)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 5)
             }
 
             if let pendingUploadText {
@@ -107,20 +83,21 @@ public struct WatchFinishRoundView: View {
                     Image(systemName: "arrow.up.circle")
                     Text(pendingUploadText)
                 }
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(AICaddieDesignTokens.offline)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(AICaddieDesignTokens.offline)
+                .padding(.top, 5)
             }
 
-            Spacer(minLength: 1)
+            Spacer(minLength: 3)
 
             Button(action: onConfirmFinish) {
                 Text(primaryActionLabel)
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(AICaddieDesignTokens.par)
+                    .frame(maxWidth: .infinity, minHeight: 42)
                     .background(
-                        Color(red: 0.28, green: 0.86, blue: 0.46),
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        AICaddieDesignTokens.par.opacity(0.25),
+                        in: RoundedRectangle(cornerRadius: 21, style: .continuous)
                     )
             }
             .buttonStyle(.plain)
@@ -128,102 +105,139 @@ public struct WatchFinishRoundView: View {
             Button(action: onKeepPlaying) {
                 Text(secondaryActionLabel)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.78))
-                    .frame(maxWidth: .infinity, minHeight: 24)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 43)
+                    .background(
+                        Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255),
+                        in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    )
             }
             .buttonStyle(.plain)
+            .padding(.top, 8)
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 25)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.black)
+        .ignoresSafeArea()
     }
 
-    var headlineMetrics: [WatchFinishMetric] {
-        [
-            WatchFinishMetric(value: toParText, label: "成绩", tone: .score),
-            WatchFinishMetric(value: "\(totalStrokes)", label: "总杆", tone: .neutral),
-            WatchFinishMetric(value: totalPutts.map(String.init) ?? "—", label: "推杆", tone: .neutral),
-        ]
-    }
-
-    var outcomeMetrics: [WatchFinishMetric] {
-        var metrics: [WatchFinishMetric] = []
-        if let girSummary, girSummary.recorded > 0 {
-            metrics.append(
-                WatchFinishMetric(
-                    value: percentageText(girSummary),
-                    label: "GIR",
-                    detail: "\(girSummary.hits)/\(girSummary.recorded)",
-                    tone: .gir
-                )
-            )
-        }
-        if let fairwaySummary, fairwaySummary.recorded > 0 {
-            metrics.append(
-                WatchFinishMetric(
-                    value: percentageText(fairwaySummary),
-                    label: "球道",
-                    detail: "\(fairwaySummary.hits)/\(fairwaySummary.recorded)",
-                    tone: .fairway
-                )
-            )
-        }
-        return metrics
-    }
-
-    var pendingUploadText: String? {
-        pendingUploads > 0 ? "结束前保存 \(pendingUploads) 条" : nil
-    }
-
-    var primaryActionLabel: String { "保存并结束" }
-    var secondaryActionLabel: String { "继续打球" }
-
-    private var toParText: String {
+    var scoreText: String {
         guard let toPar else { return "—" }
         if toPar == 0 { return "E" }
         return toPar > 0 ? "+\(toPar)" : "\(toPar)"
     }
 
-    private func percentageText(_ summary: WatchOutcomeSummary) -> String {
-        let percentage = Int((Double(summary.hits) / Double(summary.recorded) * 100).rounded())
-        return "\(percentage)%"
+    var totalStrokesText: String { "\(totalStrokes) 杆" }
+    var holesText: String { "\(holesPlayed)/\(holeCount) 洞" }
+    var puttsText: String { totalPutts.map { "推杆 \($0)" } ?? "推杆 —" }
+    var pendingUploadText: String? { pendingUploads > 0 ? "稍后同步 \(pendingUploads)" : nil }
+    var primaryActionLabel: String { "保存并结束" }
+    var secondaryActionLabel: String { "继续打球" }
+}
+
+/// Render #18: a separate destructive-action guard. Upload/finalize cannot begin from the summary;
+/// the player must reach this surface and explicitly press the opposite-side red button.
+public struct WatchFinishConfirmationView: View {
+    public let holesPlayed: Int
+    public let toPar: Int?
+    public let pendingUploads: Int
+    public let isUploading: Bool
+    public let uploadError: String?
+    public let onConfirm: () -> Void
+    public let onCancel: () -> Void
+
+    public init(
+        holesPlayed: Int,
+        toPar: Int?,
+        pendingUploads: Int,
+        isUploading: Bool = false,
+        uploadError: String? = nil,
+        onConfirm: @escaping () -> Void = {},
+        onCancel: @escaping () -> Void = {}
+    ) {
+        self.holesPlayed = holesPlayed
+        self.toPar = toPar
+        self.pendingUploads = pendingUploads
+        self.isUploading = isUploading
+        self.uploadError = uploadError
+        self.onConfirm = onConfirm
+        self.onCancel = onCancel
     }
 
-    private func finishMetric(_ metric: WatchFinishMetric, valueSize: CGFloat) -> some View {
-        VStack(spacing: 1) {
-            Text(metric.value)
-                .font(.system(size: valueSize, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(metricColor(metric.tone))
-                .minimumScaleFactor(0.72)
-                .lineLimit(1)
-            Text(metric.label)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-            if let detail = metric.detail {
-                Text(detail)
-                    .font(.system(size: 7, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary.opacity(0.72))
+    public var body: some View {
+        VStack(spacing: 10) {
+            Spacer(minLength: 4)
+
+            Text(titleText)
+                .font(.system(size: 16, weight: .bold))
+                .multilineTextAlignment(.center)
+
+            Text(statusText)
+                .font(.system(size: 11))
+                .foregroundStyle(
+                    uploadError == nil ? Color.secondary : AICaddieDesignTokens.doubleBogey
+                )
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+
+            Spacer(minLength: 4)
+
+            HStack(spacing: 8) {
+                confirmationButton(
+                    cancelLabel,
+                    background: Color(red: 31 / 255, green: 31 / 255, blue: 31 / 255),
+                    action: onCancel
+                )
+                confirmationButton(
+                    confirmLabel,
+                    background: Color(red: 1.0, green: 69 / 255, blue: 59 / 255),
+                    action: onConfirm
+                )
             }
         }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            [metric.label, metric.value, metric.detail].compactMap { $0 }.joined(separator: " ")
-        )
+        .padding(.horizontal, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black)
+        .ignoresSafeArea()
     }
 
-    private func metricColor(_ tone: WatchFinishMetricTone) -> Color {
-        switch tone {
-        case .score:
-            return Color(red: 1.0, green: 0.82, blue: 0.16)
-        case .neutral:
-            return .white
-        case .gir:
-            return Color(red: 0.28, green: 0.86, blue: 0.46)
-        case .fairway:
-            return Color(red: 0.18, green: 0.67, blue: 1.0)
+    var titleText: String { "结束本场?" }
+    var summaryText: String { "\(holesPlayed) 洞 · \(scoreText) · 保存并上传" }
+    var cancelLabel: String { "返回" }
+    var confirmLabel: String { isUploading ? "保存中" : "确认" }
+
+    private var statusText: String {
+        if let uploadError { return uploadError }
+        if isUploading { return "正在保存并上传…" }
+        return summaryText
+    }
+
+    private var scoreText: String {
+        guard let toPar else { return "—" }
+        if toPar == 0 { return "E" }
+        return toPar > 0 ? "+\(toPar)" : "\(toPar)"
+    }
+
+    private func confirmationButton(
+        _ label: String,
+        background: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .background(
+                    background,
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
         }
+        .buttonStyle(.plain)
+        .disabled(isUploading)
     }
 }

@@ -1015,6 +1015,8 @@ final class WatchRoundModelTests: XCTestCase {
         model.adjustDraftScore(1)
         model.saveActiveHole()                          // 2 pending events
         XCTAssertEqual(model.pendingUploads, 2)
+        model.requestFinish()
+        model.requestFinishConfirmation()
         await model.confirmFinish()
         XCTAssertEqual(received.count, 2)               // uploader saw the queued events
         XCTAssertEqual(finishedRoundId, "r1")
@@ -1037,6 +1039,8 @@ final class WatchRoundModelTests: XCTestCase {
         model.startScoringActiveHole()
         model.saveActiveHole()
         let pendingBefore = model.pendingUploads
+        model.requestFinish()
+        model.requestFinishConfirmation()
         await model.confirmFinish()
         XCTAssertNotNil(model.round)                    // round retained (offline-safe)
         XCTAssertEqual(model.pendingUploads, pendingBefore)
@@ -1050,12 +1054,13 @@ final class WatchRoundModelTests: XCTestCase {
         model.saveActiveHole()
         let pendingBefore = model.pendingUploads
         model.requestFinish()
+        model.requestFinishConfirmation()
 
         await model.confirmFinish()
 
         XCTAssertNotNil(model.round)
         XCTAssertEqual(model.pendingUploads, pendingBefore)
-        XCTAssertEqual(model.screen, .finishing)
+        XCTAssertEqual(model.screen, .finishConfirmation)
         XCTAssertNotNil(model.uploadError)
     }
 
@@ -1069,12 +1074,13 @@ final class WatchRoundModelTests: XCTestCase {
         model.saveActiveHole()
         XCTAssertEqual(model.pendingUploads, 2)
         model.requestFinish()
+        model.requestFinishConfirmation()
 
         await model.confirmFinish()
 
         XCTAssertNotNil(model.round)
         XCTAssertEqual(model.round?.pendingEvents.map(\.eventId), ["evt-2"])
-        XCTAssertEqual(model.screen, .finishing)
+        XCTAssertEqual(model.screen, .finishConfirmation)
         XCTAssertNotNil(model.uploadError)
     }
 

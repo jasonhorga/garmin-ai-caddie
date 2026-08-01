@@ -15,6 +15,7 @@ public enum WatchRoundScreen: Equatable {
     case clubPrompt
     case scoring
     case finishing
+    case finishConfirmation
     case scorecard   // round-13: 计分卡逐洞列表
     case currentHoleShots // 当前洞已记录的 GPS 击球事实与手动补杆入口
     case holeSelect  // round-13: 选洞
@@ -1057,10 +1058,23 @@ public final class WatchRoundModel: ObservableObject {
         screen = .home
     }
 
+    public func requestFinishConfirmation() {
+        guard screen == .finishing else { return }
+        uploadError = nil
+        screen = .finishConfirmation
+    }
+
+    public func cancelFinishConfirmation() {
+        guard screen == .finishConfirmation else { return }
+        uploadError = nil
+        screen = .finishing
+    }
+
     /// Finish the round only after every queued event is explicitly acknowledged. Without backend
     /// config, on upload failure, or after a partial acknowledgement, the round and unresolved events
     /// stay on disk for a later retry.
     public func confirmFinish() async {
+        guard screen == .finishConfirmation else { return }
         guard let current = round else { return }
         isUploading = true
         uploadError = nil
