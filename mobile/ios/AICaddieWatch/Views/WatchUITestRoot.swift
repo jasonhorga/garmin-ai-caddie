@@ -1248,6 +1248,7 @@ public struct WatchUITestRoot: View {
             hole: hole,
             par: par,
             distanceM: par == 3 ? 145 : (par == 4 ? 360 : 480),
+            selectedClub: nil,
             globalId: 31669,
             score: score,
             putts: score > 0 ? 2 : 0,
