@@ -383,7 +383,7 @@ public struct CurrentHoleView: View {
 
     /// All the original secondary inputs are preserved, tucked into 更多调整.
     private var moreAdjustCard: some View {
-        DisclosureGroup("更多调整(球杆 / 打法 / 球位 / 距离 / 目标 / 备注)") {
+        DisclosureGroup {
             VStack(spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("选球杆").font(.caption).foregroundStyle(.secondary)
@@ -408,6 +408,16 @@ public struct CurrentHoleView: View {
                 TextField("备注", text: $note)
             }
             .padding(.top, 6)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Label("更多调整", systemImage: "slider.horizontal.3")
+                    .font(.headline)
+                Text("球杆 · 打法 · 球位 · 距离 · 目标 · 备注")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
         }
         .livePlayAuxiliaryCard()
     }

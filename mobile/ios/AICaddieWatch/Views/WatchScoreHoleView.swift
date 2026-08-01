@@ -1,5 +1,11 @@
 import SwiftUI
 
+enum WatchScoreHoleLayout {
+    /// watchOS owns the top-right corner for the system clock. Keep the score title inside the
+    /// remaining glance area so it never reads as one string with the time (for example Par 42:04).
+    static let systemTimeTrailingClearance: CGFloat = 48
+}
+
 /// Per-hole confirmation: accept the recommendation in one tap, or walk through total strokes, putts,
 /// fairway result (Par 4/5), and penalties. Presentational and driven by `WatchRoundModel`.
 public struct WatchScoreHoleView: View {
@@ -64,7 +70,10 @@ public struct WatchScoreHoleView: View {
         VStack(spacing: 8) {
             Text("第 \(hole) 洞 · Par \(par)")
                 .font(.headline.weight(.bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
                 .frame(maxWidth: .infinity)
+                .padding(.trailing, WatchScoreHoleLayout.systemTimeTrailingClearance)
 
             stepContent
         }

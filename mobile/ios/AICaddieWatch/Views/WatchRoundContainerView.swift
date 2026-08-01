@@ -494,7 +494,8 @@ public struct WatchRoundContainerView: View {
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(7)
-                .background(Circle().fill(.black.opacity(0.55)))
+                .background(Circle().fill(Color.white.opacity(0.18)))
+                .overlay(Circle().stroke(Color.white.opacity(0.55), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("球局工具")
