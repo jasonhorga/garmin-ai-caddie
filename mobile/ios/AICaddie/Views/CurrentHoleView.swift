@@ -190,6 +190,9 @@ public struct CurrentHoleView: View {
                 .padding(.bottom, 24)
             }
         }
+        // The app shell is intentionally light, but this approved live-play surface is dark.
+        // Request dark system chrome here so the status-bar time, network, and battery stay visible.
+        .preferredColorScheme(.dark)
         // The map owns the live surface and supplies a stable navigation-style return row. The
         // inherited NavigationStack label is intentionally hidden because it can expose a stale
         // greeting from the round home rather than the approved live-play hierarchy.

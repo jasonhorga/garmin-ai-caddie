@@ -132,14 +132,16 @@ public struct WatchHoleMapView: View {
     public static let maximumCrownScale = 0.56
 
     /// Keep the approved 18-hole perimeter ring while leaving watchOS's persistent top-right clock
-    /// lane clear. Hole 1 stays at 12 o'clock; the next three bars resume immediately below the
-    /// clock before the normal perimeter cadence continues. Shorter 9-hole rings already have enough
-    /// spacing and retain their original distribution.
+    /// lane clear. Hole 1 stays at 12 o'clock; every remaining bar is distributed evenly from below
+    /// the clock to the ring's original endpoint. Shorter 9-hole rings retain their original layout.
     static func scoringRingCenterFraction(index: Int, count: Int) -> CGFloat {
         guard count > 0 else { return 0 }
         let normal = 0.02 + (0.75 - 0.02) * (CGFloat(index) + 0.5) / CGFloat(count)
-        guard count >= 18, (1 ... 3).contains(index) else { return normal }
-        return 0.128 + 0.014 * CGFloat(index)
+        guard count == 18, index > 0 else { return normal }
+        let firstCenterAfterClock: CGFloat = 0.145
+        let finalCenter = 0.02 + (0.75 - 0.02) * 17.5 / 18
+        return firstCenterAfterClock
+            + (finalCenter - firstCenterAfterClock) * CGFloat(index - 1) / 16
     }
 
     public static func isFullMap(crownScale: Double) -> Bool {
