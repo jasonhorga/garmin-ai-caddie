@@ -3015,6 +3015,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("RoundReviewView(", recent_review)
         self.assertNotIn("value: HubRoute.roundReview(", recent_review)
         self.assertNotIn("onOpenRound", recent_review)
+        self.assertIn(".navigationBarTitleDisplayMode(.inline)", recent_review)
+        self.assertIn(".navigationBarBackButtonDisplayMode(.minimal)", recent_review)
+        self.assertIn(".navigationBarTitleDisplayMode(.inline)", round_review)
+        self.assertIn(".navigationBarBackButtonDisplayMode(.minimal)", round_review)
         self.assertIn('· 落点 · 左右滑', shot_map)
         for ui_test in [real_flow, review_edit]:
             self.assertIn('matching(identifier: "history-round-row")', ui_test)
@@ -3026,6 +3030,8 @@ class MobileContractTests(unittest.TestCase):
             self.assertIn('matching(identifier: "topo-hole-base-ready")', ui_test)
             self.assertIn('app.buttons["Reorder 3"]', ui_test)
         self.assertIn('matching(identifier: "home-last-round-row")', real_flow)
+        self.assertIn('save("03-history-list")', real_flow)
+        self.assertIn('save("03b-history-real-round")', real_flow)
         # The modal pager's close action and its edit toggle must not both render as trailing
         # "完成" buttons. Close is leading and explicitly named; 编辑/完成 remains trailing.
         self.assertIn('ToolbarItem(placement: .topBarLeading)', round_review)

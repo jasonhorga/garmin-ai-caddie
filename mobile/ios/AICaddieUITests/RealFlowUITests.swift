@@ -50,9 +50,9 @@ final class RealFlowUITests: XCTestCase {
         // ---- Section 2: history list → a round review → shot-map → review-edit (merged #276) ----
         launchFresh()
         if tapContaining(["历史复盘", "逐场逐洞"]) {
-            settle(6)
+            settle(6); save("03-history-list"); dump("03-history-list")
             let tappedRound = tapRoundRow(containing: "2026-06-11") {
-                save("03-history-list"); dump("03-history-list")
+                save("03b-history-real-round"); dump("03b-history-real-round")
             }
             XCTAssertTrue(tappedRound, "history must expose the real 2026-06-11 round")
             let roundReview = app.navigationBars["单场复盘"]
