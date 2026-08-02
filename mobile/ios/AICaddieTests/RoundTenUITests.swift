@@ -4,6 +4,15 @@ import XCTest
 
 /// round-10 反馈的纯逻辑回归:避开区沙坑编号/排序、issue 中文映射、策略语义着色。
 final class RoundTenUITests: XCTestCase {
+    func testHazardIconsUseProductGlyphKeysInsteadOfEmoji() throws {
+        let hazards = CaddiePlanHazard.from(
+            CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[138, 12]])
+        )
+
+        XCTAssertEqual(try XCTUnwrap(hazards.first { $0.label == "沙坑" }).icon, "bunker")
+        XCTAssertEqual(try XCTUnwrap(hazards.first { $0.label == "水域" }).icon, "water")
+    }
+
     func testUncalibratedExpectedStrokesStayOutOfPlayerFacingCopy() {
         let option = CaddiePlanOption(
             id: "stock", label: "标准", carryM: 180, riskScore: 1, clubName: "3W",
