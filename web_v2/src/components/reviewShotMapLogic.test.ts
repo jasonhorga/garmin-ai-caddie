@@ -4,6 +4,7 @@ import {
   buildTimeline,
   buildTrajectory,
   chipShape,
+  clubDisplay,
   dodgeLabels,
   isManuallyCorrected,
   isPuttShot,
@@ -78,6 +79,16 @@ describe('isPuttShot', () => {
   })
 })
 
+describe('clubDisplay', () => {
+  it('uses Chinese display names for canonical backend club tokens', () => {
+    expect(clubDisplay(shot({ club: 'wood3' }))).toBe('三号木')
+    expect(clubDisplay(shot({ club: 'wood5' }))).toBe('五号木')
+    expect(clubDisplay(shot({ club: 'hybrid4' }))).toBe('四号小鸡腿')
+    expect(clubDisplay(shot({ club: 'iron9' }))).toBe('九号铁')
+    expect(clubDisplay(shot({ club: 'wedge50' }))).toBe('50°')
+  })
+})
+
 describe('isManuallyCorrected', () => {
   it('is true only when the club or lie carries a manual source', () => {
     expect(isManuallyCorrected(shot())).toBe(false)
@@ -118,8 +129,13 @@ describe('buildTimeline', () => {
   })
 
   it('flags the synthetic drive honestly', () => {
-    const rows = buildTimeline([shot({ synthetic: true, club: null })], 1)
-    expect(rows[0]).toMatchObject({ kind: 'shot', club: '未知球杆', resultZh: '未记录 · 推算开球' })
+    const rows = buildTimeline([shot({ synthetic: true, club: null, start: [0, 0], end: [0, 0] })], 1)
+    expect(rows[0]).toMatchObject({
+      kind: 'shot',
+      club: '未知球杆',
+      distanceYd: null,
+      resultZh: '未记录 · 推算开球',
+    })
   })
 })
 

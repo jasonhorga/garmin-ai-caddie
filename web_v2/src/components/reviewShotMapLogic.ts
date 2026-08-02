@@ -1,6 +1,8 @@
 import type { RoundHoleShot } from '../types'
+import { CLUB_CATALOG } from '../clubCatalog'
 
 const M_TO_YD = 1.09361
+const CLUB_ZH_BY_TOKEN = new Map(CLUB_CATALOG.map((club) => [club.token, club.zhName]))
 
 // Shape-coded score chip vocabulary (design system §一): under-par is a circle
 // (birdie ○, eagle ◎ double ring), over-par is a square (bogey □, double ⊡ double
@@ -83,7 +85,8 @@ export function seqLabel(seq: number): string {
 export function clubDisplay(shot: RoundHoleShot): string {
   if (isPuttShot(shot)) return '推杆'
   const club = shot.club?.trim()
-  return club && club.length > 0 ? club : '未知球杆'
+  if (!club) return '未知球杆'
+  return CLUB_ZH_BY_TOKEN.get(club.toLowerCase()) ?? club
 }
 
 // A shot the player edited in the 复盘 correction layer: the backend tags a manually
@@ -129,7 +132,7 @@ export function buildTimeline(shots: RoundHoleShot[], ppm: number | null | undef
       kind: 'shot',
       seq,
       club: clubDisplay(shot),
-      distanceYd: shotDistanceYd(shot.start, shot.end, ppm),
+      distanceYd: shot.synthetic ? null : shotDistanceYd(shot.start, shot.end, ppm),
       resultZh,
       synthetic: shot.synthetic,
       corrected: isManuallyCorrected(shot),

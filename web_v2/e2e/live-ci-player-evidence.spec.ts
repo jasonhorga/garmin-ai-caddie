@@ -56,11 +56,13 @@ test.describe('real isolated CI player evidence', () => {
     await expect(roundDetail.getByLabel('球局数据')).toBeVisible({ timeout: 60_000 })
     await expect(roundDetail).toContainText('Cypress Point Club')
     await expect(roundDetail.getByText('正在加载球局…')).toHaveCount(0)
-    // The panel is taller than the viewport. Scrolling the panel itself aligns its top at y=0,
-    // underneath the fixed app bar, and clips the evidence heading. Capture the route at its
-    // natural page origin instead.
-    await page.evaluate(() => window.scrollTo(0, 0))
-    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0)
+    // Keep the loaded detail heading immediately below the sticky 54 px app bar. Capturing from
+    // scrollY=0 only shows the archive list above this panel and falsely looks like a duplicate.
+    await roundDetail.evaluate((node) => node.scrollIntoView({ block: 'start', behavior: 'instant' }))
+    await page.evaluate(() => window.scrollBy(0, -64))
+    await expect
+      .poll(async () => Math.round((await roundDetail.boundingBox())?.y ?? -1))
+      .toBeGreaterThanOrEqual(54)
     await captureWithoutCredentialInLocation(page, 'round-review.png')
 
     // Leave no capability token in the final page URL when the browser context closes.

@@ -15,6 +15,11 @@ public func zhClubName(_ raw: String) -> String {
     if let degrees = Int(s), (44...64).contains(degrees) {
         return "\(degrees)° 挖起杆"
     }
+    if lower.hasPrefix("wedge"),
+       let degrees = Int(lower.dropFirst("wedge".count)),
+       (44...64).contains(degrees) {
+        return "\(degrees)° 挖起杆"
+    }
     func firstDigit(_ text: String) -> String? {
         text.first(where: { $0.isNumber }).map(String.init)
     }
@@ -29,6 +34,9 @@ public func zhClubName(_ raw: String) -> String {
         return "小鸡腿"
     }
     // Fairway wood: "Nw" / "N号木".
+    if lower.hasPrefix("wood"), let n = firstDigit(lower) {
+        return "\(cnClubNumber[n] ?? n)号木"
+    }
     if lower.hasSuffix("w"), lower.dropLast().allSatisfy(\.isNumber), let n = firstDigit(lower) {
         return "\(cnClubNumber[n] ?? n)号木"
     }
@@ -36,6 +44,9 @@ public func zhClubName(_ raw: String) -> String {
         return "\(cnClubNumber[n] ?? n)号木"
     }
     // Iron: "NI" / "N号铁".
+    if lower.hasPrefix("iron"), let n = firstDigit(lower) {
+        return "\(cnClubNumber[n] ?? n)号铁"
+    }
     if lower.hasSuffix("i"), lower.dropLast().allSatisfy(\.isNumber), let n = firstDigit(lower) {
         return "\(cnClubNumber[n] ?? n)号铁"
     }
