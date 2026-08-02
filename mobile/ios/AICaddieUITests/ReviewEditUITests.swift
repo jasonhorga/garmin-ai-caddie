@@ -141,6 +141,25 @@ final class ReviewEditUITests: XCTestCase {
         )
         XCTAssertFalse(app.navigationBars["补一杆"].exists, "08 must never retain a mislabeled add sheet")
         XCTAssertFalse(app.navigationBars["改这一杆"].exists, "08 must never retain a mislabeled edit sheet")
+        // Switching from RoundShotEditContent back to the read-only RoundShotMapView creates a new
+        // AsyncImage.  The 编辑 button returns before that image has finished loading, so waiting a
+        // fixed two seconds can capture the transient "球场地图加载中…" overlay as if it were I31.
+        // A fast cache hit may make the loading element too brief to observe; either way, the final
+        // gate is a newly-ready real topo with no loading element left in the hierarchy.
+        let readOnlyTopoLoading = app.descendants(matching: .any)
+            .matching(identifier: "topo-hole-base-loading").firstMatch
+        _ = readOnlyTopoLoading.waitForExistence(timeout: 5)
+        XCTAssertTrue(
+            waitUntilGone(readOnlyTopoLoading, timeout: 75),
+            "08 may be captured only after the read-only topo loading overlay disappears"
+        )
+        let readOnlyTopoReady = app.descendants(matching: .any)
+            .matching(identifier: "topo-hole-base-ready").firstMatch
+        XCTAssertTrue(
+            readOnlyTopoReady.waitForExistence(timeout: 75),
+            "08 requires the real read-only topo after leaving edit mode"
+        )
+        XCTAssertFalse(readOnlyTopoLoading.exists, "08 must not contain 球场地图加载中…")
         settle(2); save("08-edit-done"); dump("08-edit-done")
     }
 
