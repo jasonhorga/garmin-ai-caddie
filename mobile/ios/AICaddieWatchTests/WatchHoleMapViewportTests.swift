@@ -45,6 +45,31 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertFalse(pillRect.intersects(WatchHoleMapViewport.systemTimeRect(in: viewport)))
     }
 
+    func testDistancePillConnectorBindsTheCalloutToItsMarker() {
+        let connector = WatchHoleMapViewport.distancePillConnector(
+            marker: CGPoint(x: 100, y: 100),
+            pillCenter: CGPoint(x: 100, y: 80),
+            pillSize: CGSize(width: 68, height: 18)
+        )
+
+        XCTAssertEqual(connector?.start, CGPoint(x: 100, y: 89))
+        XCTAssertEqual(connector?.end, CGPoint(x: 100, y: 100))
+    }
+
+    func testFreeMeasurementOwnsTheVisibleRouteInsteadOfLeavingASecondCaddieTarget() {
+        let measured = CGPoint(x: 470, y: 470)
+
+        XCTAssertEqual(
+            WatchHoleMapRouteOverlay.resolve(
+                measuredPoint: measured,
+                showCaddieRecommendation: true,
+                hasCurrentShot: false,
+                showPreparedPlan: true
+            ),
+            .measurement(measured)
+        )
+    }
+
     func testEighteenHoleRingLeavesThePersistentClockLaneClear() {
         let centers = (0 ..< 18).map {
             WatchHoleMapView.scoringRingCenterFraction(index: $0, count: 18)
