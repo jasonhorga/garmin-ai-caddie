@@ -250,15 +250,25 @@ final class RealFlowUITests: XCTestCase {
         let liveHoleHeading = app.staticTexts["第 1 洞"]
         XCTAssertTrue(liveHoleHeading.waitForExistence(timeout: 5))
         let liveWindowFrame = app.windows.firstMatch.frame
-        XCTAssertLessThanOrEqual(
+        XCTAssertLessThan(
+            liveBackButton.frame.maxX,
+            liveHoleHeading.frame.minX,
+            "the approved circular return control sits to the left of the hole heading"
+        )
+        XCTAssertGreaterThan(
             liveBackButton.frame.maxY,
             liveHoleHeading.frame.minY,
-            "the approved live layout has a separate navigation-style return row above the hole heading"
+            "the approved return control and hole heading share one compact header row"
+        )
+        XCTAssertGreaterThan(
+            liveHoleHeading.frame.minX,
+            liveWindowFrame.width * 0.13,
+            "the approved hole heading leaves room for the inline circular return control"
         )
         XCTAssertLessThan(
-            liveHoleHeading.frame.minX,
-            liveWindowFrame.width * 0.10,
-            "the approved hole heading is left-aligned, not indented by an inline circular back button"
+            liveBackButton.frame.width,
+            liveWindowFrame.width * 0.16,
+            "the approved return control is a compact circle, not a separate blue text row"
         )
         let livePlayPanel = app.descendants(matching: .any)["live-play-panel-anchor"].firstMatch
         XCTAssertTrue(livePlayPanel.waitForExistence(timeout: 5))
@@ -621,15 +631,13 @@ final class RealFlowUITests: XCTestCase {
     }
 
     /// `app.statusBars` is empty on the iPhone 16 simulator even while SpringBoard visibly draws the
-    /// white time / Wi-Fi / battery glyphs over this app's near-black top inset. Inspect the two status
-    /// lanes in the actual screen pixels instead. Mirrored bottom lanes make this independent of
-    /// CGImage's row orientation; the approved immersive render has no bright app content there.
+    /// white time / Wi-Fi / battery glyphs over this app's near-black top inset. Inspect only the two
+    /// top status lanes in the actual screen pixels. Mirroring these lanes at the bottom produced a
+    /// false positive whenever the approved scorecard/actions occupied the lower corners.
     private func visibleStatusChromeBrightPixelFraction(in screenshot: XCUIScreenshot) -> Double {
         let lanes = [
-            CGRect(x: 0.08, y: 0.015, width: 0.19, height: 0.06),
-            CGRect(x: 0.68, y: 0.015, width: 0.26, height: 0.06),
-            CGRect(x: 0.08, y: 0.925, width: 0.19, height: 0.06),
-            CGRect(x: 0.68, y: 0.925, width: 0.26, height: 0.06),
+            CGRect(x: 0.08, y: 0.015, width: 0.19, height: 0.045),
+            CGRect(x: 0.68, y: 0.015, width: 0.26, height: 0.045),
         ]
         return lanes.map { brightPixelFraction(in: screenshot, normalizedRect: $0) }.max() ?? 0
     }
