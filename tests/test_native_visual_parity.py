@@ -71,6 +71,22 @@ class NativeVisualParityTests(unittest.TestCase):
             workflow,
         )
 
+    def test_real_course_visual_player_has_a_measured_bag_before_download(self) -> None:
+        workflow = Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8")
+
+        seed = "seed_isolated_visual_player_bag"
+        setup_exit = 'if [[ "$WATCH_RUNTIME_SCOPE" == "setup-visual" ]]; then'
+        download = "launch_and_capture real-course-download-seed watch-real-course-download.png"
+
+        self.assertIn(seed, workflow)
+        self.assertIn("/api/v2/history/overview", workflow)
+        self.assertIn("/api/v2/players/$CI_PLAYER_ID/clubs/bag", workflow)
+        self.assertIn('"token":"driver","distanceM":220', workflow)
+        self.assertIn('"token":"wood3","distanceM":200', workflow)
+        self.assertIn('"token":"iron8","distanceM":125', workflow)
+        self.assertLess(workflow.index(setup_exit), workflow.index(seed))
+        self.assertLess(workflow.index(seed), workflow.index(download))
+
 
 if __name__ == "__main__":
     unittest.main()

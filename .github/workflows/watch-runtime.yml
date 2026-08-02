@@ -336,6 +336,36 @@ jobs:
             echo "Setup and club-prompt visual evidence complete; skipping real-course and score-writing journey."
             exit 0
           fi
+
+          # The isolated CI player must exercise the real prepared-caddie path, not the honest
+          # no-bag fallback. Resolve that player's own id from its bearer, then set an idempotent
+          # measured bag through the production player-scoped API. This never touches the owner.
+          seed_isolated_visual_player_bag() {
+            local overview bag_response
+            overview=$(curl --fail --silent --show-error --retry 3 --retry-all-errors \
+              -H "Authorization: Bearer $REAL_COURSE_PLAYER_TOKEN" \
+              "$REAL_COURSE_API_BASE_URL/api/v2/history/overview")
+            CI_PLAYER_ID=$(jq -er \
+              '.currentPlayer.id | select(type == "string" and length > 0)' \
+              <<< "$overview")
+            [[ "$CI_PLAYER_ID" =~ ^[A-Za-z0-9._-]+$ ]]
+
+            bag_response=$(curl --fail --silent --show-error --retry 3 --retry-all-errors \
+              -X PUT \
+              -H "Authorization: Bearer $REAL_COURSE_PLAYER_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data-binary '{"clubs":[{"token":"driver","distanceM":220},{"token":"wood3","distanceM":200},{"token":"wood5","distanceM":185},{"token":"hybrid4","distanceM":170},{"token":"iron5","distanceM":155},{"token":"iron7","distanceM":140},{"token":"iron8","distanceM":125},{"token":"pw","distanceM":100}]}' \
+              "$REAL_COURSE_API_BASE_URL/api/v2/players/$CI_PLAYER_ID/clubs/bag")
+            jq -e '
+              .found == true and .source == "manual"
+              and ([.clubs[].token]
+                | index("driver") != null
+                and index("wood3") != null
+                and index("iron8") != null)
+            ' <<< "$bag_response" >/dev/null
+          }
+          seed_isolated_visual_player_bag
+
           # Real production installer: search a new course, fetch its Tee metadata, download package +
           # prep into the existing course/image store, then terminate before the offline-only restore.
           launch_and_capture real-course-download-seed watch-real-course-download.png
