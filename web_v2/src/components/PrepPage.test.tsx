@@ -282,6 +282,7 @@ describe('PrepPage workbench', () => {
 
     expect(screen.getByRole('heading', { name: '观澜湖·世界杯场' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '球场 99999' })).not.toBeInTheDocument()
+    await screen.findByText('PAR 9 · 900 码')
   })
 
   it('header prefers the courseOptions name over the handed-down search name', async () => {
@@ -289,6 +290,7 @@ describe('PrepPage workbench', () => {
 
     expect(screen.getByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
     expect(screen.queryByText('搜索结果名')).not.toBeInTheDocument()
+    await screen.findByText('PAR 9 · 900 码')
   })
 
   it('换球场 notifies onChangeCourse', async () => {
@@ -301,6 +303,7 @@ describe('PrepPage workbench', () => {
 
   it('shows the loading panel and hides the workbench while prep is in flight', async () => {
     fetchCoursePrepMock.mockImplementation(() => new Promise<CoursePrepResponse>(() => {}))
+    fetchPrepTipsMock.mockImplementation(() => new Promise<PrepTipsResponse>(() => {}))
     renderPrep()
 
     expect(screen.getByText('球场攻略加载中…')).toBeInTheDocument()

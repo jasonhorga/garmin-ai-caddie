@@ -1,5 +1,17 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 
+const fullRoundPars = [4, 5, 3, 4, 4, 5, 4, 3, 4, 4, 4, 3, 5, 4, 4, 3, 5, 4]
+const fullRoundScores = [4, 4, 3, 5, 4, 5, 6, 3, 4, 5, 5, 3, 5, 4, 5, 3, 5, 5]
+
+function fullRoundClass(toPar: number) {
+  if (toPar <= -2) return 'eagle'
+  if (toPar === -1) return 'birdie'
+  if (toPar === 0) return 'par'
+  if (toPar === 1) return 'bogey'
+  if (toPar === 2) return 'double'
+  return 'triple'
+}
+
 const overviewPayload = {
   schema: 'ai-caddie-history-overview-v2',
   metrics: {
@@ -24,17 +36,11 @@ const overviewPayload = {
       toPar: 6,
       primaryIssue: 'approach_short',
       badges: [{ label: 'shots', state: 'good', value: '100%', reason: 'all shot rows loaded' }],
-      scoreStrip: [
-        { hole: 1, par: 4, score: 4, toPar: 0, className: 'par' },
-        { hole: 2, par: 5, score: 4, toPar: -1, className: 'birdie' },
-        { hole: 3, par: 3, score: 3, toPar: 0, className: 'par' },
-        { hole: 4, par: 4, score: 5, toPar: 1, className: 'bogey' },
-        { hole: 5, par: 4, score: 4, toPar: 0, className: 'par' },
-        { hole: 6, par: 5, score: 5, toPar: 0, className: 'par' },
-        { hole: 7, par: 4, score: 6, toPar: 2, className: 'double' },
-        { hole: 8, par: 3, score: 3, toPar: 0, className: 'par' },
-        { hole: 9, par: 4, score: 4, toPar: 0, className: 'par' },
-      ],
+      scoreStrip: fullRoundScores.map((score, index) => {
+        const par = fullRoundPars[index] ?? 4
+        const toPar = score - par
+        return { hole: index + 1, par, score, toPar, className: fullRoundClass(toPar) }
+      }),
     },
   ],
   distribution: {
@@ -659,36 +665,25 @@ const replayRoundDetailPayload = {
     confidence: 'high',
     coverage: { scorecard: 'full', shots: 'full', putts: 'full' },
   },
-  scorecard: [
-    {
-      hole: 1,
-      par: 4,
-      score: 4,
-      toPar: 0,
-      className: 'par',
-      putts: 2,
-      gir: true,
-      fairway: 'hit',
-      holeRef: '900001:1',
-      shotRefs: ['900001:1:0'],
-      sourceRefs: ['900001:1'],
+  scorecard: fullRoundScores.map((score, index) => {
+    const hole = index + 1
+    const par = fullRoundPars[index] ?? 4
+    const toPar = score - par
+    return {
+      hole,
+      par,
+      score,
+      toPar,
+      className: fullRoundClass(toPar),
+      putts: hole % 4 === 0 ? 3 : hole % 3 === 0 ? 1 : 2,
+      gir: toPar <= 0,
+      fairway: par === 3 ? null : hole % 5 === 0 ? 'left' : 'hit',
+      holeRef: `900001:${hole}`,
+      shotRefs: [`900001:${hole}:0`],
+      sourceRefs: [`900001:${hole}`],
       status: 'complete',
-    },
-    {
-      hole: 2,
-      par: 5,
-      score: 4,
-      toPar: -1,
-      className: 'birdie',
-      putts: 1,
-      gir: true,
-      fairway: 'hit',
-      holeRef: '900001:2',
-      shotRefs: ['900001:2:0'],
-      sourceRefs: ['900001:2'],
-      status: 'complete',
-    },
-  ],
+    }
+  }),
   phaseSummary: [],
   holeDetails: [],
   relatedRefs: { roundRefs: ['900001'], holeRefs: ['900001:1', '900001:2'], shotRefs: [], sourceRefs: [] },
@@ -739,6 +734,21 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.locator('[aria-label="选择球局"]')).toBeVisible()
   await expect(page.getByText('Black Knight B', { exact: true })).toBeVisible()
   await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
+  const holeStripBox = await page.locator('.review-holes').boundingBox()
+  const lastHoleBox = await page.getByRole('button', { name: '第18洞 标准杆4 成绩5' }).boundingBox()
+  expect(holeStripBox).not.toBeNull()
+  expect(lastHoleBox).not.toBeNull()
+  expect((lastHoleBox?.x ?? 0) + (lastHoleBox?.width ?? 0)).toBeLessThanOrEqual(
+    (holeStripBox?.x ?? 0) + (holeStripBox?.width ?? 0),
+  )
+  const replayCanvas = page.locator('[aria-label="第1洞落点图"]')
+  const replayCanvasBox = await replayCanvas.boundingBox()
+  const replayFrameBox = await replayCanvas.locator('.review-canvas-frame').boundingBox()
+  expect(replayCanvasBox).not.toBeNull()
+  expect(replayFrameBox).not.toBeNull()
+  expect((replayFrameBox?.y ?? 0) + (replayFrameBox?.height ?? 0)).toBeLessThanOrEqual(
+    (replayCanvasBox?.y ?? 0) + (replayCanvasBox?.height ?? 0),
+  )
   await assertNoViewportOverflow(page)
   await expect(page.getByText('历史数据不可用')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'overview')
@@ -789,16 +799,37 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
 
   // …while 复盘 owns the rounds list + strengths analysis (split out of the old 历史).
   await page.getByRole('button', { name: '复盘', exact: true }).click()
-  for (const [tab, heading, level, slug] of [
-    ['球局', '球局', 1, 'rounds'],
-    ['强弱分析', '你最该练', 1, 'strengths-list'],
-  ] as const) {
-    await subnav.getByRole('button', { name: tab }).click()
-    await expect(page.getByRole('heading', { name: heading, exact: true, level })).toBeVisible()
-    await assertNoViewportOverflow(page)
-    await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
-    await captureSmokeScreenshot(page, testInfo, slug)
-  }
+  await subnav.getByRole('button', { name: '球局' }).click()
+  await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
+  await captureSmokeScreenshot(page, testInfo, 'rounds')
+
+  // A list screenshot does not prove the completed-round product surface. Open the
+  // actual archive card and capture the production detail panel after its API result
+  // is visible, so the final visual audit cannot accidentally approve a loading shell.
+  await page.getByRole('button', { name: '打开球局 Black Knight B，2026-05-20，成绩 78' }).click()
+  const roundReview = page.locator('section.round-detail-panel')
+  await expect(roundReview).toBeVisible()
+  await expect(roundReview.getByRole('heading', { name: '球局回顾', exact: true })).toBeVisible()
+  await expect(roundReview.getByRole('heading', { name: '记分卡', exact: true })).toBeVisible()
+  const frontNine = roundReview.getByLabel('前九记分卡')
+  const backNine = roundReview.getByLabel('后九记分卡')
+  await expect(frontNine).toBeVisible()
+  await expect(backNine).toBeVisible()
+  const frontNineBox = await frontNine.boundingBox()
+  const backNineBox = await backNine.boundingBox()
+  expect(frontNineBox).not.toBeNull()
+  expect(backNineBox).not.toBeNull()
+  expect(backNineBox?.y ?? 0).toBeGreaterThanOrEqual((frontNineBox?.y ?? 0) + (frontNineBox?.height ?? 0))
+  await assertNoViewportOverflow(page)
+  await captureSmokeScreenshot(page, testInfo, 'round-review')
+
+  await subnav.getByRole('button', { name: '强弱分析' }).click()
+  await expect(page.getByRole('heading', { name: '你最该练', exact: true, level: 1 })).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
+  await captureSmokeScreenshot(page, testInfo, 'strengths-list')
 
   await subnav.getByRole('button', { name: '强弱分析' }).click()
   await expect(page.getByRole('heading', { name: '你最该练', exact: true })).toBeVisible()
@@ -891,6 +922,14 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(prepInspector.getByRole('heading', { name: '球童试算 · 第 1 洞' })).toBeVisible()
   await expect(prepInspector.locator('.prep-club.on')).toContainText('1D')
   await expect(prepInspector.getByText('水×1 · 沙×1')).toBeVisible()
+  const prepCanvas = page.getByLabel('第1洞球道图')
+  const prepCanvasBox = await prepCanvas.boundingBox()
+  const prepFrameBox = await prepCanvas.locator('.prep-canvas-frame').boundingBox()
+  expect(prepCanvasBox).not.toBeNull()
+  expect(prepFrameBox).not.toBeNull()
+  expect((prepFrameBox?.y ?? 0) + (prepFrameBox?.height ?? 0)).toBeLessThanOrEqual(
+    (prepCanvasBox?.y ?? 0) + (prepCanvasBox?.height ?? 0),
+  )
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'prep-overview')
 
@@ -1148,6 +1187,35 @@ async function assertNoViewportOverflow(page: Page) {
 }
 
 async function captureSmokeScreenshot(page: Page, testInfo: TestInfo, name: string) {
+  const brightSurfaces = await page.evaluate(() => {
+    const seen = new Map<string, { area: number; sample: string }>()
+    for (const element of Array.from(document.querySelectorAll<HTMLElement>('body *'))) {
+      const rect = element.getBoundingClientRect()
+      const area = Math.max(0, rect.width) * Math.max(0, rect.height)
+      if (area < 300 || rect.bottom <= 0 || rect.right <= 0) continue
+      const color = getComputedStyle(element).backgroundColor.match(/^rgba?\(([^)]+)\)$/)
+      if (!color) continue
+      const channels = color[1].split(',').map((part) => Number.parseFloat(part.trim()))
+      const [red = 0, green = 0, blue = 0, alpha = 1] = channels
+      if (alpha < 0.8) continue
+      const luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255
+      if (luminance < 0.78) continue
+      const classes = Array.from(element.classList).slice(0, 3).join('.')
+      const parentClasses = Array.from(element.parentElement?.classList ?? []).slice(0, 2).join('.')
+      const key = `${parentClasses ? `.${parentClasses}>` : ''}${element.tagName.toLowerCase()}${classes ? `.${classes}` : ''}`
+      const previous = seen.get(key)
+      if (!previous || area > previous.area) {
+        seen.set(key, { area: Math.round(area), sample: (element.textContent ?? '').trim().slice(0, 42) })
+      }
+    }
+    return Array.from(seen, ([selector, value]) => ({ selector, ...value }))
+      .sort((left, right) => right.area - left.area)
+      .slice(0, 24)
+  })
+  expect(
+    brightSurfaces,
+    `${name} contains bright opaque surfaces that break the approved dark visual language`,
+  ).toEqual([])
   await page.screenshot({
     path: testInfo.outputPath(`${name}.png`),
     fullPage: true,

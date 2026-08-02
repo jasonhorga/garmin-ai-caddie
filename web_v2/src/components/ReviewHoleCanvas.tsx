@@ -34,6 +34,12 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
   const note = statusNote(state)
   const map = state.status === 'ready' ? state.data.map : null
   const shots = state.status === 'ready' ? state.data.shots : []
+  // The overlay is authoritative for coordinate space. A fallback bitmap can be a
+  // placeholder (or have stale intrinsic dimensions), so allowing the image itself
+  // to size this frame stretches every route and landing marker out of alignment.
+  const frameStyle: CSSProperties | undefined = map
+    ? { aspectRatio: `${map.overlay.w} / ${map.overlay.h}` }
+    : undefined
   // Realistic topo base for this exact (physical gid, localHole) when geometry rendered; else the
   // legacy render (map.image). Both share the overlay frame, so the shot vectors align regardless.
   const topoData = state.status === 'ready' ? state.data : null
@@ -96,7 +102,7 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
 
   return (
     <div className="review-canvas" aria-label={`第${hole}洞落点图`}>
-      <div className="review-canvas-frame">
+      <div className="review-canvas-frame" style={frameStyle}>
         {map ? (
           <HoleBaseImage className="review-canvas-img" topoSrc={topoSrc} fallbackSrc={map.image} alt={`第${hole}洞`} />
         ) : (

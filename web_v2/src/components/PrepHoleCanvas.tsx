@@ -36,6 +36,11 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasPro
   const fallbackImage = map?.image ?? '/hole-sample.png'
   const topoSrc = overlay && globalId != null ? topoImageUrl(globalId, hole.hole) : undefined
   const yourShots = hole.yourShots ?? []
+  // All distance markers use overlay coordinates, so the overlay dimensions—not
+  // a placeholder bitmap's intrinsic ratio—must own the visible frame.
+  const frameStyle: CSSProperties | undefined = overlay
+    ? { aspectRatio: `${overlay.w} / ${overlay.h}` }
+    : undefined
 
   const onPointer = (event: ReactPointerEvent<SVGSVGElement>): void => {
     if (!overlay || !svgRef.current) return
@@ -140,7 +145,7 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasPro
 
   return (
     <div className="prep-canvas" aria-label={`第${hole.hole}洞球道图`}>
-      <div className="prep-canvas-frame">
+      <div className="prep-canvas-frame" style={frameStyle}>
         <HoleBaseImage className="prep-canvas-img" topoSrc={topoSrc} fallbackSrc={fallbackImage} alt={`第${hole.hole}洞`} />
         {svg}
         {greenChip}

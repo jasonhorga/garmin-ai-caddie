@@ -11,6 +11,11 @@ function formatToPar(value: number | null) {
   return String(value)
 }
 
+function toParTone(value: number | null): string {
+  if (value === null || value === 0) return 'score-even'
+  return value < 0 ? 'score-under' : 'score-over'
+}
+
 function roundActionLabel(round: RoundCardType) {
   return `打开球局 ${cleanCourseName(round.courseName)}，${shortRoundDate(round.date)}，成绩 ${round.score ?? '-'}`
 }
@@ -39,7 +44,7 @@ export function RoundCard({ round, onSelectRef, onOpenRoundDetail }: RoundCardPr
         </div>
         <div className="round-score">
           <strong>{round.score ?? '-'}</strong>
-          <span>{formatToPar(round.toPar)}</span>
+          <span className={toParTone(round.toPar)}>{formatToPar(round.toPar)}</span>
         </div>
       </div>
       {onSelectRef || onOpenRoundDetail ? (

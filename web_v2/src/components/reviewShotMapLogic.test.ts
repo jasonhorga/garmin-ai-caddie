@@ -87,6 +87,14 @@ describe('clubDisplay', () => {
     expect(clubDisplay(shot({ club: 'iron9' }))).toBe('九号铁')
     expect(clubDisplay(shot({ club: 'wedge50' }))).toBe('50°')
   })
+
+  it('uses the same Chinese names for Garmin shorthand tokens', () => {
+    expect(clubDisplay(shot({ club: '1W' }))).toBe('一号木')
+    expect(clubDisplay(shot({ club: '3W' }))).toBe('三号木')
+    expect(clubDisplay(shot({ club: '5I' }))).toBe('五号铁')
+    expect(clubDisplay(shot({ club: '7I' }))).toBe('七号铁')
+    expect(clubDisplay(shot({ club: 'PW' }))).toBe('P杆')
+  })
 })
 
 describe('isManuallyCorrected', () => {
@@ -128,14 +136,9 @@ describe('buildTimeline', () => {
     expect(rows[1]).toMatchObject({ kind: 'shot', club: '九号铁', corrected: true })
   })
 
-  it('flags the synthetic drive honestly', () => {
+  it('omits a synthetic route anchor that has no recorded club', () => {
     const rows = buildTimeline([shot({ synthetic: true, club: null, start: [0, 0], end: [0, 0] })], 1)
-    expect(rows[0]).toMatchObject({
-      kind: 'shot',
-      club: '未知球杆',
-      distanceYd: null,
-      resultZh: '未记录 · 推算开球',
-    })
+    expect(rows).toEqual([])
   })
 })
 
@@ -156,7 +159,7 @@ describe('shotLandingLabels', () => {
       shot({ club: '7I', end: [30, 30] }),
     ])
     expect(labels).toHaveLength(1)
-    expect(labels[0]).toMatchObject({ x: 30, y: 30, text: '7I' })
+    expect(labels[0]).toMatchObject({ x: 30, y: 30, text: '七号铁' })
   })
 })
 

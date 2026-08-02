@@ -58,14 +58,17 @@ struct StatsContent: View {
     var body: some View {
         VStack(spacing: 12) {
             if let stats {
-                if let s = stats.summary { overviewCard(s) }
-                if let trend = stats.trend, !trend.points.isEmpty { trendCard(trend) }
+                // Keep the approved, decision-first statistics hierarchy in the first viewport.
+                // Trend and aggregate KPIs remain available below it; they must not push the
+                // score composition, by-par performance, fairway/GIR and putting facts off-screen.
                 if let spread = stats.scoring?.outcomeDistribution, !spread.isEmpty { spreadCard(spread) }
                 if let bands = stats.scoring?.scoreBands, !bands.isEmpty { distributionCard(bands) }
                 let byPar = (stats.scoring?.byPar ?? []).filter { (3...5).contains($0.par ?? 0) }
                 if !byPar.isEmpty { byParCard(byPar) }
                 if let phases = stats.scoring?.phaseStats, !phases.isEmpty { phaseCard(phases) }
                 if let putting = stats.scoring?.putting { puttingCard(putting) }
+                if let s = stats.summary { overviewCard(s) }
+                if let trend = stats.trend, !trend.points.isEmpty { trendCard(trend) }
                 if let trends = stats.diagnosis?.issueTrends, !trends.isEmpty { trendsCard(trends) }
                 if let q = stats.time?.byQuarter, !q.isEmpty { periodCard(q) }
                 if !stats.courses.isEmpty { coursesCard(stats.courses) }

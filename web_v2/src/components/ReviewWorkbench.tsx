@@ -17,6 +17,11 @@ function formatToPar(value: number | null): string {
   return value > 0 ? `+${value}` : String(value)
 }
 
+function toParTone(value: number | null): string {
+  if (value === null || value === 0) return 'score-even'
+  return value < 0 ? 'score-under' : 'score-over'
+}
+
 // The shape-coded score chip (design system §一): the SVG frame encodes the
 // outcome family (circle=under, square=over, triangle=triple+) and the number is
 // the strokes. Colour comes from CSS per shape.
@@ -187,7 +192,9 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
         </label>
         <div className="review-total">
           总杆 <b>{roundScore ?? '—'}</b>
-          {roundToPar !== null ? <span className="review-total-topar"> · {formatToPar(roundToPar)}</span> : null}
+          {roundToPar !== null ? (
+            <span className={`review-total-topar ${toParTone(roundToPar)}`}> · {formatToPar(roundToPar)}</span>
+          ) : null}
         </div>
       </div>
 

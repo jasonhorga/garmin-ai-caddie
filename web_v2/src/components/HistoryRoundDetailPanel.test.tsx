@@ -269,4 +269,31 @@ describe('HistoryRoundDetailPanel', () => {
       Element.prototype.scrollIntoView = original
     }
   })
+
+  it('groups a full scorecard into readable front and back nines', () => {
+    const template = payload.scorecard[0]
+    const scorecard = Array.from({ length: 18 }, (_, index) => ({
+      ...template,
+      hole: index + 1,
+      holeRef: `700001:${index + 1}`,
+      score: 4,
+      toPar: 0,
+      className: 'par' as const,
+      shotRefs: [],
+      sourceRefs: [],
+    }))
+    renderPanel(
+      <HistoryRoundDetailPanel
+        state={{ status: 'ready', data: { ...payload, scorecard } }}
+      />,
+    )
+
+    const front = screen.getByLabelText('前九记分卡')
+    const back = screen.getByLabelText('后九记分卡')
+    expect(within(front).getByText('H1')).toBeInTheDocument()
+    expect(within(front).getByText('H9')).toBeInTheDocument()
+    expect(within(front).queryByText('H10')).not.toBeInTheDocument()
+    expect(within(back).getByText('H10')).toBeInTheDocument()
+    expect(within(back).getByText('H18')).toBeInTheDocument()
+  })
 })

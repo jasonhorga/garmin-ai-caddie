@@ -423,7 +423,19 @@ final class DesignSnapshotTests: XCTestCase {
         "diagnosis":{"topIssue":"double_or_worse","issueTrends":[{"issue":"tee_miss","direction":"worsening","estimatedStrokesLost":1.2},{"issue":"three_putt","direction":"improving","estimatedStrokesLost":-0.6}]}}
         """
         let mobileStats = try JSONDecoder().decode(MobileStats.self, from: Data(statsJSON.utf8))
-        try captureScreen(StatsContent(stats: mobileStats, isLoading: false, errorText: nil), named: "stats")
+        // Render the same navigable, scrollable container the customer sees. Capturing the oversized
+        // StatsContent component by itself vertically centred and clipped the first sections, which
+        // made the old "approved" image impossible for the production screen to reproduce honestly.
+        try captureScreen(
+            NavigationStack {
+                ScrollView {
+                    StatsContent(stats: mobileStats, isLoading: false, errorText: nil)
+                }
+                .background(HubStyle.grouped)
+                .navigationTitle("数据统计")
+            },
+            named: "stats"
+        )
         // 球场钻取(round-10):各九洞组合 + 所有比赛(时间·成绩,点单场看复盘)。
         if let course = mobileStats.courses.first {
             try captureScreen(NavigationStack { CourseStatsDetailView(course: course) }, named: "course-detail")

@@ -70,6 +70,16 @@ describe('ReviewWorkbench', () => {
     expect(screen.getByLabelText('双柏忌 5')).toBeInTheDocument() // hole 3: +2
     expect(screen.getByLabelText('小鸟 4')).toBeInTheDocument() // hole 4: -1 circle
     expect(screen.getByLabelText('三柏忌以上 7')).toBeInTheDocument() // hole 5: +3 triangle
+    const timeline = await screen.findByRole('complementary', { name: '杆序' })
+    expect(await within(timeline).findByText('一号木')).toBeInTheDocument()
+  })
+
+  it('uses a celebratory under-par tone for a negative round total', async () => {
+    const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
+    render(<ReviewWorkbench rounds={[round({ toPar: -2 })]} fetchShotMap={fetchShotMap} />)
+    expect(screen.getByText('· -2')).toHaveClass('score-under')
+    const timeline = await screen.findByRole('complementary', { name: '杆序' })
+    expect(await within(timeline).findByText('一号木')).toBeInTheDocument()
   })
 
   it('loads the selected hole shot map and renders the 杆序 timeline (club + distance + putts)', async () => {

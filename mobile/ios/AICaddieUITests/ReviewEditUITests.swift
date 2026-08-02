@@ -94,14 +94,27 @@ final class ReviewEditUITests: XCTestCase {
 
         // ---- 补一杆: tap empty map → the add sheet appears; cancel (no write) ----
         mapPoint(dx: 0.18, dy: 0.42).tap()
+        let addSheet = app.navigationBars["补一杆"]
+        XCTAssertTrue(addSheet.waitForExistence(timeout: 5), "05 must be the real 补一杆 sheet")
         settle(2); save("05-add-sheet"); dump("05-add-sheet")
-        _ = tapButton("取消")
+        let cancelAdd = addSheet.buttons["取消"]
+        XCTAssertTrue(cancelAdd.exists && cancelAdd.isHittable, "the add sheet must expose its own cancel action")
+        cancelAdd.tap()
+        XCTAssertTrue(waitUntilGone(addSheet, timeout: 5), "cancel must dismiss the add sheet before editing a landing")
         settle(1)
 
         // ---- 改这一杆: tap a landing → the edit sheet appears; dismiss with 完成 (no write) ----
-        mapPoint(dx: 0.5, dy: 0.5).tap()
+        // Use the real topo element as the coordinate frame. This fixed evidence round's first
+        // landing is near (0.47, 0.17); the former screen-centre tap hit empty map and silently
+        // reopened 补一杆 while the test mislabeled it as 改这一杆.
+        editTopoReady.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.17)).tap()
+        let editSheet = app.navigationBars["改这一杆"]
+        XCTAssertTrue(editSheet.waitForExistence(timeout: 5), "06 must edit a recorded landing, not reopen 补一杆")
         settle(2); save("06-edit-sheet"); dump("06-edit-sheet")
-        _ = tapButton("完成")
+        let finishEditSheet = editSheet.buttons["完成"]
+        XCTAssertTrue(finishEditSheet.exists && finishEditSheet.isHittable, "the edit sheet must expose its own completion action")
+        finishEditSheet.tap()
+        XCTAssertTrue(waitUntilGone(editSheet, timeout: 5), "sheet completion must return to the editable map")
         settle(1)
 
         // ---- Drag a handle (WRITES a move) — gated so routine runs stay read-only ----
@@ -113,7 +126,18 @@ final class ReviewEditUITests: XCTestCase {
         }
 
         // Leave edit mode (unlocks 翻洞). 完成 is the same nav button toggled.
-        _ = tapButton("完成")
+        let finishMapEdit = app.buttons["完成"].firstMatch
+        XCTAssertTrue(
+            finishMapEdit.waitForExistence(timeout: 5) && finishMapEdit.isHittable,
+            "the parent edit mode must still expose 完成 after the child sheet closes"
+        )
+        finishMapEdit.tap()
+        XCTAssertTrue(
+            app.buttons["编辑"].waitForExistence(timeout: 12),
+            "08 may be captured only after the map has returned to read-only mode"
+        )
+        XCTAssertFalse(app.navigationBars["补一杆"].exists, "08 must never retain a mislabeled add sheet")
+        XCTAssertFalse(app.navigationBars["改这一杆"].exists, "08 must never retain a mislabeled edit sheet")
         settle(2); save("08-edit-done"); dump("08-edit-done")
     }
 
@@ -127,6 +151,15 @@ final class ReviewEditUITests: XCTestCase {
     }
 
     private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+
+    private func waitUntilGone(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        if !element.exists { return true }
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
 
     /// A screen coordinate at a normalized offset of the app window — used to tap/drag the Canvas map
     /// (its landings/handles are drawn, not accessibility elements, so there's nothing to query).

@@ -44,7 +44,28 @@ final class RealFlowUITests: XCTestCase {
             "UI-test bootstrap must load the real home course, not auto-activate the implicit DEBUG round 900001"
         )
         if tapContaining(["数据统计", "均杆 · 趋势"]) {
-            settle(7); save("02-stats"); dump("02-stats")
+            let scoreComposition = app.staticTexts["成绩构成 · 按洞"]
+            let trendHeading = app.staticTexts.matching(
+                NSPredicate(format: "label BEGINSWITH '近 ' AND label CONTAINS '场走势'")
+            ).firstMatch
+            XCTAssertTrue(
+                scoreComposition.waitForExistence(timeout: 20),
+                "the approved scoring composition must be the statistics landing"
+            )
+            XCTAssertTrue(
+                trendHeading.waitForExistence(timeout: 8),
+                "the trend remains available below the approved scoring facts"
+            )
+            XCTAssertLessThan(
+                scoreComposition.frame.minY,
+                trendHeading.frame.minY,
+                "trend must not displace the approved scoring hierarchy from the first viewport"
+            )
+            XCTAssertTrue(
+                fullyVisible(scoreComposition),
+                "the first screenshot must show the scoring composition heading inside the safe viewport"
+            )
+            settle(2); save("02-stats"); dump("02-stats")
         }
 
         // ---- Section 2: history list → a round review → shot-map → review-edit (merged #276) ----

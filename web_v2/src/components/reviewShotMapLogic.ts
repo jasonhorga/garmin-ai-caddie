@@ -3,6 +3,35 @@ import { CLUB_CATALOG } from '../clubCatalog'
 
 const M_TO_YD = 1.09361
 const CLUB_ZH_BY_TOKEN = new Map(CLUB_CATALOG.map((club) => [club.token, club.zhName]))
+const GARMIN_CLUB_ZH: Record<string, string> = {
+  '1d': '一号木',
+  '1w': '一号木',
+  d: '一号木',
+  '3w': '三号木',
+  '5w': '五号木',
+  '7w': '七号木',
+  '1h': '一号小鸡腿',
+  '2h': '二号小鸡腿',
+  '3h': '三号小鸡腿',
+  '4h': '四号小鸡腿',
+  '5h': '五号小鸡腿',
+  '6h': '六号小鸡腿',
+  '1i': '一号铁',
+  '2i': '二号铁',
+  '3i': '三号铁',
+  '4i': '四号铁',
+  '5i': '五号铁',
+  '6i': '六号铁',
+  '7i': '七号铁',
+  '8i': '八号铁',
+  '9i': '九号铁',
+  pw: 'P杆',
+  gw: 'A杆',
+  aw: 'A杆',
+  sw: 'S杆',
+  lw: 'L杆',
+  pt: '推杆',
+}
 
 // Shape-coded score chip vocabulary (design system §一): under-par is a circle
 // (birdie ○, eagle ◎ double ring), over-par is a square (bogey □, double ⊡ double
@@ -86,7 +115,8 @@ export function clubDisplay(shot: RoundHoleShot): string {
   if (isPuttShot(shot)) return '推杆'
   const club = shot.club?.trim()
   if (!club) return '未知球杆'
-  return CLUB_ZH_BY_TOKEN.get(club.toLowerCase()) ?? club
+  const token = club.toLowerCase()
+  return CLUB_ZH_BY_TOKEN.get(token) ?? GARMIN_CLUB_ZH[token] ?? club
 }
 
 // A shot the player edited in the 复盘 correction layer: the backend tags a manually
@@ -125,6 +155,10 @@ export function buildTimeline(shots: RoundHoleShot[], ppm: number | null | undef
       putts += 1
       continue
     }
+    // The backend may add a zero-length synthetic opening anchor only to join the
+    // route geometry. It is not a player-recorded stroke, so exposing it as
+    // “未知球杆” in the timeline creates a fake extra shot.
+    if (shot.synthetic && !shot.club?.trim()) continue
     seq += 1
     const endLie = lieZh(shot.endLie)
     const resultZh = shot.synthetic ? '未记录 · 推算开球' : endLie ? `→ ${endLie}` : ''
