@@ -54,6 +54,16 @@ public final class RoundEditModel: ObservableObject {
     /// Drag a landing to a new pixel (on release): same local reposition as the live preview, then POST.
     public func move(shotId: String, px: [Double]) {
         applyLandingMove(shotId: shotId, px: px)
+        #if DEBUG
+        // Real-app screenshot tests must exercise the production drag gesture without mutating the
+        // owner's Garmin history. Requiring BOTH flags keeps this narrowly scoped to the explicit
+        // UI-test evidence run; Release builds always take the normal POST path below.
+        let environment = ProcessInfo.processInfo.environment
+        if environment["UITEST_MODE"] == "1",
+           environment["UITEST_READ_ONLY_DRAG_PREVIEW"] == "1" {
+            return
+        }
+        #endif
         post(.move(shotId, px: px))
     }
 

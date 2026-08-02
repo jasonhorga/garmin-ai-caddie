@@ -9,9 +9,9 @@ import XCTest
 /// same as ``RealFlowUITests``. PNGs + per-screen element-tree dumps land in the test process Documents
 /// dir; the workflow collects `*Documents/real-screenshots/*`.
 ///
-/// **Safe by default:** every step that would WRITE a correction to the owner's real history (confirming
-/// an add, committing a drag) is gated behind `UITEST_ALLOW_EDIT_WRITES=1`. Without it, the test only
-/// opens sheets and cancels/dismisses them — it never mutates data — so a routine capture run is read-only.
+/// **Safe by default:** every step that would WRITE a correction to the owner's real history is gated
+/// behind `UITEST_ALLOW_EDIT_WRITES=1`. Routine evidence runs launch the real app in a strict Debug-only
+/// read-only drag mode: the production gesture and local rubber-band run, but its correction POST is skipped.
 final class ReviewEditUITests: XCTestCase {
     private let app = XCUIApplication()
 
@@ -29,6 +29,9 @@ final class ReviewEditUITests: XCTestCase {
         app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
         app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.5461531"
         app.launchEnvironment["UITEST_MODE"] = "1"
+        if !allowWrites {
+            app.launchEnvironment["UITEST_READ_ONLY_DRAG_PREVIEW"] = "1"
+        }
     }
 
     func testCaptureReviewEditFlow() throws {
@@ -117,13 +120,13 @@ final class ReviewEditUITests: XCTestCase {
         XCTAssertTrue(waitUntilGone(editSheet, timeout: 5), "sheet completion must return to the editable map")
         settle(1)
 
-        // ---- Drag a handle (WRITES a move) — gated so routine runs stay read-only ----
-        if allowWrites {
-            let start = mapPoint(dx: 0.5, dy: 0.5)
-            let end = mapPoint(dx: 0.56, dy: 0.44)
-            start.press(forDuration: 0.7, thenDragTo: end)
-            settle(2); save("07-drag-move"); dump("07-drag-move")
-        }
+        // ---- Drag a real handle. Routine runs preserve the local preview but skip the correction POST. ----
+        // Reuse the same known first-landing coordinate that opened 改这一杆 above; the former screen-centre
+        // drag could start on empty map and still let the suite pass without producing I30 evidence.
+        let dragStart = editTopoReady.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.17))
+        let dragEnd = editTopoReady.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.25))
+        dragStart.press(forDuration: 0.7, thenDragTo: dragEnd)
+        settle(2); save("07-drag-move"); dump("07-drag-move")
 
         // Leave edit mode (unlocks 翻洞). 完成 is the same nav button toggled.
         let finishMapEdit = app.buttons["完成"].firstMatch
