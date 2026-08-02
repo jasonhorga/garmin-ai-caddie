@@ -3,6 +3,8 @@ import SwiftUI
 enum WatchHazardMapLayout {
     static let markerDiameter: CGFloat = 8
     static let markerToPillCenterOffset: CGFloat = 14
+    static let topPillLaneCenterY: CGFloat = 42
+    static let topBoundaryClearance: CGFloat = 56
 
     static func distancePillSize(for text: String) -> CGSize {
         CGSize(width: CGFloat(text.count) * 8 + 20, height: 18)
@@ -264,7 +266,9 @@ public struct WatchHazardMapView: View {
             playerAnchorFraction: 0.66,
             playerImageY: Double(geometry.youPx.y),
             pinImageY: Double(topImageY),
-            topClearance: centerGreenYards > 0 ? 42 : WatchHoleMapViewport.flagTopClearance
+            topClearance: centerGreenYards > 0
+                ? Double(WatchHazardMapLayout.topBoundaryClearance)
+                : WatchHoleMapViewport.flagTopClearance
         ))
 
         return ZStack {
@@ -340,7 +344,9 @@ public struct WatchHazardMapView: View {
         let frontPoint = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
         let backPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
         let pillHeight = WatchHazardMapLayout.distancePillSize(for: "到 000").height
-        let minimumPillCenterY: CGFloat = centerGreenYards > 0 ? 42 : pillHeight * 0.5 + 4
+        let minimumPillCenterY: CGFloat = centerGreenYards > 0
+            ? WatchHazardMapLayout.topPillLaneCenterY
+            : pillHeight * 0.5 + 4
         let maximumPillCenterY = max(minimumPillCenterY, size.height - pillHeight * 0.5 - 4)
         let frontCanvasPoint = frontPoint.map(canvas)
         let backCanvasPoint = backPoint.map(canvas)
