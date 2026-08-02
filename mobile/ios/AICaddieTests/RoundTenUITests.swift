@@ -48,7 +48,7 @@ final class RoundTenUITests: XCTestCase {
                 ]
             )
         )
-        let bunkers = hazards.filter { $0.icon == "🏖" }
+        let bunkers = hazards.filter { $0.icon == "bunker" }
         XCTAssertEqual(bunkers.count, 2)
         // Number/sort by measured front edge and show the same front/back semantics as S70.
         XCTAssertEqual(bunkers[0].label, "沙坑 1")
@@ -61,7 +61,7 @@ final class RoundTenUITests: XCTestCase {
         XCTAssertEqual(bunkers[1].detail, "到 \(farYards) · 过 \(farClearYards) 码")
         XCTAssertLessThan(nearYards, farYards)  // sort order: nearer bunker first
 
-        let water = try XCTUnwrap(hazards.first { $0.icon == "💧" })
+        let water = try XCTUnwrap(hazards.first { $0.icon == "water" })
         XCTAssertEqual(water.detail, "到 191 · 过 213 码")
 
         // Every iPhone surface consumes one proximity order, regardless of hazard kind. A water
@@ -87,8 +87,8 @@ final class RoundTenUITests: XCTestCase {
         let hazards = CaddiePlanHazard.from(
             CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[138, 12]])
         )
-        XCTAssertEqual(hazards.filter { $0.icon == "🏖" }.first?.label, "沙坑")
-        XCTAssertEqual(hazards.filter { $0.icon == "💧" }.first?.label, "水域")
+        XCTAssertEqual(hazards.filter { $0.icon == "bunker" }.first?.label, "沙坑")
+        XCTAssertEqual(hazards.filter { $0.icon == "water" }.first?.label, "水域")
     }
 
     func testZhIssueLabelMapsMachineTokensAndPassesUnknownThrough() {

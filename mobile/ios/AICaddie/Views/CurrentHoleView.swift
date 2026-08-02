@@ -649,7 +649,7 @@ public struct CurrentHoleView: View {
             return liveHazards.map {
                 CaddiePlanHazard(
                     id: $0.id,
-                    icon: $0.kind == "water" ? "💧" : "🏖",
+                    icon: $0.kind == "water" ? "water" : "bunker",
                     label: $0.label,
                     detail: $0.detail
                 )

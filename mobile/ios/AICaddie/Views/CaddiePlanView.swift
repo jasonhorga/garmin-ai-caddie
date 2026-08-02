@@ -618,67 +618,112 @@ public struct CaddiePlanView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         ForEach(hazards) { hazard in
-            HStack(spacing: 8) {
-                Text(hazard.icon)
+            HStack(spacing: 10) {
+                hazardGlyph(hazard.icon)
                 Text(hazard.label)
-                    .font(.subheadline)
+                    .font(.subheadline.weight(.medium))
                 Spacer()
                 if let detail = hazard.detail {
                     Text(detail)
                         .font(.caption.monospacedDigit())
+                        .lineLimit(1)
                         .padding(.vertical, 3)
                         .padding(.horizontal, 8)
-                        .background(AICaddieDesignTokens.bogey.opacity(0.16))
+                        .background(AICaddieDesignTokens.bogey.opacity(0.13))
                         .foregroundStyle(AICaddieDesignTokens.bogey)
                         .clipShape(Capsule())
                 }
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(.secondarySystemBackground).opacity(0.72))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+            )
         }
     }
 
-    /// 备选打法对比表:打法 / 球杆 / 带球 / 风险;推荐行(选中)高亮。
-    private var altTable: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("打法").frame(maxWidth: .infinity, alignment: .leading)
-                Text("球杆").frame(width: 60, alignment: .leading)
-                Text("带球").frame(width: 60, alignment: .trailing)
-                Text("风险").frame(width: 48, alignment: .trailing)
+    @ViewBuilder private func hazardGlyph(_ kind: String) -> some View {
+        ZStack {
+            Circle()
+                .fill((kind == "water" ? Color.blue : AICaddieDesignTokens.bogey).opacity(0.12))
+            if kind == "water" {
+                Image(systemName: "drop.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.blue)
+            } else {
+                ZStack {
+                    Capsule()
+                        .fill(AICaddieDesignTokens.bogey.opacity(0.92))
+                        .frame(width: 19, height: 10)
+                        .rotationEffect(.degrees(-8))
+                    Capsule()
+                        .fill(AICaddieDesignTokens.bogey.opacity(0.45))
+                        .frame(width: 11, height: 5)
+                        .offset(x: 3, y: -1)
+                }
             }
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .padding(.vertical, 6)
-            Divider()
+        }
+        .frame(width: 28, height: 28)
+        .accessibilityHidden(true)
+    }
+
+    /// 备选打法以紧凑卡片比较打法 / 球杆带球 / 风险；推荐卡保持批准稿的克制高亮。
+    private var altTable: some View {
+        VStack(spacing: 8) {
             ForEach(options) { option in
                 let isSelected = option.id == selectedOptionId
-                HStack {
-                    HStack(spacing: 5) {
+                let color = AICaddieDesignTokens.strategyColor(option.id)
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 7) {
+                        Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                            .font(.caption)
+                            .foregroundStyle(isSelected ? color : Color.secondary)
+                        Text("\(zhCaddieRouteLabel(option.label))打法")
+                            .font(.subheadline.weight(isSelected ? .semibold : .medium))
                         if isSelected {
-                            Text("推荐")
+                            Text("已选")
                                 .font(.caption2.weight(.bold))
                                 .padding(.vertical, 2)
                                 .padding(.horizontal, 6)
-                                .background(AICaddieDesignTokens.strategyColor(option.id).opacity(0.18))
-                                .foregroundStyle(AICaddieDesignTokens.strategyColor(option.id))
+                                .background(color.opacity(0.16))
+                                .foregroundStyle(color)
                                 .clipShape(Capsule())
                         }
-                        Text(zhCaddieRouteLabel(option.label))
-                            .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                            .lineLimit(1)
+                        Spacer()
+                        Text("风险 \(Int(option.riskScore))")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(AICaddieDesignTokens.riskColor(option.riskScore))
+                            .padding(.vertical, 3)
+                            .padding(.horizontal, 7)
+                            .background(AICaddieDesignTokens.riskColor(option.riskScore).opacity(0.12))
+                            .clipShape(Capsule())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(zhClubName(option.clubName)).font(.subheadline).frame(width: 60, alignment: .leading)
-                    Text("\(CoursePrepRoute.yards(fromMetres: option.carryM)) 码").font(.subheadline.monospacedDigit()).frame(width: 60, alignment: .trailing)
-                    Text("\(Int(option.riskScore))")
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(AICaddieDesignTokens.riskColor(option.riskScore))
-                        .frame(width: 48, alignment: .trailing)
+                    HStack(spacing: 6) {
+                        Text(zhClubName(option.clubName))
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                        Text("带球 \(CoursePrepRoute.yards(fromMetres: option.carryM)) 码")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 6)
-                .background(isSelected ? AICaddieDesignTokens.strategyColor(option.id).opacity(0.10) : Color.clear)
-                Divider()
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(isSelected ? color.opacity(0.08) : Color(.secondarySystemBackground).opacity(0.6))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(isSelected ? color.opacity(0.45) : Color.primary.opacity(0.05), lineWidth: 1)
+                )
             }
         }
     }
@@ -699,7 +744,7 @@ public struct CaddiePlanView: View {
     }
 }
 
-/// 避开区项:emoji 图标 + 中文标签 + CoursePrep 中可证实的距离事实。
+/// 避开区项：语义图标键 + 中文标签 + CoursePrep 中可证实的距离事实。
 public struct CaddiePlanHazard: Identifiable, Equatable {
     public let id: String
     public let icon: String
@@ -725,7 +770,7 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
             for (index, detail) in bunkerDetails.enumerated() {
                 let label = bunkerDetails.count > 1 ? "沙坑 \(index + 1)" : "沙坑"
                 out.append((detail.frontRouteM, CaddiePlanHazard(
-                    id: "bunker-\(index)", icon: "🏖", label: label,
+                    id: "bunker-\(index)", icon: "bunker", label: label,
                     detail: measuredText(frontM: detail.frontM, backM: detail.backM)
                 )))
             }
@@ -734,7 +779,7 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
             for (index, interval) in bunkers.enumerated() {
                 let label = bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑"
                 out.append((interval.first ?? .greatestFiniteMagnitude, CaddiePlanHazard(
-                    id: "bunker-\(index)", icon: "🏖", label: label, detail: bunkerText(interval)
+                    id: "bunker-\(index)", icon: "bunker", label: label, detail: bunkerText(interval)
                 )))
             }
         }
@@ -745,7 +790,7 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
             for (index, detail) in waterDetails.enumerated() {
                 let label = waterDetails.count > 1 ? "水域 \(index + 1)" : "水域"
                 out.append((detail.frontRouteM, CaddiePlanHazard(
-                    id: "water-\(index)", icon: "💧", label: label,
+                    id: "water-\(index)", icon: "water", label: label,
                     detail: measuredText(frontM: detail.frontM, backM: detail.backM)
                 )))
             }
@@ -754,7 +799,7 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
             for (index, interval) in water.enumerated() {
                 let label = water.count > 1 ? "水域 \(index + 1)" : "水域"
                 out.append((interval.first ?? .greatestFiniteMagnitude, CaddiePlanHazard(
-                    id: "water-\(index)", icon: "💧", label: label, detail: rangeText(interval)
+                    id: "water-\(index)", icon: "water", label: label, detail: rangeText(interval)
                 )))
             }
         }
