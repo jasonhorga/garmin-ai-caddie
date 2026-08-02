@@ -85,6 +85,21 @@ final class WatchHazardMapLayoutTests: XCTestCase {
         XCTAssertEqual(WatchHazardMapLayout.markerToPillCenterOffset, 14, accuracy: 0.0001)
     }
 
+    func testTopHazardBoundaryMarkerStaysClearOfTheApprovedPillLane() {
+        let pill = WatchHazardMapLayout.distancePillSize(for: "过 149")
+        let requiredCenterSpacing = pill.height * 0.5
+            + WatchHazardMapLayout.markerDiameter * 0.5
+            + 1
+
+        XCTAssertEqual(WatchHazardMapLayout.topPillLaneCenterY, 42, accuracy: 0.0001)
+        XCTAssertEqual(WatchHazardMapLayout.topBoundaryClearance, 56, accuracy: 0.0001)
+        XCTAssertGreaterThanOrEqual(
+            WatchHazardMapLayout.topBoundaryClearance
+                - WatchHazardMapLayout.topPillLaneCenterY,
+            requiredCenterSpacing
+        )
+    }
+
     func testHazardPillStaysCenteredOnItsBoundaryMarker() {
         XCTAssertEqual(
             WatchHazardMapLayout.distancePillCenterX(
