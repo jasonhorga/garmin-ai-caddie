@@ -272,10 +272,10 @@ final class RealFlowUITests: XCTestCase {
             liveWindowFrame.height * 0.55,
             "the data panel must still begin in the approved lower-map band, not drift below the first glance"
         )
-        XCTAssertGreaterThan(
+        XCTAssertLessThan(
             visibleStatusChromeBrightPixelFraction(in: XCUIScreen.main.screenshot()),
-            0.01,
-            "the approved live screen retains the system time, Wi-Fi, and battery status region"
+            0.005,
+            "the approved immersive live screen does not show system time, Wi-Fi, or battery chrome"
         )
         XCTAssertFalse(
             app.buttons["晚上好"].exists || app.buttons["早上好"].exists
@@ -623,7 +623,7 @@ final class RealFlowUITests: XCTestCase {
     /// `app.statusBars` is empty on the iPhone 16 simulator even while SpringBoard visibly draws the
     /// white time / Wi-Fi / battery glyphs over this app's near-black top inset. Inspect the two status
     /// lanes in the actual screen pixels instead. Mirrored bottom lanes make this independent of
-    /// CGImage's row orientation; the app itself has no bright content in those four corner lanes.
+    /// CGImage's row orientation; the approved immersive render has no bright app content there.
     private func visibleStatusChromeBrightPixelFraction(in screenshot: XCUIScreenshot) -> Double {
         let lanes = [
             CGRect(x: 0.08, y: 0.015, width: 0.19, height: 0.06),
