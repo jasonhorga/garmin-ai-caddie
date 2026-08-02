@@ -734,6 +734,7 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.locator('[aria-label="选择球局"]')).toBeVisible()
   await expect(page.getByText('Black Knight B', { exact: true })).toBeVisible()
   await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
+  await expect(page.locator('.review-canvas-hole')).toHaveCSS('color', 'rgb(15, 23, 32)')
   const holeStripBox = await page.locator('.review-holes').boundingBox()
   const lastHoleBox = await page.getByRole('button', { name: '第18洞 标准杆4 成绩5' }).boundingBox()
   expect(holeStripBox).not.toBeNull()
@@ -1187,35 +1188,25 @@ async function assertNoViewportOverflow(page: Page) {
 }
 
 async function captureSmokeScreenshot(page: Page, testInfo: TestInfo, name: string) {
-  const brightSurfaces = await page.evaluate(() => {
-    const seen = new Map<string, { area: number; sample: string }>()
-    for (const element of Array.from(document.querySelectorAll<HTMLElement>('body *'))) {
-      const rect = element.getBoundingClientRect()
-      const area = Math.max(0, rect.width) * Math.max(0, rect.height)
-      if (area < 300 || rect.bottom <= 0 || rect.right <= 0) continue
-      const color = getComputedStyle(element).backgroundColor.match(/^rgba?\(([^)]+)\)$/)
-      if (!color) continue
-      const channels = color[1].split(',').map((part) => Number.parseFloat(part.trim()))
-      const [red = 0, green = 0, blue = 0, alpha = 1] = channels
-      if (alpha < 0.8) continue
-      const luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255
-      if (luminance < 0.78) continue
-      const classes = Array.from(element.classList).slice(0, 3).join('.')
-      const parentClasses = Array.from(element.parentElement?.classList ?? []).slice(0, 2).join('.')
-      const key = `${parentClasses ? `.${parentClasses}>` : ''}${element.tagName.toLowerCase()}${classes ? `.${classes}` : ''}`
-      const previous = seen.get(key)
-      if (!previous || area > previous.area) {
-        seen.set(key, { area: Math.round(area), sample: (element.textContent ?? '').trim().slice(0, 42) })
-      }
+  const paperTheme = await page.evaluate(() => {
+    const rootStyle = getComputedStyle(document.documentElement)
+    const shell = document.querySelector<HTMLElement>('.app-content .app-shell')
+    return {
+      background: rootStyle.getPropertyValue('--bg').trim().toLowerCase(),
+      panel: rootStyle.getPropertyValue('--panel').trim().toLowerCase(),
+      colorScheme: rootStyle.colorScheme,
+      contentMaxWidth: shell ? getComputedStyle(shell).maxWidth : null,
     }
-    return Array.from(seen, ([selector, value]) => ({ selector, ...value }))
-      .sort((left, right) => right.area - left.area)
-      .slice(0, 24)
   })
   expect(
-    brightSurfaces,
-    `${name} contains bright opaque surfaces that break the approved dark visual language`,
-  ).toEqual([])
+    paperTheme,
+    `${name} must use the frozen light-paper Web theme and 1120 px content grid`,
+  ).toEqual({
+    background: '#f6f7f8',
+    panel: '#ffffff',
+    colorScheme: 'light',
+    contentMaxWidth: '1120px',
+  })
   await page.screenshot({
     path: testInfo.outputPath(`${name}.png`),
     fullPage: true,

@@ -1,39 +1,39 @@
 :root {
-  color: #f7f8fa;
-  background: #05090d;
+  color: #0f1720;
+  background: #f6f7f8;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color-scheme: dark;
-  --bg: #05090d;
-  --panel: #0d141c;
-  --ink: #f7f8fa;
-  --muted: #929baa;
-  --line: #25313d;
-  --green: #25cf6a;
-  --eagle: #69a9ff;
-  --birdie: #5fc4ff;
-  --par: #38d47d;
-  --bogey: #f1c25c;
-  --double: #ff7867;
-  --bogey-text: #f1c25c;
-  --double-text: #ff806f;
-  --line-strong: #3a4755;
+  color-scheme: light;
+  --bg: #f6f7f8;
+  --panel: #ffffff;
+  --ink: #0f1720;
+  --muted: #6b7280;
+  --line: #e7e9ec;
+  --green: #15803d;
+  --eagle: #184a90;
+  --birdie: #5aa8d8;
+  --par: #2f8f5f;
+  --bogey: #d9a441;
+  --double: #c2553f;
+  --bogey-text: #8a5e12;
+  --double-text: #a23f2c;
+  --line-strong: #b9c3bb;
   --text: var(--ink);
   --accent: var(--green);
-  --par-soft: rgba(56, 212, 125, .14);
-  --double-soft: rgba(255, 120, 103, .14);
+  --par-soft: #e4f2e8;
+  --double-soft: #f7e2dd;
   --green-bright: #22c55e;
-  --green-tint: rgba(37, 207, 106, .13);
-  --green-text: #52e68b;
+  --green-tint: #e7f3ec;
+  --green-text: #166534;
   /* Dark navigation rail (Web redesign 2026-07). */
-  --rail-bg: #070b11;
-  --rail-ink: #c9d1dc;
-  --rail-muted: #818c9b;
-  --rail-active: rgba(37, 207, 106, .14);
-  --radius-card: 18px;
+  --rail-bg: #0f1729;
+  --rail-ink: #c9d2e3;
+  --rail-muted: #9aa6bd;
+  --rail-active: rgba(34, 197, 94, .16);
+  --radius-card: 14px;
 }
 
 * {
@@ -8013,15 +8013,12 @@ button.round-detail-cell:hover {
   font-weight: 600;
 }
 
-/* ===== Final consumer visual language: iPhone / Watch / Web parity =====
-   The real Web app used to keep a light admin-template shell while the field
-   products were dark and map-first. These overrides deliberately style the
-   production components (not a parallel mock renderer) so runtime evidence is
-   the same surface users operate. */
+/* ===== Final consumer visual language: shared tokens, surface-appropriate theme =====
+   Watch and in-round iPhone surfaces are dark; Web is a planning/review surface
+   and therefore keeps the frozen light-paper theme. The map-first hierarchy and
+   score vocabulary remain shared across all three production clients. */
 body {
-  background:
-    radial-gradient(900px 520px at 76% -12%, rgba(37, 207, 106, .075), transparent 64%),
-    var(--bg);
+  background: var(--bg);
   color: var(--ink);
 }
 
@@ -8035,7 +8032,7 @@ textarea {
 .app-sidebar {
   border-right: 1px solid rgba(255, 255, 255, .07);
   background:
-    radial-gradient(240px 260px at 30% 0%, rgba(37, 207, 106, .09), transparent 72%),
+    radial-gradient(240px 260px at 30% 0%, rgba(34, 197, 94, .09), transparent 72%),
     var(--rail-bg);
 }
 
@@ -8047,8 +8044,8 @@ textarea {
 .sidebar-logo {
   position: relative;
   border-radius: 50%;
-  background: #25cf6a;
-  box-shadow: 0 0 0 5px rgba(37, 207, 106, .10);
+  background: var(--green-bright);
+  box-shadow: 0 0 0 5px rgba(34, 197, 94, .10);
 }
 
 .sidebar-logo::before,
@@ -8079,20 +8076,18 @@ textarea {
 }
 
 .sidebar-item.active {
-  color: #59e98f;
-  box-shadow: inset 3px 0 0 #25cf6a;
+  color: #ffffff;
+  box-shadow: inset 3px 0 0 var(--green-bright);
 }
 
 .app-main {
-  background:
-    radial-gradient(700px 440px at 54% -10%, rgba(37, 207, 106, .055), transparent 72%),
-    var(--bg);
+  background: var(--bg);
 }
 
 .app-topbar,
 .subnav {
-  border-color: rgba(255, 255, 255, .075);
-  background: rgba(7, 11, 17, .88);
+  border-color: var(--line);
+  background: rgba(255, 255, 255, .94);
   backdrop-filter: blur(18px);
 }
 
@@ -8116,13 +8111,13 @@ textarea {
 }
 
 .subnav-tab.active {
-  color: #54e98d;
-  border-bottom-color: #25cf6a;
+  color: var(--green-text);
+  border-bottom-color: var(--green);
 }
 
 .app-content .app-shell {
   width: 100%;
-  max-width: 1480px;
+  max-width: 1120px;
   padding: 24px 28px 48px;
 }
 
@@ -8131,8 +8126,8 @@ textarea {
 .review-topbar,
 .review-work > * {
   border-color: var(--line);
-  background: rgba(13, 20, 28, .96);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, .18);
+  background: var(--panel);
+  box-shadow: none;
 }
 
 .panel,
@@ -8151,7 +8146,7 @@ textarea {
 }
 
 .eyebrow {
-  color: #49e184;
+  color: var(--green);
   letter-spacing: .08em;
 }
 
@@ -8162,14 +8157,14 @@ textarea {
 .w4-filter-bar {
   min-height: 58px;
   border-radius: 14px;
-  background: rgba(13, 20, 28, .92);
+  background: var(--panel);
   padding: 12px 16px;
 }
 
 .w4-filter-select,
 .review-round-picker select {
   border-color: var(--line-strong);
-  background: #111a24;
+  background: var(--panel);
   color: var(--ink);
 }
 
@@ -8192,7 +8187,7 @@ textarea {
 .fact-chip,
 .round-source-chip {
   border: 1px solid var(--line);
-  background: #111a23;
+  background: #f8faf7;
   color: var(--muted);
 }
 
@@ -8219,20 +8214,20 @@ textarea {
 .round-card-action,
 .drilldown-action-button {
   min-height: 34px;
-  border-color: rgba(37, 207, 106, .55);
-  background: rgba(37, 207, 106, .08);
-  color: #55e98e;
+  border-color: rgba(21, 128, 61, .42);
+  background: var(--green-tint);
+  color: var(--green-text);
   padding: 6px 14px;
 }
 
 .round-card-action:hover,
 .drilldown-action-button:hover {
-  background: rgba(37, 207, 106, .16);
-  color: #70efa0;
+  background: #d9eddf;
+  color: #14532d;
 }
 
 .round-score strong {
-  color: #ffffff;
+  color: var(--ink);
   font-size: 40px;
   letter-spacing: -.04em;
 }
@@ -8243,15 +8238,15 @@ textarea {
 }
 
 .score-under {
-  color: #ffd44c !important;
+  color: var(--eagle) !important;
 }
 
 .score-over {
-  color: #ff806f !important;
+  color: var(--double-text) !important;
 }
 
 .score-even {
-  color: #54e98d !important;
+  color: var(--green-text) !important;
 }
 
 /* The list and detail use the same score vocabulary as iPhone/Watch:
@@ -8294,15 +8289,15 @@ textarea {
   grid-template-rows: 15px 1fr;
   place-items: center;
   gap: 1px;
-  border: 1px solid #26323e;
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: #101821 !important;
+  background: #f8faf7 !important;
   color: var(--ink);
   padding: 4px 2px 5px;
 }
 
 .score-cell-hole {
-  color: #75808f;
+  color: var(--muted);
   font-size: 9px;
   font-weight: 800;
   line-height: 1;
@@ -8325,21 +8320,21 @@ textarea {
 
 .score-cell.score-par .score-cell-mark,
 .round-detail-cell.score-par .round-detail-score-mark {
-  color: #57dd8a;
+  color: var(--par);
 }
 
 .score-cell.score-birdie .score-cell-mark,
 .score-cell.score-eagle .score-cell-mark,
 .round-detail-cell.score-birdie .round-detail-score-mark,
 .round-detail-cell.score-eagle .round-detail-score-mark {
-  border: 2px solid #62bcff;
+  border: 2px solid var(--birdie);
   border-radius: 50%;
-  color: #87d1ff;
+  color: var(--eagle);
 }
 
 .score-cell.score-eagle .score-cell-mark,
 .round-detail-cell.score-eagle .round-detail-score-mark {
-  box-shadow: inset 0 0 0 3px #101821, inset 0 0 0 5px #62bcff;
+  box-shadow: inset 0 0 0 3px #f8faf7, inset 0 0 0 5px var(--birdie);
 }
 
 .score-cell.score-bogey .score-cell-mark,
@@ -8348,24 +8343,24 @@ textarea {
 .round-detail-cell.score-bogey .round-detail-score-mark,
 .round-detail-cell.score-double .round-detail-score-mark,
 .round-detail-cell.score-triple .round-detail-score-mark {
-  border: 2px solid #f1c25c;
+  border: 2px solid var(--bogey);
   border-radius: 3px;
-  color: #f6cf75;
+  color: var(--bogey-text);
 }
 
 .score-cell.score-double .score-cell-mark,
 .round-detail-cell.score-double .round-detail-score-mark {
-  border-color: #ff806f;
-  color: #ff9a8c;
-  box-shadow: inset 0 0 0 3px #101821, inset 0 0 0 5px #ff806f;
+  border-color: var(--double);
+  color: var(--double-text);
+  box-shadow: inset 0 0 0 3px #f8faf7, inset 0 0 0 5px var(--double);
 }
 
 .score-cell.score-triple .score-cell-mark,
 .round-detail-cell.score-triple .round-detail-score-mark {
   border: 0;
   border-radius: 0;
-  background: rgba(255, 102, 90, .24);
-  color: #ffb0a8;
+  background: var(--double-soft);
+  color: var(--double-text);
   clip-path: polygon(50% 0, 100% 100%, 0 100%);
   padding-top: 5px;
 }
@@ -8387,7 +8382,7 @@ textarea {
 }
 
 .review-total b {
-  color: #fff;
+  color: var(--ink);
   font-size: 24px;
 }
 
@@ -8405,50 +8400,54 @@ textarea {
   padding: 14px;
 }
 
+.review-holes-list {
+  gap: 4px;
+}
+
 .review-holes-head {
-  color: #7f8998;
+  color: var(--muted);
   padding-bottom: 10px;
 }
 
 .review-hole {
-  width: 58px;
+  width: 52px;
   min-height: 94px;
-  border-color: #26323e;
+  border-color: var(--line);
   border-radius: 13px;
-  background: #101821;
+  background: var(--panel);
 }
 
 .review-hole:hover {
-  border-color: #3a4a5b;
-  background: #141e29;
+  border-color: var(--line-strong);
+  background: #f8faf7;
 }
 
 .review-hole.on {
-  border-color: rgba(37, 207, 106, .7);
-  background: rgba(37, 207, 106, .12);
-  box-shadow: inset 0 0 0 1px rgba(37, 207, 106, .28), 0 0 0 3px rgba(37, 207, 106, .05);
+  border-color: rgba(21, 128, 61, .62);
+  background: var(--green-tint);
+  box-shadow: inset 0 0 0 1px rgba(21, 128, 61, .18);
 }
 
 .review-hole-n {
-  color: #f7f8fa;
+  color: var(--ink);
 }
 
 .review-chip--par {
-  color: #53df8a;
+  color: var(--par);
 }
 
 .review-chip--birdie,
 .review-chip--eagle {
-  color: #65c4ff;
+  color: var(--eagle);
 }
 
 .review-chip--bogey {
-  color: #f1c25c;
+  color: var(--bogey-text);
 }
 
 .review-chip--double,
 .review-chip--triple {
-  color: #ff806f;
+  color: var(--double-text);
 }
 
 .review-canvas {
@@ -8458,8 +8457,8 @@ textarea {
   align-items: center;
   padding: 20px;
   background:
-    radial-gradient(70% 70% at 50% 42%, rgba(37, 207, 106, .09), transparent 74%),
-    #080e13;
+    radial-gradient(70% 70% at 50% 42%, rgba(21, 128, 61, .08), transparent 74%),
+    #eef3ef;
 }
 
 .review-canvas-frame {
@@ -8469,11 +8468,11 @@ textarea {
 }
 
 .review-canvas-img {
-  border: 1px solid rgba(255, 255, 255, .1);
+  border: 1px solid rgba(15, 23, 32, .10);
   border-radius: 20px;
   height: 100%;
   background: #6f9f68;
-  box-shadow: 0 26px 64px rgba(0, 0, 0, .42);
+  box-shadow: 0 18px 42px rgba(15, 23, 32, .16);
 }
 
 .review-canvas-img .hole-base-flat {
@@ -8489,37 +8488,37 @@ textarea {
 }
 
 .review-canvas-hole {
-  color: #f7f8fa;
+  color: var(--ink);
 }
 
 .review-inspector {
   padding: 20px;
-  background: #0d141c;
+  background: var(--panel);
 }
 
 .review-inspector-title {
-  color: #aeb6c2;
+  color: var(--muted);
   font-size: 13px;
 }
 
 .review-timeline::before {
-  background: #2b3744;
+  background: var(--line);
 }
 
 .review-shot-dot {
-  background: #0d141c;
-  border-color: #25cf6a;
+  background: var(--panel);
+  border-color: var(--green);
 }
 
 .review-shot-club {
-  color: #f7f8fa;
+  color: var(--ink);
   font-size: 15px;
 }
 
 .review-card,
 .review-card--decision {
-  border-color: #2a3643;
-  background: #111a23;
+  border-color: #eadfbf;
+  background: #fef9ec;
 }
 
 /* Round detail: two honest nine-hole rows instead of 18 unreadable slivers. */
@@ -8540,14 +8539,14 @@ textarea {
 
 .round-detail-facts div,
 .round-phase-card {
-  border-color: #27333f;
+  border-color: var(--line);
   border-radius: 12px;
-  background: #101821;
+  background: #f8faf7;
   padding: 12px;
 }
 
 .round-detail-facts b {
-  color: #ffffff;
+  color: var(--ink);
   font-size: 19px;
 }
 
@@ -8577,21 +8576,21 @@ textarea {
   min-height: 108px;
   grid-template-rows: auto 38px auto auto;
   gap: 4px;
-  border: 1px solid #27333f;
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: #101821 !important;
+  background: #f8faf7 !important;
   color: var(--ink);
   padding: 9px 5px;
 }
 
 .round-detail-cell span {
-  color: #8c96a5;
+  color: var(--muted);
   font-size: 11px;
 }
 
 .round-detail-cell small,
 .round-detail-cell em {
-  color: #9ca6b4;
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -8607,23 +8606,23 @@ textarea {
 }
 
 .round-ai-review {
-  border-color: #27333f;
-  background: #101821;
+  border-color: var(--line);
+  background: #fbfcfa;
 }
 
 .round-ai-review-body {
-  border-color: #27333f;
+  border-color: var(--line);
 }
 
 .round-ai-review-meta span {
-  background: #16212c;
-  color: #9ca6b4;
+  background: #eef4ef;
+  color: var(--muted);
 }
 
 .round-ai-review .button-row button {
-  border-color: rgba(37, 207, 106, .45);
-  background: rgba(37, 207, 106, .08);
-  color: #55e98e;
+  border-color: rgba(21, 128, 61, .42);
+  background: var(--green-tint);
+  color: var(--green-text);
 }
 
 @media (max-width: 1180px) {
@@ -8659,196 +8658,4 @@ textarea {
     overflow-x: auto;
     grid-template-columns: repeat(9, minmax(42px, 1fr));
   }
-}
-
-/* Dark-theme closure for production surfaces that predate the unified shell.
-   These components were still painting opaque light cards and inputs inside the
-   dark app, which produced low-contrast text and made whole pages look like an
-   embedded admin tool rather than the same product as iPhone and Watch. */
-body input:not([type="checkbox"]):not([type="radio"]),
-body select,
-body textarea {
-  border-color: #33414f !important;
-  background: #0b121a !important;
-  color: #f4f7fa !important;
-}
-
-body input::placeholder,
-body textarea::placeholder {
-  color: #75808f;
-}
-
-body :is(
-  .sync-connector,
-  .sync-run-meta article,
-  .readiness-panel,
-  .readiness-check,
-  .readiness-empty,
-  .stats-empty,
-  .diagnosis-item,
-  .strengths-focus-item,
-  .mobile-package-status,
-  .mobile-package-result,
-  .mobile-reconcile-card,
-  .settings-oauth-probe,
-  .annotation-card,
-  .correction-impact-metrics div
-) {
-  border-color: #27333f;
-  background: #101821;
-}
-
-body :is(
-  .package-mode-toggle,
-  .mobile-package-form > .package-checkbox,
-  .readiness-evidence span,
-  .settings-oauth-capabilities span,
-  .correction-impact-rules span,
-  .correction-impact-breakdown span
-) {
-  border-color: #2d3a47;
-  background: #141e28;
-  color: #aeb7c3;
-}
-
-body :is(
-  .semantic-chip,
-  .setting-chip,
-  .mode-pill,
-  .confidence-pill,
-  .stats-item-facts span,
-  .stats-count,
-  .sync-next-action
-) {
-  border-color: #2d3a47;
-  background: #16212c;
-  color: #b8c1cc;
-}
-
-body :is(
-  .quality-good,
-  .quality-ready,
-  .trend-improving,
-  .trend-longer,
-  .consistency-tight,
-  .tee-hit,
-  .tee-none,
-  .approach-none,
-  .confidence-high,
-  .readiness-ready,
-  .package-state-ready,
-  .setting-primary
-) {
-  border-color: rgba(37, 207, 106, .36) !important;
-  background: rgba(37, 207, 106, .12) !important;
-  color: #58e990 !important;
-}
-
-body :is(
-  .quality-partial,
-  .trend-flat,
-  .trend-stable,
-  .trend-insufficient-data,
-  .consistency-moderate,
-  .consistency-unknown,
-  .tee-mixed,
-  .tee-other,
-  .approach-mixed,
-  .approach-other,
-  .confidence-medium,
-  .package-state-degraded,
-  .setting-secondary
-) {
-  border-color: rgba(95, 196, 255, .34) !important;
-  background: rgba(95, 196, 255, .12) !important;
-  color: #81cefa !important;
-}
-
-body :is(
-  .quality-missing,
-  .quality-no-data,
-  .quality-error,
-  .quality-reauth-required,
-  .trend-declining,
-  .trend-shorter,
-  .consistency-volatile,
-  .tee-left,
-  .tee-right,
-  .approach-short,
-  .approach-long,
-  .approach-left,
-  .approach-right,
-  .confidence-low,
-  .readiness-error,
-  .package-state-expired
-) {
-  border-color: rgba(255, 120, 103, .34) !important;
-  background: rgba(255, 120, 103, .12) !important;
-  color: #ff9385 !important;
-}
-
-body :is(.readiness-degraded, .package-state-missing, .confidence-pill.medium) {
-  border-color: rgba(241, 194, 92, .34) !important;
-  background: rgba(241, 194, 92, .13) !important;
-  color: #f4ca6d !important;
-}
-
-body :is(
-  .sync-action,
-  .sync-session-form button,
-  .button-row button,
-  .report-inventory-row > button,
-  .caddie-control-bar button,
-  .decision-audit-controls button
-) {
-  border-color: rgba(37, 207, 106, .48);
-  background: rgba(37, 207, 106, .08);
-  color: #58e990;
-}
-
-body .bagx-track {
-  background: #1a2530;
-}
-
-body .bagx-rng {
-  border-color: rgba(88, 233, 144, .46);
-  background: rgba(88, 233, 144, .22);
-}
-
-body .bagx-band--empty,
-body .bagx-band-bg {
-  background: #111a23;
-  fill: #111a23;
-}
-
-body .bagx-band-axis {
-  stroke: #33414f;
-}
-
-body .bagx-band-rng {
-  fill: rgba(88, 233, 144, .18);
-  stroke: rgba(88, 233, 144, .52);
-}
-
-body .prep-canvas {
-  background:
-    radial-gradient(70% 70% at 50% 42%, rgba(37, 207, 106, .08), transparent 74%),
-    #080e13;
-}
-
-body .prep-canvas-img {
-  background: #6f9f68;
-}
-
-body :is(.prep-canvas-chip, .prep-canvas-legend) {
-  border-color: rgba(255, 255, 255, .16);
-  background: rgba(7, 11, 17, .90);
-  color: #d9e0e8;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, .3);
-}
-
-body .prep-canvas-chip--ball {
-  border-color: #25cf6a;
-  background: #25cf6a;
-  color: #051009;
 }
