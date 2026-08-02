@@ -100,4 +100,14 @@ final class RoundTenUITests: XCTestCase {
         XCTAssertEqual(AICaddieDesignTokens.strategyColor("safe"), AICaddieDesignTokens.par)
         XCTAssertEqual(AICaddieDesignTokens.strategyColor("attack"), AICaddieDesignTokens.eagle)
     }
+
+    func testCaddieRouteIdsSelectTheMatchingProductStrategy() {
+        XCTAssertEqual(caddieStrategyMode(forRouteId: "conservative_layup"), "protect_score")
+        XCTAssertEqual(caddieStrategyMode(forRouteId: "safe"), "protect_score")
+        XCTAssertEqual(caddieStrategyMode(forRouteId: "stock_line"), "stock")
+        XCTAssertEqual(caddieStrategyMode(forRouteId: "standard"), "stock")
+        XCTAssertEqual(caddieStrategyMode(forRouteId: "aggressive_line"), "attack")
+        XCTAssertEqual(caddieStrategyMode(forRouteId: "go_for_it"), "attack")
+        XCTAssertNil(caddieStrategyMode(forRouteId: "unknown_route"))
+    }
 }

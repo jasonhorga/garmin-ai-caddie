@@ -285,7 +285,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(meta["courseGlobalId"] as? Int, fixture.package.course.globalId)
         XCTAssertEqual(meta["holePars"] as? [Int], [4])
         XCTAssertEqual(meta["holesCompleted"] as? Int, 1)
-        XCTAssertNil(model.package)
+        XCTAssertEqual(model.package?.roundId, fixture.package.roundId)
         XCTAssertNil(model.liveRoundState)
         XCTAssertNil(try fixture.store.loadCurrentRoundPackage())
         XCTAssertFalse(try fixture.store.loadEvents().contains { $0.roundId == fixture.package.roundId })

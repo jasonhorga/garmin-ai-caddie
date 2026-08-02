@@ -51,16 +51,30 @@ final class RealFlowUITests: XCTestCase {
         launchFresh()
         if tapContaining(["历史复盘", "逐场逐洞"]) {
             settle(6); save("03-history-list"); dump("03-history-list")
-            let tappedRound = tapFirstRoundRow {
+            let longPatternChip = app.staticTexts.matching(
+                NSPredicate(format: "label BEGINSWITH %@", "双柏忌或更差")
+            ).firstMatch
+            XCTAssertTrue(longPatternChip.waitForExistence(timeout: 5))
+            XCTAssertLessThanOrEqual(
+                longPatternChip.frame.height,
+                20,
+                "history pattern chips must keep long labels on one readable line"
+            )
+            let enteredRoundReview = openEvidenceRound(
+                roundRef: "17534238",
+                courseName: "北京天竺黑骑士球员俱乐部",
+                date: "2026-07-16",
+                score: 97
+            ) {
                 save("03b-history-real-round"); dump("03b-history-real-round")
             }
-            XCTAssertTrue(tappedRound, "history must expose at least one real round")
-            let roundReview = app.navigationBars["单场复盘"]
-            let enteredRoundReview = tappedRound && roundReview.waitForExistence(timeout: 12)
-            XCTAssertTrue(enteredRoundReview, "round evidence must enter 单场复盘 before capture")
+            XCTAssertTrue(
+                enteredRoundReview,
+                "review evidence must open the known spatially separated Garmin round 17534238"
+            )
             if enteredRoundReview {
-                // Match the approved edit render's first-hole state. The latest real Cypress round
-                // has enough non-putt positions on hole 1 for all reorder handles; hole 4 does not.
+                // Match the approved edit render's first-hole state with a real Garmin round whose
+                // recorded positions are spatially separated and retain their actual clubs.
                 let reviewTitle = app.staticTexts["单场复盘"]
                 XCTAssertTrue(reviewTitle.waitForExistence(timeout: 5))
                 XCTAssertGreaterThan(
@@ -107,6 +121,8 @@ final class RealFlowUITests: XCTestCase {
                         && topoReady.waitForExistence(timeout: 30)
                     XCTAssertTrue(loadedShotMap, "shot-map evidence must finish loading the real topo before capture")
                     if loadedShotMap {
+                        XCTAssertTrue(app.staticTexts["一号木"].exists, "the real shot map must retain the Driver label")
+                        XCTAssertTrue(app.staticTexts["三号木"].exists, "the real shot map must retain the 3W label")
                         settle(2); save("04b-shot-map"); dump("04b-shot-map")
                     }
                     if loadedShotMap, editButton.isHittable {
@@ -330,6 +346,16 @@ final class RealFlowUITests: XCTestCase {
                 "a Par 4 tee decision must expose all three complete club-to-club strategy chains: \(label)"
             )
         }
+        XCTAssertFalse(
+            app.segmentedControls.firstMatch.exists,
+            "the three route cards are the strategy controls; a duplicate segmented control wastes map-height"
+        )
+        for strategy in ["protect_score", "stock", "attack"] {
+            XCTAssertTrue(
+                app.buttons["caddie-strategy-\(strategy)"].waitForExistence(timeout: 5),
+                "each complete route card must directly select the \(strategy) strategy"
+            )
+        }
         XCTAssertTrue(
             scrollTo(app.staticTexts["标准打法"], maxSwipes: 12),
             "the selected full-hole club chain must be visible in the simulator evidence"
@@ -439,6 +465,14 @@ final class RealFlowUITests: XCTestCase {
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "北京丽宫")).firstMatch.exists,
             "in-round scorecard must retain the real selected course"
         )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["live-scorecard-hole-index-1"].waitForExistence(timeout: 5),
+            "the scorecard must expose a neutral hole index separate from score semantics"
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["live-scorecard-score-chip-1"].waitForExistence(timeout: 5),
+            "the recorded score must own the birdie/bogey shape"
+        )
         settle(1); save("14-live-scorecard"); dump("14-live-scorecard")
 
         let editFirstHole = app.buttons["编辑第 1 洞成绩"]
@@ -465,6 +499,8 @@ final class RealFlowUITests: XCTestCase {
         scorecard.tap()
         XCTAssertTrue(app.staticTexts["本场计分卡"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["当前"].exists, "scorecard must still mark hole 2 as the playing hole")
+        XCTAssertTrue(app.descendants(matching: .any)["live-scorecard-hole-index-1"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["live-scorecard-score-chip-1"].exists)
         settle(1); save("17-scorecard-after-edit"); dump("17-scorecard-after-edit")
 
         app.buttons["关闭计分卡"].tap()
@@ -573,9 +609,11 @@ final class RealFlowUITests: XCTestCase {
 
         app.buttons["保存并结束"].tap()
         XCTAssertTrue(
-            app.buttons["开始记分"].waitForExistence(timeout: 8),
-            "the complete synthetic CI round may clear locally only after explicit Save & End confirmation"
+            app.staticTexts["打球"].waitForExistence(timeout: 8),
+            "a finished round must return to the approved product home"
         )
+        XCTAssertTrue(app.staticTexts["新开一场 · 选起始 9 洞"].exists)
+        XCTAssertFalse(app.navigationBars["开始一场"].exists, "finish must not strand the player in the setup form")
         XCTAssertFalse(app.staticTexts["进行中"].exists, "the explicitly finished round must no longer be active")
         settle(1); save("journey-finished-home"); dump("journey-finished-home")
     }
@@ -850,6 +888,40 @@ final class RealFlowUITests: XCTestCase {
             if button.waitForExistence(timeout: 4) { button.tap(); return true }
         }
         return false
+    }
+
+    /// Prefer the normal visible history row. When the five newest owner rows are CI-polluted rounds,
+    /// relaunch through a DEBUG-only navigation seed so visual evidence still renders this unchanged
+    /// production review surface with a known real Garmin round instead of fabricating shot geometry.
+    @discardableResult
+    private func openEvidenceRound(
+        roundRef: String,
+        courseName: String,
+        date: String,
+        score: Int,
+        beforeOpen: () -> Void = {}
+    ) -> Bool {
+        let row = app.buttons.matching(
+            NSPredicate(
+                format: "label CONTAINS %@ AND label CONTAINS %@ AND label CONTAINS %@",
+                courseName,
+                date,
+                String(score)
+            )
+        ).firstMatch
+        if row.waitForExistence(timeout: 3), scrollTo(row, maxSwipes: 12) {
+            beforeOpen()
+            row.tap()
+            return app.navigationBars["单场复盘"].waitForExistence(timeout: 12)
+        }
+
+        beforeOpen()
+        app.launchEnvironment["UITEST_REVIEW_ROUND_REF"] = roundRef
+        app.launchEnvironment["UITEST_REVIEW_COURSE_NAME"] = courseName
+        launchFresh()
+        app.launchEnvironment.removeValue(forKey: "UITEST_REVIEW_ROUND_REF")
+        app.launchEnvironment.removeValue(forKey: "UITEST_REVIEW_COURSE_NAME")
+        return app.navigationBars["单场复盘"].waitForExistence(timeout: 12)
     }
 
     /// Select the newest real round currently returned by the live history endpoint. Historical fixture
