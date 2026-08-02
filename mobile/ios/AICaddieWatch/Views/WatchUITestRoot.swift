@@ -234,6 +234,9 @@ public struct WatchUITestRoot: View {
             } else if screen == "standalone-course-restore" {
                 model.openHoleMap()
             } else if screen == "standalone-course-map-zoom" {
+                // Approved state #6 is the in-round zoom state after a shot, so its map keeps the
+                // same real "上一杆" fact instead of proving zoom with an artificially empty round.
+                ensureStandaloneLastShot()
                 model.openHoleMap()
             } else if screen == "standalone-course-caddie" {
                 model.openCaddie()
