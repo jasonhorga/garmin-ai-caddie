@@ -19,6 +19,17 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(WatchClubDisplay.name("自定义杆"), "自定义杆")
     }
 
+    func testWatchClubDisplayNormalizesCanonicalBackendTokens() {
+        XCTAssertEqual(WatchClubDisplay.name("wood3"), "三号木")
+        XCTAssertEqual(WatchClubDisplay.name("wood5"), "五号木")
+        XCTAssertEqual(WatchClubDisplay.name("wood7"), "七号木")
+        XCTAssertEqual(WatchClubDisplay.name("hybrid4"), "四号小鸡腿")
+        XCTAssertEqual(WatchClubDisplay.name("iron5"), "五号铁")
+        XCTAssertEqual(WatchClubDisplay.name("iron9"), "九号铁")
+        XCTAssertEqual(WatchClubDisplay.name("wedge50"), "50° 挖起杆")
+        XCTAssertEqual(WatchClubDisplay.name("wedge60"), "60° 挖起杆")
+    }
+
     @MainActor
     func testRenderAutoShotCandidateConfirmation() throws {
         let view = WatchAutoShotCandidateView()

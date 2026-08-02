@@ -19,6 +19,17 @@ final class ClubNameTests: XCTestCase {
         XCTAssertEqual(zhClubName("58"), "58° 挖起杆")
     }
 
+    func testCanonicalBackendTokensUseTheSameChineseNames() {
+        XCTAssertEqual(zhClubName("wood3"), "三号木")
+        XCTAssertEqual(zhClubName("wood5"), "五号木")
+        XCTAssertEqual(zhClubName("wood7"), "七号木")
+        XCTAssertEqual(zhClubName("hybrid4"), "四号小鸡腿")
+        XCTAssertEqual(zhClubName("iron5"), "五号铁")
+        XCTAssertEqual(zhClubName("iron9"), "九号铁")
+        XCTAssertEqual(zhClubName("wedge50"), "50° 挖起杆")
+        XCTAssertEqual(zhClubName("wedge60"), "60° 挖起杆")
+    }
+
     func testLetterWedgesDedup() {
         XCTAssertEqual(zhClubName("PW"), "P 杆")
         XCTAssertEqual(zhClubName("Pw"), "P 杆")
