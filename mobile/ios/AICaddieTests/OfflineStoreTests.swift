@@ -1613,6 +1613,20 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(marker.payload["serverSequence"], .number(42))
     }
 
+    func testRestoreLiveRoundStateLeavesClubUnselectedUntilAClubEventExists() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let package = try fixturePackage()
+
+        XCTAssertFalse(package.clubProfiles.isEmpty, "fixture must expose the old arbitrary first-club default")
+
+        let snapshot = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+        let holeState = try XCTUnwrap(snapshot.holeState(for: 1))
+
+        XCTAssertEqual(holeState.selectedClub, "")
+    }
+
     func testRestoreLiveRoundStateReplaysScoringClubAndLocationEvents() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
