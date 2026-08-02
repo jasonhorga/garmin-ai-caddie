@@ -564,9 +564,10 @@ jobs:
             --reporter=line
 
       - name: Upload real Web player evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: web-live-evidence
-          path: web_v2/web-live-evidence/*.png
-          if-no-files-found: error
+          path: web_v2/web-live-evidence/
+          if-no-files-found: warn
           retention-days: 7

@@ -28,13 +28,53 @@ test.describe('real isolated CI player evidence', () => {
   test('captures the Watch-created round in review, archive, and detail', async ({ page }) => {
     if (!playerToken) return
 
+    // Keep failure evidence useful without ever printing the capability token or request headers.
+    // The prior run only said that the topo <img> disappeared; these two boundaries distinguish an
+    // old shot-map payload from a browser-side topo fetch/decode failure.
+    page.on('response', async (response) => {
+      const url = new URL(response.url())
+      if (url.pathname.endsWith('/shotmap')) {
+        const body = (await response.json().catch(() => null)) as Record<string, unknown> | null
+        console.log(
+          'LIVE_EVIDENCE_SHOTMAP',
+          JSON.stringify({
+            status: response.status(),
+            found: body?.found ?? null,
+            hasMap: body?.map != null,
+            globalId: body?.globalId ?? null,
+            localHole: body?.localHole ?? null,
+          }),
+        )
+      }
+      if (url.pathname.endsWith('/topo.png')) {
+        console.log(
+          'LIVE_EVIDENCE_TOPO_RESPONSE',
+          JSON.stringify({ pathname: url.pathname, status: response.status(), contentType: response.headers()['content-type'] ?? null }),
+        )
+      }
+    })
+    page.on('requestfailed', (request) => {
+      const url = new URL(request.url())
+      if (url.pathname.endsWith('/topo.png')) {
+        console.log(
+          'LIVE_EVIDENCE_TOPO_FAILED',
+          JSON.stringify({ pathname: url.pathname, error: request.failure()?.errorText ?? 'unknown' }),
+        )
+      }
+    })
+
     await page.goto(`/p/${encodeURIComponent(playerToken)}`, { waitUntil: 'domcontentloaded' })
 
     const roundPicker = page.locator('[aria-label="选择球局"]')
     await expect(roundPicker).toBeVisible()
     await expect(roundPicker).toContainText('Cypress Point')
     await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
-    await expect(page.locator('.hole-base-topo.is-ready')).toBeVisible({ timeout: 60_000 })
+    try {
+      await expect(page.locator('.hole-base-topo.is-ready')).toBeVisible({ timeout: 60_000 })
+    } catch (error) {
+      await captureWithoutCredentialInLocation(page, 'review-workbench-topo-failure.png')
+      throw error
+    }
     await captureWithoutCredentialInLocation(page, 'review-workbench.png')
 
     await page.getByRole('button', { name: '复盘', exact: true }).click()
