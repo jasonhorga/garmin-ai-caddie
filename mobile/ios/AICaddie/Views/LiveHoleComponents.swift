@@ -357,7 +357,7 @@ extension View {
     }
 }
 
-/// Approved live header: a stable blue return row, then 第 N 洞 + Par/码/Tee and the round score.
+/// Approved live header: compact circular return control + hole facts on one row, with round score right.
 struct LivePlayHeader: View {
     let holeNumber: Int
     let par: Int
@@ -367,41 +367,38 @@ struct LivePlayHeader: View {
     var onBack: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             if let onBack {
                 Button(action: onBack) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.backward")
-                            .font(.system(size: 17, weight: .semibold))
-                        Text("球局")
-                            .font(.system(size: 17, weight: .regular))
-                    }
-                    .foregroundStyle(Color(red: 0.04, green: 0.52, blue: 1.0))
-                    .frame(minHeight: 32)
-                    .contentShape(Rectangle())
+                    Image(systemName: "chevron.backward")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .frame(width: 30, height: 30)
+                        .background(LivePlayStyle.panelFill.opacity(0.76), in: Circle())
+                        .overlay(Circle().stroke(LivePlayStyle.stroke14))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("返回球局首页")
             }
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("第 \(holeNumber) 洞")
-                        .font(.system(size: 19, weight: .heavy))
-                        .foregroundStyle(LivePlayStyle.ink)
-                    Text(subtitle)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(LivePlayStyle.ink60)
-                }
-                Spacer(minLength: 0)
-                Text(roundToParText)
-                    .font(.system(size: 13, weight: .heavy))
-                    .monospacedDigit()
+            VStack(alignment: .leading, spacing: 1) {
+                Text("第 \(holeNumber) 洞")
+                    .font(.system(size: 19, weight: .heavy))
                     .foregroundStyle(LivePlayStyle.ink)
-                    .padding(.vertical, 5)
-                    .padding(.horizontal, 11)
-                    .background(LivePlayStyle.panelFill.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(LivePlayStyle.stroke14))
+                Text(subtitle)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.ink60)
             }
+            Spacer(minLength: 0)
+            Text(roundToParText)
+                .font(.system(size: 13, weight: .heavy))
+                .monospacedDigit()
+                .foregroundStyle(LivePlayStyle.ink)
+                .padding(.vertical, 5)
+                .padding(.horizontal, 11)
+                .background(LivePlayStyle.panelFill.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(LivePlayStyle.stroke14))
         }
     }
 

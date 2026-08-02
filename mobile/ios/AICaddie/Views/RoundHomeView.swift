@@ -176,6 +176,9 @@ public struct RoundHomeView: View {
                 await refreshRealClubBag(apiBaseURL: apiBaseURL, adminToken: adminToken)
             }
         }
+        // The NavigationStack owns the system status bar, so the immersive hole destination cannot
+        // hide it reliably from inside CurrentHoleView. Keep normal chrome on every non-live route.
+        .statusBarHidden(Self.isLiveHoleRoute(path.last))
         .onChange(of: pendingLiveHole) { _, hole in
             // 开始记分后直接进实战屏:把刚开的洞设为唯一路径(替换掉「开始一场」),不弹回 Hub。
             guard let hole else { return }
