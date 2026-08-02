@@ -47,6 +47,9 @@ struct HoleChip: View {
     var body: some View {
         Text(text)
             .font(.caption)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .allowsTightening(true)
             .padding(.vertical, 5)
             .padding(.horizontal, 10)
             .background(warn ? LiveHoleStyle.warnBg : LiveHoleStyle.tint)

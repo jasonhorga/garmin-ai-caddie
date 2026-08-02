@@ -40,9 +40,15 @@ final class ReviewEditUITests: XCTestCase {
             save("nohistory"); dump("nohistory"); return
         }
         settle(6)
-        guard tapFirstRoundRow(beforeTap: {
-            save("01-history-list"); dump("01-history-list")
-        }) else { save("noround"); dump("noround"); return }
+        save("01-history-list"); dump("01-history-list")
+        // The newest owner rows can be CI-polluted manual rounds with coincident Tee coordinates.
+        // Open a known read-only Garmin round through the DEBUG navigation seed so edit evidence
+        // contains real spatially separated landings and clubs without mutating Production history.
+        app.launchEnvironment["UITEST_REVIEW_ROUND_REF"] = "17534238"
+        app.launchEnvironment["UITEST_REVIEW_COURSE_NAME"] = "北京天竺黑骑士球员俱乐部"
+        launchFresh()
+        app.launchEnvironment.removeValue(forKey: "UITEST_REVIEW_ROUND_REF")
+        app.launchEnvironment.removeValue(forKey: "UITEST_REVIEW_COURSE_NAME")
         let roundReview = app.navigationBars["单场复盘"]
         guard roundReview.waitForExistence(timeout: 12) else {
             XCTFail("review-edit evidence must enter 单场复盘 before capture")
@@ -51,8 +57,8 @@ final class ReviewEditUITests: XCTestCase {
         settle(2); save("02-round-review"); dump("02-round-review")
 
         // The scorecard rows are buttons ("点一洞看落点图 →"); tapping one opens the 落点图 pager sheet.
-        // The approved edit evidence is hole 1. The current real Cypress round returns two
-        // non-putt GPS positions there; both must remain editable before the add-shot flow counts.
+        // The approved edit evidence is hole 1. Garmin round 17534238 returns multiple separated
+        // non-putt GPS positions there; they must remain editable before the add-shot flow counts.
         let holeButton = app.buttons["round-review-hole-1"]
         guard holeButton.waitForExistence(timeout: 60), bringIntoViewAndTap(holeButton, maxSwipes: 4) else {
             save("nohole"); dump("nohole"); return
@@ -149,22 +155,6 @@ final class ReviewEditUITests: XCTestCase {
                 let match = query.matching(predicate).firstMatch
                 if match.waitForExistence(timeout: 4), match.isHittable { match.tap(); return true }
             }
-        }
-        return false
-    }
-
-    @discardableResult
-    private func tapFirstRoundRow(beforeTap: () -> Void = {}) -> Bool {
-        let row = app.buttons.matching(identifier: "history-round-row").firstMatch
-        guard row.waitForExistence(timeout: 8) else { return false }
-        for _ in 0..<12 {
-            if row.exists, row.isHittable {
-                beforeTap()
-                row.tap()
-                return true
-            }
-            app.swipeUp()
-            settle(0.6)
         }
         return false
     }

@@ -924,17 +924,6 @@ final class RealFlowUITests: XCTestCase {
         return app.navigationBars["单场复盘"].waitForExistence(timeout: 12)
     }
 
-    /// Select the newest real round currently returned by the live history endpoint. Historical fixture
-    /// dates expire as the owner's rounds change, while the production list order is the user-facing truth.
-    @discardableResult
-    private func tapFirstRoundRow(beforeTap: () -> Void = {}) -> Bool {
-        let row = app.buttons.matching(identifier: "history-round-row").firstMatch
-        guard row.waitForExistence(timeout: 8), scrollTo(row, maxSwipes: 12) else { return false }
-        beforeTap()
-        row.tap()
-        return true
-    }
-
     // MARK: - diagnostics
 
     /// Writes what the test runner resolved for backend config + a live probe of the funnel, so a

@@ -352,20 +352,23 @@ public struct CurrentHoleView: View {
 
     // MARK: - Secondary dark cards below the hero (behaviour unchanged)
 
-    /// 球童完整方案:strategy switch (护分/标准/进攻) + the proven CaddiePlanView + refresh.
+    /// 球童完整方案:the three full-route cards directly select 护分/标准/进攻 + refresh.
     /// Revealed by the caddie strip's 展开; kept on the same dark instrument surface.
     private var caddieDetailCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("球童完整方案").font(.caption).foregroundStyle(.secondary)
-            // 策略开关:护分/标准/进攻直接切,建议随即重算。
-            Picker("策略", selection: $selectedStrategyMode) {
-                ForEach(strategyModeOptions, id: \.self) { Text(strategyModeLabel($0)).tag($0) }
-            }
-            .pickerStyle(.segmented)
             if let caddieDecision {
-                CaddiePlanView(response: caddieDecision, hazards: caddiePlanHazards)
+                CaddiePlanView(
+                    response: caddieDecision,
+                    hazards: caddiePlanHazards,
+                    onSelectStrategyMode: { selectedStrategyMode = $0 }
+                )
             } else {
-                CaddiePlanView(seed: caddieContextSeed, hazards: caddiePlanHazards)
+                CaddiePlanView(
+                    seed: caddieContextSeed,
+                    hazards: caddiePlanHazards,
+                    onSelectStrategyMode: { selectedStrategyMode = $0 }
+                )
             }
             if isLoadingCaddieDecision {
                 ProgressView("更新球童建议…")
@@ -1036,21 +1039,6 @@ public struct CurrentHoleView: View {
 
     private var lieOptions: [String] {
         ["fairway", "rough", "bunker", "green", "tee", "recovery"]
-    }
-
-    private var strategyModeOptions: [String] {
-        ["protect_score", "stock", "attack"]
-    }
-
-    private func strategyModeLabel(_ mode: String) -> String {
-        switch mode {
-        case "protect_score":
-            return "护分"
-        case "attack":
-            return "进攻"
-        default:
-            return "标准"
-        }
     }
 
     /// 击球类型 / 球位的封闭英文枚举 → 中文(更多调整里的选择器)。未知值原样回退。

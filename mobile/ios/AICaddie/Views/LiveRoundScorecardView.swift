@@ -76,9 +76,9 @@ struct LiveRoundScorecardView: View {
             HStack(spacing: 12) {
                 Text("\(hole.number)")
                     .font(.headline.monospacedDigit().weight(.heavy))
-                    .foregroundStyle(isActive ? LivePlayStyle.onAccent : LivePlayStyle.ink)
-                    .frame(width: 38, height: 38)
-                    .background(isActive ? LivePlayStyle.accent : LivePlayStyle.fill08, in: Circle())
+                    .foregroundStyle(isActive ? LivePlayStyle.greenLabel : LivePlayStyle.ink60)
+                    .frame(width: 28, alignment: .leading)
+                    .accessibilityIdentifier("live-scorecard-hole-index-\(hole.number)")
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 7) {
@@ -99,9 +99,8 @@ struct LiveRoundScorecardView: View {
                 Spacer(minLength: 0)
                 if let score {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(score)")
-                            .font(.title3.monospacedDigit().weight(.heavy))
-                            .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: score - hole.par))
+                        ScoreChip(score: score, toPar: score - hole.par, size: 34)
+                            .accessibilityIdentifier("live-scorecard-score-chip-\(hole.number)")
                         Text(toParText(score - hole.par))
                             .font(.caption2.monospacedDigit().weight(.semibold))
                             .foregroundStyle(LivePlayStyle.ink60)

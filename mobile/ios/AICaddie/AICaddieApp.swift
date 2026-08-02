@@ -698,8 +698,12 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func clearFinishedRoundLocally(roundId: String) throws {
+        let homePackage = package
         try offlineStore.discardRound(roundId: roundId)
-        package = nil
+        if let homePackage {
+            try offlineStore.saveHomePackage(homePackage)
+        }
+        package = homePackage
         liveRoundState = nil
         startingNine = nil
         pendingEventCount = 0

@@ -110,6 +110,20 @@ public struct RoundHomeView: View {
         self.pendingLiveHole = pendingLiveHole
         self.onConsumePendingLiveHole = onConsumePendingLiveHole
         self.onLiveAppearanceChanged = onLiveAppearanceChanged
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        if environment["UITEST_MODE"] == "1",
+           let roundRef = environment["UITEST_REVIEW_ROUND_REF"],
+           !roundRef.isEmpty {
+            self._path = State(initialValue: [
+                .history,
+                .roundReview(
+                    roundRef: roundRef,
+                    courseName: environment["UITEST_REVIEW_COURSE_NAME"]
+                ),
+            ])
+        }
+        #endif
     }
 
     /// Nameless, time-of-day greeting (早上好 / 中午好 / 下午好 / 晚上好) — the home's large title.
@@ -184,6 +198,11 @@ public struct RoundHomeView: View {
             guard let hole else { return }
             path = [.hole(hole)]
             onConsumePendingLiveHole()
+        }
+        .onChange(of: liveRoundState?.roundId) { previousRoundId, currentRoundId in
+            if previousRoundId != nil, currentRoundId == nil {
+                path = []
+            }
         }
         .onChange(of: path) { _, routes in
             onLiveAppearanceChanged(Self.isLiveHoleRoute(routes.last))

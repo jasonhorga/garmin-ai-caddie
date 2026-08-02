@@ -1796,7 +1796,7 @@ class MobileContractTests(unittest.TestCase):
             app_swift,
         )
 
-    def test_ios_lands_on_hub_with_choices_and_forces_light(self) -> None:
+    def test_ios_lands_on_hub_with_choices_and_keeps_dark_chrome_live_only(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
         offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
@@ -1814,8 +1814,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func inProgressRoundId() throws -> String?", offline_store)
         self.assertIn("func loadResumablePackage() throws -> LiveRoundPackage?", offline_store)
         self.assertIn("offlineStore.loadResumablePackage()", app_swift)
-        # Light-only visual identity — never renders white-on-white in the system's Dark Mode.
-        self.assertIn(".preferredColorScheme(.light)", app_swift)
+        # The approved product chrome stays light, except for the immersive live-hole instrument.
+        # The presentation root owns this switch so status-bar contrast follows navigation state.
+        self.assertIn("@State private var usesDarkLiveChrome = false", app_swift)
+        self.assertIn(".preferredColorScheme(usesDarkLiveChrome ? .dark : .light)", app_swift)
+        self.assertIn("onLiveAppearanceChanged:", app_swift)
         # round-9 E (首页精简): 本场逐洞网格移除;标题更清晰。
         # round-11: 球局调整(加打/结束本场)moved OUT of the Hub into the in-progress screen.
         self.assertNotIn("本场球洞", round_home)
@@ -2267,7 +2270,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("maxPhotoBytes", media_view)
         self.assertIn("maxVideoBytes", media_view)
         self.assertIn("preferredMIMEType", media_view)
-        self.assertIn("upload retry pending", media_view)
+        self.assertIn("MediaCaptureCopy.savedOffline(kind: mediaKind)", media_view)
+        self.assertIn("已离线保存，待联网后上传", media_view)
         self.assertIn("makePhotoEvent", media_view)
         self.assertIn("makeVideoEvent", media_view)
         self.assertIn("MediaCaptureView", current_hole)
@@ -2920,15 +2924,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("isLoadingCaddieDecision", current_hole)
         self.assertIn("caddieErrorMessage", current_hole)
         self.assertIn("@State private var selectedStrategyMode: String = \"stock\"", current_hole)
-        self.assertIn("private var strategyModeOptions: [String]", current_hole)
-        self.assertIn('Picker("策略"', current_hole)
+        self.assertNotIn('Picker("策略"', current_hole)
+        self.assertIn("onSelectStrategyMode: { selectedStrategyMode = $0 }", current_hole)
         self.assertIn("strategyMode: selectedStrategyMode", current_hole)
         self.assertIn("CaddieDecisionClient", current_hole)
         self.assertIn("WatchEventBridge", current_hole)
         self.assertIn("await loadCaddieDecision()", current_hole)
         self.assertIn("fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)", current_hole)
-        self.assertIn("CaddiePlanView(response: caddieDecision, hazards: caddiePlanHazards)", current_hole)
-        self.assertIn("CaddiePlanView(seed: caddieContextSeed, hazards: caddiePlanHazards)", current_hole)
+        self.assertIn("response: caddieDecision", current_hole)
+        self.assertIn("seed: caddieContextSeed", current_hole)
         # Live package no longer embeds all-hole coursePrep (fast start); hazards come from the
         # per-hole prep fetched on demand alongside the 2D map.
         self.assertIn("CaddiePlanHazard.from(holePrep.hazards)", current_hole)
@@ -2954,8 +2958,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("避开区", caddie_plan)
         self.assertIn("struct CaddiePlanSequence: Identifiable, Equatable", caddie_plan)
         self.assertIn("struct CaddiePlanSequenceStep: Identifiable, Equatable", caddie_plan)
-        self.assertIn("init(response: CaddieDecisionResponse, hazards:", caddie_plan)
-        self.assertIn("init(seed: CaddieContextSeed?, hazards:", caddie_plan)
+        self.assertIn("response: CaddieDecisionResponse,", caddie_plan)
+        self.assertIn("seed: CaddieContextSeed?,", caddie_plan)
+        self.assertIn("func caddieStrategyMode(forRouteId", caddie_plan)
+        self.assertIn('accessibilityIdentifier("caddie-strategy-', caddie_plan)
         self.assertIn("options(from response", caddie_plan)
         self.assertIn("options(from seed", caddie_plan)
         self.assertIn("sequences(from response", caddie_plan)
@@ -3018,19 +3024,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn(".navigationBarTitleDisplayMode(.inline)", recent_review)
         self.assertIn(".toolbarRole(.editor)", recent_review)
         self.assertNotIn(".navigationBarBackButtonDisplayMode", recent_review)
-        self.assertIn(".navigationBarTitleDisplayMode(.inline)", round_review)
-        self.assertIn(".toolbarRole(.editor)", round_review)
+        self.assertIn(".navigationBarTitleDisplayMode(.large)", round_review)
         self.assertNotIn(".navigationBarBackButtonDisplayMode", round_review)
         self.assertIn('· 落点 · 左右滑', shot_map)
         for ui_test in [real_flow, review_edit]:
-            self.assertIn('matching(identifier: "history-round-row")', ui_test)
+            self.assertIn('17534238', ui_test)
             self.assertIn('app.navigationBars["单场复盘"]', ui_test)
-            self.assertIn('2026-06-11', ui_test)
-            self.assertIn('app.buttons["round-review-hole-4"]', ui_test)
+            self.assertIn('app.buttons["round-review-hole-1"]', ui_test)
             self.assertIn('app.buttons["关闭"]', ui_test)
             self.assertNotIn('identifier CONTAINS "落点"', ui_test)
             self.assertIn('matching(identifier: "topo-hole-base-ready")', ui_test)
-            self.assertIn('app.buttons["Reorder 3"]', ui_test)
+            self.assertIn('app.buttons["Reorder 2"]', ui_test)
         self.assertIn('matching(identifier: "home-last-round-row")', real_flow)
         self.assertIn('save("03-history-list")', real_flow)
         self.assertIn('save("03b-history-real-round")', real_flow)
@@ -3200,15 +3204,18 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("holeMapBigText", container)     # 大字 toggle state
         self.assertIn("hasLiveCenterDistance:", container) # root degrades map → distances → score honestly
         self.assertIn(".onTapGesture", container)      # hero tap ↔ map
-        # watch P2 map interactions: 选点测距(tap→distance)+ 拖旗(drag flag)+ 大字(long-press).
+        # watch P2 map interactions: 选点测距(tap→distance)+ 拖旗(drag flag). The shared
+        # current-hole container owns long-press exclusively for 球局工具; 大字 is toggled from
+        # the distance presentation / persisted setting so the gestures cannot race each other.
         map_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift")
         self.assertIn("measuredPxOverride", map_view)   # 选点测距 state (+ snapshot override)
         self.assertIn("pinDragOverride", map_view)      # 拖旗 state (+ snapshot override)
         self.assertIn("SpatialTapGesture", map_view)    # tap → measure
         self.assertIn("pinDragGesture", map_view)       # drag → move flag
-        self.assertIn("onLongPressGesture", map_view)   # long-press → 大字
+        self.assertNotIn("onLongPressGesture", map_view)
+        self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }", container)
         self.assertIn("func yards(toImagePx", map_view) # derived px→码, no extra payload
-        self.assertIn("onToggleBigText", container)     # map long-press bubbles 大字 up
+        self.assertIn(".onTapGesture { holeMapBigText.toggle() }", container)
 
     def test_watch_native_gps_wiring(self) -> None:
         # watch P3: the watch's OWN GPS recomputes you-px + green distances from the wrist (less phone

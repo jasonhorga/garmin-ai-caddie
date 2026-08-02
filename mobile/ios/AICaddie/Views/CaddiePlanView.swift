@@ -57,6 +57,25 @@ func zhCaddieRouteLabel(_ label: String) -> String {
     }
 }
 
+/// Map backend/offline route identifiers to the three product strategy modes used by the live
+/// decision request. Unknown routes stay visible as evidence but are not treated as selectable.
+func caddieStrategyMode(forRouteId routeId: String) -> String? {
+    let key = routeId.lowercased()
+        .replacingOccurrences(of: "_", with: " ")
+        .replacingOccurrences(of: "-", with: " ")
+        .trimmingCharacters(in: .whitespaces)
+    switch key {
+    case "conservative layup", "safe", "conservative", "protect", "protect score", "lay back":
+        return "protect_score"
+    case "stock line", "stock", "standard", "neutral":
+        return "stock"
+    case "aggressive line", "attack", "aggressive", "go for it":
+        return "attack"
+    default:
+        return nil
+    }
+}
+
 public struct CaddiePlanOption: Identifiable, Equatable {
     public let id: String
     public let label: String
@@ -418,22 +437,29 @@ public struct CaddiePlanView: View {
     public let sequences: [CaddiePlanSequence]
     public let selectedSequenceId: String?
     public let hazards: [CaddiePlanHazard]
+    public let onSelectStrategyMode: (String) -> Void
 
     public init(
         options: [CaddiePlanOption],
         selectedOptionId: String,
         sequences: [CaddiePlanSequence] = [],
         selectedSequenceId: String? = nil,
-        hazards: [CaddiePlanHazard] = []
+        hazards: [CaddiePlanHazard] = [],
+        onSelectStrategyMode: @escaping (String) -> Void = { _ in }
     ) {
         self.options = options
         self.selectedOptionId = selectedOptionId
         self.sequences = sequences
         self.selectedSequenceId = selectedSequenceId
         self.hazards = hazards
+        self.onSelectStrategyMode = onSelectStrategyMode
     }
 
-    public init(response: CaddieDecisionResponse, hazards: [CaddiePlanHazard] = []) {
+    public init(
+        response: CaddieDecisionResponse,
+        hazards: [CaddiePlanHazard] = [],
+        onSelectStrategyMode: @escaping (String) -> Void = { _ in }
+    ) {
         let responseOptions = CaddiePlanOption.options(from: response)
         let responseSequences = CaddiePlanSequence.sequences(from: response)
         self.options = responseOptions
@@ -441,15 +467,21 @@ public struct CaddiePlanView: View {
         self.sequences = responseSequences
         self.selectedSequenceId = CaddiePlanSequence.selectedSequenceId(from: response) ?? response.selectedOptionId
         self.hazards = hazards
+        self.onSelectStrategyMode = onSelectStrategyMode
     }
 
-    public init(seed: CaddieContextSeed?, hazards: [CaddiePlanHazard] = []) {
+    public init(
+        seed: CaddieContextSeed?,
+        hazards: [CaddiePlanHazard] = [],
+        onSelectStrategyMode: @escaping (String) -> Void = { _ in }
+    ) {
         let seedOptions = CaddiePlanOption.options(from: seed)
         self.options = seedOptions
         self.selectedOptionId = seed?.selectedOfflineOptionId ?? seedOptions.first?.id ?? "stock"
         self.sequences = []
         self.selectedSequenceId = nil
         self.hazards = hazards
+        self.onSelectStrategyMode = onSelectStrategyMode
     }
 
     private var recommended: CaddiePlanOption? {
@@ -493,7 +525,13 @@ public struct CaddiePlanView: View {
         ForEach(orderedSequences) { sequence in
             let isSelected = sequence.id == selectedSequenceId
             let color = AICaddieDesignTokens.strategyColor(sequence.id)
-            VStack(alignment: .leading, spacing: 6) {
+            let strategyMode = caddieStrategyMode(forRouteId: sequence.id)
+            Button {
+                if let strategyMode {
+                    onSelectStrategyMode(strategyMode)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                         .font(.subheadline)
@@ -541,17 +579,21 @@ public struct CaddiePlanView: View {
                 Text(sequence.metaText)
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(isSelected ? color.opacity(0.08) : Color(.secondarySystemBackground).opacity(0.6))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(isSelected ? color.opacity(0.5) : Color.clear, lineWidth: 1)
+                )
             }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(isSelected ? color.opacity(0.08) : Color(.secondarySystemBackground).opacity(0.6))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(isSelected ? color.opacity(0.5) : Color.clear, lineWidth: 1)
-            )
+            .buttonStyle(.plain)
+            .disabled(strategyMode == nil)
+            .accessibilityIdentifier("caddie-strategy-\(strategyMode ?? "unavailable")")
         }
     }
 
