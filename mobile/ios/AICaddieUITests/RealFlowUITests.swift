@@ -361,6 +361,16 @@ final class RealFlowUITests: XCTestCase {
             app.staticTexts["联网球童暂不可用 · 已切换到离线缓存建议。"].exists,
             "the real course screenshot must prove the online structured decision, not an offline fallback"
         )
+        let closeCaddiePlan = app.buttons["关闭球童方案"]
+        XCTAssertTrue(
+            closeCaddiePlan.waitForExistence(timeout: 3),
+            "the complete caddie plan must be its own focused surface instead of an inline extension below the live controls"
+        )
+        XCTAssertLessThan(
+            planHeading.frame.minY,
+            120,
+            "the complete caddie plan heading must start in the first-glance band, not below a duplicated distance panel"
+        )
         for label in ["稳妥打法", "标准打法", "进攻打法"] {
             XCTAssertTrue(
                 app.staticTexts[label].waitForExistence(timeout: 5),
@@ -389,6 +399,12 @@ final class RealFlowUITests: XCTestCase {
         let avoidZonesHeading = app.staticTexts["避开区"]
         XCTAssertTrue(scrollTo(avoidZonesHeading, maxSwipes: 8), "expanded avoid zones must be visible")
         settle(1); save("11b-caddie-hazards"); dump("11b-caddie-hazards")
+
+        closeCaddiePlan.tap()
+        XCTAssertTrue(
+            waitUntilGone(planHeading, timeout: 3),
+            "closing the caddie plan must return to the same live-hole controls"
+        )
 
         let recordShotButton = app.buttons["记一杆"]
         XCTAssertTrue(scrollTo(recordShotButton, maxSwipes: 14), "real hole must expose independent shot capture")
