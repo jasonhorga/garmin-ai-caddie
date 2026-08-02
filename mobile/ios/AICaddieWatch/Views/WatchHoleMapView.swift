@@ -1,5 +1,10 @@
 import SwiftUI
 
+struct WatchPillConnector: Equatable {
+    let start: CGPoint
+    let end: CGPoint
+}
+
 enum WatchHoleMapViewport {
     static let flagTopClearance = 20.0
     private static let pillMargin: CGFloat = 4
@@ -46,6 +51,36 @@ enum WatchHoleMapViewport {
         return CGPoint(x: x, y: min(max(y, minY), maxY))
     }
 
+    /// Bind a displaced callout to the fact it describes. The connector starts on the nearest pill
+    /// edge, not at the pill centre, so it remains legible whether clock avoidance moves the pill
+    /// above, below, or beside its marker.
+    static func distancePillConnector(
+        marker: CGPoint,
+        pillCenter: CGPoint,
+        pillSize: CGSize
+    ) -> WatchPillConnector? {
+        let values = [marker.x, marker.y, pillCenter.x, pillCenter.y, pillSize.width, pillSize.height]
+        guard values.allSatisfy(\.isFinite), pillSize.width > 0, pillSize.height > 0 else { return nil }
+
+        let dx = marker.x - pillCenter.x
+        let dy = marker.y - pillCenter.y
+        let halfWidth = pillSize.width / 2
+        let halfHeight = pillSize.height / 2
+        let start: CGPoint
+        if abs(dy) >= abs(dx) {
+            start = CGPoint(
+                x: min(max(marker.x, pillCenter.x - halfWidth), pillCenter.x + halfWidth),
+                y: pillCenter.y + (dy >= 0 ? halfHeight : -halfHeight)
+            )
+        } else {
+            start = CGPoint(
+                x: pillCenter.x + (dx >= 0 ? halfWidth : -halfWidth),
+                y: min(max(marker.y, pillCenter.y - halfHeight), pillCenter.y + halfHeight)
+            )
+        }
+        return WatchPillConnector(start: start, end: marker)
+    }
+
     static func effectiveRestingScale(
         requestedScale: Double,
         viewportHeight: Double,
@@ -61,6 +96,26 @@ enum WatchHoleMapViewport {
         let fittedScale = (playerY - topClearance) / upwardImageSpan
         guard fittedScale.isFinite, fittedScale > 0 else { return requestedScale }
         return min(requestedScale, fittedScale)
+    }
+}
+
+enum WatchHoleMapRouteOverlay: Equatable {
+    case none
+    case currentShot
+    case preparedPlan
+    case measurement(CGPoint)
+
+    static func resolve(
+        measuredPoint: CGPoint?,
+        showCaddieRecommendation: Bool,
+        hasCurrentShot: Bool,
+        showPreparedPlan: Bool
+    ) -> WatchHoleMapRouteOverlay {
+        if let measuredPoint { return .measurement(measuredPoint) }
+        guard showCaddieRecommendation else { return .none }
+        if hasCurrentShot { return .currentShot }
+        if showPreparedPlan { return .preparedPlan }
+        return .none
     }
 }
 
@@ -474,10 +529,27 @@ public struct WatchHoleMapView: View {
                         Gradient(colors: [.black.opacity(0), .black.opacity(0.05), .black.opacity(0.82)]),
                         center: player, startRadius: size.height * 0.12, endRadius: size.height * 0.62))
 
-        if showCaddieRecommendation, let currentShotLayout {
-            drawCurrentShot(&context, layout: currentShotLayout, transform: a.t)
-        } else if showCaddieRecommendation, showPreparedPlan {
+        switch WatchHoleMapRouteOverlay.resolve(
+            measuredPoint: measuredPx,
+            showCaddieRecommendation: showCaddieRecommendation,
+            hasCurrentShot: currentShotLayout != nil,
+            showPreparedPlan: showPreparedPlan
+        ) {
+        case .measurement(let measuredPoint):
+            drawMeasurementRoute(
+                &context,
+                player: player,
+                measured: a.t(measuredPoint),
+                pin: green
+            )
+        case .currentShot:
+            if let currentShotLayout {
+                drawCurrentShot(&context, layout: currentShotLayout, transform: a.t)
+            }
+        case .preparedPlan:
             drawPreparedPlan(&context, transform: a.t)
+        case .none:
+            break
         }
 
         // Pin + flag.
@@ -606,6 +678,34 @@ public struct WatchHoleMapView: View {
         )
     }
 
+    /// Free measurement temporarily owns the visible route: one grounded line from the player to the
+    /// selected crosshair, then the remaining leg to the flag. This avoids showing two competing green
+    /// targets while retaining the left-column club recommendation as context.
+    private func drawMeasurementRoute(
+        _ context: inout GraphicsContext,
+        player: CGPoint,
+        measured: CGPoint,
+        pin: CGPoint
+    ) {
+        var selectedLeg = Path()
+        selectedLeg.move(to: player)
+        selectedLeg.addLine(to: measured)
+        context.stroke(
+            selectedLeg,
+            with: .color(caddieGreen.opacity(0.95)),
+            style: StrokeStyle(lineWidth: 2.8, lineCap: .round)
+        )
+
+        var remainingLeg = Path()
+        remainingLeg.move(to: measured)
+        remainingLeg.addLine(to: pin)
+        context.stroke(
+            remainingLeg,
+            with: .color(.white.opacity(0.92)),
+            style: StrokeStyle(lineWidth: 2.2, lineCap: .round, dash: [6, 5])
+        )
+    }
+
     /// The prepared route is already part of the downloaded course package: player → landing → pin.
     /// No ellipse or success percentage is added because the offline package carries neither fact.
     private func drawPreparedPlan(
@@ -667,7 +767,35 @@ public struct WatchHoleMapView: View {
             viewportSize: viewportSize,
             preferredOffset: preferredOffset
         )
+        let pillSize = CGSize(width: w, height: 18)
         let rect = CGRect(x: p.x - w / 2, y: p.y - 9, width: w, height: 18)
+        if let connector = WatchHoleMapViewport.distancePillConnector(
+            marker: marker,
+            pillCenter: p,
+            pillSize: pillSize
+        ) {
+            let dx = connector.end.x - connector.start.x
+            let dy = connector.end.y - connector.start.y
+            let length = hypot(dx, dy)
+            if length > 0.001 {
+                let ux = dx / length
+                let uy = dy / length
+                let tip = CGPoint(x: connector.start.x + ux * 5, y: connector.start.y + uy * 5)
+                let px = -uy * 3.2
+                let py = ux * 3.2
+                var pointer = Path()
+                pointer.move(to: CGPoint(x: connector.start.x + px, y: connector.start.y + py))
+                pointer.addLine(to: CGPoint(x: connector.start.x - px, y: connector.start.y - py))
+                pointer.addLine(to: tip)
+                pointer.closeSubpath()
+                context.fill(pointer, with: .color(tint))
+
+                var line = Path()
+                line.move(to: tip)
+                line.addLine(to: connector.end)
+                context.stroke(line, with: .color(tint.opacity(0.9)), style: StrokeStyle(lineWidth: 1.2))
+            }
+        }
         context.fill(Path(roundedRect: rect, cornerRadius: 9), with: .color(.black.opacity(0.72)))
         context.stroke(Path(roundedRect: rect, cornerRadius: 9), with: .color(tint), style: StrokeStyle(lineWidth: 1))
         context.draw(context.resolve(Text(text).font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: p)
