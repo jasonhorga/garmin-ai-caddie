@@ -1,6 +1,24 @@
 import SwiftUI
 
 enum WatchHazardMapLayout {
+    static let markerDiameter: CGFloat = 8
+    static let markerToPillCenterOffset: CGFloat = 14
+
+    static func distancePillSize(for text: String) -> CGSize {
+        CGSize(width: CGFloat(text.count) * 8 + 20, height: 18)
+    }
+
+    static func distancePillCenterX(
+        markerX: CGFloat,
+        pillWidth: CGFloat,
+        viewportWidth: CGFloat
+    ) -> CGFloat {
+        let halfWidth = max(pillWidth, 0) / 2
+        let minimumX = halfWidth + 4
+        let maximumX = max(minimumX, viewportWidth - halfWidth - 4)
+        return min(max(markerX, minimumX), maximumX)
+    }
+
     static func imagePoint(on route: [[Double]], atMetres metres: Double) -> CGPoint? {
         guard metres.isFinite,
               let first = route.first(where: { valid($0) }),
@@ -116,8 +134,7 @@ enum WatchHazardMapLayout {
     }
 
     /// Keep the farther-edge (过) label above the nearer-edge (到) label when viewport clamping
-    /// would otherwise collapse both 22pt pills onto one row. The caller supplies 26pt spacing so
-    /// their borders retain a visible gap.
+    /// would otherwise collapse both compact pills onto one row.
     static func separatedPillCenterYs(
         frontPreferredY: CGFloat,
         backPreferredY: CGFloat,
@@ -322,16 +339,19 @@ public struct WatchHazardMapView: View {
         let hasFrontBack = hazard.kind == "water" || WatchHazardMapLayout.hasMeasuredFrontBack(hazard)
         let frontPoint = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
         let backPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
-        let minimumPillCenterY: CGFloat = centerGreenYards > 0 ? 42 : 13
-        let maximumPillCenterY = max(minimumPillCenterY, size.height - 13)
+        let pillHeight = WatchHazardMapLayout.distancePillSize(for: "到 000").height
+        let minimumPillCenterY: CGFloat = centerGreenYards > 0 ? 42 : pillHeight * 0.5 + 4
+        let maximumPillCenterY = max(minimumPillCenterY, size.height - pillHeight * 0.5 - 4)
         let frontCanvasPoint = frontPoint.map(canvas)
         let backCanvasPoint = backPoint.map(canvas)
         let lanes = WatchHazardMapLayout.separatedPillCenterYs(
-            frontPreferredY: (frontCanvasPoint?.y ?? minimumPillCenterY) + 13,
-            backPreferredY: (backCanvasPoint?.y ?? minimumPillCenterY) - 13,
+            frontPreferredY: (frontCanvasPoint?.y ?? minimumPillCenterY)
+                + WatchHazardMapLayout.markerToPillCenterOffset,
+            backPreferredY: (backCanvasPoint?.y ?? minimumPillCenterY)
+                - WatchHazardMapLayout.markerToPillCenterOffset,
             minimumY: minimumPillCenterY,
             maximumY: maximumPillCenterY,
-            minimumSpacing: 26
+            minimumSpacing: pillHeight + 4
         )
         let edges: [(String, Double, CGPoint?, CGFloat?)] = hasFrontBack
             ? [("到", startMetres, frontPoint, lanes.front), ("过", endMetres, backPoint, lanes.back)]
@@ -345,28 +365,46 @@ public struct WatchHazardMapView: View {
             ) ?? WatchHazardMapLayout.remainingYards(to: metres, after: playerProgressMetres)
             guard let yards else { continue }
             let point = canvas(imagePoint)
-            let markerRect = CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10)
+            let markerDiameter = WatchHazardMapLayout.markerDiameter
+            let markerRect = CGRect(
+                x: point.x - markerDiameter * 0.5,
+                y: point.y - markerDiameter * 0.5,
+                width: markerDiameter,
+                height: markerDiameter
+            )
             context.fill(Path(ellipseIn: markerRect), with: .color(tint))
-            context.stroke(Path(ellipseIn: markerRect), with: .color(.black), style: StrokeStyle(lineWidth: 1.3))
+            context.stroke(
+                Path(ellipseIn: markerRect),
+                with: .color(.black),
+                style: StrokeStyle(lineWidth: 1.2)
+            )
 
             let text = "\(label) \(yards)"
-            let pillWidth: CGFloat = 68
-            let preferredX = point.x > size.width * 0.5
-                ? point.x - pillWidth * 0.5 - 10
-                : point.x + pillWidth * 0.5 + 10
+            let pillSize = WatchHazardMapLayout.distancePillSize(for: text)
             let pillCenter = CGPoint(
-                x: min(max(preferredX, pillWidth * 0.5 + 4), size.width - pillWidth * 0.5 - 4),
+                x: WatchHazardMapLayout.distancePillCenterX(
+                    markerX: point.x,
+                    pillWidth: pillSize.width,
+                    viewportWidth: size.width
+                ),
                 y: fixedCenterY
                     ?? min(max(point.y, minimumPillCenterY), maximumPillCenterY)
             )
             let rect = CGRect(
-                x: pillCenter.x - pillWidth * 0.5,
-                y: pillCenter.y - 11,
-                width: pillWidth,
-                height: 22
+                x: pillCenter.x - pillSize.width * 0.5,
+                y: pillCenter.y - pillSize.height * 0.5,
+                width: pillSize.width,
+                height: pillSize.height
             )
-            context.fill(Path(roundedRect: rect, cornerRadius: 11), with: .color(.black.opacity(0.82)))
-            context.stroke(Path(roundedRect: rect, cornerRadius: 11), with: .color(tint), style: StrokeStyle(lineWidth: 1.2))
+            context.fill(
+                Path(roundedRect: rect, cornerRadius: pillSize.height * 0.5),
+                with: .color(.black.opacity(0.72))
+            )
+            context.stroke(
+                Path(roundedRect: rect, cornerRadius: pillSize.height * 0.5),
+                with: .color(tint),
+                style: StrokeStyle(lineWidth: 1)
+            )
             context.draw(
                 context.resolve(Text(text).font(.system(size: 10, weight: .semibold)).foregroundColor(.white)),
                 at: pillCenter
