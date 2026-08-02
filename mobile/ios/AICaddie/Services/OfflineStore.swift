@@ -1023,7 +1023,6 @@ public final class OfflineStore {
     }
 
     public func restoreLiveRoundState(roundId: String, package: LiveRoundPackage) throws -> LiveRoundStateSnapshot {
-        let defaultClubName = package.clubProfiles.first?.clubName ?? ""
         var activeHole = package.holes.first?.number ?? 1
         var holeStates = Dictionary(
             uniqueKeysWithValues: package.holes.map { hole in
@@ -1033,7 +1032,7 @@ public final class OfflineStore {
                         roundId: roundId,
                         hole: hole.number,
                         par: hole.par,
-                        selectedClub: defaultClubName,
+                        selectedClub: "",
                         selectedShotType: defaultShotType(package: package, hole: hole.number)
                     )
                 )
@@ -1046,7 +1045,7 @@ public final class OfflineStore {
                 roundId: roundId,
                 hole: event.hole,
                 par: 0,
-                selectedClub: defaultClubName,
+                selectedClub: "",
                 selectedShotType: defaultShotType(package: package, hole: event.hole)
             )
             // Only advance activeHole to a hole that's actually in this package — after「移除加打的 9 洞」
