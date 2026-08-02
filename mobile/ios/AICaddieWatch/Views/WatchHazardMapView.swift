@@ -5,6 +5,14 @@ enum WatchHazardMapLayout {
     static let markerToPillCenterOffset: CGFloat = 14
     static let topPillLaneCenterY: CGFloat = 42
     static let topBoundaryClearance: CGFloat = 56
+    /// The real watchOS runtime keeps drawing its clock even when this full-screen map requests
+    /// hidden overlays. Reserve that top-right lane instead of centering map copy underneath it.
+    static let systemTimeTrailingClearance: CGFloat = 56
+    static let topSummaryLeadingInset: CGFloat = 4
+
+    static func topSummaryWidth(viewportWidth: CGFloat) -> CGFloat {
+        max(0, viewportWidth - topSummaryLeadingInset - systemTimeTrailingClearance)
+    }
 
     static func distancePillSize(for text: String) -> CGSize {
         CGSize(width: CGFloat(text.count) * 8 + 20, height: 18)
@@ -428,11 +436,21 @@ public struct WatchHazardMapView: View {
         return ZStack {
             VStack {
                 if centerGreenYards > 0 {
-                    Text("中 \(centerGreenYards) 码 · 到果岭")
-                        .font(.system(size: 11, weight: .semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(.black.opacity(0.72)))
+                    HStack(spacing: 0) {
+                        Text("中 \(centerGreenYards) 码 · 到果岭")
+                            .font(.system(size: 11, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(.black.opacity(0.72)))
+                            .frame(
+                                width: WatchHazardMapLayout.topSummaryWidth(viewportWidth: size.width),
+                                alignment: .leading
+                            )
+                        Spacer(minLength: WatchHazardMapLayout.systemTimeTrailingClearance)
+                    }
+                    .padding(.leading, WatchHazardMapLayout.topSummaryLeadingInset)
                 }
                 Spacer()
                 VStack(spacing: 1) {

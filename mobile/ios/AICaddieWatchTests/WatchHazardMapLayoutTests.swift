@@ -100,6 +100,18 @@ final class WatchHazardMapLayoutTests: XCTestCase {
         )
     }
 
+    func testTopSummaryLeavesTheRealWatchSystemTimeLaneClear() {
+        let viewportWidth: CGFloat = 198
+        let summaryRightEdge = WatchHazardMapLayout.topSummaryLeadingInset
+            + WatchHazardMapLayout.topSummaryWidth(viewportWidth: viewportWidth)
+
+        XCTAssertEqual(summaryRightEdge, 142, accuracy: 0.0001)
+        XCTAssertGreaterThanOrEqual(
+            viewportWidth - summaryRightEdge,
+            WatchHazardMapLayout.systemTimeTrailingClearance
+        )
+    }
+
     func testHazardPillStaysCenteredOnItsBoundaryMarker() {
         XCTAssertEqual(
             WatchHazardMapLayout.distancePillCenterX(

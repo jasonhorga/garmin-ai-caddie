@@ -77,8 +77,11 @@ public struct WatchScoreHoleView: View {
 
             stepContent
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(8)
+        // Padding must participate in the proposed Watch content size. Putting it outside the
+        // full-screen frame makes the view 16 pt taller than watchOS's safe content viewport and
+        // clips the recommendation actions at the bottom in the real runtime.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     var stepLabel: String {
