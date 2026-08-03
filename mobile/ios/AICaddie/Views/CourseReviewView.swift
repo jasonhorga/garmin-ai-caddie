@@ -137,6 +137,9 @@ struct HolePrepCard: View {
             // 服务端真实球场图 + 推荐打法(route + 推荐落点 + 球杆)叠加。
             if hole.resolvedMapOverlay != nil {
                 HoleImageMapView(hole: hole, topoURL: topoURL)
+                    // Keep the AsyncImage loading/ready children in the accessibility tree while
+                    // retaining this hole-specific container identifier for UI navigation.
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("prep-hole-map-\(hole.hole)")
             } else if isLoadingMap {
                 HStack(spacing: 8) {
