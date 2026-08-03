@@ -95,13 +95,22 @@ public struct StartRoundView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                courseCard
-                secondNineCard
-                startCard
+        GeometryReader { viewport in
+            ScrollView {
+                VStack(spacing: 12) {
+                    courseCard
+                    secondNineCard
+                    Spacer(minLength: 12)
+                    startCard
+                }
+                // Keep the primary action in the approved lower action band when a real course
+                // exposes only one playable 18-hole segment. Longer 9-hole combinations still
+                // expand and scroll naturally instead of being compressed to the viewport.
+                .frame(minHeight: max(0, viewport.size.height - 86), alignment: .top)
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 72)
             }
-            .padding(14)
         }
         .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
         .navigationTitle("开始一场")
