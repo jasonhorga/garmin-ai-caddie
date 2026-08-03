@@ -96,6 +96,10 @@ final class RealFlowUITests: XCTestCase {
                 "review evidence must open the known spatially separated Garmin round 17534238"
             )
             if enteredRoundReview {
+                // The history response can finish while the navigation transition is still committing.
+                // Leave one quiet window before XCUITest starts taking repeated accessibility snapshots;
+                // otherwise those snapshots can starve the already-loaded SwiftUI scorecard update.
+                settle(8)
                 // Match the approved edit render's first-hole state with a real Garmin round whose
                 // recorded positions are spatially separated and retain their actual clubs.
                 let reviewTitle = app.staticTexts["单场复盘"]
