@@ -82,6 +82,9 @@ public struct WatchScoreHoleView: View {
         // full-screen frame makes the view 16 pt taller than watchOS's safe content viewport and
         // clips the recommendation actions at the bottom in the real runtime.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // The title already reserves the top-right clock lane. Reclaim the unused top-left safe
+        // area so watchOS does not push the whole confirmation stack down and crop its bottom row.
+        .ignoresSafeArea(edges: .top)
     }
 
     var stepLabel: String {

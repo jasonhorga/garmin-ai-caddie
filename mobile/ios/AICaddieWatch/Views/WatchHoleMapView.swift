@@ -358,6 +358,10 @@ public struct WatchHoleMapView: View {
     private let backGrey = Color(red: 0.72, green: 0.74, blue: 0.78)
 
     private let columnFrac: CGFloat = 0.38
+    /// Keep the real topo and every route overlay aligned while moving their shared anchor out of
+    /// watchOS's persistent top-right clock lane. The data column still owns the left 38%; 37% of
+    /// the remaining map panel gives a measured flag enough room even in the drag-preview state.
+    private let mapPanelAnchorFraction: CGFloat = 0.37
 
     public var body: some View {
         GeometryReader { geo in
@@ -386,7 +390,11 @@ public struct WatchHoleMapView: View {
         let mapLeft = fullMap ? 0 : size.width * columnFrac
         let scale = currentScale(size)
         let youImg = geometry.youPx
-        let youCanvas = CGPoint(x: mapLeft + (size.width - mapLeft) * 0.5, y: size.height * (fullMap ? 0.66 : 0.72))
+        let horizontalAnchor = fullMap ? 0.5 : mapPanelAnchorFraction
+        let youCanvas = CGPoint(
+            x: mapLeft + (size.width - mapLeft) * horizontalAnchor,
+            y: size.height * (fullMap ? 0.66 : 0.72)
+        )
         let t: (CGPoint) -> CGPoint = { p in
             Self.safe(CGPoint(x: (p.x - youImg.x) * scale + youCanvas.x,
                               y: (p.y - youImg.y) * scale + youCanvas.y))
