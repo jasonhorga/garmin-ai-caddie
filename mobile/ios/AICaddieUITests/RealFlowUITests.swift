@@ -449,6 +449,11 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(skipClub.waitForExistence(timeout: 3), "club may be skipped without discarding the GPS shot")
         skipClub.tap()
         XCTAssertTrue(app.staticTexts["已记第 1 杆"].waitForExistence(timeout: 5))
+        let recordedShotHoleHeading = app.staticTexts["第 1 洞"]
+        XCTAssertTrue(
+            recordedShotHoleHeading.waitForExistence(timeout: 5) && fullyVisible(recordedShotHoleHeading),
+            "closing the actual-club sheet must restore the live-hole map/header instead of retaining the sheet-trigger scroll offset"
+        )
         settle(1); save("11d-shot-recorded"); dump("11d-shot-recorded")
 
         let saveHoleButton = app.buttons["确认本洞成绩"]
