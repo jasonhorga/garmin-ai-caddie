@@ -422,6 +422,13 @@ final class RealFlowUITests: XCTestCase {
         avoidZones.tap()
         let avoidZonesHeading = app.staticTexts["避开区"]
         XCTAssertTrue(scrollTo(avoidZonesHeading, maxSwipes: 8), "expanded avoid zones must be visible")
+        for label in ["稳妥打法", "标准打法", "进攻打法"] {
+            XCTAssertEqual(
+                app.staticTexts.matching(NSPredicate(format: "label == %@", label)).count,
+                1,
+                "a complete route must appear once; the avoid-zone disclosure must not repeat a second single-shot option table: \(label)"
+            )
+        }
         settle(1); save("11b-caddie-hazards"); dump("11b-caddie-hazards")
 
         closeCaddiePlan.tap()

@@ -504,7 +504,12 @@ public struct CaddiePlanView: View {
             }
             DisclosureGroup("备选打法 · 避开区") {
                 VStack(alignment: .leading, spacing: 10) {
-                    altTable
+                    // The complete route cards above are already the three strategy choices. Only
+                    // short-hole/offline responses without route sequences need the single-shot
+                    // option table; rendering both produced two copies of every strategy.
+                    if sequences.isEmpty {
+                        altTable
+                    }
                     if let recommended {
                         recommendedDetail(recommended)
                     }

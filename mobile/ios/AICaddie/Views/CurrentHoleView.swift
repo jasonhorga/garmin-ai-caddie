@@ -162,7 +162,7 @@ public struct CurrentHoleView: View {
                             isLoading: isLoadingCaddieDecision,
                             isReady: caddieDecision != nil,
                             errorText: caddieErrorMessage,
-                            onExpand: { withAnimation(.easeInOut(duration: 0.2)) { showCaddieDetail.toggle() } },
+                            onExpand: { showCaddieDetail = true },
                             onSelect: { selectClub($0) }
                         )
                         LiveHolePrimaryActions(
@@ -176,10 +176,10 @@ public struct CurrentHoleView: View {
                     .padding(.horizontal, 10)
                     .padding(.top, 16)
 
-                    // Secondary controls remain part of the same dark playing instrument: the full
-                    // caddie plan (球童完整方案), 更多调整, 拍照取证, and 球局调整 — all behaviour intact.
+                    // Secondary live controls remain part of the dark playing instrument. The full
+                    // caddie plan is a focused light surface so the approved three-card hierarchy is
+                    // not buried beneath a second copy of the rangefinder panel.
                     VStack(spacing: 12) {
-                        if showCaddieDetail { caddieDetailCard }
                         moreAdjustCard
                         mediaCard
                         manageSection
@@ -228,6 +228,9 @@ public struct CurrentHoleView: View {
             // Changing strategy re-plans the shot → adopt the new strategy's recommended club so the
             // club strip + landing marker move with it (保守/激进 选不同杆,图上的落点要跟着变).
             Task { await loadCaddieDecision(syncClub: true) }
+        }
+        .fullScreenCover(isPresented: $showCaddieDetail) {
+            caddieDetailSurface
         }
         .sheet(item: $scoreDraft) { presentedDraft in
             LiveScoreConfirmationView(
@@ -350,40 +353,76 @@ public struct CurrentHoleView: View {
         }
     }
 
-    // MARK: - Secondary dark cards below the hero (behaviour unchanged)
+    // MARK: - Focused caddie plan + secondary dark cards
 
-    /// 球童完整方案:the three full-route cards directly select 护分/标准/进攻 + refresh.
-    /// Revealed by the caddie strip's 展开; kept on the same dark instrument surface.
-    private var caddieDetailCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("球童完整方案").font(.caption).foregroundStyle(.secondary)
-            if let caddieDecision {
-                CaddiePlanView(
-                    response: caddieDecision,
-                    hazards: caddiePlanHazards,
-                    onSelectStrategyMode: { selectedStrategyMode = $0 }
-                )
-            } else {
-                CaddiePlanView(
-                    seed: caddieContextSeed,
-                    hazards: caddiePlanHazards,
-                    onSelectStrategyMode: { selectedStrategyMode = $0 }
-                )
+    /// Approved full-hole plan hierarchy: one light, focused surface containing exactly the three
+    /// complete route cards. It deliberately does not repeat the live distance/actions panel.
+    private var caddieDetailSurface: some View {
+        ZStack {
+            Color.white.ignoresSafeArea()
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("球童完整方案")
+                            .font(.title2.weight(.bold))
+                        Text("第 \(hole.number) 洞 · Par \(hole.par)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        showCaddieDetail = false
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("关闭球童方案")
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+
+                Divider()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let caddieDecision {
+                            CaddiePlanView(
+                                response: caddieDecision,
+                                hazards: caddiePlanHazards,
+                                onSelectStrategyMode: { selectedStrategyMode = $0 }
+                            )
+                        } else {
+                            CaddiePlanView(
+                                seed: caddieContextSeed,
+                                hazards: caddiePlanHazards,
+                                onSelectStrategyMode: { selectedStrategyMode = $0 }
+                            )
+                        }
+                        if isLoadingCaddieDecision {
+                            ProgressView("更新球童建议…")
+                        }
+                        if let caddieErrorMessage {
+                            Text(caddieErrorMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Button {
+                            Task { await loadCaddieDecision() }
+                        } label: {
+                            Label("刷新球童", systemImage: "arrow.clockwise")
+                                .font(.subheadline)
+                        }
+                        .disabled(isLoadingCaddieDecision)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                }
             }
-            if isLoadingCaddieDecision {
-                ProgressView("更新球童建议…")
-            }
-            if let caddieErrorMessage {
-                Text(caddieErrorMessage).font(.caption).foregroundStyle(.secondary)
-            }
-            Button {
-                Task { await loadCaddieDecision() }
-            } label: {
-                Label("刷新球童", systemImage: "arrow.clockwise").font(.subheadline)
-            }
-            .disabled(isLoadingCaddieDecision)
         }
-        .livePlayAuxiliaryCard()
+        .tint(LiveHoleStyle.green)
+        .preferredColorScheme(.light)
     }
 
     /// All the original secondary inputs are preserved, tucked into 更多调整.
