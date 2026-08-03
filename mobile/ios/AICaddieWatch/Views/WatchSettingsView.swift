@@ -25,27 +25,27 @@ public struct WatchSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Text("设置")
-                    .font(.system(size: 23, weight: .bold))
-                    .padding(.bottom, 11)
+                    .font(.system(size: 16, weight: .bold))
+                    .padding(.bottom, 6)
 
                 Toggle("GPS 预热", isOn: $gpsPreheatEnabled)
-                    .font(.system(size: 17, weight: .regular))
+                    .font(.system(size: 13, weight: .regular))
                     .toggleStyle(WatchApprovedToggleStyle())
                     .padding(.vertical, 7)
                 Divider()
 
                 Toggle("大字模式", isOn: $bigTextMode)
-                    .font(.system(size: 17, weight: .regular))
+                    .font(.system(size: 13, weight: .regular))
                     .toggleStyle(WatchApprovedToggleStyle())
                     .padding(.vertical, 7)
                 Divider()
 
                 HStack(spacing: 6) {
                     Text("佩戴手")
-                        .font(.system(size: 17, weight: .regular))
+                        .font(.system(size: 13, weight: .regular))
                     Spacer(minLength: 4)
                     Text(wristLabel)
-                        .font(.system(size: 16, weight: .regular))
+                        .font(.system(size: 12, weight: .regular))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 9)

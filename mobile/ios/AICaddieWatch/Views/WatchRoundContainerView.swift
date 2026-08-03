@@ -26,19 +26,24 @@ public struct WatchGPSAcquiringView: View {
     public init() {}
 
     public var body: some View {
-        VStack(spacing: 11) {
-            Image(systemName: "location.magnifyingglass")
-                .font(.system(size: 42, weight: .semibold))
-                .foregroundStyle(.blue)
-            Text("搜星中...")
-                .font(.title3.weight(.bold))
-            Text("定位就绪前不显示距离，\n免得报假数")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        GeometryReader { proxy in
+            let approvedHeight = min(proxy.size.height, 198)
+            VStack(spacing: 16) {
+                Image(systemName: "location.magnifyingglass")
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundStyle(.blue)
+                Text("搜星中...")
+                    .font(.system(size: 16, weight: .bold))
+                Text("定位就绪前不显示距离，\n免得报假数")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(width: proxy.size.width, height: approvedHeight)
+            .position(x: proxy.size.width / 2, y: approvedHeight / 2)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
+        .ignoresSafeArea()
         .accessibilityElement(children: .combine)
     }
 }

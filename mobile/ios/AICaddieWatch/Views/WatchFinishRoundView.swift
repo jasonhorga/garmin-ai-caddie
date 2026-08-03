@@ -1,5 +1,4 @@
 import SwiftUI
-import WatchKit
 
 /// The approved compact end-of-round summary. The richer GIR/fairway facts remain in the model for
 /// history and phone review, but this glance deliberately shows only the facts present in render #16.
@@ -43,89 +42,86 @@ public struct WatchFinishRoundView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("结束本场")
-                .font(.system(size: 15, weight: .bold))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("结束本场")
+                    .font(.system(size: 15, weight: .bold))
 
-            Text(courseName)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .padding(.top, 1)
+                Text(courseName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .padding(.top, 4)
 
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(scoreText)
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(totalStrokesText)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(scoreText)
+                        .font(.system(size: 38, weight: .bold, design: .rounded))
                         .monospacedDigit()
-                    Text(holesText)
-                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(totalStrokesText)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                        Text(holesText)
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.top, 10)
+
+                if totalPutts != nil {
+                    Text(puttsText)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
+                        .padding(.top, 10)
                 }
-            }
-            .padding(.top, 6)
 
-            if totalPutts != nil {
-                Text(puttsText)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 10)
-            }
-
-            if let pendingUploadText {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.up.circle")
-                    Text(pendingUploadText)
+                if let pendingUploadText {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.circle")
+                        Text(pendingUploadText)
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AICaddieDesignTokens.offline)
+                    .padding(.top, 9)
                 }
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(AICaddieDesignTokens.offline)
-                .padding(.top, 9)
-            }
 
-            Spacer(minLength: 3)
+                Button(action: onConfirmFinish) {
+                    Text(primaryActionLabel)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(AICaddieDesignTokens.par)
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .background(
+                            AICaddieDesignTokens.par.opacity(0.25),
+                            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 10)
 
-            Button(action: onConfirmFinish) {
-                Text(primaryActionLabel)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(AICaddieDesignTokens.par)
-                    .frame(maxWidth: .infinity, minHeight: 42)
-                    .background(
-                        AICaddieDesignTokens.par.opacity(0.25),
-                        in: RoundedRectangle(cornerRadius: 21, style: .continuous)
-                    )
+                Button(action: onKeepPlaying) {
+                    Text(secondaryActionLabel)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .background(
+                            Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255),
+                            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
             }
-            .buttonStyle(.plain)
-
-            Button(action: onKeepPlaying) {
-                Text(secondaryActionLabel)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, minHeight: 43)
-                    .background(
-                        Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255),
-                        in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    )
-            }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 10)
             .padding(.top, 8)
+            .padding(.bottom, 8)
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .frame(
-            height: WKInterfaceDevice.current().screenBounds.height,
-            alignment: .topLeading
-        )
         .background(Color.black)
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: [.top, .leading, .trailing])
+        .scrollIndicators(.hidden)
     }
 
     var scoreText: String {
@@ -172,42 +168,46 @@ public struct WatchFinishConfirmationView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 10) {
-            Spacer(minLength: 4)
+        GeometryReader { proxy in
+            let approvedHeight = min(proxy.size.height, 198)
+            VStack(spacing: 10) {
+                Spacer(minLength: 4)
 
-            Text(titleText)
-                .font(.system(size: 16, weight: .bold))
-                .multilineTextAlignment(.center)
-                .offset(y: 10)
+                Text(titleText)
+                    .font(.system(size: 16, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .offset(y: 10)
 
-            Text(statusText)
-                .font(.system(size: 11))
-                .foregroundStyle(
-                    uploadError == nil ? Color.secondary : AICaddieDesignTokens.doubleBogey
-                )
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .offset(y: 10)
+                Text(statusText)
+                    .font(.system(size: 11))
+                    .foregroundStyle(
+                        uploadError == nil ? Color.secondary : AICaddieDesignTokens.doubleBogey
+                    )
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .offset(y: 10)
 
-            Spacer(minLength: 4)
+                Spacer(minLength: 4)
 
-            HStack(spacing: 8) {
-                confirmationButton(
-                    cancelLabel,
-                    background: Color(red: 31 / 255, green: 31 / 255, blue: 31 / 255),
-                    action: onCancel
-                )
-                confirmationButton(
-                    confirmLabel,
-                    background: Color(red: 1.0, green: 69 / 255, blue: 59 / 255),
-                    action: onConfirm
-                )
+                HStack(spacing: 8) {
+                    confirmationButton(
+                        cancelLabel,
+                        background: Color(red: 31 / 255, green: 31 / 255, blue: 31 / 255),
+                        action: onCancel
+                    )
+                    confirmationButton(
+                        confirmLabel,
+                        background: Color(red: 1.0, green: 69 / 255, blue: 59 / 255),
+                        action: onConfirm
+                    )
+                }
             }
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 32)
+            .frame(width: proxy.size.width, height: approvedHeight)
+            .position(x: proxy.size.width / 2, y: approvedHeight / 2)
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 10)
-        .padding(.bottom, 32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
         .ignoresSafeArea()
     }

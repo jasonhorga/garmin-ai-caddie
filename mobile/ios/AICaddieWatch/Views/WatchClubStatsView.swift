@@ -41,19 +41,19 @@ public struct WatchClubStatsView: View {
                                 .lineLimit(1)
                             Spacer(minLength: 4)
                             Text("\(row.yards)")
-                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                                .font(.system(size: 18, weight: .bold, design: .rounded))
                                 .monospacedDigit()
                             Text("码")
                                 .font(.system(size: 9, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 6.75)
                         .overlay(alignment: .bottom) { Divider() }
                     }
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.top, 2)
+            .padding(.top, 7)
         }
         .ignoresSafeArea(edges: [.top, .leading, .trailing])
         .scrollIndicators(.hidden)

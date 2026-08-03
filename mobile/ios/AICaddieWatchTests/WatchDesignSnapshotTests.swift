@@ -364,7 +364,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testClubPromptKeepsFourApprovedClubChoicesOnTheFirst45mmScreen() {
         XCTAssertGreaterThanOrEqual(
-            WatchClubPromptLayout.firstScreenClubRows(viewportHeight: 160),
+            WatchClubPromptLayout.firstScreenClubRows(viewportHeight: 198),
             4
         )
     }

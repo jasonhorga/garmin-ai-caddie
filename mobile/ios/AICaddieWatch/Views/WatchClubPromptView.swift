@@ -4,14 +4,15 @@ import SwiftUI
 enum WatchClubPromptLayout {
     // The approved prompt shows four clubs at a glance. These values fit that density inside the
     // 45mm viewport left below watchOS's clock lane without shrinking the club names.
-    static let verticalPadding: CGFloat = 2
+    static let topPadding: CGFloat = 8
+    static let bottomPadding: CGFloat = 2
     static let stackSpacing: CGFloat = 3
     static let headerHeight: CGFloat = 32
-    static let clubRowHeight: CGFloat = 28
-    static let clubRowSpacing: CGFloat = 3
+    static let clubRowHeight: CGFloat = 32
+    static let clubRowSpacing: CGFloat = 5
 
     static func firstScreenClubRows(viewportHeight: CGFloat) -> Int {
-        let fixedHeight = (verticalPadding * 2) + headerHeight + stackSpacing
+        let fixedHeight = topPadding + bottomPadding + headerHeight + stackSpacing
         let availableHeight = max(0, viewportHeight - fixedHeight)
         return Int((availableHeight + clubRowSpacing) / (clubRowHeight + clubRowSpacing))
     }
@@ -86,26 +87,18 @@ public struct WatchClubPromptView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(recommendedGreen)
                     Spacer(minLength: 2)
-                    Text("第\(shotNumber)杆 · 位置已存")
-                        .font(.system(size: 9.5, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                HStack(spacing: 4) {
-                    Text("刚才这杆用的？")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 2)
                     Button(action: onSkipClub) {
-                        Text("跳过球杆")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.72))
-                            .frame(minWidth: 60, minHeight: 28)
-                            .contentShape(Rectangle())
+                        Text("位置已存 · 跳过")
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .foregroundStyle(.secondary)
                     }
-                    .padding(.vertical, -4)
                     .buttonStyle(.plain)
                     .accessibilityHint("当前位置已保存，不记录球杆")
                 }
+                Text("刚才这杆用的？")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(height: WatchClubPromptLayout.headerHeight)
 
@@ -159,7 +152,8 @@ public struct WatchClubPromptView: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, WatchClubPromptLayout.verticalPadding)
+        .padding(.top, WatchClubPromptLayout.topPadding)
+        .padding(.bottom, WatchClubPromptLayout.bottomPadding)
         .ignoresSafeArea(edges: [.top, .leading, .trailing])
     }
 

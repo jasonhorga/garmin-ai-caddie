@@ -29,10 +29,20 @@ public struct WatchDistanceHero: View {
     public var body: some View {
         if frontYd == nil, centerYd == nil, backYd == nil {
             EmptyView()
-        } else if bigText {
-            big
         } else {
-            normal
+            GeometryReader { proxy in
+                let approvedHeight = min(proxy.size.height, 198)
+                Group {
+                    if bigText {
+                        big
+                    } else {
+                        normal
+                    }
+                }
+                .frame(width: proxy.size.width, height: approvedHeight)
+                .position(x: proxy.size.width / 2, y: approvedHeight / 2)
+            }
+            .ignoresSafeArea()
         }
     }
 
@@ -116,6 +126,7 @@ public struct WatchAlwaysOnDistanceView: View {
             Text("第\(hole)洞 · P\(par)")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.42))
+                .offset(y: -1.5)
             Spacer().frame(height: 1)
             Text(centerYd.map(String.init) ?? "—")
                 .font(.system(size: 76, weight: .bold, design: .rounded))
@@ -125,9 +136,11 @@ public struct WatchAlwaysOnDistanceView: View {
                 // The real watchOS root proposes a narrower safe width than ImageRenderer. Without
                 // fixed sizing SwiftUI shrinks this line to 60%, even though three digits fit the glass.
                 .fixedSize(horizontal: true, vertical: false)
+                .offset(y: -0.5)
             Text(centerYd == nil ? "等待定位" : "码 · 到果岭")
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.40))
+                .offset(y: 1.5)
             Spacer(minLength: 18)
         }
         // Claim the full canvas, then restore the approved content origin below the system-time lane.

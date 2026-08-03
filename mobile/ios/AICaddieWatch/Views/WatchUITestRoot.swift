@@ -1030,12 +1030,12 @@ public struct WatchUITestRoot: View {
                 WatchRoundState(
                     roundId: roundId, hole: 7, par: 4, distanceM: 139,
                     teeLatitude: 40.0, teeLongitude: 116.0,
-                    suggestedClub: "一号木", selectedClub: nil,
+                    suggestedClub: "七号铁", selectedClub: nil,
                     availableClubs: [
-                        WatchClubOption(clubName: "一号木", medianM: 201),
-                        WatchClubOption(clubName: "三号木", medianM: 183),
-                        WatchClubOption(clubName: "5号铁", medianM: 165),
-                        WatchClubOption(clubName: "7号铁", medianM: 139),
+                        WatchClubOption(clubName: "七号铁", medianM: 139),
+                        WatchClubOption(clubName: "八号铁", medianM: 128),
+                        WatchClubOption(clubName: "六号铁", medianM: 151),
+                        WatchClubOption(clubName: "挖起杆", medianM: 87),
                     ],
                     score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
                 ),

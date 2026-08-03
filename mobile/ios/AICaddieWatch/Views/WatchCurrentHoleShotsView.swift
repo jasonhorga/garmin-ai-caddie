@@ -32,8 +32,8 @@ public struct WatchCurrentHoleShotsView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("第 \(hole) 洞 · Par \(par)")
-                .font(.headline.weight(.bold))
+            Text("第\(hole)洞 · Par \(par)")
+                .font(.system(size: 15, weight: .bold))
 
             if shots.isEmpty {
                 Text("本洞还没有记录击球")
@@ -48,7 +48,7 @@ public struct WatchCurrentHoleShotsView: View {
                             .foregroundStyle(.secondary)
                             .frame(width: 16, alignment: .leading)
                         Text(shotLabel(shot))
-                            .font(.body.weight(.semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .lineLimit(1)
                         Spacer(minLength: 4)
                         Text(distanceLabel(shot))
@@ -63,7 +63,7 @@ public struct WatchCurrentHoleShotsView: View {
 
             Button(action: onAddShot) {
                 Text(canAddShot ? "+ 补记一杆" : "等待 GPS 后补杆")
-                    .font(.caption.weight(.bold))
+                    .font(.system(size: 11, weight: .bold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 7)
                     .foregroundStyle(AICaddieDesignTokens.par)
