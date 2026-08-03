@@ -122,7 +122,6 @@ public struct WatchClubPromptView: View {
                                     Text(WatchClubDisplay.name(club.clubName))
                                         .font(.system(size: 15, weight: .semibold))
                                         .lineLimit(1)
-                                    Spacer(minLength: 2)
                                     if let distance = WatchClubPromptPresentation.distanceText(for: club) {
                                         Text(distance)
                                             .font(.system(size: 13, weight: .semibold))
@@ -133,6 +132,7 @@ public struct WatchClubPromptView: View {
                                             )
                                             .monospacedDigit()
                                     }
+                                    Spacer(minLength: 2)
                                     if isRecommended {
                                         Text("建议")
                                             .font(.system(size: 9, weight: .bold))

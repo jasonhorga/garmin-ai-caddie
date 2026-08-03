@@ -12,6 +12,7 @@ public struct WatchFinishRoundView: View {
     public let fairwaySummary: WatchOutcomeSummary?
     public let girSummary: WatchOutcomeSummary?
     public let pendingUploads: Int
+    public let initiallyShowSecondaryAction: Bool
     public let onConfirmFinish: () -> Void
     public let onKeepPlaying: () -> Void
 
@@ -25,6 +26,7 @@ public struct WatchFinishRoundView: View {
         fairwaySummary: WatchOutcomeSummary? = nil,
         girSummary: WatchOutcomeSummary? = nil,
         pendingUploads: Int = 0,
+        initiallyShowSecondaryAction: Bool = false,
         onConfirmFinish: @escaping () -> Void = {},
         onKeepPlaying: @escaping () -> Void = {}
     ) {
@@ -37,92 +39,102 @@ public struct WatchFinishRoundView: View {
         self.fairwaySummary = fairwaySummary
         self.girSummary = girSummary
         self.pendingUploads = pendingUploads
+        self.initiallyShowSecondaryAction = initiallyShowSecondaryAction
         self.onConfirmFinish = onConfirmFinish
         self.onKeepPlaying = onKeepPlaying
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("结束本场")
-                    .font(.system(size: 15, weight: .bold))
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("结束本场")
+                        .font(.system(size: 15, weight: .bold))
 
-                Text(courseName)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .padding(.top, 4)
+                    Text(courseName)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .padding(.top, 4)
 
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(scoreText)
-                        .font(.system(size: 38, weight: .bold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
-
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(totalStrokesText)
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(scoreText)
+                            .font(.system(size: 38, weight: .bold, design: .rounded))
                             .monospacedDigit()
-                        Text(holesText)
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(totalStrokesText)
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                            Text(holesText)
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.top, 10)
+
+                    if totalPutts != nil {
+                        Text(puttsText)
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
+                            .padding(.top, 10)
                     }
-                }
-                .padding(.top, 10)
 
-                if totalPutts != nil {
-                    Text(puttsText)
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 10)
-                }
-
-                if let pendingUploadText {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.up.circle")
-                        Text(pendingUploadText)
+                    if let pendingUploadText {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.circle")
+                            Text(pendingUploadText)
+                        }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(AICaddieDesignTokens.offline)
+                        .padding(.top, 9)
                     }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AICaddieDesignTokens.offline)
-                    .padding(.top, 9)
-                }
 
-                Button(action: onConfirmFinish) {
-                    Text(primaryActionLabel)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(AICaddieDesignTokens.par)
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                        .background(
-                            AICaddieDesignTokens.par.opacity(0.25),
-                            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        )
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 10)
+                    Button(action: onConfirmFinish) {
+                        Text(primaryActionLabel)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(AICaddieDesignTokens.par)
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                            .background(
+                                AICaddieDesignTokens.par.opacity(0.25),
+                                in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 10)
 
-                Button(action: onKeepPlaying) {
-                    Text(secondaryActionLabel)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                        .background(
-                            Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255),
-                            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        )
+                    Button(action: onKeepPlaying) {
+                        Text(secondaryActionLabel)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                            .background(
+                                Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255),
+                                in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 8)
+                    .id(Self.secondaryActionAnchor)
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 10)
                 .padding(.top, 8)
+                .padding(.bottom, 8)
             }
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
-            .padding(.bottom, 8)
+            .scrollIndicators(.hidden)
+            .onAppear {
+                guard initiallyShowSecondaryAction else { return }
+                proxy.scrollTo(Self.secondaryActionAnchor, anchor: .bottom)
+            }
         }
         .background(Color.black)
         .ignoresSafeArea(edges: [.top, .leading, .trailing])
-        .scrollIndicators(.hidden)
     }
+
+    private static let secondaryActionAnchor = "watch-finish-secondary-action"
 
     var scoreText: String {
         guard let toPar else { return "—" }

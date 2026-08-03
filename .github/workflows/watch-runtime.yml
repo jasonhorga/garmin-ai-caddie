@@ -324,6 +324,9 @@ jobs:
           launch_and_capture interaction-settings watch-settings-runtime.png
           launch_and_capture interaction-flag-direction watch-flag-direction-runtime.png
           launch_and_capture finish watch-round-finish.png
+          # The approved W16 reference is taller than the physical 45mm viewport. Capture the same
+          # production summary scrolled to its second action instead of pretending one frame is 588px.
+          launch_and_capture finish-actions watch-round-finish-actions.png
           launch_and_capture finish-confirmation watch-finish-confirmation-runtime.png
           if [[ "$WATCH_RUNTIME_SCOPE" == "setup-visual" ]]; then
             # Production model + container evidence for the club prompt, without starting the

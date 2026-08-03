@@ -170,13 +170,14 @@ public struct WatchUITestRoot: View {
             )
         case "autoshot-candidate":
             WatchAutoShotCandidateView()
-        case "finish":
+        case "finish", "finish-actions":
             WatchFinishRoundView(
                 courseName: "北京丽宫 · 前九", holesPlayed: 9, holeCount: 9,
                 totalStrokes: 41, toPar: 5, totalPutts: 16,
                 fairwaySummary: WatchOutcomeSummary(hits: 5, recorded: 7),
                 girSummary: WatchOutcomeSummary(hits: 4, recorded: 9),
-                pendingUploads: 2
+                pendingUploads: 2,
+                initiallyShowSecondaryAction: screen == "finish-actions"
             )
         case "finish-confirmation":
             WatchFinishConfirmationView(
@@ -1258,7 +1259,7 @@ public struct WatchUITestRoot: View {
             geometrySet: 2,
             yards: 6821,
             holeCount: 18,
-            isDefault: true
+            isDefault: false
         ),
         WatchCourseTee(
             teeBox: "white",
@@ -1266,7 +1267,7 @@ public struct WatchUITestRoot: View {
             geometrySet: 3,
             yards: 6200,
             holeCount: 18,
-            isDefault: false
+            isDefault: true
         ),
         WatchCourseTee(
             teeBox: "gold",

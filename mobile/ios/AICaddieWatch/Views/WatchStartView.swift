@@ -144,6 +144,7 @@ public struct WatchStartView: View {
         ForEach(courseGroups) { group in
             VStack(alignment: .leading, spacing: 5) {
                 sectionHeader(group.title)
+                    .padding(.bottom, 3)
 
                 if group.rows.isEmpty {
                     if isLoadingCourses {
@@ -281,7 +282,7 @@ public struct WatchStartView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 45, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 9)
                     .fill(Color.white.opacity(0.06))
