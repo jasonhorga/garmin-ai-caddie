@@ -73,6 +73,8 @@ class NativeVisualParityTests(unittest.TestCase):
 
         distance = (WATCH_VIEWS / "WatchDistanceHero.swift").read_text(encoding="utf-8")
         self.assertIn(".ignoresSafeArea()", distance)
+        self.assertIn(".padding(.top, 39)", distance)
+        self.assertNotIn(".padding(.top, 8)", distance)
 
     def test_live_hole_more_adjust_label_matches_compact_approved_card(self) -> None:
         source = (IOS_VIEWS / "CurrentHoleView.swift").read_text(encoding="utf-8")

@@ -130,9 +130,10 @@ public struct WatchAlwaysOnDistanceView: View {
                 .foregroundStyle(.white.opacity(0.40))
             Spacer(minLength: 18)
         }
-        // watchOS has already reserved the system-time lane. This is the remaining approved inset,
-        // not the full-canvas inset used by the design renderer.
-        .padding(.top, 8)
+        // Claim the full canvas, then restore the approved content origin below the system-time lane.
+        // This keeps the runtime frame aligned with the approved renderer instead of letting watchOS
+        // either push the whole stack down or place the header underneath the clock.
+        .padding(.top, 39)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
         .ignoresSafeArea()
