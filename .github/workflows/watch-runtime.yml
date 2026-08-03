@@ -325,8 +325,6 @@ jobs:
           launch_and_capture interaction-flag-direction watch-flag-direction-runtime.png
           launch_and_capture finish watch-round-finish.png
           launch_and_capture finish-confirmation watch-finish-confirmation-runtime.png
-          swift mobile/ios/scripts/verify_watch_setup_cta.swift \
-            watch-runtime-artifacts/watch-course-remote-setup.png
           if [[ "$WATCH_RUNTIME_SCOPE" == "setup-visual" ]]; then
             # Production model + container evidence for the club prompt, without starting the
             # credentialed real-course journey or writing a remote score.

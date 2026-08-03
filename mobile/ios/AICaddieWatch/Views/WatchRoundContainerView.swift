@@ -31,7 +31,8 @@ public struct WatchGPSAcquiringView: View {
             VStack(spacing: 16) {
                 Image(systemName: "location.magnifyingglass")
                     .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Color(red: 0.28, green: 0.68, blue: 1.0))
+                    .offset(y: 7)
                 Text("搜星中...")
                     .font(.system(size: 16, weight: .bold))
                 Text("定位就绪前不显示距离，\n免得报假数")
@@ -298,6 +299,7 @@ public struct WatchRoundContainerView: View {
                 WatchClubPromptView(
                     hole: pending.hole,
                     shotNumber: pending.shotNumber,
+                    distanceToPinYards: watchGreenYards?.center,
                     recommendedClub: model.allHoleStates.first(where: { $0.hole == pending.hole })?.suggestedClub,
                     clubs: model.allHoleStates.first(where: { $0.hole == pending.hole })?.availableClubs ?? [],
                     onSelectClub: { model.completePendingManualShot(clubName: $0) },

@@ -8,11 +8,12 @@ enum WatchClubPromptLayout {
     static let bottomPadding: CGFloat = 2
     static let stackSpacing: CGFloat = 3
     static let headerHeight: CGFloat = 32
+    static let footerHeight: CGFloat = 16
     static let clubRowHeight: CGFloat = 32
     static let clubRowSpacing: CGFloat = 5
 
     static func firstScreenClubRows(viewportHeight: CGFloat) -> Int {
-        let fixedHeight = topPadding + bottomPadding + headerHeight + stackSpacing
+        let fixedHeight = topPadding + bottomPadding + headerHeight + footerHeight + (stackSpacing * 2)
         let availableHeight = max(0, viewportHeight - fixedHeight)
         return Int((availableHeight + clubRowSpacing) / (clubRowHeight + clubRowSpacing))
     }
@@ -58,6 +59,7 @@ enum WatchClubPromptPresentation {
 public struct WatchClubPromptView: View {
     public let hole: Int?
     public let shotNumber: Int
+    public let distanceToPinYards: Int?
     public let recommendedClub: String?
     public let clubs: [WatchClubOption]
     public let onSelectClub: (String) -> Void
@@ -66,6 +68,7 @@ public struct WatchClubPromptView: View {
     public init(
         hole: Int? = nil,
         shotNumber: Int,
+        distanceToPinYards: Int? = nil,
         recommendedClub: String? = nil,
         clubs: [WatchClubOption] = [],
         onSelectClub: @escaping (String) -> Void = { _ in },
@@ -73,6 +76,7 @@ public struct WatchClubPromptView: View {
     ) {
         self.hole = hole
         self.shotNumber = shotNumber
+        self.distanceToPinYards = distanceToPinYards
         self.recommendedClub = recommendedClub
         self.clubs = clubs
         self.onSelectClub = onSelectClub
@@ -87,13 +91,13 @@ public struct WatchClubPromptView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(recommendedGreen)
                     Spacer(minLength: 2)
-                    Button(action: onSkipClub) {
-                        Text("位置已存 · 跳过")
-                            .font(.system(size: 9.5, weight: .semibold))
+                    if let distanceToPinYards {
+                        Text("到旗 \(distanceToPinYards)")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
                             .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .padding(.trailing, 46)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("当前位置已保存，不记录球杆")
                 }
                 Text("刚才这杆用的？")
                     .font(.system(size: 10))
@@ -131,7 +135,7 @@ public struct WatchClubPromptView: View {
                                     }
                                     if isRecommended {
                                         Text("建议")
-                                            .font(.caption2.weight(.bold))
+                                            .font(.system(size: 9, weight: .bold))
                                     }
                                 }
                                 .foregroundStyle(isRecommended ? Color.black : Color.white)
@@ -148,13 +152,24 @@ public struct WatchClubPromptView: View {
                         }
                     }
                 }
+                .frame(height: clubListHeight)
                 .scrollIndicators(.hidden)
             }
+
+            Button(action: onSkipClub) {
+                Text("位置已存 · 跳过")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: WatchClubPromptLayout.footerHeight, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("当前位置已保存，不记录球杆")
         }
         .padding(.horizontal, 8)
         .padding(.top, WatchClubPromptLayout.topPadding)
         .padding(.bottom, WatchClubPromptLayout.bottomPadding)
         .ignoresSafeArea(edges: [.top, .leading, .trailing])
+        .persistentSystemOverlays(.hidden)
     }
 
     private var recommendedGreen: Color {
@@ -172,6 +187,13 @@ public struct WatchClubPromptView: View {
             recommendedClub: normalizedRecommendedClub,
             clubs: clubs
         )
+    }
+
+    private var clubListHeight: CGFloat {
+        let visibleRows = min(clubChoices.count, 4)
+        guard visibleRows > 0 else { return 0 }
+        return CGFloat(visibleRows) * WatchClubPromptLayout.clubRowHeight
+            + CGFloat(visibleRows - 1) * WatchClubPromptLayout.clubRowSpacing
     }
 
     private func accessibilityLabel(for club: WatchClubOption, isRecommended: Bool) -> String {

@@ -16,6 +16,11 @@ struct WatchCourseGroupPresentation: Equatable, Identifiable {
     let showsRefresh: Bool
 }
 
+private struct WatchCourseSetupDestination: Equatable {
+    let row: WatchCourseRowPresentation
+    let ensureGeometry: Bool
+}
+
 /// Home-before-a-round. Every production path starts from a real course; downloaded rows remain
 /// available with no phone or network, while unavailable course data stays unavailable.
 public struct WatchStartView: View {
@@ -35,6 +40,7 @@ public struct WatchStartView: View {
     public let onStartCourse: (WatchCourseSelection) -> Void
 
     @State private var searchText = ""
+    @State private var setupDestination: WatchCourseSetupDestination?
 
     public init(
         phoneReachable: Bool,
@@ -69,49 +75,68 @@ public struct WatchStartView: View {
     }
 
     public var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    if showRemoteSectionFirst {
-                        remoteCourseSection
-                    }
-
-                    courseSections
-
-                    if !showRemoteSectionFirst {
-                        remoteCourseSection
-                    }
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.orange)
-                            .padding(7)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.orange.opacity(0.10))
-                            )
-                    }
-
-                    HStack(spacing: 4) {
-                        Image(
-                            systemName: phoneReachable
-                                ? "iphone.radiowaves.left.and.right"
-                                : "applewatch"
-                        )
-                        Text(phoneReachable ? "iPhone 已连接" : "已下载球场可离线开局")
-                    }
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 4)
+        Group {
+            if let destination = setupDestination {
+                WatchRoundSetupView(
+                    front: destination.row.course,
+                    courses: allSelectableCourses,
+                    hasCachedVersion: destination.row.isCached,
+                    isPreparing: preparingCourseId != nil,
+                    errorMessage: errorMessage,
+                    ensureGeometry: destination.ensureGeometry,
+                    onLoadTees: onLoadCourseTees,
+                    onStart: onStartCourse,
+                    onBack: { setupDestination = nil }
+                )
+            } else {
+                coursePicker
             }
-            .ignoresSafeArea(edges: .top)
-            .scrollIndicators(.hidden)
-            .searchable(text: $searchText, prompt: "搜索球场")
         }
+        .persistentSystemOverlays(.hidden)
+    }
+
+    private var coursePicker: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                if showRemoteSectionFirst {
+                    remoteCourseSection
+                }
+
+                courseSections
+
+                if !showRemoteSectionFirst {
+                    remoteCourseSection
+                }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.orange)
+                        .padding(7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.orange.opacity(0.10))
+                        )
+                }
+
+                HStack(spacing: 4) {
+                    Image(
+                        systemName: phoneReachable
+                            ? "iphone.radiowaves.left.and.right"
+                            : "applewatch"
+                    )
+                    Text(phoneReachable ? "iPhone 已连接" : "已下载球场可离线开局")
+                }
+                .font(.system(size: 8, weight: .medium))
+                .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+        }
+        .ignoresSafeArea(edges: [.top, .leading, .trailing])
+        .scrollIndicators(.hidden)
     }
 
     @ViewBuilder
@@ -170,6 +195,21 @@ public struct WatchStartView: View {
     private var remoteCourseSection: some View {
         VStack(alignment: .leading, spacing: 5) {
             sectionHeader("全部球场")
+
+            TextField("输入球场名称", text: $searchText)
+                .font(.system(size: 11, weight: .medium))
+                .textFieldStyle(.plain)
+                .submitLabel(.search)
+                .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color.white.opacity(0.06))
+                )
+                .onSubmit {
+                    guard canSearchAllCourses else { return }
+                    onSearchAllCourses(trimmedSearchText)
+                }
 
             Button {
                 onSearchAllCourses(trimmedSearchText)
@@ -270,26 +310,16 @@ public struct WatchStartView: View {
         _ row: WatchCourseRowPresentation,
         ensureGeometry: Bool = false
     ) -> some View {
-        NavigationLink {
-            WatchRoundSetupView(
-                front: row.course,
-                courses: allSelectableCourses,
-                hasCachedVersion: row.isCached,
-                isPreparing: preparingCourseId == row.course.globalId,
-                errorMessage: errorMessage,
-                ensureGeometry: ensureGeometry,
-                onLoadTees: onLoadCourseTees,
-                onStart: onStartCourse
+        Button {
+            setupDestination = WatchCourseSetupDestination(
+                row: row,
+                ensureGeometry: ensureGeometry
             )
         } label: {
             HStack(alignment: .top, spacing: 6) {
-                Circle()
-                    .fill(row.isCached ? Color(red: 0.28, green: 0.86, blue: 0.46) : Color.gray)
-                    .frame(width: 6, height: 6)
-                    .padding(.top, 4)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.course.displayName)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .lineLimit(2)
                         .minimumScaleFactor(0.78)
                     Text(row.subtitle)
@@ -313,7 +343,7 @@ public struct WatchStartView: View {
                 RoundedRectangle(cornerRadius: 9)
                     .fill(
                         row.isCached
-                            ? Color(red: 0.08, green: 0.28, blue: 0.15)
+                            ? Color(red: 0.015, green: 0.115, blue: 0.055)
                             : Color.white.opacity(0.06)
                     )
             )
@@ -371,8 +401,8 @@ public struct WatchStartView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 12, weight: .bold))
-            .foregroundStyle(.secondary)
+            .font(.system(size: 15, weight: .bold))
+            .foregroundStyle(.primary)
             .padding(.horizontal, 2)
     }
 

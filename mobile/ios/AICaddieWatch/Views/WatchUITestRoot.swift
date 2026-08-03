@@ -57,22 +57,18 @@ public struct WatchUITestRoot: View {
                 searchMatches: Self.remoteCourseMatches
             )
         case "course-setup":
-            NavigationStack {
-                WatchRoundSetupView(
-                    front: Self.setupFront,
-                    courses: [Self.setupFront, Self.setupBack],
-                    hasCachedVersion: true
-                )
-            }
+            WatchRoundSetupView(
+                front: Self.setupFront,
+                courses: [Self.setupFront, Self.setupBack],
+                hasCachedVersion: true
+            )
         case "course-remote-setup":
-            NavigationStack {
-                WatchRoundSetupView(
-                    front: Self.remoteCourseOptions[0],
-                    courses: [Self.remoteCourseOptions[0]],
-                    ensureGeometry: true,
-                    onLoadTees: { _ in Self.remoteCourseTees }
-                )
-            }
+            WatchRoundSetupView(
+                front: Self.remoteSetupOption,
+                courses: [Self.remoteSetupOption],
+                ensureGeometry: true,
+                onLoadTees: { _ in Self.remoteCourseTees }
+            )
         case "interaction-club-seed", "interaction-club-restore",
              "interaction-score-seed", "interaction-score-restore",
              "interaction-current-hole-shots", "interaction-gps-acquiring",
@@ -196,12 +192,10 @@ public struct WatchUITestRoot: View {
     }
 
     private var cachedCoursePicker: some View {
-        let cached = WatchCourseStore().loadCourses()
-        let options = cached.flatMap { [$0.option, $0.backOption].compactMap { $0 } }
         return WatchStartView(
             phoneReachable: false,
-            courses: options,
-            cachedCourseIds: Set(cached.map { $0.option.globalId }),
+            courses: Self.nearbyPickerCourses,
+            cachedCourseIds: [Self.nearbyPickerCourses[0].globalId],
             currentLatitude: 40.0454995,
             currentLongitude: 116.5461531
         )
@@ -984,6 +978,9 @@ public struct WatchUITestRoot: View {
             if model.round != nil {
                 WatchRoundContainerView(
                     model: model,
+                    watchGreenYards: screen == "interaction-club-seed"
+                        ? (front: nil, center: 135, back: nil)
+                        : nil,
                     shotLocation: interactionShotLocation,
                     watchHeading: interactionHeading
                 )
@@ -1190,6 +1187,39 @@ public struct WatchUITestRoot: View {
         tees: ["Blue", "White"]
     )
 
+    /// Deterministic preview identities for the approved nearby-course composition. Production rows
+    /// still come only from WatchCourseLibrary; these DEBUG-only options exercise that same sorting,
+    /// cache styling and distance-label code without claiming a live catalogue response.
+    private static let nearbyPickerCourses = [
+        WatchCourseOption(
+            globalId: 910001,
+            name: "北京丽宫 · 山景",
+            holes: 18,
+            teeBox: "Blue",
+            latitude: 40.0491,
+            longitude: 116.5461531,
+            tees: ["Blue", "White"]
+        ),
+        WatchCourseOption(
+            globalId: 910002,
+            name: "华彬庄园",
+            holes: 18,
+            teeBox: "Blue",
+            latitude: 40.0454995,
+            longitude: 116.5825,
+            tees: ["Blue", "White"]
+        ),
+        WatchCourseOption(
+            globalId: 910003,
+            name: "九华山庄",
+            holes: 18,
+            teeBox: "White",
+            latitude: 40.0454995,
+            longitude: 116.6470,
+            tees: ["Blue", "White"]
+        ),
+    ]
+
     private static let remoteCourseMatches = [
         WatchCourseSearchMatch(
             globalId: 31870,
@@ -1213,21 +1243,45 @@ public struct WatchUITestRoot: View {
         remoteCourseMatches.compactMap(\.courseOption)
     }
 
+    /// W21 is a deterministic 18-hole visual state. The production setup uses values returned by
+    /// `/courses/{globalId}/tees`; this explicit preview never enters WatchCourseLibrary or a round.
+    private static let remoteSetupOption = WatchCourseOption(
+        globalId: 910004,
+        name: "发球台视觉验收球场",
+        holes: 18
+    )
+
     private static let remoteCourseTees = [
         WatchCourseTee(
             teeBox: "blue",
             name: "Blue",
             geometrySet: 2,
-            yards: 3210,
-            holeCount: 9,
+            yards: 6821,
+            holeCount: 18,
             isDefault: true
         ),
         WatchCourseTee(
             teeBox: "white",
             name: "White",
             geometrySet: 3,
-            yards: 3010,
-            holeCount: 9,
+            yards: 6200,
+            holeCount: 18,
+            isDefault: false
+        ),
+        WatchCourseTee(
+            teeBox: "gold",
+            name: "Gold",
+            geometrySet: 1,
+            yards: 5750,
+            holeCount: 18,
+            isDefault: false
+        ),
+        WatchCourseTee(
+            teeBox: "red",
+            name: "Red",
+            geometrySet: 4,
+            yards: 5210,
+            holeCount: 18,
             isDefault: false
         ),
     ]

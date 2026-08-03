@@ -61,6 +61,12 @@ public struct WatchCurrentHoleShotsView: View {
                 }
             }
 
+            Text("推杆在洞末成绩确认中记录")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+
+            Spacer(minLength: 8)
+
             Button(action: onAddShot) {
                 Text(canAddShot ? "+ 补记一杆" : "等待 GPS 后补杆")
                     .font(.system(size: 11, weight: .bold))
@@ -75,12 +81,8 @@ public struct WatchCurrentHoleShotsView: View {
             .buttonStyle(.plain)
             .disabled(!canAddShot)
             .accessibilityHint(canAddShot ? "保存当前位置并选择实际球杆" : "等待手表取得 GPS 位置")
-            .padding(.top, 3)
-
-            Text("推杆在洞末成绩确认中记录")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
         }
+        .frame(minHeight: 207, alignment: .top)
         .padding(8)
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
@@ -93,6 +95,7 @@ public struct WatchCurrentHoleShotsView: View {
                 }
         )
         .accessibilityAction(named: Text("返回菜单"), onBack)
+        .persistentSystemOverlays(.hidden)
     }
 
     private func shotLabel(_ shot: WatchRecordedShot) -> String {

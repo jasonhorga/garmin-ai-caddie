@@ -364,7 +364,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testClubPromptKeepsFourApprovedClubChoicesOnTheFirst45mmScreen() {
         XCTAssertGreaterThanOrEqual(
-            WatchClubPromptLayout.firstScreenClubRows(viewportHeight: 198),
+            WatchClubPromptLayout.firstScreenClubRows(viewportHeight: 210),
             4
         )
     }
@@ -540,10 +540,42 @@ final class WatchDesignSnapshotTests: XCTestCase {
             hasCachedVersion: true
         )
 
-        XCTAssertEqual(view.loopChoices.map(\.title), ["只打 A", "A + B", "A + C"])
-        XCTAssertEqual(view.loopChoices.map(\.detail), ["9 洞", "18 洞", "18 洞"])
-        XCTAssertEqual(view.loopChoices.map(\.isSelected), [true, false, false])
+        XCTAssertEqual(
+            view.loopChoices.map(\.title),
+            ["A + B", "A + C", "只打 A", "只打 B", "只打 C"]
+        )
+        XCTAssertEqual(view.loopChoices.map(\.detail), ["18 洞", "18 洞", "9 洞", "9 洞", "9 洞"])
+        XCTAssertEqual(view.loopChoices.map(\.isSelected), [false, false, true, false, false])
         XCTAssertEqual(view.initialStage, .holes)
+    }
+
+    @MainActor
+    func testRoundSetupOffersApprovedFullFrontAndBackChoicesForACompletePair() {
+        let front = WatchCourseOption(
+            globalId: 301,
+            name: "黑骑士 ~ A",
+            holes: 9,
+            teeBox: "Blue",
+            venueName: "黑骑士",
+            segmentLabel: "A",
+            segmentHoles: 9,
+            tees: ["Blue", "White"]
+        )
+        let back = WatchCourseOption(
+            globalId: 302,
+            name: "黑骑士 ~ B",
+            holes: 9,
+            teeBox: "Blue",
+            venueName: "黑骑士",
+            segmentLabel: "B",
+            segmentHoles: 9,
+            tees: ["Blue", "White"]
+        )
+        let view = WatchRoundSetupView(front: front, courses: [front, back])
+
+        XCTAssertEqual(view.loopChoices.map(\.title), ["全 18 洞", "前 9 洞", "后 9 洞"])
+        XCTAssertEqual(view.loopChoices.map(\.detail), ["前九 + 后九", "1–9", "10–18"])
+        XCTAssertEqual(view.loopChoices.map(\.isSelected), [false, true, false])
     }
 
     @MainActor
@@ -578,7 +610,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             WatchRoundSetupChoicePresentation(
                 id: "tee:blue",
                 title: "蓝 T",
-                detail: "3210 码",
+                detail: "3,210 码",
                 isSelected: true
             )
         )
@@ -651,8 +683,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-flag-direction")
     }
 
-    // WatchStartView keeps real NavigationStack/search behavior. The workflow therefore captures its
-    // compact course rows from the running simulator rather than treating ImageRenderer as final proof.
+    // The workflow captures WatchStartView's scroll/search and shallow setup transition in the running
+    // simulator; ImageRenderer remains useful only for compact component geometry.
 
     @MainActor
     func testRenderWatchRoundContainerHome() throws {

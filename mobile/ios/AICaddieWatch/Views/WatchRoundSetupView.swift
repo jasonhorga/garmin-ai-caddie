@@ -23,10 +23,12 @@ public struct WatchRoundSetupView: View {
     public let ensureGeometry: Bool
     public let onLoadTees: (Int) async -> [WatchCourseTee]
     public let onStart: (WatchCourseSelection) -> Void
+    public let onBack: () -> Void
 
     @State private var selectedTee: String
+    @State private var selectedPrimaryGlobalId: Int
     @State private var selectedBackGlobalId: Int?
-    @State private var loadedTees: [WatchCourseTee] = []
+    @State private var loadedTeesByCourseId: [Int: [WatchCourseTee]] = [:]
     @State private var isLoadingTees = false
     @State private var teeLoadAttempted = false
     @State private var stage: WatchRoundSetupStage
@@ -40,7 +42,8 @@ public struct WatchRoundSetupView: View {
         errorMessage: String? = nil,
         ensureGeometry: Bool = false,
         onLoadTees: @escaping (Int) async -> [WatchCourseTee] = { _ in [] },
-        onStart: @escaping (WatchCourseSelection) -> Void = { _ in }
+        onStart: @escaping (WatchCourseSelection) -> Void = { _ in },
+        onBack: @escaping () -> Void = {}
     ) {
         self.front = front
         self.courses = courses
@@ -50,7 +53,9 @@ public struct WatchRoundSetupView: View {
         self.ensureGeometry = ensureGeometry
         self.onLoadTees = onLoadTees
         self.onStart = onStart
+        self.onBack = onBack
         _selectedTee = State(initialValue: front.preferredTee)
+        _selectedPrimaryGlobalId = State(initialValue: front.globalId)
         _selectedBackGlobalId = State(initialValue: nil)
         let startsWithHoles = Self.hasCompatibleBackLoop(front: front, courses: courses)
         let initialStage: WatchRoundSetupStage = startsWithHoles ? .holes : .tees
@@ -67,9 +72,20 @@ public struct WatchRoundSetupView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .task(id: front.globalId) {
+        .task(id: selectedPrimary.globalId) {
             await loadTeesIfNeeded()
         }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard WatchEdgeBackGesture.shouldTrigger(
+                        startX: value.startLocation.x,
+                        translation: value.translation
+                    ) else { return }
+                    handleBack()
+                }
+        )
+        .persistentSystemOverlays(.hidden)
     }
 
     private var holeSelection: some View {
@@ -81,9 +97,7 @@ public struct WatchRoundSetupView: View {
 
                 ForEach(loopChoices) { choice in
                     Button {
-                        selectedBackGlobalId = backOptions.first {
-                            choice.id == "loop:\($0.globalId)"
-                        }?.globalId
+                        selectLoop(choice.id)
                         withAnimation(.easeOut(duration: 0.16)) { stage = .tees }
                     } label: {
                         HStack(spacing: 7) {
@@ -117,86 +131,72 @@ public struct WatchRoundSetupView: View {
     }
 
     private var teeSelection: some View {
-        VStack(spacing: 5) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        if initialStage == .holes {
-                            Button {
-                                withAnimation(.easeOut(duration: 0.16)) { stage = .holes }
-                            } label: {
-                                Image(systemName: "chevron.backward")
-                                    .font(.system(size: 12, weight: .bold))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("返回选择洞数")
-                        }
-                        Text("发球台")
-                            .font(.system(size: 16, weight: .bold))
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("发球台")
+                    .font(.system(size: 16, weight: .bold))
 
-                    if isLoadingTees {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("正在获取真实发球台")
+                if isLoadingTees {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("正在获取真实发球台")
+                    }
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else if teeChoices.isEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text("暂无可用发球台")
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .padding(7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.orange.opacity(0.10))
+                    )
+                } else {
+                    ForEach(teeChoices) { choice in
+                        teeChoiceRow(choice) {
+                            guard let tee = teeOptions.first(where: {
+                                choice.id == "tee:\($0.teeBox.lowercased())"
+                            }) else { return }
+                            selectedTee = tee.teeBox
                         }
-                        .font(.system(size: 10, weight: .medium))
+                    }
+                }
+
+                if teeLoadAttempted, teeChoices.isEmpty, !isLoadingTees {
+                    Text("无法取得真实发球台时不会用猜测值开局。")
+                        .font(.system(size: 8, weight: .medium))
                         .foregroundStyle(.secondary)
-                        .padding(7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    } else if teeChoices.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle")
-                                .foregroundStyle(.orange)
-                            Text("暂无可用发球台")
-                        }
-                        .font(.system(size: 10, weight: .semibold))
+                }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.orange)
                         .padding(7)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(Color.orange.opacity(0.10))
                         )
-                    } else {
-                        ForEach(teeChoices) { choice in
-                            teeChoiceRow(choice) {
-                                guard let tee = teeOptions.first(where: {
-                                    choice.id == "tee:\($0.teeBox.lowercased())"
-                                }) else { return }
-                                selectedTee = tee.teeBox
-                            }
-                        }
-                    }
-
-                    if teeLoadAttempted, teeChoices.isEmpty, !isLoadingTees {
-                        Text("无法取得真实发球台时不会用猜测值开局。")
-                            .font(.system(size: 8, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.orange)
-                            .padding(7)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Color.orange.opacity(0.10))
-                            )
-                    }
                 }
-                .padding(.horizontal, 6)
-                .padding(.top, 4)
-            }
-            .scrollIndicators(.hidden)
 
-            setupFooter
-                .padding(.horizontal, 6)
-                .padding(.bottom, 4)
+                setupFooter
+                    .padding(.top, 42)
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
         }
-        .ignoresSafeArea(edges: .top)
+        .ignoresSafeArea(edges: [.top, .leading, .trailing])
+        .scrollIndicators(.hidden)
     }
 
     private var setupFooter: some View {
@@ -296,21 +296,31 @@ public struct WatchRoundSetupView: View {
     }
 
     var loopChoices: [WatchRoundSetupChoicePresentation] {
-        [
+        let onePair = backOptions.count == 1
+        let fullChoices = backOptions.map { option in
             WatchRoundSetupChoicePresentation(
-                id: "loop:front",
-                title: "只打 \(loopName(front))",
-                detail: "\(front.playableHoleCount) 洞",
-                isSelected: selectedBackGlobalId == nil
-            ),
-        ] + backOptions.map { option in
-            WatchRoundSetupChoicePresentation(
-                id: "loop:\(option.globalId)",
-                title: "\(loopName(front)) + \(loopName(option))",
-                detail: "18 洞",
-                isSelected: selectedBackGlobalId == option.globalId
+                id: "loop:full:\(option.globalId)",
+                title: onePair ? "全 18 洞" : "\(loopName(front)) + \(loopName(option))",
+                detail: onePair ? "前九 + 后九" : "18 洞",
+                isSelected: selectedPrimaryGlobalId == front.globalId
+                    && selectedBackGlobalId == option.globalId
             )
         }
+        let frontChoice = WatchRoundSetupChoicePresentation(
+            id: "loop:front:\(front.globalId)",
+            title: onePair ? "前 9 洞" : "只打 \(loopName(front))",
+            detail: onePair ? "1–9" : "\(front.playableHoleCount) 洞",
+            isSelected: selectedPrimaryGlobalId == front.globalId && selectedBackGlobalId == nil
+        )
+        let backChoices = backOptions.map { option in
+            WatchRoundSetupChoicePresentation(
+                id: "loop:back:\(option.globalId)",
+                title: onePair ? "后 9 洞" : "只打 \(loopName(option))",
+                detail: onePair ? "10–18" : "\(option.playableHoleCount) 洞",
+                isSelected: selectedPrimaryGlobalId == option.globalId && selectedBackGlobalId == nil
+            )
+        }
+        return fullChoices + [frontChoice] + backChoices
     }
 
     var teeChoices: [WatchRoundSetupChoicePresentation] {
@@ -329,7 +339,9 @@ public struct WatchRoundSetupView: View {
         WatchRoundSetupChoicePresentation(
             id: "tee:\(tee.teeBox.lowercased())",
             title: teeTitle(tee),
-            detail: tee.yards.map { "\($0) 码" } ?? "码数未知",
+            detail: tee.yards.map {
+                "\($0.formatted(.number.grouping(.automatic))) 码"
+            } ?? "码数未知",
             isSelected: isSelected
         )
     }
@@ -352,6 +364,10 @@ public struct WatchRoundSetupView: View {
     private var selectedBack: WatchCourseOption? {
         guard let selectedBackGlobalId else { return nil }
         return backOptions.first { $0.globalId == selectedBackGlobalId }
+    }
+
+    private var selectedPrimary: WatchCourseOption {
+        ([front] + backOptions).first { $0.globalId == selectedPrimaryGlobalId } ?? front
     }
 
     private var backOptions: [WatchCourseOption] {
@@ -384,12 +400,14 @@ public struct WatchRoundSetupView: View {
     }
 
     private var teeOptions: [WatchCourseTee] {
-        if !loadedTees.isEmpty { return loadedTees }
+        if let loadedTees = loadedTeesByCourseId[selectedPrimary.globalId], !loadedTees.isEmpty {
+            return loadedTees
+        }
 
         var seen = Set<String>()
         var result: [WatchCourseTee] = []
-        let defaultTee = front.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
-        for value in front.tees + [defaultTee].compactMap({ $0 }) {
+        let defaultTee = selectedPrimary.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
+        for value in selectedPrimary.tees + [defaultTee].compactMap({ $0 }) {
             let tee = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !tee.isEmpty,
                   tee.caseInsensitiveCompare("unknown") != .orderedSame,
@@ -404,7 +422,9 @@ public struct WatchRoundSetupView: View {
     }
 
     private var configuredFront: WatchCourseOption {
-        teeOptions.isEmpty ? front : front.withTees(teeOptions, selectedTee: selectedTee)
+        teeOptions.isEmpty
+            ? selectedPrimary
+            : selectedPrimary.withTees(teeOptions, selectedTee: selectedTee)
     }
 
     private var selectionSummary: String {
@@ -430,6 +450,37 @@ public struct WatchRoundSetupView: View {
         return option.playableHoleCount == 18 ? "全场" : option.displayName
     }
 
+    private func selectLoop(_ id: String) {
+        let parts = id.split(separator: ":")
+        guard parts.count == 3, let globalId = Int(parts[2]) else { return }
+        switch parts[1] {
+        case "full":
+            selectedPrimaryGlobalId = front.globalId
+            selectedBackGlobalId = globalId
+            selectedTee = front.preferredTee
+        case "front":
+            selectedPrimaryGlobalId = front.globalId
+            selectedBackGlobalId = nil
+            selectedTee = front.preferredTee
+        case "back":
+            guard let option = backOptions.first(where: { $0.globalId == globalId }) else { return }
+            selectedPrimaryGlobalId = option.globalId
+            selectedBackGlobalId = nil
+            selectedTee = option.preferredTee
+        default:
+            return
+        }
+        teeLoadAttempted = false
+    }
+
+    private func handleBack() {
+        if stage == .tees, initialStage == .holes {
+            withAnimation(.easeOut(duration: 0.16)) { stage = .holes }
+        } else {
+            onBack()
+        }
+    }
+
     private static func teeTitle(_ tee: WatchCourseTee) -> String {
         switch tee.teeBox.lowercased() {
         case "blue": "蓝 T"
@@ -449,8 +500,9 @@ public struct WatchRoundSetupView: View {
 
     @MainActor
     private func loadTeesIfNeeded() async {
-        guard front.tees.isEmpty else { return }
-        if let teeBox = front.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let course = selectedPrimary
+        guard course.tees.isEmpty else { return }
+        if let teeBox = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines),
            !teeBox.isEmpty,
            teeBox.caseInsensitiveCompare("unknown") != .orderedSame {
             return
@@ -458,9 +510,10 @@ public struct WatchRoundSetupView: View {
 
         teeLoadAttempted = true
         isLoadingTees = true
-        let tees = await onLoadTees(front.globalId)
+        let tees = await onLoadTees(course.globalId)
         isLoadingTees = false
-        loadedTees = tees
+        guard selectedPrimary.globalId == course.globalId else { return }
+        loadedTeesByCourseId[course.globalId] = tees
         if let defaultTee = tees.first(where: \.isDefault) ?? tees.first {
             selectedTee = defaultTee.teeBox
         }

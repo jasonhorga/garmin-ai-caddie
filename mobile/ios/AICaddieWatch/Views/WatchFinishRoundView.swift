@@ -204,7 +204,7 @@ public struct WatchFinishConfirmationView: View {
             }
             .padding(.horizontal, 10)
             .padding(.top, 10)
-            .padding(.bottom, 32)
+            .padding(.bottom, 10)
             .frame(width: proxy.size.width, height: approvedHeight)
             .position(x: proxy.size.width / 2, y: approvedHeight / 2)
         }
