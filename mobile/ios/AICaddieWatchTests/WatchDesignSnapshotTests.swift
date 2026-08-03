@@ -906,6 +906,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
             frontGreen: 273, centerGreen: 287, backGreen: 300,
             playsLikeDelta: 8, lastShot: 200,
             caddieClub: "3号木", caddieNote: "推进 · 留100",
+            showCaddieRecommendation: true,
+            showPreparedPlan: true,
             ringPips: pips,
             showPlaysLike: true
         )
