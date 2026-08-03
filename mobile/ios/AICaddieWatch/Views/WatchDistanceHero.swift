@@ -135,6 +135,7 @@ public struct WatchAlwaysOnDistanceView: View {
         .padding(.top, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
+        .ignoresSafeArea()
         .accessibilityElement(children: .combine)
     }
 }

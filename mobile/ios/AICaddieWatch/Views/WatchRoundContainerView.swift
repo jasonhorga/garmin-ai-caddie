@@ -275,6 +275,7 @@ public struct WatchRoundContainerView: View {
                         onBack: { model.backToMenu() }
                     )
                 }
+                .ignoresSafeArea(edges: [.top, .leading, .trailing])
             } else {
                 Color.black.onAppear { model.backToMenu() }
             }
@@ -518,6 +519,7 @@ public struct WatchRoundContainerView: View {
         ZStack { content() }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
+            .ignoresSafeArea()
             .contentShape(Rectangle())
             .onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }
             .accessibilityAction(named: Text("球局工具")) { model.openMenu() }

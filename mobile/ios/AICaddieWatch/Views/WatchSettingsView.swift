@@ -53,6 +53,7 @@ public struct WatchSettingsView: View {
             .padding(.horizontal, 8)
             .padding(.top, 6)
         }
+        .ignoresSafeArea(edges: [.top, .leading, .trailing])
         .scrollIndicators(.hidden)
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)

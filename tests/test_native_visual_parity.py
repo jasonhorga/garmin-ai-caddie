@@ -36,7 +36,10 @@ class NativeVisualParityTests(unittest.TestCase):
     def test_watch_menu_uses_the_full_top_canvas_without_changing_the_app_root(self) -> None:
         source = (WATCH_VIEWS / "WatchMenuView.swift").read_text(encoding="utf-8")
 
-        self.assertIn(".ignoresSafeArea(edges: .top)", source)
+        self.assertIn(
+            ".ignoresSafeArea(edges: [.top, .leading, .trailing])",
+            source,
+        )
         self.assertNotIn(".contentMargins(.vertical, 0, for: .scrollContent)", source)
 
     def test_watch_finish_actions_use_the_approved_ten_point_side_inset(self) -> None:
@@ -44,6 +47,32 @@ class NativeVisualParityTests(unittest.TestCase):
 
         self.assertEqual(source.count(".padding(.horizontal, 10)"), 2)
         self.assertNotIn(".padding(.horizontal, 25)", source)
+
+    def test_watch_approved_canvas_is_claimed_by_each_affected_surface(self) -> None:
+        full_top_canvas = ".ignoresSafeArea(edges: [.top, .leading, .trailing])"
+
+        for filename in [
+            "WatchMenuView.swift",
+            "WatchClubPromptView.swift",
+            "WatchClubStatsView.swift",
+            "WatchSettingsView.swift",
+        ]:
+            source = (WATCH_VIEWS / filename).read_text(encoding="utf-8")
+            self.assertIn(full_top_canvas, source, filename)
+
+        container = (WATCH_VIEWS / "WatchRoundContainerView.swift").read_text(encoding="utf-8")
+        self.assertIn(full_top_canvas, container)
+        self.assertIn(".ignoresSafeArea()", container)
+
+        setup = (WATCH_VIEWS / "WatchRoundSetupView.swift").read_text(encoding="utf-8")
+        self.assertIn(full_top_canvas, setup)
+        self.assertIn(".ignoresSafeArea(edges: .top)", setup)
+
+        start = (WATCH_VIEWS / "WatchStartView.swift").read_text(encoding="utf-8")
+        self.assertIn(".ignoresSafeArea(edges: .top)", start)
+
+        distance = (WATCH_VIEWS / "WatchDistanceHero.swift").read_text(encoding="utf-8")
+        self.assertIn(".ignoresSafeArea()", distance)
 
     def test_live_hole_more_adjust_label_matches_compact_approved_card(self) -> None:
         source = (IOS_VIEWS / "CurrentHoleView.swift").read_text(encoding="utf-8")

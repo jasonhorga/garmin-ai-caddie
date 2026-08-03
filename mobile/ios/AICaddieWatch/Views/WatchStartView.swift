@@ -108,6 +108,7 @@ public struct WatchStartView: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 4)
             }
+            .ignoresSafeArea(edges: .top)
             .scrollIndicators(.hidden)
             .searchable(text: $searchText, prompt: "搜索球场")
         }

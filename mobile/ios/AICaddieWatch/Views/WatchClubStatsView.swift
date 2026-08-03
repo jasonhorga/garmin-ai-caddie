@@ -55,6 +55,7 @@ public struct WatchClubStatsView: View {
             .padding(.horizontal, 8)
             .padding(.top, 2)
         }
+        .ignoresSafeArea(edges: [.top, .leading, .trailing])
         .scrollIndicators(.hidden)
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)

@@ -160,6 +160,7 @@ public struct WatchClubPromptView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, WatchClubPromptLayout.verticalPadding)
+        .ignoresSafeArea(edges: [.top, .leading, .trailing])
     }
 
     private var recommendedGreen: Color {
