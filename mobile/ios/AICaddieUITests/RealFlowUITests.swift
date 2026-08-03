@@ -38,6 +38,7 @@ final class RealFlowUITests: XCTestCase {
         // This lets the score flow use real 北京丽宫 data without polluting the owner's history.
         app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
         writeDiagnostics()
+        let reviewEvidence = try resolveReviewEvidence()
         // ---- Section 1: home + the two macro tiles (stats) ----
         launchFresh()
         save("01-home"); dump("01-home")
@@ -84,24 +85,24 @@ final class RealFlowUITests: XCTestCase {
                 "history pattern chips must keep long labels on one readable line"
             )
             let enteredRoundReview = openEvidenceRound(
-                roundRef: "17534238",
-                courseName: "北京天竺黑骑士球员俱乐部",
-                date: "2026-07-16",
-                score: 97
+                roundRef: reviewEvidence.roundRef,
+                courseName: reviewEvidence.courseName,
+                date: reviewEvidence.date,
+                score: reviewEvidence.score
             ) {
                 save("03b-history-real-round"); dump("03b-history-real-round")
             }
             XCTAssertTrue(
                 enteredRoundReview,
-                "review evidence must open the known spatially separated Garmin round 17534238"
+                "review evidence must open the dynamically verified spatially separated Garmin round"
             )
             if enteredRoundReview {
                 // The history response can finish while the navigation transition is still committing.
                 // Leave one quiet window before XCUITest starts taking repeated accessibility snapshots;
                 // otherwise those snapshots can starve the already-loaded SwiftUI scorecard update.
                 settle(8)
-                // Match the approved edit render's first-hole state with a real Garmin round whose
-                // recorded positions are spatially separated and retain their actual clubs.
+                // Match the approved edit render with a real Garmin hole whose recorded positions
+                // are spatially separated and retain their actual clubs.
                 let reviewTitle = app.staticTexts["单场复盘"]
                 XCTAssertTrue(reviewTitle.waitForExistence(timeout: 5))
                 XCTAssertGreaterThan(
@@ -116,14 +117,14 @@ final class RealFlowUITests: XCTestCase {
                     60,
                     "the approved review keeps the visible 历史复盘 return label beside its chevron"
                 )
-                let holeRow = app.buttons["round-review-hole-1"]
+                let holeRow = app.buttons["round-review-hole-\(reviewEvidence.hole)"]
                 let loadedRound = holeRow.waitForExistence(timeout: 60)
-                XCTAssertTrue(loadedRound, "the real round must load its first hole")
+                XCTAssertTrue(loadedRound, "the real round must load its verified evidence hole")
                 if loadedRound {
                     settle(2); save("04-round-review"); dump("04-round-review")
                 }
                 let reachableHole = loadedRound && scrollTo(holeRow, maxSwipes: 4)
-                XCTAssertTrue(reachableHole, "the first hole must be tappable")
+                XCTAssertTrue(reachableHole, "the verified evidence hole must be tappable")
                 if reachableHole {
                     holeRow.tap()
                     // The pager's navigationTitle is intentionally not visible in this sheet style.
@@ -148,8 +149,10 @@ final class RealFlowUITests: XCTestCase {
                         && topoReady.waitForExistence(timeout: 30)
                     XCTAssertTrue(loadedShotMap, "shot-map evidence must finish loading the real topo before capture")
                     if loadedShotMap {
-                        XCTAssertTrue(app.staticTexts["一号木"].exists, "the real shot map must retain the Driver label")
-                        XCTAssertTrue(app.staticTexts["三号木"].exists, "the real shot map must retain the 3W label")
+                        XCTAssertTrue(
+                            app.staticTexts["逐杆"].exists,
+                            "the verified real shot map must render its actual per-shot list"
+                        )
                         settle(2); save("04b-shot-map"); dump("04b-shot-map")
                     }
                     if loadedShotMap, editButton.isHittable {
@@ -164,7 +167,10 @@ final class RealFlowUITests: XCTestCase {
                             settle(2); save("04c-edit-mode"); dump("04c-edit-mode")
                             // Tap an empty part of the map. 04d is acceptable evidence only when this
                             // actually opens the add-shot sheet, never when the tap missed or hit a handle.
-                            app.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.42)).tap()
+                            editTopoReady.coordinate(withNormalizedOffset: CGVector(
+                                dx: reviewEvidence.emptyMapPoint.x,
+                                dy: reviewEvidence.emptyMapPoint.y
+                            )).tap()
                             let addShotSheet = app.navigationBars["补一杆"]
                             let openedAddShotSheet = addShotSheet.waitForExistence(timeout: 5)
                             XCTAssertTrue(openedAddShotSheet, "04d must show the add-shot sheet titled 补一杆")
@@ -975,22 +981,24 @@ final class RealFlowUITests: XCTestCase {
     private func openEvidenceRound(
         roundRef: String,
         courseName: String,
-        date: String,
-        score: Int,
+        date: String?,
+        score: Int?,
         beforeOpen: () -> Void = {}
     ) -> Bool {
-        let row = app.buttons.matching(
-            NSPredicate(
-                format: "label CONTAINS %@ AND label CONTAINS %@ AND label CONTAINS %@",
-                courseName,
-                date,
-                String(score)
-            )
-        ).firstMatch
-        if row.waitForExistence(timeout: 3), scrollTo(row, maxSwipes: 12) {
-            beforeOpen()
-            row.tap()
-            return app.navigationBars["单场复盘"].waitForExistence(timeout: 12)
+        if let date, let score {
+            let row = app.buttons.matching(
+                NSPredicate(
+                    format: "label CONTAINS %@ AND label CONTAINS %@ AND label CONTAINS %@",
+                    courseName,
+                    date,
+                    String(score)
+                )
+            ).firstMatch
+            if row.waitForExistence(timeout: 3), scrollTo(row, maxSwipes: 12) {
+                beforeOpen()
+                row.tap()
+                return app.navigationBars["单场复盘"].waitForExistence(timeout: 12)
+            }
         }
 
         beforeOpen()
@@ -1000,6 +1008,18 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment.removeValue(forKey: "UITEST_REVIEW_ROUND_REF")
         app.launchEnvironment.removeValue(forKey: "UITEST_REVIEW_COURSE_NAME")
         return app.navigationBars["单场复盘"].waitForExistence(timeout: 12)
+    }
+
+    private func resolveReviewEvidence() throws -> RealEvidenceRound {
+        let resolver = try RealEvidenceRoundResolver(
+            baseURL: cfg("AI_CADDIE_API_BASE_URL") ?? "",
+            adminToken: cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
+        )
+        let evidence = try resolver.resolve()
+        if let data = evidence.diagnosticText.data(using: .utf8) {
+            try data.write(to: realShotsDir().appendingPathComponent("review-evidence-round.txt"))
+        }
+        return evidence
     }
 
     // MARK: - diagnostics

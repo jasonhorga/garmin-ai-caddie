@@ -35,6 +35,7 @@ final class ReviewEditUITests: XCTestCase {
     }
 
     func testCaptureReviewEditFlow() throws {
+        let reviewEvidence = try resolveReviewEvidence()
         // ---- Navigate to a round review, then into one hole's 落点图 ----
         launchFresh()
         save("00-home"); dump("00-home")
@@ -45,10 +46,10 @@ final class ReviewEditUITests: XCTestCase {
         settle(6)
         save("01-history-list"); dump("01-history-list")
         // The newest owner rows can be CI-polluted manual rounds with coincident Tee coordinates.
-        // Open a known read-only Garmin round through the DEBUG navigation seed so edit evidence
-        // contains real spatially separated landings and clubs without mutating Production history.
-        app.launchEnvironment["UITEST_REVIEW_ROUND_REF"] = "17534238"
-        app.launchEnvironment["UITEST_REVIEW_COURSE_NAME"] = "北京天竺黑骑士球员俱乐部"
+        // Open the read-only Garmin round verified against the live scorecard + shot-map contracts,
+        // so edit evidence has real separated landings and clubs without mutating Production history.
+        app.launchEnvironment["UITEST_REVIEW_ROUND_REF"] = reviewEvidence.roundRef
+        app.launchEnvironment["UITEST_REVIEW_COURSE_NAME"] = reviewEvidence.courseName
         launchFresh()
         app.launchEnvironment.removeValue(forKey: "UITEST_REVIEW_ROUND_REF")
         app.launchEnvironment.removeValue(forKey: "UITEST_REVIEW_COURSE_NAME")
@@ -60,9 +61,9 @@ final class ReviewEditUITests: XCTestCase {
         settle(2); save("02-round-review"); dump("02-round-review")
 
         // The scorecard rows are buttons ("点一洞看落点图 →"); tapping one opens the 落点图 pager sheet.
-        // The approved edit evidence is hole 1. Garmin round 17534238 returns multiple separated
-        // non-putt GPS positions there; they must remain editable before the add-shot flow counts.
-        let holeButton = app.buttons["round-review-hole-1"]
+        // The resolver selected this hole only after proving multiple separated, club-labelled GPS
+        // positions; they must remain editable before the add-shot flow counts.
+        let holeButton = app.buttons["round-review-hole-\(reviewEvidence.hole)"]
         guard holeButton.waitForExistence(timeout: 60), bringIntoViewAndTap(holeButton, maxSwipes: 4) else {
             save("nohole"); dump("nohole"); return
         }
@@ -76,7 +77,7 @@ final class ReviewEditUITests: XCTestCase {
         let topoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
         guard topoReady.waitForExistence(timeout: 75) else {
-            XCTFail("review-edit evidence must load the real first-hole topo")
+            XCTFail("review-edit evidence must load the verified evidence-hole topo")
             return
         }
         settle(2); save("03-shot-map"); dump("03-shot-map")
@@ -96,7 +97,10 @@ final class ReviewEditUITests: XCTestCase {
         settle(2); save("04-edit-handles"); dump("04-edit-handles")
 
         // ---- 补一杆: tap empty map → the add sheet appears; cancel (no write) ----
-        mapPoint(dx: 0.18, dy: 0.42).tap()
+        editTopoReady.coordinate(withNormalizedOffset: CGVector(
+            dx: reviewEvidence.emptyMapPoint.x,
+            dy: reviewEvidence.emptyMapPoint.y
+        )).tap()
         let addSheet = app.navigationBars["补一杆"]
         XCTAssertTrue(addSheet.waitForExistence(timeout: 5), "05 must be the real 补一杆 sheet")
         settle(2); save("05-add-sheet"); dump("05-add-sheet")
@@ -107,10 +111,12 @@ final class ReviewEditUITests: XCTestCase {
         settle(1)
 
         // ---- 改这一杆: tap a landing → the edit sheet appears; dismiss with 完成 (no write) ----
-        // Use the real topo element as the coordinate frame. This fixed evidence round's first
-        // landing is near (0.47, 0.17); the former screen-centre tap hit empty map and silently
-        // reopened 补一杆 while the test mislabeled it as 改这一杆.
-        editTopoReady.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.17)).tap()
+        // Use the real topo element as the coordinate frame and the endpoint verified by the same
+        // live shot-map response. A screen-centre guess can hit empty map and silently reopen 补一杆.
+        editTopoReady.coordinate(withNormalizedOffset: CGVector(
+            dx: reviewEvidence.landing.x,
+            dy: reviewEvidence.landing.y
+        )).tap()
         let editSheet = app.navigationBars["改这一杆"]
         XCTAssertTrue(editSheet.waitForExistence(timeout: 5), "06 must edit a recorded landing, not reopen 补一杆")
         settle(2); save("06-edit-sheet"); dump("06-edit-sheet")
@@ -121,10 +127,17 @@ final class ReviewEditUITests: XCTestCase {
         settle(1)
 
         // ---- Drag a real handle. Routine runs preserve the local preview but skip the correction POST. ----
-        // Reuse the same known first-landing coordinate that opened 改这一杆 above; the former screen-centre
-        // drag could start on empty map and still let the suite pass without producing I30 evidence.
-        let dragStart = editTopoReady.coordinate(withNormalizedOffset: CGVector(dx: 0.47, dy: 0.17))
-        let dragEnd = editTopoReady.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.25))
+        // Reuse the verified landing coordinate that opened 改这一杆 above. Move inward so an edge
+        // landing still produces a real handle drag rather than an off-map gesture.
+        let dragDestination = dragDestination(from: reviewEvidence.landing)
+        let dragStart = editTopoReady.coordinate(withNormalizedOffset: CGVector(
+            dx: reviewEvidence.landing.x,
+            dy: reviewEvidence.landing.y
+        ))
+        let dragEnd = editTopoReady.coordinate(withNormalizedOffset: CGVector(
+            dx: dragDestination.x,
+            dy: dragDestination.y
+        ))
         dragStart.press(forDuration: 0.7, thenDragTo: dragEnd)
         settle(2); save("07-drag-move"); dump("07-drag-move")
 
@@ -183,10 +196,23 @@ final class ReviewEditUITests: XCTestCase {
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    /// A screen coordinate at a normalized offset of the app window — used to tap/drag the Canvas map
-    /// (its landings/handles are drawn, not accessibility elements, so there's nothing to query).
-    private func mapPoint(dx: Double, dy: Double) -> XCUICoordinate {
-        app.coordinate(withNormalizedOffset: CGVector(dx: dx, dy: dy))
+    private func resolveReviewEvidence() throws -> RealEvidenceRound {
+        let resolver = try RealEvidenceRoundResolver(
+            baseURL: cfg("AI_CADDIE_API_BASE_URL") ?? "",
+            adminToken: cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
+        )
+        let evidence = try resolver.resolve()
+        if let data = evidence.diagnosticText.data(using: .utf8) {
+            try data.write(to: realShotsDir().appendingPathComponent("edit-review-evidence-round.txt"))
+        }
+        return evidence
+    }
+
+    private func dragDestination(from point: RealEvidencePoint) -> RealEvidencePoint {
+        RealEvidencePoint(
+            x: min(max(point.x + (point.x > 0.72 ? -0.08 : 0.08), 0.06), 0.94),
+            y: min(max(point.y + (point.y > 0.72 ? -0.08 : 0.08), 0.06), 0.94)
+        )
     }
 
     @discardableResult

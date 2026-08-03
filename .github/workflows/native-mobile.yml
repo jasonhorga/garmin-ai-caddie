@@ -227,7 +227,10 @@ jobs:
           set +e
           ONLY_TESTING=()
           if [[ "$UITEST_CAPTURE_SCOPE" == "review" ]]; then
-            ONLY_TESTING=(-only-testing:AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow)
+            ONLY_TESTING=(
+              -only-testing:AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow
+              -only-testing:AICaddieUITests/ReviewEditUITests/testCaptureReviewEditFlow
+            )
           fi
           .github/scripts/retry-transient-command.sh \
             "$RUNNER_TEMP/real-xcuitest" \
