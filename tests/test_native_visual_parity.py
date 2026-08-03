@@ -39,6 +39,12 @@ class NativeVisualParityTests(unittest.TestCase):
         self.assertIn(".ignoresSafeArea(edges: .top)", source)
         self.assertNotIn(".contentMargins(.vertical, 0, for: .scrollContent)", source)
 
+    def test_watch_finish_actions_use_the_approved_ten_point_side_inset(self) -> None:
+        source = (WATCH_VIEWS / "WatchFinishRoundView.swift").read_text(encoding="utf-8")
+
+        self.assertEqual(source.count(".padding(.horizontal, 10)"), 2)
+        self.assertNotIn(".padding(.horizontal, 25)", source)
+
     def test_live_hole_more_adjust_label_matches_compact_approved_card(self) -> None:
         source = (IOS_VIEWS / "CurrentHoleView.swift").read_text(encoding="utf-8")
 

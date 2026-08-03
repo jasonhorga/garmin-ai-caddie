@@ -116,7 +116,7 @@ public struct WatchFinishRoundView: View {
             .buttonStyle(.plain)
             .padding(.top, 8)
         }
-        .padding(.horizontal, 25)
+        .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 6)
         .frame(maxWidth: .infinity, alignment: .topLeading)
