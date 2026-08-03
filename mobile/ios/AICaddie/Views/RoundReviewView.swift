@@ -122,11 +122,9 @@ struct RoundReviewContent: View {
     private func summaryCard(_ detail: RoundDetail) -> some View {
         let round = detail.round
         return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(round?.courseName ?? fallbackCourseName ?? "这一场")
-                    .font(.title3.weight(.bold)).foregroundStyle(.primary)
-                Text(summarySubtitle(round)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                Spacer(minLength: 8)
+            HStack(alignment: .top, spacing: 12) {
+                summaryTitle(round)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if let score = round?.score {
                     Text("\(score)").font(.system(size: 32, weight: .heavy)).monospacedDigit().foregroundStyle(.primary)
                 }
@@ -138,6 +136,37 @@ struct RoundReviewContent: View {
         // RoundReviewContent VStack causes SwiftUI to replace every descendant's identifier,
         // including the individually tappable `round-review-hole-N` rows.
         .accessibilityIdentifier("round-review-content-ready")
+    }
+
+    /// Keep compact course names and metadata on one baseline, while allowing a real long name to
+    /// own its full line before the metadata flows below it. The score remains a stable trailing
+    /// anchor in both layouts.
+    private func summaryTitle(_ round: RoundDetailSummary?) -> some View {
+        let courseName = round?.courseName ?? fallbackCourseName ?? "这一场"
+        let subtitle = summarySubtitle(round)
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(courseName)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(courseName)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(subtitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     /// tee/holes subtitle from what's present (date · 已打 N/M 洞 · Par); never fabricates a tee colour.

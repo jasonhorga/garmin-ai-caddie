@@ -106,9 +106,10 @@ struct ScoreChip: View {
         ZStack {
             shapeOverlay
             Text(score.map(String.init) ?? "–")
-                .font(.system(size: size * 0.47, weight: .heavy))
+                .font(.system(size: size * (frame == .triangle ? 0.38 : 0.47), weight: .heavy))
                 .monospacedDigit()
                 .foregroundStyle(color)
+                .offset(y: frame == .triangle ? size * 0.07 : 0)
         }
         .frame(width: size, height: size)
     }

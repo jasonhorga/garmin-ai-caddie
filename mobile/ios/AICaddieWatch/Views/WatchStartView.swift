@@ -318,7 +318,7 @@ public struct WatchStartView: View {
                 ensureGeometry: ensureGeometry
             )
         } label: {
-            HStack(alignment: .top, spacing: 6) {
+            HStack(alignment: .center, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.course.displayName)
                         .font(.system(size: 14, weight: .semibold))
