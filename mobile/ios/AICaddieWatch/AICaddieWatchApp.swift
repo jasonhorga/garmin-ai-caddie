@@ -16,12 +16,6 @@ public struct AICaddieWatchApp: App {
     public var body: some Scene {
         WindowGroup {
             content
-                // Approved Watch surfaces are composed against the complete 45 mm canvas: titles
-                // occupy the top-left lane while watchOS may retain its clock at top-right. Letting
-                // the host safe area shrink every screen pushed whole lists below the clock and
-                // clipped their final rows. Reclaim the canvas once at the app root; each instrument
-                // still owns its deliberate clock/edge clearance.
-                .ignoresSafeArea()
                 // Keep the standalone round able to sync: adopt the backend config the phone delivers.
                 .onChange(of: syncClient.config, initial: true) { _, newConfig in
                     roundModel.config = newConfig
