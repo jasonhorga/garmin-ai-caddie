@@ -920,6 +920,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let view = WatchHoleMapView(
             holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
             lastShot: 0, ringPips: [],
+            showCaddieRecommendation: true,
+            showPreparedPlan: true,
             measuredPxOverride: CGPoint(x: 470, y: 470)
         )
         .frame(width: 198, height: 242)
@@ -933,6 +935,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let view = WatchHoleMapView(
             holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
             lastShot: 0, ringPips: [],
+            showCaddieRecommendation: true,
+            showPreparedPlan: true,
             pinDragOverride: CGSize(width: 16, height: 20)
         )
         .frame(width: 198, height: 242)
