@@ -21,7 +21,9 @@ final class RealFlowUITests: XCTestCase {
     }
 
     override func setUpWithError() throws {
-        continueAfterFailure = true
+        // A failed prerequisite makes every later screenshot untrustworthy. Stop at the first
+        // product assertion instead of tapping through the wrong screen and reporting a cascade.
+        continueAfterFailure = false
         app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = cfg("AI_CADDIE_API_BASE_URL") ?? ""
         app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
         app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
@@ -239,6 +241,20 @@ final class RealFlowUITests: XCTestCase {
             scrollTo(firstPrepCard, maxSwipes: 3),
             "first real prep card must be fully inside the simulator safe viewport"
         )
+        let firstPrepTopoReady = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == %@", "topo-hole-base-ready")
+        ).firstMatch
+        XCTAssertTrue(
+            firstPrepTopoReady.waitForExistence(timeout: 75),
+            "pre-round evidence must wait for the real topo bitmap, not capture its loading overlay"
+        )
+        let firstPrepTopoLoading = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == %@", "topo-hole-base-loading")
+        ).firstMatch
+        XCTAssertTrue(
+            waitUntilGone(firstPrepTopoLoading, timeout: 5),
+            "the prep screenshot is valid only after the topo loading overlay disappears"
+        )
         // SwiftUI can publish the accessibility tree one frame before the rendered hierarchy commits.
         settle(2)
         save("07-prep-card"); dump("07-prep-card")
@@ -257,6 +273,14 @@ final class RealFlowUITests: XCTestCase {
             fullyVisible(prepHazard),
             "hazard evidence must remain inside the safe viewport after the rendered map settles"
         )
+        let visiblePrepTopoLoading = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == %@", "topo-hole-base-loading")
+        ).firstMatch
+        XCTAssertTrue(
+            waitUntilGone(visiblePrepTopoLoading, timeout: 75),
+            "hazard evidence must not include the next visible hole's topo loading overlay"
+        )
+        settle(1)
         save("08-prep-hazards"); dump("08-prep-hazards")
 
         // ---- Section 5: start the selected real course — GET package only, no score/backend write ----

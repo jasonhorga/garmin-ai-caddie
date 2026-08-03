@@ -25,6 +25,15 @@ while true; do
     exit 0
   fi
 
+  # A product/UI assertion is deterministic evidence for this attempt. A recovered 429/503 may
+  # still appear earlier in the same long Xcode log; it must not cause the entire simulator journey
+  # to restart after a later layout or behavior failure.
+  if grep -Eqi \
+    'XCTAssert[^[:cntrl:]]*failed|Test Case[^[:cntrl:]]*failed|Testing failed:|BUILD FAILED' \
+    "$log_file"; then
+    exit "$status"
+  fi
+
   if ! grep -Eqi \
     'NSURLErrorDomain Code=-1200|error code: -1200|SSL[^[:cntrl:]]*-9816|HTTP[^[:cntrl:]]*(429|503)|RESOURCE_EXHAUSTED|UNAVAILABLE|rate.?limit|service unavailable' \
     "$log_file"; then
