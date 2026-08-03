@@ -531,8 +531,10 @@ public struct WatchUITestRoot: View {
         verifyRealCourseJourney(stage: "started")
     }
 
-    /// Record one real-GPS-origin shot and finish only the currently active hole. The first occurrence
-    /// of each real Par uses the locked manual order; remaining holes exercise one-tap recommendation.
+    /// Record one real-GPS-origin shot and finish only the currently active hole. One occurrence of
+    /// each real Par exercises the one-tap recommendation; the remaining holes use the locked manual
+    /// order with a representative 82 (+7 after the history edit) scorecard. This keeps the isolated
+    /// cross-client evidence recognisably like a played round instead of eighteen synthetic 3s.
     @MainActor
     private func advanceRealCourseJourney() {
         removeJourneyResultMarkers()
@@ -571,13 +573,20 @@ public struct WatchUITestRoot: View {
         }
 
         model.startScoringActiveHole()
-        let manualMarker = journeyManualParMarker(state.par)
-        if FileManager.default.fileExists(atPath: manualMarker.path) {
+        let recommendationMarker = journeyRecommendationParMarker(state.par)
+        if !FileManager.default.fileExists(atPath: recommendationMarker.path) {
             model.acceptRecommendedScore()
+            try? Data("covered".utf8).write(to: recommendationMarker, options: .atomic)
         } else {
             model.startManualScoreEntry()
             guard model.scoreFlowStep == .score else {
                 failRealCourseJourney("第 \(state.hole) 洞未进入手动总杆")
+                return
+            }
+            let targetScore = journeyTargetScore(hole: state.hole, par: state.par)
+            model.adjustDraftScore(targetScore - model.draftScore)
+            guard model.draftScore == targetScore else {
+                failRealCourseJourney("第 \(state.hole) 洞没有形成代表性目标成绩")
                 return
             }
             model.advanceScoreEntry()
@@ -603,7 +612,6 @@ public struct WatchUITestRoot: View {
                 return
             }
             model.saveManualScore()
-            try? Data("covered".utf8).write(to: manualMarker, options: .atomic)
         }
 
         guard model.scoredHoles == afterShot.holeStates.filter({ $0.score > 0 }).count + 1 else {
@@ -656,7 +664,7 @@ public struct WatchUITestRoot: View {
         guard model.scoredHoles == 18,
               model.holeCount == 18,
               realPars.allSatisfy({
-                  FileManager.default.fileExists(atPath: journeyManualParMarker($0).path)
+                  FileManager.default.fileExists(atPath: journeyRecommendationParMarker($0).path)
               }) else {
             failRealCourseJourney("结束汇总前并未完成同一 round 的 18 洞")
             return
@@ -840,13 +848,22 @@ public struct WatchUITestRoot: View {
         round.pendingEvents.filter { $0.hole == hole && $0.kind == .location }.count
     }
 
-    private func journeyManualParMarker(_ par: Int) -> URL {
-        realCourseMarkerURL("real-course-journey-manual-par-\(par)")
+    private func journeyRecommendationParMarker(_ par: Int) -> URL {
+        realCourseMarkerURL("real-course-journey-recommendation-par-\(par)")
+    }
+
+    private func journeyTargetScore(hole: Int, par: Int) -> Int {
+        let representativeScores = [
+            3, 6, 3, 3, 5, 6, 4, 4, 5,
+            6, 5, 5, 4, 5, 3, 5, 4, 5,
+        ]
+        guard representativeScores.indices.contains(hole - 1) else { return par }
+        return representativeScores[hole - 1]
     }
 
     private func removeJourneyCoverageMarkers() {
         for par in 3...5 {
-            try? FileManager.default.removeItem(at: journeyManualParMarker(par))
+            try? FileManager.default.removeItem(at: journeyRecommendationParMarker(par))
         }
     }
 

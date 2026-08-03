@@ -89,7 +89,7 @@ describe('HistoryTimeline', () => {
     expect(screen.getByText('Relax the year or course filter to see rounds again.')).toBeInTheDocument()
   })
 
-  it('tags manual rounds with a 手动 chip and leaves Garmin rounds unmarked', () => {
+  it('tags app-ingested rounds as AI Caddie and leaves Garmin rounds unmarked', () => {
     const mixed: HistoryRoundsResponse = {
       schema: 'ai-caddie-history-rounds-v2',
       total: 2,
@@ -115,9 +115,10 @@ describe('HistoryTimeline', () => {
     }
 
     render(<HistoryTimeline data={mixed} />)
-    // Exactly one 手动 chip, for the manual round only.
-    expect(screen.getAllByText('手动')).toHaveLength(1)
-    expect(screen.getByLabelText('手动录入的球局')).toBeInTheDocument()
+    // `manual` is the ingest/storage vocabulary shared by phone, Watch, and Web;
+    // the product label must not falsely claim that every such round was hand-entered.
+    expect(screen.getAllByText('AI Caddie')).toHaveLength(1)
+    expect(screen.getByLabelText('AI Caddie 记录的球局')).toBeInTheDocument()
   })
 
   it('opens timeline round source refs', async () => {

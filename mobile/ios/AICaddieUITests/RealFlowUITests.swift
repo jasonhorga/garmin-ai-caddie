@@ -415,6 +415,12 @@ final class RealFlowUITests: XCTestCase {
             fullyVisible(app.buttons["本场计分卡"]),
             "the real scorecard action must be fully visible above the home-indicator boundary"
         )
+        let liveCaddieLoading = app.activityIndicators["正在更新球童建议"]
+        _ = liveCaddieLoading.waitForExistence(timeout: 2) // a warm backend may finish before this appears
+        XCTAssertTrue(
+            waitUntilGone(liveCaddieLoading, timeout: 75),
+            "live-hole evidence must wait for the structured caddie decision instead of freezing its loading spinner"
+        )
         save("10-live-hole"); dump("10-live-hole")
         XCTAssertTrue(app.staticTexts["第 1 洞"].exists, "starting 北京丽宫 must enter its real first hole")
         XCTAssertTrue(app.staticTexts["342"].exists, "front-green distance must render")

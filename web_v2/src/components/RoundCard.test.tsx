@@ -21,20 +21,20 @@ function baseRound(overrides: Partial<RoundCardType> = {}): RoundCardType {
 }
 
 describe('RoundCard', () => {
-  it('tags a 手动 (manual) round with a chip', () => {
+  it('labels an app-ingested round without claiming a Watch round was manually entered', () => {
     render(<RoundCard round={baseRound({ source: 'manual' })} />)
-    expect(screen.getByText('手动')).toBeInTheDocument()
-    expect(screen.getByLabelText('手动录入的球局')).toBeInTheDocument()
+    expect(screen.getByText('AI Caddie')).toBeInTheDocument()
+    expect(screen.getByLabelText('AI Caddie 记录的球局')).toBeInTheDocument()
   })
 
   it('does not tag Garmin-sourced rounds', () => {
     render(<RoundCard round={baseRound({ source: 'garmin' })} />)
-    expect(screen.queryByText('手动')).not.toBeInTheDocument()
+    expect(screen.queryByText('AI Caddie')).not.toBeInTheDocument()
   })
 
   it('does not tag rounds with no source (legacy payloads)', () => {
     render(<RoundCard round={baseRound()} />)
-    expect(screen.queryByText('手动')).not.toBeInTheDocument()
+    expect(screen.queryByText('AI Caddie')).not.toBeInTheDocument()
   })
 
   it('groups an 18-hole score strip into readable front and back nines', () => {

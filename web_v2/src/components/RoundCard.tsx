@@ -37,8 +37,8 @@ export function RoundCard({ round, onSelectRef, onOpenRoundDetail }: RoundCardPr
             {shortRoundDate(round.date)} · {round.holesCompleted ?? '-'} 洞
           </p>
           {round.source === 'manual' ? (
-            <span className="quality-chip round-source-chip" aria-label="手动录入的球局">
-              手动
+            <span className="quality-chip round-source-chip" aria-label="AI Caddie 记录的球局">
+              AI Caddie
             </span>
           ) : null}
         </div>
