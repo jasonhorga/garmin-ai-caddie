@@ -115,6 +115,7 @@ struct RoundReviewContent: View {
             }
         }
         .padding(16)
+        .accessibilityIdentifier("round-review-content-ready")
     }
 
     // MARK: summary card (course · tee/holes + big score + derived stat row)

@@ -189,11 +189,12 @@ final class RealFlowUITests: XCTestCase {
             let enteredRoundReview = roundReview.waitForExistence(timeout: 12)
             XCTAssertTrue(enteredRoundReview, "last-round evidence must enter 单场复盘 before capture")
             if enteredRoundReview {
-                let holeRow = app.buttons.matching(
-                    NSPredicate(format: #"identifier BEGINSWITH "round-review-hole-""#)
-                ).firstMatch
-                let loadedRound = holeRow.waitForExistence(timeout: 60)
-                XCTAssertTrue(loadedRound, "last-round evidence must finish loading before capture")
+                // The newest honest round may contain a summary without per-hole scorecard rows
+                // (for example a historical Watch upload). Readiness must mean that the content
+                // finished loading, not that the backend invented a tappable hole for missing data.
+                let content = app.descendants(matching: .any)["round-review-content-ready"].firstMatch
+                let loadedRound = content.waitForExistence(timeout: 60)
+                XCTAssertTrue(loadedRound, "last-round evidence must finish loading honest review content before capture")
                 if loadedRound {
                     settle(2); save("05-last-round-review"); dump("05-last-round-review")
                 }
