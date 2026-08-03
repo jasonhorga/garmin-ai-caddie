@@ -48,16 +48,28 @@ public struct CourseReviewView: View {
     private func load() async {
         isLoading = true
         errorText = nil
+        defer { isLoading = false }
+
+        // A cold all-hole facts build can exceed a minute because it opens every mesh before the
+        // process cache is warm. Publish hole 1 first so the review becomes useful immediately;
+        // that same request warms the shared geometry indexes, after which the all-hole replacement
+        // is normally fast. If a course has no local hole 1, fall through to the complete request.
+        if let firstHole = try? await client.fetchHolePrep(globalId: globalId, localHole: 1, render: false) {
+            holes = [firstHole]
+            isLoading = false
+        }
+        guard !Task.isCancelled else { return }
+
         do {
-            // The all-hole rendered response embeds one JPEG per hole and can exceed URLSession's
-            // request timeout on a cold course. Load every factual row first; visible cards then
-            // fetch their own rendered hole instead of blocking on an eager 18-image render.
+            // Replace the first factual row with the complete set. Rendered maps remain lazy below.
             let response = try await client.fetchCoursePrep(globalId: globalId, render: false)
             holes = response.holes
         } catch {
-            errorText = error.localizedDescription
+            // Preserve the already-useful first hole if only the background completion failed.
+            if holes.isEmpty {
+                errorText = error.localizedDescription
+            }
         }
-        isLoading = false
     }
 }
 

@@ -2047,9 +2047,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('.navigationTitle("赛前球场攻略")', course_review)
         self.assertIn('Text("蓝T \\(hole.blueYards)y")', course_review)
         # Opening the review must not synchronously render and embed every hole image. Facts load
-        # once; only visible LazyVStack cards request their single-hole map, while retaining the
-        # factual row when that optional request fails.
+        # progressively: the first factual hole becomes visible before a cold all-hole build, then
+        # the full factual response replaces it. Only visible LazyVStack cards request their map.
+        self.assertIn(
+            "fetchHolePrep(globalId: globalId, localHole: 1, render: false)",
+            course_review,
+        )
         self.assertIn("fetchCoursePrep(globalId: globalId, render: false)", course_review)
+        self.assertLess(
+            course_review.index("fetchHolePrep(globalId: globalId, localHole: 1, render: false)"),
+            course_review.index("fetchCoursePrep(globalId: globalId, render: false)"),
+        )
         self.assertIn("LazyVStack(alignment: .leading, spacing: 14)", course_review)
         self.assertIn("fetchHolePrep(", course_review)
         self.assertIn("mapUnavailable: didTryMap && renderedHole?.map == nil", course_review)
