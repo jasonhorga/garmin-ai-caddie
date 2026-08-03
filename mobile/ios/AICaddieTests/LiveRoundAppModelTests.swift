@@ -208,11 +208,21 @@ final class LiveRoundAppModelTests: XCTestCase {
             roundId: "home-\(fixture.package.course.globalId)",
             recentRounds: [finishedRound]
         )
+        let morePlayedOtherCourseId = 3881
         let courseOptions = MobileCourseOptionsResponse(
             schema: "ai-caddie-mobile-course-options-v1",
             dataMode: "real",
-            total: 1,
+            total: 2,
             courses: [
+                MobileCourseOption(
+                    globalId: morePlayedOtherCourseId,
+                    name: "Cypress Point Club",
+                    roundCount: 99,
+                    suggestedLiveRoundId: "home-\(morePlayedOtherCourseId)",
+                    holes: 18,
+                    teeBox: "Blue",
+                    geometryCoverage: "ready"
+                ),
                 MobileCourseOption(
                     globalId: fixture.package.course.globalId,
                     name: fixture.package.course.name,
@@ -332,6 +342,10 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertLessThan(
             try XCTUnwrap(paths.firstIndex(of: finishPath)),
             try XCTUnwrap(paths.firstIndex(of: homePath))
+        )
+        XCTAssertFalse(
+            paths.contains("/api/v2/mobile/courses/\(morePlayedOtherCourseId)/package"),
+            "finishing a course must refresh that course instead of the historically most-played course"
         )
         let body = try XCTUnwrap(
             JSONSerialization.jsonObject(with: try XCTUnwrap(capturedFinishBody)) as? [String: Any]

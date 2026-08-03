@@ -689,7 +689,7 @@ public final class LiveRoundAppModel: ObservableObject {
             // round that was just saved instead of the package's pre-round `recentHistory` snapshot.
             // A failed refresh is non-fatal: the completed round is already durable server-side and
             // the cached home remains available until the normal next bootstrap refresh.
-            let refreshedHome = await fetchHomePackage()
+            let refreshedHome = await fetchHomePackage(preferredCourse: package.course)
             try clearFinishedRoundLocally(roundId: package.roundId)
             if let refreshedHome {
                 try activateHomePackage(refreshedHome, status: "本场已保存")
@@ -1100,9 +1100,21 @@ public final class LiveRoundAppModel: ObservableObject {
         syncStatus = status
     }
 
-    /// Fetch the home package = most-played course's data (for the Hub's choices + 上一场 +
-    /// 复盘 count). Falls back to the cached home package offline. Geometry not needed here.
-    private func fetchHomePackage() async -> LiveRoundPackage? {
+    /// Fetch the home package for an explicitly finished course, or the most-played course during
+    /// ordinary bootstrap. The bootstrap path falls back to cache offline; geometry is unnecessary.
+    private func fetchHomePackage(preferredCourse: Course? = nil) async -> LiveRoundPackage? {
+        if let preferredCourse {
+            guard let syncClient else { return nil }
+            return try? await syncClient.fetchCoursePackage(
+                globalId: preferredCourse.globalId,
+                roundId: "home-\(preferredCourse.globalId)",
+                teeBox: preferredCourse.teeBox,
+                nine: "all",
+                capturedAt: Date(),
+                ensureGeometry: false,
+                includeEventCursor: false
+            )
+        }
         let mostPlayed = courseOptions.max { $0.roundCount < $1.roundCount }
         if let syncClient, let mostPlayed {
             let homeRoundId = mostPlayed.suggestedLiveRoundId ?? "home-\(mostPlayed.globalId)"
