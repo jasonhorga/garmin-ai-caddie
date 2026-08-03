@@ -115,10 +115,14 @@ final class ReviewEditUITests: XCTestCase {
         }
         settle(2); save("04-edit-handles"); dump("04-edit-handles")
 
-        // ---- 补一杆: tap empty map → the add sheet appears; cancel (no write) ----
+        // ---- 补一杆: tap empty topo near a verified landing → add sheet; cancel (no write) ----
+        // The globally farthest empty coordinate can be valid map space but transparent terrain
+        // outside the rendered hole. Keep this evidence point one handle-clear offset from a real
+        // landing so the persistent loupe must contain actual topo rather than an honest blank edge.
+        let addEvidencePoint = dragDestination(from: reviewEvidence.landing)
         editTopoReady.coordinate(withNormalizedOffset: CGVector(
-            dx: reviewEvidence.emptyMapPoint.x,
-            dy: reviewEvidence.emptyMapPoint.y
+            dx: addEvidencePoint.x,
+            dy: addEvidencePoint.y
         )).tap()
         let addSheet = app.navigationBars["补一杆"]
         XCTAssertTrue(addSheet.waitForExistence(timeout: 5), "05 must be the real 补一杆 sheet")
