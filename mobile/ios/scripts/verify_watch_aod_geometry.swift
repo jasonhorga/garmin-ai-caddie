@@ -59,20 +59,22 @@ let header = bands[0]
 let distance = bands[1]
 let caption = bands[2]
 print(
-    "WATCH_AOD header=\(header.minY)...\(header.maxY) "
+    "WATCH_AOD header=\(header.minY)...\(header.maxY),\(header.width)x\(header.height) "
         + "distance=\(distance.minY)...\(distance.maxY),\(distance.width)x\(distance.height) "
-        + "caption=\(caption.minY)...\(caption.maxY)"
+        + "caption=\(caption.minY)...\(caption.maxY),\(caption.width)x\(caption.height)"
 )
 
-guard (105...155).contains(header.minY) else {
+// The approved 396px-wide render has bands at 80...99, 150...254 and 299...316.
+// Runtime includes the watchOS clock above them, but the product content keeps those same lanes.
+guard (77...85).contains(header.minY), header.width >= 100, header.height >= 18 else {
     fputs("AOD content is vertically displaced: header begins at \(header.minY)px\n", stderr)
     exit(1)
 }
-guard distance.width >= 210, distance.height >= 90 else {
+guard (145...155).contains(distance.minY), distance.width >= 245, distance.height >= 100 else {
     fputs("AOD distance shrank below approved geometry: \(distance.width)x\(distance.height)px\n", stderr)
     exit(1)
 }
-guard (325...370).contains(caption.minY) else {
+guard (295...305).contains(caption.minY), caption.width >= 90, caption.height >= 17 else {
     fputs("AOD caption is outside the approved lane: begins at \(caption.minY)px\n", stderr)
     exit(1)
 }

@@ -114,9 +114,9 @@ public struct WatchAlwaysOnDistanceView: View {
     public var body: some View {
         VStack(spacing: 0) {
             Text("第\(hole)洞 · P\(par)")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.42))
-            Spacer().frame(height: 7)
+            Spacer().frame(height: 1)
             Text(centerYd.map(String.init) ?? "—")
                 .font(.system(size: 76, weight: .bold, design: .rounded))
                 .monospacedDigit()
@@ -126,7 +126,7 @@ public struct WatchAlwaysOnDistanceView: View {
                 // fixed sizing SwiftUI shrinks this line to 60%, even though three digits fit the glass.
                 .fixedSize(horizontal: true, vertical: false)
             Text(centerYd == nil ? "等待定位" : "码 · 到果岭")
-                .font(.system(size: 9))
+                .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.40))
             Spacer(minLength: 18)
         }
