@@ -1035,9 +1035,11 @@ final class RealFlowUITests: XCTestCase {
             "tokenLen=\(token.count)",
             "gps=\(cfg("UITEST_GPS_LAT") ?? "-"),\(cfg("UITEST_GPS_LON") ?? "-")",
         ]
-        if let probeURL = URL(string: url + "/api/v2/history/summary") {
+        // Probe liveness only. `/history/summary` performs a full owner statistics build and can
+        // take longer than the product flow itself when another real-course run is active.
+        if let probeURL = URL(string: url + "/api/v2/health") {
             var request = URLRequest(url: probeURL)
-            request.timeoutInterval = 40
+            request.timeoutInterval = 10
             request.setValue(token, forHTTPHeaderField: "x-ai-caddie-admin-token")
             let semaphore = DispatchSemaphore(value: 0)
             URLSession.shared.dataTask(with: request) { data, response, error in
@@ -1049,7 +1051,7 @@ final class RealFlowUITests: XCTestCase {
                 }
                 semaphore.signal()
             }.resume()
-            _ = semaphore.wait(timeout: .now() + 45)
+            _ = semaphore.wait(timeout: .now() + 15)
         } else {
             lines.append("probe.skipped=invalid-url")
         }

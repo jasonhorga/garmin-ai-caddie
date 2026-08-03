@@ -85,7 +85,7 @@ final class RealEvidenceRoundResolver {
             path: "/api/v2/history/rounds",
             queryItems: [
                 URLQueryItem(name: "hasShots", value: "true"),
-                URLQueryItem(name: "limit", value: "2000"),
+                URLQueryItem(name: "limit", value: "120"),
             ]
         )
         guard let groups = roundsRoot["groups"] as? [[String: Any]] else {
@@ -99,7 +99,10 @@ final class RealEvidenceRoundResolver {
             .sorted(by: evidenceCardPrecedes)
 
         var shotMapRequests = 0
-        for card in cards.prefix(80) {
+        // This is a screenshot precondition, not a history crawler. Inspect a bounded recent set;
+        // each round detail already exposes the per-hole shot refs needed to avoid probing every
+        // shot-map endpoint in the owner's history.
+        for card in cards.prefix(24) {
             guard let roundRef = nonEmptyString(card["id"]) else { continue }
             let encodedRef = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
             let detailPath = "/api/v2/history/rounds/\(encodedRef)"
@@ -111,9 +114,13 @@ final class RealEvidenceRoundResolver {
             }
 
             let scoredHoles: [(hole: Int, globalId: Int?, localHole: Int?)] = scorecard.compactMap { row in
+                // `shotCount` belongs to holeDetails, while scorecard rows expose `shotRefs`.
+                // Reading a nonexistent scorecard field made every genuine hole look empty and
+                // caused the resolver to crawl dozens of rounds before returning noEligibleRound.
+                let shotCount = (row["shotRefs"] as? [Any])?.count ?? integer(row["shotCount"]) ?? 0
                 guard let hole = integer(row["hole"]), hole > 0,
                       integer(row["score"]) != nil,
-                      (integer(row["shotCount"]) ?? 0) >= 2 else {
+                      shotCount >= 2 else {
                     return nil
                 }
                 return (hole, integer(row["globalId"]), integer(row["localHole"]))
@@ -131,7 +138,7 @@ final class RealEvidenceRoundResolver {
             for scoredHole in holes.prefix(18) {
                 let hole = scoredHole.hole
                 shotMapRequests += 1
-                guard shotMapRequests <= 72 else {
+                guard shotMapRequests <= 24 else {
                     throw RealEvidenceRoundResolverError.noEligibleRound
                 }
                 let shotMapPath = "\(detailPath)/holes/\(hole)/shotmap"

@@ -138,7 +138,16 @@ final class ReviewEditUITests: XCTestCase {
             dx: dragDestination.x,
             dy: dragDestination.y
         ))
-        dragStart.press(forDuration: 0.7, thenDragTo: dragEnd)
+        // Hold the real gesture at its destination long enough for the workflow's simulator video
+        // to retain a clean frame of the product loupe before release. The still captured below is
+        // intentionally the committed post-drag state; the held video frame is the same-state I30
+        // evidence for the approved magnifier instead of mislabelling that still as an active drag.
+        dragStart.press(
+            forDuration: 0.7,
+            thenDragTo: dragEnd,
+            withVelocity: .slow,
+            thenHoldForDuration: 2
+        )
         settle(2); save("07-drag-move"); dump("07-drag-move")
 
         // Leave edit mode (unlocks 翻洞). 完成 is the same nav button toggled.
