@@ -108,7 +108,9 @@ public struct WatchScoreHoleView: View {
     private var stepContent: some View {
         switch step {
         case .recommendation:
-            VStack(spacing: 6) {
+            // Two action rows must both clear the rounded 45 mm screen edge. The former 6 pt
+            // rhythm pushed the secondary row roughly 3 pt below the real simulator viewport.
+            VStack(spacing: 4) {
                 Text(stepLabel)
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
