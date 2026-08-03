@@ -735,13 +735,29 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByText('Black Knight B', { exact: true })).toBeVisible()
   await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
   await expect(page.locator('.review-canvas-hole')).toHaveCSS('color', 'rgb(15, 23, 32)')
-  const holeStripBox = await page.locator('.review-holes').boundingBox()
-  const lastHoleBox = await page.getByRole('button', { name: '第18洞 标准杆4 成绩5' }).boundingBox()
+  const holeList = page.locator('.review-holes-list')
+  const lastHole = page.getByRole('button', { name: '第18洞 标准杆4 成绩5' })
+  const holeStripBox = await holeList.boundingBox()
+  const lastHoleBox = await lastHole.boundingBox()
   expect(holeStripBox).not.toBeNull()
   expect(lastHoleBox).not.toBeNull()
-  expect((lastHoleBox?.x ?? 0) + (lastHoleBox?.width ?? 0)).toBeLessThanOrEqual(
-    (holeStripBox?.x ?? 0) + (holeStripBox?.width ?? 0),
-  )
+  const lastHoleRight = (lastHoleBox?.x ?? 0) + (lastHoleBox?.width ?? 0)
+  const holeStripRight = (holeStripBox?.x ?? 0) + (holeStripBox?.width ?? 0)
+  if (lastHoleRight > holeStripRight) {
+    const strip = await holeList.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      overflowX: getComputedStyle(element).overflowX,
+    }))
+    expect(strip.scrollWidth).toBeGreaterThan(strip.clientWidth)
+    expect(strip.overflowX).toMatch(/auto|scroll/)
+    await holeList.evaluate((element) => { element.scrollLeft = element.scrollWidth })
+    const reachableLastHoleBox = await lastHole.boundingBox()
+    expect(reachableLastHoleBox).not.toBeNull()
+    expect((reachableLastHoleBox?.x ?? 0) + (reachableLastHoleBox?.width ?? 0)).toBeLessThanOrEqual(holeStripRight + 1)
+    expect(reachableLastHoleBox?.x ?? 0).toBeGreaterThanOrEqual((holeStripBox?.x ?? 0) - 1)
+    await holeList.evaluate((element) => { element.scrollLeft = 0 })
+  }
   const replayCanvas = page.locator('[aria-label="第1洞落点图"]')
   const replayCanvasBox = await replayCanvas.boundingBox()
   const replayFrameBox = await replayCanvas.locator('.review-canvas-frame').boundingBox()

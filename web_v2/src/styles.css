@@ -8642,7 +8642,21 @@ textarea {
   }
 
   .review-work {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+      'holes'
+      'canvas'
+      'inspector';
     height: auto;
+  }
+
+  .review-work > * {
+    overflow: visible;
+  }
+
+  .review-holes {
+    overflow: hidden;
   }
 
   .review-canvas-frame {
