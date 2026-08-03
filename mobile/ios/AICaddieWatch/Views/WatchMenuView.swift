@@ -106,7 +106,7 @@ public struct WatchMenuView: View {
             .padding(.top, 2)
             .padding(.bottom, 8)
         }
-        .contentMargins(.vertical, 0, for: .scrollContent)
+        .ignoresSafeArea(edges: .top)
         .scrollIndicators(.hidden)
     }
 

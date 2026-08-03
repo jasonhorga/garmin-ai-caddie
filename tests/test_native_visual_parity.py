@@ -33,13 +33,11 @@ class NativeVisualParityTests(unittest.TestCase):
         self.assertIn('accessibilityAction(named: Text("球局工具"))', source)
         self.assertNotIn("private var roundToolsButton", source)
 
-    def test_watch_menu_removes_the_automatic_vertical_scroll_content_margin(self) -> None:
+    def test_watch_menu_uses_the_full_top_canvas_without_changing_the_app_root(self) -> None:
         source = (WATCH_VIEWS / "WatchMenuView.swift").read_text(encoding="utf-8")
 
-        self.assertIn(
-            ".contentMargins(.vertical, 0, for: .scrollContent)",
-            source,
-        )
+        self.assertIn(".ignoresSafeArea(edges: .top)", source)
+        self.assertNotIn(".contentMargins(.vertical, 0, for: .scrollContent)", source)
 
     def test_live_hole_more_adjust_label_matches_compact_approved_card(self) -> None:
         source = (IOS_VIEWS / "CurrentHoleView.swift").read_text(encoding="utf-8")
