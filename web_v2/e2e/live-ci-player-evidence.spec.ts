@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const playerToken = process.env.AI_CADDIE_CI_PLAYER_TOKEN?.trim()
 
@@ -7,12 +7,19 @@ test.use({ trace: 'off', screenshot: 'off', video: 'off' })
 test.describe('real isolated CI player evidence', () => {
   test.skip(!playerToken, 'AI_CADDIE_CI_PLAYER_TOKEN is required for real evidence')
 
-  async function captureWithoutCredentialInLocation(page: Page, filename: string): Promise<void> {
+  async function captureWithoutCredentialInLocation(
+    page: Page,
+    filename: string,
+    requiredEvidence?: Locator,
+  ): Promise<void> {
     const credentialPath = await page.evaluate(
       () => `${window.location.pathname}${window.location.search}${window.location.hash}`,
     )
     await page.evaluate(() => window.history.replaceState(window.history.state, '', '/'))
     try {
+      if (requiredEvidence) {
+        await expect(requiredEvidence, `${filename} must capture the requested product state`).toBeInViewport({ ratio: 0.5 })
+      }
       await page.screenshot({
         path: `web-live-evidence/${filename}`,
         animations: 'disabled',
@@ -100,10 +107,11 @@ test.describe('real isolated CI player evidence', () => {
     // scrollY=0 only shows the archive list above this panel and falsely looks like a duplicate.
     await roundDetail.evaluate((node) => node.scrollIntoView({ block: 'start', behavior: 'instant' }))
     await page.evaluate(() => window.scrollBy(0, -64))
+    await expect(roundDetail).toBeInViewport({ ratio: 0.5 })
     await expect
       .poll(async () => Math.round((await roundDetail.boundingBox())?.y ?? -1))
       .toBeGreaterThanOrEqual(54)
-    await captureWithoutCredentialInLocation(page, 'round-review.png')
+    await captureWithoutCredentialInLocation(page, 'round-review.png', roundDetail)
 
     // Leave no capability token in the final page URL when the browser context closes.
     await page.evaluate(() => window.history.replaceState(window.history.state, '', '/'))
