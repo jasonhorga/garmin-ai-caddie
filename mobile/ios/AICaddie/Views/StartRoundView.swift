@@ -106,10 +106,10 @@ public struct StartRoundView: View {
                 // Keep the primary action in the approved lower action band when a real course
                 // exposes only one playable 18-hole segment. Longer 9-hole combinations still
                 // expand and scroll naturally instead of being compressed to the viewport.
-                .frame(minHeight: max(0, viewport.size.height - 86), alignment: .top)
+                .frame(minHeight: max(0, viewport.size.height - 112), alignment: .top)
                 .padding(.horizontal, 14)
                 .padding(.top, 14)
-                .padding(.bottom, 72)
+                .padding(.bottom, 98)
             }
         }
         .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
