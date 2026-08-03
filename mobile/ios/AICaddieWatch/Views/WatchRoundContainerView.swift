@@ -402,8 +402,11 @@ public struct WatchRoundContainerView: View {
         if let suggested = s.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines),
            !suggested.isEmpty,
            let matching = s.caddieOptions.first(where: {
-               $0.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
-                   .caseInsensitiveCompare(suggested) == .orderedSame
+               guard let clubName = $0.clubName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                     !clubName.isEmpty else {
+                   return false
+               }
+               return clubName.caseInsensitiveCompare(suggested) == .orderedSame
            }) {
             return matching
         }
@@ -431,7 +434,7 @@ public struct WatchRoundContainerView: View {
         if let carry = option?.carryM, carry.isFinite, carry > 0 {
             parts.append("打 \(WatchUnits.yards(carry))")
         }
-        if let next = option?.plan.dropFirst().first {
+        if let plan = option?.plan, let next = plan.dropFirst().first {
             parts.append("后接\(WatchClubDisplay.name(next.clubName))")
         }
         if !parts.isEmpty { return parts.joined(separator: " · ") }
