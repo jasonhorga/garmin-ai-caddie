@@ -38,11 +38,22 @@ final class ReviewEditUITests: XCTestCase {
         let reviewEvidence = try resolveReviewEvidence()
         // ---- Navigate to a round review, then into one hole's 落点图 ----
         launchFresh()
+        let historyTile = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "历史复盘")
+        ).firstMatch
+        guard historyTile.waitForExistence(timeout: 60) else {
+            XCTFail("edit-00-home may be captured only after the real home replaces the launch screen")
+            return
+        }
+        settle(2)
         save("00-home"); dump("00-home")
 
-        guard tapContaining(["历史复盘", "逐场逐洞"]) else {
-            save("nohistory"); dump("nohistory"); return
+        guard historyTile.isHittable else {
+            save("nohistory"); dump("nohistory")
+            XCTFail("review-edit evidence must expose the history entry")
+            return
         }
+        historyTile.tap()
         settle(6)
         save("01-history-list"); dump("01-history-list")
         // The newest owner rows can be CI-polluted manual rounds with coincident Tee coordinates.
@@ -85,11 +96,17 @@ final class ReviewEditUITests: XCTestCase {
         settle(2); save("03-shot-map"); dump("03-shot-map")
 
         guard app.buttons["编辑"].waitForExistence(timeout: 12) else {
-            save("noeditbtn"); dump("noeditbtn"); return
+            save("noeditbtn"); dump("noeditbtn")
+            XCTFail("review-edit evidence must expose the map edit action")
+            return
         }
 
         // ---- Enter edit mode → drag handles appear on every landing ----
-        guard tapButton("编辑") else { save("noeditbtn2"); dump("noeditbtn2"); return }
+        guard tapButton("编辑") else {
+            save("noeditbtn2"); dump("noeditbtn2")
+            XCTFail("review-edit evidence must enter map edit mode")
+            return
+        }
         let editTopoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
         guard editTopoReady.waitForExistence(timeout: 75), app.buttons["Reorder 2"].waitForExistence(timeout: 12) else {
