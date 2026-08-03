@@ -97,9 +97,11 @@ public struct StartRoundView: View {
     public var body: some View {
         GeometryReader { viewport in
             ScrollView {
-                VStack(spacing: 12) {
-                    courseCard
-                    secondNineCard
+                VStack(spacing: 0) {
+                    VStack(spacing: 12) {
+                        courseCard
+                        secondNineCard
+                    }
                     Spacer(minLength: 12)
                     startCard
                 }
