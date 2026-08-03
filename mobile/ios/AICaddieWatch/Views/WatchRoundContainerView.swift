@@ -399,22 +399,19 @@ public struct WatchRoundContainerView: View {
            let selected = s.caddieOptions.first(where: { $0.optionId == optionId }) {
             return selected
         }
-        if let suggested = s.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !suggested.isEmpty,
-           let matching = s.caddieOptions.first(where: {
-               guard let clubName = $0.clubName?.trimmingCharacters(in: .whitespacesAndNewlines),
-                     !clubName.isEmpty else {
-                   return false
-               }
-               return clubName.caseInsensitiveCompare(suggested) == .orderedSame
-           }) {
-            return matching
+        if let suggested = normalizedCaddieClub(s.suggestedClub) {
+            return s.caddieOptions.first(where: {
+                normalizedCaddieClub($0.plan?.first?.clubName ?? $0.clubName) == suggested
+            })
         }
         return s.caddieOptions.first
     }
 
     private func caddieClub(_ s: WatchRoundState) -> String {
-        WatchClubDisplay.name(caddieOption(s)?.clubName ?? s.suggestedClub ?? "—")
+        let option = caddieOption(s)
+        return WatchClubDisplay.name(
+            option?.plan?.first?.clubName ?? option?.clubName ?? s.suggestedClub ?? "—"
+        )
     }
 
     private func caddieNote(_ s: WatchRoundState) -> String {
@@ -431,7 +428,9 @@ public struct WatchRoundContainerView: View {
         // are real package facts. Use those to explain what this recommendation is trying to do
         // instead of showing only the vague strategy word ("稳妥").
         var parts: [String] = []
-        if let carry = option?.carryM, carry.isFinite, carry > 0 {
+        if let carry = option?.plan?.first?.carryM ?? option?.carryM,
+           carry.isFinite,
+           carry > 0 {
             parts.append("打 \(WatchUnits.yards(carry))")
         }
         if let plan = option?.plan, let next = plan.dropFirst().first {
@@ -439,6 +438,14 @@ public struct WatchRoundContainerView: View {
         }
         if !parts.isEmpty { return parts.joined(separator: " · ") }
         return option?.label ?? ""
+    }
+
+    private func normalizedCaddieClub(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let display = WatchClubDisplay.name(value)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !display.isEmpty, display != "—" else { return nil }
+        return display.lowercased()
     }
 
     private func caddieLine(_ s: WatchRoundState) -> String? {
