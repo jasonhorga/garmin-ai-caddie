@@ -212,9 +212,12 @@ final class RealFlowUITests: XCTestCase {
         )
         save("06-prep-course-picker"); dump("06-prep-course-picker")
 
-        // Enter the first real installed course. CourseReviewView itself is the per-hole review; the
-        // old test looked for obsolete `逐洞攻略` / `针对你` buttons and silently produced no evidence.
-        XCTAssertTrue(tapCourseSegment(), "course picker must expose an installed real course")
+        // Enter the same installed 北京丽宫 course used by the approved live journey. CourseReviewView
+        // itself is the per-hole review; no obsolete intermediate `逐洞攻略` button is required.
+        XCTAssertTrue(
+            tapCourseSegment(globalId: 31669),
+            "course picker must expose the installed 北京丽宫 course used by the approved live flow"
+        )
         XCTAssertTrue(
             app.navigationBars["赛前球场攻略"].waitForExistence(timeout: 20),
             "installed course must navigate to its per-hole prep cards"
@@ -949,18 +952,15 @@ final class RealFlowUITests: XCTestCase {
         return false
     }
 
-    /// Tap a course-segment row BUTTON (not the inner static text — that wouldn't fire the NavigationLink)
-    /// so the prep detail actually opens. Exact labels first (黑骑士 A 场 / a 全场), then any "…场" button.
+    /// Tap a course-segment row BUTTON (not the inner static text — that wouldn't fire the NavigationLink).
+    /// The visual journey is locked to 北京丽宫, so a changing catalogue order cannot silently switch
+    /// the evidence to a cold, unrelated course and block on generating a different topo bitmap.
     @discardableResult
-    private func tapCourseSegment() -> Bool {
-        // Prefer the stable accessibilityIdentifier (now a full-row tap target) → reliable navigation.
-        let byId = app.buttons.matching(identifier: "prep-course-row").firstMatch
-        if byId.waitForExistence(timeout: 6) { byId.tap(); return true }
-        for label in ["A 场, 9 洞", "全场, 18 洞"] {
-            let button = app.buttons[label]
-            if button.waitForExistence(timeout: 4) { button.tap(); return true }
-        }
-        return false
+    private func tapCourseSegment(globalId: Int) -> Bool {
+        let row = app.buttons["prep-course-row-\(globalId)"]
+        guard row.waitForExistence(timeout: 6), scrollTo(row, maxSwipes: 24) else { return false }
+        row.tap()
+        return true
     }
 
     /// Prefer the normal visible history row. When the five newest owner rows are CI-polluted rounds,

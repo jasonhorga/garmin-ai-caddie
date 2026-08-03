@@ -57,7 +57,7 @@ public struct PrepCoursePickerView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("prep-course-row")
+            .accessibilityIdentifier("prep-course-row-\(segment.globalId)")
         }
     }
 }
