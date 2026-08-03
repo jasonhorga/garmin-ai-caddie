@@ -320,6 +320,16 @@ jobs:
           launch_and_capture distance-hero-big watch-distance-hero-big-runtime.png
           launch_and_capture distance-hero-fallback watch-distance-hero-fallback-runtime.png
           launch_and_capture menu watch-menu-shot-list.png
+          # The approved score surface is now the owner-confirmed recommendation-first sequence.
+          # Capture every visible step in a running Watch app instead of relying only on ImageRenderer.
+          launch_and_capture score-recommendation watch-score-recommendation-runtime.png
+          launch_and_capture score-next-tee-candidate watch-score-next-tee-candidate-runtime.png
+          launch_and_capture score-total watch-score-total-runtime.png
+          launch_and_capture score-putts watch-score-putts-runtime.png
+          launch_and_capture score-fairway watch-score-fairway-runtime.png
+          launch_and_capture score-penalty watch-score-penalty-runtime.png
+          launch_and_capture scorecard watch-scorecard-runtime.png
+          launch_and_capture hole-select watch-hole-select-runtime.png
           launch_and_capture interaction-club-stats watch-club-stats-runtime.png
           launch_and_capture interaction-settings watch-settings-runtime.png
           launch_and_capture interaction-flag-direction watch-flag-direction-runtime.png
