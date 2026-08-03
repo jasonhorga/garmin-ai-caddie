@@ -630,9 +630,11 @@ public struct WatchHoleMapView: View {
             }
         }
 
-        // Scoring ring ONLY on the outermost hole map — not in the zoomed/focused state (matches Garmin:
-        // the on-screen score indicator lives on the hole-info view, sub-screens are full content).
-        if !fullMap { drawRing(&context, size: size) }
+        // Scoring ring ONLY on the outermost hole root. Free measurement and dragged-pin preview are
+        // focused map states even when they retain the split data column, so the root ring must yield.
+        if !fullMap, measuredPx == nil, pinDrag == .zero {
+            drawRing(&context, size: size)
+        }
     }
 
     private func drawCurrentShot(

@@ -142,9 +142,9 @@ public struct WatchStartView: View {
     @ViewBuilder
     private var courseSections: some View {
         ForEach(courseGroups) { group in
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 4) {
                 sectionHeader(group.title)
-                    .padding(.bottom, 3)
+                    .padding(.bottom, 3.5)
 
                 if group.rows.isEmpty {
                     if isLoadingCourses {
@@ -169,6 +169,7 @@ public struct WatchStartView: View {
 
                 if group.showsRefresh {
                     refreshCoursesButton
+                        .padding(.top, 4)
                 }
             }
         }
@@ -281,7 +282,7 @@ public struct WatchStartView: View {
                     .accessibilityLabel("洞数未知，无法开局")
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 7)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, minHeight: 45, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 9)
