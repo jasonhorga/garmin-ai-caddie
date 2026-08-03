@@ -301,11 +301,20 @@ public final class SyncClient {
         return try decoder.decode(RoundDetail.self, from: data)
     }
 
-    public func fetchCoursePrep(globalId: Int, render: Bool = true) async throws -> CoursePrepResponse {
+    public func fetchCoursePrep(
+        globalId: Int,
+        holes: [Int]? = nil,
+        render: Bool = true
+    ) async throws -> CoursePrepResponse {
         var url = endpointURL("/api/v2/courses/\(globalId)/prep")
-        if !render {
+        if holes != nil || !render {
             var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            components?.queryItems = [URLQueryItem(name: "render", value: "false")]
+            components?.queryItems = (holes ?? []).map {
+                URLQueryItem(name: "holes", value: String($0))
+            }
+            if !render {
+                components?.queryItems?.append(URLQueryItem(name: "render", value: "false"))
+            }
             url = components?.url ?? url
         }
         var request = URLRequest(url: url)

@@ -38,7 +38,11 @@ public struct PrepCoursePickerView: View {
     @ViewBuilder private func segmentRow(_ segment: MobileCourseOption) -> some View {
         if let apiBaseURL {
             NavigationLink {
-                CourseReviewView(client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken), globalId: segment.globalId)
+                CourseReviewView(
+                    client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken),
+                    globalId: segment.globalId,
+                    holeCount: segment.resolvedHoles
+                )
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "map").foregroundStyle(LiveHoleStyle.green)

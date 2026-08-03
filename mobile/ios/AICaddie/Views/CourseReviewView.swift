@@ -16,13 +16,15 @@ func coursePrepParSourceLabel(_ source: String) -> String {
 public struct CourseReviewView: View {
     private let client: SyncClient
     private let globalId: Int
+    private let holeCount: Int
     @State private var holes: [CoursePrepHole] = []
     @State private var isLoading = false
     @State private var errorText: String?
 
-    public init(client: SyncClient, globalId: Int) {
+    public init(client: SyncClient, globalId: Int, holeCount: Int = 9) {
         self.client = client
         self.globalId = globalId
+        self.holeCount = max(1, min(holeCount, 36))
     }
 
     public var body: some View {
@@ -50,24 +52,29 @@ public struct CourseReviewView: View {
         errorText = nil
         defer { isLoading = false }
 
-        // A cold all-hole facts build can exceed a minute because it opens every mesh before the
-        // process cache is warm. Publish hole 1 first so the review becomes useful immediately;
-        // that same request warms the shared geometry indexes, after which the all-hole replacement
-        // is normally fast. If a course has no local hole 1, fall through to the complete request.
-        if let firstHole = try? await client.fetchHolePrep(globalId: globalId, localHole: 1, render: false) {
-            holes = [firstHole]
-            isLoading = false
-        }
-        guard !Task.isCancelled else { return }
-
-        do {
-            // Replace the first factual row with the complete set. Rendered maps remain lazy below.
-            let response = try await client.fetchCoursePrep(globalId: globalId, render: false)
-            holes = response.holes
-        } catch {
-            // Preserve the already-useful first hole if only the background completion failed.
-            if holes.isEmpty {
-                errorText = error.localizedDescription
+        // An all-hole cold build can exceed URLSession's request timeout. Load three factual rows at
+        // a time so the first screen appears quickly and every later hole is published progressively;
+        // rendered maps remain lazy in CourseReviewHoleCard below.
+        for start in stride(from: 1, through: holeCount, by: 3) {
+            guard !Task.isCancelled else { return }
+            let batch = Array(start...min(start + 2, holeCount))
+            do {
+                let response = try await client.fetchCoursePrep(
+                    globalId: globalId,
+                    holes: batch,
+                    render: false
+                )
+                var merged = Dictionary(uniqueKeysWithValues: holes.map { ($0.hole, $0) })
+                for hole in response.holes {
+                    merged[hole.hole] = hole
+                }
+                holes = merged.values.sorted { $0.hole < $1.hole }
+                isLoading = false
+            } catch {
+                // Keep already-loaded holes usable. Only replace the empty screen with an error.
+                if holes.isEmpty {
+                    errorText = error.localizedDescription
+                }
             }
         }
     }

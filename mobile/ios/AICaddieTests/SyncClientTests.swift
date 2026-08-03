@@ -154,6 +154,37 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(response.globalId, 31870)
     }
 
+    func testFetchCoursePrepCanRequestSmallHoleBatch() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = """
+        {"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}
+        """.data(using: .utf8)!
+        CapturingURLProtocol.requestHandler = { request in
+            let queryItems = URLComponents(
+                url: try XCTUnwrap(request.url),
+                resolvingAgainstBaseURL: false
+            )?.queryItems
+            XCTAssertEqual(queryItems?.filter { $0.name == "holes" }.compactMap(\.value), ["1", "2", "3"])
+            XCTAssertEqual(queryItems?.first { $0.name == "render" }?.value, "false")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session
+        )
+
+        _ = try await client.fetchCoursePrep(globalId: 31870, holes: [1, 2, 3], render: false)
+    }
+
     func testFetchHolePrepRequestsOneLightweightHole() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
