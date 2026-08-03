@@ -18,7 +18,7 @@ test.describe('real isolated CI player evidence', () => {
     await page.evaluate(() => window.history.replaceState(window.history.state, '', '/'))
     try {
       if (requiredEvidence) {
-        await expect(requiredEvidence, `${filename} must capture the requested product state`).toBeInViewport({ ratio: 0.5 })
+        await expect(requiredEvidence, `${filename} must capture the requested product state`).toBeInViewport({ ratio: 1 })
       }
       await page.screenshot({
         path: `web-live-evidence/${filename}`,
@@ -96,7 +96,8 @@ test.describe('real isolated CI player evidence', () => {
 
     await firstRound.click()
     const roundDetail = page.locator('.round-detail-panel')
-    await expect(roundDetail.getByRole('heading', { name: '球局回顾', exact: true })).toBeVisible()
+    const roundDetailHeading = roundDetail.getByRole('heading', { name: '球局回顾', exact: true })
+    await expect(roundDetailHeading).toBeVisible()
     // The heading also exists in the loading shell. Evidence is valid only after the protected
     // detail GET has resolved into the real scorecard, otherwise the browser can close after the
     // CORS preflight and leave a misleading "正在加载球局…" screenshot behind.
@@ -107,11 +108,11 @@ test.describe('real isolated CI player evidence', () => {
     // scrollY=0 only shows the archive list above this panel and falsely looks like a duplicate.
     await roundDetail.evaluate((node) => node.scrollIntoView({ block: 'start', behavior: 'instant' }))
     await page.evaluate(() => window.scrollBy(0, -64))
-    await expect(roundDetail).toBeInViewport({ ratio: 0.5 })
+    await expect(roundDetailHeading).toBeInViewport({ ratio: 1 })
     await expect
       .poll(async () => Math.round((await roundDetail.boundingBox())?.y ?? -1))
       .toBeGreaterThanOrEqual(54)
-    await captureWithoutCredentialInLocation(page, 'round-review.png', roundDetail)
+    await captureWithoutCredentialInLocation(page, 'round-review.png', roundDetailHeading)
 
     // Leave no capability token in the final page URL when the browser context closes.
     await page.evaluate(() => window.history.replaceState(window.history.state, '', '/'))
