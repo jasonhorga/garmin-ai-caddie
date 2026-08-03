@@ -921,9 +921,10 @@ final class WatchDesignSnapshotTests: XCTestCase {
         // watch P2 选点测距: a tapped point → crosshair + distance-from-you pill (derived from 中 yardage).
         let view = WatchHoleMapView(
             holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
-            lastShot: 0, ringPips: [],
+            lastShot: 0,
             showCaddieRecommendation: true,
             showPreparedPlan: true,
+            ringPips: [],
             measuredPxOverride: CGPoint(x: 470, y: 470)
         )
         .frame(width: 198, height: 242)
@@ -936,9 +937,10 @@ final class WatchDesignSnapshotTests: XCTestCase {
         // watch P2 拖旗: dragging the flag previews 到旗 from the moved pin.
         let view = WatchHoleMapView(
             holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
-            lastShot: 0, ringPips: [],
+            lastShot: 0,
             showCaddieRecommendation: true,
             showPreparedPlan: true,
+            ringPips: [],
             pinDragOverride: CGSize(width: 16, height: 20)
         )
         .frame(width: 198, height: 242)
