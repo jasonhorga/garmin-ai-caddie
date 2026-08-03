@@ -93,6 +93,36 @@ public struct RoundShotEditLayer: View {
                         .position(loupePosition(loc, in: geo.size))
                         .allowsHitTesting(false)
                 }
+
+                // A system sheet covers the lower half of the map. Keep the exact tapped/selected
+                // landing visible in the uncovered area instead of making the player remember which
+                // dot is being edited. This reuses the real topo + current route rather than drawing
+                // a detached synthetic thumbnail.
+                if let focus = sheetFocus(sx: sx, sy: sy) {
+                    VStack(spacing: 3) {
+                        MagnifierLoupe(
+                            overlay: overlay,
+                            shots: editModel.map.shots,
+                            baseImage: baseImage,
+                            topoURL: topoURL,
+                            mapSize: geo.size,
+                            focus: focus,
+                            diameter: 98,
+                            magnification: 2.35
+                        )
+                        Text(sheetFocusLabel)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.72), in: Capsule())
+                    }
+                    .frame(width: 122)
+                    .position(x: max(66, geo.size.width - 68), y: 72)
+                    .allowsHitTesting(false)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(sheetFocusLabel)
+                }
             }
         }
         .sheet(item: $editingShot) { shot in
@@ -165,6 +195,25 @@ public struct RoundShotEditLayer: View {
     }
 
     private var effectiveClubs: [String] { clubs.isEmpty ? roundEditCommonClubs : clubs }
+
+    private var sheetFocusLabel: String {
+        if let editingShot,
+           let index = editModel.map.shots.firstIndex(where: { $0.id == editingShot.id }) {
+            return "正在改第 \(index + 1) 杆"
+        }
+        return "补杆位置"
+    }
+
+    private func sheetFocus(sx: CGFloat, sy: CGFloat) -> CGPoint? {
+        let px: [Double]?
+        if let end = editingShot?.end, end.count >= 2 {
+            px = [Double(end[0]), Double(end[1])]
+        } else {
+            px = addAtPx
+        }
+        guard let px, px.count >= 2 else { return nil }
+        return CGPoint(x: CGFloat(px[0]) * sx, y: CGFloat(px[1]) * sy)
+    }
 
     private func hitTest(_ s: RoundShot, _ loc: CGPoint, _ sx: CGFloat, _ sy: CGFloat) -> Bool {
         guard let e = s.end, e.count >= 2 else { return false }
@@ -268,6 +317,13 @@ public struct ShotEditSheet: View {
     public var body: some View {
         NavigationStack {
             Form {
+                Section("地图位置") {
+                    Label(shotSummary, systemImage: "scope")
+                        .font(.subheadline.weight(.semibold))
+                    Text("上方放大镜持续显示当前落点")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Section("球杆") {
                     Picker("球杆", selection: Binding(
                         get: { shot.club ?? "" },
@@ -295,6 +351,16 @@ public struct ShotEditSheet: View {
         }
         .presentationDetents([.medium])
     }
+
+    private var shotSummary: String {
+        let number = shot.order.map { "第 \(max($0, 1)) 杆" } ?? "当前这一杆"
+        let club = shot.club.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty || trimmed.lowercased() == "unknown" ? nil : zhClubName(trimmed)
+        }
+        let lie = shotLieLabel(shot.lie)
+        return [number, club, lie == "—" ? nil : lie].compactMap { $0 }.joined(separator: " · ")
+    }
 }
 
 // MARK: - add a shot (club default-highlighted by nothing yet; lie)
@@ -314,6 +380,10 @@ public struct AddShotSheet: View {
     public var body: some View {
         NavigationStack {
             Form {
+                Section("地图位置") {
+                    Label("上方放大镜已标记补杆位置", systemImage: "scope")
+                        .font(.subheadline.weight(.semibold))
+                }
                 Section("这一杆用什么杆") {
                     Picker("球杆", selection: $club) {
                         Text("未知").tag("")

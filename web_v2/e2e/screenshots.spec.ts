@@ -731,8 +731,9 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   // 复盘 landing = the round-review workbench: round selector + shape-coded hole list
   // + 逐洞落点图 + 杆序. The newest round auto-selects on its first hole.
   await expect(page.getByText('球洞 · 成绩')).toBeVisible()
-  await expect(page.locator('[aria-label="选择球局"]')).toBeVisible()
-  await expect(page.getByText('Black Knight B', { exact: true })).toBeVisible()
+  const reviewRoundPicker = page.locator('[aria-label="选择球局"]')
+  await expect(reviewRoundPicker).toBeVisible()
+  await expect(reviewRoundPicker).toContainText('Black Knight B')
   await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
   await expect(page.locator('.review-canvas-hole')).toHaveCSS('color', 'rgb(15, 23, 32)')
   const holeList = page.locator('.review-holes-list')

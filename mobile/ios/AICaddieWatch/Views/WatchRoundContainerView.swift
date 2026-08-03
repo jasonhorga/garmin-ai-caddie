@@ -394,13 +394,48 @@ public struct WatchRoundContainerView: View {
 
     // A prepared Tee plan may appear on Hole Root only while a qualified Watch fix still places the
     // player at that Tee. Away from the Tee, Root requires the stricter fresh live-decision contract.
+    private func caddieOption(_ s: WatchRoundState) -> WatchCaddieOption? {
+        if let optionId = s.offlineOptionId ?? s.strategyMode,
+           let selected = s.caddieOptions.first(where: { $0.optionId == optionId }) {
+            return selected
+        }
+        if let suggested = s.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !suggested.isEmpty,
+           let matching = s.caddieOptions.first(where: {
+               $0.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
+                   .caseInsensitiveCompare(suggested) == .orderedSame
+           }) {
+            return matching
+        }
+        return s.caddieOptions.first
+    }
+
     private func caddieClub(_ s: WatchRoundState) -> String {
-        WatchClubDisplay.name(s.suggestedClub ?? s.caddieOptions.first?.clubName ?? s.selectedClub ?? "—")
+        WatchClubDisplay.name(caddieOption(s)?.clubName ?? s.suggestedClub ?? "—")
     }
 
     private func caddieNote(_ s: WatchRoundState) -> String {
-        if let note = s.targetNote, !note.isEmpty { return note }
-        return s.caddieOptions.first?.label ?? ""
+        if let note = s.targetNote?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
+            return note
+        }
+        let option = caddieOption(s)
+        if let remaining = s.expectedRemainingM, remaining.isFinite, remaining >= 0 {
+            if remaining <= 10 { return "攻果岭" }
+            return "留 \(WatchUnits.yards(remaining)) 码"
+        }
+
+        // A downloaded/offline plan has no calibrated dispersion, but its carry and following club
+        // are real package facts. Use those to explain what this recommendation is trying to do
+        // instead of showing only the vague strategy word ("稳妥").
+        var parts: [String] = []
+        if let carry = option?.carryM, carry.isFinite, carry > 0 {
+            parts.append("打 \(WatchUnits.yards(carry))")
+        }
+        if let next = option?.plan.dropFirst().first {
+            parts.append("后接\(WatchClubDisplay.name(next.clubName))")
+        }
+        if !parts.isEmpty { return parts.joined(separator: " · ") }
+        return option?.label ?? ""
     }
 
     private func caddieLine(_ s: WatchRoundState) -> String? {

@@ -8673,3 +8673,321 @@ textarea {
     grid-template-columns: repeat(9, minmax(42px, 1fr));
   }
 }
+
+/* ===== Frozen WEB01–WEB03 closeout: one shared score/map hierarchy ===== */
+
+/* WEB02 — archive cards read as one outcome + one direct review action. */
+.round-card {
+  display: grid;
+  gap: 14px;
+  padding: 17px 20px 16px;
+}
+
+.round-card-head {
+  align-items: center;
+}
+
+.round-card-identity {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+}
+
+.round-card-identity .round-source-chip {
+  width: max-content;
+  margin-top: 4px;
+}
+
+.round-card-outcome {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  flex: 0 0 auto;
+}
+
+.round-card .round-score {
+  min-width: 72px;
+  gap: 1px;
+}
+
+.round-score-label {
+  color: var(--muted) !important;
+  font-size: 10px;
+  font-weight: 800 !important;
+  letter-spacing: .08em;
+}
+
+.round-card .round-score strong {
+  font-size: 46px;
+}
+
+.round-card .round-score > span:last-child {
+  font-size: 17px;
+}
+
+.round-card .round-card-action {
+  min-height: 38px;
+  margin: 0;
+  border-radius: 10px;
+  padding: 8px 13px;
+  white-space: nowrap;
+}
+
+.round-card > .score-strip {
+  margin-top: 0;
+}
+
+/* WEB01 — the real topo owns the workbench; sparse shot facts use a narrow rail. */
+.review-work {
+  grid-template-columns: minmax(0, 1fr) 276px;
+  height: clamp(640px, calc(100vh - 215px), 940px);
+}
+
+.review-work--quiet-inspector {
+  grid-template-columns: minmax(0, 1fr) 224px;
+}
+
+.review-holes {
+  padding: 10px 12px;
+}
+
+.review-holes-head {
+  padding: 0 5px 7px;
+}
+
+.review-hole {
+  min-height: 86px;
+}
+
+.review-canvas {
+  position: relative;
+  grid-template-rows: minmax(0, 1fr);
+  padding: 12px 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(62% 76% at 50% 45%, rgba(21, 128, 61, .13), transparent 76%),
+    #edf3ee;
+}
+
+.review-canvas-frame {
+  width: auto;
+  height: 100%;
+  max-width: min(100%, 540px);
+  max-height: 100%;
+}
+
+.review-canvas-meta {
+  position: absolute;
+  z-index: 2;
+  top: 16px;
+  left: 16px;
+  max-width: 180px;
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  border: 1px solid rgba(15, 23, 32, .08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .9);
+  box-shadow: 0 7px 22px rgba(15, 23, 32, .08);
+  padding: 9px 11px;
+  backdrop-filter: blur(12px);
+}
+
+.review-canvas-hole {
+  font-size: 15px;
+}
+
+.review-canvas-legend {
+  display: grid;
+  gap: 4px;
+  font-size: 10.5px;
+}
+
+.review-work--quiet-inspector .review-inspector {
+  padding: 16px;
+}
+
+.review-work--quiet-inspector .review-inspector-title {
+  display: grid;
+  gap: 4px;
+}
+
+/* WEB03 — course and outcome lead; support facts, AI, and phase cards recede. */
+.round-detail-panel {
+  gap: 16px;
+}
+
+.round-detail-hero {
+  align-items: end;
+  border-bottom: 1px solid var(--line);
+  padding: 2px 2px 16px;
+}
+
+.round-detail-hero h2 {
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.round-detail-course-title {
+  margin-top: 4px;
+  color: var(--ink);
+  font-size: clamp(22px, 2.3vw, 30px);
+  font-weight: 850;
+  line-height: 1.15;
+  letter-spacing: -.025em;
+}
+
+.round-detail-facts {
+  grid-template-columns: 1.25fr 1.15fr repeat(2, minmax(0, .8fr));
+  gap: 10px;
+}
+
+.round-detail-facts .round-detail-fact {
+  min-height: 78px;
+  display: grid;
+  align-content: center;
+  padding: 12px 14px;
+}
+
+.round-detail-facts .round-detail-fact--score {
+  border-color: rgba(21, 128, 61, .22);
+  background: var(--green-tint);
+}
+
+.round-detail-facts .round-detail-fact--topar {
+  background: #f2f5f1;
+}
+
+.round-detail-facts .round-detail-fact--score b,
+.round-detail-facts .round-detail-fact--topar b {
+  margin-top: 1px;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -.035em;
+}
+
+.round-detail-facts .round-detail-fact--score b {
+  color: var(--green-text);
+}
+
+.round-detail-section > h3,
+.round-detail-section .section-head h3 {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.round-ai-review--empty {
+  padding: 10px 12px;
+}
+
+.round-ai-review--empty .section-head {
+  align-items: center;
+  margin: 0;
+  padding: 0;
+}
+
+.round-ai-review--empty .section-head p {
+  font-size: 12px;
+}
+
+.round-ai-review .button-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+}
+
+.round-ai-review .button-row button {
+  min-height: 34px;
+  padding: 7px 11px;
+  white-space: nowrap;
+}
+
+.round-phase-grid {
+  gap: 7px;
+}
+
+.round-phase-card {
+  border-color: transparent;
+  background: #f3f5f3;
+  padding: 9px 11px;
+}
+
+.round-phase-card b {
+  font-size: 13px;
+}
+
+.round-phase-card small {
+  margin-top: 2px;
+  font-size: 10px;
+}
+
+@media (max-width: 900px) {
+  .round-card-head,
+  .round-card-outcome {
+    align-items: flex-start;
+  }
+
+  .round-card-outcome {
+    gap: 10px;
+  }
+
+  .round-card .round-score strong {
+    font-size: 38px;
+  }
+
+  .round-card .round-card-action {
+    min-height: 34px;
+    padding: 6px 9px;
+  }
+
+  .review-work,
+  .review-work--quiet-inspector {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  .review-canvas {
+    overflow: visible;
+    padding: 16px;
+  }
+
+  .review-canvas-frame {
+    width: min(100%, 390px);
+    height: auto;
+  }
+
+  .review-canvas-meta {
+    position: static;
+    max-width: none;
+    display: flex;
+    justify-content: center;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+    backdrop-filter: none;
+  }
+
+  .review-canvas-legend {
+    display: flex;
+  }
+
+  .round-detail-course-title {
+    font-size: 22px;
+  }
+
+  .round-detail-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .round-ai-review--empty .section-head {
+    align-items: flex-start;
+  }
+
+  .round-ai-review .button-row {
+    flex-wrap: wrap;
+  }
+}

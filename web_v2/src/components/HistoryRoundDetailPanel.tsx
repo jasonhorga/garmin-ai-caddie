@@ -173,7 +173,16 @@ function RoundFacts({ data, diagnostics }: { data: HistoryRoundDetailResponse; d
   return (
     <section className="round-detail-facts" aria-label="球局数据">
       {facts.map(([label, value]) => (
-        <div key={label}>
+        <div
+          key={label}
+          className={
+            label === '成绩'
+              ? 'round-detail-fact round-detail-fact--score'
+              : label === '对标准杆'
+                ? 'round-detail-fact round-detail-fact--topar'
+                : 'round-detail-fact'
+          }
+        >
           <span>{label}</span>
           <b>{value}</b>
         </div>
@@ -585,7 +594,10 @@ function RoundAiReview({
       : null
 
   return (
-    <section className="round-detail-section round-ai-review" aria-label="Round AI review">
+    <section
+      className={loadedReport ? 'round-detail-section round-ai-review' : 'round-detail-section round-ai-review round-ai-review--empty'}
+      aria-label="Round AI review"
+    >
       <div className="section-head">
         <div>
           <h3>AI 回顾</h3>
@@ -673,11 +685,11 @@ export function HistoryRoundDetailPanel({
   const canAnnotate = data.found && Boolean(data.roundRef.trim()) && Boolean(onCreateAnnotationForRound)
   return (
     <section ref={rootRef} className="panel round-detail-panel" aria-live="polite">
-      <div className="drilldown-title-row">
+      <div className="drilldown-title-row round-detail-hero">
         <div>
           <p className="eyebrow">球局记分卡</p>
           <h2>{data.found ? '球局回顾' : '球局不可用'}</h2>
-          <p>{formatRoundTitle(data.title)}</p>
+          <p className="round-detail-course-title">{formatRoundTitle(data.title)}</p>
         </div>
         <div className="drilldown-meta">
           {diagnostics ? <span>{data.roundRef}</span> : null}

@@ -164,13 +164,16 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
   const manualPenalty = shotMapState.status === 'ready' ? shotMapState.data.manualPenalty ?? 0 : 0
   const roundScore = selectedRound.score ?? null
   const roundToPar = selectedRound.toPar ?? null
+  const workClass = timeline.length <= 1 && manualPenalty === 0
+    ? 'review-work review-work--quiet-inspector'
+    : 'review-work'
 
   return (
     <section className="review-page review-workbench-page" aria-label="复盘">
       <div className="review-topbar">
         <div className="review-crumb">
-          <h2 className="review-crumb-name">{cleanCourseName(selectedRound.courseName)}</h2>
-          <span className="review-crumb-date">{shortRoundDate(selectedRound.date)}</span>
+          <h2 className="review-crumb-name">逐洞复盘</h2>
+          <span className="review-crumb-date">真实落点与杆序</span>
         </div>
         <label className="review-round-picker">
           <span className="review-round-picker-label">球局</span>
@@ -198,7 +201,7 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
         </div>
       </div>
 
-      <div className="review-work">
+      <div className={workClass}>
         <div className="review-holes">
           <div className="review-holes-head">
             <span>球洞 · 成绩</span>

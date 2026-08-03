@@ -165,7 +165,7 @@ struct HolePrepCard: View {
             caddieTrySection
             if !hole.steps.isEmpty { stepsSection }
             if !hazardSummaries.isEmpty { hazardsSection }
-            ForEach(Array(hole.cautions.enumerated()), id: \.offset) { _, caution in
+            ForEach(Array(cautionSummaries.enumerated()), id: \.offset) { _, caution in
                 Label(caution, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(HubStyle.warmBad)
             }
@@ -306,13 +306,31 @@ struct HolePrepCard: View {
     }
 
     private var hazardSummaries: [String] {
-        CaddiePlanHazard.from(hole.hazards).compactMap { hazard in
+        stableUnique(CaddiePlanHazard.from(hole.hazards).compactMap { hazard in
             guard let detail = hazard.detail else { return nil }
             return "\(hazard.label)：\(detail)"
-        }
+        })
     }
 
     private var visibleHazardSummaries: [String] {
         showsAllHazards ? hazardSummaries : Array(hazardSummaries.prefix(3))
+    }
+
+    /// Course prep may describe the same mapped risk more than once (for example when two source
+    /// polygons collapse to the same player-facing distance). Repeating identical warning copy adds
+    /// no information and made the pre-round card look broken. Preserve the first occurrence and its
+    /// source ordering; only exact player-facing duplicates are removed.
+    private var cautionSummaries: [String] {
+        stableUnique(hole.cautions)
+    }
+
+    private func stableUnique(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.compactMap { value in
+            let display = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !display.isEmpty else { return nil }
+            let key = display.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            return seen.insert(key).inserted ? display : nil
+        }
     }
 }

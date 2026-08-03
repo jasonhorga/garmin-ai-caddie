@@ -684,7 +684,16 @@ public final class LiveRoundAppModel: ObservableObject {
                 courseGlobalId: package.course.globalId
             )
             try await syncClient.finishRound(roundId: package.roundId, metadata: metadata)
+            // Finish ingestion updates the acting player's history synchronously. Fetch a fresh home
+            // package before clearing the active pointer so the first Hub frame already shows the
+            // round that was just saved instead of the package's pre-round `recentHistory` snapshot.
+            // A failed refresh is non-fatal: the completed round is already durable server-side and
+            // the cached home remains available until the normal next bootstrap refresh.
+            let refreshedHome = await fetchHomePackage()
             try clearFinishedRoundLocally(roundId: package.roundId)
+            if let refreshedHome {
+                try activateHomePackage(refreshedHome, status: "本场已保存")
+            }
             return true
         } catch {
             AICaddieLog.network.error("Round finish failed: \(String(describing: error), privacy: .public)")

@@ -8,7 +8,7 @@ enum WatchClubPromptLayout {
     static let bottomPadding: CGFloat = 2
     static let stackSpacing: CGFloat = 3
     static let headerHeight: CGFloat = 32
-    static let footerHeight: CGFloat = 16
+    static let footerHeight: CGFloat = 18
     static let clubRowHeight: CGFloat = 32
     static let clubRowSpacing: CGFloat = 5
 
@@ -157,12 +157,26 @@ public struct WatchClubPromptView: View {
             }
 
             Button(action: onSkipClub) {
-                Text("位置已存 · 跳过")
+                HStack(spacing: 3) {
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 8, weight: .bold))
+                    Text("只记位置 · 跳过球杆")
+                }
                     .font(.system(size: 9.5, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: WatchClubPromptLayout.footerHeight, alignment: .leading)
+                    .foregroundStyle(Color.white.opacity(0.76))
+                    .frame(maxWidth: .infinity, minHeight: WatchClubPromptLayout.footerHeight)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color.white.opacity(0.08))
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(Color.white.opacity(0.16), lineWidth: 0.8)
+                    }
             }
             .buttonStyle(.plain)
+            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .accessibilityLabel("跳过球杆，保留已记录位置")
             .accessibilityHint("当前位置已保存，不记录球杆")
         }
         .padding(.horizontal, 8)

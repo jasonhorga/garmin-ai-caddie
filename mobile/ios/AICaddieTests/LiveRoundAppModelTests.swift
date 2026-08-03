@@ -192,6 +192,41 @@ private func capturedRequestBodyData(from request: URLRequest) throws -> Data {
 final class LiveRoundAppModelTests: XCTestCase {
     func testFinishActiveRoundAcknowledgesEventsBeforeFinishAndOnlyThenClearsLocalRound() async throws {
         let fixture = try completedFixtureRound()
+        let finishedRound = RecentRoundSummary(
+            roundId: fixture.package.roundId,
+            date: "2026-07-29T05:00:00Z",
+            courseName: fixture.package.course.name,
+            score: 5,
+            par: 4,
+            toPar: 1,
+            holesCompleted: 1,
+            globalId: fixture.package.course.globalId,
+            sourceRefs: [fixture.package.roundId]
+        )
+        let refreshedHome = package(
+            fixture.package,
+            roundId: "home-\(fixture.package.course.globalId)",
+            recentRounds: [finishedRound]
+        )
+        let courseOptions = MobileCourseOptionsResponse(
+            schema: "ai-caddie-mobile-course-options-v1",
+            dataMode: "real",
+            total: 1,
+            courses: [
+                MobileCourseOption(
+                    globalId: fixture.package.course.globalId,
+                    name: fixture.package.course.name,
+                    roundCount: 1,
+                    suggestedLiveRoundId: refreshedHome.roundId,
+                    holes: fixture.package.holes.count,
+                    teeBox: fixture.package.course.teeBox,
+                    geometryCoverage: "ready"
+                )
+            ],
+            generatedAt: "2026-07-29T05:01:00Z"
+        )
+        let courseOptionsBody = try JSONEncoder().encode(courseOptions)
+        let refreshedHomeBody = try JSONEncoder().encode(refreshedHome)
         let requestLock = NSLock()
         var requestedPaths: [String] = []
         var finishBody: Data?
@@ -204,6 +239,22 @@ final class LiveRoundAppModelTests: XCTestCase {
             requestedPaths.append(path)
             requestLock.unlock()
             switch path {
+            case "/api/v2/mobile/courses/options":
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url), statusCode: 200,
+                        httpVersion: nil, headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    courseOptionsBody
+                )
+            case "/api/v2/mobile/courses/\(fixture.package.course.globalId)/package":
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url), statusCode: 200,
+                        httpVersion: nil, headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    refreshedHomeBody
+                )
             case "/api/v2/mobile/rounds/\(fixture.package.roundId)/events":
                 let batch = try JSONDecoder().decode(
                     EventBatch.self,
@@ -273,9 +324,14 @@ final class LiveRoundAppModelTests: XCTestCase {
         requestLock.unlock()
         let eventsPath = "/api/v2/mobile/rounds/\(fixture.package.roundId)/events"
         let finishPath = "/api/v2/mobile/rounds/\(fixture.package.roundId)/finish"
+        let homePath = "/api/v2/mobile/courses/\(fixture.package.course.globalId)/package"
         XCTAssertLessThan(
             try XCTUnwrap(paths.firstIndex(of: eventsPath)),
             try XCTUnwrap(paths.firstIndex(of: finishPath))
+        )
+        XCTAssertLessThan(
+            try XCTUnwrap(paths.firstIndex(of: finishPath)),
+            try XCTUnwrap(paths.firstIndex(of: homePath))
         )
         let body = try XCTUnwrap(
             JSONSerialization.jsonObject(with: try XCTUnwrap(capturedFinishBody)) as? [String: Any]
@@ -285,7 +341,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(meta["courseGlobalId"] as? Int, fixture.package.course.globalId)
         XCTAssertEqual(meta["holePars"] as? [Int], [4])
         XCTAssertEqual(meta["holesCompleted"] as? Int, 1)
-        XCTAssertEqual(model.package?.roundId, fixture.package.roundId)
+        XCTAssertEqual(model.package?.roundId, refreshedHome.roundId)
+        XCTAssertEqual(model.package?.recentHistory.rounds.first, finishedRound)
+        XCTAssertEqual(try fixture.store.loadHomePackage()?.recentHistory.rounds.first, finishedRound)
         XCTAssertNil(model.liveRoundState)
         XCTAssertNil(try fixture.store.loadCurrentRoundPackage())
         XCTAssertFalse(try fixture.store.loadEvents().contains { $0.roundId == fixture.package.roundId })
@@ -1065,6 +1123,40 @@ final class LiveRoundAppModelTests: XCTestCase {
         let fixture = try String(contentsOf: url, encoding: .utf8)
             .replacingOccurrences(of: #""dataMode": "fixture""#, with: #""dataMode": "local""#)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: Data(fixture.utf8))
+    }
+
+    private func package(
+        _ source: LiveRoundPackage,
+        roundId: String,
+        recentRounds: [RecentRoundSummary]
+    ) -> LiveRoundPackage {
+        LiveRoundPackage(
+            schema: source.schema,
+            roundId: roundId,
+            dataMode: source.dataMode,
+            sourceCoverage: source.sourceCoverage,
+            missingData: source.missingData,
+            playerProfile: source.playerProfile,
+            course: source.course,
+            holes: source.holes,
+            nine: source.nine,
+            coursePrep: source.coursePrep,
+            geometryCoverage: source.geometryCoverage,
+            readinessChecks: source.readinessChecks,
+            caddieContextSeeds: source.caddieContextSeeds,
+            weatherSnapshot: source.weatherSnapshot,
+            clubProfiles: source.clubProfiles,
+            caddieDecisionEndpoint: source.caddieDecisionEndpoint,
+            offlinePackageStatus: source.offlinePackageStatus,
+            eventCursor: source.eventCursor,
+            recentHistory: RecentHistory(
+                course: source.recentHistory.course,
+                rounds: recentRounds,
+                holes: source.recentHistory.holes
+            ),
+            cachedCaddieRules: source.cachedCaddieRules,
+            generatedAt: source.generatedAt
+        )
     }
 
     private func completedFixtureRound() throws -> (
