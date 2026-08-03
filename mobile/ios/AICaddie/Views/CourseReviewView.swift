@@ -137,6 +137,7 @@ struct HolePrepCard: View {
     var topoURL: URL? = nil
     var isLoadingMap = false
     var mapUnavailable = false
+    @State private var showsAllHazards = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -246,11 +247,28 @@ struct HolePrepCard: View {
     // MARK: 障碍提示（蓝 T 到前沿 / 过后沿）
     private var hazardsSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(hazardSummaries.enumerated()), id: \.offset) { _, summary in
+            ForEach(Array(visibleHazardSummaries.enumerated()), id: \.offset) { _, summary in
                 HStack(spacing: 6) {
                     Circle().fill(HubStyle.warmBad.opacity(0.7)).frame(width: 5, height: 5)
                     Text(summary).font(.caption).foregroundColor(.secondary)
                 }
+            }
+            if hazardSummaries.count > 3 {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        showsAllHazards.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(showsAllHazards ? "收起障碍" : "查看全部 \(hazardSummaries.count) 个障碍")
+                        Image(systemName: showsAllHazards ? "chevron.up" : "chevron.down")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(LiveHoleStyle.green)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("prep-hazards-toggle-\(hole.hole)")
             }
         }
     }
@@ -292,5 +310,9 @@ struct HolePrepCard: View {
             guard let detail = hazard.detail else { return nil }
             return "\(hazard.label)：\(detail)"
         }
+    }
+
+    private var visibleHazardSummaries: [String] {
+        showsAllHazards ? hazardSummaries : Array(hazardSummaries.prefix(3))
     }
 }

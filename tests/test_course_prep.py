@@ -150,6 +150,17 @@ class PureLogicTests(unittest.TestCase):
 
         self.assertEqual(cautions, ["水障碍：进水前约 44y，过水需 66y"])
 
+    def test_strategy_collapses_multiple_green_side_bunkers_into_one_caution(self) -> None:
+        ladder = [("1W", 200), ("7I", 128), ("PW", 102)]
+        _steps, cautions, _landing, _tee = cp._strategy(
+            4,
+            410,
+            {"water_carry": [], "bunkers": [[370.0, 12.0], [395.0, 8.0], [405.0, 10.0]]},
+            ladder,
+        )
+
+        self.assertEqual(cautions, ["果岭边有沙坑——别短别偏"])
+
 
 class GeometryBackedTests(unittest.TestCase):
     """Run only when explicitly requested against local/private prodgeometry."""

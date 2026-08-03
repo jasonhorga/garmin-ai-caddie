@@ -759,9 +759,15 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
     for w in hazards.get("water_carry") or []:
         if w[0] < route_len_m - 5:
             cautions.append(f"水障碍：进水前约 {yd(w[0])}y，过水需 {yd(w[1])}y")
-    for cum, side in hazards.get("bunkers") or []:
-        if cum >= route_len_m - 45 and side <= 25:
-            cautions.append(f"果岭边沙坑（约 {yd(cum)}y）——别短别偏")
+    green_side_bunkers = [
+        (cum, side)
+        for cum, side in hazards.get("bunkers") or []
+        if cum >= route_len_m - 45 and side <= 25
+    ]
+    if green_side_bunkers:
+        # Exact front/back yardages already appear in the measured hazard list. Repeating one
+        # warning per bunker made a real green complex produce several near-identical red rows.
+        cautions.append("果岭边有沙坑——别短别偏")
     tee_club = steps[0]["club"] if steps else None
     return steps, cautions, landing, tee_club
 

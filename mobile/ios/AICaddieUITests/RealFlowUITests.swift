@@ -285,6 +285,12 @@ final class RealFlowUITests: XCTestCase {
         // the next real hole. Targeting the first `到 / 过` row was insufficient once a compact real
         // topo let that row fit in I07's first screen, producing two byte-identical screenshots.
         // The next-hole header is stable across courses and proves that the scroll actually moved.
+        let firstHazardsToggle = app.buttons["prep-hazards-toggle-1"]
+        XCTAssertTrue(
+            firstHazardsToggle.waitForExistence(timeout: 5),
+            "the dense real hole must keep its additional measured hazards behind an explicit disclosure"
+        )
+        firstHazardsToggle.tap()
         let secondPrepHeader = app.descendants(matching: .any)["prep-hole-header-2"].firstMatch
         XCTAssertTrue(
             secondPrepHeader.waitForExistence(timeout: 75),
