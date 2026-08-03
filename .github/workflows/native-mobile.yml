@@ -267,6 +267,7 @@ jobs:
           path: real-videos/
           if-no-files-found: warn
       - name: Resolve and boot Watch test simulator
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'review'
         run: |
           set -euo pipefail
           WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
@@ -288,26 +289,27 @@ jobs:
           xcrun simctl boot "$NATIVE_WATCH_UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$NATIVE_WATCH_UDID" -b
       - name: Test Watch app target
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'review'
         run: |
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -destination "platform=watchOS Simulator,id=$NATIVE_WATCH_UDID"
       - name: Collect Watch design snapshots
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'review')
         run: |
           mkdir -p watch-snapshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/watch-snapshots/*.png" -exec cp {} watch-snapshots/ \; 2>/dev/null || true
           ls -la watch-snapshots || true
       - name: Upload Watch design snapshots
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'review')
         uses: actions/upload-artifact@v4
         with:
           name: watch-snapshots
           path: watch-snapshots/
           if-no-files-found: warn
       - name: Real Watch round seed and restore screenshots
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'review'
         run: |
           set -euo pipefail
           WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
@@ -377,7 +379,7 @@ jobs:
           launch_and_capture score-fairway watch-score-fairway.png
           launch_and_capture club-prompt watch-club-prompt.png
       - name: Upload watch real screenshots
-        if: always() && github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'review'
         uses: actions/upload-artifact@v4
         with:
           name: watch-real-screenshots

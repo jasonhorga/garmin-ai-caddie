@@ -115,7 +115,6 @@ struct RoundReviewContent: View {
             }
         }
         .padding(16)
-        .accessibilityIdentifier("round-review-content-ready")
     }
 
     // MARK: summary card (course · tee/holes + big score + derived stat row)
@@ -135,6 +134,10 @@ struct RoundReviewContent: View {
             summaryStatRow(detail)
         }
         .hubCard()
+        // Keep the load-ready marker on the summary itself. Putting it on the outer
+        // RoundReviewContent VStack causes SwiftUI to replace every descendant's identifier,
+        // including the individually tappable `round-review-hole-N` rows.
+        .accessibilityIdentifier("round-review-content-ready")
     }
 
     /// tee/holes subtitle from what's present (date · 已打 N/M 洞 · Par); never fabricates a tee colour.

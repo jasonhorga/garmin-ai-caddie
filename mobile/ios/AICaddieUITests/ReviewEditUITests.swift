@@ -65,7 +65,9 @@ final class ReviewEditUITests: XCTestCase {
         // positions; they must remain editable before the add-shot flow counts.
         let holeButton = app.buttons["round-review-hole-\(reviewEvidence.hole)"]
         guard holeButton.waitForExistence(timeout: 60), bringIntoViewAndTap(holeButton, maxSwipes: 4) else {
-            save("nohole"); dump("nohole"); return
+            save("nohole"); dump("nohole")
+            XCTFail("review-edit evidence must open its resolver-verified real hole")
+            return
         }
         guard app.buttons["关闭"].waitForExistence(timeout: 12) else {
             XCTFail("review-edit evidence must enter the shot-map pager before capture")
