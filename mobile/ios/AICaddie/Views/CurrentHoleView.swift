@@ -64,6 +64,9 @@ public struct CurrentHoleView: View {
     @State private var showScorecard = false
     @State private var pendingHistoricalScoreHole: Int?
     @State private var pendingPhoneShot: PendingPhoneShot?
+    @State private var holeRootScrollRequest = 0
+
+    private static let holeRootScrollAnchor = "live-hole-root"
 
     public init(
         package: LiveRoundPackage,
@@ -141,53 +144,61 @@ public struct CurrentHoleView: View {
         // bindings / events / GPS / watch / restore wiring is unchanged — only the body's look/layout.
         ZStack {
             LivePlayStyle.base.ignoresSafeArea()
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    heroSection
+            ScrollViewReader { scrollProxy in
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        heroSection
+                            .id(Self.holeRootScrollAnchor)
 
-                    // Dark-glass data panel: distance hero → caddie strip → shot/score actions →
-                    // tab bar. Floats up over the map's lower edge (mirrors the approved mockup).
-                    LivePlayPanel {
-                        LiveDistanceReadout(
-                            greenFrontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
-                            greenCenterYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
-                            greenBackYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
-                            toPinYards: Int(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
-                            isGreenLive: isGreenRangeLive
-                        )
-                        Rectangle().fill(LivePlayStyle.hair).frame(height: 1).padding(.horizontal, 2)
-                        LiveCaddieStrip(
-                            clubs: caddieClubChips,
-                            playsText: caddiePlaysText,
-                            isLoading: isLoadingCaddieDecision,
-                            isReady: caddieDecision != nil,
-                            errorText: caddieErrorMessage,
-                            onExpand: { showCaddieDetail = true },
-                            onSelect: { selectClub($0) }
-                        )
-                        LiveHolePrimaryActions(
-                            canRecordShot: currentCoordinate != nil,
-                            recordedShotCount: recordedNonPuttShotCount,
-                            onRecordShot: recordShotLocation,
-                            onConfirmScore: beginScoreConfirmation
-                        )
-                        LiveScorecardButton(onTap: { showScorecard = true })
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.top, 16)
+                        // Dark-glass data panel: distance hero → caddie strip → shot/score actions →
+                        // tab bar. Floats up over the map's lower edge (mirrors the approved mockup).
+                        LivePlayPanel {
+                            LiveDistanceReadout(
+                                greenFrontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
+                                greenCenterYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
+                                greenBackYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
+                                toPinYards: Int(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
+                                isGreenLive: isGreenRangeLive
+                            )
+                            Rectangle().fill(LivePlayStyle.hair).frame(height: 1).padding(.horizontal, 2)
+                            LiveCaddieStrip(
+                                clubs: caddieClubChips,
+                                playsText: caddiePlaysText,
+                                isLoading: isLoadingCaddieDecision,
+                                isReady: caddieDecision != nil,
+                                errorText: caddieErrorMessage,
+                                onExpand: { showCaddieDetail = true },
+                                onSelect: { selectClub($0) }
+                            )
+                            LiveHolePrimaryActions(
+                                canRecordShot: currentCoordinate != nil,
+                                recordedShotCount: recordedNonPuttShotCount,
+                                onRecordShot: recordShotLocation,
+                                onConfirmScore: beginScoreConfirmation
+                            )
+                            LiveScorecardButton(onTap: { showScorecard = true })
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.top, 16)
 
-                    // Secondary live controls remain part of the dark playing instrument. The full
-                    // caddie plan is a focused light surface so the approved three-card hierarchy is
-                    // not buried beneath a second copy of the rangefinder panel.
-                    VStack(spacing: 12) {
-                        moreAdjustCard
-                        mediaCard
-                        manageSection
+                        // Secondary live controls remain part of the dark playing instrument. The full
+                        // caddie plan is a focused light surface so the approved three-card hierarchy is
+                        // not buried beneath a second copy of the rangefinder panel.
+                        VStack(spacing: 12) {
+                            moreAdjustCard
+                            mediaCard
+                            manageSection
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.top, 16)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.top, 16)
+                    .padding(.bottom, 24)
                 }
-                .padding(.bottom, 24)
+                .onChange(of: holeRootScrollRequest) { _, _ in
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        scrollProxy.scrollTo(Self.holeRootScrollAnchor, anchor: .top)
+                    }
+                }
             }
         }
         // The app shell is intentionally light, but this approved live-play surface is dark.
@@ -248,7 +259,11 @@ public struct CurrentHoleView: View {
                 onCancel: cancelScoreConfirmation
             )
         }
-        .sheet(item: $pendingPhoneShot) { pendingShot in
+        .sheet(item: $pendingPhoneShot, onDismiss: {
+            // Recording starts from the lower action panel. After selecting or skipping the optional
+            // club, restore the S70-style Hole Root instead of leaving the player below the map.
+            holeRootScrollRequest += 1
+        }) { pendingShot in
             LiveActualClubPromptView(
                 shotNumber: pendingShot.shotOrder,
                 choices: actualClubChoices,

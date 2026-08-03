@@ -187,6 +187,8 @@ struct HolePrepCard: View {
                     .clipShape(Capsule())
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("prep-hole-header-\(hole.hole)")
     }
 
     // MARK: 球童试算:推荐球杆(绿色胶囊)+ 果岭前/中/后距离

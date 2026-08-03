@@ -49,38 +49,38 @@ public struct WatchFinishRoundView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("结束本场")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.system(size: 14, weight: .bold))
 
                     Text(courseName)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                        .padding(.top, 4)
+                        .padding(.top, 2)
 
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(scoreText)
-                            .font(.system(size: 38, weight: .bold, design: .rounded))
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
 
                         VStack(alignment: .leading, spacing: 0) {
                             Text(totalStrokesText)
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
                                 .monospacedDigit()
                             Text(holesText)
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .font(.system(size: 12, weight: .medium, design: .rounded))
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .padding(.top, 10)
+                    .padding(.top, 6)
 
                     if totalPutts != nil {
                         Text(puttsText)
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
-                            .padding(.top, 10)
+                            .padding(.top, 5)
                     }
 
                     if let pendingUploadText {
@@ -88,41 +88,41 @@ public struct WatchFinishRoundView: View {
                             Image(systemName: "arrow.up.circle")
                             Text(pendingUploadText)
                         }
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(AICaddieDesignTokens.offline)
-                        .padding(.top, 9)
+                        .padding(.top, 5)
                     }
 
                     Button(action: onConfirmFinish) {
                         Text(primaryActionLabel)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(AICaddieDesignTokens.par)
-                            .frame(maxWidth: .infinity, minHeight: 52)
+                            .frame(maxWidth: .infinity, minHeight: 42, maxHeight: 42)
                             .background(
                                 AICaddieDesignTokens.par.opacity(0.25),
                                 in: RoundedRectangle(cornerRadius: 26, style: .continuous)
                             )
                     }
                     .buttonStyle(.plain)
-                    .padding(.top, 10)
+                    .padding(.top, 6)
 
                     Button(action: onKeepPlaying) {
                         Text(secondaryActionLabel)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, minHeight: 52)
+                            .frame(maxWidth: .infinity, minHeight: 42, maxHeight: 42)
                             .background(
                                 Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255),
                                 in: RoundedRectangle(cornerRadius: 26, style: .continuous)
                             )
                     }
                     .buttonStyle(.plain)
-                    .padding(.top, 8)
+                    .padding(.top, 5)
                     .id(Self.secondaryActionAnchor)
                 }
                 .padding(.horizontal, 10)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
+                .padding(.top, 4)
+                .padding(.bottom, 4)
             }
             .scrollIndicators(.hidden)
             .onAppear {

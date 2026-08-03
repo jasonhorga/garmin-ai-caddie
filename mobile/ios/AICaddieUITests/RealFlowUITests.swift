@@ -263,14 +263,14 @@ final class RealFlowUITests: XCTestCase {
             scrollTo(firstPrepCard, maxSwipes: 3),
             "first real prep card must be fully inside the simulator safe viewport"
         )
-        let firstPrepTopoReady = app.descendants(matching: .any).matching(
+        let firstPrepTopoReady = firstPrepMap.descendants(matching: .any).matching(
             NSPredicate(format: "identifier == %@", "topo-hole-base-ready")
         ).firstMatch
         XCTAssertTrue(
             firstPrepTopoReady.waitForExistence(timeout: 75),
             "pre-round evidence must wait for the real topo bitmap, not capture its loading overlay"
         )
-        let firstPrepTopoLoading = app.descendants(matching: .any).matching(
+        let firstPrepTopoLoading = firstPrepMap.descendants(matching: .any).matching(
             NSPredicate(format: "identifier == %@", "topo-hole-base-loading")
         ).firstMatch
         XCTAssertTrue(
@@ -281,26 +281,54 @@ final class RealFlowUITests: XCTestCase {
         settle(2)
         save("07-prep-card"); dump("07-prep-card")
 
-        // A valid hazard screenshot must show the real front/back contract, not merely the top of a
-        // long scroll view. Find the first course card that exposes both `到` and `过` and bring it on-screen.
-        let prepHazard = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "：到 ", " · 过 ")
+        // I08 is a second, scrolled review state: the tail of hole 1's measured hazards followed by
+        // the next real hole. Targeting the first `到 / 过` row was insufficient once a compact real
+        // topo let that row fit in I07's first screen, producing two byte-identical screenshots.
+        // The next-hole header is stable across courses and proves that the scroll actually moved.
+        let secondPrepHeader = app.descendants(matching: .any)["prep-hole-header-2"].firstMatch
+        XCTAssertTrue(
+            secondPrepHeader.waitForExistence(timeout: 75),
+            "the full real-course response must publish hole 2 before capturing the scrolled prep state"
+        )
+        XCTAssertTrue(
+            scrollTo(secondPrepHeader, maxSwipes: 24),
+            "the scrolled prep state must reach the next real hole after hole 1's measured hazards"
+        )
+        let secondPrepMap = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == %@", "prep-hole-map-2")
         ).firstMatch
         XCTAssertTrue(
-            scrollTo(prepHazard, maxSwipes: 24),
-            "real pre-round cards must expose a fully visible measured hazard with 到前沿 / 过后沿"
+            secondPrepMap.waitForExistence(timeout: 75),
+            "the second prep card must finish its real rendered-map request before capture"
         )
-        settle(1)
+        let secondPrepTopoReady = secondPrepMap.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == %@", "topo-hole-base-ready")
+        ).firstMatch
         XCTAssertTrue(
-            fullyVisible(prepHazard),
-            "hazard evidence must remain inside the safe viewport after the rendered map settles"
+            secondPrepTopoReady.waitForExistence(timeout: 75),
+            "the scrolled prep evidence must wait for hole 2's real topo bitmap"
         )
-        let visiblePrepTopoLoading = app.descendants(matching: .any).matching(
+        let secondPrepTopoLoading = secondPrepMap.descendants(matching: .any).matching(
             NSPredicate(format: "identifier == %@", "topo-hole-base-loading")
         ).firstMatch
         XCTAssertTrue(
-            waitUntilGone(visiblePrepTopoLoading, timeout: 75),
-            "hazard evidence must not include the next visible hole's topo loading overlay"
+            waitUntilGone(secondPrepTopoLoading, timeout: 5),
+            "the scrolled prep evidence must not include hole 2's topo loading overlay"
+        )
+        settle(1)
+        XCTAssertTrue(
+            fullyVisible(secondPrepHeader),
+            "the next-hole header must remain inside the safe viewport after the rendered map settles"
+        )
+        let measuredHazards = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "：到 ", " · 过 ")
+        )
+        let hasVisibleMeasuredHazard = (0..<measuredHazards.count).contains { index in
+            fullyVisible(measuredHazards.element(boundBy: index))
+        }
+        XCTAssertTrue(
+            hasVisibleMeasuredHazard,
+            "the scrolled prep evidence must retain a real 到前沿 / 过后沿 hazard fact"
         )
         settle(1)
         save("08-prep-hazards"); dump("08-prep-hazards")
