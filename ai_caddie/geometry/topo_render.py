@@ -53,7 +53,11 @@ from ai_caddie.geometry import hole_render
 # topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
-STYLE_VERSION = "topo-v4"  # v4: 球洞外画布透明;三端各自提供正确地图表面
+STYLE_VERSION = "topo-v5"  # v5: PhysicsMesh 权威外轮廓;清除材质碎片尖刺/孤岛
+
+# PhysicsMesh is clipped to the same route corridor used by the renderer.  Unlike the decoded
+# material layers, it is a continuous terrain authority and therefore cannot add TreeArea spikes.
+HOLE_MASK_ROUTE_RADIUS_M = hole_render.FRAME_ROUTE_CORRIDOR_M
 
 SS = hole_render.SS  # supersample factor — MUST match hole_render so the frame downsamples identically
 AZ = math.radians(135)  # sun FROM the south-east (Garmin-matched: light in the lower-right)
@@ -126,6 +130,27 @@ def _clip_to_transparent_canvas(img: Image.Image, course_mask: Image.Image) -> I
     result = Image.new("RGBA", img.size, (0, 0, 0, 0))
     result.paste(img.convert("RGBA"), (0, 0), course_mask)
     return result
+
+
+def _route_corridor_mask(size, route_px, sc, radius_m):
+    """Binary route corridor in the same supersampled projection as the renderer."""
+    mask = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(mask)
+    radius = max(1, int(round(float(radius_m) * sc)))
+    if len(route_px) >= 2:
+        try:
+            draw.line(route_px, fill=255, width=radius * 2, joint="curve")
+        except TypeError:
+            draw.line(route_px, fill=255, width=radius * 2)
+    for x, y in route_px:
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
+    return mask
+
+
+def _ground_envelope(mask_for, fallback: Image.Image) -> Image.Image:
+    """Choose continuous terrain; packages without it retain the exact legacy material union."""
+    physics = mask_for("PhysicsMesh")
+    return physics if physics is not None else fallback
 
 
 def _fbm(w, h, seed, octaves=5, base_cells=6, persistence=0.55):
@@ -303,27 +328,22 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
 
     img = Image.fromarray(np.clip(base, 0, 255).astype(np.uint8))
 
-    # ---- corridor + hard clip to land ∪ kept water (drops neighbour holes) ----
+    # ---- corridor + hard clip to continuous terrain ∪ kept water (drops neighbour holes) ----
     rpx = [project(tuple(p)) for p in route]
 
     def corridor(radius_m):
-        c = Image.new("L", (w, h), 0)
-        cd = ImageDraw.Draw(c)
-        r = int(radius_m * sc)
-        if len(rpx) >= 2:
-            try:
-                cd.line(rpx, fill=255, width=r * 2, joint="curve")
-            except TypeError:
-                cd.line(rpx, fill=255, width=r * 2)
-        for q in rpx:
-            cd.ellipse((q[0] - r, q[1] - r, q[0] + r, q[1] + r), fill=255)
-        return c
+        return _route_corridor_mask((w, h), rpx, sc, radius_m)
 
-    corr = corridor(110)
-    hole_mask = land_L
+    corr = corridor(HOLE_MASK_ROUTE_RADIUS_M)
+    # PhysicsMesh is the continuous terrain authority.  Rough/TreeArea/paths are material layers
+    # with holes and neighbouring polygons; unioning them for alpha caused the reported spikes.
+    # Older/partial packages retain the legacy all-land union instead of using Rough alone (Rough
+    # has intentional fairway/green cut-outs and is therefore not a complete fallback envelope).
+    ground_envelope = _ground_envelope(mask_L, land_L)
+    hole_mask = ImageChops.multiply(ground_envelope, corr).point(lambda v: 255 if v >= 128 else 0)
     if water_keep is not None:
-        hole_mask = ImageChops.lighter(hole_mask, water_keep)
-    hole_mask = ImageChops.multiply(hole_mask, corr).point(lambda v: 255 if v >= 128 else 0)
+        visible_water = ImageChops.multiply(water_keep, corr).point(lambda v: 255 if v >= 128 else 0)
+        hole_mask = ImageChops.lighter(hole_mask, visible_water)
     img = _clip_to_transparent_canvas(img, hole_mask)
     outline = ImageChops.difference(hole_mask, hole_mask.filter(ImageFilter.MinFilter(3)))
     stroke = Image.new("RGBA", (w, h), PAL["edge"] + (0,))

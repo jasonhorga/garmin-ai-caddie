@@ -465,8 +465,8 @@ public final class SyncClient {
             return nil
         }
         // The endpoint is cached immutable for one year. Tie that browser/URLSession cache key to
-        // the renderer style so topo-v4 can never reuse a previously downloaded topo-v3 bitmap.
-        components.queryItems = [URLQueryItem(name: "v", value: "topo-v4")]
+        // the renderer style so topo-v5 can never reuse a previously downloaded topo-v4 bitmap.
+        components.queryItems = [URLQueryItem(name: "v", value: "topo-v5")]
         return components.url
     }
 

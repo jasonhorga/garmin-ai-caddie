@@ -247,7 +247,7 @@ public final class WatchBackendClient {
         ) else {
             throw URLError(.badURL)
         }
-        components.queryItems = [URLQueryItem(name: "v", value: "topo-v4")]
+        components.queryItems = [URLQueryItem(name: "v", value: "topo-v5")]
         guard let url = components.url else { throw URLError(.badURL) }
         return URLRequest(url: url)
     }

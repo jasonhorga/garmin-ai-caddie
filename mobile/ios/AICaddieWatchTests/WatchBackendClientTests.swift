@@ -215,7 +215,7 @@ final class WatchBackendClientTests: XCTestCase {
         let topo = try client.makeCourseTopoRequest(globalId: 31669, localHole: 4)
         XCTAssertEqual(topo.url?.path, "/api/v2/courses/31669/holes/4/topo.png")
         let topoQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(topo.url), resolvingAgainstBaseURL: false))
-        XCTAssertEqual(topoQuery.queryItems?.first(where: { $0.name == "v" })?.value, "topo-v4")
+        XCTAssertEqual(topoQuery.queryItems?.first(where: { $0.name == "v" })?.value, "topo-v5")
         XCTAssertNil(topo.value(forHTTPHeaderField: "Authorization"))
     }
 

@@ -19,10 +19,10 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 class TopoRenderModuleTests(unittest.TestCase):
-    def test_topo_v4_starts_overlays_on_a_transparent_course_canvas(self) -> None:
+    def test_topo_v5_starts_overlays_on_a_transparent_course_canvas(self) -> None:
         from PIL import Image
 
-        self.assertEqual(topo_render.STYLE_VERSION, "topo-v4")
+        self.assertEqual(topo_render.STYLE_VERSION, "topo-v5")
         self.assertTrue(hasattr(topo_render, "_clip_to_transparent_canvas"))
 
         source = Image.new("RGB", (2, 1), topo_render.PAL["bg"])
@@ -114,6 +114,22 @@ class TopoRenderModuleTests(unittest.TestCase):
             path = topo_render.cache_path(31795, 7)
         self.assertEqual(path.name, "gid31795_h07.png")
         self.assertIn(topo_render.STYLE_VERSION, str(path))
+
+    def test_ground_envelope_prefers_continuous_physics_mesh(self) -> None:
+        from PIL import Image
+
+        physics = Image.new("L", (3, 1), 255)
+        fragmented_land = Image.new("L", (3, 1), 1)
+        masks = {"PhysicsMesh": physics}
+
+        selected = topo_render._ground_envelope(masks.get, fragmented_land)
+        self.assertIs(selected, physics)
+
+        selected_without_physics = topo_render._ground_envelope(
+            {}.get,
+            fragmented_land,
+        )
+        self.assertIs(selected_without_physics, fragmented_land)
 
 
 class TopoEndpointTests(unittest.TestCase):

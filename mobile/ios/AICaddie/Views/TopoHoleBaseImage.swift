@@ -27,7 +27,7 @@ struct TopoHoleBaseImage: View {
                     loadingImage
                 case .success(let image):
                     ZStack {
-                        // topo-v4 has a transparent off-course canvas. Prep/review may retain their
+                        // topo-v5 has a transparent off-course canvas. Prep/review may retain their
                         // flat map underneath; live play intentionally has no fallback and therefore
                         // reveals the dark instrument surface supplied by its parent.
                         if fallback != nil {
