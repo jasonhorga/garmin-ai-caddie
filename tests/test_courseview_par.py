@@ -32,6 +32,7 @@ class ReleaseParDecodeTests(unittest.TestCase):
         self.assertEqual(black["course_rating"], 35.96)
         self.assertEqual(info["par_sections"], [{"name": "OUT", "par": 36, "gender": "MEN"}])
         self.assertEqual(info["course_gen_version"], 28)
+        self.assertIs(info["has_green_contour"], True)
         self.assertEqual(info["unknown_12"], 1)
 
 

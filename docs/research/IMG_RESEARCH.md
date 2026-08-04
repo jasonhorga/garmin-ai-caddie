@@ -1,12 +1,90 @@
 # Garmin CourseView IMG Research
 
-Last updated: 2026-05-15
+Last updated: 2026-08-04
 
 ## Goal
 
 Understand Garmin CourseView IMG enough to extract reliable golf-course geometry
 for the AI caddie: green, fairway, bunker, water, paths, tee/pin/markers, and
 hole-level grouping.
+
+## 2026-08-04 Deep Mine Findings
+
+### The CourseView payloads are separate products, not one hidden super-map
+
+The current Garmin Golf APK and live endpoints establish three device map paths:
+
+| Garmin map path | Endpoint / asset | What it actually contains |
+|---|---|---|
+| `MEDIUM` | anonymous `courseData/{buildId},{globalLayoutId},32` | scorecard facts, one ordered route per hole, 30-value green radial outline, typed point anchors and Tee rating/slope |
+| `MEDIUM_PLUS` | the same URL plus `/Hazards` | the MEDIUM payload plus typed two-point hazard spans; it does **not** add hazard polygons |
+| `INTERMEDIATE` | `coursedata/images/{partNumber}/courses/{globalLayoutId}?unitId=...&version=...` | JSON envelope with base64 `Image`, `Gma` and `Unlock`; in the Cypress sample the decoded `Image` is byte-for-byte the same DSKIMG as protobuf field 3 (`60,416` bytes, SHA-256 `abe7910d...a73e2`) |
+
+`prodgeometry` remains a fourth, separate encrypted per-hole package with the
+precise Draco surfaces. Garmin Green Contours are yet another subscription-gated
+download. The official support page says they arrive with a course download when
+available and require Garmin Golf Membership; neither the anonymous DSKIMG nor
+the lightweight `courseData` response should be relabelled as that product.
+
+### Catalogue and contour availability
+
+The anonymous catalogue/release JSON names the previously unknown field directly:
+`HasGreenContour`. Positive samples Cypress Point (`3881`) and Mission Hills Els
+(`31669`) and negative samples Black Knight B (`31795`) and Sentosa Serapong
+(`32235`) reproduce that value in both catalogue and release metadata. DSKIMG
+area type `0x01140b` occurred `19/21` times in the two positive packages and zero
+times in the two negative packages. That is a useful availability correlation,
+not proof that this area type contains the subscription contour surface.
+
+### DSKIMG FAT and DEM facts
+
+The old IMG extractor silently read only the first FAT record. A CourseView FAT
+record has at most 240 block pointers (`120 KiB` at 512-byte blocks); larger GMPs
+continue in repeated 8.3-name records whose byte `0x11` is the part number. The
+parser now joins every contiguous part and fails on missing, duplicate or
+out-of-range blocks.
+
+After that fix, real DEM headers give the following course-level grids:
+
+| Course | `HasGreenContour` | Grid | Approximate spacing | Elevation range |
+|---|---:|---:|---:|---:|
+| Cypress Point `3881` | true | `290×191` | `8–10 m` | `0..282 ft` |
+| Mission Hills Els `31669` | true | `211×157` | `28–31 m` | `67..358 ft` |
+| Black Knight B `31795` | false | `51×54` | about `30 m` | `49..116 ft` |
+| Sentosa Serapong `32235` | false | `112×105` | about `30 m` | `-18..308 ft` |
+
+The compressed DEM sample bitstream is not decoded yet. Header resolution alone
+is decisive: Els has Green Contours but only a roughly 30 m ordinary DEM, so this
+DEM cannot be the push/putt-level contour payload.
+
+### Lightweight `courseData` semantics proven against prodgeometry
+
+`ai_caddie.courses.courseview_core` now fetches and normalizes the anonymous JSON,
+binds `BuildId + GlobalLayoutId`, sorts unreliable provider hole order and keeps
+all raw numeric codes. Cross-checking 17 real holes from Els, Black Knight and
+Sentosa against their matching Draco meshes proved:
+
+- all `12/12` line-code `3241` spans land on `Lake.drc` (median endpoint error
+  `0.62 m`), and all `38/38` code `3242` spans land on `Bunker.drc` (`0.16 m`);
+- all `7/7` anchor-code `18123` points land on `Lake.drc`, and all `12/12`
+  code `18124` points land on `Bunker.drc`;
+- for all 50 proven water/bunker spans, point 1 is Tee-side and point 2 is
+  green-side. This is a legitimate coarse `到 / 过` fallback;
+- codes `3243`, `3244` and `18125` remain unknown and receive no product label.
+
+The route endpoint matches the `hole.json` dogleg/green centre within `0.10 m` in
+all 17 holes. The 30 `GreenRadii` samples consistently start at north and run
+clockwise (all 17 best fits; median start `89.5°` in an east/north frame). Their
+absolute scale versus `Green.drc` is course-dependent (`0.8685–1.0022 m` per raw
+unit), so the parser intentionally keeps them unitless until the difference
+between the legacy outline and the rendered green/fringe is explained.
+
+The production fetch path was also exercised directly against the anonymous
+endpoint on 2026-08-04, rather than only through fixtures. Cypress Point build
+`309`, layout `3881` returned 18 holes and 5 tees in both variants. `MEDIUM`
+contained 18 route lines (`3240`); `MEDIUM_PLUS` contained 60 lines with raw
+codes `3240`, `3242` and `3243`. Both responses passed request/response BuildId
+and GlobalLayoutId authority binding.
 
 ## Current Position
 
@@ -34,7 +112,8 @@ bunker texture, fairway stripe, or green detail.
 For `data/courseview/31795.img`:
 
 - Outer file is a Garmin DSKIMG container.
-- FAT entry contains one `.GMP` subfile.
+- FAT contains one logical `.GMP` subfile, possibly split across continuation
+  records when it exceeds 120 KiB.
 - GMP contains:
   - `TRE` at `0x00f0`
   - `RGN` at `0x026f`
@@ -52,11 +131,16 @@ TRE/RGN section offsets for this file.
 
 ## Current Parser Coverage
 
-[parse_courseview.py](/Users/jason/workspace/garmin/parse_courseview.py) currently decodes:
+[parse_courseview.py](../../tools/courseview/parse_courseview.py) currently decodes:
 
+- complete multi-record FAT/GMP assembly
 - Extended polygons
 - Extended polylines
 - Extended points
+- DEM header, level grid, spacing, descriptor spans and min/max elevation
+
+The Garmin DEM tile delta-compression itself is still opaque; the parser does
+not fabricate sample heights from the header.
 
 For `31795.img`:
 
@@ -199,39 +283,46 @@ Mesh counts from this hole:
 - `Rough.drc`: 3391 points / 5435 faces
 - `Teebox.drc`: 326 points / 400 faces
 
-## Open Questions
+## Deep Mine Closure Ledger
 
-1. Which private CourseView type codes correspond to fairway, green, bunker,
-   water, rough/tree, path, and hole-level blobs?
-2. Are the 730 rasters generated from a richer internal Garmin source that is
-   not present in this small public CourseView IMG payload?
-3. Can point records such as `0x013800` and `0x013801` be mapped to
-   tees/pins/hole anchors
-   across many courses?
+Deep Mine is not complete while any row below lacks a terminal result. A
+terminal result is either a reproducible semantic mapping, a reproducible proof
+that the current Garmin clients do not consume the value as map content, or a
+captured external dependency with a working acquisition recipe. An unexplained
+`unknown`, a single-course visual guess, or a product-value deferral is not a
+terminal result.
+
+| Workstream | Remaining evidence required | Completion gate |
+|---|---|---|
+| Acquisition and updates | Catalogue, name/city, radius, release, `MEDIUM`, `MEDIUM_PLUS`, `INTERMEDIATE`, prodgeometry, raster and Green Contours request chains; version/check-for-update semantics | Every APK call path is bound to endpoint, identifiers, auth level, pagination, version and cache invalidation behavior |
+| Lightweight `courseData` | Codes `3243`, `3244`, `18125`; `InfoMask`, flags and `GreenRadii` scale | Every field is preserved and either named from multi-course evidence or accompanied by a proven non-rendering/opaque classification |
+| DSKIMG | Full FAT/GMP validation, TRE/RGN/LBL private types and labels, DEM descriptors and sample delta bitstream | Every declared subfile and geometry type is decoded or conclusively classified; real DEM samples round-trip against an independent Garmin-compatible oracle and prodgeometry Y |
+| prodgeometry bundle | All mesh names, `hole.json`, Terrain, foliage, normals/UV/color attributes, coordinate frames and elevation | Corpus inventory has no unclassified asset; every consumed layer has cross-course semantics and every ignored layer has a recorded reason |
+| Green Contours | Authenticated membership download request, response package, course/build/part binding and S70 rendering behavior | One positive and one negative course are captured and decoded end-to-end; availability flag alone is not accepted as payload evidence |
+| Product package | Source precedence, lightweight-to-precise upgrade, offline cache, integrity/version binding and shared iOS/Watch/Web representation | A newly discovered uncached course opens from factual lightweight data, upgrades without changing round identity, survives offline restart and renders consistently on all three clients |
 
 ## Next Work
 
-1. Render IMG geometry by subdivision index and type, not just by hole image
-   bbox, to identify which subdivisions are overview vs detail.
-2. Decode LBL enough to resolve nonzero point labels, even if polygons and
-   lines are unlabeled.
-3. Build cross-course type statistics and shape descriptors:
-   - count per type
-   - mean vertex count
-   - area distribution
-   - centroid relation to shot tee/pin positions
-4. Infer semantic roles from multi-course evidence, not one hole:
-   - hole overview blobs
-   - cart/path lines
-   - tee/green anchor points
-   - tiny markers
-   - possible hazard/terrain surfaces
+1. Freeze the already reproduced FAT/DEM-header and `courseData` findings as a
+   checkpoint; this is not a declaration that Deep Mine is complete.
+2. Decode the DEM descriptor and sample codec against a known Garmin-compatible
+   implementation, then compare actual samples with prodgeometry Y.
+3. Resolve the remaining `courseData` codes/flags and DSKIMG TRE/RGN/LBL types
+   across the existing multi-region corpus, retaining raw values throughout.
+4. Finish the prodgeometry asset/attribute inventory and remove every
+   unclassified corpus entry with evidence rather than a filename guess.
+5. Trace and capture the membership Green Contours path, including one positive
+   and one negative course and its S70-visible result.
+6. Productize the proven lightweight facts as a fast fallback and verify their
+   in-place upgrade to precise geometry across backend, iOS, Watch and Web.
 
 ## Practical Conclusion For Now
 
-IMG remains worth investigating. It likely contains course-level vector layers
-and anchor metadata, but the short-term reliable source for fine per-hole
-geometry is Garmin's encrypted `prodgeometry` CourseView payload.
+IMG remains useful course-level context and a separate research source, but it
+is not the best fine per-hole geometry and its ordinary DEM is not Green
+Contours. The short-term reliable source for precise surfaces remains Garmin's
+encrypted `prodgeometry`; anonymous `courseData` is now the cheap fallback for
+route, scorecard, green outline and proven water/bunker near/far spans.
 
 For Black Knight B hole 2, the `prodgeometry` zip decrypts into real assets:
 
@@ -247,6 +338,7 @@ production pipeline should use:
 
 - `prodgeometry` for precise Garmin-authored fairway/green/bunker/water/rough
   meshes
-- IMG for coarse geospatial context, anchors, and as a separate reverse-
-  engineering thread
+- `courseData` for immediate low-bandwidth fallback facts and hazard spans
+- IMG for coarse geospatial context, ordinary DEM and a separate reverse-
+  engineering thread, not subscription contours
 - raster segmentation only as a fallback or visual sanity check

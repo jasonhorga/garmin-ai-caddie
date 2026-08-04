@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 SEMI_TO_DEG = 360 / (1 << 24)  # 24-bit semicircle → degrees
+DEM_UNIT_TO_DEG = 45 / (1 << 29)
 
 
 # ----------------------------------------------------------------------
@@ -26,17 +27,65 @@ SEMI_TO_DEG = 360 / (1 << 24)  # 24-bit semicircle → degrees
 # ----------------------------------------------------------------------
 
 def extract_gmp(img: bytes) -> bytes:
-    """Pull the .GMP subfile out of an IMG container by walking the FAT."""
+    """Pull the complete .GMP subfile out of an IMG container by walking its FAT.
+
+    A FAT record holds at most 240 block pointers (120 KiB with the CourseView
+    block size). Larger maps repeat the same 8.3 name in continuation records;
+    byte ``0x11`` is their part number. The old parser read only the first
+    record and therefore silently cut the DEM off large course packages.
+    """
     BS = 512
-    GMP_ENTRY = 0x1200  # second FAT entry — the first describes the FAT itself
-    size = struct.unpack("<I", img[GMP_ENTRY + 12 : GMP_ENTRY + 16])[0]
-    ptrs = struct.unpack("<240H", img[GMP_ENTRY + 0x20 : GMP_ENTRY + 0x200])
-    blocks = []
-    for p in ptrs:
-        if p == 0xFFFF or (p == 0 and blocks):
-            break
-        blocks.append(p)
-    return b"".join(img[p * BS : (p + 1) * BS] for p in blocks)[:size]
+    FAT_ENTRY_SIZE = 512
+    FAT_FIRST_ENTRY = 0x1000
+
+    if len(img) < FAT_FIRST_ENTRY + FAT_ENTRY_SIZE:
+        raise ValueError("IMG is too small to contain a FAT")
+    fat_size = struct.unpack_from("<I", img, FAT_FIRST_ENTRY + 12)[0]
+    if fat_size < FAT_FIRST_ENTRY + FAT_ENTRY_SIZE or fat_size > len(img):
+        raise ValueError("IMG FAT size is outside the container")
+
+    entries: list[bytes] = []
+    for off in range(FAT_FIRST_ENTRY, fat_size, FAT_ENTRY_SIZE):
+        entry = img[off : off + FAT_ENTRY_SIZE]
+        if len(entry) != FAT_ENTRY_SIZE or entry[0] != 1:
+            continue
+        entries.append(entry)
+
+    primary = next(
+        (entry for entry in entries if entry[9:12] == b"GMP" and entry[0x11] == 0),
+        None,
+    )
+    if primary is None:
+        raise ValueError("IMG FAT has no primary GMP entry")
+
+    name = primary[1:9]
+    size = struct.unpack_from("<I", primary, 12)[0]
+    parts: dict[int, bytes] = {}
+    for entry in entries:
+        if entry[1:9] != name or entry[9:12] != b"GMP":
+            continue
+        part_no = entry[0x11]
+        if part_no in parts:
+            raise ValueError(f"IMG FAT repeats GMP part {part_no}")
+        parts[part_no] = entry
+    if sorted(parts) != list(range(max(parts) + 1)):
+        raise ValueError("IMG FAT GMP continuation parts are not contiguous")
+
+    chunks: list[bytes] = []
+    for part_no in sorted(parts):
+        ptrs = struct.unpack_from("<240H", parts[part_no], 0x20)
+        for pointer in ptrs:
+            if pointer == 0xFFFF:
+                break
+            start = pointer * BS
+            end = start + BS
+            if end > len(img):
+                raise ValueError(f"IMG FAT GMP block {pointer} is outside the container")
+            chunks.append(img[start:end])
+    gmp = b"".join(chunks)
+    if len(gmp) < size:
+        raise ValueError(f"IMG FAT supplies only {len(gmp)} of {size} GMP bytes")
+    return gmp[:size]
 
 
 # ----------------------------------------------------------------------
@@ -58,6 +107,102 @@ def parse_gmp_header(gmp: bytes) -> GmpOffsets:
         lbl=struct.unpack("<I", gmp[0x21:0x25])[0],
         dem=struct.unpack("<I", gmp[0x2D:0x31])[0],
     )
+
+
+@dataclass
+class DemLevel:
+    zoom_level: int
+    points_per_lat: int
+    points_per_lon: int
+    non_standard_height: int
+    non_standard_width: int
+    tiles_lat: int
+    tiles_lon: int
+    tile_descriptor_size: int
+    tile_descriptor_offset: int
+    tile_data_offset: int
+    left: int
+    top: int
+    point_distance_lat: int
+    point_distance_lon: int
+    min_elevation: int
+    max_elevation: int
+
+    @property
+    def rows(self) -> int:
+        return (self.tiles_lat - 1) * self.points_per_lat + self.non_standard_height
+
+    @property
+    def columns(self) -> int:
+        return (self.tiles_lon - 1) * self.points_per_lon + self.non_standard_width
+
+    @property
+    def latitude_spacing_degrees(self) -> float:
+        return self.point_distance_lat * DEM_UNIT_TO_DEG
+
+    @property
+    def longitude_spacing_degrees(self) -> float:
+        return self.point_distance_lon * DEM_UNIT_TO_DEG
+
+
+@dataclass
+class DemData:
+    elevation_unit: str
+    section_record_size: int
+    section_header_offset: int
+    levels: list[DemLevel]
+
+
+def parse_dem_header(gmp: bytes, dem_off: int) -> DemData:
+    """Decode the CourseView DEM header and level geometry without guessing heights.
+
+    The compressed tile bitstream is a separate Garmin delta codec. Header geometry
+    alone gives a decisive resolution/coverage fact and is safe to inventory before
+    implementing that codec. CourseView's offsets are absolute within the GMP.
+    """
+    if dem_off < 0 or dem_off + 41 > len(gmp):
+        raise ValueError("DEM header is outside the GMP")
+    header_len = struct.unpack_from("<H", gmp, dem_off)[0]
+    file_type = gmp[dem_off + 2 : dem_off + 12].rstrip(b"\0")
+    if header_len < 41 or file_type != b"GARMIN DEM":
+        raise ValueError("invalid Garmin DEM common header")
+
+    elevation_code, level_count, _unknown, record_size, header_offset, _unknown2 = struct.unpack_from(
+        "<IHIHII", gmp, dem_off + 21
+    )
+    if record_size < 60 or header_offset < dem_off or header_offset > len(gmp):
+        raise ValueError("invalid Garmin DEM section table")
+    if header_offset + level_count * record_size > len(gmp):
+        raise ValueError("Garmin DEM section table is truncated")
+
+    levels: list[DemLevel] = []
+    for index in range(level_count):
+        off = header_offset + index * record_size
+        level = DemLevel(
+            zoom_level=gmp[off + 1],
+            points_per_lat=struct.unpack_from("<I", gmp, off + 0x02)[0],
+            points_per_lon=struct.unpack_from("<I", gmp, off + 0x06)[0],
+            non_standard_height=struct.unpack_from("<I", gmp, off + 0x0A)[0] + 1,
+            non_standard_width=struct.unpack_from("<I", gmp, off + 0x0E)[0] + 1,
+            tiles_lon=struct.unpack_from("<I", gmp, off + 0x14)[0] + 1,
+            tiles_lat=struct.unpack_from("<I", gmp, off + 0x18)[0] + 1,
+            tile_descriptor_size=struct.unpack_from("<H", gmp, off + 0x1E)[0],
+            tile_descriptor_offset=struct.unpack_from("<I", gmp, off + 0x20)[0],
+            tile_data_offset=struct.unpack_from("<I", gmp, off + 0x24)[0],
+            left=struct.unpack_from("<i", gmp, off + 0x28)[0],
+            top=struct.unpack_from("<i", gmp, off + 0x2C)[0],
+            point_distance_lat=struct.unpack_from("<I", gmp, off + 0x30)[0],
+            point_distance_lon=struct.unpack_from("<I", gmp, off + 0x34)[0],
+            min_elevation=struct.unpack_from("<h", gmp, off + 0x38)[0],
+            max_elevation=struct.unpack_from("<h", gmp, off + 0x3A)[0],
+        )
+        descriptor_bytes = level.tile_data_offset - level.tile_descriptor_offset
+        expected_descriptor_bytes = level.tiles_lat * level.tiles_lon * level.tile_descriptor_size
+        if descriptor_bytes != expected_descriptor_bytes:
+            raise ValueError("Garmin DEM tile descriptor span does not match its grid")
+        levels.append(level)
+    elevation_unit = "feet" if elevation_code == 1 else "metres" if elevation_code == 0 else f"code-{elevation_code}"
+    return DemData(elevation_unit, record_size, header_offset, levels)
 
 
 # ----------------------------------------------------------------------
@@ -696,6 +841,18 @@ def smoke(path: Path) -> None:
                 out_of_bbox += 1
                 break
     print(f"\nPolygons with >=1 vertex outside bbox: {out_of_bbox} / {len(polys)}")
+
+    raw = path.read_bytes()
+    if raw[0x10:0x16] != b"DSKIMG":
+        raw = _unwrap_pb_img(raw)
+    gmp = extract_gmp(raw)
+    dem = parse_dem_header(gmp, parse_gmp_header(gmp).dem)
+    for level in dem.levels:
+        print(
+            f"DEM z{level.zoom_level}: {level.columns}x{level.rows} samples, "
+            f"spacing={level.longitude_spacing_degrees:.8f}°x{level.latitude_spacing_degrees:.8f}°, "
+            f"elevation={level.min_elevation}..{level.max_elevation} {dem.elevation_unit}"
+        )
 
 
 if __name__ == "__main__":

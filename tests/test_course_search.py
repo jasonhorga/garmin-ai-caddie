@@ -13,12 +13,17 @@ class ParseCourseSearchTests(unittest.TestCase):
         by_gid = {r["global_id"]: r for r in records}
         self.assertIn(31936, by_gid)
         c = by_gid[31936]
+        self.assertEqual(c["build_id"], 266)
         self.assertEqual(c["name"], "Nanjing Zhongshan International Golf Club ~ C Valley")
         self.assertEqual(c["holes"], 9)
         self.assertEqual(c["province"], "jiangsu")
         self.assertIn("Nanjing", c["city"])
         self.assertAlmostEqual(c["latitude"], 32.081172466278076)
         self.assertAlmostEqual(c["longitude"], 118.87230634689331)
+        self.assertIs(c["supports_nine_plus_nine"], True)
+        self.assertEqual(c["number_of_nine_hole_courses"], 3)
+        self.assertIsNone(c["associated_dual_green_course_layout_id"])
+        self.assertIs(c["has_green_contour"], True)
         self.assertEqual({31934, 31935, 31936} & set(by_gid), {31934, 31935, 31936})
 
     def test_coordinate_decoder_supports_western_longitudes_and_rejects_invalid_values(self) -> None:

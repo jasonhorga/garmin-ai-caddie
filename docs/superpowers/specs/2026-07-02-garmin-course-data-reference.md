@@ -236,11 +236,14 @@ CGV22 也能是 f12=1(2625),故 f12 ≠ "CGV≥28"。语义仍未定,猜测是"�
 | IMG → TRE | 子文件 | 树/头/扩展类型表 | 偏移 `0x00f0` | 逆向解过多边形/线/点 | 粗矢量图层 | 低 |
 | IMG → RGN | 子文件 | 几何区块 | `0x026f` | 部分解 | — | 低 |
 | IMG → LBL | 子文件 | 标签 | `0x03e4` | 未解 | 点标签/名称 | 低 |
-| **IMG → DEM** | 子文件 | **数字高程模型** | 偏移 `0x068d` | **完全未碰** | 第二高程源(冗余,B 层已够) | 低 |
+| **IMG → DEM** | 子文件 | **球场级数字高程模型** | 偏移 `0x068d` | 已解析 header/grid/间距/高程范围；sample delta codec 未解 | 粗地形交叉验证 | 低 |
 | 扩展多边形类型码 | hex | 球道/果岭/沙坑/水的私有类型 | `0x011407` 等(语义未定) | 逆向未定 | — | 低 |
 
-> **结论**:C 层是搁置的逆向线程。其 DEM 是**冗余的**——B 层网格 y 已直接给高程,不必再啃 IMG DEM。
-> `IMG_RESEARCH.md:236-253` 的实践结论也是:精细几何用 prodgeometry,IMG 仅粗上下文。**整层低优先。**
+> **2026-08-04 纠正**:旧解析器还存在超过 120 KiB GMP 被 FAT 首记录静默截断的问题，现已修复。四场真实 DEM 为约 8–31 m 网格；有订阅 Green Contours 的 Els 仍约 30 m，证明匿名普通 DEM 不是推杆等高线本体。精细几何继续用 prodgeometry，DSKIMG 用于粗上下文/交叉验证；sample codec 仍是 Deep Mine 必须关闭的研究项，解码后要与 prodgeometry Y 轴做真实高程对照。详见 `docs/research/IMG_RESEARCH.md`。
+
+### C.1 · 匿名轻量 `courseData`
+
+`GET .../CourseViewData/courseData/{buildId},{globalLayoutId},32` 返回路线、30 点果岭径向轮廓、Par/差点、Tee rating/slope 和类型锚点；追加 `/Hazards` 会增加两点障碍 span，而不是多边形。`MEDIUM_PLUS` 的水/沙码已经跨三场 prodgeometry 对齐；未证明的码保持 unknown。该层适合新球场秒开 fallback，不能替代精确 prodgeometry 或订阅 Green Contours。
 
 ---
 
@@ -274,5 +277,5 @@ CGV22 也能是 f12=1(2625),故 f12 ≠ "CGV≥28"。语义仍未定,猜测是"�
 | 8 | **球场经纬度落地** —— f8/f9 半圆坐标 `*360/2²⁴` → 地图/天气/时区 | `f8/f9` | 低 | 低 |
 | 9 | **f12 flag 定义 + `_f1` 后缀** —— 下次批量爬场时一起验(crosstab 已修正:≠"CGV≥28") | `f12` | 中 | 低 |
 | 10 | **HasTargets 目标点挖掘** —— 1384 洞标 true 但资产内未见 target 本体,查是否有独立 targets 端点 | `HasTargets` + 未知端点 | 高 | 中(不确定) |
-| 11 | **IMG/DEM 逆向** —— 搁置;B 层已提供高程,冗余 | C 层全部 | 高 | 低 |
+| 11 | **IMG/DEM 逆向** —— FAT/header/grid 已完成；sample codec、LBL 和私有类型是 Deep Mine 待关闭项 | C 层全部 | 高 | 中 |
 | 12 | **解码器补属性** —— decode 脚本加 NORMAL/TEX_COORD/COLOR(现只解 POSITION),UV 才能贴 Terrain.webp | Draco 4 属性 | 中 | 低 |

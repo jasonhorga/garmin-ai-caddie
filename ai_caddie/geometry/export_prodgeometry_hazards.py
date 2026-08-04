@@ -44,6 +44,9 @@ FEATURES = {
 KNOWN_NON_HAZARD = {
     "Fringe.drc", "IslandExt.drc", "PhysicsMesh.drc", "Cartpath.drc", "CliffUV2.drc",
     "Cliff.drc", "VfxGreenA.drc", "VfxGreenB.drc", "VfxOcean.drc", "VfxStream.drc",
+    # One 4.4 x 5.1 m bridge mesh in the current 139-hole corpus. It is a factual structural
+    # landmark, but not a scoring hazard and does not justify widening the three-client protocol.
+    "Bridge.drc",
 }
 
 logger = logging.getLogger(__name__)

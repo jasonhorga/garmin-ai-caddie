@@ -159,7 +159,9 @@ def inspect_release(pb: bytes) -> dict:
             # Retain the old migration-oracle key for callers that archived its output.
             info["unknown_10"] = value
         elif field_no == 12 and wire_type == 0:
-            # Observed as 1 on part of the corpus; meaning is not yet proven.
+            # Garmin's JSON representation names this exact field HasGreenContour. Keep the old
+            # migration-oracle key until archived inspector output no longer depends on it.
+            info["has_green_contour"] = bool(value)
             info["unknown_12"] = value
         elif field_no == 7 and wire_type == 2 and raw is not None:
             hole: dict = {}

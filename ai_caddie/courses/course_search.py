@@ -3,10 +3,12 @@
 NO auth, NO AI. Deterministic protobuf decode, true provider-wide nearby pagination and stdlib
 fuzzy ranking for manual search, guarded by hole-count + city/province.
 
-Per-course record (top field 4, repeated): f7=globalId, f9=latitude, f10=longitude,
-f12=name, f13=holeCount, f16=province, f21=city. The plain name endpoint uses
-``degrees * 2^23 / 180`` coordinates; the location-ranked Boundaries endpoint uses
-32-bit semicircles. Records may be a single nine (9 holes) or a whole 18-hole course.
+Per-course record (top field 4, repeated): f1=BuildId, f7=globalId, f9=latitude, f10=longitude,
+f12=name, f13=holeCount, f16=province, f21=city, f23=SupportsNinePlusNine,
+f24=NumberOfNineHoleCourses, f25=AssociatedDualGreenCourseLayoutId and
+f26=HasGreenContour. The plain name endpoint uses ``degrees * 2^23 / 180``
+coordinates; the location-ranked Boundaries endpoint uses 32-bit semicircles. Records
+may be a single nine (9 holes) or a whole 18-hole course.
 """
 from __future__ import annotations
 
@@ -54,7 +56,9 @@ def parse_course_search(pb: bytes, *, coordinate_bits: int = 23) -> list[dict]:
                 continue
             rec: dict = {}
             for sub_no, sub_wire, sub_value, _sub_raw in parse_fields(raw):
-                if sub_no == 7 and sub_wire == 0:
+                if sub_no == 1 and sub_wire == 0:
+                    rec["build_id"] = sub_value
+                elif sub_no == 7 and sub_wire == 0:
                     rec["global_id"] = sub_value
                 elif sub_no == 9 and sub_wire == 0:
                     rec["latitude"] = _garmin_coordinate(
@@ -72,12 +76,25 @@ def parse_course_search(pb: bytes, *, coordinate_bits: int = 23) -> list[dict]:
                     rec["province"] = sub_value
                 elif sub_no == 21 and sub_wire == 2:
                     rec["city"] = sub_value
+                elif sub_no == 23 and sub_wire == 0:
+                    rec["supports_nine_plus_nine"] = bool(sub_value)
+                elif sub_no == 24 and sub_wire == 0:
+                    rec["number_of_nine_hole_courses"] = sub_value
+                elif sub_no == 25 and sub_wire == 0:
+                    rec["associated_dual_green_course_layout_id"] = sub_value
+                elif sub_no == 26 and sub_wire == 0:
+                    rec["has_green_contour"] = bool(sub_value)
             if rec.get("global_id") is not None and rec.get("name"):
                 rec.setdefault("holes", None)
+                rec.setdefault("build_id", None)
                 rec.setdefault("city", None)
                 rec.setdefault("province", None)
                 rec.setdefault("latitude", None)
                 rec.setdefault("longitude", None)
+                rec.setdefault("supports_nine_plus_nine", None)
+                rec.setdefault("number_of_nine_hole_courses", None)
+                rec.setdefault("associated_dual_green_course_layout_id", None)
+                rec.setdefault("has_green_contour", None)
                 out.append(rec)
     except Exception:
         return out

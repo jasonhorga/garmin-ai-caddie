@@ -23,7 +23,7 @@ class CourseViewCorpusInventoryTests(unittest.TestCase):
                 "trees": [{"id": 4007, "x": 1, "y": 2, "z": 3}],
                 "rocks": [],
             }))
-            for name in ("Fairway.drc", "PhysicsMesh.drc", "WasteArea.drc"):
+            for name in ("Fairway.drc", "PhysicsMesh.drc", "Bridge.drc", "WasteArea.drc"):
                 (hole_dir / name).write_bytes(b"drc")
 
             before = sorted(path.relative_to(root) for path in root.rglob("*"))
@@ -36,6 +36,7 @@ class CourseViewCorpusInventoryTests(unittest.TestCase):
             self.assertEqual(geometry["holeCount"], 1)
             self.assertIn("Fairway.drc", geometry["topoConsumedMeshNames"])
             self.assertIn("PhysicsMesh.drc", geometry["knownStructuralOrCosmeticMeshNames"])
+            self.assertIn("Bridge.drc", geometry["knownStructuralOrCosmeticMeshNames"])
             self.assertEqual(geometry["unclassifiedMeshNames"], ["WasteArea.drc"])
             self.assertEqual(geometry["foliageAssetIds"]["trees"], {"4007": 1})
 

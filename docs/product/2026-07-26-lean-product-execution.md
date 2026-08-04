@@ -288,7 +288,7 @@ Build 35 的可安装性不等于产品视觉获批。当前重新以 2026-07-02
 | UI-02 | `FIXED / 运行态已验证` | `7985d49` 根据实际视口与 `you → pin` 像素跨度只缩小静止态地图；242pt 批准图画布仍保持原比例，全屏表冠缩放不受影响。[Watch run 30350643879](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30350643879) 为 `124/124`，真实 Cypress Point 下载与断网重开均完整显示 Tee、果岭和旗位，截图 SHA256 同为 `f2389334c5d0c4de5ba59ed099d4dd0139215d445e2fc7a36dc6243f4a92f102`。 |
 | UI-03 | `FIXED / 跨端运行态已验证` | `cf7c6bc` 从真实障碍 mesh 外边界生成近/远点，修正狗腿洞投影先后与直线距离混用造成的 `到 471 / 过 468` 倒序；`172f442`/`577219d` 补齐真实 iOS 安全区截图与共享契约。最终 [Watch run 30392143866](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30392143866) 和 [Native run 30392141564](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30392141564) 均在同一 SHA `577219dc1aed7bab891bbabcb19e46d4d24a8127` 成功。Cypress 沙坑从 Tee 显示 `到 262 / 过 277`，球道中段显示 `到 131 / 过 146`，边界点落在真实沙坑上；iPhone 真实球局同时显示沙坑 `到 10 / 过 165` 与水域 `到 21 / 过 69`，备战障碍行完整位于安全区且不再截到加载态。Watch Tee/中段截图 SHA256 为 `2d5686b13f2995b966527c4208e35b193b5313b2500ac50e33d877913dd1823f` / `f0751c1771cb67b956687a7cf2bc88aa92e4ffc9fa49c6674814e6fa358f9c04`；iOS 备战/实战/避开区截图 SHA256 为 `d7353972f92875f2260accae88ccce55b058afa9e6c7194963e3dae76c29e9fa` / `e188052c5257af0608b67b3ec1971ee0dab4c6c1121b2ff91ddd847c7fa6bafb` / `dcb5f17c36a44800ad062505957b9b168811a90fbf09dc2388be4424693586ea`。固定语义：`到`=当前位置到近沿，`过`=当前位置越过远沿所需总 carry；`sideM` 永不展示。 |
 | UI-04 | `FIXED / Apple 平台差异运行态已验证` | `9bb5b4b` 只让赛中 Hole/Hazard 地图忽略安全区并请求隐藏持久系统覆盖，地图恢复全表面，列表、开局和确认页未受影响。真实 Simulator 仍保留右上时钟；这符合 [Apple 公开 API](https://developer.apple.com/documentation/swiftui/view/persistentsystemoverlays(_:)) 的明确约束：它只是 preference，系统可以不采纳，因而不得用私有状态栏 API 冒充 S70。`1cd9568` 将全图放大态距离胶囊移入左上事实区，给时钟留出车道。[Watch run 30399741737](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30399741737) 在同一 SHA `1cd956839e6a0044e986487c3c7d928eaaebf737` 完成 `130/130`、build、真实 Cypress 下载、离线重开、放大和障碍截图；放大/真实根页截图 SHA256 为 `4fa70c90bbc83800294a6377fbc8e3713d53897f2d978b5f9d0e6b1f19add813` / `bd74052162dece39ea35646d9f76a1144d04fd5a56e49fbbea912d8c901edbf0`。 |
-| UI-05 | `FIXED / 真实 GPS 与缓存运行态已验证` | 后端已有球场坐标和 Watch 腕上 GPS，偏差来自 Watch option 解码丢坐标、下载缓存未回填位置以及所有有坐标球场都被统称“附近”。`ecc9c58` 保留 API 坐标，`de1cb62` 接通真实距离排序/文案，`1dbddf1` 只在缺坐标时用 production package 第一洞 Tee 回填缓存；`77a6056` 以 50 km 为明确边界拆分“附近球场/已知球场”，无有效 GPS 时仍显示“选择球场”。[Watch run 30515480491](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30515480491) 完成单测、build、真实 Cypress 下载、离线恢复和同一 round 的 1–18 洞；缓存北京丽宫页面显示真实 `0.4 km`，结束后普通 App 用缓存中的 Cypress 坐标显示 `附近球场 · 0.0 km`，北京丽宫进入“已知球场”，没有伪造距离。当前附近列表只覆盖后端已知、已缓存或按名称搜索并下载过的球场；尚无 provider-wide nearby API，因此不冒充 S70 全球内置球场库的未搜索自动发现能力。 |
+| UI-05 | `FIXED / 真实 GPS 与缓存运行态已验证` | 后端已有球场坐标和 Watch 腕上 GPS，偏差来自 Watch option 解码丢坐标、下载缓存未回填位置以及所有有坐标球场都被统称“附近”。`ecc9c58` 保留 API 坐标，`de1cb62` 接通真实距离排序/文案，`1dbddf1` 只在缺坐标时用 production package 第一洞 Tee 回填缓存；`77a6056` 以 50 km 为明确边界拆分“附近球场/已知球场”，无有效 GPS 时仍显示“选择球场”。[Watch run 30515480491](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30515480491) 完成单测、build、真实 Cypress 下载、离线恢复和同一 round 的 1–18 洞；缓存北京丽宫页面显示真实 `0.4 km`，结束后普通 App 用缓存中的 Cypress 坐标显示 `附近球场 · 0.0 km`，北京丽宫进入“已知球场”，没有伪造距离。该 checkpoint 当时只覆盖后端已知/缓存球场；`88b7695` 已在 2026-08-04 接入 Garmin provider-wide radius 路由，当前状态与证据见本文件“当前剩余产品任务”。 |
 | IOS-01 | `FIXED / 跨端回归已验证` | `e4e1c69` 由拥有状态栏的 `RoundHomeView.NavigationStack` 只在 Hole destination 隐藏 system chrome，保留实战页自己的明确返回；球童联网 spinner 复用原状态圆点和原说明行，不再新增高度。完整 [Native run 30406541463](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30406541463) 在同一 SHA `e4e1c698f1e92997b15d18925360dc3c1cd2d1e3` 成功：iOS `115/115`、真实 iPhone XCUITest `3/3`、Watch `130/130`，Watch seed/强杀恢复也成功。Codex 已检查 393×852 真实北京丽宫实战页：没有时间/Wi-Fi/电量或“早上好”返回标题；返回按钮完整；“保存本洞”位于 y=`697…744`，底栏文字最大 y `<817`，均在 Home Indicator 安全边界 `818` 之上；加载态没有改变面板高度。真实图 SHA256 为 `d9e1263e47805a5b88fdaa77afc2563d2da4150d0dcaeb2aea5db6d00422f861`；批准图保持 `5d310e72b11ef133038aea9754688d3edcf841427e0ba90b8e2fe4db30297906`，本切片没有重画已批准构图。 |
 | IOS-02 | `FIXED / 运行态已验证` | `443d1d1` 删除五个不可点击的假 Tab，只保留真实“本场计分卡”入口；`8bb8166` 允许随时编辑任意已完成洞且不改变当前实战洞。[Native 30420177192](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30420177192) 的真实北京丽宫流程已显示第 1 洞成绩、编辑后仍以第 2 洞为当前洞。 |
 | IOS-03 | `FIXED / 跨端回归已验证` | `1453a75` 接通推荐一键接受、手动总杆→推杆→Par 4/5 球道→罚杆、Par 3 跳过球道与 ordered next-hole 推进。复核同时发现 SwiftUI 复用洞页身份，导致新洞继承旧滚动位置并清掉 GPS；`d301abf` 用 `roundId+hole` 明确每洞视图身份。[Native 30428491722](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30428491722) 的真实流程从第 1 洞进入第 2 洞，洞头/地图/记杆完整，编辑第 1 洞后仍停在第 2 洞。 |
@@ -308,13 +308,27 @@ Build 35 的可安装性不等于产品视觉获批。当前重新以 2026-07-02
 | 顺序 | 可见结果 | 当前状态 | 完成门 |
 |---|---|---|---|
 | 1 | iOS 复盘/备战的 Topo 只显示真实洞形，Watch 长文字不越界 | `IMPLEMENTED / 待模拟器回归` | 真实 App 截图无外围绿色矩形，45 mm 全部长文字状态留在表盘内 |
-| 2 | 新开一场时可按城市、球场关键字或两者组合查找任意 Garmin 球场 | `IMPLEMENTED / 待 Native 验证` | 只查目录；只填城市或关键字均可用；两者都填时分别查询并按 `globalId` 取交集；选中后才下载单座球场 |
-| 3 | 不输入名称，直接列出当前坐标 50 km 内的 provider-wide 附近球场 | `IMPLEMENTED / 待 Native 验证` | Garmin 独立 radius 路由按 50 条完整分页；默认 50 km、可切 100/200 km；覆盖未缓存球场并按真实距离排序；选中后才下载单座球场 |
-| 4 | CourseView Deep Mine 将现有 release/prodgeometry 中未使用的真实数据逐项转成产品判断 | `IN PROGRESS / 已完成第一轮库存` | 对未分类字段/mesh 给出可重放证据、跨球场语义和明确的使用/不使用结论，不为挖数据而增加无产品价值的平台 |
+| 2 | 新开一场时可按城市、球场关键字或两者组合查找任意 Garmin 球场 | `IMPLEMENTED / Native 基础验证通过` | 只查目录；只填城市或关键字均可用；两者都填时分别查询并按 `globalId` 取交集；选中后才下载单座球场 |
+| 3 | 不输入名称，直接列出当前坐标 50 km 内的 provider-wide 附近球场 | `IMPLEMENTED / Native 基础通过，待集成旅程复验` | Garmin 独立 radius 路由按 50 条完整分页；默认 50 km、可切 100/200 km；覆盖未缓存球场并按真实距离排序；选中后才下载单座球场 |
+| 4 | CourseView Deep Mine 将现有 release/prodgeometry 中未使用的真实数据逐项转成产品判断 | `IN PROGRESS / 第二轮结构与跨球场语义已完成` | 对未分类字段/mesh 给出可重放证据、跨球场语义和明确的使用/不使用结论，不为挖数据而增加无产品价值的平台 |
 
 球场发现的固定产品规则：开局页同时提供“附近球场”和“搜索球场”两条入口，不二选一。附近球场默认 50 km，无结果时可扩大范围；手动搜索的“城市”和“球场关键字”至少填一项。两项都填时不拼成单个 Garmin query，而是分别查询后按 `globalId` 取交集；真实验证中“深圳”、“观澜”分别有结果，而“深圳 观澜”直接查询返回 0。搜索结果始终是轻量目录，只在用户选中后下载该球场的 Tee、洞和地图。
 
-附近发现已确认使用 Garmin 自己的匿名 CourseView 路由 `Boundaries/{longitude},{latitude},{radiusMetres},32/Courses`，而不是名称搜索路由或本地缓存。2026-08-04 在深圳观澜坐标以 50 km 半径实测分页得到 56 条，最近结果为 Mission Hills 的真实 9 洞环；20/50/100/200 m 分别返回 1/2/3/5 条。接口异常返回明确错误，不把网络失败或中途分页失败伪装成“附近没有球场”。
+附近发现已确认使用 Garmin 自己的匿名 CourseView 路由 `Boundaries/{longitude},{latitude},{radiusMetres},32/Courses`，而不是名称搜索路由或本地缓存。2026-08-04 在深圳观澜坐标以 50 km 半径实测分页得到 56 条，最近结果为 Mission Hills 的真实 9 洞环；20/50/100/200 米半径分别返回 1/2/3/5 条。接口异常返回明确错误，不把网络失败或中途分页失败伪装成“附近没有球场”。
+
+Native run `30950302423` 在附近球场 SHA `88b7695` 上完成 build、App 单测和设计截图；唯一失败是旧旅程断言要求同一屏同时看到上一洞“到/过”文字与下一洞标题，而前一 SHA 同一断言刚通过。它不是附近搜索回归，也不另起测试工程；下一个集成 SHA 复验并按真实用户状态改掉脆弱断言。
+
+Deep Mine 当前结论（细节与证据见 `docs/research/IMG_RESEARCH.md`）：
+
+- `HasGreenContour` 已由 Garmin JSON 正式命名并用两组正反球场复现；普通 DSKIMG DEM 在有等高线的 Els 仍约 30 m 网格，因此不是订阅 Green Contours 本体。
+- 修复了超过 120 KiB GMP 被旧 FAT 解析器静默截断的问题，并已解析真实 DEM 网格、间距和高程范围；压缩高程 sample codec 尚未假装完成。
+- Garmin Golf 的 `MEDIUM`、`MEDIUM_PLUS`、`INTERMEDIATE` 三档下载已经分清。`INTERMEDIATE` JSON 中的 `Image` 与现有 DSKIMG 字节完全相同，不是隐藏的更富地图；GMA/UNL 是设备解锁包装。
+- 新增匿名轻量 `courseData` 解析入口，按 `BuildId + globalLayoutId` 绑定真实响应。17 洞跨三场对照证明 `3241/18123=水`、`3242/18124=沙坑`，两点顺序为 Tee 侧→果岭侧；旧资料所谓“障碍多边形”已纠正为近/远边界线和锚点。
+- 每洞 30 个 `GreenRadii` 已证明以路线末端为中心、从正北顺时针；与精确 Green mesh 的绝对比例仍随球场变化，所以当前保留无单位原值，不把它冒充推杆坡度或精确米制轮廓。
+
+Deep Mine 下一可见产品切片不是继续造研究平台，而是让新球场在 `prodgeometry` 尚未准备时，用该轻量包秒开真实路线、计分卡、果岭外形以及水/沙的粗 `到 / 过`；精确 mesh 到达后仍自动升级为现有地图。订阅 Green Contours 本体只在用户方便时做一次真实 S70/会员下载抓包，不阻塞普通球场获取。
+
+Deep Mine 本身不会在这个可见切片后被遗留。它的完成门是：全部 APK 地图请求/更新链已绑定；`courseData` 所有字段与类型码有终态裁决；DSKIMG 的 FAT/GMP/TRE/RGN/LBL/DEM 以及真实高程 sample 完整解码；prodgeometry 无未分类资产；Green Contours 完成一正一反抓取和解码；新球场的轻量→精确地图能在 iOS、Watch、Web 保持同一 round identity 并离线重开。详细闭环和证据标准只维护在 `docs/research/IMG_RESEARCH.md`，不再复制一份庞大计划。
 
 ## 防止再次过度设计
 
