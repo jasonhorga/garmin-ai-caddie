@@ -101,7 +101,9 @@ public struct AICaddieApp: App {
                             }
                         },
                         onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) },
-                        onSearchCourses: { name in try await model.searchCourses(name: name) },
+                        onSearchCourses: { name, latitude, longitude in
+                            try await model.searchCourses(name: name, latitude: latitude, longitude: longitude)
+                        },
                         pendingLiveHole: model.pendingLiveHole,
                         onConsumePendingLiveHole: {
                             model.consumePendingLiveHole()
@@ -145,7 +147,9 @@ public struct AICaddieApp: App {
                             },
                             onConnectGarmin: { showNoPackageSettings = true },
                             onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) },
-                            onSearchCourses: { name in try await model.searchCourses(name: name) }
+                            onSearchCourses: { name, latitude, longitude in
+                                try await model.searchCourses(name: name, latitude: latitude, longitude: longitude)
+                            }
                         )
                         // First launch with no data: the empty-state CTA + this gear both open the
                         // Garmin-connect sheet so a signed-in user can pull their courses and score.
@@ -1062,9 +1066,17 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Search the provider-wide catalogue without installing anything. The picker keeps these rows
     /// ephemeral until the player chooses one and starts the existing selected-course download.
-    public func searchCourses(name: String) async throws -> [MobileCourseSearchMatch] {
+    public func searchCourses(
+        name: String,
+        latitude: Double? = nil,
+        longitude: Double? = nil
+    ) async throws -> [MobileCourseSearchMatch] {
         guard let syncClient else { throw URLError(.notConnectedToInternet) }
-        return try await syncClient.searchCourses(name: name)
+        return try await syncClient.searchCourses(
+            name: name,
+            latitude: latitude,
+            longitude: longitude
+        )
     }
 
     /// Load the course's selectable tee boxes (GET /courses/{id}/tees) for the 开始一场 picker —

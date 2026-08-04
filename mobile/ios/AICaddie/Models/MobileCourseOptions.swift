@@ -20,6 +20,9 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
     public let city: String?
     public let province: String?
     public let ratio: Double
+    public let latitude: Double?
+    public let longitude: Double?
+    public let distanceKm: Double?
 
     public init(
         globalId: Int,
@@ -27,7 +30,10 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
         holes: Int?,
         city: String?,
         province: String?,
-        ratio: Double
+        ratio: Double,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        distanceKm: Double? = nil
     ) {
         self.globalId = globalId
         self.name = name
@@ -35,6 +41,9 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
         self.city = city
         self.province = province
         self.ratio = ratio
+        self.latitude = latitude
+        self.longitude = longitude
+        self.distanceKm = distanceKm
     }
 
     /// A result without a factual hole count remains visible but cannot start a round. We do not
@@ -53,12 +62,19 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
             geometryCoverage: "missing",
             venueName: venue.isEmpty ? name : venue,
             segmentLabel: segment?.isEmpty == false ? segment : nil,
-            segmentHoles: holes
+            segmentHoles: holes,
+            latitude: latitude,
+            longitude: longitude
         )
     }
 
     public var subtitle: String {
         var location: [String] = []
+        if let distanceKm, distanceKm.isFinite, distanceKm >= 0 {
+            location.append(distanceKm < 10
+                ? String(format: "%.1f km", distanceKm)
+                : "\(Int(distanceKm.rounded())) km")
+        }
         for rawValue in [city, province] {
             guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !value.isEmpty else { continue }

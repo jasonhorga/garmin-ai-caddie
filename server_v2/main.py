@@ -860,16 +860,28 @@ def course_search_endpoint(
     name: str,
     city: str | None = None,
     holes: int | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
 ) -> dict:
     """Search Garmin's course DB by name (+ optional city / hole-count guard); returns ranked
     matches with globalId. Feed a chosen globalId into /api/v2/courses/{global_id}/prep."""
-    matches = course_search.courseview_search(name, city=city, expected_holes=holes)
+    if (latitude is None) != (longitude is None):
+        raise HTTPException(status_code=422, detail="latitude and longitude must be supplied together")
+    matches = course_search.courseview_search(
+        name,
+        city=city,
+        expected_holes=holes,
+        latitude=latitude,
+        longitude=longitude,
+    )
     return {
         "schema": "ai-caddie-course-search-v1",
         "query": name,
         "matches": [
             {"globalId": m.global_id, "name": m.name, "holes": m.holes,
-             "city": m.city, "province": m.province, "ratio": m.ratio}
+             "city": m.city, "province": m.province, "ratio": m.ratio,
+             "latitude": m.latitude, "longitude": m.longitude,
+             "distanceKm": m.distance_km}
             for m in matches
         ],
     }

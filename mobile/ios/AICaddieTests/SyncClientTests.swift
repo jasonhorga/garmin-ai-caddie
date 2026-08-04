@@ -159,7 +159,7 @@ final class SyncClientTests: XCTestCase {
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
         let payload = Data(
-            #"{"schema":"ai-caddie-course-search-v1","query":"Mission Hills","matches":[{"globalId":10283,"name":"Mission Hills · A","holes":9,"city":"深圳","province":"广东","ratio":0.98},{"globalId":10284,"name":"Mission Hills · B","holes":null,"city":"深圳","province":"广东","ratio":0.94}]}"#.utf8
+            #"{"schema":"ai-caddie-course-search-v1","query":"Mission Hills","matches":[{"globalId":10283,"name":"Mission Hills · A","holes":9,"city":"深圳","province":"广东","ratio":0.98,"latitude":22.7401328,"longitude":114.0714097,"distanceKm":0.4},{"globalId":10284,"name":"Mission Hills · B","holes":null,"city":"深圳","province":"广东","ratio":0.94,"latitude":null,"longitude":null,"distanceKm":null}]}"#.utf8
         )
         CapturingURLProtocol.requestHandler = { request in
             XCTAssertEqual(request.url?.path, "/api/v2/courses/search")
@@ -168,6 +168,8 @@ final class SyncClientTests: XCTestCase {
                 resolvingAgainstBaseURL: false
             )?.queryItems
             XCTAssertEqual(queryItems?.first { $0.name == "name" }?.value, "Mission Hills")
+            XCTAssertEqual(queryItems?.first { $0.name == "latitude" }?.value, "22.7401328")
+            XCTAssertEqual(queryItems?.first { $0.name == "longitude" }?.value, "114.0714097")
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
             XCTAssertNil(queryItems?.first { $0.name == "ensure_geometry" })
             let response = HTTPURLResponse(
@@ -185,12 +187,52 @@ final class SyncClientTests: XCTestCase {
             session: session
         )
 
-        let matches = try await client.searchCourses(name: "  Mission Hills  ")
+        let matches = try await client.searchCourses(
+            name: "  Mission Hills  ",
+            latitude: 22.7401328,
+            longitude: 114.0714097
+        )
 
         XCTAssertEqual(matches.map(\.globalId), [10283, 10284])
-        XCTAssertEqual(matches[0].subtitle, "深圳 · 广东 · 9 洞")
+        XCTAssertEqual(matches[0].latitude, 22.7401328)
+        XCTAssertEqual(matches[0].longitude, 114.0714097)
+        XCTAssertNil(matches[1].latitude)
+        XCTAssertNil(matches[1].longitude)
+        XCTAssertEqual(matches[0].distanceKm, 0.4)
+        XCTAssertEqual(matches[0].subtitle, "0.4 km · 深圳 · 广东 · 9 洞")
         XCTAssertNotNil(matches[0].courseOption)
         XCTAssertNil(matches[1].courseOption)
+    }
+
+    func testCityAndKeywordSearchIntersectsProviderResultsByGlobalId() {
+        let shenzhen = [
+            MobileCourseSearchMatch(
+                globalId: 31669, name: "Shenzhen Mission Hills ~ Els", holes: 9,
+                city: "Shenzhen", province: "Guangdong", ratio: 0, distanceKm: 0.4
+            ),
+            MobileCourseSearchMatch(
+                globalId: 31830, name: "Shenzhen Noble Merchant", holes: 18,
+                city: "Shenzhen", province: "Guangdong", ratio: 0, distanceKm: 24.2
+            ),
+        ]
+        let mission = [
+            MobileCourseSearchMatch(
+                globalId: 31669, name: "Shenzhen Mission Hills ~ Els", holes: 9,
+                city: "Shenzhen", province: "Guangdong", ratio: 0.8, distanceKm: 0.4
+            ),
+            MobileCourseSearchMatch(
+                globalId: 31874, name: "Haikou Mission Hills ~ Blackstone", holes: 18,
+                city: "Haikou", province: "Hainan", ratio: 0.8, distanceKm: 500
+            ),
+        ]
+
+        let matches = MobileCourseSearchView.intersection(
+            cityMatches: shenzhen,
+            keywordMatches: mission
+        )
+
+        XCTAssertEqual(matches.map(\.globalId), [31669])
+        XCTAssertEqual(matches.first?.distanceKm, 0.4)
     }
 
     func testFetchCoursePrepCanRequestSmallHoleBatch() async throws {

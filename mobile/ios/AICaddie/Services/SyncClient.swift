@@ -200,7 +200,11 @@ public final class SyncClient {
 
     /// Search Garmin's full CourseView catalogue by name. This downloads metadata only; choosing a
     /// row later uses `fetchCourseTees` and `fetchCoursePackage` for that one course.
-    public func searchCourses(name: String) async throws -> [MobileCourseSearchMatch] {
+    public func searchCourses(
+        name: String,
+        latitude: Double? = nil,
+        longitude: Double? = nil
+    ) async throws -> [MobileCourseSearchMatch] {
         let query = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.count >= 2 else { return [] }
         guard var components = URLComponents(
@@ -210,6 +214,12 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         components.queryItems = [URLQueryItem(name: "name", value: query)]
+        if let latitude, let longitude,
+           latitude.isFinite, (-90...90).contains(latitude),
+           longitude.isFinite, (-180...180).contains(longitude) {
+            components.queryItems?.append(URLQueryItem(name: "latitude", value: String(latitude)))
+            components.queryItems?.append(URLQueryItem(name: "longitude", value: String(longitude)))
+        }
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         applyAuth(to: &request)

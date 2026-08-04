@@ -43,7 +43,7 @@ public struct RoundHomeView: View {
     /// 拉取所选球场的可选发球台(供「开始一场」的选台器);仅转发给 StartRoundView。
     public let onLoadCourseTees: (Int) async -> [CourseTee]
     /// Garmin 全库名称搜索；StartRoundView 只保留本次结果，选中后走现有单球场准备链。
-    public let onSearchCourses: (String) async throws -> [MobileCourseSearchMatch]
+    public let onSearchCourses: (String, Double?, Double?) async throws -> [MobileCourseSearchMatch]
     /// Set to a hole number right after a fresh round is prepared → auto-navigate into that hole.
     public let pendingLiveHole: Int?
     public let onConsumePendingLiveHole: () -> Void
@@ -79,7 +79,7 @@ public struct RoundHomeView: View {
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
-        onSearchCourses: @escaping (String) async throws -> [MobileCourseSearchMatch] = { _ in [] },
+        onSearchCourses: @escaping (String, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
         pendingLiveHole: Int? = nil,
         onConsumePendingLiveHole: @escaping () -> Void = {},
         onLiveAppearanceChanged: @escaping (Bool) -> Void = { _ in }

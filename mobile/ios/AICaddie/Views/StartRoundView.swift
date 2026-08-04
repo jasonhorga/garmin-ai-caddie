@@ -22,7 +22,7 @@ public struct StartRoundView: View {
     /// 离线/出错返回 [] → 选台器回退到球场自带的 CourseView Tee 名(无码数)。
     public let onLoadCourseTees: (Int) async -> [CourseTee]
     /// Garmin 全库名称搜索。只返回轻量 metadata；选中后仍走本页已有的单球场准备链。
-    public let onSearchCourses: (String) async throws -> [MobileCourseSearchMatch]
+    public let onSearchCourses: (String, Double?, Double?) async throws -> [MobileCourseSearchMatch]
 
     @StateObject private var locationProvider = LocationProvider()
     @State private var roundId: String
@@ -56,7 +56,7 @@ public struct StartRoundView: View {
         onClearBackendConfiguration: @escaping () -> Void = {},
         onConnectGarmin: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
-        onSearchCourses: @escaping (String) async throws -> [MobileCourseSearchMatch] = { _ in [] }
+        onSearchCourses: @escaping (String, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] }
     ) {
         self.defaultRoundId = defaultRoundId
         self.courseOptions = courseOptions
@@ -141,7 +141,14 @@ public struct StartRoundView: View {
         .sheet(isPresented: $showingCourseSearch) {
             NavigationStack {
                 MobileCourseSearchView(
-                    onSearch: onSearchCourses,
+                    onSearch: { query in
+                        let coordinate = locationProvider.latestFix?.coordinate
+                        return try await onSearchCourses(
+                            query,
+                            coordinate?.latitude,
+                            coordinate?.longitude
+                        )
+                    },
                     onSelect: selectSearchResult
                 )
             }

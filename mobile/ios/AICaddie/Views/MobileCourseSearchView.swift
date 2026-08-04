@@ -8,6 +8,7 @@ public struct MobileCourseSearchView: View {
     public let onSelect: (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var city = ""
     @State private var query = ""
     @State private var matches: [MobileCourseSearchMatch] = []
     @State private var isSearching = false
@@ -24,7 +25,16 @@ public struct MobileCourseSearchView: View {
 
     public var body: some View {
         List {
-            Section {
+            Section("搜索条件") {
+                TextField("城市（例如：深圳）", text: $city)
+                    .textContentType(.addressCity)
+                    .submitLabel(.search)
+                    .onSubmit { submitSearch() }
+
+                TextField("球场关键字（可选）", text: $query)
+                    .submitLabel(.search)
+                    .onSubmit { submitSearch() }
+
                 Button {
                     Task { await search() }
                 } label: {
@@ -41,7 +51,7 @@ public struct MobileCourseSearchView: View {
                 .disabled(!canSearch)
                 .accessibilityIdentifier("course-catalog-search-action")
             } footer: {
-                Text("搜索只获取球场名称和洞数；选择后只准备并下载这个球场。")
+                Text("可以只填城市、只填球场关键字，或两项都填。搜索只取目录；选择后才下载这一座球场。")
             }
 
             if let errorText {
@@ -56,7 +66,7 @@ public struct MobileCourseSearchView: View {
                     ContentUnavailableView(
                         "没有匹配结果",
                         systemImage: "map",
-                        description: Text("换一个中文或英文球场名称再试。")
+                        description: Text("换一个城市或中文／英文球场关键字再试。")
                     )
                 }
             }
@@ -96,13 +106,8 @@ public struct MobileCourseSearchView: View {
                 }
             }
         }
-        .navigationTitle("搜索全部球场")
+        .navigationTitle("找球场")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "输入球场名称")
-        .onSubmit(of: .search) {
-            guard canSearch else { return }
-            Task { await search() }
-        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("取消") { dismiss() }
@@ -114,8 +119,17 @@ public struct MobileCourseSearchView: View {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var trimmedCity: String {
+        city.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var canSearch: Bool {
-        trimmedQuery.count >= 2 && !isSearching
+        (trimmedQuery.count >= 2 || trimmedCity.count >= 2) && !isSearching
+    }
+
+    private func submitSearch() {
+        guard canSearch else { return }
+        Task { await search() }
     }
 
     @MainActor
@@ -127,10 +141,31 @@ public struct MobileCourseSearchView: View {
         defer { isSearching = false }
         do {
             var seen = Set<Int>()
-            matches = try await onSearch(trimmedQuery).filter { seen.insert($0.globalId).inserted }
+            let results: [MobileCourseSearchMatch]
+            if trimmedCity.count >= 2, trimmedQuery.count >= 2 {
+                async let cityResults = onSearch(trimmedCity)
+                async let keywordResults = onSearch(trimmedQuery)
+                results = Self.intersection(
+                    cityMatches: try await cityResults,
+                    keywordMatches: try await keywordResults
+                )
+            } else {
+                results = try await onSearch(trimmedQuery.count >= 2 ? trimmedQuery : trimmedCity)
+            }
+            matches = results.filter { seen.insert($0.globalId).inserted }
         } catch {
             matches = []
             errorText = "现在无法搜索全部球场，请检查网络后重试。"
         }
+    }
+
+    /// Garmin accepts a city or a course keyword, but mixed Chinese city/name text is not a stable
+    /// provider query. Query each independently and intersect by factual globalId instead.
+    static func intersection(
+        cityMatches: [MobileCourseSearchMatch],
+        keywordMatches: [MobileCourseSearchMatch]
+    ) -> [MobileCourseSearchMatch] {
+        let cityIds = Set(cityMatches.map(\.globalId))
+        return keywordMatches.filter { cityIds.contains($0.globalId) }
     }
 }
