@@ -31,7 +31,7 @@ class CourseTeeOptionsTests(unittest.TestCase):
         # Pebble Beach is Blue=1, Gold=2, White=3, Green=4, Red=5; treating set 1 as
         # universally Black makes a selected Blue tee start from the wrong physical tee.
         release_tees = [
-            {"name": "Blue", "gender": "MEN", "index": 1},
+            {"name": "Blue", "gender": "MEN", "index": 1, "slopeRating": 144, "courseRating": 74.9},
             {"name": "Gold", "gender": "MEN", "index": 2},
             {"name": "White", "gender": "MEN", "index": 3},
             {"name": "Green", "gender": "MEN", "index": 4},
@@ -57,6 +57,8 @@ class CourseTeeOptionsTests(unittest.TestCase):
             ],
         )
         self.assertEqual(result["tees"][0]["yards"], round(600.0 * 1.09361))
+        self.assertEqual(result["tees"][0]["slopeRating"], 144)
+        self.assertEqual(result["tees"][0]["courseRating"], 74.9)
         self.assertEqual(result["defaultTeeBox"], "blue")
 
     def test_selected_tee_resolves_colour_through_release_index(self) -> None:

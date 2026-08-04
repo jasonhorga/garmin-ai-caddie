@@ -283,7 +283,13 @@ def courseview_tees(global_id: int, *, allow_fetch: bool = True, root: Path = RO
         except (TypeError, ValueError):
             continue
         if name and index > 0:
-            result.append({"name": name, "gender": str(row.get("gender") or ""), "index": index})
+            result.append({
+                "name": name,
+                "gender": str(row.get("gender") or ""),
+                "index": index,
+                "slopeRating": row.get("slope_rating"),
+                "courseRating": row.get("course_rating"),
+            })
     return sorted(result, key=lambda row: row["index"])
 
 

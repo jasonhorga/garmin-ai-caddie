@@ -184,6 +184,8 @@ public struct WatchCourseTee: Decodable, Equatable, Identifiable {
     public let geometrySet: Int?
     public let yards: Int?
     public let holeCount: Int?
+    public let courseRating: Double?
+    public let slopeRating: Int?
     public let isDefault: Bool
 
     public init(
@@ -192,6 +194,8 @@ public struct WatchCourseTee: Decodable, Equatable, Identifiable {
         geometrySet: Int? = nil,
         yards: Int? = nil,
         holeCount: Int? = nil,
+        courseRating: Double? = nil,
+        slopeRating: Int? = nil,
         isDefault: Bool
     ) {
         self.teeBox = teeBox
@@ -199,11 +203,13 @@ public struct WatchCourseTee: Decodable, Equatable, Identifiable {
         self.geometrySet = geometrySet
         self.yards = yards
         self.holeCount = holeCount
+        self.courseRating = courseRating
+        self.slopeRating = slopeRating
         self.isDefault = isDefault
     }
 
     private enum CodingKeys: String, CodingKey {
-        case teeBox, name, yards, holeCount
+        case teeBox, name, yards, holeCount, courseRating, slopeRating
         case geometrySet = "set"
         case isDefault = "default"
     }

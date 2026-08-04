@@ -251,6 +251,8 @@ def course_tee_options(
                 "set": set_num,
                 "yards": int(round(meters * 1.09361)) if meters else None,
                 "holeCount": set_holes.get(set_num, 0),
+                "slopeRating": row.get("slopeRating"),
+                "courseRating": row.get("courseRating"),
                 "default": False,
             })
 

@@ -25,6 +25,15 @@ class ReleaseParDecodeTests(unittest.TestCase):
         self.assertEqual(front, [5, 4, 3, 4, 4, 4, 5, 3, 4])
         self.assertEqual(back, [4, 5, 4, 4, 3, 5, 3, 4, 4])
 
+    def test_decodes_real_tee_rating_slope_and_scorecard_section(self) -> None:
+        info = _release("courseview_release_31936.pb")
+        black = next(row for row in info["tees"] if row["name"] == "Black" and row["gender"] == "MEN")
+        self.assertEqual(black["slope_rating"], 115)
+        self.assertEqual(black["course_rating"], 35.96)
+        self.assertEqual(info["par_sections"], [{"name": "OUT", "par": 36, "gender": "MEN"}])
+        self.assertEqual(info["course_gen_version"], 28)
+        self.assertEqual(info["unknown_12"], 1)
+
 
 from unittest.mock import patch
 from ai_caddie.courses import course_reference as cr
