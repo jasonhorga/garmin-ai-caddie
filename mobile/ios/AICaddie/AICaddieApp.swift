@@ -101,6 +101,7 @@ public struct AICaddieApp: App {
                             }
                         },
                         onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) },
+                        onSearchCourses: { name in try await model.searchCourses(name: name) },
                         pendingLiveHole: model.pendingLiveHole,
                         onConsumePendingLiveHole: {
                             model.consumePendingLiveHole()
@@ -143,7 +144,8 @@ public struct AICaddieApp: App {
                                 }
                             },
                             onConnectGarmin: { showNoPackageSettings = true },
-                            onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) }
+                            onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) },
+                            onSearchCourses: { name in try await model.searchCourses(name: name) }
                         )
                         // First launch with no data: the empty-state CTA + this gear both open the
                         // Garmin-connect sheet so a signed-in user can pull their courses and score.
@@ -1056,6 +1058,13 @@ public final class LiveRoundAppModel: ObservableObject {
             syncStatus = "离线中,使用已保存数据"
             return nil
         }
+    }
+
+    /// Search the provider-wide catalogue without installing anything. The picker keeps these rows
+    /// ephemeral until the player chooses one and starts the existing selected-course download.
+    public func searchCourses(name: String) async throws -> [MobileCourseSearchMatch] {
+        guard let syncClient else { throw URLError(.notConnectedToInternet) }
+        return try await syncClient.searchCourses(name: name)
     }
 
     /// Load the course's selectable tee boxes (GET /courses/{id}/tees) for the 开始一场 picker —

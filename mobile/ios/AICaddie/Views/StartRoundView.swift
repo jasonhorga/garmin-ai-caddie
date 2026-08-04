@@ -21,6 +21,8 @@ public struct StartRoundView: View {
     /// 拉取所选球场的可选发球台(GET /courses/{id}/tees:颜色 + 总码数 + 默认台)。
     /// 离线/出错返回 [] → 选台器回退到球场自带的 CourseView Tee 名(无码数)。
     public let onLoadCourseTees: (Int) async -> [CourseTee]
+    /// Garmin 全库名称搜索。只返回轻量 metadata；选中后仍走本页已有的单球场准备链。
+    public let onSearchCourses: (String) async throws -> [MobileCourseSearchMatch]
 
     @StateObject private var locationProvider = LocationProvider()
     @State private var roundId: String
@@ -31,6 +33,10 @@ public struct StartRoundView: View {
     @State private var nine: String
     /// 所选球场的发球台列表(含码数/默认),来自 GET /courses/{id}/tees;为空则用球场自带 Tee 名。
     @State private var fetchedTees: [CourseTee] = []
+    @State private var remoteCourseOptions: [MobileCourseOption] = []
+    @State private var showingCourseSearch = false
+    @State private var isLoadingTees = false
+    @State private var teeLoadFailed = false
 
     public init(
         // 不在消费者界面里写死可读的原始局号(如 900001):没显式传时生成一个不透明的本地局号,
@@ -49,7 +55,8 @@ public struct StartRoundView: View {
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
         onConnectGarmin: @escaping () -> Void = {},
-        onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] }
+        onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
+        onSearchCourses: @escaping (String) async throws -> [MobileCourseSearchMatch] = { _ in [] }
     ) {
         self.defaultRoundId = defaultRoundId
         self.courseOptions = courseOptions
@@ -64,6 +71,7 @@ public struct StartRoundView: View {
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onConnectGarmin = onConnectGarmin
         self.onLoadCourseTees = onLoadCourseTees
+        self.onSearchCourses = onSearchCourses
         // Pre-select a real course (the given default, else the most-played) so the
         // primary action works out of the box instead of stranding on "manual entry".
         let mostPlayed = courseOptions.max { $0.roundCount < $1.roundCount }
@@ -92,6 +100,7 @@ public struct StartRoundView: View {
         !isPreparing
             && !roundId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && courseGlobalId != nil
+            && (!selectedCourseRequiresRemoteTees || (!isLoadingTees && !fetchedTees.isEmpty))
     }
 
     public var body: some View {
@@ -129,14 +138,35 @@ public struct StartRoundView: View {
         .task(id: courseGlobalIdText) {
             await loadTees()
         }
+        .sheet(isPresented: $showingCourseSearch) {
+            NavigationStack {
+                MobileCourseSearchView(
+                    onSearch: onSearchCourses,
+                    onSelect: selectSearchResult
+                )
+            }
+        }
     }
 
     /// Fetch the selected course's tee boxes (colour + yardage + default). Empty → keep the bundled
     /// tee colours. When the current pick isn't offered by this course, jump to the course default.
     private func loadTees() async {
         guard let globalId = courseGlobalId else { return }
+        let requiresRemoteTees = selectedCourseRequiresRemoteTees
+        if requiresRemoteTees {
+            isLoadingTees = true
+            teeLoadFailed = false
+            fetchedTees = []
+        }
+        defer {
+            if requiresRemoteTees { isLoadingTees = false }
+        }
         let tees = await onLoadCourseTees(globalId)
-        guard !tees.isEmpty else { return }
+        guard courseGlobalId == globalId else { return }
+        guard !tees.isEmpty else {
+            if requiresRemoteTees { teeLoadFailed = true }
+            return
+        }
         fetchedTees = tees
         if !tees.contains(where: { $0.teeBox.lowercased() == teeBox.lowercased() }),
            let fallback = tees.first(where: { $0.isDefault })?.teeBox ?? tees.first?.teeBox {
@@ -169,6 +199,8 @@ public struct StartRoundView: View {
         }
         courseGlobalIdText = String(first.globalId)
         backGlobalIdText = ""
+        fetchedTees = []
+        teeLoadFailed = false
         applySelectedCourse(globalIdText: courseGlobalIdText)
     }
 
@@ -270,8 +302,30 @@ public struct StartRoundView: View {
                             Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
+                    .disabled(teeOptions.isEmpty)
+                }
+                if selectedCourseRequiresRemoteTees, isLoadingTees {
+                    ProgressView("正在获取发球台…")
+                        .font(.caption)
+                } else if selectedCourseRequiresRemoteTees, teeLoadFailed {
+                    Text("这个球场暂时没有可用的发球台数据，请联网后重试。")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 }
             }
+
+            Divider().padding(.vertical, 1)
+            Button {
+                showingCourseSearch = true
+            } label: {
+                Label("搜索其他球场", systemImage: "magnifyingglass")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(LiveHoleStyle.green)
+            .accessibilityIdentifier("start-round-search-all-courses")
         }
         .liveCard()
     }
@@ -283,6 +337,8 @@ public struct StartRoundView: View {
             userPickedVenue = true
             courseGlobalIdText = String(segment.globalId)
             backGlobalIdText = ""  // changing the front loop resets any "add second nine" choice
+            fetchedTees = []
+            teeLoadFailed = false
             applySelectedCourse(globalIdText: courseGlobalIdText)
         } label: {
             HStack(spacing: 10) {
@@ -318,7 +374,7 @@ public struct StartRoundView: View {
     }
 
     private var selectedSegment: MobileCourseOption? {
-        courseOptions.first { String($0.globalId) == courseGlobalIdText }
+        availableCourseOptions.first { String($0.globalId) == courseGlobalIdText }
     }
 
     /// 选中的是 9 洞环、且同球场有 9 洞环可作第二环时,提供「加打凑 18」。
@@ -328,7 +384,7 @@ public struct StartRoundView: View {
             return []
         }
         let venue = selectedSegment.venueName ?? baseCourseName(selectedSegment.name)
-        return courseOptions
+        return availableCourseOptions
             .filter { ($0.venueName ?? baseCourseName($0.name)) == venue
                 && ($0.segmentHoles ?? $0.holes) == 9 }
             .sorted { segmentSortKey($0) < segmentSortKey($1) }
@@ -378,6 +434,7 @@ public struct StartRoundView: View {
     private var teeOptions: [String] {
         let fetched = fetchedTees.map(\.teeBox)
         let courseTees = selectedSegment?.tees ?? []
+        if selectedCourseRequiresRemoteTees, fetched.isEmpty { return [] }
         let base = !fetched.isEmpty
             ? fetched
             : (courseTees.isEmpty ? ["blue", "white", "red", "gold", "black", "green", "yellow", "silver"] : courseTees)
@@ -465,7 +522,7 @@ public struct StartRoundView: View {
     /// whole 18). Loops sorted by label (A/B/C…), single course last; venues by most-played first.
     private var venueGroups: [(venue: String, segments: [MobileCourseOption])] {
         var byVenue: [String: [MobileCourseOption]] = [:]
-        for option in courseOptions {
+        for option in availableCourseOptions {
             let venue = option.venueName ?? baseCourseName(option.name)
             byVenue[venue, default: []].append(option)
         }
@@ -487,7 +544,7 @@ public struct StartRoundView: View {
 
     private func applySelectedCourse(globalIdText: String) {
         guard let globalId = Int(globalIdText),
-              let option = courseOptions.first(where: { $0.globalId == globalId }) else {
+              let option = availableCourseOptions.first(where: { $0.globalId == globalId }) else {
             return
         }
         // P1-3: a fixed "live-<globalId>" fallback is reused across rounds on the same course, so two
@@ -501,5 +558,34 @@ public struct StartRoundView: View {
         if !tees.isEmpty, !tees.contains(where: { $0.lowercased() == teeBox.lowercased() }) {
             teeBox = tees.first(where: { ["blue", "white"].contains($0.lowercased()) }) ?? tees.first ?? teeBox
         }
+    }
+
+    private var availableCourseOptions: [MobileCourseOption] {
+        var seen = Set<Int>()
+        return (courseOptions + remoteCourseOptions).filter { seen.insert($0.globalId).inserted }
+    }
+
+    private var selectedCourseRequiresRemoteTees: Bool {
+        guard let courseGlobalId else { return false }
+        return remoteCourseOptions.contains { $0.globalId == courseGlobalId }
+            && !courseOptions.contains { $0.globalId == courseGlobalId }
+    }
+
+    private func selectSearchResult(
+        _ selected: MobileCourseSearchMatch,
+        _ matches: [MobileCourseSearchMatch]
+    ) {
+        var seen = Set((courseOptions + remoteCourseOptions).map(\.globalId))
+        for option in matches.compactMap(\.courseOption) where seen.insert(option.globalId).inserted {
+            remoteCourseOptions.append(option)
+        }
+        guard selected.courseOption != nil else { return }
+        userPickedVenue = true
+        courseGlobalIdText = String(selected.globalId)
+        backGlobalIdText = ""
+        fetchedTees = []
+        teeBox = ""
+        teeLoadFailed = false
+        applySelectedCourse(globalIdText: courseGlobalIdText)
     }
 }

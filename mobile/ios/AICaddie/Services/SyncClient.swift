@@ -198,6 +198,26 @@ public final class SyncClient {
         return try decoder.decode(MobileCourseOptionsResponse.self, from: data)
     }
 
+    /// Search Garmin's full CourseView catalogue by name. This downloads metadata only; choosing a
+    /// row later uses `fetchCourseTees` and `fetchCoursePackage` for that one course.
+    public func searchCourses(name: String) async throws -> [MobileCourseSearchMatch] {
+        let query = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2 else { return [] }
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/search"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "name", value: query)]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(MobileCourseSearchResponse.self, from: data).matches
+    }
+
     /// The course's selectable tee boxes (`GET /api/v2/courses/{id}/tees`): colour + total yards +
     /// which is default — the pre-round picker list, same as Garmin's new-round tee chooser. Public
     /// course knowledge (no player data); powers 开始一场's 发球台 selector with real yardage.

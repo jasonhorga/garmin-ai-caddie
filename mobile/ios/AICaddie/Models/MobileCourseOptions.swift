@@ -8,6 +8,75 @@ public struct MobileCourseOptionsResponse: Codable, Equatable {
     public let generatedAt: String
 }
 
+/// A lightweight row from Garmin's full CourseView catalogue. Search results are not downloaded
+/// course packages: the selected row enters the existing tee/package preparation flow, and only
+/// that course's assets are fetched.
+public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
+    public var id: Int { globalId }
+
+    public let globalId: Int
+    public let name: String
+    public let holes: Int?
+    public let city: String?
+    public let province: String?
+    public let ratio: Double
+
+    public init(
+        globalId: Int,
+        name: String,
+        holes: Int?,
+        city: String?,
+        province: String?,
+        ratio: Double
+    ) {
+        self.globalId = globalId
+        self.name = name
+        self.holes = holes
+        self.city = city
+        self.province = province
+        self.ratio = ratio
+    }
+
+    /// A result without a factual hole count remains visible but cannot start a round. We do not
+    /// guess 9/18, because that would also guess the loop composition and package request.
+    public var courseOption: MobileCourseOption? {
+        guard let holes, holes > 0 else { return nil }
+        let parts = name.split(separator: "~", maxSplits: 1, omittingEmptySubsequences: false)
+        let venue = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let segment = parts.count > 1
+            ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil
+        return MobileCourseOption(
+            globalId: globalId,
+            name: name,
+            holes: holes,
+            geometryCoverage: "missing",
+            venueName: venue.isEmpty ? name : venue,
+            segmentLabel: segment?.isEmpty == false ? segment : nil,
+            segmentHoles: holes
+        )
+    }
+
+    public var subtitle: String {
+        var location: [String] = []
+        for rawValue in [city, province] {
+            guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else { continue }
+            if !location.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) {
+                location.append(value)
+            }
+        }
+        let holeText = holes.flatMap { $0 > 0 ? "\($0) 洞" : nil } ?? "洞数未知"
+        return (location + [holeText]).joined(separator: " · ")
+    }
+}
+
+public struct MobileCourseSearchResponse: Codable, Equatable {
+    public let schema: String
+    public let query: String
+    public let matches: [MobileCourseSearchMatch]
+}
+
 public extension MobileCourseOption {
     /// Venue name without the loop suffix (falls back to stripping " ~ …" from `name`).
     var venueDisplayName: String {

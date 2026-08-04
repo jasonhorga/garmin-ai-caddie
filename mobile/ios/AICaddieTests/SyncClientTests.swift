@@ -154,6 +154,45 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(response.globalId, 31870)
     }
 
+    func testSearchCoursesFetchesMetadataWithoutPreparingAssets() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-search-v1","query":"Mission Hills","matches":[{"globalId":10283,"name":"Mission Hills · A","holes":9,"city":"深圳","province":"广东","ratio":0.98},{"globalId":10284,"name":"Mission Hills · B","holes":null,"city":"深圳","province":"广东","ratio":0.94}]}"#.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v2/courses/search")
+            let queryItems = URLComponents(
+                url: try XCTUnwrap(request.url),
+                resolvingAgainstBaseURL: false
+            )?.queryItems
+            XCTAssertEqual(queryItems?.first { $0.name == "name" }?.value, "Mission Hills")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
+            XCTAssertNil(queryItems?.first { $0.name == "ensure_geometry" })
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            adminToken: "admin-secret",
+            session: session
+        )
+
+        let matches = try await client.searchCourses(name: "  Mission Hills  ")
+
+        XCTAssertEqual(matches.map(\.globalId), [10283, 10284])
+        XCTAssertEqual(matches[0].subtitle, "深圳 · 广东 · 9 洞")
+        XCTAssertNotNil(matches[0].courseOption)
+        XCTAssertNil(matches[1].courseOption)
+    }
+
     func testFetchCoursePrepCanRequestSmallHoleBatch() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
