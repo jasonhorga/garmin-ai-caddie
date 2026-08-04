@@ -53,9 +53,45 @@ After that fix, real DEM headers give the following course-level grids:
 | Black Knight B `31795` | false | `51×54` | about `30 m` | `49..116 ft` |
 | Sentosa Serapong `32235` | false | `112×105` | about `30 m` | `-18..308 ft` |
 
-The compressed DEM sample bitstream is not decoded yet. Header resolution alone
-is decisive: Els has Green Contours but only a roughly 30 m ordinary DEM, so this
-DEM cannot be the push/putt-level contour payload.
+The default CourseView DEM sample codec is now decoded end-to-end: variable-size
+tile descriptors, MSB-first sample streams, adaptive hybrid/length/BigBin
+predictors, plateaus and followers, height wrapping, tile assembly and bilinear
+sampling. Three independent checks keep this from being a format guess:
+
+- Frank Stinner's public reference stream (`ff` repeated ten times plus `c02e`)
+  reproduces its exact `64×64` grid, with only the lower-left sample equal to 3;
+- an unmodified mkgmap r4924 `DEMTile` generated a separate `17×9` fixture that
+  crosses the 64-value adaptive boundary. The decoder restores the exact source
+  matrix (little-endian int16 SHA-256
+  `4ab0031280edcc3570410ec406867e86c960fc8b90cf63bd0823306a36e4bda2`),
+  consumes 337 bits and leaves 7 padding bits;
+- all 26 tiles from the four live Garmin payloads decode to their exact declared
+  extrema, and every tile leaves only `0–7` padding bits.
+
+For the current four-course corpus, every DEM has one level, `shrinkValue=0`
+(`factor=1`) and `encodingType=0`. Non-default shrink, non-zero encoding types
+and multi-level DEMs therefore remain explicit corpus gaps; the decoder rejects
+non-default shrink instead of silently treating it as the common form.
+
+Prodgeometry provides a source-independent spatial check. A ground vertex's
+absolute height is `position.y + hole.ElevationMinimum`; after converting its
+local X/Z position back to WGS84, the DSKIMG grid gives:
+
+| Course | Ground vertices | Median vertical bias | Median error after removing bias | P95 after removing bias |
+|---|---:|---:|---:|---:|
+| Cypress Point `3881` | 34,751 | `-0.12 m` | `0.98 m` | `3.63 m` |
+| Mission Hills Els `31669` | 130,949 | `-0.91 m` | `0.44 m` | `3.60 m` |
+| Black Knight B `31795` | 80,190 | `+3.17 m` | `0.28 m` | `4.83 m` |
+| Sentosa Serapong `32235` | 239,847 | `+0.84 m` | `0.98 m` | `5.16 m` |
+
+The validator reports the raw bias rather than adjusting production data. The
+larger tail on steep ground is expected when comparing a roughly 30 m DEM with
+dense per-hole meshes. Its authority-bearing JSON is
+`deepmine-output/dem-prodgeometry-crosscheck.json` on the homeserver, SHA-256
+`35372f0164b9831e2654d5428cd940a2603076509331059c8a4171a691558808`.
+Els still has Green Contours but only a roughly 30 m ordinary DEM, so successful
+sample decoding reinforces rather than changes the conclusion that this is not
+the push/putt-level subscription contour payload.
 
 ### Lightweight `courseData` semantics proven against prodgeometry
 
@@ -296,17 +332,17 @@ terminal result.
 |---|---|---|
 | Acquisition and updates | Catalogue, name/city, radius, release, `MEDIUM`, `MEDIUM_PLUS`, `INTERMEDIATE`, prodgeometry, raster and Green Contours request chains; version/check-for-update semantics | Every APK call path is bound to endpoint, identifiers, auth level, pagination, version and cache invalidation behavior |
 | Lightweight `courseData` | Codes `3243`, `3244`, `18125`; `InfoMask`, flags and `GreenRadii` scale | Every field is preserved and either named from multi-course evidence or accompanied by a proven non-rendering/opaque classification |
-| DSKIMG | Full FAT/GMP validation, TRE/RGN/LBL private types and labels, DEM descriptors and sample delta bitstream | Every declared subfile and geometry type is decoded or conclusively classified; real DEM samples round-trip against an independent Garmin-compatible oracle and prodgeometry Y |
+| DSKIMG | Remaining FAT/GMP edge cases; TRE/RGN/LBL private types and labels; real corpus for non-default DEM shrink, non-zero encoding type and multiple levels | Every declared subfile and geometry type is decoded or conclusively classified; the default DEM codec already round-trips independent Garmin-compatible oracles and matches prodgeometry Y, while other variants require real samples or an explicit absence result |
 | prodgeometry bundle | All mesh names, `hole.json`, Terrain, foliage, normals/UV/color attributes, coordinate frames and elevation | Corpus inventory has no unclassified asset; every consumed layer has cross-course semantics and every ignored layer has a recorded reason |
 | Green Contours | Authenticated membership download request, response package, course/build/part binding and S70 rendering behavior | One positive and one negative course are captured and decoded end-to-end; availability flag alone is not accepted as payload evidence |
 | Product package | Source precedence, lightweight-to-precise upgrade, offline cache, integrity/version binding and shared iOS/Watch/Web representation | A newly discovered uncached course opens from factual lightweight data, upgrades without changing round identity, survives offline restart and renders consistently on all three clients |
 
 ## Next Work
 
-1. Freeze the already reproduced FAT/DEM-header and `courseData` findings as a
-   checkpoint; this is not a declaration that Deep Mine is complete.
-2. Decode the DEM descriptor and sample codec against a known Garmin-compatible
-   implementation, then compare actual samples with prodgeometry Y.
+1. Freeze the reproduced FAT, default DEM codec/cross-check and `courseData`
+   findings as a checkpoint; this is not a declaration that Deep Mine is complete.
+2. Locate real non-default shrink/encoding/multi-level DEM samples through the
+   existing acquisition corpus; do not invent support without a specimen.
 3. Resolve the remaining `courseData` codes/flags and DSKIMG TRE/RGN/LBL types
    across the existing multi-region corpus, retaining raw values throughout.
 4. Finish the prodgeometry asset/attribute inventory and remove every
