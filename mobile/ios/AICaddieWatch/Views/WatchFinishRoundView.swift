@@ -54,6 +54,7 @@ public struct WatchFinishRoundView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.72)
                     .padding(.top, 2)
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -61,6 +62,8 @@ public struct WatchFinishRoundView: View {
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
 
                     VStack(alignment: .leading, spacing: 0) {
                         Text(totalStrokesText)

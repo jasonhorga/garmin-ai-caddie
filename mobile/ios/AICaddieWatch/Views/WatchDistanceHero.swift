@@ -68,7 +68,9 @@ public struct WatchDistanceHero: View {
     // 大字模式:中间数字撑满,前 / 后缩到底部一行。
     private var big: some View {
         VStack(spacing: 2) {
-            center(size: 92)
+            // Still an arm's-length hero, but leave a real glass margin around three digits. The
+            // former 92 pt value visually touched the rounded face on the 45 mm runtime.
+            center(size: 78)
             HStack(spacing: 16) {
                 pip("前", frontYd, compact: true)
                 pip("后", backYd, compact: true)
@@ -129,13 +131,12 @@ public struct WatchAlwaysOnDistanceView: View {
                 .offset(y: -1.5)
             Spacer().frame(height: 1)
             Text(centerYd.map(String.init) ?? "—")
-                .font(.system(size: 76, weight: .bold, design: .rounded))
+                .font(.system(size: 68, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.62))
                 .lineLimit(1)
-                // The real watchOS root proposes a narrower safe width than ImageRenderer. Without
-                // fixed sizing SwiftUI shrinks this line to 60%, even though three digits fit the glass.
-                .fixedSize(horizontal: true, vertical: false)
+                .minimumScaleFactor(0.62)
+                .frame(maxWidth: .infinity)
                 .offset(y: -0.5)
             Text(centerYd == nil ? "等待定位" : "码 · 到果岭")
                 .font(.system(size: 11))

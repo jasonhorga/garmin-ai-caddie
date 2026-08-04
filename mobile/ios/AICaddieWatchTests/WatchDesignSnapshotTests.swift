@@ -872,6 +872,24 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchHoleMapKeepsLongRecommendationInsideDataColumn() throws {
+        let view = WatchHoleMapView(
+            holeNumber: 18,
+            par: 5,
+            frontGreen: 248,
+            centerGreen: 262,
+            backGreen: 274,
+            caddieClub: "50° 挖起杆",
+            caddieNote: "推进 · 后接九号铁并避开右沙坑",
+            showCaddieRecommendation: true,
+            showPreparedPlan: true
+        )
+        .frame(width: 198, height: 242)
+        .background(Color.black)
+        try render(view, named: "watch-holemap-long-copy")
+    }
+
+    @MainActor
     func testRenderWatchHoleMapPreparedTeePlan() throws {
         let view = WatchHoleMapView(
             holeNumber: 4,

@@ -422,10 +422,19 @@ public struct WatchHoleMapView: View {
                         // Current-shot recommendation only; the map itself never draws a whole-hole route.
                         Button(action: onOpenCaddie) {
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(caddieClub).font(.system(size: 16, weight: .bold)).foregroundStyle(.white).fixedSize()
-                                Text(caddieNote).font(.system(size: 9.5, weight: .medium)).foregroundStyle(caddieGreen).fixedSize()
+                                Text(caddieClub)
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.68)
+                                Text(caddieNote)
+                                    .font(.system(size: 9.5, weight: .medium))
+                                    .foregroundStyle(caddieGreen)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.62)
                             }
                             .padding(.horizontal, 8).padding(.vertical, 5)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .background(RoundedRectangle(cornerRadius: 8).fill(caddieGreen.opacity(0.16)))
                         }
                         .buttonStyle(.plain)
@@ -497,7 +506,7 @@ public struct WatchHoleMapView: View {
             Text(label).font(.system(size: big ? 11 : 10)).foregroundStyle(.secondary)
             Text("\(v)")
                 .font(.system(size: big ? 21 : 13, weight: big ? .bold : .semibold, design: big ? .rounded : .default))
-                .monospacedDigit().foregroundStyle(c).lineLimit(1).fixedSize()
+                .monospacedDigit().foregroundStyle(c).lineLimit(1).minimumScaleFactor(0.72)
         }
         .padding(.vertical, big ? 1 : 0.5)
     }
