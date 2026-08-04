@@ -25,7 +25,7 @@ public struct MobileCourseSearchView: View {
 
     public var body: some View {
         List {
-            Section("搜索条件") {
+            Section {
                 TextField("城市（例如：深圳）", text: $city)
                     .textContentType(.addressCity)
                     .submitLabel(.search)
@@ -50,6 +50,8 @@ public struct MobileCourseSearchView: View {
                 }
                 .disabled(!canSearch)
                 .accessibilityIdentifier("course-catalog-search-action")
+            } header: {
+                Text("搜索条件")
             } footer: {
                 Text("可以只填城市、只填球场关键字，或两项都填。搜索只取目录；选择后才下载这一座球场。")
             }

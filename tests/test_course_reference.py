@@ -59,7 +59,10 @@ class PersistenceTests(unittest.TestCase):
             tees = resolve_tees(31936, allow_fetch=False, root=root)
 
         self.assertEqual(
-            tees,
+            [
+                {key: tee[key] for key in ("name", "gender", "index")}
+                for tee in tees
+            ],
             [
                 {"name": "Black", "gender": "MEN", "index": 1},
                 {"name": "Blue", "gender": "MEN", "index": 2},
@@ -67,6 +70,8 @@ class PersistenceTests(unittest.TestCase):
                 {"name": "Red", "gender": "MEN", "index": 4},
             ],
         )
+        self.assertEqual(tees[0]["slopeRating"], 115)
+        self.assertEqual(tees[0]["courseRating"], 35.96)
 
     def test_save_and_load_preserves_source_confidence_provenance_and_yardage(self) -> None:
         with TemporaryDirectory() as tmp:
