@@ -260,6 +260,7 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
             or (path.startswith("/api/v2/courses/") and path.endswith("/tees"))
             or path == "/api/v2/courses/search"
+            or path == "/api/v2/courses/nearby"
             or path == "/api/v2/mobile/courses/options"
             # Annotation READS — the annotation store is now per-player partitioned (the handlers thread
             # current_player_id into list_annotations/annotations_for_target via evidence_root), so a

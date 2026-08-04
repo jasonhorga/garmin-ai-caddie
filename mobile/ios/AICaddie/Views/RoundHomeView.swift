@@ -44,6 +44,8 @@ public struct RoundHomeView: View {
     public let onLoadCourseTees: (Int) async -> [CourseTee]
     /// Garmin 全库名称搜索；StartRoundView 只保留本次结果，选中后走现有单球场准备链。
     public let onSearchCourses: (String, Double?, Double?) async throws -> [MobileCourseSearchMatch]
+    /// Garmin 全库坐标发现；StartRoundView 只保留本次结果。
+    public let onNearbyCourses: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     /// Set to a hole number right after a fresh round is prepared → auto-navigate into that hole.
     public let pendingLiveHole: Int?
     public let onConsumePendingLiveHole: () -> Void
@@ -80,6 +82,7 @@ public struct RoundHomeView: View {
         onClearBackendConfiguration: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
         onSearchCourses: @escaping (String, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
+        onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
         pendingLiveHole: Int? = nil,
         onConsumePendingLiveHole: @escaping () -> Void = {},
         onLiveAppearanceChanged: @escaping (Bool) -> Void = { _ in }
@@ -111,6 +114,7 @@ public struct RoundHomeView: View {
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onLoadCourseTees = onLoadCourseTees
         self.onSearchCourses = onSearchCourses
+        self.onNearbyCourses = onNearbyCourses
         self.pendingLiveHole = pendingLiveHole
         self.onConsumePendingLiveHole = onConsumePendingLiveHole
         self.onLiveAppearanceChanged = onLiveAppearanceChanged
@@ -268,7 +272,8 @@ public struct RoundHomeView: View {
             onClearBackendConfiguration: onClearBackendConfiguration,
             onConnectGarmin: { showSettings = true },
             onLoadCourseTees: onLoadCourseTees,
-            onSearchCourses: onSearchCourses
+            onSearchCourses: onSearchCourses,
+            onNearbyCourses: onNearbyCourses
         )
     }
 

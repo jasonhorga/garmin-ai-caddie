@@ -93,6 +93,12 @@ public struct MobileCourseSearchResponse: Codable, Equatable {
     public let matches: [MobileCourseSearchMatch]
 }
 
+public struct MobileNearbyCoursesResponse: Codable, Equatable {
+    public let schema: String
+    public let radiusKm: Int
+    public let matches: [MobileCourseSearchMatch]
+}
+
 public extension MobileCourseOption {
     /// Venue name without the loop suffix (falls back to stripping " ~ …" from `name`).
     var venueDisplayName: String {

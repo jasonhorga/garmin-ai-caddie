@@ -7,6 +7,7 @@ public struct PrepCoursePickerView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
 
+    @StateObject private var locationProvider = LocationProvider()
     @State private var remoteCourseOptions: [MobileCourseOption] = []
     @State private var showingCourseSearch = false
     @State private var preferredRemoteCourseId: Int?
@@ -50,10 +51,20 @@ public struct PrepCoursePickerView: View {
         }
         .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
         .navigationTitle("选球场备战")
+        .onAppear {
+            locationProvider.requestAuthorization()
+            locationProvider.startUpdatingLocation()
+        }
+        .onDisappear {
+            locationProvider.stopUpdatingLocation()
+        }
         .sheet(isPresented: $showingCourseSearch) {
             NavigationStack {
                 MobileCourseSearchView(
+                    nearbyLatitude: locationProvider.latestFix?.coordinate.latitude,
+                    nearbyLongitude: locationProvider.latestFix?.coordinate.longitude,
                     onSearch: searchCourses,
+                    onNearby: nearbyCourses,
                     onSelect: selectSearchResult
                 )
             }
@@ -110,6 +121,19 @@ public struct PrepCoursePickerView: View {
     private func searchCourses(_ name: String) async throws -> [MobileCourseSearchMatch] {
         guard let apiBaseURL else { throw URLError(.notConnectedToInternet) }
         return try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).searchCourses(name: name)
+    }
+
+    private func nearbyCourses(
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Int
+    ) async throws -> [MobileCourseSearchMatch] {
+        guard let apiBaseURL else { throw URLError(.notConnectedToInternet) }
+        return try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).nearbyCourses(
+            latitude: latitude,
+            longitude: longitude,
+            radiusKm: radiusKm
+        )
     }
 
     private func selectSearchResult(

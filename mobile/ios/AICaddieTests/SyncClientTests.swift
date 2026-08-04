@@ -204,6 +204,49 @@ final class SyncClientTests: XCTestCase {
         XCTAssertNil(matches[1].courseOption)
     }
 
+    func testNearbyCoursesUsesProviderWideRadiusEndpoint() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-nearby-v1","radiusKm":50,"matches":[{"globalId":31669,"name":"Shenzhen Mission Hills ~ Els","holes":9,"city":"Shenzhen","province":"Guangdong","ratio":0,"latitude":22.7402,"longitude":114.0715,"distanceKm":0.0}]}"#.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v2/courses/nearby")
+            let queryItems = URLComponents(
+                url: try XCTUnwrap(request.url),
+                resolvingAgainstBaseURL: false
+            )?.queryItems
+            XCTAssertEqual(queryItems?.first { $0.name == "latitude" }?.value, "22.7401328")
+            XCTAssertEqual(queryItems?.first { $0.name == "longitude" }?.value, "114.0714097")
+            XCTAssertEqual(queryItems?.first { $0.name == "radius_km" }?.value, "50")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            adminToken: "admin-secret",
+            session: session
+        )
+
+        let matches = try await client.nearbyCourses(
+            latitude: 22.7401328,
+            longitude: 114.0714097,
+            radiusKm: 50
+        )
+
+        XCTAssertEqual(matches.map(\.globalId), [31669])
+        XCTAssertEqual(matches.first?.distanceKm, 0.0)
+        XCTAssertNotNil(matches.first?.courseOption)
+    }
+
     func testCityAndKeywordSearchIntersectsProviderResultsByGlobalId() {
         let shenzhen = [
             MobileCourseSearchMatch(

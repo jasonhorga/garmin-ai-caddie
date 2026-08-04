@@ -228,6 +228,37 @@ public final class SyncClient {
         return try decoder.decode(MobileCourseSearchResponse.self, from: data).matches
     }
 
+    /// Discover every Garmin catalogue row around the current coordinate. Like name search this is
+    /// metadata-only; Tee, holes and maps are fetched only after the player selects one row.
+    public func nearbyCourses(
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Int = 50
+    ) async throws -> [MobileCourseSearchMatch] {
+        guard latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude),
+              (1...200).contains(radiusKm) else {
+            throw URLError(.badURL)
+        }
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/nearby"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [
+            URLQueryItem(name: "latitude", value: String(latitude)),
+            URLQueryItem(name: "longitude", value: String(longitude)),
+            URLQueryItem(name: "radius_km", value: String(radiusKm)),
+        ]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(MobileNearbyCoursesResponse.self, from: data).matches
+    }
+
     /// The course's selectable tee boxes (`GET /api/v2/courses/{id}/tees`): colour + total yards +
     /// which is default — the pre-round picker list, same as Garmin's new-round tee chooser. Public
     /// course knowledge (no player data); powers 开始一场's 发球台 selector with real yardage.

@@ -1,6 +1,7 @@
-"""Course search: name/location -> Garmin globalId via the anonymous CourseView search
-endpoint (``omt.garmin.cn/CourseViewData/courses?CourseName=``). NO auth, NO AI. Deterministic
-protobuf decode + stdlib fuzzy match, guarded by hole-count + city/province.
+"""Garmin CourseView catalogue discovery via anonymous name and nearby endpoints.
+
+NO auth, NO AI. Deterministic protobuf decode, true provider-wide nearby pagination and stdlib
+fuzzy ranking for manual search, guarded by hole-count + city/province.
 
 Per-course record (top field 4, repeated): f7=globalId, f9=latitude, f10=longitude,
 f12=name, f13=holeCount, f16=province, f21=city. The plain name endpoint uses
@@ -17,6 +18,8 @@ from dataclasses import dataclass
 from ai_caddie.geometry.inspect_courseview_release import BASE, fetch_bytes, parse_fields
 
 _MIN_QUERY = 2  # the endpoint requires >=3 ascii or >=2 CJK chars
+_NEARBY_PAGE_SIZE = 50
+_NEARBY_MAX_PAGES = 100  # provider-loop safety valve; 5,000 rows is already far beyond 200 km use
 
 
 @dataclass
@@ -108,6 +111,25 @@ def _fetch_search(
     return fetch_bytes(url)
 
 
+def _fetch_nearby_page(
+    latitude: float,
+    longitude: float,
+    radius_km: int,
+    *,
+    page: int,
+    page_size: int = _NEARBY_PAGE_SIZE,
+) -> bytes:
+    """Fetch one page from Garmin's provider-wide radius route (radius is metres in the path)."""
+    lat_sc = _semicircle_32(latitude)
+    lon_sc = _semicircle_32(longitude)
+    radius_m = int(round(radius_km * 1_000))
+    url = (
+        f"{BASE}/Boundaries/{lon_sc},{lat_sc},{radius_m},32/Courses"
+        f"?pageSize={int(page_size)}&page={int(page)}&languageCode=zh-CN"
+    )
+    return fetch_bytes(url)
+
+
 def _location_blob(rec: dict) -> str:
     return f"{rec.get('city') or ''} {rec.get('province') or ''}".lower()
 
@@ -118,6 +140,83 @@ def _distance_km(latitude: float, longitude: float, target_lat: float, target_lo
     dlon = math.radians(target_lon - longitude)
     a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
     return 6371.0088 * 2 * math.asin(math.sqrt(a))
+
+
+def _valid_location(latitude: float, longitude: float) -> bool:
+    return (
+        math.isfinite(float(latitude))
+        and math.isfinite(float(longitude))
+        and -90 <= float(latitude) <= 90
+        and -180 <= float(longitude) <= 180
+    )
+
+
+def courseview_nearby(
+    latitude: float,
+    longitude: float,
+    radius_km: int = 50,
+    *,
+    page_size: int = _NEARBY_PAGE_SIZE,
+    allow_fetch: bool = True,
+) -> list[CourseMatch]:
+    """List every CourseView catalogue row in a radius and sort by computed Haversine distance.
+
+    Garmin's nearby route is distinct from name search: the path contains radius in metres and is
+    paginated. Metadata is deduplicated by factual ``globalId``; no course assets are downloaded.
+    """
+    try:
+        lat = float(latitude)
+        lon = float(longitude)
+        radius = int(radius_km)
+        size = int(page_size)
+    except (TypeError, ValueError, OverflowError):
+        return []
+    if not allow_fetch or not _valid_location(lat, lon) or not 1 <= radius <= 200:
+        return []
+    if not 1 <= size <= _NEARBY_PAGE_SIZE:
+        return []
+
+    records: dict[int, dict] = {}
+    previous_page_ids: tuple[int, ...] | None = None
+    for page in range(1, _NEARBY_MAX_PAGES + 1):
+        # Do not turn a provider/network failure into a truthful-looking empty/partial catalogue.
+        # The API maps this to 502 so the client can show retry/search instead of "no nearby course".
+        pb = _fetch_nearby_page(lat, lon, radius, page=page, page_size=size)
+        rows = parse_course_search(pb, coordinate_bits=31)
+        page_ids = tuple(int(row["global_id"]) for row in rows)
+        # Stop if a provider/cache ignores page and repeats the same full page.
+        if page_ids and page_ids == previous_page_ids:
+            break
+        previous_page_ids = page_ids
+        for row in rows:
+            records.setdefault(int(row["global_id"]), row)
+        if len(rows) < size:
+            break
+
+    matches: list[CourseMatch] = []
+    for rec in records.values():
+        target_lat = rec.get("latitude")
+        target_lon = rec.get("longitude")
+        distance_km = None
+        if target_lat is not None and target_lon is not None:
+            distance_km = round(_distance_km(lat, lon, target_lat, target_lon), 1)
+        matches.append(CourseMatch(
+            global_id=int(rec["global_id"]),
+            name=rec["name"],
+            holes=rec.get("holes"),
+            city=rec.get("city"),
+            province=rec.get("province"),
+            ratio=0.0,
+            latitude=target_lat,
+            longitude=target_lon,
+            distance_km=distance_km,
+        ))
+    matches.sort(key=lambda match: (
+        match.distance_km is None,
+        match.distance_km if match.distance_km is not None else math.inf,
+        match.name.lower(),
+    ))
+    return matches
 
 
 def courseview_search(
@@ -144,10 +243,7 @@ def courseview_search(
     has_location = (
         latitude is not None
         and longitude is not None
-        and math.isfinite(float(latitude))
-        and math.isfinite(float(longitude))
-        and -90 <= float(latitude) <= 90
-        and -180 <= float(longitude) <= 180
+        and _valid_location(float(latitude), float(longitude))
     )
     try:
         pb = _fetch_search(

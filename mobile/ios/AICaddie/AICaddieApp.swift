@@ -104,6 +104,13 @@ public struct AICaddieApp: App {
                         onSearchCourses: { name, latitude, longitude in
                             try await model.searchCourses(name: name, latitude: latitude, longitude: longitude)
                         },
+                        onNearbyCourses: { latitude, longitude, radiusKm in
+                            try await model.nearbyCourses(
+                                latitude: latitude,
+                                longitude: longitude,
+                                radiusKm: radiusKm
+                            )
+                        },
                         pendingLiveHole: model.pendingLiveHole,
                         onConsumePendingLiveHole: {
                             model.consumePendingLiveHole()
@@ -149,6 +156,13 @@ public struct AICaddieApp: App {
                             onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) },
                             onSearchCourses: { name, latitude, longitude in
                                 try await model.searchCourses(name: name, latitude: latitude, longitude: longitude)
+                            },
+                            onNearbyCourses: { latitude, longitude, radiusKm in
+                                try await model.nearbyCourses(
+                                    latitude: latitude,
+                                    longitude: longitude,
+                                    radiusKm: radiusKm
+                                )
                             }
                         )
                         // First launch with no data: the empty-state CTA + this gear both open the
@@ -1076,6 +1090,19 @@ public final class LiveRoundAppModel: ObservableObject {
             name: name,
             latitude: latitude,
             longitude: longitude
+        )
+    }
+
+    public func nearbyCourses(
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Int
+    ) async throws -> [MobileCourseSearchMatch] {
+        guard let syncClient else { throw URLError(.notConnectedToInternet) }
+        return try await syncClient.nearbyCourses(
+            latitude: latitude,
+            longitude: longitude,
+            radiusKm: radiusKm
         )
     }
 

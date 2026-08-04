@@ -23,6 +23,8 @@ public struct StartRoundView: View {
     public let onLoadCourseTees: (Int) async -> [CourseTee]
     /// Garmin 全库名称搜索。只返回轻量 metadata；选中后仍走本页已有的单球场准备链。
     public let onSearchCourses: (String, Double?, Double?) async throws -> [MobileCourseSearchMatch]
+    /// Garmin 全库坐标发现。半径内完整分页，只返回轻量 metadata。
+    public let onNearbyCourses: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
 
     @StateObject private var locationProvider = LocationProvider()
     @State private var roundId: String
@@ -56,7 +58,8 @@ public struct StartRoundView: View {
         onClearBackendConfiguration: @escaping () -> Void = {},
         onConnectGarmin: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
-        onSearchCourses: @escaping (String, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] }
+        onSearchCourses: @escaping (String, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
+        onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] }
     ) {
         self.defaultRoundId = defaultRoundId
         self.courseOptions = courseOptions
@@ -72,6 +75,7 @@ public struct StartRoundView: View {
         self.onConnectGarmin = onConnectGarmin
         self.onLoadCourseTees = onLoadCourseTees
         self.onSearchCourses = onSearchCourses
+        self.onNearbyCourses = onNearbyCourses
         // Pre-select a real course (the given default, else the most-played) so the
         // primary action works out of the box instead of stranding on "manual entry".
         let mostPlayed = courseOptions.max { $0.roundCount < $1.roundCount }
@@ -141,6 +145,8 @@ public struct StartRoundView: View {
         .sheet(isPresented: $showingCourseSearch) {
             NavigationStack {
                 MobileCourseSearchView(
+                    nearbyLatitude: locationProvider.latestFix?.coordinate.latitude,
+                    nearbyLongitude: locationProvider.latestFix?.coordinate.longitude,
                     onSearch: { query in
                         let coordinate = locationProvider.latestFix?.coordinate
                         return try await onSearchCourses(
@@ -149,6 +155,7 @@ public struct StartRoundView: View {
                             coordinate?.longitude
                         )
                     },
+                    onNearby: onNearbyCourses,
                     onSelect: selectSearchResult
                 )
             }

@@ -108,6 +108,73 @@ class CourseviewSearchTests(unittest.TestCase):
         self.assertIn("/Boundaries/1360924928,271300352,32/Courses", url)
         self.assertIn("courseName=Mission%20Hills", url)
 
+    def test_nearby_paginates_provider_catalog_and_sorts_by_true_distance(self) -> None:
+        pages = {
+            1: [
+                {
+                    "global_id": 2, "name": "Far", "holes": 18,
+                    "city": "Shenzhen", "province": "Guangdong",
+                    "latitude": 22.9, "longitude": 114.3,
+                },
+                {
+                    "global_id": 1, "name": "Near", "holes": 9,
+                    "city": "Shenzhen", "province": "Guangdong",
+                    "latitude": 22.7402, "longitude": 114.0715,
+                },
+            ],
+            2: [],
+        }
+
+        def fetch_page(*_args, page: int, **_kwargs) -> bytes:
+            return str(page).encode()
+
+        with (
+            patch.object(cs, "_fetch_nearby_page", side_effect=fetch_page) as fetch,
+            patch.object(cs, "parse_course_search", side_effect=lambda pb, **_: pages[int(pb)]),
+        ):
+            matches = cs.courseview_nearby(
+                latitude=22.7401328,
+                longitude=114.0714097,
+                radius_km=50,
+                page_size=2,
+            )
+
+        self.assertEqual([match.global_id for match in matches], [1, 2])
+        self.assertEqual(matches[0].distance_km, 0.0)
+        self.assertEqual(matches[0].ratio, 0.0)
+        self.assertEqual(fetch.call_count, 2)
+        self.assertEqual(fetch.call_args_list[0].kwargs["page"], 1)
+        self.assertEqual(fetch.call_args_list[1].kwargs["page"], 2)
+
+    def test_nearby_url_includes_radius_metres_and_page(self) -> None:
+        with patch.object(cs, "fetch_bytes", return_value=b"ok") as fetch:
+            self.assertEqual(
+                cs._fetch_nearby_page(
+                    latitude=22.7401328,
+                    longitude=114.0714097,
+                    radius_km=50,
+                    page=2,
+                    page_size=50,
+                ),
+                b"ok",
+            )
+        url = fetch.call_args.args[0]
+        self.assertIn("/Boundaries/1360924928,271300352,50000,32/Courses", url)
+        self.assertIn("pageSize=50", url)
+        self.assertIn("page=2", url)
+
+    def test_nearby_rejects_invalid_location_or_radius_without_fetch(self) -> None:
+        with patch.object(cs, "_fetch_nearby_page") as fetch:
+            self.assertEqual(cs.courseview_nearby(91, 114, 50), [])
+            self.assertEqual(cs.courseview_nearby(22, 181, 50), [])
+            self.assertEqual(cs.courseview_nearby(22, 114, 0), [])
+        fetch.assert_not_called()
+
+    def test_nearby_does_not_disguise_provider_failure_as_no_results(self) -> None:
+        with patch.object(cs, "_fetch_nearby_page", side_effect=OSError("offline")):
+            with self.assertRaises(OSError):
+                cs.courseview_nearby(22.74, 114.07, 50)
+
 
 class CourseSearchEndpointTests(unittest.TestCase):
     def _client(self):
@@ -156,6 +223,51 @@ class CourseSearchEndpointTests(unittest.TestCase):
             r = self._client().get("/api/v2/courses/search", params={"name": "nope"})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["matches"], [])
+
+    def test_nearby_endpoint_returns_provider_wide_matches(self) -> None:
+        from ai_caddie.courses import course_search
+        from server_v2 import main as server_main
+
+        canned = [course_search.CourseMatch(
+            31669,
+            "Shenzhen Mission Hills ~ Els",
+            9,
+            "Shenzhen",
+            "Guangdong",
+            0.0,
+            22.7402,
+            114.0715,
+            0.0,
+        )]
+        with patch.object(server_main.course_search, "courseview_nearby", return_value=canned) as nearby:
+            response = self._client().get(
+                "/api/v2/courses/nearby",
+                params={"latitude": 22.7401328, "longitude": 114.0714097, "radius_km": 50},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["schema"], "ai-caddie-course-nearby-v1")
+        self.assertEqual(response.json()["radiusKm"], 50)
+        self.assertEqual(response.json()["matches"][0]["globalId"], 31669)
+        nearby.assert_called_once_with(latitude=22.7401328, longitude=114.0714097, radius_km=50)
+
+    def test_nearby_endpoint_bounds_radius(self) -> None:
+        response = self._client().get(
+            "/api/v2/courses/nearby",
+            params={"latitude": 22.74, "longitude": 114.07, "radius_km": 201},
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_nearby_endpoint_reports_provider_failure(self) -> None:
+        from server_v2 import main as server_main
+
+        with patch.object(server_main.course_search, "courseview_nearby", side_effect=OSError("offline")):
+            response = self._client().get(
+                "/api/v2/courses/nearby",
+                params={"latitude": 22.74, "longitude": 114.07},
+            )
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["detail"], "Garmin course catalogue unavailable")
 
 
 if __name__ == "__main__":

@@ -116,6 +116,7 @@ class PlayerTokenResolutionTests(unittest.TestCase):
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/courses/31870/prep"))
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/courses/31870/prep-tips"))
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/courses/search"))
+        self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/courses/nearby"))
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/mobile/courses/options"))
         # Phase 2: the mobile round/course PACKAGE, reconciliation-GET, and caddie-context reads
         # are now player-scoped. Their evidence loaders short-circuit to empty for a non-owner and
@@ -176,6 +177,18 @@ class PlayerAuthMiddlewareTests(unittest.TestCase):
         ):
             response = self.client.get(
                 "/api/v2/courses/search?name=Cypress%20Point",
+                headers={"Authorization": f"Bearer {self.token}"},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["matches"], [])
+
+    def test_course_catalog_nearby_allows_valid_player_bearer(self) -> None:
+        with (
+            mock.patch.dict("os.environ", ADMIN_ENV),
+            mock.patch("server_v2.main.course_search.courseview_nearby", return_value=[]),
+        ):
+            response = self.client.get(
+                "/api/v2/courses/nearby?latitude=22.74&longitude=114.07&radius_km=50",
                 headers={"Authorization": f"Bearer {self.token}"},
             )
         self.assertEqual(response.status_code, 200)

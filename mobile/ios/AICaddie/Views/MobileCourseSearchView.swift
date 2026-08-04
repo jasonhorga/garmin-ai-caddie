@@ -4,27 +4,74 @@ import SwiftUI
 /// firing on every keystroke; the result list is metadata-only and selecting a row does not install
 /// every match.
 public struct MobileCourseSearchView: View {
+    public let nearbyLatitude: Double?
+    public let nearbyLongitude: Double?
     public let onSearch: (String) async throws -> [MobileCourseSearchMatch]
+    public let onNearby: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     public let onSelect: (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
+
+    private enum SearchKind: Equatable {
+        case nearby
+        case manual
+    }
 
     @Environment(\.dismiss) private var dismiss
     @State private var city = ""
     @State private var query = ""
+    @State private var nearbyRadiusKm = 50
     @State private var matches: [MobileCourseSearchMatch] = []
-    @State private var isSearching = false
+    @State private var activeSearch: SearchKind?
+    @State private var lastSearch: SearchKind?
     @State private var didSearch = false
     @State private var errorText: String?
 
     public init(
+        nearbyLatitude: Double? = nil,
+        nearbyLongitude: Double? = nil,
         onSearch: @escaping (String) async throws -> [MobileCourseSearchMatch],
+        onNearby: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
         onSelect: @escaping (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
     ) {
+        self.nearbyLatitude = nearbyLatitude
+        self.nearbyLongitude = nearbyLongitude
         self.onSearch = onSearch
+        self.onNearby = onNearby
         self.onSelect = onSelect
     }
 
     public var body: some View {
         List {
+            Section {
+                Picker("搜索范围", selection: $nearbyRadiusKm) {
+                    Text("50 km").tag(50)
+                    Text("100 km").tag(100)
+                    Text("200 km").tag(200)
+                }
+                .pickerStyle(.segmented)
+
+                Button {
+                    Task { await searchNearby() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if activeSearch == .nearby {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "location.fill")
+                        }
+                        Text(activeSearch == .nearby ? "正在查找" : "查找当前位置附近球场")
+                        Spacer()
+                    }
+                }
+                .disabled(!canSearchNearby)
+                .accessibilityIdentifier("course-catalog-nearby-action")
+            } header: {
+                Text("附近球场")
+            } footer: {
+                Text(hasNearbyLocation
+                    ? "直接读取 Garmin 在所选半径内的完整球场目录，并按真实距离排序。"
+                    : "正在获取当前位置；你仍然可以先用下面的城市或球场名搜索。")
+            }
+
             Section {
                 TextField("城市（例如：深圳）", text: $city)
                     .textContentType(.addressCity)
@@ -39,12 +86,12 @@ public struct MobileCourseSearchView: View {
                     Task { await search() }
                 } label: {
                     HStack(spacing: 8) {
-                        if isSearching {
+                        if activeSearch == .manual {
                             ProgressView()
                         } else {
                             Image(systemName: "magnifyingglass")
                         }
-                        Text(isSearching ? "正在搜索" : "搜索 Garmin 全部球场")
+                        Text(activeSearch == .manual ? "正在搜索" : "搜索 Garmin 全部球场")
                         Spacer()
                     }
                 }
@@ -68,13 +115,15 @@ public struct MobileCourseSearchView: View {
                     ContentUnavailableView(
                         "没有匹配结果",
                         systemImage: "map",
-                        description: Text("换一个城市或中文／英文球场关键字再试。")
+                        description: Text(lastSearch == .nearby
+                            ? "扩大到 100 或 200 km，或者改用城市／球场关键字。"
+                            : "换一个城市或中文／英文球场关键字再试。")
                     )
                 }
             }
 
             if !matches.isEmpty {
-                Section("搜索结果") {
+                Section(lastSearch == .nearby ? "附近结果" : "搜索结果") {
                     ForEach(matches) { match in
                         Button {
                             guard match.courseOption != nil else { return }
@@ -126,7 +175,17 @@ public struct MobileCourseSearchView: View {
     }
 
     private var canSearch: Bool {
-        (trimmedQuery.count >= 2 || trimmedCity.count >= 2) && !isSearching
+        (trimmedQuery.count >= 2 || trimmedCity.count >= 2) && activeSearch == nil
+    }
+
+    private var hasNearbyLocation: Bool {
+        guard let nearbyLatitude, let nearbyLongitude else { return false }
+        return nearbyLatitude.isFinite && (-90...90).contains(nearbyLatitude)
+            && nearbyLongitude.isFinite && (-180...180).contains(nearbyLongitude)
+    }
+
+    private var canSearchNearby: Bool {
+        hasNearbyLocation && activeSearch == nil
     }
 
     private func submitSearch() {
@@ -137,10 +196,11 @@ public struct MobileCourseSearchView: View {
     @MainActor
     private func search() async {
         guard canSearch else { return }
-        isSearching = true
+        activeSearch = .manual
+        lastSearch = .manual
         didSearch = true
         errorText = nil
-        defer { isSearching = false }
+        defer { activeSearch = nil }
         do {
             var seen = Set<Int>()
             let results: [MobileCourseSearchMatch]
@@ -158,6 +218,27 @@ public struct MobileCourseSearchView: View {
         } catch {
             matches = []
             errorText = "现在无法搜索全部球场，请检查网络后重试。"
+        }
+    }
+
+    @MainActor
+    private func searchNearby() async {
+        guard canSearchNearby, let nearbyLatitude, let nearbyLongitude else { return }
+        activeSearch = .nearby
+        lastSearch = .nearby
+        didSearch = true
+        errorText = nil
+        defer { activeSearch = nil }
+        do {
+            var seen = Set<Int>()
+            matches = try await onNearby(
+                nearbyLatitude,
+                nearbyLongitude,
+                nearbyRadiusKm
+            ).filter { seen.insert($0.globalId).inserted }
+        } catch {
+            matches = []
+            errorText = "现在无法读取附近球场，请检查网络或改用名称搜索。"
         }
     }
 

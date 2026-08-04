@@ -293,6 +293,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
                 and _truthy_query_flag(query_params.get("ensure_release"))
             )
             or path == "/api/v2/courses/search"
+            or path == "/api/v2/courses/nearby"
             # codex HIGH #1: a geometry/hole request WITH source_ref loads the owner's real shot
             # routes/clubs/distances (geometry.py) — gate it. Pure course geometry (no source_ref)
             # stays public (course knowledge); only the source-bound private evidence requires auth.
@@ -884,6 +885,42 @@ def course_search_endpoint(
              "distanceKm": m.distance_km}
             for m in matches
         ],
+    }
+
+
+def _course_match_payload(match: course_search.CourseMatch) -> dict:
+    return {
+        "globalId": match.global_id,
+        "name": match.name,
+        "holes": match.holes,
+        "city": match.city,
+        "province": match.province,
+        "ratio": match.ratio,
+        "latitude": match.latitude,
+        "longitude": match.longitude,
+        "distanceKm": match.distance_km,
+    }
+
+
+@app.get("/api/v2/courses/nearby")
+def course_nearby_endpoint(
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    radius_km: int = Query(default=50, ge=1, le=200),
+) -> dict:
+    """List provider-wide Garmin catalogue rows around a coordinate; metadata only."""
+    try:
+        matches = course_search.courseview_nearby(
+            latitude=latitude,
+            longitude=longitude,
+            radius_km=radius_km,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Garmin course catalogue unavailable") from exc
+    return {
+        "schema": "ai-caddie-course-nearby-v1",
+        "radiusKm": radius_km,
+        "matches": [_course_match_payload(match) for match in matches],
     }
 
 
