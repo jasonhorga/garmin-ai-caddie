@@ -40,7 +40,7 @@ public struct RoundShotMapView: View {
                 }
             }
             .overlay(alignment: .topLeading) { holeTag }
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .mapSurface()
         }
         #endif
     }

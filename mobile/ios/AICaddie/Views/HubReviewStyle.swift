@@ -28,6 +28,27 @@ enum HubStyle {
     static let warmBad = double
 }
 
+/// Shared off-course map canvas. The topo PNG is intentionally transparent outside the decoded
+/// terrain; prep and review place it on this Garmin-like green surface, while live play omits this
+/// chrome and lets the same asset blend into the dark instrument backdrop.
+enum MapSurfaceStyle {
+    static let background = Color(red: 122 / 255, green: 167 / 255, blue: 92 / 255)
+    static let border = Color.black.opacity(0.08)
+    static let cornerRadius: CGFloat = 14
+}
+
+private struct MapSurfaceModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(MapSurfaceStyle.background)
+            .clipShape(RoundedRectangle(cornerRadius: MapSurfaceStyle.cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: MapSurfaceStyle.cornerRadius, style: .continuous)
+                    .strokeBorder(MapSurfaceStyle.border, lineWidth: 1)
+            )
+    }
+}
+
 extension View {
     /// White grouped-inset card: generous padding, 18pt continuous radius, a subtle drop shadow and
     /// no hard border — the clean light iOS-native surface used across 首页/复盘. (The dark
@@ -39,6 +60,10 @@ extension View {
             .background(Color.white)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .shadow(color: Color.black.opacity(0.05), radius: 3, x: 0, y: 1)
+    }
+
+    func mapSurface() -> some View {
+        modifier(MapSurfaceModifier())
     }
 }
 

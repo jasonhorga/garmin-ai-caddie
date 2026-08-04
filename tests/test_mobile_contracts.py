@@ -1850,7 +1850,9 @@ class MobileContractTests(unittest.TestCase):
     def test_ios_hole_2d_map_wired(self) -> None:
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
         hole_map_view = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
+        hub_style = _read_required_source(self, IOS_DIR / "Views" / "HubReviewStyle.swift")
         course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
+        shot_map_view = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
         # 2D hole map = server-rendered hole image + recommended route/club overlay; shared by
         # 实战 (CurrentHoleView) + 备战 (CourseReviewView). Per-hole source gid → composite back
@@ -1886,6 +1888,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
         self.assertIn('URLQueryItem(name: "v", value: "topo-v5")', sync_client)
         self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)", hole_map_view)
+        self.assertIn("enum MapSurfaceStyle", hub_style)
+        self.assertIn("func mapSurface() -> some View", hub_style)
+        self.assertIn("map.mapSurface()", hole_map_view)
+        self.assertIn(".mapSurface()", shot_map_view)
         self.assertIn("topoURL: liveTopoURL", current_hole)
         self.assertIn("SyncClient.topoImageURL(baseURL: caddieBaseURL", current_hole)
 
@@ -1898,7 +1904,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('.accessibilityElement(children: .ignore)', topo_base)
         self.assertIn('.accessibilityIdentifier("topo-hole-base-ready")', topo_base)
         self.assertIn("case .failure:", topo_base)
-        self.assertIn("if fallback != nil", topo_base)
+        ready_branch = topo_base.split("case .success", 1)[1].split("case .failure", 1)[0]
+        self.assertNotIn("fallbackImage", ready_branch)
         self.assertIn("fallbackImage", topo_base)
 
     def test_ios_club_naming_and_lie_filter(self) -> None:

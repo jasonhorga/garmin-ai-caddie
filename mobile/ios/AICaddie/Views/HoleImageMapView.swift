@@ -41,9 +41,7 @@ public struct HoleImageMapView: View {
             }
             .aspectRatio(CGFloat(overlay.w) / CGFloat(overlay.h), contentMode: .fit)
             if showsCardChrome {
-                map
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(LiveHoleStyle.line))
+                map.mapSurface()
             } else {
                 map
             }

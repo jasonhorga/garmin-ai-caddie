@@ -26,18 +26,13 @@ struct TopoHoleBaseImage: View {
                 case .empty:
                     loadingImage
                 case .success(let image):
-                    ZStack {
-                        // topo-v5 has a transparent off-course canvas. Prep/review may retain their
-                        // flat map underneath; live play intentionally has no fallback and therefore
-                        // reveals the dark instrument surface supplied by its parent.
-                        if fallback != nil {
-                            fallbackImage.accessibilityHidden(true)
-                        }
-                        image.resizable().scaledToFit()
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel("球场地图")
-                            .accessibilityIdentifier("topo-hole-base-ready")
-                    }
+                    // topo-v5 has a transparent off-course canvas. Card contexts supply the shared
+                    // green Map Surface; live play intentionally reveals its dark instrument parent.
+                    // The legacy JPEG is only a loading/failure fallback, never a second ready map.
+                    image.resizable().scaledToFit()
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("球场地图")
+                        .accessibilityIdentifier("topo-hole-base-ready")
                 case .failure:
                     fallbackImage
                 @unknown default:
