@@ -41,6 +41,7 @@ public struct WatchStartView: View {
 
     @State private var searchText = ""
     @State private var setupDestination: WatchCourseSetupDestination?
+    @State private var showingRemoteSearch: Bool
 
     public init(
         phoneReachable: Bool,
@@ -72,6 +73,7 @@ public struct WatchStartView: View {
         self.onSearchAllCourses = onSearchAllCourses
         self.onLoadCourseTees = onLoadCourseTees
         self.onStartCourse = onStartCourse
+        _showingRemoteSearch = State(initialValue: !searchMatches.isEmpty)
     }
 
     public var body: some View {
@@ -88,6 +90,8 @@ public struct WatchStartView: View {
                     onStart: onStartCourse,
                     onBack: { setupDestination = nil }
                 )
+            } else if showingRemoteSearch {
+                remoteSearchScreen
             } else {
                 coursePicker
             }
@@ -98,15 +102,9 @@ public struct WatchStartView: View {
     private var coursePicker: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                if showRemoteSectionFirst {
-                    remoteCourseSection
-                }
-
                 courseSections
 
-                if !showRemoteSectionFirst {
-                    remoteCourseSection
-                }
+                remoteSearchEntry
 
                 if let errorMessage {
                     Text(errorMessage)
@@ -133,7 +131,7 @@ public struct WatchStartView: View {
             }
             .padding(.horizontal, 8)
             .padding(.top, 8)
-            .padding(.bottom, 6)
+            .padding(.bottom, 14)
         }
         .ignoresSafeArea(edges: [.top, .leading, .trailing])
         .scrollIndicators(.hidden)
@@ -143,7 +141,7 @@ public struct WatchStartView: View {
     private var courseSections: some View {
         ForEach(courseGroups) { group in
             VStack(alignment: .leading, spacing: 4) {
-                sectionHeader(group.title)
+                sectionHeader(group.title, showsRefresh: group.showsRefresh)
                     .padding(.bottom, 3.5)
 
                 if group.rows.isEmpty {
@@ -167,23 +165,25 @@ public struct WatchStartView: View {
                     courseButton(row)
                 }
 
-                if group.showsRefresh {
-                    refreshCoursesButton
-                        .padding(.top, 4)
-                }
             }
         }
     }
 
-    private var refreshCoursesButton: some View {
-        Button(action: onRefresh) {
+    private var remoteSearchEntry: some View {
+        Button {
+            showingRemoteSearch = true
+        } label: {
             HStack(spacing: 6) {
-                Image(systemName: "arrow.clockwise")
-                Text(isLoadingCourses ? "正在更新" : "刷新球场")
+                Image(systemName: "magnifyingglass")
+                Text("搜索全部球场")
                 Spacer(minLength: 0)
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
             }
             .font(.system(size: 11, weight: .semibold))
-            .padding(7)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8)
@@ -191,67 +191,142 @@ public struct WatchStartView: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(isLoadingCourses || preparingCourseId != nil)
+        .disabled(preparingCourseId != nil)
     }
 
-    private var remoteCourseSection: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            sectionHeader("全部球场")
+    private var remoteSearchScreen: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 7) {
+                Button {
+                    showingRemoteSearch = false
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "chevron.backward")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("全部球场")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                    .foregroundStyle(.primary)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
 
-            TextField("输入球场名称", text: $searchText)
-                .font(.system(size: 11, weight: .medium))
-                .textFieldStyle(.plain)
-                .submitLabel(.search)
-                .padding(.horizontal, 8)
-                .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+                TextField("输入球场名称", text: $searchText)
+                    .font(.system(size: 11, weight: .medium))
+                    .textFieldStyle(.plain)
+                    .submitLabel(.search)
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                    )
+                    .onSubmit {
+                        guard canSearchAllCourses else { return }
+                        onSearchAllCourses(trimmedSearchText)
+                    }
+
+                Button {
+                    onSearchAllCourses(trimmedSearchText)
+                } label: {
+                    if isSearchingCourses {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("正在搜索")
+                            Spacer(minLength: 0)
+                        }
+                    } else {
+                        HStack(spacing: 6) {
+                            Image(systemName: "magnifyingglass")
+                            Text("搜索")
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .padding(7)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(Color.white.opacity(0.06))
                 )
-                .onSubmit {
-                    guard canSearchAllCourses else { return }
-                    onSearchAllCourses(trimmedSearchText)
+                .buttonStyle(.plain)
+                .disabled(!canSearchAllCourses)
+                .opacity(canSearchAllCourses ? 1 : 0.58)
+
+                ForEach(visibleSearchMatches) { match in
+                    searchResultRow(match)
                 }
 
-            Button {
-                onSearchAllCourses(trimmedSearchText)
-            } label: {
-                if isSearchingCourses {
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("正在搜索")
-                        Spacer(minLength: 0)
-                    }
-                } else {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass")
-                        Text("搜索全部球场")
-                        Spacer(minLength: 0)
-                    }
+                if !searchMatches.isEmpty, visibleSearchMatches.isEmpty {
+                    Text("搜索结果已在已知球场中")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-            }
-            .font(.system(size: 11, weight: .semibold))
-            .padding(7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .buttonStyle(.plain)
-            .disabled(!canSearchAllCourses)
-            .opacity(canSearchAllCourses ? 1 : 0.58)
 
-            ForEach(visibleSearchMatches) { match in
-                searchResultRow(match)
-            }
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.orange)
+                        .padding(7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.orange.opacity(0.10))
+                        )
+                }
 
-            if !searchMatches.isEmpty, visibleSearchMatches.isEmpty {
-                Text("搜索结果已在已知球场中")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.down.circle")
+                    Text("只下载选中的球场")
+                }
+                .font(.system(size: 8, weight: .medium))
+                .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 14)
+        }
+        .ignoresSafeArea(edges: [.top, .leading, .trailing])
+        .scrollIndicators(.hidden)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard WatchEdgeBackGesture.shouldTrigger(
+                        startX: value.startLocation.x,
+                        translation: value.translation
+                    ) else { return }
+                    showingRemoteSearch = false
+                }
+        )
+    }
+
+    private func sectionHeader(_ title: String, showsRefresh: Bool = false) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.primary)
+            Spacer(minLength: 0)
+            if showsRefresh {
+                Button(action: onRefresh) {
+                    Group {
+                        if isLoadingCourses {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                    }
+                    .frame(width: 24, height: 20)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isLoadingCourses || preparingCourseId != nil)
+                .accessibilityLabel(isLoadingCourses ? "正在更新球场" : "刷新球场")
             }
         }
+        .padding(.horizontal, 2)
     }
 
     @ViewBuilder
@@ -269,7 +344,7 @@ public struct WatchStartView: View {
                     .frame(width: 6, height: 6)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(match.name)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .lineLimit(2)
                     Text(searchResultSubtitle(match))
                         .font(.system(size: 9, weight: .medium))
@@ -321,9 +396,9 @@ public struct WatchStartView: View {
             HStack(alignment: .center, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.course.displayName)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .lineLimit(2)
-                        .minimumScaleFactor(0.78)
+                        .minimumScaleFactor(0.72)
                     Text(row.subtitle)
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.secondary)
@@ -339,7 +414,7 @@ public struct WatchStartView: View {
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+            .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 9)
@@ -401,13 +476,6 @@ public struct WatchStartView: View {
         "\(course.playableHoleCount) 洞 · \(course.preferredTee)"
     }
 
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 15, weight: .bold))
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 2)
-    }
-
     private var filteredCourses: [WatchCourseOption] {
         let query = trimmedSearchText
         let matches = query.isEmpty ? courses : courses.filter { course in
@@ -433,10 +501,6 @@ public struct WatchStartView: View {
         trimmedSearchText.count >= 2
             && !isSearchingCourses
             && preparingCourseId == nil
-    }
-
-    private var showRemoteSectionFirst: Bool {
-        !trimmedSearchText.isEmpty || isSearchingCourses || !searchMatches.isEmpty
     }
 
     private var hasCurrentLocation: Bool {
