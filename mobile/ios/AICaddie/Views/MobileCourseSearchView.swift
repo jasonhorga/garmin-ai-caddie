@@ -16,7 +16,13 @@ public struct MobileCourseSearchView: View {
         case manual
     }
 
+    private enum SearchField: Hashable {
+        case city
+        case query
+    }
+
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var focusedField: SearchField?
     @State private var city = ""
     @State private var query = ""
     @State private var nearbyRadiusKm = 50
@@ -78,11 +84,13 @@ public struct MobileCourseSearchView: View {
             Section {
                 TextField("城市（例如：深圳）", text: $city)
                     .textContentType(.addressCity)
+                    .focused($focusedField, equals: .city)
                     .submitLabel(.search)
                     .onSubmit { submitSearch() }
 
                 TextField("球场关键字（例如：观澜）", text: $query)
                     .accessibilityIdentifier("course-catalog-keyword-field")
+                    .focused($focusedField, equals: .query)
                     .submitLabel(.search)
                     .onSubmit { submitSearch() }
 
@@ -207,6 +215,7 @@ public struct MobileCourseSearchView: View {
     @MainActor
     private func search() async {
         guard canSearch else { return }
+        focusedField = nil
         activeSearch = .manual
         lastSearch = .manual
         didSearch = true
@@ -235,6 +244,7 @@ public struct MobileCourseSearchView: View {
     @MainActor
     private func searchNearby() async {
         guard canSearchNearby, let nearbyLatitude, let nearbyLongitude else { return }
+        focusedField = nil
         activeSearch = .nearby
         lastSearch = .nearby
         didSearch = true

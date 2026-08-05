@@ -833,6 +833,10 @@ final class RealFlowUITests: XCTestCase {
         let manualSearch = app.buttons["course-catalog-search-action"]
         XCTAssertTrue(waitUntilEnabled(manualSearch, timeout: 5))
         manualSearch.tap()
+        XCTAssertTrue(
+            waitUntilGone(app.keyboards.firstMatch, timeout: 8),
+            "submitting a course search must dismiss the keyboard so results are visible"
+        )
         let namedResult = app.buttons["course-catalog-result-\(evidence.globalId)"]
         XCTAssertTrue(
             scrollTo(namedResult, maxSwipes: 30),
