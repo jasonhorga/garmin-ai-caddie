@@ -82,6 +82,7 @@ public struct MobileCourseSearchView: View {
                     .onSubmit { submitSearch() }
 
                 TextField("球场关键字（例如：观澜）", text: $query)
+                    .accessibilityIdentifier("course-catalog-keyword-field")
                     .submitLabel(.search)
                     .onSubmit { submitSearch() }
 

@@ -812,7 +812,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20))
         openSearch.tap()
         XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
-        let queryField = app.textFields["球场关键字（可选）"]
+        let queryField = app.textFields["course-catalog-keyword-field"]
         XCTAssertTrue(scrollTo(queryField, maxSwipes: 12))
         queryField.tap()
         queryField.typeText(evidence.searchQuery)
