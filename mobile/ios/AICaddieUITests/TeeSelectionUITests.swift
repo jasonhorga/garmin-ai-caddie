@@ -38,12 +38,20 @@ final class TeeSelectionUITests: XCTestCase {
         }
         settle(9)
         save("02-start-round"); dump("02-start-round")  // 选球场 + 发球台 row + 开始记分
+        XCTAssertTrue(
+            app.staticTexts["选择全场开始 18 洞球局。"].waitForExistence(timeout: 5),
+            "an 18-hole whole-course selection must not describe itself as a 9-hole loop"
+        )
 
         // Open the 发球台 selector (a SwiftUI Menu whose label is the current tee, e.g. "蓝 T · 6412 码"
         // or "默认"). Tapping it reveals the tee options with yardage from GET /courses/{id}/tees.
         if tapTeeSelector() {
             settle(2)
             save("03-tee-menu"); dump("03-tee-menu")  // open menu: colour + yards choices
+            XCTAssertTrue(
+                app.buttons["取消"].waitForExistence(timeout: 5),
+                "the open tee menu must offer an explicit non-mutating dismissal"
+            )
         } else {
             dump("03-tee-menu-missing")
         }

@@ -230,6 +230,7 @@ jobs:
             ONLY_TESTING=(
               -only-testing:AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow
               -only-testing:AICaddieUITests/ReviewEditUITests/testCaptureReviewEditFlow
+              -only-testing:AICaddieUITests/TeeSelectionUITests/testCaptureTeeSelector
             )
           fi
           .github/scripts/retry-transient-command.sh \
