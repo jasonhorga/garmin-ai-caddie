@@ -148,16 +148,13 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderWatchRoundHome() throws {
-        // round-13: home now carries the 18-hole edge ring; current hole 7 highlighted, holes 1–6
-        // scored (colored by to-par), 8–18 not yet played (grey).
-        let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 2, 5: 0, 6: 1]
-        let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 7) }
+        // The score-only/home fallback deliberately has no perimeter ring. The ring belongs only to
+        // the outermost Hole Map root, where its clock-clear geometry is tested separately.
         let view = WatchRoundHomeView(
             courseName: "北京丽宫 · 前九",
             hole: 7, par: 4, holeCount: 9,
             scoredHoles: 6, toPar: 3,
             distanceText: "152 码", pendingUploads: 2,
-            ringPips: pips,
             canRecordShot: true
         )
         .frame(width: 198, height: 198)

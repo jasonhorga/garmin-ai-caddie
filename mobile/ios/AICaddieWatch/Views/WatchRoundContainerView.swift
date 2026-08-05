@@ -590,13 +590,6 @@ public struct WatchRoundContainerView: View {
             toPar: model.toPar,
             distanceText: distanceText,
             pendingUploads: model.pendingUploads,
-            ringPips: model.allHoleStates.map {
-                WatchRingPip(
-                    hole: $0.hole,
-                    toPar: $0.score > 0 ? $0.score - $0.par : nil,
-                    isCurrent: $0.hole == model.activeHole
-                )
-            },
             hasHoleMap: false,
             canRecordShot: shotLocation != nil,
             onRecordShot: { recordManualShot() },

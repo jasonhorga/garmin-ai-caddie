@@ -186,17 +186,13 @@ public struct WatchHoleMapView: View {
     public static let restingCrownScale = 0.32
     public static let maximumCrownScale = 0.56
 
-    /// Keep the approved 18-hole perimeter ring while leaving watchOS's persistent top-right clock
-    /// lane clear. Hole 1 stays at 12 o'clock; every remaining bar is distributed evenly from below
-    /// the clock to the ring's original endpoint. Shorter 9-hole rings retain their original layout.
+    /// Keep watchOS's persistent top-right clock lane completely clear. Hole 1 starts at 3 o'clock;
+    /// the remaining bars sweep clockwise through 6 and 9, with the final hole ending at 12 o'clock.
+    /// The same geometry applies to 9- and 18-hole rounds so no ring can re-enter the clock quadrant.
     static func scoringRingCenterFraction(index: Int, count: Int) -> CGFloat {
-        guard count > 0 else { return 0 }
-        let normal = 0.02 + (0.75 - 0.02) * (CGFloat(index) + 0.5) / CGFloat(count)
-        guard count == 18, index > 0 else { return normal }
-        let firstCenterAfterClock: CGFloat = 0.145
-        let finalCenter = 0.02 + (0.75 - 0.02) * 17.5 / 18
-        return firstCenterAfterClock
-            + (finalCenter - firstCenterAfterClock) * CGFloat(index - 1) / 16
+        guard count > 1 else { return 0.25 }
+        let boundedIndex = min(max(index, 0), count - 1)
+        return 0.25 + 0.75 * CGFloat(boundedIndex) / CGFloat(count - 1)
     }
 
     public static func isFullMap(crownScale: Double) -> Bool {
@@ -877,7 +873,7 @@ public struct WatchHoleMapView: View {
         context.draw(context.resolve(Text(text).font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: p)
     }
 
-    /// 18 scoring bars along the rounded-rect perimeter, 12→9 o'clock; each a short SLICE of the perimeter
+    /// Scoring bars along the rounded-rect perimeter, 3→12 o'clock; each a short SLICE of the perimeter
     /// (straight on flats, curved through the rounded corners).
     private func drawRing(_ context: inout GraphicsContext, size: CGSize) {
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -888,8 +884,8 @@ public struct WatchHoleMapView: View {
         let fw = max(0, halfW - r), fh = max(0, halfH - r)
         let perim = 4 * fw + 4 * fh + 2 * CGFloat.pi * r
         let count = ringPips.count
-        // Ring runs from 12 o'clock CLOCKWISE to 9 o'clock (top → right → bottom → left-centre); only the
-        // upper-left stays open. The left data column keeps its HIG margin so 前/中/后 don't touch the ring.
+        // Ring runs CLOCKWISE from 3 o'clock through 6 and 9 to 12. The entire upper-right quadrant stays
+        // open for the persistent system clock. The left data column keeps its HIG margin from the ring.
         for (index, pip) in ringPips.enumerated() {
             let s = perim * Self.scoringRingCenterFraction(index: index, count: count)
             let segHalf: CGFloat = pip.isCurrent ? 11 : 9.5

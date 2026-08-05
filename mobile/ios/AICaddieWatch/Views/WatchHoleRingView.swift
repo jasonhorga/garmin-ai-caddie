@@ -5,7 +5,7 @@ import SwiftUI
 /// RADIAL TICK (a short capsule, like a watch-face minute mark) placed where a ray from the centre
 /// meets the screen rectangle and rotated to align with that ray — so the marks ride the rim, point
 /// inward, and stay slim enough not to cover the centre distance/number (the user's
-/// "沿着手表边缘做一些小横线,做得细一点,这样不会覆盖其他元素"). 1号洞上方居中起、顺时针,首尾留缺口;
+/// "沿着手表边缘做一些小横线,做得细一点,这样不会覆盖其他元素"). 1号洞从3点位置起、顺时针到12点结束;
 /// 当前洞用更长更亮的白色刻度高亮,已记洞按成绩着色。Plain shape layers → renders in ImageRenderer snapshots.
 public struct WatchRingPip: Identifiable, Equatable {
     public var id: Int { hole }
@@ -23,13 +23,10 @@ public struct WatchRingPip: Identifiable, Equatable {
 public struct WatchHoleRingView<Center: View>: View {
     public let pips: [WatchRingPip]
     public let center: Center
-    /// Total angular gap (radians) left open at the top between the last and first hole.
-    public let gap: CGFloat
 
-    public init(pips: [WatchRingPip], gap: CGFloat = .pi / 5, @ViewBuilder center: () -> Center) {
+    public init(pips: [WatchRingPip], @ViewBuilder center: () -> Center) {
         self.pips = pips
         self.center = center()
-        self.gap = gap
     }
 
     public var body: some View {
@@ -55,12 +52,12 @@ public struct WatchHoleRingView<Center: View>: View {
         }
     }
 
-    /// Clockwise angle (from centre) at which this pip sits on the ring. Top-centre (−90°) is hole 1,
-    /// sweeping clockwise across the full circle minus the top gap.
+    /// Clockwise angle (from centre) at which this pip sits on the ring. 0° is 3 o'clock and the
+    /// final pip lands at 270° / 12 o'clock, leaving the upper-right clock quadrant empty.
     private func pipAngle(index: Int, count: Int) -> CGFloat {
-        let span = (2 * CGFloat.pi) - gap
-        let denom = max(1, count - 1)
-        return -CGFloat.pi / 2 + gap / 2 + span * CGFloat(index) / CGFloat(denom)
+        guard count > 1 else { return 0 }
+        let boundedIndex = min(max(index, 0), count - 1)
+        return 1.5 * CGFloat.pi * CGFloat(boundedIndex) / CGFloat(count - 1)
     }
 
     /// Point where the ray at `angle` meets the screen rectangle (edge-hugging), inset.

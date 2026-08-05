@@ -79,7 +79,6 @@ public struct WatchUITestRoot: View {
             WatchRoundHomeView(
                 courseName: "北京丽宫 · 前九", hole: 7, par: 4, holeCount: 9,
                 scoredHoles: 6, toPar: 3, distanceText: "152 码", pendingUploads: 2,
-                ringPips: (1...18).map { WatchRingPip(hole: $0, toPar: Self.demoToPars[$0], isCurrent: $0 == 7) },
                 canRecordShot: true
             )
         case "caddie-options":

@@ -70,19 +70,29 @@ final class WatchHoleMapViewportTests: XCTestCase {
         )
     }
 
-    func testEighteenHoleRingLeavesThePersistentClockLaneClear() {
+    func testEighteenHoleRingStartsAtThreeAndEndsAtTwelve() {
         let centers = (0 ..< 18).map {
             WatchHoleMapView.scoringRingCenterFraction(index: $0, count: 18)
         }
 
-        XCTAssertLessThan(centers[0], 0.07)
-        XCTAssertTrue(centers[1 ... 3].allSatisfy { $0 > 0.13 })
+        XCTAssertEqual(centers[0], 0.25, accuracy: 0.0001)
+        XCTAssertEqual(centers[17], 1.0, accuracy: 0.0001)
+        XCTAssertTrue(centers.allSatisfy { $0 >= 0.25 && $0 <= 1.0 })
         XCTAssertTrue(zip(centers, centers.dropFirst()).allSatisfy { pair in
             pair.0 < pair.1
         })
     }
 
-    func testEighteenHoleRingKeepsEverySegmentSeparatedAfterTheClockLane() {
+    func testNineHoleRingUsesTheSameClockClearSweep() {
+        let centers = (0 ..< 9).map {
+            WatchHoleMapView.scoringRingCenterFraction(index: $0, count: 9)
+        }
+
+        XCTAssertEqual(centers[0], 0.25, accuracy: 0.0001)
+        XCTAssertEqual(centers[8], 1.0, accuracy: 0.0001)
+    }
+
+    func testEighteenHoleRingKeepsEverySegmentSeparatedAcrossTheClockwiseSweep() {
         let centers = (0 ..< 18).map {
             WatchHoleMapView.scoringRingCenterFraction(index: $0, count: 18)
         }

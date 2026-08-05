@@ -20,7 +20,6 @@ public struct WatchRoundHomeView: View {
     public let onNextHole: () -> Void
     public let onFinish: () -> Void
     public let onMenu: () -> Void
-    public let ringPips: [WatchRingPip]   // round-13: 18-hole edge ring (empty = no ring)
     public let hasHoleMap: Bool           // watch P1b: 本洞有真几何底图时才显示「球道图」入口
     public let onHoleMap: () -> Void
 
@@ -33,7 +32,6 @@ public struct WatchRoundHomeView: View {
         toPar: Int?,
         distanceText: String? = nil,
         pendingUploads: Int = 0,
-        ringPips: [WatchRingPip] = [],
         hasHoleMap: Bool = false,
         canRecordShot: Bool = false,
         onHoleMap: @escaping () -> Void = {},
@@ -52,7 +50,6 @@ public struct WatchRoundHomeView: View {
         self.toPar = toPar
         self.distanceText = distanceText
         self.pendingUploads = pendingUploads
-        self.ringPips = ringPips
         self.hasHoleMap = hasHoleMap
         self.canRecordShot = canRecordShot
         self.onHoleMap = onHoleMap
@@ -65,11 +62,7 @@ public struct WatchRoundHomeView: View {
     }
 
     public var body: some View {
-        if ringPips.isEmpty {
-            content
-        } else {
-            WatchHoleRingView(pips: ringPips) { content }
-        }
+        content
     }
 
     private var content: some View {
