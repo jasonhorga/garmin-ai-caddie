@@ -2152,7 +2152,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("components.password == nil", backend_store)
         self.assertIn("components.query == nil", backend_store)
         self.assertIn("components.fragment == nil", backend_store)
-        self.assertIn("components.percentEncodedPath.isEmpty || components.percentEncodedPath == \"/\"", backend_store)
+        self.assertIn('let rawPath = components.percentEncodedPath', backend_store)
+        self.assertIn('rawPath.isEmpty || rawPath == "/"', backend_store)
         self.assertNotIn("admin-token\".", backend_store)
 
         self.assertIn("public struct BackendSettingsView: View", backend_view)
@@ -3338,11 +3339,12 @@ class MobileContractTests(unittest.TestCase):
         container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
         for token in ["case .scorecard", "case .holeSelect", "case .menu", "WatchScorecardView", "WatchHoleSelectView", "WatchMenuView"]:
             self.assertIn(token, container)
-        # round-13 spec ①: the 18-hole edge ring on HOME (hugs the rounded-rect screen edge).
+        # Owner decision: the 18-hole edge ring appears only on the main fairway map, never Home.
         ring = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleRingView.swift")
         self.assertIn("struct WatchHoleRingView", ring)
         self.assertIn("struct WatchRingPip", ring)
-        self.assertIn("ringPips", _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundHomeView.swift"))
+        self.assertNotIn("ringPips", _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundHomeView.swift"))
+        self.assertIn("ringPips", _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift"))
         self.assertIn("WatchRingPip(", container)  # container feeds pips from allHoleStates
 
     def test_watch_state_includes_next_shot_prompt_from_phone_bridge(self) -> None:

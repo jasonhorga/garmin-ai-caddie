@@ -30,6 +30,12 @@ _SEMICIRCLE_SCALE = 180.0 / (1 << 31)
 _I32_MIN = -(1 << 31)
 _I32_MAX = (1 << 31) - 1
 
+# ``hole.json`` can describe the physical A green even when the selected layout
+# plays to a B green.  A normal coordinate/quantisation difference is under two
+# metres in the authority-bound corpus; a >10 m endpoint split is therefore a
+# layout choice, not noise.  All precise-geometry consumers share this gate.
+COURSE_DATA_ROUTE_ENDPOINT_OVERRIDE_METRES = 10.0
+
 # 2026-08-04 cross-check: 17 holes across Mission Hills Els, Black Knight B and
 # Sentosa Serapong. All 12 code-3241 lines touched Lake.drc (median 0.62 m), all
 # 38 code-3242 lines touched Bunker.drc (median 0.16 m), and their point order was
@@ -41,6 +47,37 @@ _LINE_SEMANTICS: dict[int, tuple[str, str | None, str | None]] = {
     3242: ("hazard-span", "bunker", "tee-side-to-green-side"),
 }
 _ANCHOR_SURFACES = {18123: "water", 18124: "bunker"}
+
+
+def green_radii_local_offsets(
+    radii: list[int], latitude_degrees: float
+) -> list[tuple[float, float]]:
+    """Decode Garmin's 30-value green outline into local east/north metres.
+
+    The radii are sampled from north clockwise in an angular coordinate plane
+    where longitude has not yet received its latitude correction.  Converting
+    each polar vector therefore scales its east component by ``cos(latitude)``;
+    there is no truthful single metre-or-yard multiplier for the raw values.
+    """
+    latitude = float(latitude_degrees)
+    if not math.isfinite(latitude) or not -90.0 <= latitude <= 90.0:
+        raise ValueError("GreenRadii latitude must be a finite WGS84 latitude")
+    if len(radii) != 30:
+        raise ValueError("GreenRadii must contain 30 values")
+    longitude_scale = math.cos(math.radians(latitude))
+    offsets: list[tuple[float, float]] = []
+    for index, raw_radius in enumerate(radii):
+        radius = _integer(raw_radius, f"GreenRadii[{index}]")
+        if radius < 0:
+            raise ValueError("GreenRadii values must be non-negative")
+        angle = math.radians(index * 12.0)
+        offsets.append(
+            (
+                radius * math.sin(angle) * longitude_scale,
+                radius * math.cos(angle),
+            )
+        )
+    return offsets
 
 
 def _integer(value: Any, label: str) -> int:
@@ -172,9 +209,8 @@ def _normalize_hole(row: Any, *, label: str) -> dict[str, Any]:
     return {
         "holeNumber": _integer(source.get("HoleNumber"), f"{label}.HoleNumber"),
         "infoMask": _integer(source.get("InfoMask"), f"{label}.InfoMask"),
-        # Unit is intentionally not named. Across 17 holes from three courses the absolute
-        # scale against Green.drc varies by course (0.8685--1.0022 m/raw unit), so neither
-        # metres nor yards is a truthful frozen semantic yet.
+        # These are angular-plane radii, not a scalar metre/yard distance. Decode
+        # them with green_radii_local_offsets once the hole latitude is known.
         "greenRadii": radii,
         "lines": [
             _normalize_line(line, label=f"{label}.Line[{index}]")
@@ -370,6 +406,59 @@ def load_cached_course_data(
         global_layout_id=layout,
         include_hazard_lines=include_hazard_lines,
     )
+
+
+def load_cached_hole_route(
+    global_layout_id: int,
+    hole_number: int,
+    *,
+    root: Path = ROOT,
+) -> list[tuple[float, float]] | None:
+    """Return the release-bound route as ``(latitude, longitude)`` pairs.
+
+    This is deliberately cache-only: map rendering and derived-geometry reads
+    must never start a provider request.  Provider hole and point array order is
+    already normalized by :func:`parse_course_data_json`; this helper keeps the
+    A/B-green authority lookup identical for every precise consumer.
+    """
+    try:
+        layout = int(global_layout_id)
+        number = int(hole_number)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if layout <= 0 or number <= 0:
+        return None
+    try:
+        course_data = load_cached_course_data(layout, root=Path(root))
+    except (OSError, TypeError, ValueError):
+        return None
+    hole = next(
+        (
+            row
+            for row in (course_data or {}).get("holes") or []
+            if isinstance(row, dict) and row.get("holeNumber") == number
+        ),
+        None,
+    )
+    route_line = next(
+        (
+            row
+            for row in (hole or {}).get("lines") or []
+            if isinstance(row, dict) and row.get("role") == "route"
+        ),
+        None,
+    )
+    points: list[tuple[float, float]] = []
+    try:
+        for point in (route_line or {}).get("points") or []:
+            latitude = float(point["latitude"])
+            longitude = float(point["longitude"])
+            if not math.isfinite(latitude) or not math.isfinite(longitude):
+                return None
+            points.append((latitude, longitude))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    return points if len(points) >= 2 else None
 
 
 def ensure_course_data(

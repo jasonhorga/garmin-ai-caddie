@@ -1,4 +1,5 @@
 import json
+import math
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -68,6 +69,32 @@ def _payload() -> dict:
 
 
 class CourseViewCoreParserTests(unittest.TestCase):
+    def test_decodes_green_radii_as_latitude_corrected_angular_vectors(self) -> None:
+        offsets = core.green_radii_local_offsets([10] * 30, 60.0)
+
+        self.assertEqual(len(offsets), 30)
+        self.assertAlmostEqual(offsets[0][0], 0.0)
+        self.assertAlmostEqual(offsets[0][1], 10.0)
+        self.assertAlmostEqual(offsets[5][0], 10 * math.sin(math.radians(60)) * 0.5)
+        self.assertAlmostEqual(offsets[5][1], 5.0)
+        self.assertAlmostEqual(offsets[15][0], 0.0)
+        self.assertAlmostEqual(offsets[15][1], -10.0)
+
+    def test_cached_hole_route_uses_normalized_hole_and_point_order(self) -> None:
+        parsed = core.parse_course_data_json(_payload(), includes_hazard_lines=True)
+        with patch.object(core, "load_cached_course_data", return_value=parsed):
+            route = core.load_cached_hole_route(3881, 1)
+
+        expected = next(
+            line
+            for line in parsed["holes"][0]["lines"]
+            if line["role"] == "route"
+        )["points"]
+        self.assertEqual(
+            route,
+            [(point["latitude"], point["longitude"]) for point in expected],
+        )
+
     def test_normalizes_real_shape_sorts_holes_and_decodes_coordinates(self) -> None:
         parsed = core.parse_course_data_json(
             json.dumps(_payload()).encode(),

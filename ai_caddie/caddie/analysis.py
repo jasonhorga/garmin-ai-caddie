@@ -10,6 +10,7 @@ import json
 import math
 
 from ai_caddie.geometry.measure_prodgeometry_distances import (
+    bind_selected_green_target,
     dist,
     line_intervals_for_component,
     mesh_components,
@@ -335,6 +336,7 @@ def load_geometry(global_id: int, local_hole: int) -> dict[str, Any]:
     m_path = mesh_path(global_id, local_hole)
     hazards = read_json(h_path) if h_path.exists() else None
     meshes = read_json(m_path) if m_path.exists() else None
+    hazards = bind_selected_green_target(hazards, meshes)
     components = []
     if meshes:
         by_name = {mesh["name"]: mesh for mesh in meshes.get("meshes", [])}

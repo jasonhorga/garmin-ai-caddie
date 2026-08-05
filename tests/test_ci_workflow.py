@@ -448,16 +448,22 @@ class CIWorkflowTests(unittest.TestCase):
         )
 
         self.assertIn("capture_scope", inputs)
-        self.assertEqual(["full", "review"], inputs["capture_scope"]["options"])
+        self.assertEqual(["full", "review", "edit"], inputs["capture_scope"]["options"])
         self.assertEqual("full", inputs["capture_scope"]["default"])
         self.assertIn("api_base_url", inputs)
         self.assertFalse(inputs["api_base_url"]["required"])
         self.assertEqual("", inputs["api_base_url"]["default"])
         self.assertIn("UITEST_CAPTURE_SCOPE", real_step["env"])
         self.assertIn("TEST_RUNNER_UITEST_CAPTURE_SCOPE", real_step["env"])
-        self.assertIn('if [[ "$UITEST_CAPTURE_SCOPE" == "review" ]]', real_step["run"])
+        self.assertIn('case "$UITEST_CAPTURE_SCOPE" in', real_step["run"])
+        self.assertIn("review)", real_step["run"])
+        self.assertIn("edit)", real_step["run"])
         self.assertIn(
             "-only-testing:AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow",
+            real_step["run"],
+        )
+        self.assertIn(
+            "-only-testing:AICaddieUITests/ReviewEditUITests/testCaptureReviewEditFlow",
             real_step["run"],
         )
         review_exit = 'if cfg("UITEST_CAPTURE_SCOPE") == "review" { return }'

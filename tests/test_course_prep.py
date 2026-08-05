@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import unittest
 from pathlib import Path
@@ -30,6 +31,18 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(cp._xy({"X": 1.0, "Y": 2.0}), (1.0, 2.0))
         self.assertEqual(cp._xy([3.0, 4.0]), (3.0, 4.0))
 
+    def test_lightweight_green_outline_applies_latitude_to_east_component(self) -> None:
+        outline = cp._course_data_green_outline(
+            {"greenRadii": [10] * 30},
+            [(0.0, 0.0), (100.0, 200.0)],
+            green_latitude=60.0,
+        )
+
+        self.assertAlmostEqual(outline[0][0], 100.0)
+        self.assertAlmostEqual(outline[0][1], 210.0)
+        self.assertAlmostEqual(outline[5][0], 104.3301270189)
+        self.assertAlmostEqual(outline[5][1], 205.0)
+
     def test_derive_route_from_dogleg(self) -> None:
         md = {"hole": {
             "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}, {"Sets": [5], "X": 0.0, "Y": 10.0}],
@@ -39,6 +52,76 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(route[0], (0.0, 0.0))           # blue tee (Sets=2)
         self.assertEqual(route[-1], (30.0, 200.0))        # green = dogleg end
         self.assertAlmostEqual(length, 100.0 + (30.0 ** 2 + 100.0 ** 2) ** 0.5, places=1)
+
+    def test_derive_route_uses_selected_course_data_route_for_dual_green(self) -> None:
+        ref_lat, ref_lon = 40.0, 116.0
+        selected_local = [(0.0, 0.0), (12.0, 105.0), (30.0, 230.0)]
+        selected_world = [
+            cp.shot_projection.local_to_world(
+                east, north, ref_lat=ref_lat, ref_lon=ref_lon
+            )
+            for east, north in selected_local
+        ]
+        md = {"hole": {
+            "GlobalId": 38059,
+            "HoleNumber": 5,
+            "RefLat": ref_lat,
+            "RefLon": ref_lon,
+            "TeeLocations": [{"Sets": [2], "X": 2.0, "Y": 1.0}],
+            "Doglegs": [{"Line": [
+                {"X": 0.0, "Y": 0.0},
+                {"X": 0.0, "Y": 100.0},
+                {"X": 0.0, "Y": 200.0},
+            ]}],
+        }}
+
+        with patch.object(
+            cp.courseview_core,
+            "load_cached_hole_route",
+            return_value=selected_world,
+        ):
+            route, length = cp.derive_route(md)
+
+        self.assertEqual(route[0], (2.0, 1.0))
+        self.assertAlmostEqual(route[1][0], 12.0, places=5)
+        self.assertAlmostEqual(route[1][1], 105.0, places=5)
+        self.assertAlmostEqual(route[-1][0], 30.0, places=5)
+        self.assertAlmostEqual(route[-1][1], 230.0, places=5)
+        self.assertAlmostEqual(
+            length,
+            math.dist((2.0, 1.0), (12.0, 105.0))
+            + math.dist((12.0, 105.0), (30.0, 230.0)),
+            places=5,
+        )
+
+    def test_derive_route_keeps_precise_dogleg_for_subthreshold_drift(self) -> None:
+        ref_lat, ref_lon = 40.0, 116.0
+        selected_world = [
+            cp.shot_projection.local_to_world(
+                east, north, ref_lat=ref_lat, ref_lon=ref_lon
+            )
+            for east, north in ((0.0, 0.0), (5.0, 204.0))
+        ]
+        md = {"hole": {
+            "GlobalId": 38059,
+            "HoleNumber": 1,
+            "RefLat": ref_lat,
+            "RefLon": ref_lon,
+            "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],
+            "Doglegs": [{"Line": [
+                {"X": 0.0, "Y": 0.0},
+                {"X": 0.0, "Y": 200.0},
+            ]}],
+        }}
+
+        with patch.object(
+            cp.courseview_core,
+            "load_cached_hole_route",
+            return_value=selected_world,
+        ):
+            route, _length = cp.derive_route(md)
+
+        self.assertEqual(route, [(0.0, 0.0), (0.0, 200.0)])
 
     def test_blue_tee_fallback_to_nearest(self) -> None:
         md = {"hole": {

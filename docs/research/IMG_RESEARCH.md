@@ -152,18 +152,45 @@ The authority report is
 `tools/courseview/audit_course_data_corpus.py` regenerates it and fails closed on
 binding, field, type-code or geometric drift.
 
-The route endpoint matches the authority-compatible `hole.json` dogleg/green
-centre within `0.10 m` in the original 17-hole set. The 30 `GreenRadii` samples
-consistently start at north and run clockwise. The larger matched corpus changes
-the earlier target, however: the radial shape follows the displayed
-`VfxGreenA.drc` outline more closely than the playable `Green.drc` surface, and
-its scale clusters by course at roughly `0.87–0.98 m/raw` rather than using one
-global metre or yard unit. Layout `38059` also exposes a necessary authority
-gate: eight courseData route endpoints are 24–45 m from the available
-prodgeometry build and cannot be used as scale samples. Until course/build/hole
-binding and the `VfxGreenA/B` selection rule are closed, the parser deliberately
-keeps these values unitless and uses them only as a display outline, never for
-numeric front/middle/back distance.
+`GreenRadii` is now closed against 166 strictly authority-bound holes. The
+binding chain is `courseData layout + BuildId → release layout + version +
+CourseGenVersion → hole geometry URL stem → extracted asset directory →
+hole.json GlobalId + HoleNumber + Version`; holes are joined by `HoleNumber`,
+because Garmin's `Holes` array order is not stable. The 30 values are sampled
+from north clockwise in 12° steps in an angular coordinate plane before the
+longitude latitude correction. For sample angle `theta` and endpoint latitude
+`lat`, the exact local display offset is:
+
+```text
+east  = rawRadius × sin(theta) × cos(lat)
+north = rawRadius × cos(theta)
+```
+
+Across 4,980 outline samples, 2,690 fall directly inside the selected VFX mesh;
+distance-to-mesh is P95 `0.355094 m`, P99 `0.432155 m`, maximum `1.443006 m`
+and RMSE `0.155755 m`. These values are therefore decoded for the lightweight
+display outline, but are still not used as front/middle/back distance or green
+slope evidence; precise F/M/B and slope continue to come from the selected
+`Green.drc` component.
+
+Layout `38059` proved to be a real A/B dual-green course, not a version mismatch.
+The selected VFX split is A for holes `1,2,3,4,6,10,13,15` and B for holes
+`5,7,8,9,11,12,14,16,17,18`. The chosen VFX centre is at most `1.666442 m`
+from the `courseData` route endpoint, while the alternate green is at least
+`24.587815 m` away. Its `hole.json Doglegs` endpoint always remains on A, so the
+release-bound `courseData` endpoint is the layout-selection authority whenever
+the two differ by more than `10 m`. Production now applies that rule once for
+the route, target distances, topo marker, F/M/B component and slope component;
+old hazard exports are rebound read-only, while new exports are generated from
+the selected endpoint. The 18-hole product audit preserved the observed
+`hole.json=8 / courseData=10` split with maximum route/target residual
+`0.020981 m` and maximum selected `Green.drc` centre residual `1.105364 m`.
+
+The reproducible report is
+`report/green-radii-vfx-166-audit.json` on the homeserver, SHA-256
+`9f5524c80780d6d30357cdefc484a6a766294b18174a46d2178d93544b4675a8`.
+`tools/courseview/audit_green_radii.py` regenerates both the 166-hole coordinate
+proof and the real 18-hole production-consumer gate.
 
 The production fetch path was also exercised directly against the anonymous
 endpoint on 2026-08-04, rather than only through fixtures. Cypress Point build
@@ -472,24 +499,20 @@ terminal result.
 | Workstream | Remaining evidence required | Completion gate |
 |---|---|---|
 | Acquisition and updates | Catalogue, name/city, radius, release, `MEDIUM`, `MEDIUM_PLUS`, `INTERMEDIATE`, prodgeometry, raster and Green Contours request chains; version/check-for-update semantics | Every APK call path is bound to endpoint, identifiers, auth level, pagination, version and cache invalidation behavior |
-| Lightweight `courseData` | **Codes/flags closed:** manifest-bound 114-course / 1,701-hole audit classifies `InfoMask`, route point bitset, Closure absence, hazard sides, opaque `3243/18125` and non-rendering route subspan `3244`. Remaining: GreenRadii build authority, `VfxGreenA/B` selection and scale | Every field is preserved and either named from multi-course evidence or accompanied by a proven non-rendering/opaque classification |
+| Lightweight `courseData` | **CLOSED:** manifest-bound 114-course / 1,701-hole field/code audit plus 166-hole GreenRadii authority and A/B-selection audit; `InfoMask`, route bitset, Closure absence, hazard sides, `3244`, opaque `3243/18125` and the latitude-corrected 30-vector outline all have terminal decisions | Every field is preserved and either named from multi-course evidence or accompanied by a proven non-rendering/opaque classification |
 | DSKIMG | Semantic classification of the remaining private TRE/RGN vector types | FAT/GMP/TRE/RGN/LBL/default DEM are structurally decoded across 48 strict packages; every declared type is observed. Non-default DEM descriptors have an explicit absence result across 52 courses and remain a version-gated rejection, not an unbounded search task |
 | prodgeometry bundle | **CLOSED:** 184 holes / 2,545 meshes across 15 courses; all mesh/static assets, JSON fields and Draco attributes classified; coordinate/elevation frame independently cross-checked | Zero unclassified mesh, static asset, attribute semantic or data type; every consumed and ignored layer has a recorded product reason, with future unknown channels rejected by the package version gate |
 | Green Contours | Authenticated membership download request, response package, course/build/part binding and S70 rendering behavior | One positive and one negative course are captured and decoded end-to-end; availability flag alone is not accepted as payload evidence |
-| Product package | Source precedence, lightweight-to-precise upgrade, offline cache, integrity/version binding and shared iOS/Watch/Web representation | A newly discovered uncached course opens from factual lightweight data, upgrades without changing round identity, survives offline restart and renders consistently on all three clients |
+| Product package | **CLOSED for current sources:** source precedence, lightweight-to-precise upgrade, offline cache and shared iOS/Watch/Web representation are integrated; dual-green route/component authority is included | A newly discovered uncached course opens from factual lightweight data, upgrades without changing round identity, survives offline restart and renders consistently on all three clients |
 
 ## Next Work
 
-1. Freeze the reproduced FAT, default DEM codec/cross-check, strict 48-course
-   vector/LBL inventory and `courseData` findings as a checkpoint; this is not
-   a declaration that Deep Mine is complete.
-2. Close `GreenRadii` authority/`VfxGreenA/B` selection and the remaining DSKIMG
-   vector-type semantics across the existing multi-region corpus, retaining raw
-   values throughout.
+1. Close the remaining DSKIMG private TRE/RGN type semantics across the existing
+   multi-region corpus, retaining raw values and explicit absence results.
+2. Finish the APK acquisition/update ledger for any request or invalidation path
+   that is not yet terminally bound.
 3. Trace and capture the membership Green Contours path, including one positive
    and one negative course and its S70-visible result.
-4. Productize the proven lightweight facts as a fast fallback and verify their
-   in-place upgrade to precise geometry across backend, iOS, Watch and Web.
 
 ## Practical Conclusion For Now
 

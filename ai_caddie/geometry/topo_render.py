@@ -53,7 +53,7 @@ from ai_caddie.geometry import hole_render
 # topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
-STYLE_VERSION = "topo-v5"  # v5: PhysicsMesh 权威外轮廓;清除材质碎片尖刺/孤岛
+STYLE_VERSION = "topo-v6"  # v6: selected-layout A/B green route + component marker authority
 
 # PhysicsMesh is clipped to the same route corridor used by the renderer.  Unlike the decoded
 # material layers, it is a continuous terrain authority and therefore cannot add TreeArea spikes.
@@ -463,10 +463,10 @@ def _draw_green_marker(img, project, by, route):
     input_mode = img.mode
     marker = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(marker, "RGBA")
-    gl = [_local(p) for p in gm["positions"]]
-    tgt = route[-1]
-    nv = min(gl, key=lambda p: math.hypot(p[0] - tgt[0], p[1] - tgt[1]))
-    near = [p for p in gl if math.hypot(p[0] - nv[0], p[1] - nv[1]) < 35] or [nv]
+    component = course_prep.selected_green_component(by, route)
+    if not component:
+        return img
+    near = [_local(gm["positions"][index]) for index in component["vertex_indices"]]
     cx = sum(p[0] for p in near) / len(near)
     cz = sum(p[1] for p in near) / len(near)
     gpx = [project(p) for p in near]

@@ -2175,8 +2175,6 @@ def build_live_round_package_for_course(
     package_source = source
     geometry_ensure = None
     if selected_round_id is None:
-        if ensure_geometry:
-            geometry_ensure = _ensure_geometry_for_course(int(global_id))
         template_round = _geometry_only_course_template(
             int(global_id),
             round_id=live_round_id,
@@ -2185,6 +2183,12 @@ def build_live_round_package_for_course(
             ensure_lightweight=ensure_lightweight,
             root=root,
         )
+        # Resolve the release-bound lightweight route before generating precise
+        # derivatives.  On A/B dual greens this is the authority that selects
+        # the played green; reversing this order can permanently export A-target
+        # distances for a B-layout on first download.
+        if ensure_geometry:
+            geometry_ensure = _ensure_geometry_for_course(int(global_id))
         if template_round is not None:
             package_source = HistoryData(
                 raw_rounds=source.raw_rounds,

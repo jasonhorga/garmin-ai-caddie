@@ -5,9 +5,15 @@ its live distance to the green from CoreLocation, offline on the course.
 """
 import math
 import unittest
+from unittest.mock import patch
 
 from ai_caddie.courses import course_prep
+from ai_caddie.courses import courseview_core
 from ai_caddie.geometry import shot_projection
+from ai_caddie.geometry.measure_prodgeometry_distances import (
+    bind_selected_green_target,
+    target_point,
+)
 
 
 # Synthetic Green.drc with TWO disconnected components (mesh positions are [x, y, z];
@@ -48,6 +54,19 @@ class CoursePrepGreenDistancesTest(unittest.TestCase):
         # frontM ~196 proves the component nearest route[-1] (this hole's green) was chosen.
         out = course_prep._green_distances(BY, ROUTE)
         self.assertGreater(out["frontM"], 150.0)
+
+    def test_green_slope_receives_only_selected_component_vertices(self):
+        expected = BY["Green.drc"]["positions"][:4]
+        with patch.object(
+            course_prep.elevation,
+            "green_slope",
+            return_value={"available": True},
+        ) as slope:
+            out = course_prep._green_slope(BY, ROUTE)
+
+        self.assertTrue(out["available"])
+        selected_mesh = slope.call_args.args[0]["meshes"][0]
+        self.assertEqual(selected_mesh["positions"], expected)
 
     def test_no_route_or_green_degrades(self):
         self.assertFalse(course_prep._green_distances(BY, [])["available"])
@@ -123,6 +142,55 @@ class GreenCoordinatesTest(unittest.TestCase):
         self.assertTrue(out["available"])
         self.assertNotIn("frontLat", out)
         self.assertEqual(out["middleM"], course_prep._green_distances(BY, ROUTE)["middleM"])
+
+
+class DualGreenTargetAuthorityTest(unittest.TestCase):
+    def test_target_and_legacy_hazard_cache_follow_selected_course_data_green(self):
+        ref_lat, ref_lon = 40.0, 116.0
+        selected_world = [
+            shot_projection.local_to_world(
+                east, north, ref_lat=ref_lat, ref_lon=ref_lon
+            )
+            for east, north in ((0.0, 0.0), (30.0, 230.0))
+        ]
+        hole = {
+            "GlobalId": 38059,
+            "HoleNumber": 5,
+            "RefLat": ref_lat,
+            "RefLon": ref_lon,
+            "Doglegs": [{"Line": [
+                {"X": 0.0, "Y": 0.0},
+                {"X": 0.0, "Y": 200.0},
+            ]}],
+        }
+        hazards = {
+            "target": {"name": "Dogleg/green endpoint", "position": [0.0, 200.0]},
+            "tees": [{"position": [0.0, 0.0], "target_distance_m": 200.0}],
+            "hazards": [],
+        }
+
+        with patch.object(
+            courseview_core,
+            "load_cached_hole_route",
+            return_value=selected_world,
+        ):
+            name, target = target_point(hole, [])
+            rebound = bind_selected_green_target(
+                hazards,
+                {"hole": hole, "meshes": []},
+            )
+
+        self.assertEqual(name, "courseData selected green endpoint")
+        self.assertAlmostEqual(target[0], 30.0, places=5)
+        self.assertAlmostEqual(target[1], 230.0, places=5)
+        self.assertEqual(rebound["target"]["name"], name)
+        self.assertAlmostEqual(rebound["target"]["position"][0], 30.0, places=2)
+        self.assertAlmostEqual(rebound["target"]["position"][1], 230.0, places=2)
+        self.assertEqual(
+            rebound["tees"][0]["target_distance_m"],
+            round(math.hypot(30.0, 230.0), 1),
+        )
+        self.assertEqual(hazards["target"]["position"], [0.0, 200.0])
 
 
 if __name__ == "__main__":

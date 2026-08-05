@@ -22,7 +22,7 @@ class TopoRenderModuleTests(unittest.TestCase):
     def test_topo_v5_starts_overlays_on_a_transparent_course_canvas(self) -> None:
         from PIL import Image
 
-        self.assertEqual(topo_render.STYLE_VERSION, "topo-v5")
+        self.assertEqual(topo_render.STYLE_VERSION, "topo-v6")
         self.assertTrue(hasattr(topo_render, "_clip_to_transparent_canvas"))
 
         source = Image.new("RGB", (2, 1), topo_render.PAL["bg"])

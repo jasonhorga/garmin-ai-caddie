@@ -5,6 +5,7 @@ import math
 from typing import Any, Iterable, Literal
 
 from ai_caddie.core.data import ROOT, hazard_path, local_to_wgs84, mesh_path, read_json, wgs84_to_local
+from ai_caddie.geometry.measure_prodgeometry_distances import bind_selected_green_target
 
 GeometryCoverage = Literal["ready", "partial", "missing"]
 GCJ02_PROVIDERS = {"amap", "amap_gcj02", "gaode", "gaode_gcj02", "tencent", "baidu"}
@@ -118,6 +119,14 @@ def _load_json_if_ready(path: Path) -> dict[str, Any] | None:
         return None
     value = read_json(path)
     return value if isinstance(value, dict) else None
+
+
+def _load_hole_sources(global_id: int, local_hole: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load geometry and bind any legacy hazard target to the selected layout."""
+    hazards = _load_json_if_ready(hazard_path(int(global_id), int(local_hole))) or {}
+    meshes = _load_json_if_ready(mesh_path(int(global_id), int(local_hole))) or {}
+    rebound = bind_selected_green_target(hazards, meshes)
+    return (rebound or {}, meshes)
 
 
 def _position_to_lonlat(position: Any, ref_lat: float | None, ref_lon: float | None) -> list[float] | None:
@@ -311,8 +320,7 @@ def _polygon_ring(points: Any, ref_lat: float | None, ref_lon: float | None) -> 
 
 
 def classify_shot_surface(global_id: int, local_hole: int, shot: dict[str, Any]) -> dict[str, Any]:
-    hazards = _load_json_if_ready(hazard_path(int(global_id), int(local_hole))) or {}
-    meshes = _load_json_if_ready(mesh_path(int(global_id), int(local_hole))) or {}
+    hazards, meshes = _load_hole_sources(global_id, local_hole)
     ref_lat = hazards.get("refLat")
     ref_lon = hazards.get("refLon")
     ref_lat_float = float(ref_lat) if ref_lat is not None else None
@@ -359,7 +367,7 @@ def build_route_geometry_evidence(
     landing_radius_m: float = 18.0,
 ) -> dict[str, Any]:
     coverage = geometry_coverage_for_hole(int(global_id), int(local_hole))
-    hazards = _load_json_if_ready(hazard_path(int(global_id), int(local_hole))) or {}
+    hazards, _meshes = _load_hole_sources(global_id, local_hole)
     ref_lat = hazards.get("refLat")
     ref_lon = hazards.get("refLon")
     ref_lat_float = float(ref_lat) if ref_lat is not None else None
@@ -703,8 +711,7 @@ def build_hole_map_dto(
 ) -> dict[str, Any]:
     provider_config = map_provider_config(provider)
     coverage = geometry_coverage_for_hole(global_id, local_hole)
-    hazards = _load_json_if_ready(hazard_path(int(global_id), int(local_hole))) or {}
-    meshes = _load_json_if_ready(mesh_path(int(global_id), int(local_hole))) or {}
+    hazards, meshes = _load_hole_sources(global_id, local_hole)
     ref_lat = hazards.get("refLat") if hazards.get("refLat") is not None else meshes.get("refLat")
     ref_lon = hazards.get("refLon") if hazards.get("refLon") is not None else meshes.get("refLon")
     ref_lat_float = float(ref_lat) if ref_lat is not None else None

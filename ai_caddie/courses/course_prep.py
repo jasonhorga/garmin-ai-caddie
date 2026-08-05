@@ -66,8 +66,43 @@ def _dogleg_line(hole_meta: dict):
     return None
 
 
+def _course_data_route_in_hole_frame(hole_meta: dict) -> list[tuple[float, float]] | None:
+    """Project the cached selected-layout route into ``hole.json``'s local frame."""
+    try:
+        route = courseview_core.load_cached_hole_route(
+            int(hole_meta["GlobalId"]),
+            int(hole_meta["HoleNumber"]),
+        )
+        ref_lat = float(hole_meta["RefLat"])
+        ref_lon = float(hole_meta["RefLon"])
+        projected = [
+            shot_projection.world_to_local(
+                latitude,
+                longitude,
+                ref_lat=ref_lat,
+                ref_lon=ref_lon,
+            )
+            for latitude, longitude in (route or [])
+        ]
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    deduped: list[tuple[float, float]] = []
+    for point in projected:
+        if not deduped or math.dist(point, deduped[-1]) > 0.01:
+            deduped.append(point)
+    return deduped if len(deduped) >= 2 else None
+
+
 def derive_route(md: dict):
-    """Return (route, route_len_m) following the dogleg, or (None, None)."""
+    """Return the selected-layout route, or ``(None, None)`` when unavailable.
+
+    Garmin ``hole.json`` is normally the exact route authority, but a dual-green
+    package can keep its Doglegs endpoint on physical green A while ``courseData``
+    selects green B for this layout.  Preserve the precise blue Tee and Doglegs
+    route unless the release-bound endpoint differs by more than the proven
+    layout-selection threshold; only then use courseData's subsequent route
+    points and selected endpoint.
+    """
     hole_meta = md.get("hole") or {}
     line = _dogleg_line(hole_meta)
     if not line:
@@ -75,7 +110,20 @@ def derive_route(md: dict):
     tee = _blue_tee(hole_meta, line[0])
     if not tee:
         return None, None
-    route = [tee] + line[1:]
+    selected_route = _course_data_route_in_hole_frame(hole_meta)
+    if (
+        selected_route
+        and math.dist(selected_route[-1], line[-1])
+        > courseview_core.COURSE_DATA_ROUTE_ENDPOINT_OVERRIDE_METRES
+    ):
+        route = [tee]
+        for point in selected_route[1:]:
+            if math.dist(point, route[-1]) > 0.01:
+                route.append(point)
+    else:
+        route = [tee] + line[1:]
+    if len(route) < 2:
+        return None, None
     length = sum(math.hypot(route[i + 1][0] - route[i][0], route[i + 1][1] - route[i][1])
                  for i in range(len(route) - 1))
     return route, length
@@ -617,14 +665,35 @@ def _hole_playslike(by: dict, route) -> dict:
         return {"available": False}
 
 
-def _green_slope(by: dict) -> dict:
-    """Green break arrow from the Green mesh elevation (v1, no DSKIMG). Wraps the single ``Green.drc``
-    mesh so ``elevation.collect_positions`` reads its vertices. Empty when the green mesh is missing."""
+def selected_green_component(by: dict, route) -> dict | None:
+    """Return the connected Green component nearest the selected route endpoint."""
+    green = (by or {}).get("Green.drc") if isinstance(by, dict) else None
+    if not route or not isinstance(green, dict):
+        return None
+    try:
+        from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
+
+        components = mesh_components(green)
+        target = (float(route[-1][0]), float(route[-1][1]))
+        return min(
+            components,
+            key=lambda component: math.dist(component["centroid"], target),
+        ) if components else None
+    except Exception:
+        return None
+
+
+def _green_slope(by: dict, route) -> dict:
+    """Green break arrow from only the selected Green component (v1, no DSKIMG)."""
     green = by.get("Green.drc") if isinstance(by, dict) else None
-    if not green:
+    component = selected_green_component(by, route)
+    if not green or not component:
         return {"available": False}
     try:
-        return elevation.green_slope({"meshes": [green]})
+        selected_positions = [
+            green["positions"][index] for index in component["vertex_indices"]
+        ]
+        return elevation.green_slope({"meshes": [{"positions": selected_positions}]})
     except Exception:
         return {"available": False}
 
@@ -653,14 +722,10 @@ def _green_distances(by: dict, route, md: dict | None = None) -> dict:
     if not isinstance(green, dict) or not green.get("positions") or not green.get("faces"):
         return {"available": False}
     try:
-        from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
-
-        comps = mesh_components(green)
-        if not comps:
+        comp = selected_green_component(by, route)
+        if not comp:
             return {"available": False}
         tee = (float(route[0][0]), float(route[0][1]))
-        target = (float(route[-1][0]), float(route[-1][1]))
-        comp = min(comps, key=lambda c: math.hypot(c["centroid"][0] - target[0], c["centroid"][1] - target[1]))
         verts = [p for tri in comp["triangles"] for p in tri]
         if not verts:
             return {"available": False}
@@ -872,32 +937,24 @@ def _course_data_local_point(
 def _course_data_green_outline(
     hole: dict,
     route: list[tuple[float, float]],
+    *,
+    green_latitude: float,
 ) -> list[tuple[float, float]]:
-    """Preserve Garmin's 30-direction legacy green outline for drawing only.
+    """Decode Garmin's 30-direction legacy green outline for drawing only.
 
-    The values align closely with the precise Green mesh but their absolute
-    scale is not stable enough for numeric F/M/B claims.  Treating one raw unit
-    as one local display unit keeps the factual shape and ordering without
-    exposing it as a measured distance.
+    Garmin sampled the values from north clockwise before applying longitude's
+    latitude correction. ``green_radii_local_offsets`` restores that coordinate
+    transform. The result remains a display outline, not numeric F/M/B evidence.
     """
     radii = hole.get("greenRadii") or []
     if len(radii) != 30 or not route:
         return []
     center = route[-1]
-    outline: list[tuple[float, float]] = []
-    for index, raw_radius in enumerate(radii):
-        try:
-            radius = float(raw_radius)
-        except (TypeError, ValueError, OverflowError):
-            return []
-        angle = math.radians(index * 12.0)  # north, then clockwise
-        outline.append(
-            (
-                center[0] + radius * math.sin(angle),
-                center[1] + radius * math.cos(angle),
-            )
-        )
-    return outline
+    try:
+        offsets = courseview_core.green_radii_local_offsets(radii, green_latitude)
+    except (TypeError, ValueError, OverflowError):
+        return []
+    return [(center[0] + east, center[1] + north) for east, north in offsets]
 
 
 def _course_data_hazards(
@@ -1044,7 +1101,20 @@ def _lightweight_prep_hole(
     route, ref_lat, ref_lon = route_result
     route_rows = _route_with_cumulative(route)
     route_len = route_rows[-1][2]
-    green_outline = _course_data_green_outline(hole, route)
+    route_line = next(
+        (
+            row
+            for row in hole.get("lines") or []
+            if isinstance(row, dict) and row.get("role") == "route"
+        ),
+        None,
+    )
+    green_latitude = float((route_line or {}).get("points", [{}])[-1]["latitude"])
+    green_outline = _course_data_green_outline(
+        hole,
+        route,
+        green_latitude=green_latitude,
+    )
     hazards, local_hazards = _course_data_hazards(
         hole,
         route,
@@ -1264,7 +1334,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         tee_club=tee_club, hazards=hazards,
         playsLike=_hole_playslike(by, route),
         greenDistances=_green_distances(by, route, md),
-        greenSlope=_green_slope(by),
+        greenSlope=_green_slope(by, route),
         holeImageProjection=_hole_image_projection(by, route, md),
     )
     result = prep.to_dict()
