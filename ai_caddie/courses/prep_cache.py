@@ -9,6 +9,7 @@ moment any input changes. Invalidation is by **filesystem fingerprint** (not TTL
 mirroring ``stats_cache``:
 
   - course geometry dirs (mesh + hazards) — feed route / hazards / F/M/B / map,
+  - the selected course's release + ``courseData`` cache — feed the lightweight map,
   - the owner's shot dir + club-bag file — feed the club ladder + your-shots scatter,
   - the per-course par record (``data/courses/<gid>.json``).
 
@@ -30,6 +31,7 @@ from ai_caddie.core.data import (
 )
 
 _COURSES_DIR = DATA_DIR / "courses"
+_COURSEVIEW_DIR = DATA_DIR / "courseview"
 
 # Bound the cache so a token holder can't enumerate arbitrarily many (holes × render × include_shots)
 # keys — each render=True entry embeds ~1MB of base64 hole maps — and exhaust memory. LRU: ~per-course
@@ -79,6 +81,27 @@ def _file_sig(path: Path) -> tuple[int, int] | None:
     return (st.st_mtime_ns, st.st_size)
 
 
+def _course_data_sig(global_id: int) -> tuple[int, str]:
+    """Fingerprint only this course's release-bound lightweight authority files."""
+    gid = int(global_id)
+    paths = [
+        _COURSEVIEW_DIR / f"{gid}_releases.pb",
+        *_COURSEVIEW_DIR.glob(f"{gid}_course_data_*.json"),
+    ]
+    rows: list[tuple[str, int, int]] = []
+    for path in paths:
+        try:
+            stat = path.stat()
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        rows.append((path.name, stat.st_size, stat.st_mtime_ns))
+    rows.sort()
+    digest = hashlib.blake2b(digest_size=16)
+    for name, size, mtime_ns in rows:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00".encode("utf-8"))
+    return (len(rows), digest.hexdigest())
+
+
 def _fingerprint(global_id: int, player_id: str = OWNER_ID) -> tuple:
     par_sig = _file_sig(_COURSES_DIR / f"{int(global_id)}.json")  # par record (shared)
     if player_id == OWNER_ID:
@@ -90,6 +113,7 @@ def _fingerprint(global_id: int, player_id: str = OWNER_ID) -> tuple:
             _file_sig(CLUBS_BAG_FILE),                       # restrict_to_bag (real Garmin bag)
             _file_sig(CLUBS_FILE),                           # manual club-name overrides (clubs.json)
             par_sig,
+            _course_data_sig(global_id),                    # CourseView route/green/hazard facts
         )
     # A member's prep reads only their own tree (player-scoped loaders) — sig THOSE so their prep
     # refreshes when they log shots / edit their manual bag. Derived from DATA_DIR inline (no
@@ -102,6 +126,7 @@ def _fingerprint(global_id: int, player_id: str = OWNER_ID) -> tuple:
         _dir_sig(base / "scorecards"),                       # their scatter reads scorecards too
         _file_sig(base / "club_bag_manual.json"),            # their manual bag (selection + typed dist)
         par_sig,
+        _course_data_sig(global_id),                         # shared CourseView lightweight map
     )
 
 

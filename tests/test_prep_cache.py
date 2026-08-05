@@ -74,6 +74,24 @@ class PrepCacheTests(unittest.TestCase):
             self.assertEqual(before[0], after[0], "file count must be unchanged (the trap)")
             self.assertNotEqual(before, after, "in-place edit of a non-newest file must change the sig")
 
+    def test_course_data_sig_tracks_only_the_selected_course_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            original = prep_cache._COURSEVIEW_DIR
+            prep_cache._COURSEVIEW_DIR = directory
+            self.addCleanup(setattr, prep_cache, "_COURSEVIEW_DIR", original)
+
+            before = prep_cache._course_data_sig(31795)
+            (directory / "31795_releases.pb").write_bytes(b"release")
+            after_release = prep_cache._course_data_sig(31795)
+            (directory / "31795_course_data_88_medium-plus.json").write_text("{}")
+            after_map = prep_cache._course_data_sig(31795)
+            (directory / "99999_course_data_1_medium-plus.json").write_text("{}")
+
+            self.assertNotEqual(before, after_release)
+            self.assertNotEqual(after_release, after_map)
+            self.assertEqual(prep_cache._course_data_sig(31795), after_map)
+
     def test_singleflight_same_key_cold_cache_builds_once(self) -> None:
         # Thundering-herd guard: N concurrent first-requests for the SAME uncached key must
         # run the ~19s build exactly once; the late arrivals wait and read the cached result.

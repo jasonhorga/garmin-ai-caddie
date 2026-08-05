@@ -1942,12 +1942,19 @@ describe('mobile reconciliation API helpers', () => {
 
     const data = await fetchMobileCoursePackage(
       31795,
-      { roundId: 'live-black-knight', teeBox: 'blue', capturedAt: '2026-05-25T08:00:00Z', ensureGeometry: true },
+      {
+        roundId: 'live-black-knight',
+        teeBox: 'blue',
+        capturedAt: '2026-05-25T08:00:00Z',
+        ensureGeometry: true,
+        backgroundGeometry: true,
+        includeEventCursor: false,
+      },
       'admin-secret',
     )
 
     expect(fetch).toHaveBeenCalledWith(
-      '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&captured_at=2026-05-25T08%3A00%3A00Z&ensure_geometry=true',
+      '/api/v2/mobile/courses/31795/package?round_id=live-black-knight&tee_box=blue&captured_at=2026-05-25T08%3A00%3A00Z&ensure_geometry=true&background_geometry=true&include_event_cursor=false',
       { headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' } },
     )
     expect(data.roundId).toBe('live-black-knight')

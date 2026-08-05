@@ -577,6 +577,8 @@ export function fetchMobileCoursePackage(
   appendParam(query, 'tee_box', params.teeBox)
   appendParam(query, 'captured_at', params.capturedAt)
   appendParam(query, 'ensure_geometry', params.ensureGeometry)
+  appendParam(query, 'background_geometry', params.backgroundGeometry)
+  appendParam(query, 'include_event_cursor', params.includeEventCursor)
   const suffix = query.toString()
   return getJson<LiveRoundPackageResponse>(
     `/api/v2/mobile/courses/${encodeURIComponent(String(globalId))}/package${suffix ? `?${suffix}` : ''}`,

@@ -278,8 +278,18 @@ class AvailablePrepHolesTests(unittest.TestCase):
 
     def test_no_geometry_falls_back_to_front_nine(self) -> None:
         with TemporaryDirectory() as tmp:
-            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)):
+            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)), \
+                    patch("ai_caddie.courses.courseview_core.load_cached_course_data", return_value=None):
                 self.assertEqual(course_prep.available_prep_holes(99999), list(range(1, 10)))
+
+    def test_course_data_exposes_all_holes_before_precise_geometry_arrives(self) -> None:
+        lightweight = {
+            "holes": [{"holeNumber": hole} for hole in range(1, 19)],
+        }
+        with TemporaryDirectory() as tmp:
+            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)), \
+                    patch("ai_caddie.courses.courseview_core.load_cached_course_data", return_value=lightweight):
+                self.assertEqual(course_prep.available_prep_holes(55123), list(range(1, 19)))
 
     def test_partial_geometry_returns_only_cached_holes_sorted(self) -> None:
         with TemporaryDirectory() as tmp:

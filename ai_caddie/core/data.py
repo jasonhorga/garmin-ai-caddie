@@ -354,11 +354,13 @@ def mesh_path(global_id: int, local_hole: int) -> Path:
 
 
 def available_prep_holes(global_id: int) -> list[int]:
-    """Sorted local hole numbers that have decoded geometry meshes for this course.
+    """Sorted local hole numbers from precise geometry or the cached lightweight map.
 
     Derived from the same ``MESH_DIR`` files that :func:`mesh_path`/geometry coverage
     read, so single-gid 18-hole courses (e.g. gid41825 with h01..h18) prep ALL their
-    holes by default. No cached geometry → fall back to the front nine [1..9].
+    holes by default. A newly selected course can expose the same complete hole list from
+    release-bound CourseView ``courseData`` while prodgeometry downloads. With neither source,
+    retain the legacy front-nine fallback.
     """
     pattern = re.compile(rf"gid{int(global_id)}_h(\d+)_meshes\.json$")
     holes = sorted(
@@ -366,7 +368,26 @@ def available_prep_holes(global_id: int) -> list[int]:
         for path in MESH_DIR.glob(f"gid{int(global_id)}_h*_meshes.json")
         if (match := pattern.match(path.name))
     )
-    return holes or list(range(1, 10))
+    if holes:
+        return holes
+    try:
+        # Lazy import avoids the courseview_core -> core.data module cycle at import time.
+        from ai_caddie.courses.courseview_core import load_cached_course_data
+
+        course_data = load_cached_course_data(int(global_id))
+        lightweight_holes = sorted({
+            int(row["holeNumber"])
+            for row in (course_data or {}).get("holes") or []
+            if isinstance(row, dict)
+            and isinstance(row.get("holeNumber"), int)
+            and not isinstance(row.get("holeNumber"), bool)
+            and 0 < int(row["holeNumber"]) <= 36
+        })
+        if lightweight_holes:
+            return lightweight_holes
+    except (OSError, TypeError, ValueError):
+        pass
+    return list(range(1, 10))
 
 
 def available_holes() -> list[dict[str, Any]]:

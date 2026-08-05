@@ -6,14 +6,16 @@ import type {
   CoursePrepResponse,
   CourseSearchResponse,
   HistoryStatsResponse,
+  LiveRoundPackageResponse,
   MobileCourseOptionsResponse,
   PrepTipsResponse,
 } from '../types'
-import { fetchCoursePrep, fetchPrepTips } from '../api'
+import { fetchCoursePrep, fetchMobileCoursePackage, fetchPrepTips } from '../api'
 import { PrepPage } from './PrepPage'
 
 vi.mock('../api', () => ({
   fetchCoursePrep: vi.fn(),
+  fetchMobileCoursePackage: vi.fn(),
   fetchPrepTips: vi.fn(),
   topoImageUrl: (gid: number, hole: number) => `/api/v2/courses/${gid}/holes/${hole}/topo.png`,
   prewarmCourseTopo: vi.fn(async () => undefined),
@@ -21,6 +23,7 @@ vi.mock('../api', () => ({
 }))
 
 const fetchCoursePrepMock = vi.mocked(fetchCoursePrep)
+const fetchMobileCoursePackageMock = vi.mocked(fetchMobileCoursePackage)
 const fetchPrepTipsMock = vi.mocked(fetchPrepTips)
 
 function prepHole(hole: number, par: number, blueYards: number, extra: Partial<CoursePrepHole> = {}): CoursePrepHole {
@@ -167,7 +170,14 @@ function renderPrep(overrides: Partial<Parameters<typeof PrepPage>[0]> = {}) {
 
 beforeEach(() => {
   fetchCoursePrepMock.mockReset()
+  fetchMobileCoursePackageMock.mockReset()
   fetchPrepTipsMock.mockReset()
+  fetchMobileCoursePackageMock.mockImplementation(async (globalId: number) => ({
+    holes: [
+      { number: 1, sourceGlobalId: globalId, sourceLocalHole: 1 },
+      { number: 2, sourceGlobalId: globalId, sourceLocalHole: 2 },
+    ],
+  } as unknown as LiveRoundPackageResponse))
   fetchCoursePrepMock.mockImplementation(async (globalId: number) => prepResponse(globalId))
   fetchPrepTipsMock.mockImplementation(async () => tipsResponse())
 })
@@ -201,7 +211,12 @@ describe('PrepPage workbench', () => {
     // 你的战绩 joins stats.courses via the option's courseKey (5 rounds), not the
     // option's own roundCount (2).
     expect(screen.getByText('你的战绩:打过 5 次 · 均杆 80.5')).toBeInTheDocument()
-    expect(fetchCoursePrepMock).toHaveBeenCalledWith(31795, { includeShots: true }, 'admin-secret')
+    expect(fetchMobileCoursePackageMock).toHaveBeenCalledWith(
+      31795,
+      { roundId: 'web-prep-31795', backgroundGeometry: true, includeEventCursor: false },
+      'admin-secret',
+    )
+    expect(fetchCoursePrepMock).toHaveBeenCalledWith(31795, { holes: [1, 2], includeShots: true }, 'admin-secret')
     expect(fetchPrepTipsMock).toHaveBeenCalledWith(31795, 'admin-secret')
     expect(screen.queryByText('选择球场开始备战')).not.toBeInTheDocument()
   })
@@ -435,6 +450,11 @@ describe('PrepPage 针对你 tips (inspector)', () => {
       tips: [{ priority: 1, severity: 'high', text: '新球场:关注最长洞', basis: 'course.prepHoles', sourceRefs: [] }],
     }))
     const { view, props } = renderPrep()
+
+    // Tips now wait until the matching course package/prep is ready. Let the first course reach
+    // that point so `first` genuinely represents an in-flight stale response.
+    await screen.findByText('PAR 9 · 900 码')
+    expect(fetchPrepTipsMock).toHaveBeenCalledTimes(1)
 
     view.rerender(<PrepPage {...props} globalId={31870} />)
     await screen.findByText(/PAR \d+ · /)

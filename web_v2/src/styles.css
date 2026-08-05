@@ -6388,6 +6388,13 @@ button.round-detail-cell:hover {
   line-height: 0;
 }
 
+.hole-base.is-vector-only {
+  height: 100%;
+  background:
+    radial-gradient(80% 60% at 50% 18%, rgba(87, 159, 91, .36), transparent 75%),
+    #173f2c;
+}
+
 .hole-base-flat {
   display: block;
   width: 100%;

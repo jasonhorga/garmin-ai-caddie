@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { fetchCoursePrep, fetchPrepTips, prewarmCourseTopo } from '../api'
+import { fetchCoursePrep, fetchMobileCoursePackage, fetchPrepTips, prewarmCourseTopo } from '../api'
 import type {
   CoursePrepResponse,
   CourseSearchMatch,
   CourseSearchResponse,
   HistoryStatsResponse,
+  LiveRoundPackageResponse,
   MobileCourseOption,
   MobileCourseOptionsResponse,
   PrepTipsResponse,
@@ -29,6 +30,52 @@ interface PrepPageProps {
 // paints the previous course's numbers and effects never set state synchronously.
 type PrepResult<T> = { data: T } | { error: string }
 type PrepDone<T> = { key: string; result: PrepResult<T> }
+
+const PRECISE_MAP_POLL_MS = 30_000
+
+function packageHoleNumbers(data: LiveRoundPackageResponse, globalId: number): number[] {
+  const holes = new Set<number>()
+  for (const row of Array.isArray(data.holes) ? data.holes : []) {
+    if (!row || typeof row !== 'object') continue
+    const sourceGlobalId = asNumber(row.sourceGlobalId)
+    if (sourceGlobalId !== null && sourceGlobalId !== globalId) continue
+    const number = asNumber(row.sourceLocalHole) ?? asNumber(row.number)
+    if (number !== null && Number.isInteger(number) && number > 0 && number <= 36) holes.add(number)
+  }
+  return [...holes].sort((a, b) => a - b)
+}
+
+async function fetchPreparedCourse(
+  globalId: number,
+  adminToken?: string,
+): Promise<CoursePrepResponse> {
+  let packageError: unknown = null
+  let holes: number[] = []
+  try {
+    const coursePackage = await fetchMobileCoursePackage(
+      globalId,
+      {
+        roundId: `web-prep-${globalId}`,
+        backgroundGeometry: true,
+        includeEventCursor: false,
+      },
+      adminToken,
+    )
+    holes = packageHoleNumbers(coursePackage, globalId)
+  } catch (error: unknown) {
+    // Existing cached prep remains useful during a transient package failure. If it has no map
+    // authority at all, surface the acquisition failure below instead of painting fake readiness.
+    packageError = error
+  }
+
+  const data = await fetchCoursePrep(
+    globalId,
+    { ...(holes.length > 0 ? { holes } : {}), includeShots: true },
+    adminToken,
+  )
+  if (packageError && !data.holes.some((hole) => hole.geometryCoverage !== 'missing')) throw packageError
+  return data
+}
 
 function findCourseOption(courseOptions: MobileCourseOptionsResponse | null, globalId: number): MobileCourseOption | null {
   if (!courseOptions || !Array.isArray(courseOptions.courses)) return null
@@ -173,12 +220,21 @@ export function PrepPage({
   // from an earlier course/attempt must never clobber the latest request.
   const prepSeq = useRef(0)
   const tipsSeq = useRef(0)
+  const prepKey = globalId === null ? null : `${globalId}:${prepAttempt}`
+  const prepCurrent = prepKey !== null && prepDone?.key === prepKey ? prepDone.result : null
+  const prepData = prepCurrent !== null && 'data' in prepCurrent ? prepCurrent.data : null
+  const prepError = prepCurrent !== null && 'error' in prepCurrent ? prepCurrent.error : null
+  const prepLoadedKey = prepData === null ? null : prepKey
+  const tipsKey = globalId === null ? null : `${globalId}:${tipsAttempt}`
+  const tipsCurrent = tipsKey !== null && tipsDone?.key === tipsKey ? tipsDone.result : null
+  const tipsData = tipsCurrent !== null && 'data' in tipsCurrent ? tipsCurrent.data : null
+  const tipsError = tipsCurrent !== null && 'error' in tipsCurrent ? tipsCurrent.error : null
 
   useEffect(() => {
     if (globalId === null) return
     const key = `${globalId}:${prepAttempt}`
     const seq = ++prepSeq.current
-    fetchCoursePrep(globalId, { includeShots: true }, adminToken)
+    fetchPreparedCourse(globalId, adminToken)
       .then((data) => {
         if (prepSeq.current !== seq) return
         setPrepDone({ key, result: { data } })
@@ -189,16 +245,35 @@ export function PrepPage({
       })
   }, [globalId, adminToken, prepAttempt])
 
+  // A CourseView map is already usable. Keep it on screen while checking at a low cadence for the
+  // prodgeometry replacement queued by the package request; failures preserve the current facts.
+  useEffect(() => {
+    if (globalId === null || prepKey === null || !prepData?.holes.some((hole) => hole.geometryCoverage === 'partial')) return
+    const holes = prepData.holes.map((hole) => hole.hole)
+    const timer = window.setTimeout(() => {
+      const seq = ++prepSeq.current
+      void fetchCoursePrep(globalId, { holes, includeShots: true }, adminToken)
+        .then((data) => {
+          if (prepSeq.current !== seq) return
+          setPrepDone({ key: prepKey, result: { data } })
+        })
+        .catch(() => {
+          // The lightweight map remains the honest current state; the next mounted cycle retries.
+        })
+    }, PRECISE_MAP_POLL_MS)
+    return () => window.clearTimeout(timer)
+  }, [globalId, adminToken, prepData, prepKey])
+
   // On course select, kick a background render of ALL the course's hole topo bitmaps so browsing
   // holes hits a warm cache instead of paying ~6–10s on each hole's first view. Fire-and-forget:
   // failures are swallowed (holes still render lazily on first view as before).
   useEffect(() => {
-    if (globalId === null) return
+    if (globalId === null || prepLoadedKey === null) return
     void prewarmCourseTopo(globalId).catch(() => {})
-  }, [globalId])
+  }, [globalId, prepLoadedKey])
 
   useEffect(() => {
-    if (globalId === null) return
+    if (globalId === null || prepLoadedKey === null) return
     const key = `${globalId}:${tipsAttempt}`
     const seq = ++tipsSeq.current
     fetchPrepTips(globalId, adminToken)
@@ -210,7 +285,7 @@ export function PrepPage({
         if (tipsSeq.current !== seq) return
         setTipsDone({ key, result: { error: error instanceof Error ? error.message : '未知错误' } })
       })
-  }, [globalId, adminToken, tipsAttempt])
+  }, [globalId, adminToken, tipsAttempt, prepLoadedKey])
 
   if (globalId === null) {
     return (
@@ -226,13 +301,6 @@ export function PrepPage({
       </section>
     )
   }
-
-  const prepCurrent = prepDone !== null && prepDone.key === `${globalId}:${prepAttempt}` ? prepDone.result : null
-  const prepData = prepCurrent !== null && 'data' in prepCurrent ? prepCurrent.data : null
-  const prepError = prepCurrent !== null && 'error' in prepCurrent ? prepCurrent.error : null
-  const tipsCurrent = tipsDone !== null && tipsDone.key === `${globalId}:${tipsAttempt}` ? tipsDone.result : null
-  const tipsData = tipsCurrent !== null && 'data' in tipsCurrent ? tipsCurrent.data : null
-  const tipsError = tipsCurrent !== null && 'error' in tipsCurrent ? tipsCurrent.error : null
 
   const option = findCourseOption(courseOptions, globalId)
   // courseOptions (played, canonical) wins; the finder-handed search name covers

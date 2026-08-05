@@ -977,6 +977,8 @@ export interface MobileCoursePackageParams {
   teeBox?: string
   capturedAt?: string
   ensureGeometry?: boolean
+  backgroundGeometry?: boolean
+  includeEventCursor?: boolean
 }
 
 /// One selectable tee box for the pre-round picker (GET /api/v2/courses/{id}/tees): colour key
@@ -1055,7 +1057,7 @@ export interface AnnotationListResponse {
   target: { targetType: AnnotationTargetType; targetId: string } | null
 }
 
-export type ParSource = 'played' | 'courseview' | 'estimate'
+export type ParSource = 'played' | 'courseview' | 'courseData' | 'estimate'
 
 export interface CoursePrepOverlay {
   w: number
@@ -1063,6 +1065,38 @@ export interface CoursePrepOverlay {
   ppm: number
   ln: number
   route: Array<[number, number, number]> // [px, py, cumMetres]
+}
+
+export interface CoursePrepProjectionRef {
+  lat: number
+  lon: number
+  px: number
+  py: number
+}
+
+export interface CoursePrepHoleImageProjection {
+  available: boolean
+  widthPx?: number | null
+  heightPx?: number | null
+  refs?: CoursePrepProjectionRef[] | null
+}
+
+export interface CoursePrepHazardDetail {
+  kind: 'water' | 'bunker' | string
+  frontM: number
+  backM: number
+  frontRouteM: number
+  backRouteM: number
+  frontPx: number[]
+  backPx: number[]
+  sideM?: number | null
+}
+
+export interface CoursePrepGreenOutline {
+  available: boolean
+  source?: string | null
+  distanceUnit?: string | null
+  pointsPx: number[][]
 }
 
 export interface CoursePrepStep {
@@ -1114,7 +1148,11 @@ export interface CoursePrepHole {
   cautions: string[]
   landing_m: number | null
   tee_club: string | null
-  hazards: { water_carry: Array<[number, number]>; bunkers: Array<[number, number]> }
+  hazards: {
+    water_carry: Array<[number, number]>
+    bunkers: Array<[number, number]>
+    details?: CoursePrepHazardDetail[]
+  }
   map?: { image: string; overlay: CoursePrepOverlay }
   yourShots?: CoursePrepShotDot[]
   // round-13: elevation playsLike (tee→green) from the hole mesh; deltaYd>0 = uphill (plays longer).
@@ -1126,6 +1164,8 @@ export interface CoursePrepHole {
     teeElevM?: number | null
     greenElevM?: number | null
   }
+  holeImageProjection?: CoursePrepHoleImageProjection | null
+  greenOutline?: CoursePrepGreenOutline | null
 }
 
 export interface CoursePrepClub {

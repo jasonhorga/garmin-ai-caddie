@@ -1,7 +1,7 @@
 import { useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import type { CoursePrepHole } from '../types'
 import { topoImageUrl } from '../api'
-import { atCum, layoutHazardLabels, nearestCum, routeIntervalReadout } from './coursePrepPanelLogic'
+import { atCum, layoutHazardLabels, nearestCum, resolveCoursePrepOverlay, routeIntervalReadout } from './coursePrepPanelLogic'
 import { HoleBaseImage } from './HoleBaseImage'
 import { toYd } from './prepWorkbenchLogic'
 
@@ -30,11 +30,15 @@ export interface PrepHoleCanvasProps {
 export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasProps): React.ReactElement {
   const svgRef = useRef<SVGSVGElement>(null)
   const map = hole.map
-  const overlay = map?.overlay
+  const overlay = resolveCoursePrepOverlay(hole)
+  const isLightweightMap = hole.geometryCoverage === 'partial' && !map?.overlay
   // Base layer: realistic topo when this hole has geometry (overlay present) and we know the gid;
   // else the legacy flat render, else the shared placeholder. Overlays draw on top either way.
-  const fallbackImage = map?.image ?? '/hole-sample.png'
-  const topoSrc = overlay && globalId != null ? topoImageUrl(globalId, hole.hole) : undefined
+  // A CourseView-only map deliberately has no fake bitmap under its factual vectors.
+  const fallbackImage = map?.image ?? (overlay ? undefined : '/hole-sample.png')
+  const topoSrc = hole.geometryCoverage === 'ready' && overlay && globalId != null
+    ? topoImageUrl(globalId, hole.hole)
+    : undefined
   const yourShots = hole.yourShots ?? []
   // All distance markers use overlay coordinates, so the overlay dimensions—not
   // a placeholder bitmap's intrinsic ratio—must own the visible frame.
@@ -90,6 +94,20 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasPro
       markers.map((m) => ({ y: m.y + 4, text: m.text })),
       HAZARD_LABEL_MIN_GAP,
     )
+    const lightweightHazards = isLightweightMap
+      ? (hole.hazards.details ?? []).filter(
+          (detail) =>
+            (detail.kind === 'water' || detail.kind === 'bunker') &&
+            detail.frontPx.length >= 2 &&
+            detail.backPx.length >= 2 &&
+            [...detail.frontPx.slice(0, 2), ...detail.backPx.slice(0, 2)].every(Number.isFinite),
+        )
+      : []
+    const greenOutline = isLightweightMap && hole.greenOutline?.available
+      ? hole.greenOutline.pointsPx.filter(
+          (point) => point.length >= 2 && Number.isFinite(point[0]) && Number.isFinite(point[1]),
+        )
+      : []
 
     svg = (
       <svg
@@ -99,6 +117,43 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasPro
         onPointerDown={onPointer}
         onPointerMove={onPointer}
       >
+        {isLightweightMap ? (
+          <polyline
+            data-map-fact="course-data-route"
+            points={route.map((p) => `${p[0]},${p[1]}`).join(' ')}
+            fill="none"
+            stroke="#397d49"
+            strokeOpacity={0.9}
+            strokeWidth={26}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ) : null}
+        {lightweightHazards.map((detail, index) => (
+          <line
+            key={`fact-${detail.kind}-${index}`}
+            data-map-fact={`course-data-${detail.kind}`}
+            x1={detail.frontPx[0]}
+            y1={detail.frontPx[1]}
+            x2={detail.backPx[0]}
+            y2={detail.backPx[1]}
+            stroke={detail.kind === 'water' ? '#2e94e0' : '#e0c27a'}
+            strokeOpacity={0.95}
+            strokeWidth={detail.kind === 'water' ? 14 : 12}
+            strokeLinecap="round"
+          />
+        ))}
+        {greenOutline.length >= 3 ? (
+          <polygon
+            data-map-fact="course-data-green"
+            points={greenOutline.map((point) => `${point[0]},${point[1]}`).join(' ')}
+            fill="#5cb759"
+            fillOpacity={0.95}
+            stroke="#fff"
+            strokeOpacity={0.35}
+            strokeWidth={1}
+          />
+        ) : null}
         <polyline
           points={route.map((p) => `${p[0]},${p[1]}`).join(' ')}
           fill="none"

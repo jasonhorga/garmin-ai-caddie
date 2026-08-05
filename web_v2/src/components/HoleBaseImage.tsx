@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 interface HoleBaseImageProps {
   // The realistic server-rendered topo PNG (present only for real courses with CourseView
@@ -8,7 +8,7 @@ interface HoleBaseImageProps {
   // '/hole-sample.png' placeholder. Rendered as the base layer so a hole ALWAYS shows something
   // instantly; the topo cross-fades in on top once it loads (and if it 404s / errors, the flat
   // layer simply stays). Because the topo shares the flat render's overlay frame, they align.
-  fallbackSrc: string
+  fallbackSrc?: string
   alt: string
   className?: string
 }
@@ -29,9 +29,21 @@ export function HoleBaseImage({ topoSrc, fallbackSrc, alt, className }: HoleBase
   const useTopo = Boolean(topoSrc) && topoSrc !== failedSrc
   const topoReady = useTopo && topoSrc === loadedSrc
 
+  // A precise asset can briefly lose a race with the server-side first render. Retry the same
+  // authoritative URL at a low cadence instead of pinning this mounted hole to its fallback forever.
+  useEffect(() => {
+    if (!topoSrc || failedSrc !== topoSrc) return
+    const timer = window.setTimeout(() => setFailedSrc(null), 15_000)
+    return () => window.clearTimeout(timer)
+  }, [failedSrc, topoSrc])
+
+  const classes = [className ? `hole-base ${className}` : 'hole-base', fallbackSrc ? '' : 'is-vector-only']
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div className={className ? `hole-base ${className}` : 'hole-base'}>
-      <img className="hole-base-flat" src={fallbackSrc} alt={alt} />
+    <div className={classes}>
+      {fallbackSrc ? <img className="hole-base-flat" src={fallbackSrc} alt={alt} /> : null}
       {useTopo ? (
         <img
           className={topoReady ? 'hole-base-topo is-ready' : 'hole-base-topo'}
