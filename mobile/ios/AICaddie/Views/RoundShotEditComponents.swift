@@ -316,37 +316,47 @@ public struct ShotEditSheet: View {
 
     public var body: some View {
         NavigationStack {
-            Form {
-                Section("地图位置") {
-                    VStack(alignment: .leading, spacing: 4) {
+            VStack(spacing: 0) {
+                Form {
+                    Section {
                         Label(shotSummary, systemImage: "scope")
                             .font(.subheadline.weight(.semibold))
-                        Text("上方放大镜持续显示当前落点")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("地图位置，\(shotSummary)")
+                            .accessibilityHint("上方放大镜持续显示当前落点")
                     }
-                    .padding(.vertical, 2)
-                }
-                Section("球杆") {
-                    Picker("球杆", selection: Binding(
-                        get: { shot.club ?? "" },
-                        set: { if !$0.isEmpty { onClub($0) } })) {
-                        Text("未知").tag("")
-                        ForEach(clubs, id: \.self) { Text($0).tag($0) }
+                    Section("球杆") {
+                        Picker("球杆", selection: Binding(
+                            get: { shot.club ?? "" },
+                            set: { if !$0.isEmpty { onClub($0) } })) {
+                            Text("未知").tag("")
+                            ForEach(clubs, id: \.self) { Text($0).tag($0) }
+                        }
                     }
-                }
-                Section("击球时球位") {
-                    Picker("击球时球位", selection: Binding(
-                        get: { (shot.lie ?? "unknown").lowercased() },
-                        set: { if !$0.isEmpty { onLie($0) } })) {
-                        ForEach(roundEditLieOptions, id: \.0) { Text($0.1).tag($0.0) }
+                    Section("击球时球位") {
+                        Picker("击球时球位", selection: Binding(
+                            get: { (shot.lie ?? "unknown").lowercased() },
+                            set: { if !$0.isEmpty { onLie($0) } })) {
+                            ForEach(roundEditLieOptions, id: \.0) { Text($0.1).tag($0.0) }
+                        }
                     }
                 }
-                Section {
+                Divider()
+                VStack {
                     Button(role: .destructive) { onDelete(); dismiss() } label: {
                         Label("删除这一杆", systemImage: "trash")
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .background(
+                                Color(uiColor: .secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            )
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.red)
                 }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .background(Color(uiColor: .systemGroupedBackground))
             }
             .navigationTitle("改这一杆")
             .navigationBarTitleDisplayMode(.inline)
