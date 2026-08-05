@@ -801,7 +801,7 @@ final class RealFlowUITests: XCTestCase {
 
         let result = app.buttons["course-catalog-result-\(evidence.globalId)"]
         XCTAssertTrue(
-            result.waitForExistence(timeout: 75) && scrollTo(result, maxSwipes: 30),
+            scrollTo(result, maxSwipes: 30),
             "nearby results must contain the resolver-verified uninstalled course"
         )
         XCTAssertEqual(
@@ -835,7 +835,7 @@ final class RealFlowUITests: XCTestCase {
         manualSearch.tap()
         let namedResult = app.buttons["course-catalog-result-\(evidence.globalId)"]
         XCTAssertTrue(
-            namedResult.waitForExistence(timeout: 75) && scrollTo(namedResult, maxSwipes: 30),
+            scrollTo(namedResult, maxSwipes: 30),
             "name search must return the same provider globalId selected from nearby"
         )
         XCTAssertEqual(namedResult.value as? String, "选择后下载")
