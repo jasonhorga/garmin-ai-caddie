@@ -1230,7 +1230,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchRemotePackage(roundId: requestedRoundId, capturedAt: preparedAt)", app_swift)
         self.assertIn("fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)", app_swift)
         self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
-        self.assertIn("fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: true)", app_swift)
+        self.assertIn(
+            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true)",
+            app_swift,
+        )
+        self.assertIn(
+            'URLQueryItem(name: "background_geometry", value: backgroundGeometry ? "true" : "false")',
+            sync_client,
+        )
 
     def test_ios_home_package_explicitly_skips_the_event_cursor(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
@@ -1804,7 +1811,10 @@ class MobileContractTests(unittest.TestCase):
 
         # No in-progress round → land on the Hub (choices) via a home package = the most-played
         # course's data, which does NOT mark an active round (liveRoundState stays nil → no 进行中).
-        self.assertIn("private func fetchHomePackage() async -> LiveRoundPackage?", app_swift)
+        self.assertIn(
+            "private func fetchHomePackage(preferredCourse: Course? = nil) async -> LiveRoundPackage?",
+            app_swift,
+        )
         self.assertIn("private func activateHomePackage(_ nextPackage: LiveRoundPackage, status: String) throws", app_swift)
         self.assertIn("courseOptions.max { $0.roundCount < $1.roundCount }", app_swift)
         self.assertIn("try activateHomePackage(home, status:", app_swift)
@@ -1887,7 +1897,11 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
         self.assertIn('URLQueryItem(name: "v", value: "topo-v5")', sync_client)
-        self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)", hole_map_view)
+        self.assertIn("TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)", hole_map_view)
+        self.assertIn(
+            'hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame ? topoURL : nil',
+            hole_map_view,
+        )
         self.assertIn("enum MapSurfaceStyle", hub_style)
         self.assertIn("func mapSurface() -> some View", hub_style)
         self.assertIn("map.mapSurface()", hole_map_view)
@@ -2037,8 +2051,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('title: "备战"', round_home)
         self.assertIn("PrepCoursePickerView(courseOptions: courseOptions", round_home)
         self.assertIn("struct PrepCoursePickerView", prep_picker)
-        self.assertIn("courseVenueGroups(courseOptions)", prep_picker)
-        self.assertIn("CourseReviewView(client:", prep_picker)
+        self.assertIn("courseVenueGroups(allCourseOptions)", prep_picker)
+        self.assertIn("courseOptions + remoteCourseOptions", prep_picker)
+        self.assertIn("MobileCourseSearchView(", prep_picker)
+        self.assertIn("onNearby: nearbyCourses", prep_picker)
+        self.assertIn("CourseReviewView(", prep_picker)
+        self.assertIn("client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken)", prep_picker)
         self.assertIn("globalId: segment.globalId", prep_picker)
 
     def test_ios_course_review_product_copy_and_route_yardage_contract(self) -> None:
@@ -2053,18 +2071,13 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn('.navigationTitle("赛前球场攻略")', course_review)
         self.assertIn('Text("蓝T \\(hole.blueYards)y")', course_review)
-        # Opening the review must not synchronously render and embed every hole image. Facts load
-        # progressively: the first factual hole becomes visible before a cold all-hole build, then
-        # the full factual response replaces it. Only visible LazyVStack cards request their map.
-        self.assertIn(
-            "fetchHolePrep(globalId: globalId, localHole: 1, render: false)",
-            course_review,
-        )
-        self.assertIn("fetchCoursePrep(globalId: globalId, render: false)", course_review)
-        self.assertLess(
-            course_review.index("fetchHolePrep(globalId: globalId, localHole: 1, render: false)"),
-            course_review.index("fetchCoursePrep(globalId: globalId, render: false)"),
-        )
+        # Opening the review must not synchronously render and embed every hole image. Factual rows
+        # arrive in small ordered batches, while only visible LazyVStack cards request their map.
+        self.assertIn("stride(from: 1, through: holeCount, by: 3)", course_review)
+        self.assertIn("let batch = Array(start...min(start + 2, holeCount))", course_review)
+        self.assertIn("holes: batch", course_review)
+        self.assertIn("render: false", course_review)
+        self.assertIn("holes = merged.values.sorted { $0.hole < $1.hole }", course_review)
         self.assertIn("LazyVStack(alignment: .leading, spacing: 14)", course_review)
         self.assertIn("fetchHolePrep(", course_review)
         self.assertIn("mapUnavailable: didTryMap && renderedHole?.map == nil", course_review)
@@ -3043,9 +3056,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn(".navigationBarBackButtonDisplayMode", round_review)
         self.assertIn('· 落点 · 左右滑', shot_map)
         for ui_test in [real_flow, review_edit]:
-            self.assertIn('17534238', ui_test)
+            self.assertIn("RealEvidenceRoundResolver(", ui_test)
+            self.assertIn("resolveReviewEvidence()", ui_test)
+            self.assertIn("reviewEvidence.hole", ui_test)
             self.assertIn('app.navigationBars["单场复盘"]', ui_test)
-            self.assertIn('app.buttons["round-review-hole-1"]', ui_test)
+            self.assertIn('app.buttons["round-review-hole-\\(reviewEvidence.hole)"]', ui_test)
             self.assertIn('app.buttons["关闭"]', ui_test)
             self.assertNotIn('identifier CONTAINS "落点"', ui_test)
             self.assertIn('matching(identifier: "topo-hole-base-ready")', ui_test)
@@ -3268,7 +3283,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("playsLike", prep_model)
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
         self.assertIn("frontGreenM:", current_hole)
-        self.assertIn("geometryCoverage: hole.geometryCoverage.rawValue", current_hole)
+        self.assertIn(
+            "geometryCoverage: holePrep?.geometryCoverage ?? hole.geometryCoverage.rawValue",
+            current_hole,
+        )
         # iPhone live screen (L3): the distance header renders the 前/中/后果岭 triad + 坡度.
         live_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
         for label in ["前果岭", "中果岭", "后果岭"]:

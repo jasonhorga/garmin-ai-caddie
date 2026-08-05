@@ -64,17 +64,27 @@ print(
         + "caption=\(caption.minY)...\(caption.maxY),\(caption.width)x\(caption.height)"
 )
 
-// The approved 396px-wide render has bands at 80...99, 150...254 and 299...316.
-// Runtime includes the watchOS clock above them, but the product content keeps those same lanes.
+// The bounded 68 pt production render has bands at 80...99, 144...238 and 280...297.
+// It intentionally leaves more rounded-glass margin than the earlier 76 pt concept render. Runtime
+// includes the watchOS clock above it; verify both minimum legibility and maximum horizontal spread
+// so a later change can neither shrink the hero nor reintroduce the real-device edge collision.
 guard (77...85).contains(header.minY), header.width >= 100, header.height >= 18 else {
     fputs("AOD content is vertically displaced: header begins at \(header.minY)px\n", stderr)
     exit(1)
 }
-guard (145...155).contains(distance.minY), distance.width >= 245, distance.height >= 100 else {
-    fputs("AOD distance shrank below approved geometry: \(distance.width)x\(distance.height)px\n", stderr)
+guard (140...150).contains(distance.minY),
+      distance.width >= 220,
+      distance.height >= 92,
+      distance.minX >= 78,
+      distance.maxX <= 317 else {
+    fputs(
+        "AOD distance is outside bounded geometry: x=\(distance.minX)...\(distance.maxX), "
+            + "\(distance.width)x\(distance.height)px\n",
+        stderr
+    )
     exit(1)
 }
-guard (295...305).contains(caption.minY), caption.width >= 90, caption.height >= 17 else {
+guard (276...286).contains(caption.minY), caption.width >= 90, caption.height >= 17 else {
     fputs("AOD caption is outside the approved lane: begins at \(caption.minY)px\n", stderr)
     exit(1)
 }

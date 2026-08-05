@@ -1,4 +1,4 @@
-import { act, render, screen, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
@@ -454,7 +454,7 @@ describe('PrepPage 针对你 tips (inspector)', () => {
     // Tips now wait until the matching course package/prep is ready. Let the first course reach
     // that point so `first` genuinely represents an in-flight stale response.
     await screen.findByText('PAR 9 · 900 码')
-    expect(fetchPrepTipsMock).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(fetchPrepTipsMock).toHaveBeenCalledTimes(1))
 
     view.rerender(<PrepPage {...props} globalId={31870} />)
     await screen.findByText(/PAR \d+ · /)

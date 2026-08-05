@@ -594,7 +594,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual("actions/upload-artifact@v4", upload["uses"])
         self.assertEqual("web-live-evidence", upload["with"]["name"])
         self.assertEqual(
-            "web_v2/web-live-evidence/*.png",
+            "web_v2/web-live-evidence/",
             upload["with"]["path"],
         )
         self.assertNotIn("test-results", json.dumps(upload))
@@ -617,7 +617,15 @@ class CIWorkflowTests(unittest.TestCase):
             "round-review.png",
         ]:
             self.assertIn(filename, text)
-        self.assertNotIn("console.log", text)
+        # Runtime diagnostics may record only non-secret response facts. They deliberately reduce a
+        # URL to its pathname before logging and must never print the capability, full URL, request
+        # headers, or the temporary credential-bearing browser location.
+        self.assertIn("const url = new URL(response.url())", text)
+        self.assertIn("pathname: url.pathname", text)
+        self.assertNotIn("console.log(playerToken", text)
+        self.assertNotIn("console.log(response.url()", text)
+        self.assertNotIn("console.log(request.url()", text)
+        self.assertNotIn("console.log(credentialPath", text)
 
     def test_backend_fly_deploy_workflow_is_manual_secret_driven_and_runs_remote_preflight(self) -> None:
         workflow_path = Path(".github/workflows/backend-fly-deploy.yml")
