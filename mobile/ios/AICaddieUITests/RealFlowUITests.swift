@@ -11,6 +11,8 @@ import XCTest
 /// screen, and dumps its element tree so any tap that misses is fixable next iteration without guessing.
 final class RealFlowUITests: XCTestCase {
     private let app = XCUIApplication()
+    /// 北京丽宫体育公园高尔夫俱乐部 in the live Garmin catalogue.
+    private let approvedJourneyCourseGlobalId = 31793
 
     /// Read a config value the test runner may receive either plain or TEST_RUNNER_-prefixed (xcodebuild
     /// reliably forwards TEST_RUNNER_<VAR> into the UI-test runner environment; the plain form is a
@@ -240,7 +242,7 @@ final class RealFlowUITests: XCTestCase {
         // Enter the same installed 北京丽宫 course used by the approved live journey. CourseReviewView
         // itself is the per-hole review; no obsolete intermediate `逐洞攻略` button is required.
         XCTAssertTrue(
-            tapCourseSegment(globalId: 31669),
+            tapCourseSegment(globalId: approvedJourneyCourseGlobalId),
             "course picker must expose the installed 北京丽宫 course used by the approved live flow"
         )
         XCTAssertTrue(
@@ -371,7 +373,9 @@ final class RealFlowUITests: XCTestCase {
         // Provider-wide nearby discovery can legitimately change the form's default course. The
         // approved 18-hole evidence is Beijing Ligong, so select its stable globalId explicitly
         // instead of mistaking a visible, unselected course name for the active choice.
-        let ligongSegment = app.buttons["start-round-course-segment-31669"]
+        let ligongSegment = app.buttons[
+            "start-round-course-segment-\(approvedJourneyCourseGlobalId)"
+        ]
         XCTAssertTrue(
             scrollTo(ligongSegment, maxSwipes: 24),
             "the full journey must expose the approved 北京丽宫 course segment"
@@ -597,7 +601,7 @@ final class RealFlowUITests: XCTestCase {
         // an empty reticle and blank F/M/B, then navigated away while two caddie requests raced. Hold
         // this gate until the real hole-2 prep and the final structured caddie response are visible.
         let hole2TeeGreenYards = try XCTUnwrap(
-            fetchPrepGreenYards(globalId: 31669, hole: 2),
+            fetchPrepGreenYards(globalId: approvedJourneyCourseGlobalId, hole: 2),
             "the live backend must expose real static F/M/B facts for 北京丽宫 hole 2"
         )
         continueAfterFailure = false
