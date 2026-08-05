@@ -549,6 +549,24 @@ const coursePrepPayload = {
   ],
 }
 
+// Prep now opens every selected course through the same mobile package used by
+// iOS/Watch before reading the web prep view. Keep the E2E package honest enough
+// to supply the provider's real local-hole identities; the prep payload below
+// remains the rendered map authority exercised by this visual walk.
+const mobileCoursePackagePayload = {
+  schema: 'ai-caddie-live-round-package-v1',
+  roundId: 'web-prep-31795',
+  dataMode: 'fixture',
+  holes: coursePrepPayload.holes.map((hole) => ({
+    number: hole.hole,
+    sourceGlobalId: 31795,
+    sourceLocalHole: hole.hole,
+    par: hole.par,
+    yards: hole.blue_yards,
+    geometryCoverage: hole.geometryCoverage,
+  })),
+}
+
 // basis carries the REAL backend machine keys (ai_caddie/prep_tips.py); the
 // page maps them to zh 依据 lines and must never render them raw.
 const prepTipsPayload = {
@@ -1163,6 +1181,7 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
     }
     if (path === '/api/v2/sync/status') return route.fulfill({ json: syncStatusPayload })
     if (path === '/api/v2/mobile/courses/options') return route.fulfill({ json: mobileCourseOptionsPayload })
+    if (path === '/api/v2/mobile/courses/31795/package') return route.fulfill({ json: mobileCoursePackagePayload })
     if (path === '/api/v2/courses/search') return route.fulfill({ json: courseSearchPayload })
     // PrepPage course fetches carry the globalId in the path (and the prep
     // request a ?include_shots=true query), so match by prefix + suffix.

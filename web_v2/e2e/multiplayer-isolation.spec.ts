@@ -288,8 +288,9 @@ test.describe('player-facing deployment (link required)', () => {
     await expect(badge).toBeVisible()
     await expect(badge.locator('button, select, [role="combobox"], [role="listbox"]')).toHaveCount(0)
 
-    // The home view (round-review workbench) shows THIS player's last round…
-    await expect(page.getByRole('heading', { name: '梅花山 A' })).toBeVisible()
+    // The home view (round-review workbench) selects THIS player's last round.
+    // The redesign moved the course identity from a heading into the round picker.
+    await expect(page.getByLabel('选择球局')).toContainText('梅花山 A')
     // …and never another player's identity or round id.
     await expect(page.getByText(OTHER_PLAYER_NAME)).toHaveCount(0)
     await expect(page.getByText(OTHER_PLAYER_ROUND)).toHaveCount(0)
