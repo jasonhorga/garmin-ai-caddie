@@ -188,6 +188,30 @@ public struct WatchHoleMap: Codable, Equatable {
     /// Original CoursePrep centreline points `[px, py, cumulativeMetres]`. Optional so payloads
     /// created before the hazard-map instrument remain decodable on both sides of the bridge.
     public let route: [[Double]]?
+    /// Drawing-only CourseView outline used when the precise topo bitmap has not arrived yet.
+    public let greenOutline: [[Double]]?
+
+    public init(
+        w: Int,
+        h: Int,
+        you: [Double],
+        pin: [Double],
+        layup: [Double],
+        apex: [Double],
+        greenCtrl: [Double],
+        route: [[Double]]? = nil,
+        greenOutline: [[Double]]? = nil
+    ) {
+        self.w = w
+        self.h = h
+        self.you = you
+        self.pin = pin
+        self.layup = layup
+        self.apex = apex
+        self.greenCtrl = greenCtrl
+        self.route = route
+        self.greenOutline = greenOutline
+    }
 }
 
 /// The small, round-level payload that lets the Watch enter the real round UI before the first
@@ -566,7 +590,12 @@ public final class WatchEventBridge: NSObject {
     /// same /topo.png pixel space the watch caches. `you` = tee, `pin` = green centre, `layup` = the
     /// recommended lay-up (at `landingM` along the route, default 60%), `apex`/`greenCtrl` = the mid-route
     /// points that make the you→lay-up / lay-up→green curves bend with the dogleg. nil for < 2 route points.
-    public static func makeHoleMap(overlay: CoursePrepOverlay, landingM: Double?, youPxOverride: [Double]? = nil) -> WatchHoleMap? {
+    public static func makeHoleMap(
+        overlay: CoursePrepOverlay,
+        landingM: Double?,
+        youPxOverride: [Double]? = nil,
+        greenOutline: [[Double]]? = nil
+    ) -> WatchHoleMap? {
         let route = overlay.route
         guard route.count >= 2, let first = route.first, let last = route.last,
               first.count >= 3, last.count >= 3, last[2] > 0 else { return nil }
@@ -583,7 +612,8 @@ public final class WatchEventBridge: NSObject {
             layup: Self.interpRoute(route, atM: layupM),
             apex: Self.interpRoute(route, atM: layupM * 0.5),
             greenCtrl: Self.interpRoute(route, atM: layupM + (total - layupM) * 0.5),
-            route: route
+            route: route,
+            greenOutline: greenOutline
         )
     }
 

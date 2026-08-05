@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
-from ai_caddie.courses import course_reference
+from ai_caddie.courses import course_reference, courseview_core
 from ai_caddie.geometry import elevation, hole_render, shot_projection
 from ai_caddie.core.data import build_club_profiles, read_json
 from ai_caddie.core.data import OWNER_ID, load_manual_club_bag
@@ -596,6 +597,7 @@ class HolePrep:
     greenDistances: dict = field(default_factory=dict)  # round-13 E3: {available, front/middle/back M+Yd}
     greenSlope: dict = field(default_factory=dict)  # {available, magnitudePct, directionDeg (break dir), flat}
     holeImageProjection: dict = field(default_factory=dict)  # watch P0.1: geo→px anchors for the topo map
+    greenOutline: dict | None = None  # CourseView lightweight outline in the same display frame
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -783,6 +785,360 @@ def _route_with_cumulative(route: list[tuple[float, float]]) -> list[list[float]
     return out
 
 
+def _course_data_route(hole: dict) -> tuple[list[tuple[float, float]], float, float] | None:
+    """Convert a lightweight CourseView route to the prodgeometry local-metre frame."""
+    route_line = next(
+        (
+            row
+            for row in hole.get("lines") or []
+            if isinstance(row, dict) and row.get("role") == "route"
+        ),
+        None,
+    )
+    points = (route_line or {}).get("points") or []
+    if len(points) < 2:
+        return None
+    try:
+        ref_lat = float(points[0]["latitude"])
+        ref_lon = float(points[0]["longitude"])
+        route = [
+            shot_projection.world_to_local(
+                float(point["latitude"]),
+                float(point["longitude"]),
+                ref_lat=ref_lat,
+                ref_lon=ref_lon,
+            )
+            for point in points
+        ]
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    deduped: list[tuple[float, float]] = []
+    for point in route:
+        if not deduped or math.hypot(
+            point[0] - deduped[-1][0], point[1] - deduped[-1][1]
+        ) > 0.01:
+            deduped.append(point)
+    return (deduped, ref_lat, ref_lon) if len(deduped) >= 2 else None
+
+
+def _route_station(
+    point: tuple[float, float],
+    route: list[tuple[float, float]],
+) -> tuple[float, float]:
+    """Nearest cumulative route metre and lateral gap for one factual point."""
+    best_station = 0.0
+    best_gap = math.inf
+    cumulative = 0.0
+    for start, end in zip(route, route[1:]):
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        length_squared = dx * dx + dy * dy
+        if length_squared <= 0:
+            continue
+        length = math.sqrt(length_squared)
+        t = max(
+            0.0,
+            min(
+                1.0,
+                ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy)
+                / length_squared,
+            ),
+        )
+        projected = (start[0] + t * dx, start[1] + t * dy)
+        gap = math.hypot(point[0] - projected[0], point[1] - projected[1])
+        if gap < best_gap:
+            best_station = cumulative + t * length
+            best_gap = gap
+        cumulative += length
+    return best_station, best_gap
+
+
+def _course_data_local_point(
+    point: dict,
+    *,
+    ref_lat: float,
+    ref_lon: float,
+) -> tuple[float, float] | None:
+    try:
+        return shot_projection.world_to_local(
+            float(point["latitude"]),
+            float(point["longitude"]),
+            ref_lat=ref_lat,
+            ref_lon=ref_lon,
+        )
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+
+def _course_data_green_outline(
+    hole: dict,
+    route: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Preserve Garmin's 30-direction legacy green outline for drawing only.
+
+    The values align closely with the precise Green mesh but their absolute
+    scale is not stable enough for numeric F/M/B claims.  Treating one raw unit
+    as one local display unit keeps the factual shape and ordering without
+    exposing it as a measured distance.
+    """
+    radii = hole.get("greenRadii") or []
+    if len(radii) != 30 or not route:
+        return []
+    center = route[-1]
+    outline: list[tuple[float, float]] = []
+    for index, raw_radius in enumerate(radii):
+        try:
+            radius = float(raw_radius)
+        except (TypeError, ValueError, OverflowError):
+            return []
+        angle = math.radians(index * 12.0)  # north, then clockwise
+        outline.append(
+            (
+                center[0] + radius * math.sin(angle),
+                center[1] + radius * math.cos(angle),
+            )
+        )
+    return outline
+
+
+def _course_data_hazards(
+    hole: dict,
+    route: list[tuple[float, float]],
+    *,
+    ref_lat: float,
+    ref_lon: float,
+) -> tuple[dict, list[dict]]:
+    """Return proven water/bunker spans; unknown codes stay absent from product UI."""
+    details: list[dict] = []
+    local_rows: list[dict] = []
+    water: list[list[float]] = []
+    bunkers: list[list[float]] = []
+    tee = route[0]
+    for line in hole.get("lines") or []:
+        if not isinstance(line, dict) or line.get("role") != "hazard-span":
+            continue
+        kind = line.get("surface")
+        if kind not in ("water", "bunker"):
+            continue
+        source_points = line.get("points") or []
+        if len(source_points) != 2:
+            continue
+        local = [
+            _course_data_local_point(point, ref_lat=ref_lat, ref_lon=ref_lon)
+            for point in source_points
+        ]
+        if any(point is None for point in local):
+            continue
+        first, second = local  # type: ignore[misc]
+        first_distance = math.hypot(first[0] - tee[0], first[1] - tee[1])
+        second_distance = math.hypot(second[0] - tee[0], second[1] - tee[1])
+        front, back = (first, second) if first_distance <= second_distance else (second, first)
+        front_m, back_m = sorted((first_distance, second_distance))
+        front_route, front_side = _route_station(front, route)
+        back_route, back_side = _route_station(back, route)
+        if kind == "water":
+            water.append([round(min(front_route, back_route), 1), round(max(front_route, back_route), 1)])
+        else:
+            bunkers.append([round(min(front_route, back_route), 1), round(min(front_side, back_side), 1)])
+        local_rows.append(
+            {
+                "kind": kind,
+                "front": front,
+                "back": back,
+                "frontM": round(front_m, 1),
+                "backM": round(back_m, 1),
+                "frontRouteM": round(front_route, 1),
+                "backRouteM": round(back_route, 1),
+                "sideM": round(min(front_side, back_side), 1),
+            }
+        )
+    return {
+        "water_carry": sorted(water),
+        "bunkers": sorted(bunkers),
+        "details": details,
+    }, local_rows
+
+
+def _course_data_frame(
+    route: list[tuple[float, float]],
+    extra_points: list[tuple[float, float]],
+    *,
+    ref_lat: float,
+    ref_lon: float,
+) -> tuple[Callable[[tuple[float, float]], tuple[float, float]], dict]:
+    """Fit lightweight facts into a stable portrait affine display frame."""
+    width, height, margin = 360, 560, 28.0
+    tee, green = route[0], route[-1]
+    dx, dy = green[0] - tee[0], green[1] - tee[1]
+    length = math.hypot(dx, dy)
+    forward = (dx / length, dy / length) if length > 0 else (0.0, 1.0)
+    right = (forward[1], -forward[0])
+    points = [*route, *extra_points]
+
+    def axes(point: tuple[float, float]) -> tuple[float, float]:
+        return (
+            point[0] * right[0] + point[1] * right[1],
+            point[0] * forward[0] + point[1] * forward[1],
+        )
+
+    values = [axes(point) for point in points]
+    cross_min = min(value[0] for value in values)
+    cross_max = max(value[0] for value in values)
+    along_min = min(value[1] for value in values)
+    along_max = max(value[1] for value in values)
+    scale = min(
+        (width - 2 * margin) / max(cross_max - cross_min, 1.0),
+        (height - 2 * margin) / max(along_max - along_min, 1.0),
+    )
+
+    def project(point: tuple[float, float]) -> tuple[float, float]:
+        cross, along = axes(point)
+        return (
+            margin + (cross - cross_min) * scale,
+            height - margin - (along - along_min) * scale,
+        )
+
+    refs = []
+    for local in ((0.0, 0.0), (120.0, 0.0), (0.0, 120.0)):
+        latitude, longitude = shot_projection.local_to_world(
+            local[0], local[1], ref_lat=ref_lat, ref_lon=ref_lon
+        )
+        px, py = project(local)
+        refs.append(
+            {
+                "lat": round(latitude, 7),
+                "lon": round(longitude, 7),
+                "px": round(px, 1),
+                "py": round(py, 1),
+            }
+        )
+    return project, {
+        "available": True,
+        "widthPx": width,
+        "heightPx": height,
+        "refs": refs,
+    }
+
+
+def _lightweight_prep_hole(
+    global_id: int,
+    local_hole: int,
+    *,
+    ladder,
+    par_record,
+    render: bool,
+) -> HolePrep | dict | None:
+    course_data = courseview_core.load_cached_course_data(int(global_id))
+    if not course_data:
+        return None
+    hole = next(
+        (
+            row
+            for row in course_data.get("holes") or []
+            if isinstance(row, dict) and row.get("holeNumber") == int(local_hole)
+        ),
+        None,
+    )
+    route_result = _course_data_route(hole or {})
+    if hole is None or route_result is None:
+        return None
+    route, ref_lat, ref_lon = route_result
+    route_rows = _route_with_cumulative(route)
+    route_len = route_rows[-1][2]
+    green_outline = _course_data_green_outline(hole, route)
+    hazards, local_hazards = _course_data_hazards(
+        hole,
+        route,
+        ref_lat=ref_lat,
+        ref_lon=ref_lon,
+    )
+    extra = [*green_outline]
+    for hazard in local_hazards:
+        extra.extend((hazard["front"], hazard["back"]))
+    project, projection = _course_data_frame(
+        route,
+        extra,
+        ref_lat=ref_lat,
+        ref_lon=ref_lon,
+    )
+    for hazard in local_hazards:
+        front_px = project(hazard.pop("front"))
+        back_px = project(hazard.pop("back"))
+        hazards["details"].append(
+            {
+                **hazard,
+                "frontPx": [round(front_px[0], 1), round(front_px[1], 1)],
+                "backPx": [round(back_px[0], 1), round(back_px[1], 1)],
+            }
+        )
+    green_px = [project(point) for point in green_outline]
+    par_index = int(local_hole) - 1
+    if par_record is not None and 0 <= par_index < len(par_record.par):
+        par = int(par_record.par[par_index])
+        par_source = par_record.par_source
+    else:
+        male = next(
+            (
+                row
+                for row in hole.get("pars") or []
+                if isinstance(row, dict) and row.get("playerType") == 1
+            ),
+            None,
+        )
+        first = male or next(iter(hole.get("pars") or []), {})
+        par = int(first.get("par") or course_reference.estimate_par_from_length(route_len))
+        par_source = "courseData"
+    steps, cautions, landing, tee_club = _strategy(par, route_len, hazards, ladder)
+    green_lat, green_lon = shot_projection.local_to_world(
+        route[-1][0], route[-1][1], ref_lat=ref_lat, ref_lon=ref_lon
+    )
+    source_ref = (
+        f"courseData:{int(global_id)}:{int(course_data['buildId'])}:"
+        f"{course_data['sourceVariant']}"
+    )
+    prep = HolePrep(
+        globalId=int(global_id),
+        localHole=int(local_hole),
+        hole=int(local_hole),
+        par=par,
+        par_source=par_source,
+        blue_yards=yd(route_len),
+        route_len_m=round(route_len, 1),
+        route=route_rows,
+        geometryCoverage="partial",
+        sourceRefs=[f"course:{int(global_id)}", source_ref],
+        missingData=[
+            {
+                "label": "geometry",
+                "reason": "precise prodgeometry is pending; factual CourseView courseData is active",
+            }
+        ],
+        candidateRoutes=_candidate_routes(ladder, hazards),
+        carryTargets=_carry_targets(landing, hazards),
+        steps=steps,
+        cautions=cautions,
+        landing_m=round(landing, 1) if landing else None,
+        tee_club=tee_club,
+        hazards=hazards,
+        playsLike={"available": False},
+        greenDistances={
+            "available": True,
+            "middleM": round(route_len, 1),
+            "middleYd": yd(route_len),
+            "middleLat": round(green_lat, 7),
+            "middleLon": round(green_lon, 7),
+        },
+        greenSlope={"available": False},
+        holeImageProjection=projection,
+        greenOutline={
+            "available": bool(green_px),
+            "source": "courseData.GreenRadii",
+            "distanceUnit": None,
+            "pointsPx": [[round(x, 1), round(y, 1)] for x, y in green_px],
+        },
+    )
+    return prep.to_dict() if render else prep
+
+
 def _candidate_routes(ladder: list[tuple[str, int]], hazards: dict) -> list[dict]:
     if not ladder:
         return []
@@ -849,16 +1205,28 @@ def _your_shots(md: dict, by: dict, route, global_id: int, local_hole: int, over
 
 
 def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, render=True,
-              include_shots=False, player_id: str = OWNER_ID) -> HolePrep | None:
-    """Compose pre-round prep for one hole. Returns None if geometry is unavailable."""
+              include_shots=False, player_id: str = OWNER_ID) -> HolePrep | dict | None:
+    """Compose exact prep, or the cached factual CourseView fallback while geometry upgrades."""
+    ladder = ladder or effective_club_ladder(player_id)
     try:
         md, by = hole_render.load_mesh(global_id, local_hole)
     except Exception:
-        return None
+        return _lightweight_prep_hole(
+            global_id,
+            local_hole,
+            ladder=ladder,
+            par_record=par_record,
+            render=render,
+        )
     route, route_len = derive_route(md)
     if not route or not route_len:
-        return None
-    ladder = ladder or effective_club_ladder(player_id)
+        return _lightweight_prep_hole(
+            global_id,
+            local_hole,
+            ladder=ladder,
+            par_record=par_record,
+            render=render,
+        )
     if par_record is None:
         par_record = course_reference.load_course_par(global_id)
     par_idx = local_hole - 1

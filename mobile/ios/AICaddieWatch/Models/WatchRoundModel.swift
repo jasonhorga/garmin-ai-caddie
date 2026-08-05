@@ -577,6 +577,23 @@ public final class WatchRoundModel: ObservableObject {
         restoreInteractionState(from: persisted)
     }
 
+    /// Merge a background course-map upgrade without reseeding the round or moving the live cursor.
+    /// Pending events and in-progress score/shot drafts remain in the existing persisted container.
+    public func applyCourseMapUpgrade(_ states: [WatchRoundState]) {
+        guard var current = round, !states.isEmpty else { return }
+        let upgrades = Dictionary(uniqueKeysWithValues: states.map { ($0.hole, $0) })
+        current.holeStates = current.holeStates.map { state in
+            guard let upgraded = upgrades[state.hole] else { return state }
+            return state.applyingCourseMapUpgrade(upgraded)
+        }
+        do {
+            try store.save(current)
+            round = current
+        } catch {
+            return
+        }
+    }
+
     public func refreshFromStore() {
         let persisted = store.load()
         round = persisted

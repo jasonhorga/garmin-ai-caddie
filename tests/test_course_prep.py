@@ -110,6 +110,74 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in row["candidateRoutes"]], ["safe", "stock", "attack"])
         self.assertTrue(any(target["kind"] == "landing" for target in row["carryTargets"]))
 
+    def test_missing_prodgeometry_uses_cached_course_data_without_guessing_unknown_codes(self) -> None:
+        course_data = {
+            "schema": "garmin-course-data-core-v1",
+            "sourceVariant": "medium-plus",
+            "buildId": 309,
+            "globalLayoutId": 3881,
+            "holes": [
+                {
+                    "holeNumber": 1,
+                    "greenRadii": [12] * 30,
+                    "pars": [{"par": 4, "playerType": 1}],
+                    "lines": [
+                        {
+                            "role": "route",
+                            "surface": None,
+                            "points": [
+                                {"latitude": 36.58, "longitude": -121.97},
+                                {"latitude": 36.581, "longitude": -121.968},
+                            ],
+                        },
+                        {
+                            "role": "hazard-span",
+                            "surface": "water",
+                            "points": [
+                                {"latitude": 36.5804, "longitude": -121.9693},
+                                {"latitude": 36.5805, "longitude": -121.9691},
+                            ],
+                        },
+                        {
+                            "role": "unknown",
+                            "surface": None,
+                            "lineCode": 3243,
+                            "points": [
+                                {"latitude": 36.5806, "longitude": -121.9690},
+                                {"latitude": 36.5807, "longitude": -121.9689},
+                            ],
+                        },
+                    ],
+                }
+            ],
+        }
+        with (
+            patch.object(cp.hole_render, "load_mesh", side_effect=FileNotFoundError),
+            patch.object(cp.courseview_core, "load_cached_course_data", return_value=course_data),
+        ):
+            prep = cp.prep_hole(
+                3881,
+                1,
+                ladder=[("1W", 200), ("7I", 128)],
+                render=False,
+            )
+
+        self.assertIsInstance(prep, cp.HolePrep)
+        row = prep.to_dict()
+        self.assertEqual(row["geometryCoverage"], "partial")
+        self.assertEqual(
+            row["sourceRefs"],
+            ["course:3881", "courseData:3881:309:medium-plus"],
+        )
+        self.assertGreater(row["route_len_m"], 100)
+        self.assertEqual(len(row["hazards"]["details"]), 1)
+        self.assertEqual(row["hazards"]["details"][0]["kind"], "water")
+        self.assertEqual(len(row["greenOutline"]["pointsPx"]), 30)
+        self.assertIsNone(row["greenOutline"]["distanceUnit"])
+        self.assertTrue(row["holeImageProjection"]["available"])
+        self.assertTrue(row["greenDistances"]["available"])
+        self.assertIsNotNone(row["greenDistances"]["middleLat"])
+
     def test_par3_strategy_one_club_to_green(self) -> None:
         ladder = [("1W", 200), ("7I", 128), ("PW", 102)]
         steps, cautions, landing, tee = cp._strategy(3, 128, {"water_carry": [], "bunkers": []}, ladder)

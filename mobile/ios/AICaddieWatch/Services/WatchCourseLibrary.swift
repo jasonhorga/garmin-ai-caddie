@@ -134,77 +134,151 @@ public final class WatchCourseLibrary: ObservableObject {
         errorMessage = nil
         defer { preparingCourseId = nil }
         do {
-            let client = makeClient(config)
             let roundId = makeRoundId()
-            let package = try await client.fetchCoursePackage(
-                globalId: selection.front.globalId,
+            let download = try await fetchCourseDownload(
+                selection,
                 roundId: roundId,
-                teeBox: selection.teeBox,
-                backGlobalId: selection.back?.globalId,
-                ensureGeometry: selection.ensureGeometry
+                config: config,
+                backgroundGeometry: selection.ensureGeometry
             )
-
-            var requestedByGlobalId: [Int: Set<Int>] = [:]
-            for hole in package.holes {
-                let globalId = hole.sourceGlobalId ?? package.course.globalId
-                let localHole = hole.sourceLocalHole ?? hole.number
-                requestedByGlobalId[globalId, default: []].insert(localHole)
-            }
-            var preps: [Int: WatchCoursePrepResponse] = [:]
-            var topoImages: [Int: [Int: Data]] = [:]
-            for globalId in requestedByGlobalId.keys.sorted() {
-                let localHoles = requestedByGlobalId[globalId, default: []].sorted()
-                var prepParts: [WatchCoursePrepResponse] = []
-                for start in stride(
-                    from: 0,
-                    to: localHoles.count,
-                    by: WatchBackendClient.maximumCoursePrepHolesPerRequest
-                ) {
-                    let end = min(
-                        start + WatchBackendClient.maximumCoursePrepHolesPerRequest,
-                        localHoles.count
-                    )
-                    prepParts.append(try await client.fetchCoursePrep(
-                        globalId: globalId,
-                        localHoles: Array(localHoles[start..<end])
-                    ))
-                }
-                preps[globalId] = WatchCoursePrepResponse(
-                    globalId: globalId,
-                    clubs: prepParts.first?.clubs ?? [],
-                    holes: prepParts.flatMap(\.holes)
-                )
-                for localHole in localHoles {
-                    if let data = try? await client.fetchCourseTopo(
-                        globalId: globalId,
-                        localHole: localHole
-                    ), !data.isEmpty {
-                        topoImages[globalId, default: [:]][localHole] = data
-                    }
-                }
-            }
-
-            let download = try WatchCourseTemplateBuilder.build(
-                option: selection.front,
-                backOption: selection.back,
-                package: package,
-                prepsByGlobalId: preps,
-                topoImagesByGlobalId: topoImages,
-                cachedAt: now()
-            )
-            for image in download.images {
-                try imageStore.store(data: image.data, globalId: image.globalId, hole: image.hole)
-            }
-            try store.save(download.template)
-            cachedCourseIds.insert(selection.front.globalId)
-            courses = Self.uniqueOptions(
-                from: [download.template.option, download.template.backOption].compactMap { $0 } + courses
-            )
-            return download.template.makeRound(roundId: package.roundId)
+            try persist(download)
+            return download.template.makeRound(roundId: roundId)
         } catch {
             errorMessage = "球场下载失败，请保持联网后重试"
             return nil
         }
+    }
+
+    /// Continue the already-queued precise download without holding up play. The caller applies the
+    /// returned map facts to the same round id; failures and service cooldowns retry at a bounded
+    /// cadence while the task remains alive, and a later app entry can resume from the partial cache.
+    public func upgradeCourseWhenReady(
+        _ selection: WatchCourseSelection,
+        roundId: String,
+        config: WatchRoundConfig?
+    ) async -> WatchPreparedCourse? {
+        guard let config else { return nil }
+        var delaySeconds: UInt64 = 5
+        var shouldQueueGeometry = true
+
+        while !Task.isCancelled {
+            do {
+                let download = try await fetchCourseDownload(
+                    selection,
+                    roundId: roundId,
+                    config: config,
+                    backgroundGeometry: shouldQueueGeometry
+                )
+                shouldQueueGeometry = false
+                if Self.preciseDownloadReady(download) {
+                    try persist(download)
+                    errorMessage = nil
+                    return download.template.makeRound(roundId: roundId)
+                }
+            } catch {
+                // The lightweight template remains playable. Retry below instead of replacing the
+                // screen with a transient network error during an active round.
+            }
+
+            do {
+                try await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+            } catch {
+                return nil
+            }
+            delaySeconds = min(delaySeconds * 2, 60)
+        }
+        return nil
+    }
+
+    private func fetchCourseDownload(
+        _ selection: WatchCourseSelection,
+        roundId: String,
+        config: WatchRoundConfig,
+        backgroundGeometry: Bool
+    ) async throws -> WatchCourseDownload {
+        let client = makeClient(config)
+        let package = try await client.fetchCoursePackage(
+            globalId: selection.front.globalId,
+            roundId: roundId,
+            teeBox: selection.teeBox,
+            backGlobalId: selection.back?.globalId,
+            ensureGeometry: false,
+            backgroundGeometry: backgroundGeometry
+        )
+
+        var requestedByGlobalId: [Int: Set<Int>] = [:]
+        for hole in package.holes {
+            let globalId = hole.sourceGlobalId ?? package.course.globalId
+            let localHole = hole.sourceLocalHole ?? hole.number
+            requestedByGlobalId[globalId, default: []].insert(localHole)
+        }
+        var preps: [Int: WatchCoursePrepResponse] = [:]
+        var topoImages: [Int: [Int: Data]] = [:]
+        for globalId in requestedByGlobalId.keys.sorted() {
+            let localHoles = requestedByGlobalId[globalId, default: []].sorted()
+            var prepParts: [WatchCoursePrepResponse] = []
+            for start in stride(
+                from: 0,
+                to: localHoles.count,
+                by: WatchBackendClient.maximumCoursePrepHolesPerRequest
+            ) {
+                let end = min(
+                    start + WatchBackendClient.maximumCoursePrepHolesPerRequest,
+                    localHoles.count
+                )
+                prepParts.append(try await client.fetchCoursePrep(
+                    globalId: globalId,
+                    localHoles: Array(localHoles[start..<end])
+                ))
+            }
+            let prep = WatchCoursePrepResponse(
+                globalId: globalId,
+                clubs: prepParts.first?.clubs ?? [],
+                holes: prepParts.flatMap(\.holes)
+            )
+            preps[globalId] = prep
+            let readyHoles = Set(prep.holes.compactMap { hole in
+                hole.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+                    ? hole.hole
+                    : nil
+            })
+            for localHole in localHoles where readyHoles.contains(localHole) {
+                if let data = try? await client.fetchCourseTopo(
+                    globalId: globalId,
+                    localHole: localHole
+                ), !data.isEmpty {
+                    topoImages[globalId, default: [:]][localHole] = data
+                }
+            }
+        }
+
+        return try WatchCourseTemplateBuilder.build(
+            option: selection.front,
+            backOption: selection.back,
+            package: package,
+            prepsByGlobalId: preps,
+            topoImagesByGlobalId: topoImages,
+            cachedAt: now()
+        )
+    }
+
+    private func persist(_ download: WatchCourseDownload) throws {
+        for image in download.images {
+            try imageStore.store(data: image.data, globalId: image.globalId, hole: image.hole)
+        }
+        try store.save(download.template)
+        cachedCourseIds.insert(download.template.option.globalId)
+        courses = Self.uniqueOptions(
+            from: [download.template.option, download.template.backOption].compactMap { $0 } + courses
+        )
+    }
+
+    private static func preciseDownloadReady(_ download: WatchCourseDownload) -> Bool {
+        !download.template.holeStates.isEmpty
+            && download.template.holeStates.allSatisfy {
+                $0.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+            }
+            && download.images.count == download.template.holeStates.count
     }
 
     private func makeClient(_ config: WatchRoundConfig) -> WatchBackendClient {

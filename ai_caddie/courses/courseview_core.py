@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import json
 import math
+from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
+from ai_caddie.core.data import ROOT, atomic_write_json, safe_read_json
 from ai_caddie.geometry.inspect_courseview_release import BASE
 
 _SEMICIRCLE_SCALE = 180.0 / (1 << 31)
@@ -293,3 +295,127 @@ def fetch_course_data(
         expected_global_layout_id=layout,
         includes_hazard_lines=include_hazard_lines,
     )
+
+
+def course_data_cache_path(
+    global_layout_id: int,
+    build_id: int,
+    *,
+    include_hazard_lines: bool = True,
+    root: Path = ROOT,
+) -> Path:
+    """Content-authority cache path keyed by Garmin layout and release build."""
+    layout = _integer(global_layout_id, "global_layout_id")
+    build = _integer(build_id, "build_id")
+    if layout <= 0 or build <= 0:
+        raise ValueError("build_id and global_layout_id must be positive")
+    variant = "medium-plus" if include_hazard_lines else "medium"
+    return (
+        Path(root)
+        / "data"
+        / "courseview"
+        / f"{layout}_course_data_{build}_{variant}.json"
+    )
+
+
+def _validated_cached_course_data(
+    payload: Any,
+    *,
+    build_id: int,
+    global_layout_id: int,
+    include_hazard_lines: bool,
+) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    expected_variant = "medium-plus" if include_hazard_lines else "medium"
+    if (
+        payload.get("schema") != "garmin-course-data-core-v1"
+        or payload.get("sourceVariant") != expected_variant
+        or payload.get("buildId") != build_id
+        or payload.get("globalLayoutId") != global_layout_id
+        or not isinstance(payload.get("holes"), list)
+    ):
+        return None
+    return payload
+
+
+def load_cached_course_data(
+    global_layout_id: int,
+    *,
+    build_id: int | None = None,
+    include_hazard_lines: bool = True,
+    root: Path = ROOT,
+) -> dict[str, Any] | None:
+    """Read the current release-bound lightweight map without network access."""
+    layout = _integer(global_layout_id, "global_layout_id")
+    if layout <= 0:
+        raise ValueError("global_layout_id must be positive")
+    resolved_build = build_id
+    if resolved_build is None:
+        from ai_caddie.courses.course_reference import courseview_release_info
+
+        release = courseview_release_info(layout, allow_fetch=False, root=Path(root))
+        resolved_build = (release or {}).get("release_version")
+    if isinstance(resolved_build, bool) or not isinstance(resolved_build, int):
+        return None
+    path = course_data_cache_path(
+        layout,
+        resolved_build,
+        include_hazard_lines=include_hazard_lines,
+        root=Path(root),
+    )
+    return _validated_cached_course_data(
+        safe_read_json(path),
+        build_id=resolved_build,
+        global_layout_id=layout,
+        include_hazard_lines=include_hazard_lines,
+    )
+
+
+def ensure_course_data(
+    global_layout_id: int,
+    *,
+    include_hazard_lines: bool = True,
+    allow_fetch: bool = True,
+    root: Path = ROOT,
+    base_url: str = BASE,
+) -> dict[str, Any] | None:
+    """Return a release-bound lightweight map, fetching it once when needed.
+
+    A response is parsed and checked against both request identifiers before an
+    atomic cache write.  A newer Garmin release naturally selects a new cache
+    filename; stale bytes can never be installed under the new BuildId.
+    """
+    layout = _integer(global_layout_id, "global_layout_id")
+    if layout <= 0:
+        raise ValueError("global_layout_id must be positive")
+    from ai_caddie.courses.course_reference import courseview_release_info
+
+    release = courseview_release_info(layout, allow_fetch=allow_fetch, root=Path(root))
+    build = (release or {}).get("release_version")
+    if isinstance(build, bool) or not isinstance(build, int) or build <= 0:
+        return None
+    cached = load_cached_course_data(
+        layout,
+        build_id=build,
+        include_hazard_lines=include_hazard_lines,
+        root=Path(root),
+    )
+    if cached is not None or not allow_fetch:
+        return cached
+    parsed = fetch_course_data(
+        build,
+        layout,
+        include_hazard_lines=include_hazard_lines,
+        base_url=base_url,
+    )
+    atomic_write_json(
+        course_data_cache_path(
+            layout,
+            build,
+            include_hazard_lines=include_hazard_lines,
+            root=Path(root),
+        ),
+        parsed,
+    )
+    return parsed

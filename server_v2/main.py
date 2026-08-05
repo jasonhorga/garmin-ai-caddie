@@ -1126,17 +1126,19 @@ def mobile_course_options(player_id: str = Depends(current_player_id)) -> Mobile
 @app.get("/api/v2/mobile/courses/{global_id}/package", response_model=LiveRoundPackageResponse)
 def mobile_course_package(
     global_id: int,
+    background_tasks: BackgroundTasks,
     round_id: str | None = None,
     tee_box: str | None = None,
     captured_at: str | None = None,
     client_id: str | None = None,
     ensure_geometry: bool = False,
+    background_geometry: bool = False,
     include_event_cursor: bool = True,
     nine: str = Query(default="all", pattern="^(all|front|back)$"),
     back_global_id: int | None = None,
     player_id: str = Depends(current_player_id),
 ) -> LiveRoundPackageResponse:
-    return build_mobile_course_package_response(
+    package = build_mobile_course_package_response(
         global_id,
         round_id=round_id,
         tee_box=tee_box,
@@ -1148,6 +1150,35 @@ def mobile_course_package(
         back_global_id=back_global_id,
         player_id=player_id,
     )
+    if background_geometry and not ensure_geometry:
+        requested: dict[int, set[int]] = {}
+        for hole in package.holes:
+            if str(hole.get("geometryCoverage") or "missing") == "ready":
+                continue
+            source_global_id = int(hole.get("sourceGlobalId") or package.course.get("globalId") or global_id)
+            source_local_hole = int(hole.get("sourceLocalHole") or hole.get("number") or 0)
+            if source_global_id > 0 and source_local_hole > 0:
+                requested.setdefault(source_global_id, set()).add(source_local_hole)
+        if requested:
+            background_tasks.add_task(
+                _upgrade_course_geometry,
+                {gid: sorted(holes) for gid, holes in requested.items()},
+            )
+    return package
+
+
+def _upgrade_course_geometry(requested: dict[int, list[int]]) -> None:
+    """Best-effort precise upgrade after a lightweight package is already returned."""
+    from ai_caddie.caddie.mobile_live import _ensure_geometry_for_course
+
+    for global_id, holes in sorted(requested.items()):
+        try:
+            _ensure_geometry_for_course(int(global_id), holes=[int(hole) for hole in holes])
+            _prewarm_course_topo(int(global_id), [int(hole) for hole in holes])
+        except Exception:
+            # The active lightweight package remains valid; a later request may retry the
+            # precise upgrade without changing the course or round identity.
+            continue
 
 
 @app.post("/api/v2/mobile/rounds/{round_id}/events", response_model=LiveRoundEventBatchResponse)

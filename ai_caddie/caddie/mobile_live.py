@@ -766,10 +766,21 @@ def _package_holes(
         # geometry stays nil rather than being replaced with live distance-to-green.
         source_gid, source_local = _round_hole_geometry_ref(round_row, number)
         yards = recorded_yards
-        tee_latitude: float | None = None
-        tee_longitude: float | None = None
+        tee_latitude = _safe_float(source_hole.get("teeLatitude"))
+        tee_longitude = _safe_float(source_hole.get("teeLongitude"))
+        if tee_latitude is not None and not -90 <= tee_latitude <= 90:
+            tee_latitude = None
+        if tee_longitude is not None and not -180 <= tee_longitude <= 180:
+            tee_longitude = None
         if tee_box:
-            yards = None
+            # Historical yardage may belong to a different Tee and is therefore not a safe
+            # fallback. The CourseView route is a current release-bound factual centre distance,
+            # so keep it until the selected-Tee prodgeometry replaces it below.
+            yards = (
+                recorded_yards
+                if source_hole.get("yardageSource") == "courseData-route"
+                else None
+            )
             try:
                 geometry = load_geometry(int(source_gid), int(source_local))
                 selected_tee = _selected_tee(geometry, tee_box)
@@ -1995,15 +2006,45 @@ def build_live_round_package(
 
 
 def _geometry_only_course_template(
-    global_id: int, *, round_id: str, tee_box: str | None = None, course_name: str | None = None
+    global_id: int,
+    *,
+    round_id: str,
+    tee_box: str | None = None,
+    course_name: str | None = None,
+    ensure_lightweight: bool = False,
+    root: Path | str | None = None,
 ) -> dict[str, Any] | None:
     from ai_caddie.caddie.analysis import _selected_tee, load_geometry
-    from ai_caddie.courses import course_reference
+    from ai_caddie.courses import course_reference, courseview_core
 
     holes = []
     cv_par = course_reference.courseview_par(int(global_id), allow_fetch=False)
+    package_root = Path(root) if root is not None else Path(".")
+    try:
+        lightweight = (
+            courseview_core.ensure_course_data(int(global_id), root=package_root)
+            if ensure_lightweight
+            else courseview_core.load_cached_course_data(int(global_id), root=package_root)
+        )
+    except Exception:
+        lightweight = None
+    lightweight_holes = {
+        int(row["holeNumber"]): row
+        for row in (lightweight or {}).get("holes") or []
+        if isinstance(row, dict) and isinstance(row.get("holeNumber"), int)
+    }
+    try:
+        release = course_reference.courseview_release_info(
+            int(global_id),
+            allow_fetch=ensure_lightweight,
+            root=package_root,
+        )
+    except Exception:
+        release = None
+    resolved_course_name = course_name or str((release or {}).get("course_name") or "").strip() or None
     has_geometry_source = False
-    for local_hole in range(1, 19):
+    hole_numbers = sorted(lightweight_holes) or list(range(1, len(cv_par or []) + 1)) or list(range(1, 19))
+    for local_hole in hole_numbers:
         try:
             coverage = geometry_coverage_for_hole(int(global_id), local_hole)
             state = str(coverage.get("coverage") or "missing")
@@ -2011,33 +2052,79 @@ def _geometry_only_course_template(
             state = "missing"
         if state != "missing":
             has_geometry_source = True
-        par = cv_par[local_hole - 1] if (cv_par and local_hole - 1 < len(cv_par)) else 4
+        lightweight_hole = lightweight_holes.get(local_hole)
+        route_line = next(
+            (
+                row
+                for row in (lightweight_hole or {}).get("lines") or []
+                if isinstance(row, dict) and row.get("role") == "route"
+            ),
+            None,
+        )
+        if state == "missing" and route_line is not None:
+            state = "partial"
+        par = cv_par[local_hole - 1] if (cv_par and local_hole - 1 < len(cv_par)) else None
+        if par is None and lightweight_hole is not None:
+            male_par = next(
+                (
+                    row.get("par")
+                    for row in lightweight_hole.get("pars") or []
+                    if isinstance(row, dict) and row.get("playerType") == 1
+                ),
+                None,
+            )
+            par = male_par
+        par = int(par or 4)
         yards = None
+        tee_latitude = None
+        tee_longitude = None
+        yardage_source = None
+        route_points = (route_line or {}).get("points") or []
+        route_length = (route_line or {}).get("lengthMetres")
+        if isinstance(route_length, (int, float)) and not isinstance(route_length, bool) and route_length > 0:
+            yards = int(round(float(route_length) * 1.09361))
+            yardage_source = "courseData-route"
+        if route_points:
+            first = route_points[0]
+            if isinstance(first, dict):
+                tee_latitude = first.get("latitude")
+                tee_longitude = first.get("longitude")
         try:
             selected_tee = _selected_tee(load_geometry(int(global_id), local_hole), tee_box)
             target_distance_m = float((selected_tee or {}).get("target_distance_m"))
             if target_distance_m > 0:
                 yards = int(round(target_distance_m * 1.09361))
+                yardage_source = "prodgeometry-selected-tee"
         except (OSError, TypeError, ValueError, OverflowError):
             pass
-        holes.append({"number": local_hole, "par": par, "yards": yards, "geometryCoverage": state})
+        holes.append({
+            "number": local_hole,
+            "par": par,
+            "yards": yards,
+            "yardageSource": yardage_source,
+            "teeLatitude": tee_latitude,
+            "teeLongitude": tee_longitude,
+            "geometryCoverage": state,
+        })
     # Anchor the course on EITHER geometry OR a CourseView par table. Geometry being
     # absent (e.g. a deployment without the geometry bundle) must NOT collapse the whole
     # course to "Unknown course" — the par + name still resolve a usable round; only the
     # hole maps/distances degrade.
-    if not has_geometry_source and not cv_par:
+    if not has_geometry_source and not cv_par and not lightweight_holes:
         return None
     return {
         "id": round_id,
         "ids": [round_id],
         "date": "",
-        "course": course_name or f"Course {int(global_id)}",
+        "course": resolved_course_name or f"Course {int(global_id)}",
         "courseKey": f"gid_{int(global_id)}",
         "globalId": int(global_id),
         "holesCompleted": len(holes),
         "teeBox": tee_box or "unknown",
         "holes": holes,
-        "_source": "geometry_only_course_package",
+        "_source": "course_data_package" if lightweight_holes else "geometry_only_course_package",
+        "_courseDataBuildId": (lightweight or {}).get("buildId"),
+        "_courseDataVariant": (lightweight or {}).get("sourceVariant"),
     }
 
 
@@ -2072,6 +2159,7 @@ def build_live_round_package_for_course(
     back_global_id: int | None = None,
     include_course_prep: bool = True,
     include_event_cursor: bool = True,
+    ensure_lightweight: bool = False,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
@@ -2094,6 +2182,8 @@ def build_live_round_package_for_course(
             round_id=live_round_id,
             tee_box=tee_box,
             course_name=_course_display_name(source, int(global_id)),
+            ensure_lightweight=ensure_lightweight,
+            root=root,
         )
         if template_round is not None:
             package_source = HistoryData(
@@ -2132,6 +2222,15 @@ def build_live_round_package_for_course(
             "availableRoundCount": len(source.rounds),
             "courseFound": True,
         }
+        if template_round.get("_source") == "course_data_package":
+            package["sourceCoverage"].update(
+                {
+                    "mapSource": "courseData",
+                    "mapBuildId": template_round.get("_courseDataBuildId"),
+                    "mapVariant": template_round.get("_courseDataVariant"),
+                    "preciseGeometryState": package["geometryCoverage"]["state"],
+                }
+            )
     # A 9-hole loop gid (CourseView) must yield only its 9 holes even though its played rounds were
     # 18-hole combos — the loop is the front nine of that combo. Otherwise picking "C 场(9洞)" wrongly
     # opens 18 holes (and holes 10–18 are bogus, which also broke "随便选一个洞进去").
@@ -2179,6 +2278,7 @@ def build_live_round_package_for_course(
         nine="all",
         include_course_prep=include_course_prep,
         include_event_cursor=include_event_cursor,
+        ensure_lightweight=ensure_lightweight,
         player_id=player_id,
     )
     return _merge_nines(front_package, back_package)

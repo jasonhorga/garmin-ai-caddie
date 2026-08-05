@@ -310,8 +310,8 @@ Build 35 的可安装性不等于产品视觉获批。当前重新以 2026-07-02
 | 1 | iOS 复盘/备战的 Topo 只显示真实洞形，Watch 长文字不越界 | `IMPLEMENTED / 待模拟器回归` | 真实 App 截图无外围绿色矩形，45 mm 全部长文字状态留在表盘内 |
 | 2 | 新开一场时可按城市、球场关键字或两者组合查找任意 Garmin 球场 | `IMPLEMENTED / Native 基础验证通过` | 只查目录；只填城市或关键字均可用；两者都填时分别查询并按 `globalId` 取交集；选中后才下载单座球场 |
 | 3 | 不输入名称，直接列出当前坐标 50 km 内的 provider-wide 附近球场 | `IMPLEMENTED / Native 基础通过，待集成旅程复验` | Garmin 独立 radius 路由按 50 条完整分页；默认 50 km、可切 100/200 km；覆盖未缓存球场并按真实距离排序；选中后才下载单座球场 |
-| 4 | CourseView Deep Mine 将现有 release/prodgeometry 中未使用的真实数据逐项转成产品判断 | `IN PROGRESS / 默认 DSKIMG 分发已严格解码` | 对未分类字段/mesh 给出可重放证据、跨球场语义和明确的使用/不使用结论，不为挖数据而增加无产品价值的平台 |
-| 5 | 任意新球场先用轻量真实数据秒开，再原位升级为精确地图 | `NOT STARTED / 等待 Deep Mine 输入闭环` | `courseData` 先提供路线、计分卡、果岭外形和水/沙粗距离；`prodgeometry` 到达后不换 round/course identity 地升级，断网重开仍可用 |
+| 4 | CourseView Deep Mine 将现有 release/prodgeometry 中未使用的真实数据逐项转成产品判断 | `当前数据 checkpoint 完成 / 会员 Green Contours 抓包待用户方便时补` | 对未分类字段/mesh 给出可重放证据、跨球场语义和明确的使用/不使用结论，不为挖数据而增加无产品价值的平台 |
+| 5 | 任意新球场先用轻量真实数据秒开，再原位升级为精确地图 | `IMPLEMENTED / Python 相关门通过，待 Native CI` | `courseData` 先提供路线、计分卡、果岭外形和水/沙粗距离；`prodgeometry` 到达后不换 round/course identity 地升级，断网重开仍可用 |
 | 6 | 后端、iOS、Watch、Web 使用同一球场发现、地图权威和缓存升级规则 | `NOT STARTED / 不允许各端再分叉` | 同一 `globalId + build/release` 在三端得到一致洞、Tee、障碍、地形与版本；轻量/精确 source precedence 只有一套 |
 | 7 | 把 Topo、Watch 越界、附近/搜索/任意新球场串成真实模拟器旅程 | `PENDING / 等待 1–6 汇合` | 从当前位置或城市/关键字选一座未缓存球场，下载、开局、离线重开并完成复盘；逐屏留存真实 App 截图，不以单元测试代替旅程 |
 | 8 | 最终图逐张对照冻结批准图，由用户视觉批准后再进入 TestFlight | `BLOCKED BY PRODUCT WORK / 发布门` | Watch 与 iOS 按完整打球顺序并排展示批准图和最终模拟器图；差异清零或经用户明确接受；批准前不发布 TestFlight |
@@ -334,6 +334,8 @@ Deep Mine 当前结论（细节与证据见 `docs/research/IMG_RESEARCH.md`）�
 - 每洞 30 个 `GreenRadii` 已证明以路线末端为中心、从正北顺时针；与精确 Green mesh 的绝对比例仍随球场变化，所以当前保留无单位原值，不把它冒充推杆坡度或精确米制轮廓。
 
 Deep Mine 下一可见产品切片不是继续造研究平台，而是让新球场在 `prodgeometry` 尚未准备时，用该轻量包秒开真实路线、计分卡、果岭外形以及水/沙的粗 `到 / 过`；精确 mesh 到达后仍自动升级为现有地图。订阅 Green Contours 本体只在用户方便时做一次真实 S70/会员下载抓包，不阻塞普通球场获取。
+
+2026-08-05 已把这组研究结果接入产品候选：后端按 `globalId + BuildId + variant` 缓存并校验 `courseData`，首次 package 立即返回真实路线、Par、Tee 锚点、GreenRadii 绘图轮廓和已证明的水/沙 span，同时在后台准备对应 prodgeometry。iPhone 当前洞低频重查并在同一 round/hole 上切换精确 topo；Watch 在没有位图时先绘制同一事实矢量图，精确图到达后只替换地图事实，保留 round id、当前洞、成绩、推杆、罚杆、选杆和确认草稿。Watch 的部分缓存下次联网也会继续升级，不会永久停在轻量版。homeserver 当前相关 Python 结果为 CourseView/course-prep `31 passed + 2 skipped`、mobile server `64 passed`；Native build/单测通过前本项不标最终完成。
 
 Deep Mine 本身不会在这个可见切片后被遗留。它的完成门是：全部 APK 地图请求/更新链已绑定；`courseData` 所有字段与类型码有终态裁决；DSKIMG 的 FAT/GMP/TRE/RGN/LBL/DEM 以及真实高程 sample 完整解码；prodgeometry 无未分类资产；Green Contours 完成一正一反抓取和解码；新球场的轻量→精确地图能在 iOS、Watch、Web 保持同一 round identity 并离线重开。详细闭环和证据标准只维护在 `docs/research/IMG_RESEARCH.md`，不再复制一份庞大计划。
 

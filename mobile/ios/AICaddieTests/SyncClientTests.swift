@@ -411,6 +411,45 @@ final class SyncClientTests: XCTestCase {
         )
     }
 
+    func testFetchCoursePackageCanQueueGeometryWithoutBlockingFirstOpen() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
+        let responseData = try Data(contentsOf: fixtureURL)
+        CapturingURLProtocol.requestHandler = { request in
+            let queryItems = URLComponents(
+                url: try XCTUnwrap(request.url),
+                resolvingAgainstBaseURL: false
+            )?.queryItems
+            XCTAssertEqual(queryItems?.first { $0.name == "ensure_geometry" }?.value, "false")
+            XCTAssertEqual(queryItems?.first { $0.name == "background_geometry" }?.value, "true")
+            XCTAssertNotEqual(request.timeoutInterval, 900)
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, responseData)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session
+        )
+
+        _ = try await client.fetchCoursePackage(
+            globalId: 10283,
+            roundId: "live-round-lightweight",
+            teeBox: "blue",
+            backgroundGeometry: true
+        )
+    }
+
     func testFetchHomeCoursePackageCanSkipEventCursor() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]

@@ -104,6 +104,7 @@ def build_mobile_course_package_response(
             # (the 2D map + hazards), so the round opens immediately.
             include_course_prep=False,
             include_event_cursor=include_event_cursor,
+            ensure_lightweight=True,
         )
     )
 

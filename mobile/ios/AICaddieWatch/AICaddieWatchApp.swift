@@ -139,6 +139,15 @@ public struct AICaddieWatchApp: App {
                                 activeHole: prepared.holeStates.first?.hole,
                                 courseName: prepared.courseName
                             )
+                            if prepared.holeStates.contains(where: {
+                                $0.geometryCoverage?.caseInsensitiveCompare("ready") != .orderedSame
+                            }), let upgraded = await courseLibrary.upgradeCourseWhenReady(
+                                selection,
+                                roundId: prepared.roundId,
+                                config: syncClient.config
+                            ) {
+                                roundModel.applyCourseMapUpgrade(upgraded.holeStates)
+                            }
                         }
                     }
                 )
@@ -175,12 +184,16 @@ public struct AICaddieWatchApp: App {
         }
     }
 
-    /// watch P1b: the active hole's render geometry — the phone-pushed overlay anchors (`holeMap`) + the
-    /// cached /topo.png. nil until both arrive, so the map entry stays hidden and we fall back to the hub.
+    /// The active hole uses a cached precise bitmap when present and otherwise keeps the factual
+    /// CourseView vectors visible while the same course/hole upgrades in place.
     private var activeHoleGeometry: WatchHoleMapGeometry? {
         guard let s = roundModel.activeHoleState, let hm = s.holeMap, let gid = s.globalId else { return nil }
         let img = syncClient.holeImageStore.image(globalId: gid, hole: s.hole)
-        guard let geo = WatchHoleMapGeometry.from(holeMap: hm, image: img) else { return nil }
+        guard let geo = WatchHoleMapGeometry.from(
+            holeMap: hm,
+            image: img,
+            hazards: s.hazards
+        ) else { return nil }
         // watch P3: if the watch has its OWN fix + this hole's projection refs, place YOU from the wrist GPS
         // (else keep the phone-pushed you = tee/phone-GPS). Pin/lay-up/route anchors are unchanged.
         if let fix = qualifiedWatchFix, let refs = s.holeImageProjection?.refs,

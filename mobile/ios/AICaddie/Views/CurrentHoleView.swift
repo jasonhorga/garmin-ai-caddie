@@ -562,7 +562,10 @@ public struct CurrentHoleView: View {
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
     /// gid)。给 `HoleImageMapView` 当底图;无后端地址/占位球场时为 nil → 回退到 payload flat 渲染图。
     private var liveTopoURL: URL? {
-        guard let caddieBaseURL else { return nil }
+        guard let caddieBaseURL,
+              holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
+            return nil
+        }
         let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
         let mapLocalHole = hole.sourceLocalHole ?? hole.number
         return SyncClient.topoImageURL(baseURL: caddieBaseURL, globalId: mapGlobalId, localHole: mapLocalHole)
@@ -571,13 +574,24 @@ public struct CurrentHoleView: View {
     @MainActor
     private func loadCurrentHole() async {
         isLoadingCaddieDecision = true
-        defer { isLoadingCaddieDecision = false }
         await loadHoleMap()
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else {
+            isLoadingCaddieDecision = false
+            return
+        }
         // Sync the selected club to the recommendation on a fresh hole; a hole the player already
         // recorded keeps their actual choice.
         let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
         await loadCaddieDecision(syncClub: !alreadyRecorded)
+        isLoadingCaddieDecision = false
+
+        // The package request has already queued prodgeometry in the backend. Keep the CourseView
+        // vectors usable now, then replace only this hole's map facts when the precise mesh arrives.
+        // The structured `.task(id: hole.number)` owns this loop, so changing holes or leaving the
+        // screen cancels it without leaving a detached poller behind.
+        if holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
+            await waitForPreciseHoleMap()
+        }
     }
 
     private func loadHoleMap() async {
@@ -614,7 +628,53 @@ public struct CurrentHoleView: View {
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
             // watch P1b: relay the clean topo bitmap so the watch renders the hole map offline. Keyed by
             // the round hole number (what WatchRoundState.hole carries), fetched by the source local hole.
-            await pushTopoToWatch(globalId: mapGlobalId, sourceLocalHole: mapLocalHole, watchHole: hole.number)
+            if holePrep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame {
+                await pushTopoToWatch(
+                    globalId: mapGlobalId,
+                    sourceLocalHole: mapLocalHole,
+                    watchHole: hole.number
+                )
+            }
+        }
+    }
+
+    @MainActor
+    private func waitForPreciseHoleMap() async {
+        guard let caddieBaseURL else { return }
+        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
+        let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        guard mapGlobalId != 0 else { return }
+        let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
+        var delaySeconds: UInt64 = 5
+
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            guard let refreshed = try? await client.fetchHolePrep(
+                globalId: mapGlobalId,
+                localHole: mapLocalHole
+            ) else {
+                delaySeconds = min(delaySeconds * 2, 60)
+                continue
+            }
+            guard refreshed.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
+                delaySeconds = min(delaySeconds * 2, 60)
+                continue
+            }
+
+            holePrep = refreshed
+            sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+            await pushTopoToWatch(
+                globalId: mapGlobalId,
+                sourceLocalHole: mapLocalHole,
+                watchHole: hole.number
+            )
+            await loadCaddieDecision(syncClub: false)
+            return
         }
     }
 
@@ -1250,7 +1310,14 @@ public struct CurrentHoleView: View {
                 refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) })
         }()
         let holeMap: WatchHoleMap? = (holePrep?.resolvedMapOverlay).flatMap {
-            WatchEventBridge.makeHoleMap(overlay: $0, landingM: holePrep?.landingM, youPxOverride: youPxOverride)
+            WatchEventBridge.makeHoleMap(
+                overlay: $0,
+                landingM: holePrep?.landingM,
+                youPxOverride: youPxOverride,
+                greenOutline: holePrep?.greenOutline?.available == true
+                    ? holePrep?.greenOutline?.pointsPx
+                    : nil
+            )
         }
         let state = watchBridge?.makeWatchRoundStatePayload(
             package: package,
@@ -1279,7 +1346,7 @@ public struct CurrentHoleView: View {
             holeMap: holeMap,
             playsLikeDistanceM: slopeM.flatMap { delta in effectiveDistanceToPinMetres.map { $0 + delta } },
             elevationDeltaM: slopeM,
-            geometryCoverage: hole.geometryCoverage.rawValue,
+            geometryCoverage: holePrep?.geometryCoverage ?? hole.geometryCoverage.rawValue,
             hazards: watchHazards()
         )
         if let state {

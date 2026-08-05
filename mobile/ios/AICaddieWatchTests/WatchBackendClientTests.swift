@@ -202,8 +202,29 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "tee_box" })?.value, "White")
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "back_global_id" })?.value, "31670")
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "ensure_geometry" })?.value, "true")
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "background_geometry" })?.value, "false")
         XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "client_id" })?.value, "apple-watch")
         XCTAssertEqual(package.timeoutInterval, 900)
+
+        let lightweightPackage = try client.makeCoursePackageRequest(
+            globalId: 31669,
+            roundId: "watch-round-lightweight",
+            teeBox: "White",
+            backgroundGeometry: true
+        )
+        let lightweightQuery = try XCTUnwrap(URLComponents(
+            url: try XCTUnwrap(lightweightPackage.url),
+            resolvingAgainstBaseURL: false
+        ))
+        XCTAssertEqual(
+            lightweightQuery.queryItems?.first(where: { $0.name == "ensure_geometry" })?.value,
+            "false"
+        )
+        XCTAssertEqual(
+            lightweightQuery.queryItems?.first(where: { $0.name == "background_geometry" })?.value,
+            "true"
+        )
+        XCTAssertNotEqual(lightweightPackage.timeoutInterval, 900)
 
         let prep = try client.makeCoursePrepRequest(globalId: 31669, localHoles: [1, 2, 9])
         XCTAssertEqual(prep.url?.path, "/api/v2/courses/31669/prep")

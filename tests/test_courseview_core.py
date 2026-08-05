@@ -1,5 +1,7 @@
 import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from ai_caddie.courses import courseview_core as core
@@ -159,6 +161,49 @@ class CourseViewCoreFetchTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "must be positive"):
                 core.fetch_course_data(0, 3881)
         fetch.assert_not_called()
+
+    def test_release_bound_cache_fetches_once_and_invalidates_on_new_build(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release = {"release_version": 309}
+
+            def response(url: str) -> bytes:
+                build = int(url.rsplit("/", 2)[-2].split(",", 1)[0])
+                payload = _payload()
+                payload["BuildId"] = build
+                return json.dumps(payload).encode()
+
+            with (
+                patch(
+                    "ai_caddie.courses.course_reference.courseview_release_info",
+                    side_effect=lambda *_args, **_kwargs: dict(release),
+                ),
+                patch.object(core, "_fetch_course_data_bytes", side_effect=response) as fetch,
+            ):
+                first = core.ensure_course_data(3881, root=root)
+                second = core.ensure_course_data(3881, root=root)
+                release["release_version"] = 310
+                upgraded = core.ensure_course_data(3881, root=root)
+
+            self.assertEqual(first, second)
+            self.assertEqual(first["buildId"], 309)
+            self.assertEqual(upgraded["buildId"], 310)
+            self.assertEqual(fetch.call_count, 2)
+            self.assertTrue(core.course_data_cache_path(3881, 309, root=root).exists())
+            self.assertTrue(core.course_data_cache_path(3881, 310, root=root).exists())
+
+    def test_cache_only_load_rejects_payload_with_wrong_authority(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = core.course_data_cache_path(3881, 309, root=root)
+            path.parent.mkdir(parents=True)
+            wrong = core.parse_course_data_json(_payload(), includes_hazard_lines=True)
+            wrong["globalLayoutId"] = 99999
+            path.write_text(json.dumps(wrong), encoding="utf-8")
+
+            loaded = core.load_cached_course_data(3881, build_id=309, root=root)
+
+            self.assertIsNone(loaded)
 
 
 if __name__ == "__main__":

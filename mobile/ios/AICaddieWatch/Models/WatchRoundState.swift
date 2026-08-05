@@ -145,6 +145,8 @@ public struct WatchHoleMap: Codable, Equatable {
     /// so detail instruments can place measured facts such as hazard edges on the real map. Optional
     /// keeps rounds cached by older builds readable.
     public let route: [[Double]]?
+    /// Drawing-only CourseView outline used by a vector map before the precise bitmap arrives.
+    public let greenOutline: [[Double]]?
 
     public init(
         w: Int,
@@ -154,7 +156,8 @@ public struct WatchHoleMap: Codable, Equatable {
         layup: [Double],
         apex: [Double],
         greenCtrl: [Double],
-        route: [[Double]]? = nil
+        route: [[Double]]? = nil,
+        greenOutline: [[Double]]? = nil
     ) {
         self.w = w
         self.h = h
@@ -164,6 +167,7 @@ public struct WatchHoleMap: Codable, Equatable {
         self.apex = apex
         self.greenCtrl = greenCtrl
         self.route = route
+        self.greenOutline = greenOutline
     }
 }
 
@@ -594,6 +598,64 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             geometryCoverage: geometryCoverage,
             caddieOptions: caddieOptions,
             hazards: hazards,
+            rootCaddieRecommendation: rootCaddieRecommendation,
+            score: score,
+            putts: putts,
+            penaltyCount: penaltyCount,
+            caddieConfidence: caddieConfidence
+        )
+    }
+
+    /// Replace only downloaded course/map facts. Scores, penalties, selected club, current decision
+    /// and every other player-owned field stay untouched while a partial CourseView map becomes the
+    /// precise prodgeometry map in the same persisted round.
+    public func applyingCourseMapUpgrade(_ upgraded: WatchRoundState) -> WatchRoundState {
+        guard upgraded.hole == hole else { return self }
+        return WatchRoundState(
+            roundId: roundId,
+            hole: hole,
+            par: upgraded.par,
+            distanceM: distanceM,
+            teeLatitude: upgraded.teeLatitude ?? teeLatitude,
+            teeLongitude: upgraded.teeLongitude ?? teeLongitude,
+            targetNote: targetNote,
+            targetLatitude: targetLatitude,
+            targetLongitude: targetLongitude,
+            targetKind: targetKind,
+            suggestedClub: suggestedClub ?? upgraded.suggestedClub,
+            selectedClub: selectedClub,
+            availableClubs: upgraded.availableClubs.isEmpty ? availableClubs : upgraded.availableClubs,
+            shotType: shotType,
+            strategyMode: strategyMode,
+            lie: lie,
+            offlineOptionId: offlineOptionId,
+            decisionId: decisionId,
+            nextShotPrompt: nextShotPrompt,
+            holePlanSummary: holePlanSummary,
+            expectedRemainingM: expectedRemainingM,
+            evidenceSummary: evidenceSummary,
+            missingDataSummary: missingDataSummary,
+            frontGreenM: upgraded.frontGreenM ?? frontGreenM,
+            centerGreenM: upgraded.centerGreenM ?? centerGreenM,
+            backGreenM: upgraded.backGreenM ?? backGreenM,
+            frontGreenLat: upgraded.frontGreenLat ?? frontGreenLat,
+            frontGreenLon: upgraded.frontGreenLon ?? frontGreenLon,
+            centerGreenLat: upgraded.centerGreenLat ?? centerGreenLat,
+            centerGreenLon: upgraded.centerGreenLon ?? centerGreenLon,
+            backGreenLat: upgraded.backGreenLat ?? backGreenLat,
+            backGreenLon: upgraded.backGreenLon ?? backGreenLon,
+            holeImageProjection: upgraded.holeImageProjection ?? holeImageProjection,
+            globalId: upgraded.globalId ?? globalId,
+            holeMap: upgraded.holeMap ?? holeMap,
+            playsLikeDistanceM: upgraded.playsLikeDistanceM ?? playsLikeDistanceM,
+            elevationDeltaM: upgraded.elevationDeltaM ?? elevationDeltaM,
+            lastShotDistanceM: lastShotDistanceM,
+            distanceFromLastShotM: distanceFromLastShotM,
+            greenInRegulation: greenInRegulation,
+            fairwayResult: fairwayResult,
+            geometryCoverage: upgraded.geometryCoverage ?? geometryCoverage,
+            caddieOptions: upgraded.caddieOptions.isEmpty ? caddieOptions : upgraded.caddieOptions,
+            hazards: upgraded.hazards.isEmpty ? hazards : upgraded.hazards,
             rootCaddieRecommendation: rootCaddieRecommendation,
             score: score,
             putts: putts,

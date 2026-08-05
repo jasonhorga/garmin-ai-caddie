@@ -263,6 +263,22 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
         return None
 
 
+def courseview_release_info(
+    global_id: int,
+    *,
+    allow_fetch: bool = True,
+    root: Path = ROOT,
+) -> dict | None:
+    """Public cache-first CourseView release metadata for map-package consumers.
+
+    The lightweight ``courseData`` URL is versioned by the release's
+    ``release_version`` (Garmin's ``BuildId``).  Keeping that lookup here makes
+    release bytes, Tee names and lightweight maps share one cached authority
+    instead of each subsystem inventing its own catalogue state.
+    """
+    return _release_info(global_id, allow_fetch=allow_fetch, root=root)
+
+
 def _release_holes(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[dict] | None:
     """Per-hole records from the CourseView release protobuf (cache-first, then fetch+cache)."""
     info = _release_info(global_id, allow_fetch=allow_fetch, root=root)

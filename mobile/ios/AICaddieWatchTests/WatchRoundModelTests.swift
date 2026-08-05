@@ -123,6 +123,77 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.activeHoleState?.suggestedClub, "8I")
     }
 
+    func testCourseMapUpgradeKeepsRoundIdentityScoreAndDraft() {
+        let partialMap = WatchHoleMap(
+            w: 360,
+            h: 560,
+            you: [180, 520],
+            pin: [180, 40],
+            layup: [180, 260],
+            apex: [180, 390],
+            greenCtrl: [180, 150],
+            route: [[180, 520, 0], [180, 40, 400]],
+            greenOutline: [[170, 50], [190, 50], [180, 35]]
+        )
+        let current = WatchRoundState(
+            roundId: "r1",
+            hole: 1,
+            par: 4,
+            distanceM: 365,
+            suggestedClub: "1W",
+            selectedClub: "7I",
+            globalId: 3881,
+            holeMap: partialMap,
+            geometryCoverage: "partial",
+            score: 5,
+            putts: 2,
+            penaltyCount: 1,
+            caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [current])
+        model.startScoringActiveHole()
+        model.adjustDraftScore(1)
+
+        let exactMap = WatchHoleMap(
+            w: 678,
+            h: 1060,
+            you: [320, 980],
+            pin: [350, 90],
+            layup: [330, 520],
+            apex: [325, 750],
+            greenCtrl: [340, 300],
+            route: [[320, 980, 0], [350, 90, 402]]
+        )
+        let exact = WatchRoundState(
+            roundId: "r1",
+            hole: 1,
+            par: 4,
+            distanceM: 368,
+            suggestedClub: "1W",
+            selectedClub: nil,
+            globalId: 3881,
+            holeMap: exactMap,
+            geometryCoverage: "ready",
+            score: 0,
+            putts: 0,
+            penaltyCount: 0,
+            caddieConfidence: "offline"
+        )
+
+        model.applyCourseMapUpgrade([exact])
+
+        XCTAssertEqual(model.round?.roundId, "r1")
+        XCTAssertEqual(model.activeHole, 1)
+        XCTAssertEqual(model.activeHoleState?.geometryCoverage, "ready")
+        XCTAssertEqual(model.activeHoleState?.holeMap?.w, 678)
+        XCTAssertEqual(model.activeHoleState?.score, 5)
+        XCTAssertEqual(model.activeHoleState?.putts, 2)
+        XCTAssertEqual(model.activeHoleState?.penaltyCount, 1)
+        XCTAssertEqual(model.activeHoleState?.selectedClub, "7I")
+        XCTAssertEqual(model.screen, .scoring)
+        XCTAssertEqual(model.draftScore, 6)
+    }
+
     func testSeedRoundSetsActiveHoleAndCourse() {
         let model = seededModel(holes: [hole(1), hole(2), hole(3)])
         XCTAssertEqual(model.holeCount, 3)

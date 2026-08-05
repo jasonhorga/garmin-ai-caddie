@@ -295,6 +295,28 @@ public struct CoursePrepHazardDetail: Codable, Equatable {
     }
 }
 
+/// Garmin CourseView's lightweight 30-direction green shape. `pointsPx` is drawing-only in the
+/// same affine frame as `resolvedMapOverlay`; the source values are intentionally not exposed as
+/// measured front/middle/back distances.
+public struct CoursePrepGreenOutline: Codable, Equatable {
+    public let available: Bool
+    public let source: String?
+    public let distanceUnit: String?
+    public let pointsPx: [[Double]]
+
+    public init(
+        available: Bool,
+        source: String? = nil,
+        distanceUnit: String? = nil,
+        pointsPx: [[Double]] = []
+    ) {
+        self.available = available
+        self.source = source
+        self.distanceUnit = distanceUnit
+        self.pointsPx = pointsPx
+    }
+}
+
 public struct CoursePrepHole: Codable, Equatable {
     public let hole: Int
     public let par: Int
@@ -318,9 +340,11 @@ public struct CoursePrepHole: Codable, Equatable {
     public let playsLike: CoursePrepPlaysLike?
     // watch P0.1: geo→px anchors so a client can place its GPS/pin/landings on the topo map.
     public let holeImageProjection: CoursePrepHoleImageProjection?
+    /// Drawing-only outline available while precise prodgeometry is still downloading.
+    public let greenOutline: CoursePrepGreenOutline?
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, route, geometryCoverage, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map, greenDistances, playsLike, holeImageProjection
+        case hole, par, route, geometryCoverage, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline
         case parSource = "par_source"
         case blueYards = "blue_yards"
         case routeLenM = "route_len_m"
@@ -350,6 +374,7 @@ public struct CoursePrepHole: Codable, Equatable {
         self.greenDistances = try container.decodeIfPresent(CoursePrepGreenDistances.self, forKey: .greenDistances)
         self.playsLike = try container.decodeIfPresent(CoursePrepPlaysLike.self, forKey: .playsLike)
         self.holeImageProjection = try container.decodeIfPresent(CoursePrepHoleImageProjection.self, forKey: .holeImageProjection)
+        self.greenOutline = try container.decodeIfPresent(CoursePrepGreenOutline.self, forKey: .greenOutline)
     }
 
     /// Overlay in the shared `/topo.png` pixel frame. Rendered prep already embeds this value; the

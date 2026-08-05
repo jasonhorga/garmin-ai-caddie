@@ -190,7 +190,8 @@ public final class WatchBackendClient {
         roundId: String,
         teeBox: String,
         backGlobalId: Int? = nil,
-        ensureGeometry: Bool = false
+        ensureGeometry: Bool = false,
+        backgroundGeometry: Bool = false
     ) throws -> URLRequest {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
@@ -204,6 +205,7 @@ public final class WatchBackendClient {
             URLQueryItem(name: "nine", value: "all"),
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "ensure_geometry", value: ensureGeometry ? "true" : "false"),
+            URLQueryItem(name: "background_geometry", value: backgroundGeometry ? "true" : "false"),
         ]
         if let backGlobalId {
             queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
@@ -295,14 +297,16 @@ public final class WatchBackendClient {
         roundId: String,
         teeBox: String,
         backGlobalId: Int? = nil,
-        ensureGeometry: Bool = false
+        ensureGeometry: Bool = false,
+        backgroundGeometry: Bool = false
     ) async throws -> WatchCoursePackage {
         let request = try makeCoursePackageRequest(
             globalId: globalId,
             roundId: roundId,
             teeBox: teeBox,
             backGlobalId: backGlobalId,
-            ensureGeometry: ensureGeometry
+            ensureGeometry: ensureGeometry,
+            backgroundGeometry: backgroundGeometry
         )
         let data = try await sendForData(request)
         return try decodeCoursePackage(data)

@@ -34,7 +34,10 @@ public struct HoleImageMapView: View {
         #if canImport(UIKit)
         if let overlay = hole.resolvedMapOverlay, overlay.w > 0, overlay.h > 0 {
             let map = ZStack {
-                TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)
+                // A partial CourseView package already has factual vectors but no prodgeometry
+                // bitmap. Do not issue a guaranteed 404 and pin AsyncImage in its failure state;
+                // the URL appears only when the same hole later upgrades to precise geometry.
+                TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)
                 Canvas { context, size in
                     draw(&context, size: size, overlay: overlay)
                 }
@@ -63,6 +66,10 @@ public struct HoleImageMapView: View {
         }
         return UIImage(data: data)
     }
+
+    private var preciseTopoURL: URL? {
+        hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame ? topoURL : nil
+    }
     #endif
 
     private func draw(_ context: inout GraphicsContext, size: CGSize, overlay: CoursePrepOverlay) {
@@ -70,6 +77,14 @@ public struct HoleImageMapView: View {
         let sy = size.height / CGFloat(overlay.h)
         let routePoints: [CGPoint] = overlay.route.compactMap { row in
             row.count >= 2 ? CGPoint(x: row[0] * sx, y: row[1] * sy) : nil
+        }
+        if hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
+            drawLightweightFacts(
+                &context,
+                routePoints: routePoints,
+                sx: sx,
+                sy: sy
+            )
         }
         // Recommended play line (tee → green) as a smooth SOLID curve, not a hard polyline.
         if routePoints.count >= 2 {
@@ -97,6 +112,56 @@ public struct HoleImageMapView: View {
         // Pin (green end of the route).
         if let pin = routePoints.last {
             context.fill(Path(ellipseIn: CGRect(x: pin.x - 5, y: pin.y - 5, width: 10, height: 10)), with: .color(.red))
+        }
+    }
+
+    /// Coarse but factual CourseView-only map shown during the precise prodgeometry download. The
+    /// hazard spans are explicitly approximate near→far extents; they are never presented as exact
+    /// polygons, and disappear as soon as the precise topo bitmap becomes authoritative.
+    private func drawLightweightFacts(
+        _ context: inout GraphicsContext,
+        routePoints: [CGPoint],
+        sx: CGFloat,
+        sy: CGFloat
+    ) {
+        if routePoints.count >= 2 {
+            context.stroke(
+                Self.smoothPath(through: routePoints),
+                with: .color(Color(red: 0.20, green: 0.49, blue: 0.25).opacity(0.9)),
+                style: StrokeStyle(lineWidth: 24, lineCap: .round, lineJoin: .round)
+            )
+        }
+
+        for detail in hole.hazards.details where detail.frontPx.count >= 2 && detail.backPx.count >= 2 {
+            let front = CGPoint(x: detail.frontPx[0] * sx, y: detail.frontPx[1] * sy)
+            let back = CGPoint(x: detail.backPx[0] * sx, y: detail.backPx[1] * sy)
+            var span = Path()
+            span.move(to: front)
+            span.addLine(to: back)
+            let color = detail.kind == "water"
+                ? Color(red: 0.18, green: 0.58, blue: 0.88)
+                : Color(red: 0.88, green: 0.76, blue: 0.48)
+            context.stroke(
+                span,
+                with: .color(color.opacity(0.95)),
+                style: StrokeStyle(lineWidth: detail.kind == "water" ? 14 : 12, lineCap: .round)
+            )
+        }
+
+        let greenRows = hole.greenOutline?.available == true
+            ? (hole.greenOutline?.pointsPx ?? [])
+            : []
+        let greenPoints: [CGPoint] = greenRows.compactMap { row in
+                guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
+                return CGPoint(x: row[0] * sx, y: row[1] * sy)
+            }
+        if greenPoints.count >= 3 {
+            var green = Path()
+            green.move(to: greenPoints[0])
+            for point in greenPoints.dropFirst() { green.addLine(to: point) }
+            green.closeSubpath()
+            context.fill(green, with: .color(Color(red: 0.36, green: 0.72, blue: 0.35).opacity(0.95)))
+            context.stroke(green, with: .color(.white.opacity(0.35)), style: StrokeStyle(lineWidth: 1))
         }
     }
 

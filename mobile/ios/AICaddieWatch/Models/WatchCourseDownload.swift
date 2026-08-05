@@ -299,9 +299,10 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
     public let greenDistances: WatchCoursePrepGreenDistances?
     public let playsLike: WatchCoursePrepPlaysLike?
     public let holeImageProjection: WatchCoursePrepProjection?
+    public let greenOutline: WatchCoursePrepGreenOutline?
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, geometryCoverage, route, hazards, map, greenDistances, playsLike, holeImageProjection
+        case hole, par, geometryCoverage, route, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline
         case landingM = "landing_m"
         case teeClub = "tee_club"
     }
@@ -320,6 +321,17 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
         greenDistances = try container.decodeIfPresent(WatchCoursePrepGreenDistances.self, forKey: .greenDistances)
         playsLike = try container.decodeIfPresent(WatchCoursePrepPlaysLike.self, forKey: .playsLike)
         holeImageProjection = try container.decodeIfPresent(WatchCoursePrepProjection.self, forKey: .holeImageProjection)
+        greenOutline = try container.decodeIfPresent(WatchCoursePrepGreenOutline.self, forKey: .greenOutline)
+    }
+}
+
+public struct WatchCoursePrepGreenOutline: Decodable, Equatable {
+    public let available: Bool
+    public let pointsPx: [[Double]]
+
+    public init(available: Bool, pointsPx: [[Double]] = []) {
+        self.available = available
+        self.pointsPx = pointsPx
     }
 }
 

@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
 from ai_caddie.history import stats_cache
@@ -225,12 +227,57 @@ class ServerV2MobileTests(unittest.TestCase):
         ) as build_package:
             actual = server_main.mobile_course_package(
                 31796,
+                background_tasks=BackgroundTasks(),
                 include_event_cursor=False,
                 player_id="owner",
             )
 
         self.assertIs(actual, expected)
         self.assertFalse(build_package.call_args.kwargs["include_event_cursor"])
+
+    def test_course_package_queues_only_missing_source_holes_for_background_upgrade(self) -> None:
+        from server_v2 import main as server_main
+
+        package = SimpleNamespace(
+            course={"globalId": 31796},
+            holes=[
+                {
+                    "number": 1,
+                    "geometryCoverage": "partial",
+                    "sourceGlobalId": 31796,
+                    "sourceLocalHole": 1,
+                },
+                {
+                    "number": 2,
+                    "geometryCoverage": "ready",
+                    "sourceGlobalId": 31796,
+                    "sourceLocalHole": 2,
+                },
+                {
+                    "number": 10,
+                    "geometryCoverage": "missing",
+                    "sourceGlobalId": 31797,
+                    "sourceLocalHole": 1,
+                },
+            ],
+        )
+        tasks = BackgroundTasks()
+        with patch.object(
+            server_main,
+            "build_mobile_course_package_response",
+            return_value=package,
+        ):
+            actual = server_main.mobile_course_package(
+                31796,
+                background_tasks=tasks,
+                background_geometry=True,
+                player_id="owner",
+            )
+
+        self.assertIs(actual, package)
+        self.assertEqual(len(tasks.tasks), 1)
+        self.assertIs(tasks.tasks[0].func, server_main._upgrade_course_geometry)
+        self.assertEqual(tasks.tasks[0].args, ({31796: [1], 31797: [1]},))
 
     def test_mobile_round_package_can_prefetch_geometry_for_offline_readiness(self) -> None:
         client = TestClient(app)

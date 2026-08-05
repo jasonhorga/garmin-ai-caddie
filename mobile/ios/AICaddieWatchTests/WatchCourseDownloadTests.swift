@@ -212,6 +212,43 @@ final class WatchCourseDownloadTests: XCTestCase {
         ])
     }
 
+    func testCourseViewPartialPrepBuildsVectorMapWithoutBitmap() throws {
+        let option = WatchCourseOption(
+            globalId: 3881,
+            name: "Cypress Point Club",
+            holes: 18,
+            teeBox: "championship"
+        )
+        let package = try client.decodeCoursePackage(Data(
+            #"{"roundId":"watch-partial","course":{"globalId":3881,"name":"Cypress Point Club","teeBox":"championship"},"holes":[{"number":1,"par":5,"yards":407,"geometryCoverage":"partial","sourceGlobalId":3881,"sourceLocalHole":1}]}"#.utf8
+        ))
+        let prep = try client.decodeCoursePrep(Data(
+            #"{"globalId":3881,"clubs":[],"holes":[{"hole":1,"par":5,"geometryCoverage":"partial","landing_m":220.0,"route":[[0.0,0.0,0.0],[0.0,200.0,200.0],[30.0,320.0,323.7]],"hazards":{"details":[{"kind":"water","frontM":120.0,"backM":150.0,"frontRouteM":120.0,"backRouteM":150.0,"frontPx":[95.0,570.0],"backPx":[108.0,540.0]}]},"greenOutline":{"available":true,"pointsPx":[[120.0,390.0],[140.0,400.0],[130.0,420.0]]},"holeImageProjection":{"available":true,"widthPx":678,"heightPx":1060,"refs":[{"lat":36.58,"lon":-121.97,"px":100.0,"py":700.0},{"lat":36.58,"lon":-121.9686,"px":220.0,"py":700.0},{"lat":36.5811,"lon":-121.97,"px":100.0,"py":580.0}]}}]}"#.utf8
+        ))
+
+        let download = try WatchCourseTemplateBuilder.build(
+            option: option,
+            package: package,
+            prepsByGlobalId: [3881: prep],
+            cachedAt: "2026-08-05T00:00:00Z"
+        )
+
+        let state = try XCTUnwrap(download.template.holeStates.first)
+        XCTAssertTrue(download.images.isEmpty)
+        XCTAssertEqual(state.geometryCoverage, "partial")
+        XCTAssertEqual(state.holeMap?.greenOutline?.count, 3)
+        let geometry = try XCTUnwrap(WatchHoleMapGeometry.from(
+            holeMap: state.holeMap,
+            image: nil,
+            hazards: state.hazards
+        ))
+        XCTAssertNil(geometry.image)
+        XCTAssertEqual(geometry.routePx.count, 3)
+        XCTAssertEqual(geometry.greenOutlinePx.count, 3)
+        XCTAssertEqual(geometry.hazardSpans.count, 1)
+        XCTAssertEqual(geometry.hazardSpans.first?.kind, "water")
+    }
+
     func testBuildUsesSelectedPackageTeeWhenRenderedPrepIsAbsent() throws {
         let option = WatchCourseOption(
             globalId: 31669,

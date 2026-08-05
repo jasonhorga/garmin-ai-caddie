@@ -57,7 +57,13 @@ public enum WatchCourseTemplateBuilder {
             let distanceM = hole.yards.map { Double($0) * 0.9144 }
             let projection = watchProjection(prep?.holeImageProjection)
             let overlay = prep.flatMap { prepOverlay($0, projection: projection) }
-            let holeMap = overlay.flatMap { makeHoleMap($0, landingM: prep?.landingM) }
+            let holeMap = overlay.flatMap {
+                makeHoleMap(
+                    $0,
+                    landingM: prep?.landingM,
+                    greenOutline: prep?.greenOutline
+                )
+            }
             let routeDistanceM = overlay?.route.last.flatMap { $0.count >= 3 ? $0[2] : nil }
             let tee = packageTeeCoordinate(hole) ?? teeCoordinate(holeMap: holeMap, projection: projection)
             let green = prep?.greenDistances?.available == true ? prep?.greenDistances : nil
@@ -299,7 +305,8 @@ public enum WatchCourseTemplateBuilder {
 
     private static func makeHoleMap(
         _ overlay: WatchCoursePrepOverlay,
-        landingM: Double?
+        landingM: Double?,
+        greenOutline: WatchCoursePrepGreenOutline?
     ) -> WatchHoleMap? {
         let route = overlay.route
         guard route.count >= 2,
@@ -316,7 +323,8 @@ public enum WatchCourseTemplateBuilder {
             layup: interpolate(route, atM: landing),
             apex: interpolate(route, atM: landing * 0.5),
             greenCtrl: interpolate(route, atM: landing + (total - landing) * 0.5),
-            route: route
+            route: route,
+            greenOutline: greenOutline?.available == true ? greenOutline?.pointsPx : nil
         )
     }
 

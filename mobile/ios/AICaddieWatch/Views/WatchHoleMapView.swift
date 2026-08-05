@@ -538,6 +538,7 @@ public struct WatchHoleMapView: View {
         if !drew {
             context.fill(Path(CGRect(x: mapLeft, y: 0, width: size.width - mapLeft, height: size.height)),
                          with: .color(Color(red: 0.12, green: 0.28, blue: 0.16)))
+            drawLightweightMapFacts(&context, transform: a.t)
         }
 
         // Gradient vignette into the black face.
@@ -643,6 +644,62 @@ public struct WatchHoleMapView: View {
         // focused map states even when they retain the split data column, so the root ring must yield.
         if !fullMap, measuredPx == nil, pinDrag == .zero {
             drawRing(&context, size: size)
+        }
+    }
+
+    /// CourseView-only fallback while prodgeometry is downloading. It deliberately draws the
+    /// near→far hazard spans as coarse strokes, not invented polygons; the entire layer disappears
+    /// once a precise topo bitmap becomes available.
+    private func drawLightweightMapFacts(
+        _ context: inout GraphicsContext,
+        transform: (CGPoint) -> CGPoint
+    ) {
+        if geometry.routePx.count >= 2 {
+            var route = Path()
+            route.move(to: transform(geometry.routePx[0]))
+            for point in geometry.routePx.dropFirst() {
+                route.addLine(to: transform(point))
+            }
+            context.stroke(
+                route,
+                with: .color(Color(red: 0.21, green: 0.51, blue: 0.26).opacity(0.95)),
+                style: StrokeStyle(lineWidth: 17, lineCap: .round, lineJoin: .round)
+            )
+        }
+
+        for hazard in geometry.hazardSpans {
+            var span = Path()
+            span.move(to: transform(hazard.frontPx))
+            span.addLine(to: transform(hazard.backPx))
+            let color = hazard.kind == "water"
+                ? Color(red: 0.18, green: 0.58, blue: 0.88)
+                : Color(red: 0.88, green: 0.76, blue: 0.48)
+            context.stroke(
+                span,
+                with: .color(color.opacity(0.98)),
+                style: StrokeStyle(
+                    lineWidth: hazard.kind == "water" ? 10 : 8,
+                    lineCap: .round
+                )
+            )
+        }
+
+        if geometry.greenOutlinePx.count >= 3 {
+            var green = Path()
+            green.move(to: transform(geometry.greenOutlinePx[0]))
+            for point in geometry.greenOutlinePx.dropFirst() {
+                green.addLine(to: transform(point))
+            }
+            green.closeSubpath()
+            context.fill(
+                green,
+                with: .color(Color(red: 0.36, green: 0.72, blue: 0.35).opacity(0.98))
+            )
+            context.stroke(
+                green,
+                with: .color(.white.opacity(0.35)),
+                style: StrokeStyle(lineWidth: 0.8)
+            )
         }
     }
 
