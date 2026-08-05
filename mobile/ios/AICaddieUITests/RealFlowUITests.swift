@@ -368,11 +368,26 @@ final class RealFlowUITests: XCTestCase {
         launchFresh()
         XCTAssertTrue(tapContaining(["打球", "开始一场"]), "home must expose the real start-round path")
         settle(9)
+        // Provider-wide nearby discovery can legitimately change the form's default course. The
+        // approved 18-hole evidence is Beijing Ligong, so select its stable globalId explicitly
+        // instead of mistaking a visible, unselected course name for the active choice.
+        let ligongSegment = app.buttons["start-round-course-segment-31669"]
         XCTAssertTrue(
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "北京丽宫")).firstMatch.exists,
-            "simulated course location must select 北京丽宫"
+            scrollTo(ligongSegment, maxSwipes: 24),
+            "the full journey must expose the approved 北京丽宫 course segment"
         )
-        XCTAssertTrue(tapContaining(["开始记分"]), "selected real course must be startable")
+        if ligongSegment.value as? String != "已选择" {
+            ligongSegment.tap()
+            settle(1)
+        }
+        XCTAssertEqual(ligongSegment.value as? String, "已选择")
+        let ligongPrimary = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(
+            waitUntilEnabled(ligongPrimary, timeout: 90),
+            "explicitly selected 北京丽宫 must finish loading its real Tee metadata"
+        )
+        XCTAssertTrue(scrollTo(ligongPrimary, maxSwipes: 20))
+        ligongPrimary.tap()
         XCTAssertTrue(
             app.staticTexts["363"].waitForExistence(timeout: 60),
             "cold-loaded 北京丽宫 hole prep must expose the blue-tee center-green distance"
