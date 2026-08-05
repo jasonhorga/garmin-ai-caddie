@@ -298,7 +298,7 @@ public struct StartRoundView: View {
                         segmentRow(segment)
                     }
                 }
-                Text("选一个 9 洞环开始;想打 18 洞就在下方加打另一个环。")
+                Text(segmentSelectionHelp)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Divider().padding(.vertical, 2)
@@ -307,8 +307,18 @@ public struct StartRoundView: View {
                     Spacer()
                     Menu {
                         ForEach(teeOptions, id: \.self) { tee in
-                            Button(teeMenuLabel(tee)) { teeBox = tee }
+                            Button {
+                                teeBox = tee
+                            } label: {
+                                if tee.caseInsensitiveCompare(teeBox) == .orderedSame {
+                                    Label(teeMenuLabel(tee), systemImage: "checkmark")
+                                } else {
+                                    Text(teeMenuLabel(tee))
+                                }
+                            }
                         }
+                        Divider()
+                        Button("取消", role: .cancel) {}
                     } label: {
                         HStack(spacing: 4) {
                             Text(teeBox.isEmpty ? "默认" : teeMenuLabel(teeBox))
@@ -392,6 +402,17 @@ public struct StartRoundView: View {
 
     private var selectedSegment: MobileCourseOption? {
         availableCourseOptions.first { String($0.globalId) == courseGlobalIdText }
+    }
+
+    private var segmentSelectionHelp: String {
+        guard let selectedSegment else {
+            return "选择一个球场开始。"
+        }
+        let holes = selectedSegment.segmentHoles ?? selectedSegment.holes
+        if holes == 9 {
+            return "选一个 9 洞环开始；想打 18 洞可在下方加打另一个环。"
+        }
+        return "选择全场开始 \(holes) 洞球局。"
     }
 
     /// 选中的是 9 洞环、且同球场有 9 洞环可作第二环时,提供「加打凑 18」。
