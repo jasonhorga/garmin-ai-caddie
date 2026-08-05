@@ -109,6 +109,79 @@ def parse_gmp_header(gmp: bytes) -> GmpOffsets:
     )
 
 
+@dataclass(frozen=True)
+class LblData:
+    header_length: int
+    label_start: int
+    label_size: int
+    offset_multiplier: int
+    encoding_type: int
+    code_page: int
+
+    def text_at(self, gmp: bytes, label_offset: int) -> str:
+        """Resolve a direct RGN label offset from CourseView's absolute LBL1 pool."""
+        offset = int(label_offset)
+        if offset == 0:
+            return ""
+        if offset < 0 or offset >= 1 << 22:
+            raise ValueError("indirect or invalid Garmin LBL offset is not a direct label")
+        position = self.label_start + offset * self.offset_multiplier
+        end = self.label_start + self.label_size + 1
+        if not self.label_start < position < end or end > len(gmp):
+            raise ValueError("Garmin LBL offset is outside the label pool")
+        terminator = gmp.find(b"\0", position, end)
+        if terminator < 0:
+            raise ValueError("Garmin LBL text is not terminated inside the label pool")
+        if self.encoding_type not in (9, 10):
+            raise ValueError(
+                f"unsupported Garmin LBL encoding type {self.encoding_type}"
+            )
+        codec = (
+            "ascii"
+            if self.code_page == 0
+            else "utf-8"
+            if self.code_page == 65001
+            else f"cp{self.code_page}"
+        )
+        try:
+            return gmp[position:terminator].decode(codec)
+        except (LookupError, UnicodeDecodeError) as exc:
+            raise ValueError(
+                f"Garmin LBL text cannot be decoded with code page {self.code_page}"
+            ) from exc
+
+
+def parse_lbl_header(gmp: bytes, lbl_off: int) -> LblData:
+    """Parse the CourseView LBL1 text pool; its internal offsets are GMP-absolute."""
+    if lbl_off < 0 or lbl_off + 0xAC > len(gmp):
+        raise ValueError("LBL header is outside the GMP")
+    header_length = struct.unpack_from("<H", gmp, lbl_off)[0]
+    file_type = gmp[lbl_off + 2 : lbl_off + 12].rstrip(b"\0")
+    if header_length < 0xAC or file_type != b"GARMIN LBL":
+        raise ValueError("invalid Garmin LBL common header")
+    label_start = struct.unpack_from("<I", gmp, lbl_off + 0x15)[0]
+    label_size = struct.unpack_from("<I", gmp, lbl_off + 0x19)[0]
+    multiplier_exponent = gmp[lbl_off + 0x1D]
+    if multiplier_exponent > 15:
+        raise ValueError("Garmin LBL offset multiplier is unsupported")
+    offset_multiplier = 1 << multiplier_exponent
+    encoding_type = gmp[lbl_off + 0x1E]
+    code_page = struct.unpack_from("<H", gmp, lbl_off + 0xAA)[0]
+    if (
+        label_start < lbl_off + header_length
+        or label_start + label_size >= len(gmp)
+    ):
+        raise ValueError("Garmin LBL text pool is outside the GMP")
+    return LblData(
+        header_length,
+        label_start,
+        label_size,
+        offset_multiplier,
+        encoding_type,
+        code_page,
+    )
+
+
 @dataclass
 class DemLevel:
     unknown_byte: int
@@ -1206,6 +1279,42 @@ def skip_ext_extra_bytes(buf: memoryview, off: int) -> int:
     return off
 
 
+def _skip_courseview_polygon_trailer(buf: memoryview, off: int) -> int:
+    """Consume Garmin CourseView's private subtype-bit-6 polygon trailer.
+
+    The observed records start with ``02 02``. Their odd length code stores
+    twice the payload length plus one, so total size is ``3 + (code - 1) / 2``
+    bytes (for example 03→4, 07→6 and 0d→9). Reject malformed forms so a future
+    provider variant cannot silently shift every following polygon.
+    """
+    if off + 4 > len(buf) or bytes(buf[off : off + 2]) != b"\x02\x02":
+        raise ValueError("CourseView polygon trailer has invalid prefix")
+    length_code = buf[off + 2]
+    if length_code < 3 or length_code % 2 == 0:
+        raise ValueError(
+            f"CourseView polygon trailer has unsupported length code {length_code}"
+        )
+    size = 3 + (length_code - 1) // 2
+    if off + size > len(buf):
+        raise ValueError("CourseView polygon trailer is truncated")
+    return off + size
+
+
+def _skip_courseview_line_trailer(buf: memoryview, off: int) -> int:
+    """Consume the distinct private trailer carried by bit-6 CourseView lines."""
+    if off + 3 > len(buf) or buf[off] != 0x41:
+        raise ValueError("CourseView line trailer has invalid prefix")
+    length_code = buf[off + 1]
+    if length_code < 3 or length_code % 2 == 0:
+        raise ValueError(
+            f"CourseView line trailer has unsupported length code {length_code}"
+        )
+    size = 2 + (length_code - 1) // 2
+    if off + size > len(buf):
+        raise ValueError("CourseView line trailer is truncated")
+    return off + size
+
+
 @dataclass
 class Polygon:
     """One closed polygon feature."""
@@ -1237,6 +1346,7 @@ def decode_ext_poly_record(
     subdiv: Subdivision,
     *,
     consume_unk_trailer: bool,
+    consume_line_trailer: bool = False,
 ) -> tuple[Polygon, int]:
     """Decode one extended polygon/polyline record starting at `off`.
 
@@ -1316,6 +1426,10 @@ def decode_ext_poly_record(
         off += 3
     if has_extra_byte:
         off = skip_ext_extra_bytes(buf, off)
+    if has_unk and consume_unk_trailer:
+        off = _skip_courseview_polygon_trailer(buf, off)
+    elif has_unk and consume_line_trailer:
+        off = _skip_courseview_line_trailer(buf, off)
 
     return Polygon(
         type=type_b, subtype=subtype, ext_type=ext_type,
@@ -1336,10 +1450,16 @@ def decode_polygon(buf: memoryview, off: int, subdiv: Subdivision) -> tuple[Poly
 def decode_polyline(buf: memoryview, off: int, subdiv: Subdivision) -> tuple[Polygon, int]:
     """Decode one extended-type polyline record.
 
-    In the CourseView line section, subtype bit 6 is common and does not behave
-    like the polygon trailer flag, so we deliberately do not consume it here.
+    In the CourseView line section, subtype bit 6 carries a distinct private
+    trailer rather than the polygon section's ``02 02`` form.
     """
-    return decode_ext_poly_record(buf, off, subdiv, consume_unk_trailer=False)
+    return decode_ext_poly_record(
+        buf,
+        off,
+        subdiv,
+        consume_unk_trailer=False,
+        consume_line_trailer=True,
+    )
 
 
 def decode_point(buf: memoryview, off: int, subdiv: Subdivision) -> tuple[Point, int]:
@@ -1376,7 +1496,13 @@ def decode_point(buf: memoryview, off: int, subdiv: Subdivision) -> tuple[Point,
     ), off
 
 
-def parse_polygons(gmp: bytes, rgn: RgnHeader, tre: TreData) -> list[Polygon]:
+def parse_polygons(
+    gmp: bytes,
+    rgn: RgnHeader,
+    tre: TreData,
+    *,
+    strict: bool = False,
+) -> list[Polygon]:
     """Decode every polygon in every subdivision, anchored to that subdivision's center."""
     buf = memoryview(gmp)
     base = rgn.ext_poly_off
@@ -1398,13 +1524,24 @@ def parse_polygons(gmp: bytes, rgn: RgnHeader, tre: TreData) -> list[Polygon]:
                 if not tre.ext_area_types or poly.ext_type in tre.ext_area_types:
                     polys.append(poly)
             except Exception as e:
-                # Decoder went off the rails — bail this subdivision rather than corrupt
-                print(f"  [warn] subdiv {subdiv_index} parse aborted at offset 0x{off:x}: {e}")
+                message = (
+                    f"subdiv {subdiv_index} polygon parse aborted "
+                    f"at offset 0x{off:x}: {e}"
+                )
+                if strict:
+                    raise ValueError(message) from e
+                print(f"  [warn] {message}")
                 break
     return polys
 
 
-def parse_polylines(gmp: bytes, rgn: RgnHeader, tre: TreData) -> list[Polygon]:
+def parse_polylines(
+    gmp: bytes,
+    rgn: RgnHeader,
+    tre: TreData,
+    *,
+    strict: bool = False,
+) -> list[Polygon]:
     """Decode every extended polyline in every subdivision."""
     buf = memoryview(gmp)
     base = rgn.ext_line_off
@@ -1425,12 +1562,24 @@ def parse_polylines(gmp: bytes, rgn: RgnHeader, tre: TreData) -> list[Polygon]:
                 if not tre.ext_line_types or line.ext_type in tre.ext_line_types:
                     lines.append(line)
             except Exception as e:
-                print(f"  [warn] subdiv {subdiv_index} polyline parse aborted at offset 0x{off:x}: {e}")
+                message = (
+                    f"subdiv {subdiv_index} polyline parse aborted "
+                    f"at offset 0x{off:x}: {e}"
+                )
+                if strict:
+                    raise ValueError(message) from e
+                print(f"  [warn] {message}")
                 break
     return lines
 
 
-def parse_points(gmp: bytes, rgn: RgnHeader, tre: TreData) -> list[Point]:
+def parse_points(
+    gmp: bytes,
+    rgn: RgnHeader,
+    tre: TreData,
+    *,
+    strict: bool = False,
+) -> list[Point]:
     """Decode every extended point in every subdivision."""
     buf = memoryview(gmp)
     base = rgn.ext_point_off
@@ -1451,7 +1600,13 @@ def parse_points(gmp: bytes, rgn: RgnHeader, tre: TreData) -> list[Point]:
                 if not tre.ext_point_types or point.ext_type in tre.ext_point_types:
                     points.append(point)
             except Exception as e:
-                print(f"  [warn] subdiv {subdiv_index} point parse aborted at offset 0x{off:x}: {e}")
+                message = (
+                    f"subdiv {subdiv_index} point parse aborted "
+                    f"at offset 0x{off:x}: {e}"
+                )
+                if strict:
+                    raise ValueError(message) from e
+                print(f"  [warn] {message}")
                 break
     return points
 

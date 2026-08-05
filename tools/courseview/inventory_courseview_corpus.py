@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Inventory the CourseView bytes we already own before inventing another decoder.
 
-This is deliberately a small, read-only DeepMine pass. It scans release protobufs and
-extracted prodgeometry directories, reports every observed mesh/JSON/protobuf field, and
-separates product-consumed, known structural, and genuinely unclassified mesh names.
-It never downloads, decrypts, rewrites, or publishes course data.
+This is deliberately a small, read-only DeepMine pass. It scans release protobufs,
+DSKIMG wrappers and extracted prodgeometry directories; inventories DEM variants and
+every observed mesh/JSON/protobuf field; and separates product-consumed, known
+structural, and genuinely unclassified mesh names. It never downloads, decrypts,
+rewrites, or publishes course data.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from collections import Counter
 from pathlib import Path
@@ -16,6 +18,19 @@ from typing import Any
 
 from ai_caddie.geometry.export_prodgeometry_hazards import FEATURES, KNOWN_NON_HAZARD
 from ai_caddie.geometry.inspect_courseview_release import parse_fields
+from tools.courseview.parse_courseview import (
+    _unwrap_pb_img,
+    decode_dem_level,
+    extract_gmp,
+    parse_dem_header,
+    parse_gmp_header,
+    parse_lbl_header,
+    parse_points,
+    parse_polygons,
+    parse_polylines,
+    parse_rgn_header,
+    parse_tre,
+)
 
 
 SCHEMA = "ai-caddie-courseview-corpus-inventory-v1"
@@ -71,6 +86,156 @@ def _wire_inventory(path: Path) -> tuple[Counter[str], Counter[str], Counter[str
     return top, tees, holes
 
 
+def _dem_encoding_types(gmp: bytes, level: Any) -> list[int]:
+    offset_size = (level.record_descriptor & 0x03) + 1
+    base_size = ((level.record_descriptor & 0x04) >> 2) + 1
+    delta_size = ((level.record_descriptor & 0x08) >> 3) + 1
+    has_encoding_type = bool(level.record_descriptor & 0x10)
+    cursor_offset = offset_size + base_size + delta_size
+    values: set[int] = set()
+    for index in range(level.tiles_lon * level.tiles_lat):
+        start = level.tile_descriptor_offset + index * level.tile_descriptor_size
+        values.add(gmp[start + cursor_offset] if has_encoding_type else 0)
+    return sorted(values)
+
+
+def _lbl_texts(gmp: bytes, lbl: Any) -> list[str]:
+    texts: list[str] = []
+    cursor = lbl.label_start + lbl.offset_multiplier
+    end = lbl.label_start + lbl.label_size + 1
+    while cursor < end:
+        terminator = gmp.find(b"\0", cursor, end)
+        if terminator < 0:
+            raise ValueError("Garmin LBL pool has unterminated text")
+        if terminator > cursor:
+            offset = (cursor - lbl.label_start) // lbl.offset_multiplier
+            texts.append(lbl.text_at(gmp, offset))
+        cursor = terminator + 1
+        relative = cursor - lbl.label_start
+        remainder = relative % lbl.offset_multiplier
+        if remainder:
+            cursor += lbl.offset_multiplier - remainder
+    return texts
+
+
+def _vector_kind(
+    objects: list[Any],
+    declared_types: set[int],
+    *,
+    gmp: bytes,
+    lbl: Any,
+) -> dict[str, Any]:
+    observed = Counter(f"0x{item.ext_type:06x}" for item in objects)
+    referenced = Counter(
+        (
+            f"0x{item.ext_type:06x}",
+            item.label_off,
+            lbl.text_at(gmp, item.label_off),
+        )
+        for item in objects
+        if item.has_label
+    )
+    declared = sorted(f"0x{value:06x}" for value in declared_types)
+    return {
+        "objectCount": len(objects),
+        "declaredTypes": declared,
+        "observedTypeCounts": _counter(observed),
+        "declaredWithoutDecodedObject": sorted(set(declared) - set(observed)),
+        "labeledObjectCount": sum(referenced.values()),
+        "referencedLabels": [
+            {"type": kind, "offset": offset, "text": text, "count": count}
+            for (kind, offset, text), count in sorted(referenced.items())
+        ],
+    }
+
+
+def _dskimg_inventory(path: Path) -> dict[str, Any]:
+    source = path.read_bytes()
+    image = source if source[0x10:0x16] == b"DSKIMG" else _unwrap_pb_img(source)
+    gmp = extract_gmp(image)
+    offsets = parse_gmp_header(gmp)
+    dem = parse_dem_header(gmp, offsets.dem)
+    levels: list[dict[str, Any]] = []
+    for level_index, level in enumerate(dem.levels):
+        item: dict[str, Any] = {
+            "levelIndex": level_index,
+            "zoomLevel": level.zoom_level,
+            "columns": level.columns,
+            "rows": level.rows,
+            "tileCount": level.tiles_lon * level.tiles_lat,
+            "shrinkValue": level.shrink_value,
+            "shrinkFactor": level.shrink_factor,
+            "recordDescriptor": level.record_descriptor,
+            "encodingTypes": _dem_encoding_types(gmp, level),
+            "headerMinimum": level.min_elevation,
+            "headerMaximum": level.max_elevation,
+        }
+        try:
+            decoded = decode_dem_level(gmp, dem, level_index)
+            elevations = [
+                value
+                for row in decoded.elevations
+                for value in row
+                if value is not None
+            ]
+            item["decode"] = {
+                "status": "ok",
+                "minimum": min(elevations) if elevations else None,
+                "maximum": max(elevations) if elevations else None,
+                "minimumPaddingBits": min(tile.padding_bits for tile in decoded.tiles),
+                "maximumPaddingBits": max(tile.padding_bits for tile in decoded.tiles),
+            }
+        except Exception as exc:
+            item["decode"] = {
+                "status": "error",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        levels.append(item)
+    lbl = parse_lbl_header(gmp, offsets.lbl)
+    lbl_texts = _lbl_texts(gmp, lbl)
+    tre = parse_tre(gmp, offsets.tre)
+    rgn = parse_rgn_header(gmp, offsets.rgn)
+    vectors = {
+        "area": _vector_kind(
+            parse_polygons(gmp, rgn, tre, strict=True),
+            tre.ext_area_types,
+            gmp=gmp,
+            lbl=lbl,
+        ),
+        "line": _vector_kind(
+            parse_polylines(gmp, rgn, tre, strict=True),
+            tre.ext_line_types,
+            gmp=gmp,
+            lbl=lbl,
+        ),
+        "point": _vector_kind(
+            parse_points(gmp, rgn, tre, strict=True),
+            tre.ext_point_types,
+            gmp=gmp,
+            lbl=lbl,
+        ),
+    }
+    return {
+        "artifact": path.name,
+        "sourceSha256": hashlib.sha256(source).hexdigest(),
+        "embeddedImageSha256": hashlib.sha256(image).hexdigest(),
+        "sourceBytes": len(source),
+        "elevationUnit": dem.elevation_unit,
+        "levelCount": len(levels),
+        "levels": levels,
+        "lbl": {
+            "headerLength": lbl.header_length,
+            "labelSize": lbl.label_size,
+            "offsetMultiplier": lbl.offset_multiplier,
+            "encodingType": lbl.encoding_type,
+            "codePage": lbl.code_page,
+            "textCount": len(lbl_texts),
+            "texts": lbl_texts,
+        },
+        "vector": vectors,
+    }
+
+
 def inventory_courseview(root: Path) -> dict[str, Any]:
     root = root.resolve()
     release_top: Counter[str] = Counter()
@@ -86,7 +251,56 @@ def inventory_courseview(root: Path) -> dict[str, Any]:
             release_tees.update(tees)
             release_holes.update(holes)
         except Exception as exc:  # keep the rest of the corpus inspectable
-            errors.append({"artifact": path.name, "error": type(exc).__name__})
+            errors.append(
+                {
+                    "artifact": path.name,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    dem_artifacts: list[dict[str, Any]] = []
+    dem_paths = sorted(set(root.glob("*coursedata.pb")) | set(root.glob("*.img")))
+    for path in dem_paths:
+        try:
+            dem_artifacts.append(_dskimg_inventory(path))
+        except Exception as exc:
+            errors.append(
+                {
+                    "artifact": path.name,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    dem_levels = [
+        level
+        for artifact in dem_artifacts
+        for level in artifact["levels"]
+    ]
+    vector_kinds = ("area", "line", "point")
+    declared_vector_types = {
+        kind: Counter(
+            declared
+            for artifact in dem_artifacts
+            for declared in artifact["vector"][kind]["declaredTypes"]
+        )
+        for kind in vector_kinds
+    }
+    observed_vector_types = {
+        kind: Counter(
+            {
+                observed: sum(
+                    artifact["vector"][kind]["observedTypeCounts"].get(observed, 0)
+                    for artifact in dem_artifacts
+                )
+                for observed in {
+                    value
+                    for artifact in dem_artifacts
+                    for value in artifact["vector"][kind]["observedTypeCounts"]
+                }
+            }
+        )
+        for kind in vector_kinds
+    }
 
     mesh_files: Counter[str] = Counter()
     asset_files: Counter[str] = Counter()
@@ -135,7 +349,12 @@ def inventory_courseview(root: Path) -> dict[str, Any]:
                         for key, value in point.items():
                             dogleg_line_fields[f"{key}:{_type_name(value)}"] += 1
         except Exception as exc:
-            errors.append({"artifact": str(hole_path.relative_to(root)), "error": type(exc).__name__})
+            errors.append(
+                {
+                    "artifact": str(hole_path.relative_to(root)),
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
 
         foliage_path = directory / "foliage.json"
         if not foliage_path.exists():
@@ -154,7 +373,12 @@ def inventory_courseview(root: Path) -> dict[str, Any]:
                     if "id" in row:
                         id_counter[str(row["id"])] += 1
         except Exception as exc:
-            errors.append({"artifact": str(foliage_path.relative_to(root)), "error": type(exc).__name__})
+            errors.append(
+                {
+                    "artifact": str(foliage_path.relative_to(root)),
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
 
     observed_meshes = set(mesh_files)
     semantic_meshes = set(FEATURES)
@@ -170,6 +394,83 @@ def inventory_courseview(root: Path) -> dict[str, Any]:
             "uninterpretedTopLevelWireFields": sorted(set(release_top) - KNOWN_RELEASE_TOP),
             "uninterpretedTeeWireFields": sorted(set(release_tees) - KNOWN_RELEASE_TEE),
             "uninterpretedHoleWireFields": sorted(set(release_holes) - KNOWN_RELEASE_HOLE),
+        },
+        "dskimgDem": {
+            "artifactCount": len(dem_artifacts),
+            "levelCountHistogram": _counter(
+                Counter(artifact["levelCount"] for artifact in dem_artifacts)
+            ),
+            "shrinkValueHistogram": _counter(
+                Counter(level["shrinkValue"] for level in dem_levels)
+            ),
+            "encodingTypeHistogram": _counter(
+                Counter(
+                    encoding
+                    for level in dem_levels
+                    for encoding in level["encodingTypes"]
+                )
+            ),
+            "recordDescriptorHistogram": _counter(
+                Counter(level["recordDescriptor"] for level in dem_levels)
+            ),
+            "tileCount": sum(level["tileCount"] for level in dem_levels),
+            "decodeStatusHistogram": _counter(
+                Counter(level["decode"]["status"] for level in dem_levels)
+            ),
+            "decodedExtremaMismatchCount": sum(
+                level["decode"].get("minimum") != level["headerMinimum"]
+                or level["decode"].get("maximum") != level["headerMaximum"]
+                for level in dem_levels
+                if level["decode"]["status"] == "ok"
+            ),
+            "artifacts": dem_artifacts,
+        },
+        "dskimgVector": {
+            "objectCountByKind": {
+                kind: sum(
+                    artifact["vector"][kind]["objectCount"]
+                    for artifact in dem_artifacts
+                )
+                for kind in vector_kinds
+            },
+            "declaredTypeArtifactCounts": {
+                kind: _counter(declared_vector_types[kind])
+                for kind in vector_kinds
+            },
+            "observedTypeObjectCounts": {
+                kind: _counter(observed_vector_types[kind])
+                for kind in vector_kinds
+            },
+            "declaredNeverObserved": {
+                kind: sorted(
+                    set(declared_vector_types[kind]) - set(observed_vector_types[kind])
+                )
+                for kind in vector_kinds
+            },
+            "labeledObjectCountByKind": {
+                kind: sum(
+                    artifact["vector"][kind]["labeledObjectCount"]
+                    for artifact in dem_artifacts
+                )
+                for kind in vector_kinds
+            },
+        },
+        "dskimgLbl": {
+            "headerLengthHistogram": _counter(
+                Counter(artifact["lbl"]["headerLength"] for artifact in dem_artifacts)
+            ),
+            "offsetMultiplierHistogram": _counter(
+                Counter(
+                    artifact["lbl"]["offsetMultiplier"] for artifact in dem_artifacts
+                )
+            ),
+            "encodingTypeHistogram": _counter(
+                Counter(artifact["lbl"]["encodingType"] for artifact in dem_artifacts)
+            ),
+            "codePageHistogram": _counter(
+                Counter(artifact["lbl"]["codePage"] for artifact in dem_artifacts)
+            ),
+            "textCount": sum(artifact["lbl"]["textCount"] for artifact in dem_artifacts),
         },
         "prodgeometry": {
             "courseCount": len(course_ids),

@@ -1,6 +1,6 @@
 # Garmin CourseView IMG Research
 
-Last updated: 2026-08-04
+Last updated: 2026-08-05
 
 ## Goal
 
@@ -65,13 +65,19 @@ sampling. Three independent checks keep this from being a format guess:
   matrix (little-endian int16 SHA-256
   `4ab0031280edcc3570410ec406867e86c960fc8b90cf63bd0823306a36e4bda2`),
   consumes 337 bits and leaves 7 padding bits;
-- all 26 tiles from the four live Garmin payloads decode to their exact declared
-  extrema, and every tile leaves only `0–7` padding bits.
+- all 26 tiles from the four cross-check payloads decode to their exact declared
+  extrema, and every tile leaves only `0–7` padding bits;
+- an anonymous 12-region sample added 48 courses and 96 live tiles. All 48
+  strict inventories decode without an error or header-extrema mismatch. The
+  sample manifest is `deepmine-output/dem-corpus-20260804/manifest.json`,
+  SHA-256 `1b9473e4e4b6a5d5061f2ffbd5866ea877b13d67fd61e3b6ba6a746ef64f44de`.
 
-For the current four-course corpus, every DEM has one level, `shrinkValue=0`
-(`factor=1`) and `encodingType=0`. Non-default shrink, non-zero encoding types
-and multi-level DEMs therefore remain explicit corpus gaps; the decoder rejects
-non-default shrink instead of silently treating it as the common form.
+Across the 52-course, 122-tile inspected set, every CourseView DEM has one
+level, `shrinkValue=0` (`factor=1`) and `encodingType=0`. This is now the
+product decision for the CourseView distribution we consume: decode that proven
+variant and explicitly reject a future non-default descriptor behind the map
+package version gate. Generic Garmin multi-level/shrunk DEM variants are not
+guessed into this parser merely because they may exist in other Garmin products.
 
 Prodgeometry provides a source-independent spatial check. A ground vertex's
 absolute height is `position.y + hole.ElevationMinimum`; after converting its
@@ -170,24 +176,28 @@ TRE/RGN section offsets for this file.
 [parse_courseview.py](../../tools/courseview/parse_courseview.py) currently decodes:
 
 - complete multi-record FAT/GMP assembly
-- Extended polygons
-- Extended polylines
-- Extended points
-- DEM header, level grid, spacing, descriptor spans and min/max elevation
-
-The Garmin DEM tile delta-compression itself is still opaque; the parser does
-not fabricate sample heights from the header.
+- TRE subdivisions and declared extended area/line/point types
+- extended polygons, polylines and points, including CourseView's distinct
+  private subtype-bit-6 polygon (`02 02 LL ...`) and line (`41 LL ...`) trailers
+- direct LBL offsets, text pools and declared CP1252/CP932/CP936 decoding
+- DEM header, descriptors, default compressed samples, tile assembly and
+  bilinear elevation sampling
 
 For `31795.img`:
 
-- polygons: 26
-- polylines: 9
+- polygons: 591
+- polylines: 27
 - points: 11
 
-The decoded `31795.img` type histogram after TRE overview filtering:
+The old `26 / 9 / 11` result was a parser-abort fallback: an unconsumed private
+trailer shifted the cursor and silently discarded the rest of each subdivision.
+Strict mode now turns any such abort into a corpus error. The corrected
+`31795.img` type histogram after TRE overview filtering is:
 
-- polygon: `0x011407` x10, `0x01140e` x9, `0x011409` x2, plus five singleton types
-- line: `0x012e00` x9
+- polygon: `0x011407` x258, `0x011402` x103, `0x011405` x100,
+  `0x011403` x30, `0x011404` x27, `0x011409` x27, `0x01140e` x27,
+  `0x010b08` x17 and three singleton types
+- line: `0x012e00` x27
 - point: `0x013801` x8, `0x013800` x3
 
 For `31795` the TRE extended type overview/table contains:
@@ -199,6 +209,19 @@ For `31795` the TRE extended type overview/table contains:
 
 Note: the 3-byte records in the TRE extended type table appear to be
 `type, unknown/flags, subtype`, not `type, subtype, unknown`.
+
+The strict 48-course inventory decodes 26,106 areas, 1,503 lines and 312
+points; every one of the 15 area, 3 line and 2 point types declared by TRE has
+at least one real object, with zero subdivision aborts. Its authority report is
+`deepmine-output/courseview-corpus-48-inventory.json`, SHA-256
+`36b729e160dd6b78782bb3903708b5c7c9e41d36a68ea5c579745a1dd9e1550e`.
+
+The same corpus resolves 809 LBL strings: all 48 headers are length 681,
+encoding type 9 and multiplier 1; code pages are CP1252 x46, CP936 x1 and
+CP932 x1. Feature label references are sparse rather than a hidden surface
+legend: 48 labeled `0x011407` areas say `Unknown Area Type`, while the 16
+labeled `0x013800` points carry course/layout names. The remaining pool is Tee
+names, addresses, phone numbers, designer/grass metadata and copyright text.
 
 ## Cross-Course Pattern
 
@@ -212,6 +235,13 @@ The type schema is stable across tested courses:
   `0x011404`, `0x010b08`, plus a few course-specific types.
 
 This strongly suggests CourseView uses a private but consistent golf schema.
+
+Two geometries now have direct cross-source meaning. Line `0x012e00` is the
+hole-centre route and tracks lightweight `3240` within roughly `0.3–0.9 m`.
+Area `0x010d01` is the whole course/complex boundary; `0x011409` and
+`0x01140e` form nested hole-domain/corridor layers. The remaining small vector
+types still do not prove a replacement for exact prodgeometry hazard surfaces,
+so production does not relabel them from visual resemblance alone.
 
 ## Validation Notes
 
@@ -332,24 +362,23 @@ terminal result.
 |---|---|---|
 | Acquisition and updates | Catalogue, name/city, radius, release, `MEDIUM`, `MEDIUM_PLUS`, `INTERMEDIATE`, prodgeometry, raster and Green Contours request chains; version/check-for-update semantics | Every APK call path is bound to endpoint, identifiers, auth level, pagination, version and cache invalidation behavior |
 | Lightweight `courseData` | Codes `3243`, `3244`, `18125`; `InfoMask`, flags and `GreenRadii` scale | Every field is preserved and either named from multi-course evidence or accompanied by a proven non-rendering/opaque classification |
-| DSKIMG | Remaining FAT/GMP edge cases; TRE/RGN/LBL private types and labels; real corpus for non-default DEM shrink, non-zero encoding type and multiple levels | Every declared subfile and geometry type is decoded or conclusively classified; the default DEM codec already round-trips independent Garmin-compatible oracles and matches prodgeometry Y, while other variants require real samples or an explicit absence result |
+| DSKIMG | Semantic classification of the remaining private TRE/RGN vector types | FAT/GMP/TRE/RGN/LBL/default DEM are structurally decoded across 48 strict packages; every declared type is observed. Non-default DEM descriptors have an explicit absence result across 52 courses and remain a version-gated rejection, not an unbounded search task |
 | prodgeometry bundle | All mesh names, `hole.json`, Terrain, foliage, normals/UV/color attributes, coordinate frames and elevation | Corpus inventory has no unclassified asset; every consumed layer has cross-course semantics and every ignored layer has a recorded reason |
 | Green Contours | Authenticated membership download request, response package, course/build/part binding and S70 rendering behavior | One positive and one negative course are captured and decoded end-to-end; availability flag alone is not accepted as payload evidence |
 | Product package | Source precedence, lightweight-to-precise upgrade, offline cache, integrity/version binding and shared iOS/Watch/Web representation | A newly discovered uncached course opens from factual lightweight data, upgrades without changing round identity, survives offline restart and renders consistently on all three clients |
 
 ## Next Work
 
-1. Freeze the reproduced FAT, default DEM codec/cross-check and `courseData`
-   findings as a checkpoint; this is not a declaration that Deep Mine is complete.
-2. Locate real non-default shrink/encoding/multi-level DEM samples through the
-   existing acquisition corpus; do not invent support without a specimen.
-3. Resolve the remaining `courseData` codes/flags and DSKIMG TRE/RGN/LBL types
+1. Freeze the reproduced FAT, default DEM codec/cross-check, strict 48-course
+   vector/LBL inventory and `courseData` findings as a checkpoint; this is not
+   a declaration that Deep Mine is complete.
+2. Resolve the remaining `courseData` codes/flags and DSKIMG vector types
    across the existing multi-region corpus, retaining raw values throughout.
-4. Finish the prodgeometry asset/attribute inventory and remove every
+3. Finish the prodgeometry asset/attribute inventory and remove every
    unclassified corpus entry with evidence rather than a filename guess.
-5. Trace and capture the membership Green Contours path, including one positive
+4. Trace and capture the membership Green Contours path, including one positive
    and one negative course and its S70-visible result.
-6. Productize the proven lightweight facts as a fast fallback and verify their
+5. Productize the proven lightweight facts as a fast fallback and verify their
    in-place upgrade to precise geometry across backend, iOS, Watch and Web.
 
 ## Practical Conclusion For Now

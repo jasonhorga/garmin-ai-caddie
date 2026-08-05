@@ -310,7 +310,7 @@ Build 35 的可安装性不等于产品视觉获批。当前重新以 2026-07-02
 | 1 | iOS 复盘/备战的 Topo 只显示真实洞形，Watch 长文字不越界 | `IMPLEMENTED / 待模拟器回归` | 真实 App 截图无外围绿色矩形，45 mm 全部长文字状态留在表盘内 |
 | 2 | 新开一场时可按城市、球场关键字或两者组合查找任意 Garmin 球场 | `IMPLEMENTED / Native 基础验证通过` | 只查目录；只填城市或关键字均可用；两者都填时分别查询并按 `globalId` 取交集；选中后才下载单座球场 |
 | 3 | 不输入名称，直接列出当前坐标 50 km 内的 provider-wide 附近球场 | `IMPLEMENTED / Native 基础通过，待集成旅程复验` | Garmin 独立 radius 路由按 50 条完整分页；默认 50 km、可切 100/200 km；覆盖未缓存球场并按真实距离排序；选中后才下载单座球场 |
-| 4 | CourseView Deep Mine 将现有 release/prodgeometry 中未使用的真实数据逐项转成产品判断 | `IN PROGRESS / 默认 DEM codec 已独立交叉验证` | 对未分类字段/mesh 给出可重放证据、跨球场语义和明确的使用/不使用结论，不为挖数据而增加无产品价值的平台 |
+| 4 | CourseView Deep Mine 将现有 release/prodgeometry 中未使用的真实数据逐项转成产品判断 | `IN PROGRESS / 默认 DSKIMG 分发已严格解码` | 对未分类字段/mesh 给出可重放证据、跨球场语义和明确的使用/不使用结论，不为挖数据而增加无产品价值的平台 |
 | 5 | 任意新球场先用轻量真实数据秒开，再原位升级为精确地图 | `NOT STARTED / 等待 Deep Mine 输入闭环` | `courseData` 先提供路线、计分卡、果岭外形和水/沙粗距离；`prodgeometry` 到达后不换 round/course identity 地升级，断网重开仍可用 |
 | 6 | 后端、iOS、Watch、Web 使用同一球场发现、地图权威和缓存升级规则 | `NOT STARTED / 不允许各端再分叉` | 同一 `globalId + build/release` 在三端得到一致洞、Tee、障碍、地形与版本；轻量/精确 source precedence 只有一套 |
 | 7 | 把 Topo、Watch 越界、附近/搜索/任意新球场串成真实模拟器旅程 | `PENDING / 等待 1–6 汇合` | 从当前位置或城市/关键字选一座未缓存球场，下载、开局、离线重开并完成复盘；逐屏留存真实 App 截图，不以单元测试代替旅程 |
@@ -327,7 +327,8 @@ Native run `30950302423` 在附近球场 SHA `88b7695` 上完成 build、App 单
 Deep Mine 当前结论（细节与证据见 `docs/research/IMG_RESEARCH.md`）：
 
 - `HasGreenContour` 已由 Garmin JSON 正式命名并用两组正反球场复现；普通 DSKIMG DEM 在有等高线的 Els 仍约 30 m 网格，因此不是订阅 Green Contours 本体。
-- 修复了超过 120 KiB GMP 被旧 FAT 解析器静默截断的问题；默认 DEM sample codec 已由公开已知流、未修改 mkgmap 独立 fixture、四球场全部 26 个 tile 的 header 极值/padding，以及 485,737 个 prodgeometry ground vertices 交叉验证。当前 corpus 全是单 level、`shrink=0`、`encodingType=0`；其他变体仍明确开放，不把普通 CourseView 的完成夸成整个 DSKIMG 完成。
+- 修复了超过 120 KiB GMP 被旧 FAT 解析器静默截断的问题；默认 DEM sample codec 已由公开已知流、未修改 mkgmap 独立 fixture、四球场全部 26 个 tile 的 header 极值/padding，以及 485,737 个 prodgeometry ground vertices 交叉验证。扩大到 12 区域的 48 个匿名真实包后，96 个 DEM tiles 仍全部为单 level、`shrink=0`、`encodingType=0` 且极值零偏差；加原四场共 52 场、122 tiles。当前产品只接受这个已证明的 CourseView 变体，未来非默认 descriptor 显式触发版本拒绝，不为泛 Garmin 格式猜实现。
+- 扩大 corpus 暴露并修复了 RGN 私有 bit-6 trailer；严格模式下 48 场解出 26,106 areas、1,503 lines、312 points，15/3/2 种 TRE 声明类型全部有真实对象且零 subdivision abort。LBL 直接 offset 与 CP1252/CP936/CP932 文本池也已解码；809 条文字主要是 Tee/球场元数据，不是隐藏的沙坑、果岭图例。联合报告 SHA-256 为 `36b729e160dd6b78782bb3903708b5c7c9e41d36a68ea5c579745a1dd9e1550e`。
 - Garmin Golf 的 `MEDIUM`、`MEDIUM_PLUS`、`INTERMEDIATE` 三档下载已经分清。`INTERMEDIATE` JSON 中的 `Image` 与现有 DSKIMG 字节完全相同，不是隐藏的更富地图；GMA/UNL 是设备解锁包装。
 - 新增匿名轻量 `courseData` 解析入口，按 `BuildId + globalLayoutId` 绑定真实响应。17 洞跨三场对照证明 `3241/18123=水`、`3242/18124=沙坑`，两点顺序为 Tee 侧→果岭侧；旧资料所谓“障碍多边形”已纠正为近/远边界线和锚点。
 - 每洞 30 个 `GreenRadii` 已证明以路线末端为中心、从正北顺时针；与精确 Green mesh 的绝对比例仍随球场变化，所以当前保留无单位原值，不把它冒充推杆坡度或精确米制轮廓。

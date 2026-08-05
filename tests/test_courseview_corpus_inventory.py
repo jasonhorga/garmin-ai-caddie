@@ -32,6 +32,7 @@ class CourseViewCorpusInventoryTests(unittest.TestCase):
 
             self.assertEqual(before, after)
             geometry = result["prodgeometry"]
+            self.assertEqual(result["dskimgDem"]["artifactCount"], 0)
             self.assertEqual(geometry["courseCount"], 1)
             self.assertEqual(geometry["holeCount"], 1)
             self.assertIn("Fairway.drc", geometry["topoConsumedMeshNames"])

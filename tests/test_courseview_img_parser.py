@@ -6,10 +6,13 @@ from tools.courseview.parse_courseview import (
     DemData,
     DemLevel,
     DemTileDescriptor,
+    _skip_courseview_line_trailer,
+    _skip_courseview_polygon_trailer,
     decode_dem_level,
     decode_dem_tile,
     extract_gmp,
     parse_dem_header,
+    parse_lbl_header,
 )
 
 
@@ -20,6 +23,53 @@ MKG_ORACLE_STREAM = bytes.fromhex(
 
 
 class CourseViewImgContainerTests(unittest.TestCase):
+    def test_resolves_absolute_courseview_lbl_text_with_declared_code_page(self) -> None:
+        gmp = bytearray(260)
+        lbl = 10
+        label_start = 220
+        struct.pack_into("<H", gmp, lbl, 196)
+        gmp[lbl + 2 : lbl + 12] = b"GARMIN LBL"
+        struct.pack_into("<II", gmp, lbl + 0x15, label_start, 6)
+        gmp[lbl + 0x1D] = 0
+        gmp[lbl + 0x1E] = 9
+        struct.pack_into("<H", gmp, lbl + 0xAA, 1252)
+        gmp[label_start : label_start + 7] = b"\0Caf\xe9\0\0"
+
+        parsed = parse_lbl_header(bytes(gmp), lbl)
+
+        self.assertEqual(parsed.text_at(bytes(gmp), 1), "Café")
+        self.assertEqual(parsed.text_at(bytes(gmp), 0), "")
+        with self.assertRaisesRegex(ValueError, "outside the label pool"):
+            parsed.text_at(bytes(gmp), 100)
+
+    def test_consumes_only_proven_courseview_polygon_trailers(self) -> None:
+        self.assertEqual(
+            _skip_courseview_polygon_trailer(memoryview(b"\x02\x02\x03\x11"), 0),
+            4,
+        )
+        self.assertEqual(
+            _skip_courseview_polygon_trailer(
+                memoryview(b"x\x02\x02\x07\x11\xaa\xbb"), 1
+            ),
+            7,
+        )
+        self.assertEqual(
+            _skip_courseview_polygon_trailer(
+                memoryview(b"\x02\x02\x0d\x11\xaa\xbb\xcc\xdd\xee"), 0
+            ),
+            9,
+        )
+        with self.assertRaisesRegex(ValueError, "unsupported length code"):
+            _skip_courseview_polygon_trailer(memoryview(b"\x02\x02\x04\x11"), 0)
+        self.assertEqual(
+            _skip_courseview_line_trailer(memoryview(b"\x41\x03\x05"), 0),
+            3,
+        )
+        self.assertEqual(
+            _skip_courseview_line_trailer(memoryview(b"x\x41\x05\xc5\x00"), 1),
+            5,
+        )
+
     def test_extracts_gmp_continuation_fat_records_in_part_order(self) -> None:
         block_size = 512
         img = bytearray(24 * block_size)
