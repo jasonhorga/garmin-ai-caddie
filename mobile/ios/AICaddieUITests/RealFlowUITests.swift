@@ -41,11 +41,12 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
         writeDiagnostics()
         let reviewEvidence = try resolveReviewEvidence()
+        let captureScope = cfg("UITEST_CAPTURE_SCOPE") ?? "full"
         let newCourseEvidence: NewCourseEvidence?
-        if cfg("UITEST_CAPTURE_SCOPE") == "review" {
-            newCourseEvidence = nil
-        } else {
+        if captureScope == "full" {
             newCourseEvidence = try resolveNewCourseEvidence()
+        } else {
+            newCourseEvidence = nil
         }
         // ---- Section 1: home + the two macro tiles (stats) ----
         launchFresh()
@@ -361,10 +362,10 @@ final class RealFlowUITests: XCTestCase {
         settle(1)
         save("08b-prep-next-hole"); dump("08b-prep-next-hole")
 
-        // ---- Section 4b: nearby + name search → an uninstalled course → lightweight/precise map ----
-        try exerciseNewCourseDiscovery(
-            try XCTUnwrap(newCourseEvidence, "the full journey requires a real empty-cache course")
-        )
+        // ---- Section 4b (full only): nearby + name search → uninstalled course → lightweight/precise map ----
+        if let newCourseEvidence {
+            try exerciseNewCourseDiscovery(newCourseEvidence)
+        }
 
         // ---- Section 5: start the selected real course — GET package only, no score/backend write ----
         launchFresh()
