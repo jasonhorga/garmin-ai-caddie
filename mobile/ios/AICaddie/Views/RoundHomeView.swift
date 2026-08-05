@@ -202,10 +202,7 @@ public struct RoundHomeView: View {
         // hide it reliably from inside CurrentHoleView. Keep normal chrome on every non-live route.
         .statusBarHidden(Self.isLiveHoleRoute(path.last))
         .onChange(of: pendingLiveHole) { _, hole in
-            // 开始记分后直接进实战屏:把刚开的洞设为唯一路径(替换掉「开始一场」),不弹回 Hub。
-            guard let hole else { return }
-            path = [.hole(hole)]
-            onConsumePendingLiveHole()
+            enterPendingLiveHole(hole)
         }
         .onChange(of: liveRoundState?.roundId) { previousRoundId, currentRoundId in
             if previousRoundId != nil, currentRoundId == nil {
@@ -216,6 +213,9 @@ public struct RoundHomeView: View {
             onLiveAppearanceChanged(Self.isLiveHoleRoute(routes.last))
         }
         .onAppear {
+            // Replacing the home package can create this view with the pending hole already set.
+            // `onChange` does not fire for that initial value, so consume it here as well.
+            enterPendingLiveHole(pendingLiveHole)
             onLiveAppearanceChanged(Self.isLiveHoleRoute(path.last))
         }
         .onDisappear {
@@ -226,6 +226,13 @@ public struct RoundHomeView: View {
     private static func isLiveHoleRoute(_ route: HubRoute?) -> Bool {
         guard case .hole = route else { return false }
         return true
+    }
+
+    /// 开始记分后直接进实战屏:把刚开的洞设为唯一路径(替换掉「开始一场」),不弹回 Hub。
+    private func enterPendingLiveHole(_ hole: Int?) {
+        guard let hole else { return }
+        path = [.hole(hole)]
+        onConsumePendingLiveHole()
     }
 
     @ViewBuilder private func currentHoleView(_ number: Int) -> some View {

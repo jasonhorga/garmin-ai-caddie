@@ -872,19 +872,33 @@ final class RealFlowUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 90))
         let partialMap = app.descendants(matching: .any)["live-hole-map-partial"].firstMatch
-        XCTAssertTrue(
-            partialMap.waitForExistence(timeout: 90),
-            "an empty precise cache must first render factual CourseView vectors instead of blocking start"
-        )
-        settle(1); save("09d-new-course-lightweight-map"); dump("09d-new-course-lightweight-map")
-
         let topoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
+        let firstFactualMap = app.descendants(matching: .any).matching(
+            NSPredicate(
+                format: "identifier IN %@",
+                ["live-hole-map-partial", "topo-hole-base-ready"]
+            )
+        ).firstMatch
+        XCTAssertTrue(
+            firstFactualMap.waitForExistence(timeout: 90),
+            "a new course must render either factual CourseView vectors or an already-finished precise topo"
+        )
+        let observedLightweightMap = partialMap.exists
+        if observedLightweightMap {
+            settle(1); save("09d-new-course-lightweight-map"); dump("09d-new-course-lightweight-map")
+        }
+
         XCTAssertTrue(
             topoReady.waitForExistence(timeout: 300),
-            "the same live hole must replace its lightweight map with the precise topo in place"
+            "the same live hole must finish with the precise topo"
         )
-        XCTAssertTrue(waitUntilGone(partialMap, timeout: 10))
+        if observedLightweightMap {
+            XCTAssertTrue(
+                waitUntilGone(partialMap, timeout: 10),
+                "the precise topo must replace the observed lightweight map in place"
+            )
+        }
         settle(1); save("09e-new-course-precise-map"); dump("09e-new-course-precise-map")
 
         // No score has been written yet. The durable live cursor created by Start must still restore
