@@ -10,15 +10,17 @@ UI can show provenance and a course the user later plays auto-supersedes an esti
 """
 from __future__ import annotations
 
+import os
+import time
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ai_caddie.geometry.inspect_courseview_release import inspect_release, load_release_pb
-
 from ai_caddie.core.data import ROOT, read_json, write_json
+from ai_caddie.geometry.inspect_courseview_release import inspect_valid_release, load_release_pb
 
 COURSE_DIR = ROOT / "data" / "courses"
+COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S = 3600.0
 
 PAR_SOURCES = ("played", "courseview", "estimate")
 
@@ -242,25 +244,38 @@ def course_reference_coverage(*, root: Path = ROOT) -> dict[str, object]:
     }
 
 
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> dict | None:
-    """Decoded CourseView release (cache-first, then one anonymous fetch+cache)."""
+    """Decoded CourseView release with hourly refresh and offline stale fallback."""
     gid = int(global_id)
     path = _courseview_dir(root) / f"{gid}_releases.pb"
+    cached_info: dict | None = None
+    stale = True
     if path.exists():
-        pb = path.read_bytes()
-    elif allow_fetch:
         try:
-            pb = load_release_pb(gid, True)  # live fetch (anonymous)
+            pb = path.read_bytes()
+            cached_info = inspect_valid_release(pb, expected_course_id=gid)
+            stale = time.time() - path.stat().st_mtime > COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S
+        except (OSError, ValueError):
+            stale = True
+    if allow_fetch and (stale or cached_info is None):
+        try:
+            candidate = load_release_pb(gid, True)  # live fetch (anonymous)
+            info = inspect_valid_release(candidate, expected_course_id=gid)
         except Exception:
-            return None
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(pb)
-    else:
-        return None
-    try:
-        return inspect_release(pb)
-    except Exception:
-        return None
+            return cached_info  # offline: the last complete release remains usable
+        _atomic_write_bytes(path, candidate)
+        return info
+    return cached_info
 
 
 def courseview_release_info(

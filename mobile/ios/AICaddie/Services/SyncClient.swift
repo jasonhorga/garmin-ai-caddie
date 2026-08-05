@@ -526,9 +526,9 @@ public final class SyncClient {
         ) else {
             return nil
         }
-        // The endpoint is cached immutable for one year. Tie that browser/URLSession cache key to
-        // the renderer style so topo-v5 can never reuse a previously downloaded topo-v4 bitmap.
-        components.queryItems = [URLQueryItem(name: "v", value: "topo-v5")]
+        // Separate renderer styles at the URL layer. The server ETag also binds the current
+        // Garmin geometry asset, so an updated course cannot reuse an older topo bitmap.
+        components.queryItems = [URLQueryItem(name: "v", value: "topo-v6")]
         return components.url
     }
 

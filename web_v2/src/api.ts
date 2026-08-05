@@ -95,10 +95,10 @@ function apiUrl(path: string): string {
 
 // The realistic-topo base bitmap for a course hole (design-system §九), rendered + cached
 // server-side. Used as the <img> base layer under the hole canvases' vector overlays. Public
-// (course geometry, no auth). The style query is part of the one-year immutable browser cache key;
-// bump it with the renderer STYLE_VERSION. 404s without CourseView geometry → client falls back.
+// (course geometry, no auth). The query separates renderer styles; the response ETag additionally
+// binds Garmin's current geometry asset. 404s without CourseView geometry → client falls back.
 export function topoImageUrl(globalId: number, hole: number): string {
-  return apiUrl(`/api/v2/courses/${globalId}/holes/${hole}/topo.png?v=topo-v5`)
+  return apiUrl(`/api/v2/courses/${globalId}/holes/${hole}/topo.png?v=topo-v6`)
 }
 
 // Fire-and-forget: ask the server to render + cache EVERY geometry-backed hole's topo bitmap for a

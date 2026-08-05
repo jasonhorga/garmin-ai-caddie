@@ -72,7 +72,8 @@ class GeometrySyncTests(unittest.TestCase):
             try:
                 geometry_sync.hazard_path = lambda _gid, _hole: hazard
                 geometry_sync.mesh_path = lambda _gid, _hole: mesh
-                result = geometry_sync.ensure_prodgeometry(1, 2)
+                with patch.object(geometry_sync, "_release_for_update", side_effect=OSError("offline")):
+                    result = geometry_sync.ensure_prodgeometry(1, 2)
             finally:
                 geometry_sync.hazard_path = old_hazard_path
                 geometry_sync.mesh_path = old_mesh_path

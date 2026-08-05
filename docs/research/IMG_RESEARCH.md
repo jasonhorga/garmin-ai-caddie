@@ -545,6 +545,50 @@ component ranges in its ordinary compact stats output, so a future Garmin
 package that introduces a new channel becomes an explicit version-gate event
 instead of being silently ignored.
 
+### APK acquisition, update and cache authority ledger
+
+The non-membership acquisition path is now closed against Garmin Golf Android
+`1.29.6` (APK SHA-256
+`261b6661760cdcd97310742bd01e2e6f155a2eb8ba87cd2796ae71393531bea7`).
+The decisive decompiled call sites are `GolfCourseApiCaller`,
+`GolfCourseMediumMapTypeUpdateCheckOperation`,
+`GolfCourseIntermediateMapTypeUpdateCheckOperation`,
+`FetchIntermediateMapTypeCourseImageTask`, `IntlGolfProtoRequestHandler` and
+`OMTGolfAPIEndpoint`. The two Garmin version chains are deliberately kept
+separate:
+
+- course payloads: `BuildId + GlobalLayoutId + Version`;
+- image payloads: `PartNumber + GlobalLayoutId + Version`.
+
+They are not interchangeable aliases. `BuildId` selects `MEDIUM` /
+`MEDIUM_PLUS`; `PartNumber` selects `INTERMEDIATE` DSKIMG and its unit-bound
+unlock material.
+
+| Product / purpose | Request and pagination | Access and response binding | Update decision in Garmin | This product's cache rule |
+|---|---|---|---|---|
+| Name search | `GET /CourseViewData/Courses?courseName=...&bits=23&pageSize=50&page=N&languageCode=...` | Anonymous protobuf catalogue; each row carries `BuildId`, `GlobalLayoutId`, location, hole count and Green Contour availability | Search is live catalogue metadata, not an installed map | Fetch every page, dedupe by `GlobalLayoutId`, stop on a short or repeated page; never require downloading every course |
+| Location + name | `GET /CourseViewData/Boundaries/{lonSC},{latSC},32/Courses?courseName=...&pageSize=50&page=N...` | Anonymous; path coordinates and returned coordinates use 32-bit semicircles | Same catalogue authority | Same complete pagination and dedupe; rank the complete result by true distance then name similarity |
+| Nearby radius | `GET /CourseViewData/Boundaries/{lonSC},{latSC},{radiusMetres},32/Courses?pageSize=50&page=N...` | Anonymous provider-wide catalogue | Same catalogue authority | All pages through the bounded 100-page safety gate; a provider error is not disguised as an empty nearby list |
+| Same club / loop assembly | `GET /CourseViewData/getCoursesInSameClub/{buildId},{globalLayoutId}` with optional semicircle location and `numberOfHoles` | Anonymous catalogue relation in the APK | Relation is tied to the requested build and layout | Preserve distinct loop `GlobalLayoutId`s; never collapse A/B or front/back layouts merely because the venue name matches |
+| Latest / explicit release | `GET /CourseViewData/course-layouts/{globalLayoutId}/releases` or `/releases/{buildId}` | Anonymous protobuf; binds release `BuildId`, release/part id, `CourseGenVersion`, per-hole raster URL and prodgeometry URL | A newer course `BuildId` or `Version` is an update | Refresh latest metadata at most hourly, validate before atomic replacement, fall back to the last complete release offline; `courseData` then selects a cache file containing the exact new BuildId |
+| Historical round layout | `GET /CourseViewData/course-layouts/{globalLayoutId}/date/{epochMs}` | Anonymous historical layout; used only when latest is withdrawn/404 and a stored round supplies its play time | It is an as-of authority, not evidence that the withdrawn layout became current again | Bind the canonical per-hole asset path/version returned by that dated response; do not overwrite a valid current release record with the differently-shaped date payload |
+| `MEDIUM` | `GET /CourseViewData/courseData/{buildId},{globalLayoutId},32` | APK may add `Garmin-UnitId`; endpoint is also proven anonymously. Response body must repeat request `BuildId + GlobalLayoutId` | Installed COMPLETE record wins when its DB BuildId or Version is newer than the device; otherwise `POST /CourseViewData/checkForCourseUpdates` receives `[{BuildId,GlobalLayoutId,Version}]` | Normalized cache filename is `{layout}_course_data_{build}_medium.json`; a mismatched body is rejected, so a new release cannot be installed under an old identity |
+| `MEDIUM_PLUS` | Same request plus `/Hazards` | Same binding; map type is DB value `1` rather than `0` | Same course update chain | Separate `medium-plus` cache identity; never infer that a cached MEDIUM body includes hazard spans |
+| `INTERMEDIATE` DSKIMG | `GET /CourseViewData/coursedata/images/{partNumber}/courses/{globalLayoutId}?unitId={unitId}&version={version}` | Caller adds no bearer token, but request and response are device-bound. Response is accepted only with matching `UnitId`, `CourseIdentifier.{GlobalLayoutId,PartNumber,Version}`, `Image`, `UnlockGma.Gma` and `UnlockGma.Unlock` | DB PartNumber numeric suffix or Version newer than the device means update; absent DB record calls `POST /CourseViewData/checkForImageUpdates` with `[{PartNumber,GlobalLayoutId,Version}]` | Preserve Image/GMA/UNL together under the complete device + layout + part + version identity. The current app uses decoded DSKIMG only as coarse/offline fallback, never as precise scoring authority |
+| Garmin raster | Signed `raster3d/.../gid..._hole..._{assetVersion}.jpg?garmindlm=...` URL from the release | URL is anonymously supplied; query is an expiring delivery signature | A changed canonical asset path/version is new content; a changed signature alone is not | There is no production raster cache today. Any future cache must key the canonical path/version and must not use the signed query as content identity |
+| Precise `prodgeometry` | Signed per-hole ZIP URL from the release, then authenticated `GET /CourseViewData/image-key/v2?imageUrl={canonicalPath}` | ZIP delivery signature is not identity. `image-key/v2` uses Connect DI → Golf DI → Golf IT, bearer IT and `3D-Account-Id`; the returned key must decrypt the exact ZIP | Current release's canonical geometry path/version is the content authority | Sidecar `garmin-prodgeometry-authority-v1` binds release, `CourseGenVersion`, canonical geometry/raster paths, embedded asset version and ZIP SHA-256. Decode/export occurs in staging; canonical outputs are replaced only after all essential steps pass. Pre-sidecar files are reused only when both mesh and hazard metadata prove the same embedded version |
+| Derived topo shared by Web / iPhone / Watch | `GET /api/v2/courses/{gid}/holes/{hole}/topo.png?v=topo-v6` | Public derivative of the bound prodgeometry, with no player data | Geometry content token or renderer style change invalidates it | Disk key and HTTP ETag contain `style + geometry authority token`; `Cache-Control: public, no-cache` allows storage but forces revalidation. Web/iPhone/Watch use the same style URL, and Watch overwrites its local `{gid}_{hole}` file when the phone re-pushes an update |
+| Green Contours | Membership course-download path, still awaiting the user's positive/negative capture | Must prove membership state, course/build/part binding and actual contour payload | Cannot be inferred from `HasGreenContour`, ordinary DEM or DSKIMG type correlation | External capture dependency remains isolated in the Green Contours row below; it does not weaken or block the now-closed ordinary map acquisition/cache chain |
+
+The corresponding product correction is intentionally small. Release bytes are
+validated before an atomic refresh; stale bytes remain usable offline. Existing
+precise geometry no longer returns merely because `gid + hole` files exist: it
+must bind to the current canonical Garmin asset, while a release metadata change
+that points to the identical asset reuses the decoded content. The topo cache no
+longer asserts that a `gid + hole` can never change. Signed `garmindlm` values,
+OAuth material, image keys and ZIP passwords are never written into the
+authority sidecar or client package.
+
 ## Deep Mine Closure Ledger
 
 Deep Mine is not complete while any row below lacks a terminal result. A
@@ -556,7 +600,7 @@ terminal result.
 
 | Workstream | Remaining evidence required | Completion gate |
 |---|---|---|
-| Acquisition and updates | Catalogue, name/city, radius, release, `MEDIUM`, `MEDIUM_PLUS`, `INTERMEDIATE`, prodgeometry, raster and Green Contours request chains; version/check-for-update semantics | Every APK call path is bound to endpoint, identifiers, auth level, pagination, version and cache invalidation behavior |
+| Acquisition and updates | **CLOSED for ordinary maps:** catalogue/name/radius/same-club, release/date, `MEDIUM`, `MEDIUM_PLUS`, `INTERMEDIATE`, raster, prodgeometry and both update-check chains are bound to endpoint, identifiers, access level, pagination and cache invalidation. Membership Green Contours is tracked separately below | Every non-membership APK call path has a terminal acquisition and cache decision; name and location search now consume all provider pages, and release/geometry/topo cannot silently mix versions |
 | Lightweight `courseData` | **CLOSED:** manifest-bound 114-course / 1,701-hole field/code audit plus 166-hole GreenRadii authority and A/B-selection audit; `InfoMask`, route bitset, Closure absence, hazard sides, `3244`, opaque `3243/18125` and the latitude-corrected 30-vector outline all have terminal decisions | Every field is preserved and either named from multi-course evidence or accompanied by a proven non-rendering/opaque classification |
 | DSKIMG | **CLOSED:** FAT/GMP/TRE/RGN/LBL/default DEM plus all 15 area, 3 line and 2 point types have terminal decisions; the final vector audit accounts for 184/184 prodgeometry holes, with 166 source-bound and exactly 18 release-unavailable holes on layouts `31636/31637` | Strict 48-package structure and 52-course DEM results remain green; the 184-hole cross-source audit has zero unclassified types, zero unexpected unavailable layouts and explicit consume/fallback/preserve-raw decisions |
 | prodgeometry bundle | **CLOSED:** 184 holes / 2,545 meshes across 15 courses; all mesh/static assets, JSON fields and Draco attributes classified; coordinate/elevation frame independently cross-checked | Zero unclassified mesh, static asset, attribute semantic or data type; every consumed and ignored layer has a recorded product reason, with future unknown channels rejected by the package version gate |
@@ -565,9 +609,7 @@ terminal result.
 
 ## Next Work
 
-1. Finish the APK acquisition/update ledger for any request or invalidation path
-   that is not yet terminally bound.
-2. Trace and capture the membership Green Contours path, including one positive
+1. Trace and capture the membership Green Contours path, including one positive
    and one negative course and its S70-visible result.
 
 ## Practical Conclusion For Now

@@ -22,6 +22,10 @@ def read_varint(buf: bytes, pos: int) -> tuple[int, int]:
     shift = 0
     out = 0
     while True:
+        if pos >= len(buf):
+            raise ValueError("truncated protobuf varint")
+        if shift >= 70:
+            raise ValueError("protobuf varint exceeds 10 bytes")
         b = buf[pos]
         pos += 1
         out |= (b & 0x7F) << shift
@@ -47,11 +51,15 @@ def parse_fields(buf: bytes):
             value, pos = read_varint(buf, pos)
             raw = None
         elif wire_type == 1:
+            if pos + 8 > len(buf):
+                raise ValueError("truncated fixed64 protobuf field")
             raw = buf[pos : pos + 8]
             pos += 8
             value = None
         elif wire_type == 2:
             size, pos = read_varint(buf, pos)
+            if pos + size > len(buf):
+                raise ValueError("truncated length-delimited protobuf field")
             raw = buf[pos : pos + size]
             pos += size
             try:
@@ -59,6 +67,8 @@ def parse_fields(buf: bytes):
             except UnicodeDecodeError:
                 value = None
         elif wire_type == 5:
+            if pos + 4 > len(buf):
+                raise ValueError("truncated fixed32 protobuf field")
             raw = buf[pos : pos + 4]
             pos += 4
             value = None
@@ -183,6 +193,30 @@ def inspect_release(pb: bytes) -> dict:
                 elif sub_no == 8 and sub_wire == 2:
                     hole["geometry_url"] = sub_value
             info["holes"].append(hole)
+    return info
+
+
+def inspect_valid_release(pb: bytes, *, expected_course_id: int | None = None) -> dict:
+    """Parse a complete current-release payload before it may replace a cache."""
+    info = inspect_release(pb)
+    holes = info.get("holes")
+    try:
+        course_id = int(info["course_id"])
+        release_version = int(info["release_version"])
+        hole_numbers = [int(hole["hole"]) for hole in holes]
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("incomplete CourseView release payload") from exc
+    if (
+        release_version <= 0
+        or not hole_numbers
+        or len(hole_numbers) != len(set(hole_numbers))
+        or any(number < 1 or number > 36 for number in hole_numbers)
+    ):
+        raise ValueError("invalid CourseView release identity or hole set")
+    if expected_course_id is not None and course_id != int(expected_course_id):
+        raise ValueError(
+            f"CourseView release course mismatch: expected {int(expected_course_id)}, got {course_id}"
+        )
     return info
 
 

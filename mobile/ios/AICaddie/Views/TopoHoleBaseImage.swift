@@ -26,7 +26,7 @@ struct TopoHoleBaseImage: View {
                 case .empty:
                     loadingImage
                 case .success(let image):
-                    // topo-v5 has a transparent off-course canvas. Preserve it in every context so
+                    // topo-v6 has a transparent off-course canvas. Preserve it in every context so
                     // review/prep do not manufacture a second rectangular terrain layer around the
                     // real hole. The legacy JPEG is only a loading/failure fallback, never a second
                     // ready map.

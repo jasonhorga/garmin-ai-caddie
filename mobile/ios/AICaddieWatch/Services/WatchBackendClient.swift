@@ -240,7 +240,7 @@ public final class WatchBackendClient {
         return request
     }
 
-    /// The same immutable realistic-topo bitmap used by iPhone and Web. This endpoint is public
+    /// The same release-revalidated realistic-topo bitmap used by iPhone and Web. This endpoint is public
     /// course knowledge, so the Watch does not attach member credentials to the image request.
     public func makeCourseTopoRequest(globalId: Int, localHole: Int) throws -> URLRequest {
         guard var components = URLComponents(
@@ -249,7 +249,7 @@ public final class WatchBackendClient {
         ) else {
             throw URLError(.badURL)
         }
-        components.queryItems = [URLQueryItem(name: "v", value: "topo-v5")]
+        components.queryItems = [URLQueryItem(name: "v", value: "topo-v6")]
         guard let url = components.url else { throw URLError(.badURL) }
         return URLRequest(url: url)
     }

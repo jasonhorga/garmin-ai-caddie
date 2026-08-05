@@ -1,7 +1,7 @@
 # Garmin Golf Project — Status
 
-**Last updated**: 2026-05-17
-**Working directory**: `/Users/jason/workspace/garmin/`
+**Last updated**: 2026-08-05
+**Working directory**: `/home/ubuntu/claude-web-data/repo/garmin-ai-caddie`
 
 ---
 
@@ -9,7 +9,10 @@
 
 **Long term**: build an AI caddie that uses the user's full Garmin shot history + course geometry to give actionable advice (club selection, target lines, risk).
 
-**Current focus (this week)**: extract per-hole hazard data (fairway / green / bunker / water polygons) from Garmin and overlay it with shot data, so the AI has a complete picture of where each shot landed relative to course features.
+**Current focus**: ordinary Garmin course discovery, acquisition, update and
+cross-client cache authority are closed. Execution returns to the product
+Overall list; membership Green Contours capture is an external, non-blocking
+research dependency.
 
 **User**: ~10-year Garmin golfer. 14-club bag (1W, 3W, 3H, 5I–9I, PW, A, 50°, 54°, 58°, putter). Plays mostly in Beijing/China. ~443 rounds in Garmin (after dedup, 418 rounds covering ~90 unique courses).
 
@@ -321,6 +324,31 @@ frozen authority report and exact product rules live in
 
 ---
 
+## 5.1 Ordinary Map Acquisition / Update Status — Closed
+
+- Garmin's course chain is `BuildId + GlobalLayoutId + Version`; its image
+  chain is `PartNumber + GlobalLayoutId + Version`. They are not aliases.
+- Catalogue name, location+name and nearby searches consume every provider
+  page and deduplicate by `GlobalLayoutId`; selecting a row is still what
+  triggers that one course's download.
+- Current release metadata refreshes at most hourly, is parsed and identity-
+  checked before atomic replacement, and falls back to the last valid bytes
+  offline.
+- Decoded prodgeometry is accepted only when mesh and hazard outputs bind to
+  the current canonical Garmin asset path/version. A sidecar records release,
+  CourseGen version, asset paths, embedded version and ZIP SHA-256; signed URL
+  queries and credentials are never persisted as identity.
+- Derived Topo uses the same `topo-v6` URL family on Web, iPhone and Watch. Its
+  disk key and ETag include the geometry authority token, and HTTP clients
+  revalidate instead of retaining a `gid + hole` image as immutable for a
+  year.
+
+The endpoint/call-site evidence and terminal cache decisions are in
+`docs/research/IMG_RESEARCH.md` under “APK acquisition, update and cache
+authority ledger”.
+
+---
+
 ## 6. Map Coordinate System Note
 
 - **Garmin shot data**: WGS84 lat/lon stored as `semicircles × 2³¹` (need to divide by 2³¹ then multiply by 180).
@@ -356,9 +384,8 @@ frozen authority report and exact product rules live in
 
 ## 9. Suggested next steps
 
-1. Finish the Garmin Golf APK acquisition, update and cache-invalidation ledger
-   across catalogue, release, MEDIUM, MEDIUM_PLUS, INTERMEDIATE, raster and
-   prodgeometry paths.
+1. Return to the current product Overall task list; no ordinary-map Deep Mine
+   work remains open.
 2. When membership capture is convenient, capture one Green Contours-positive
    and one negative course and bind the payload to its visible S70 result.
 3. Reopen DSKIMG semantics only if a future package version introduces an

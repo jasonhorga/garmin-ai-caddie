@@ -110,8 +110,10 @@ def _fetch_search(
     *,
     latitude: float | None = None,
     longitude: float | None = None,
+    page: int = 1,
+    page_size: int = _NEARBY_PAGE_SIZE,
 ) -> bytes:
-    """GET the anonymous CourseView search endpoint. The only networked call here."""
+    """GET one page from Garmin's anonymous name-search catalogue."""
     encoded_query = urllib.parse.quote(query)
     if latitude is not None and longitude is not None:
         # Garmin's location-ranked endpoint uses signed 32-bit semicircles in the path and the
@@ -120,11 +122,14 @@ def _fetch_search(
         lon_sc = _semicircle_32(longitude)
         url = (
             f"{BASE}/Boundaries/{lon_sc},{lat_sc},32/Courses"
-            f"?courseName={encoded_query}&pageSize=50&page=1"
+            f"?courseName={encoded_query}&pageSize={int(page_size)}&page={int(page)}"
             "&filterDualGreen=false&filter3dOnly=false"
         )
     else:
-        url = f"{BASE}/courses?CourseName={encoded_query}"
+        url = (
+            f"{BASE}/Courses?courseName={encoded_query}&bits=23"
+            f"&pageSize={int(page_size)}&page={int(page)}&languageCode=zh-CN"
+        )
     return fetch_bytes(url)
 
 
@@ -262,17 +267,31 @@ def courseview_search(
         and longitude is not None
         and _valid_location(float(latitude), float(longitude))
     )
+    records: dict[int, dict] = {}
+    previous_page_ids: tuple[int, ...] | None = None
     try:
-        pb = _fetch_search(
-            q,
-            latitude=float(latitude) if has_location else None,
-            longitude=float(longitude) if has_location else None,
-        )
+        for page in range(1, _NEARBY_MAX_PAGES + 1):
+            pb = _fetch_search(
+                q,
+                latitude=float(latitude) if has_location else None,
+                longitude=float(longitude) if has_location else None,
+                page=page,
+                page_size=_NEARBY_PAGE_SIZE,
+            )
+            rows = parse_course_search(pb, coordinate_bits=31 if has_location else 23)
+            page_ids = tuple(int(row["global_id"]) for row in rows)
+            if page_ids and page_ids == previous_page_ids:
+                break
+            previous_page_ids = page_ids
+            for row in rows:
+                records.setdefault(int(row["global_id"]), row)
+            if len(rows) < _NEARBY_PAGE_SIZE:
+                break
     except Exception:
         return []
     ql = q.lower()
     matches: list[CourseMatch] = []
-    for rec in parse_course_search(pb, coordinate_bits=31 if has_location else 23):
+    for rec in records.values():
         if expected_holes is not None and rec.get("holes") != expected_holes:
             continue
         if city and city.strip().lower() not in _location_blob(rec):

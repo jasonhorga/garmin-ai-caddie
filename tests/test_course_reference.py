@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import unittest
 from unittest.mock import patch
 
 from ai_caddie.courses import course_reference as cr
@@ -47,6 +48,50 @@ class EstimateTests(unittest.TestCase):
 
 
 class PersistenceTests(unittest.TestCase):
+    def test_stale_release_cache_refreshes_atomically_when_online(self) -> None:
+        old_fixture = Path(__file__).parent / "fixtures" / "courseview_release_31870.pb"
+        new_fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_path = root / "data" / "courseview" / "31936_releases.pb"
+            release_path.parent.mkdir(parents=True)
+            release_path.write_bytes(old_fixture.read_bytes())
+            os.utime(release_path, (1, 1))
+            with patch.object(cr, "load_release_pb", return_value=new_fixture.read_bytes()) as fetch:
+                info = cr.courseview_release_info(31936, root=root)
+
+            fetch.assert_called_once_with(31936, True)
+            self.assertEqual(info["course_id"], 31936)
+            self.assertEqual(release_path.read_bytes(), new_fixture.read_bytes())
+
+    def test_stale_release_cache_remains_available_when_refresh_fails(self) -> None:
+        fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_path = root / "data" / "courseview" / "31936_releases.pb"
+            release_path.parent.mkdir(parents=True)
+            release_path.write_bytes(fixture.read_bytes())
+            os.utime(release_path, (1, 1))
+            with patch.object(cr, "load_release_pb", side_effect=OSError("offline")):
+                info = cr.courseview_release_info(31936, root=root)
+
+            self.assertEqual(info["course_id"], 31936)
+
+    def test_malformed_refresh_never_replaces_last_valid_release(self) -> None:
+        fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_path = root / "data" / "courseview" / "31936_releases.pb"
+            release_path.parent.mkdir(parents=True)
+            original = fixture.read_bytes()
+            release_path.write_bytes(original)
+            os.utime(release_path, (1, 1))
+            with patch.object(cr, "load_release_pb", return_value=b""):
+                info = cr.courseview_release_info(31936, root=root)
+
+            self.assertEqual(info["course_id"], 31936)
+            self.assertEqual(release_path.read_bytes(), original)
+
     def test_cached_courseview_release_exposes_mens_tee_names_with_real_indices(self) -> None:
         fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
         with TemporaryDirectory() as tmp:

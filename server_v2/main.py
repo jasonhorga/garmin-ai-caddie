@@ -682,23 +682,28 @@ def geometry_hole_map(
     return load_hole_map_response(global_id, local_hole, provider=provider, source_ref=source_ref)
 
 
-# Immutable topo bitmaps are content-addressed by (gid, hole, style-version): a course/hole's
-# geometry is fixed, so the rendered PNG never changes for a given STYLE_VERSION. Cache hard.
-_TOPO_CACHE_CONTROL = "public, max-age=31536000, immutable"
+# The stable route is cacheable but must revalidate: Garmin can publish a newer
+# geometry asset for the same gid/hole.  Its ETag includes both renderer style
+# and the release-bound prodgeometry identity, so unchanged maps return 304.
+_TOPO_CACHE_CONTROL = "public, no-cache"
 
 
 @app.get("/api/v2/courses/{global_id}/holes/{hole}/topo.png")
-def course_hole_topo_png(global_id: int, hole: int = Path(ge=1, le=36)) -> Response:
+def course_hole_topo_png(request: Request, global_id: int, hole: int = Path(ge=1, le=36)) -> Response:
     """The LOCKED realistic-topo base bitmap for a course hole (design-system §九), the base
     <img> layer the web/mobile hole canvases draw their vector overlays over.
 
     Public course knowledge (no player data, no source_ref) — like /courses/{id}/prep. Rendered
-    once (~seconds) then served from an on-disk cache keyed by gid/hole/style-version; later hits
-    return the cached bytes with a long immutable cache header. A hole without decoded CourseView
-    geometry (most real/mock rounds) 404s so the client falls back to its placeholder — it never
-    blocks or 500s."""
+    once (~seconds) then served from an on-disk cache keyed by gid/hole/style/geometry authority;
+    later hits revalidate by ETag. A hole without decoded CourseView geometry (most real/mock
+    rounds) 404s so the client falls back to its placeholder — it never blocks or 500s."""
     from ai_caddie.geometry import topo_render
 
+    identity = topo_render.cache_identity(global_id, hole)
+    etag = f'"{identity}-{int(global_id)}-{int(hole)}"'
+    headers = {"Cache-Control": _TOPO_CACHE_CONTROL, "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
     try:
         png = topo_render.render_hole_topo_cached(global_id, hole)
     except topo_render.TopoGeometryUnavailable:
@@ -709,10 +714,7 @@ def course_hole_topo_png(global_id: int, hole: int = Path(ge=1, le=36)) -> Respo
     return Response(
         content=png,
         media_type="image/png",
-        headers={
-            "Cache-Control": _TOPO_CACHE_CONTROL,
-            "ETag": f'"{topo_render.STYLE_VERSION}-{int(global_id)}-{int(hole)}"',
-        },
+        headers=headers,
     )
 
 
@@ -764,12 +766,12 @@ def _prepare_recent_bg(player_id: str) -> None:
         # haven't decoded yet (a newly played one) fills in on the next sync/prewarm — its 复盘落点图
         # then has real geometry. best-effort: a 404 (course pulled from Garmin) or a decode hiccup
         # just leaves that hole empty, never crashes the background thread.
-        from ai_caddie.geometry.geometry_sync import ensure_prodgeometry, geometry_present
+        from ai_caddie.geometry.geometry_sync import ensure_prodgeometry
 
         for hole in holes:
-            if geometry_present(int(gid), int(hole)):
-                continue
             try:
+                # ``ensure`` is cheap for a current authority-bound hole and performs
+                # the bounded release check that notices Garmin course updates.
                 ensure_prodgeometry(int(gid), int(hole))
             except Exception:  # noqa: BLE001
                 pass

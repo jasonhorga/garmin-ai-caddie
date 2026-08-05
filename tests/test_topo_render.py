@@ -19,7 +19,7 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 class TopoRenderModuleTests(unittest.TestCase):
-    def test_topo_v5_starts_overlays_on_a_transparent_course_canvas(self) -> None:
+    def test_topo_v6_starts_overlays_on_a_transparent_course_canvas(self) -> None:
         from PIL import Image
 
         self.assertEqual(topo_render.STYLE_VERSION, "topo-v6")
@@ -112,7 +112,8 @@ class TopoRenderModuleTests(unittest.TestCase):
     def test_cache_key_includes_style_version(self) -> None:
         with patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": "/x/y"}):
             path = topo_render.cache_path(31795, 7)
-        self.assertEqual(path.name, "gid31795_h07.png")
+        self.assertTrue(path.name.startswith("gid31795_h07_topo-v6-"))
+        self.assertTrue(path.name.endswith(".png"))
         self.assertIn(topo_render.STYLE_VERSION, str(path))
 
     def test_ground_envelope_prefers_continuous_physics_mesh(self) -> None:
@@ -136,16 +137,30 @@ class TopoEndpointTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
 
-    def test_endpoint_returns_png_with_immutable_cache_headers(self) -> None:
+    def test_endpoint_returns_png_with_release_revalidation_headers(self) -> None:
         canned = _PNG_MAGIC + b"endpoint-topo"
         with patch.object(topo_render, "render_hole_topo_cached", return_value=canned):
             resp = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.headers["content-type"], "image/png")
-        self.assertIn("immutable", resp.headers["cache-control"])
-        self.assertIn("max-age=", resp.headers["cache-control"])
+        self.assertEqual(resp.headers["cache-control"], "public, no-cache")
         self.assertIn(topo_render.STYLE_VERSION, resp.headers.get("etag", ""))
         self.assertEqual(resp.content, canned)
+
+    def test_endpoint_returns_304_for_current_geometry_etag(self) -> None:
+        canned = _PNG_MAGIC + b"endpoint-topo"
+        with patch.object(
+            topo_render, "render_hole_topo_cached", return_value=canned
+        ) as render:
+            first = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
+            second = self.client.get(
+                "/api/v2/courses/31795/holes/1/topo.png",
+                headers={"If-None-Match": first.headers["etag"]},
+            )
+        self.assertEqual(second.status_code, 304)
+        self.assertEqual(second.content, b"")
+        self.assertEqual(second.headers["etag"], first.headers["etag"])
+        render.assert_called_once_with(31795, 1)
 
     def test_endpoint_404s_when_geometry_missing(self) -> None:
         # Empty mesh dir + isolated (empty) cache -> render_hole_topo_cached raises

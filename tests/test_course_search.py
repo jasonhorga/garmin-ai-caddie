@@ -97,7 +97,11 @@ class CourseviewSearchTests(unittest.TestCase):
             )
 
         fetch.assert_called_once_with(
-            "Mission", latitude=22.7401328, longitude=114.0714097
+            "Mission",
+            latitude=22.7401328,
+            longitude=114.0714097,
+            page=1,
+            page_size=50,
         )
         parse.assert_called_once_with(b"boundary", coordinate_bits=31)
         self.assertEqual([match.global_id for match in matches], [1, 2])
@@ -112,6 +116,41 @@ class CourseviewSearchTests(unittest.TestCase):
         url = fetch.call_args.args[0]
         self.assertIn("/Boundaries/1360924928,271300352,32/Courses", url)
         self.assertIn("courseName=Mission%20Hills", url)
+
+    def test_plain_name_url_uses_explicit_provider_pagination(self) -> None:
+        with patch.object(cs, "fetch_bytes", return_value=b"ok") as fetch:
+            self.assertEqual(cs._fetch_search("Zhongshan", page=3, page_size=50), b"ok")
+        url = fetch.call_args.args[0]
+        self.assertIn("/CourseViewData/Courses?courseName=Zhongshan", url)
+        self.assertIn("bits=23", url)
+        self.assertIn("pageSize=50", url)
+        self.assertIn("page=3", url)
+
+    def test_name_search_collects_every_provider_page_and_deduplicates(self) -> None:
+        pages = {
+            1: [
+                {"global_id": 1, "name": "Mission A", "holes": 9},
+                {"global_id": 2, "name": "Mission B", "holes": 9},
+            ],
+            2: [
+                {"global_id": 2, "name": "Mission B", "holes": 9},
+                {"global_id": 3, "name": "Mission C", "holes": 9},
+            ],
+            3: [],
+        }
+
+        def fetch_page(*_args, page: int, **_kwargs) -> bytes:
+            return str(page).encode()
+
+        with (
+            patch.object(cs, "_NEARBY_PAGE_SIZE", 2),
+            patch.object(cs, "_fetch_search", side_effect=fetch_page) as fetch,
+            patch.object(cs, "parse_course_search", side_effect=lambda pb, **_: pages[int(pb)]),
+        ):
+            matches = cs.courseview_search("Mission")
+
+        self.assertEqual({match.global_id for match in matches}, {1, 2, 3})
+        self.assertEqual(fetch.call_count, 3)
 
     def test_nearby_paginates_provider_catalog_and_sorts_by_true_distance(self) -> None:
         pages = {

@@ -44,9 +44,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
-from ai_caddie.core.data import ROOT, mesh_path
+from ai_caddie.core.data import ROOT, hazard_path, mesh_path
 from ai_caddie.courses import course_prep
 from ai_caddie.geometry import hole_render
+from ai_caddie.geometry.geometry_authority import authority_path, cache_token
 
 # Bump when the render rules change so previously-cached PNGs are superseded (the cache key
 # includes this; old files stay on disk but are never served again).
@@ -568,16 +569,29 @@ def cache_dir() -> Path:
     return root / STYLE_VERSION
 
 
+def cache_identity(gid: int, hole: int) -> str:
+    mesh_file = mesh_path(gid, hole)
+    token = cache_token(
+        global_id=int(gid),
+        local_hole=int(hole),
+        mesh_file=mesh_file,
+        hazard_file=hazard_path(gid, hole),
+        sidecar=authority_path(mesh_file),
+    )
+    return f"{STYLE_VERSION}-{token}"
+
+
 def cache_path(gid: int, hole: int) -> Path:
-    return cache_dir() / f"gid{int(gid)}_h{int(hole):02d}.png"
+    return cache_dir() / f"gid{int(gid)}_h{int(hole):02d}_{cache_identity(gid, hole)}.png"
 
 
 def render_hole_topo_cached(gid: int, hole: int) -> bytes:
-    """PNG bytes for (gid, hole), served from the on-disk cache after the first render.
+    """PNG bytes for (gid, hole, geometry authority), cached after the first render.
 
     Raises ``TopoGeometryUnavailable`` when the hole has no geometry (cheap ``mesh_path``
     check — negatives are not cached, they just fail fast) and ``TopoRenderError`` on a
-    malformed mesh. A successful render is written atomically then reused."""
+    malformed mesh. A Garmin geometry update changes the cache identity and therefore
+    cannot reuse the previous release's bitmap."""
     path = cache_path(gid, hole)
     if path.exists():
         try:
