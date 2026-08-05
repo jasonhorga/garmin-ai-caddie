@@ -1908,6 +1908,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn(".mapSurface()", shot_map_view)
         self.assertIn("topoURL: liveTopoURL", current_hole)
         self.assertIn("SyncClient.topoImageURL(baseURL: caddieBaseURL", current_hole)
+        self.assertIn('"live-hole-map-partial"', current_hole)
 
     def test_ios_topo_map_distinguishes_loading_ready_and_failure(self) -> None:
         topo_base = _read_required_source(self, IOS_DIR / "Views" / "TopoHoleBaseImage.swift")
@@ -2054,6 +2055,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("courseVenueGroups(allCourseOptions)", prep_picker)
         self.assertIn("courseOptions + remoteCourseOptions", prep_picker)
         self.assertIn("MobileCourseSearchView(", prep_picker)
+        self.assertIn("installedGlobalIds: Set(courseOptions.map(\\.globalId))", prep_picker)
         self.assertIn("onNearby: nearbyCourses", prep_picker)
         self.assertIn("CourseReviewView(", prep_picker)
         self.assertIn("client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken)", prep_picker)
@@ -3201,19 +3203,23 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("holeMap: holeMap", state_swift)   # applying() rebuild passthrough
         self.assertIn("globalId: globalId", state_swift)
         # phone builder: pre-computes anchors from the centreline route, defaulted nil at the call boundary.
-        self.assertIn("static func makeHoleMap(overlay: CoursePrepOverlay", bridge)
+        self.assertIn("public static func makeHoleMap(", bridge)
+        self.assertIn("overlay: CoursePrepOverlay,", bridge)
+        self.assertIn("greenOutline: [[Double]]? = nil", bridge)
         self.assertIn("func interpRoute(", bridge)
         self.assertIn("holeMap: WatchHoleMap? = nil", bridge)
         self.assertIn("globalId: Int? = nil", bridge)
         # phone: CurrentHoleView computes holeMap + relays the topo bitmap to the watch.
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
-        self.assertIn("WatchEventBridge.makeHoleMap(overlay:", current_hole)
+        self.assertIn("WatchEventBridge.makeHoleMap(", current_hole)
+        self.assertIn("greenOutline: holePrep?.greenOutline?.available == true", current_hole)
         self.assertIn("func pushTopoToWatch(", current_hole)
         self.assertIn("watchBridge.pushHoleImage(", current_hole)
         # watch: geometry builder + permanent current-hole map root. `.holeMap` remains only as a
         # backward-compatible state alias; there is no second user-visible "open map" page/button.
         geometry = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapGeometry.swift")
-        self.assertIn("static func from(holeMap:", geometry)
+        self.assertIn("public static func from(", geometry)
+        self.assertIn("holeMap: WatchHoleMap?,", geometry)
         container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
         self.assertIn("case .home:", container)
         self.assertIn("case .holeMap:", container)

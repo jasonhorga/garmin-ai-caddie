@@ -360,6 +360,12 @@ public struct CurrentHoleView: View {
         if let holePrep, holePrep.resolvedMapOverlay != nil {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
                              topoURL: liveTopoURL, showsCardChrome: false)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(
+                    holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+                        ? "live-hole-map-partial"
+                        : "live-hole-map-\(holePrep.geometryCoverage.lowercased())"
+                )
         } else {
             LinearGradient(
                 colors: [Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255), LivePlayStyle.base],

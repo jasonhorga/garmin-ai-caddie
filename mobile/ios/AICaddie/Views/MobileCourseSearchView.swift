@@ -6,6 +6,7 @@ import SwiftUI
 public struct MobileCourseSearchView: View {
     public let nearbyLatitude: Double?
     public let nearbyLongitude: Double?
+    public let installedGlobalIds: Set<Int>
     public let onSearch: (String) async throws -> [MobileCourseSearchMatch]
     public let onNearby: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     public let onSelect: (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
@@ -28,12 +29,14 @@ public struct MobileCourseSearchView: View {
     public init(
         nearbyLatitude: Double? = nil,
         nearbyLongitude: Double? = nil,
+        installedGlobalIds: Set<Int> = [],
         onSearch: @escaping (String) async throws -> [MobileCourseSearchMatch],
         onNearby: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
         onSelect: @escaping (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
     ) {
         self.nearbyLatitude = nearbyLatitude
         self.nearbyLongitude = nearbyLongitude
+        self.installedGlobalIds = installedGlobalIds
         self.onSearch = onSearch
         self.onNearby = onNearby
         self.onSelect = onSelect
@@ -125,6 +128,7 @@ public struct MobileCourseSearchView: View {
             if !matches.isEmpty {
                 Section(lastSearch == .nearby ? "附近结果" : "搜索结果") {
                     ForEach(matches) { match in
+                        let isInstalled = installedGlobalIds.contains(match.globalId)
                         Button {
                             guard match.courseOption != nil else { return }
                             onSelect(match, matches)
@@ -143,9 +147,14 @@ public struct MobileCourseSearchView: View {
                                 }
                                 Spacer(minLength: 4)
                                 if match.courseOption != nil {
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.tertiary)
+                                    VStack(alignment: .trailing, spacing: 4) {
+                                        Text(isInstalled ? "已准备" : "选择后下载")
+                                            .font(.caption2.weight(.semibold))
+                                            .foregroundStyle(isInstalled ? .secondary : LiveHoleStyle.green)
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.tertiary)
+                                    }
                                 }
                             }
                             .contentShape(Rectangle())
@@ -153,6 +162,7 @@ public struct MobileCourseSearchView: View {
                         .buttonStyle(.plain)
                         .disabled(match.courseOption == nil)
                         .accessibilityIdentifier("course-catalog-result-\(match.globalId)")
+                        .accessibilityValue(isInstalled ? "已准备" : "选择后下载")
                     }
                 }
             }

@@ -290,6 +290,7 @@ public struct RoundHomeView: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("home-in-progress-round")
         }
         // 打球 = the wide primary tile (was the full-width green button); opens 开始一场 (StartRoundView).
         NavigationLink(value: HubRoute.start) {

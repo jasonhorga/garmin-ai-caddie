@@ -147,6 +147,7 @@ public struct StartRoundView: View {
                 MobileCourseSearchView(
                     nearbyLatitude: locationProvider.latestFix?.coordinate.latitude,
                     nearbyLongitude: locationProvider.latestFix?.coordinate.longitude,
+                    installedGlobalIds: Set(courseOptions.map(\.globalId)),
                     onSearch: { query in
                         let coordinate = locationProvider.latestFix?.coordinate
                         return try await onSearchCourses(
@@ -374,6 +375,8 @@ public struct StartRoundView: View {
             .clipShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("start-round-course-segment-\(segment.globalId)")
+        .accessibilityValue(selected ? "已选择" : "未选择")
     }
 
     private func segmentTitle(_ segment: MobileCourseOption) -> String {
@@ -526,6 +529,7 @@ public struct StartRoundView: View {
             }
             .buttonStyle(.plain)
             .disabled(!canStart)
+            .accessibilityIdentifier("start-round-primary-action")
             if isPreparing {
                 ProgressView("准备中…").font(.caption)
             }
@@ -589,6 +593,7 @@ public struct StartRoundView: View {
         _ selected: MobileCourseSearchMatch,
         _ matches: [MobileCourseSearchMatch]
     ) {
+        let isSameCourse = courseGlobalId == selected.globalId
         var seen = Set((courseOptions + remoteCourseOptions).map(\.globalId))
         for option in matches.compactMap(\.courseOption) where seen.insert(option.globalId).inserted {
             remoteCourseOptions.append(option)
@@ -597,9 +602,14 @@ public struct StartRoundView: View {
         userPickedVenue = true
         courseGlobalIdText = String(selected.globalId)
         backGlobalIdText = ""
-        fetchedTees = []
-        teeBox = ""
-        teeLoadFailed = false
+        // Re-selecting the same search result (for example nearby first, then name search) keeps
+        // its already-fetched Tee authority. Clearing it would not retrigger `.task(id:)` because
+        // the globalId is unchanged, leaving the primary action disabled forever.
+        if !isSameCourse {
+            fetchedTees = []
+            teeBox = ""
+            teeLoadFailed = false
+        }
         applySelectedCourse(globalIdText: courseGlobalIdText)
     }
 }

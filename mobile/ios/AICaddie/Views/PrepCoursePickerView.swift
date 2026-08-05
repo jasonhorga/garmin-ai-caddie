@@ -63,6 +63,7 @@ public struct PrepCoursePickerView: View {
                 MobileCourseSearchView(
                     nearbyLatitude: locationProvider.latestFix?.coordinate.latitude,
                     nearbyLongitude: locationProvider.latestFix?.coordinate.longitude,
+                    installedGlobalIds: Set(courseOptions.map(\.globalId)),
                     onSearch: searchCourses,
                     onNearby: nearbyCourses,
                     onSelect: selectSearchResult

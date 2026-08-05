@@ -39,6 +39,12 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
         writeDiagnostics()
         let reviewEvidence = try resolveReviewEvidence()
+        let newCourseEvidence: NewCourseEvidence?
+        if cfg("UITEST_CAPTURE_SCOPE") == "review" {
+            newCourseEvidence = nil
+        } else {
+            newCourseEvidence = try resolveNewCourseEvidence()
+        }
         // ---- Section 1: home + the two macro tiles (stats) ----
         launchFresh()
         let statsTile = app.buttons.matching(
@@ -338,6 +344,11 @@ final class RealFlowUITests: XCTestCase {
         )
         settle(1)
         save("08-prep-hazards"); dump("08-prep-hazards")
+
+        // ---- Section 4b: nearby + name search → an uninstalled course → lightweight/precise map ----
+        try exerciseNewCourseDiscovery(
+            try XCTUnwrap(newCourseEvidence, "the full journey requires a real empty-cache course")
+        )
 
         // ---- Section 5: start the selected real course — GET package only, no score/backend write ----
         launchFresh()
@@ -753,6 +764,153 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("journey-finished-home"); dump("journey-finished-home")
     }
 
+    /// Proves the complete empty-cache path without replacing the existing 北京丽宫 18-hole
+    /// journey: nearby and name search must resolve the same provider row; only the selected row is
+    /// prepared; its factual lightweight map appears first and upgrades in place; a force-quit keeps
+    /// the same course/hole; one real local score remains editable; explicit finish removes it again.
+    private func exerciseNewCourseDiscovery(_ evidence: NewCourseEvidence) throws {
+        launchFresh()
+        XCTAssertTrue(tapContaining(["打球", "开始一场"]), "home must expose the new-course start path")
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+
+        let openSearch = app.buttons["start-round-search-all-courses"]
+        XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20), "start form must expose full-catalogue search")
+        openSearch.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
+
+        let radius = app.segmentedControls.firstMatch.buttons["\(evidence.radiusKm) km"]
+        XCTAssertTrue(radius.waitForExistence(timeout: 5), "nearby search must expose the resolver radius")
+        radius.tap()
+        let nearby = app.buttons["course-catalog-nearby-action"]
+        XCTAssertTrue(waitUntilEnabled(nearby, timeout: 20), "simulated GPS must enable nearby discovery")
+        nearby.tap()
+
+        let result = app.buttons["course-catalog-result-\(evidence.globalId)"]
+        XCTAssertTrue(
+            result.waitForExistence(timeout: 75) && scrollTo(result, maxSwipes: 30),
+            "nearby results must contain the resolver-verified uninstalled course"
+        )
+        XCTAssertEqual(
+            result.value as? String,
+            "选择后下载",
+            "a provider-wide row must remain metadata-only until selected"
+        )
+        settle(1); save("09-new-course-nearby"); dump("09-new-course-nearby")
+        result.tap()
+
+        let selectedSegment = app.buttons["start-round-course-segment-\(evidence.globalId)"]
+        XCTAssertTrue(selectedSegment.waitForExistence(timeout: 12))
+        XCTAssertEqual(selectedSegment.value as? String, "已选择")
+        let primary = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(
+            waitUntilEnabled(primary, timeout: 90),
+            "selecting one nearby row must fetch only that course's real Tee metadata and enable start"
+        )
+
+        // Re-open the same product search and prove the identical globalId is also discoverable by
+        // name. Re-selecting it must retain the Tee authority already fetched above.
+        XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20))
+        openSearch.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
+        let queryField = app.textFields["球场关键字（可选）"]
+        XCTAssertTrue(scrollTo(queryField, maxSwipes: 12))
+        queryField.tap()
+        queryField.typeText(evidence.searchQuery)
+        let manualSearch = app.buttons["course-catalog-search-action"]
+        XCTAssertTrue(waitUntilEnabled(manualSearch, timeout: 5))
+        manualSearch.tap()
+        let namedResult = app.buttons["course-catalog-result-\(evidence.globalId)"]
+        XCTAssertTrue(
+            namedResult.waitForExistence(timeout: 75) && scrollTo(namedResult, maxSwipes: 30),
+            "name search must return the same provider globalId selected from nearby"
+        )
+        XCTAssertEqual(namedResult.value as? String, "选择后下载")
+        settle(1); save("09b-new-course-name-search"); dump("09b-new-course-name-search")
+        namedResult.tap()
+        XCTAssertTrue(selectedSegment.waitForExistence(timeout: 12))
+        XCTAssertEqual(selectedSegment.value as? String, "已选择")
+        XCTAssertTrue(
+            waitUntilEnabled(primary, timeout: 20),
+            "re-selecting the same course must not clear Tees and strand the start action"
+        )
+        XCTAssertTrue(scrollTo(primary, maxSwipes: 20))
+        settle(1); save("09c-new-course-ready-to-start"); dump("09c-new-course-ready-to-start")
+        primary.tap()
+
+        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 90))
+        let partialMap = app.descendants(matching: .any)["live-hole-map-partial"].firstMatch
+        XCTAssertTrue(
+            partialMap.waitForExistence(timeout: 90),
+            "an empty precise cache must first render factual CourseView vectors instead of blocking start"
+        )
+        settle(1); save("09d-new-course-lightweight-map"); dump("09d-new-course-lightweight-map")
+
+        let topoReady = app.descendants(matching: .any)
+            .matching(identifier: "topo-hole-base-ready").firstMatch
+        XCTAssertTrue(
+            topoReady.waitForExistence(timeout: 300),
+            "the same live hole must replace its lightweight map with the precise topo in place"
+        )
+        XCTAssertTrue(waitUntilGone(partialMap, timeout: 10))
+        settle(1); save("09e-new-course-precise-map"); dump("09e-new-course-precise-map")
+
+        // No score has been written yet. The durable live cursor created by Start must still restore
+        // this exact selected course at hole 1 after process death.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
+        let inProgress = app.buttons["home-in-progress-round"]
+        XCTAssertTrue(inProgress.waitForExistence(timeout: 60), "new-course round must survive force-quit")
+        XCTAssertTrue(inProgress.label.contains(evidence.name), "restored card must retain the selected course")
+        XCTAssertTrue(inProgress.label.contains("第 1 洞"), "unplayed restored round must remain on hole 1")
+        settle(1); save("09f-new-course-restored-home"); dump("09f-new-course-restored-home")
+        inProgress.tap()
+        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 20))
+        XCTAssertTrue(
+            app.descendants(matching: .any)
+                .matching(identifier: "topo-hole-base-ready").firstMatch
+                .waitForExistence(timeout: 90),
+            "restored new-course round must reopen the same precise first-hole map"
+        )
+
+        let parText = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Par '")).firstMatch
+        XCTAssertTrue(parText.waitForExistence(timeout: 8))
+        let par = try XCTUnwrap(
+            parText.label.split(separator: " ").dropFirst().first.flatMap { Int($0) },
+            "new-course hole 1 Par must be factual"
+        )
+        try recordJourneyShot(selectActualClub: false)
+        try confirmJourneyHole(hole: 1, par: par, manual: false, fairwayLabel: nil)
+        XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 20))
+
+        let scorecard = app.buttons["本场计分卡"]
+        XCTAssertTrue(scrollTo(scorecard, maxSwipes: 18))
+        scorecard.tap()
+        XCTAssertTrue(app.staticTexts["本场计分卡"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["编辑第 1 洞成绩"].waitForExistence(timeout: 5))
+        settle(1); save("09g-new-course-scorecard"); dump("09g-new-course-scorecard")
+        app.buttons["编辑第 1 洞成绩"].tap()
+        XCTAssertTrue(app.staticTexts["手动确认 · 总杆"].waitForExistence(timeout: 5))
+        settle(1); save("09h-new-course-score-edit"); dump("09h-new-course-score-edit")
+        app.buttons["取消"].tap()
+        XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 8))
+
+        let manageRound = app.buttons["球局调整 · 加打 / 结束本场"]
+        XCTAssertTrue(scrollTo(manageRound, maxSwipes: 18))
+        manageRound.tap()
+        let finishRound = app.buttons["结束本场"].firstMatch
+        XCTAssertTrue(scrollTo(finishRound, maxSwipes: 6))
+        finishRound.tap()
+        XCTAssertTrue(app.staticTexts["本场汇总"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["已完成 1/\(evidence.holes) 洞"].exists)
+        app.buttons["保存并结束"].tap()
+        XCTAssertTrue(app.staticTexts["打球"].waitForExistence(timeout: 10))
+        XCTAssertTrue(
+            waitUntilGone(app.buttons["home-in-progress-round"], timeout: 8),
+            "local UI-test cleanup must remove only the temporary new-course round"
+        )
+    }
+
     // MARK: - navigation helpers
 
     private func launchFresh() {
@@ -868,6 +1026,15 @@ final class RealFlowUITests: XCTestCase {
         if !element.exists { return true }
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitUntilEnabled(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        if element.exists, element.isEnabled { return true }
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND enabled == true"),
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
@@ -1066,6 +1233,28 @@ final class RealFlowUITests: XCTestCase {
         let evidence = try resolver.resolve()
         if let data = evidence.diagnosticText.data(using: .utf8) {
             try data.write(to: realShotsDir().appendingPathComponent("review-evidence-round.txt"))
+        }
+        return evidence
+    }
+
+    private func resolveNewCourseEvidence() throws -> NewCourseEvidence {
+        let latitude = try XCTUnwrap(
+            Double(cfg("UITEST_GPS_LAT") ?? ""),
+            "new-course evidence requires the simulated latitude"
+        )
+        let longitude = try XCTUnwrap(
+            Double(cfg("UITEST_GPS_LON") ?? ""),
+            "new-course evidence requires the simulated longitude"
+        )
+        let resolver = try NewCourseEvidenceResolver(
+            baseURL: cfg("AI_CADDIE_API_BASE_URL") ?? "",
+            adminToken: cfg("AI_CADDIE_ADMIN_TOKEN") ?? "",
+            latitude: latitude,
+            longitude: longitude
+        )
+        let evidence = try resolver.resolve()
+        if let data = evidence.diagnosticText.data(using: .utf8) {
+            try data.write(to: realShotsDir().appendingPathComponent("new-course-evidence.txt"))
         }
         return evidence
     }
