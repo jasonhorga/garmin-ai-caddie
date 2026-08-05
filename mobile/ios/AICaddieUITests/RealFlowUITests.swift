@@ -287,24 +287,48 @@ final class RealFlowUITests: XCTestCase {
         settle(2)
         save("07-prep-card"); dump("07-prep-card")
 
-        // I08 is a second, scrolled review state: the tail of hole 1's measured hazards followed by
-        // the next real hole. Targeting the first `到 / 过` row was insufficient once a compact real
-        // topo let that row fit in I07's first screen, producing two byte-identical screenshots.
-        // The next-hole header is stable across courses and proves that the scroll actually moved.
+        // I08 proves that expanding hole 1 exposes another real measured hazard. Keep this evidence
+        // separate from the next-hole state: on a compact phone viewport, requiring an expanded
+        // hole-1 row and hole 2's header/map in the same screenshot is a layout accident rather than
+        // a product requirement.
         let firstHazardsToggle = app.buttons["prep-hazards-toggle-1"]
         XCTAssertTrue(
             firstHazardsToggle.waitForExistence(timeout: 5),
             "the dense real hole must keep its additional measured hazards behind an explicit disclosure"
         )
         firstHazardsToggle.tap()
+        settle(1)
+        let measuredHazards = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "：到 ", " · 过 ")
+        )
+        // The collapsed first-hole card shows exactly three hazards. Its fourth measured row is
+        // therefore stable evidence that the disclosure expanded, without depending on course copy.
+        let expandedFirstHoleHazard = measuredHazards.element(boundBy: 3)
+        XCTAssertTrue(
+            expandedFirstHoleHazard.waitForExistence(timeout: 10),
+            "expanding hole 1 must publish an additional real 到前沿 / 过后沿 hazard fact"
+        )
+        XCTAssertTrue(
+            scrollTo(expandedFirstHoleHazard, maxSwipes: 8),
+            "the expanded real hazard fact must fit wholly inside the safe viewport"
+        )
+        XCTAssertTrue(
+            fullyVisible(expandedFirstHoleHazard),
+            "the hazard evidence must retain a fully visible real 到前沿 / 过后沿 fact"
+        )
+        settle(1)
+        save("08-prep-hazards"); dump("08-prep-hazards")
+
+        // I08b independently proves that the progressive real-course response continues to hole 2
+        // and lazily renders that hole's actual topo after scrolling.
         let secondPrepHeader = app.descendants(matching: .any)["prep-hole-header-2"].firstMatch
         XCTAssertTrue(
             secondPrepHeader.waitForExistence(timeout: 75),
-            "the full real-course response must publish hole 2 before capturing the scrolled prep state"
+            "the full real-course response must publish hole 2 before capturing the next-hole state"
         )
         XCTAssertTrue(
             scrollTo(secondPrepHeader, maxSwipes: 24),
-            "the scrolled prep state must reach the next real hole after hole 1's measured hazards"
+            "the next-hole evidence must reach the next real hole after hole 1's measured hazards"
         )
         let secondPrepMap = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier == %@", "prep-hole-map-2")
@@ -332,18 +356,8 @@ final class RealFlowUITests: XCTestCase {
             fullyVisible(secondPrepHeader),
             "the next-hole header must remain inside the safe viewport after the rendered map settles"
         )
-        let measuredHazards = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "：到 ", " · 过 ")
-        )
-        let hasVisibleMeasuredHazard = (0..<measuredHazards.count).contains { index in
-            fullyVisible(measuredHazards.element(boundBy: index))
-        }
-        XCTAssertTrue(
-            hasVisibleMeasuredHazard,
-            "the scrolled prep evidence must retain a real 到前沿 / 过后沿 hazard fact"
-        )
         settle(1)
-        save("08-prep-hazards"); dump("08-prep-hazards")
+        save("08b-prep-next-hole"); dump("08b-prep-next-hole")
 
         // ---- Section 4b: nearby + name search → an uninstalled course → lightweight/precise map ----
         try exerciseNewCourseDiscovery(
