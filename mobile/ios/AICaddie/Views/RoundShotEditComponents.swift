@@ -318,11 +318,14 @@ public struct ShotEditSheet: View {
         NavigationStack {
             Form {
                 Section("地图位置") {
-                    Label(shotSummary, systemImage: "scope")
-                        .font(.subheadline.weight(.semibold))
-                    Text("上方放大镜持续显示当前落点")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(shotSummary, systemImage: "scope")
+                            .font(.subheadline.weight(.semibold))
+                        Text("上方放大镜持续显示当前落点")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
                 }
                 Section("球杆") {
                     Picker("球杆", selection: Binding(

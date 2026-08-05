@@ -142,6 +142,16 @@ final class ReviewEditUITests: XCTestCase {
         )).tap()
         let editSheet = app.navigationBars["改这一杆"]
         XCTAssertTrue(editSheet.waitForExistence(timeout: 5), "06 must edit a recorded landing, not reopen 补一杆")
+        let deleteShot = app.buttons["删除这一杆"]
+        XCTAssertTrue(
+            deleteShot.waitForExistence(timeout: 5) && deleteShot.isHittable,
+            "the destructive action must be visible and tappable without scrolling into the Home Indicator"
+        )
+        XCTAssertLessThanOrEqual(
+            deleteShot.frame.maxY,
+            app.windows.firstMatch.frame.maxY - 30,
+            "the destructive action must remain above the iPhone Home Indicator safe area"
+        )
         settle(2); save("06-edit-sheet"); dump("06-edit-sheet")
         let finishEditSheet = editSheet.buttons["完成"]
         XCTAssertTrue(finishEditSheet.exists && finishEditSheet.isHittable, "the edit sheet must expose its own completion action")
