@@ -349,6 +349,73 @@ Mesh counts from this hole:
 - `Rough.drc`: 3391 points / 5435 faces
 - `Teebox.drc`: 326 points / 400 faces
 
+### Prodgeometry bundle and Draco attributes are now corpus-classified
+
+The earlier single-hole listing was not enough to close this workstream. A
+read-only pass now covers 184 extracted holes from 15 unique course IDs, three
+`CourseGenVersion` families (`22`, `28`, `29`), the `Grassland`, `Savanna` and
+`Tropical` biomes, and 35 holes with ocean features. One sixteenth acquisition
+directory (`31796`) contained only encrypted ZIPs and is not counted as a decoded
+course. The authority report is
+`deepmine-output/prodgeometry-corpus-184-inventory.json` on the homeserver,
+SHA-256 `cdf931f4c77896ffb1b95d123aa265bfd67dced57fc173c24382f58f965c44cc`.
+
+All 2,545 Draco meshes decode, and every attribute is a standard declared Draco
+semantic rather than an unnamed/custom payload:
+
+- 2,177 material or VFX meshes have `POSITION/FLOAT32x3`,
+  `TEX_COORD/FLOAT32x2`, `NORMAL/FLOAT32x3` and normalized `COLOR/UINT8x3`;
+- all 184 `PhysicsMesh.drc` files have position, UV and normal, but no vertex
+  color;
+- all 184 `PlayableBounds.drc` files have position only;
+- there are no generic/unknown semantics, unknown data types, attribute metadata
+  entries or mesh records missing an attribute schema.
+
+This makes the product boundary explicit. Position is factual geometry. Its
+`(-mesh_x, mesh_z)` plane is the `hole.json (X, Y)` east/north frame; mesh Y plus
+`ElevationMinimum` is the absolute elevation already cross-checked against the
+independent DSKIMG DEM. UV, vertex normal and vertex color are renderer inputs,
+not extra hazards, scorecard facts or subscription contours, so the shared map
+package does not promote them into domain fields.
+
+The non-mesh assets are also terminally classified:
+
+- `hole.json` is the authority for course/hole identity, WGS84 reference,
+  relative elevation range, Tee locations and ordered dogleg/target lines. All
+  184 carry the core fields; `DoglegOrder` and `HasTargets` occur on 148 and are
+  therefore version-conditional rather than required package fields.
+- `foliage.json` contains 157,478 foliage and 12,051 tree instances. Their
+  `x/y/z`, quaternion, scale and model/variant IDs are decorative scene
+  instances. The 2D renderer may consume category and position; model identity,
+  rotation and scale do not become scoring or lie facts. No rocks were present
+  in this corpus, so the raw category remains preserved without invented
+  behavior.
+- Every hole has a distinct `1024x1024` lossy `Terrain.webp`. It is not an
+  aerial/color map: across all 184 images median RGB is approximately
+  `(127.9, 127.7, 248.3)`, blue is dominant in `99.4%–100%` of sampled pixels,
+  and RGB-to-normal decoding has median vector length `0.95`. It is a
+  hole-specific tangent-space normal/bump texture used with the mesh UVs. It
+  can support a future lit iPhone/Web 3D renderer, but adds no new 2D surface,
+  hazard or Green Contours authority and is intentionally excluded from the
+  Watch factual package.
+
+All 24 observed mesh names now have a product disposition:
+
+| Mesh group | Product disposition |
+|---|---|
+| `Fairway`, `Fringe`, `Green`, `Rough`, `Teebox`, `TreeArea`, `Bunker`, `Beach`, `Lake`, `LakeSide`, `Ocean`, `OceanSide` | Factual surface/edge geometry; consumed for the matching visual, lie or hazard role where the client needs it |
+| `PhysicsMesh` | Continuous terrain, outline and relative elevation authority; consumed for clipping, hillshade and PlaysLike |
+| `PlayableBounds` | Flat generous scene extent; fallback framing only, never a hazard or the visible hole outline |
+| `Cartpath`, `Bridge` | Factual structural landmarks; optional map decoration, not scoring hazards |
+| `Cliff`, `CliffUV2`, `IslandExt` | Terrain skirt/material support for the 3D scene; no independent scoring surface, excluded from canonical hazard facts |
+| `VfxGreenA`, `VfxGreenB`, `VfxOcean`, `VfxStream` | Visual-effect duplicates around already authoritative green/water meshes; excluded from semantic geometry |
+
+The corpus contains zero unclassified mesh names and zero unclassified non-mesh
+assets. `decode_courseview_geometry.js` now records the attribute schema and
+component ranges in its ordinary compact stats output, so a future Garmin
+package that introduces a new channel becomes an explicit version-gate event
+instead of being silently ignored.
+
 ## Deep Mine Closure Ledger
 
 Deep Mine is not complete while any row below lacks a terminal result. A
@@ -363,7 +430,7 @@ terminal result.
 | Acquisition and updates | Catalogue, name/city, radius, release, `MEDIUM`, `MEDIUM_PLUS`, `INTERMEDIATE`, prodgeometry, raster and Green Contours request chains; version/check-for-update semantics | Every APK call path is bound to endpoint, identifiers, auth level, pagination, version and cache invalidation behavior |
 | Lightweight `courseData` | Codes `3243`, `3244`, `18125`; `InfoMask`, flags and `GreenRadii` scale | Every field is preserved and either named from multi-course evidence or accompanied by a proven non-rendering/opaque classification |
 | DSKIMG | Semantic classification of the remaining private TRE/RGN vector types | FAT/GMP/TRE/RGN/LBL/default DEM are structurally decoded across 48 strict packages; every declared type is observed. Non-default DEM descriptors have an explicit absence result across 52 courses and remain a version-gated rejection, not an unbounded search task |
-| prodgeometry bundle | All mesh names, `hole.json`, Terrain, foliage, normals/UV/color attributes, coordinate frames and elevation | Corpus inventory has no unclassified asset; every consumed layer has cross-course semantics and every ignored layer has a recorded reason |
+| prodgeometry bundle | **CLOSED:** 184 holes / 2,545 meshes across 15 courses; all mesh/static assets, JSON fields and Draco attributes classified; coordinate/elevation frame independently cross-checked | Zero unclassified mesh, static asset, attribute semantic or data type; every consumed and ignored layer has a recorded product reason, with future unknown channels rejected by the package version gate |
 | Green Contours | Authenticated membership download request, response package, course/build/part binding and S70 rendering behavior | One positive and one negative course are captured and decoded end-to-end; availability flag alone is not accepted as payload evidence |
 | Product package | Source precedence, lightweight-to-precise upgrade, offline cache, integrity/version binding and shared iOS/Watch/Web representation | A newly discovered uncached course opens from factual lightweight data, upgrades without changing round identity, survives offline restart and renders consistently on all three clients |
 
@@ -374,11 +441,9 @@ terminal result.
    a declaration that Deep Mine is complete.
 2. Resolve the remaining `courseData` codes/flags and DSKIMG vector types
    across the existing multi-region corpus, retaining raw values throughout.
-3. Finish the prodgeometry asset/attribute inventory and remove every
-   unclassified corpus entry with evidence rather than a filename guess.
-4. Trace and capture the membership Green Contours path, including one positive
+3. Trace and capture the membership Green Contours path, including one positive
    and one negative course and its S70-visible result.
-5. Productize the proven lightweight facts as a fast fallback and verify their
+4. Productize the proven lightweight facts as a fast fallback and verify their
    in-place upgrade to precise geometry across backend, iOS, Watch and Web.
 
 ## Practical Conclusion For Now

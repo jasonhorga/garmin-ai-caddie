@@ -35,6 +35,8 @@ from tools.courseview.parse_courseview import (
 
 SCHEMA = "ai-caddie-courseview-corpus-inventory-v1"
 
+KNOWN_STATIC_ASSETS = {"hole.json", "foliage.json", "Terrain.webp"}
+
 # topo-v5's factual drawing inputs. Other decoded meshes may still feed semantic export.
 TOPO_MESHES = {
     "PhysicsMesh.drc",
@@ -71,6 +73,150 @@ def _type_name(value: Any) -> str:
     if isinstance(value, (int, float)):
         return "number"
     return "string"
+
+
+def _webp_info(path: Path) -> tuple[int, int, str]:
+    data = path.read_bytes()
+    if len(data) < 30 or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+        raise ValueError("invalid WebP RIFF header")
+    chunk = data[12:16]
+    payload = 20
+    if chunk == b"VP8X":
+        width = int.from_bytes(data[payload + 4:payload + 7], "little") + 1
+        height = int.from_bytes(data[payload + 7:payload + 10], "little") + 1
+    elif chunk == b"VP8 ":
+        if data[payload + 3:payload + 6] != b"\x9d\x01\x2a":
+            raise ValueError("invalid VP8 frame header")
+        width = int.from_bytes(data[payload + 6:payload + 8], "little") & 0x3FFF
+        height = int.from_bytes(data[payload + 8:payload + 10], "little") & 0x3FFF
+    elif chunk == b"VP8L":
+        if data[payload] != 0x2F:
+            raise ValueError("invalid VP8L frame header")
+        packed = int.from_bytes(data[payload + 1:payload + 5], "little")
+        width = (packed & 0x3FFF) + 1
+        height = ((packed >> 14) & 0x3FFF) + 1
+    else:
+        raise ValueError(f"unsupported WebP chunk {chunk!r}")
+    if width <= 0 or height <= 0:
+        raise ValueError("invalid WebP dimensions")
+    return width, height, chunk.decode("ascii").strip()
+
+
+def _attribute_signature(attributes: list[dict[str, Any]]) -> str:
+    return " | ".join(
+        ":".join(
+            (
+                str(row.get("semantic", "missing")),
+                str(row.get("dataType", "missing")),
+                str(row.get("components", "missing")),
+                "normalized" if row.get("normalized") else "raw",
+            )
+        )
+        for row in attributes
+    )
+
+
+def _merge_bounds(
+    target: dict[str, list[float | None]],
+    minimum: Any,
+    maximum: Any,
+) -> None:
+    if not isinstance(minimum, list) or not isinstance(maximum, list):
+        return
+    if len(minimum) != len(maximum):
+        return
+    if not target:
+        target["minimum"] = [None for _ in minimum]
+        target["maximum"] = [None for _ in maximum]
+    if len(target["minimum"]) != len(minimum):
+        return
+    for index, value in enumerate(minimum):
+        if not isinstance(value, (int, float)):
+            continue
+        current = target["minimum"][index]
+        target["minimum"][index] = value if current is None else min(current, value)
+    for index, value in enumerate(maximum):
+        if not isinstance(value, (int, float)):
+            continue
+        current = target["maximum"][index]
+        target["maximum"][index] = value if current is None else max(current, value)
+
+
+def _draco_stats_inventory(
+    stats_root: Path | None,
+    errors: list[dict[str, str]],
+) -> dict[str, Any]:
+    paths = sorted(stats_root.glob("**/*_stats.json")) if stats_root else []
+    mesh_records = 0
+    missing_schema = 0
+    schema_by_mesh: dict[str, Counter[str]] = {}
+    bounds_by_mesh: dict[str, dict[str, dict[str, list[float | None]]]] = {}
+    semantic_counts: Counter[str] = Counter()
+    data_type_counts: Counter[str] = Counter()
+    metadata_entries: Counter[str] = Counter()
+    unique_ids: dict[str, Counter[str]] = {}
+    unknown_semantics: Counter[str] = Counter()
+    unknown_data_types: Counter[str] = Counter()
+
+    for path in paths:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            for mesh in payload.get("meshes") or []:
+                if not isinstance(mesh, dict):
+                    continue
+                mesh_records += 1
+                mesh_name = str(mesh.get("file") or "missing")
+                attributes = mesh.get("attributeSchema")
+                if not isinstance(attributes, list):
+                    missing_schema += 1
+                    continue
+                schema_by_mesh.setdefault(mesh_name, Counter())[_attribute_signature(attributes)] += 1
+                mesh_bounds = bounds_by_mesh.setdefault(mesh_name, {})
+                for row in attributes:
+                    if not isinstance(row, dict):
+                        continue
+                    semantic = str(row.get("semantic") or "missing")
+                    data_type = str(row.get("dataType") or "missing")
+                    semantic_counts[semantic] += 1
+                    data_type_counts[data_type] += 1
+                    if semantic.startswith("UNKNOWN_") or semantic in {"GENERIC", "missing"}:
+                        unknown_semantics[semantic] += 1
+                    if data_type.startswith("UNKNOWN_") or data_type in {"INVALID", "missing"}:
+                        unknown_data_types[data_type] += 1
+                    unique_ids.setdefault(semantic, Counter())[str(row.get("uniqueId"))] += 1
+                    for entry in row.get("metadataEntries") or []:
+                        metadata_entries[str(entry)] += 1
+                    key = f"{row.get('index')}:{semantic}"
+                    _merge_bounds(
+                        mesh_bounds.setdefault(key, {}),
+                        row.get("minimum"),
+                        row.get("maximum"),
+                    )
+        except Exception as exc:
+            errors.append(
+                {
+                    "artifact": str(path),
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    return {
+        "artifactCount": len(paths),
+        "meshRecordCount": mesh_records,
+        "meshRecordsWithoutAttributeSchema": missing_schema,
+        "attributeSchemaCountsByMesh": {
+            key: _counter(value) for key, value in sorted(schema_by_mesh.items())
+        },
+        "attributeBoundsByMesh": bounds_by_mesh,
+        "semanticCounts": _counter(semantic_counts),
+        "dataTypeCounts": _counter(data_type_counts),
+        "uniqueIdCountsBySemantic": {
+            key: _counter(value) for key, value in sorted(unique_ids.items())
+        },
+        "metadataEntryCounts": _counter(metadata_entries),
+        "unclassifiedSemanticCounts": _counter(unknown_semantics),
+        "unclassifiedDataTypeCounts": _counter(unknown_data_types),
+    }
 
 
 def _wire_inventory(path: Path) -> tuple[Counter[str], Counter[str], Counter[str]]:
@@ -236,7 +382,7 @@ def _dskimg_inventory(path: Path) -> dict[str, Any]:
     }
 
 
-def inventory_courseview(root: Path) -> dict[str, Any]:
+def inventory_courseview(root: Path, *, mesh_stats_root: Path | None = None) -> dict[str, Any]:
     root = root.resolve()
     release_top: Counter[str] = Counter()
     release_tees: Counter[str] = Counter()
@@ -316,6 +462,10 @@ def inventory_courseview(root: Path) -> dict[str, Any]:
     foliage_item_fields: dict[str, Counter[str]] = {}
     foliage_ids: dict[str, Counter[str]] = {}
     course_ids: set[int] = set()
+    terrain_dimensions: Counter[str] = Counter()
+    terrain_chunks: Counter[str] = Counter()
+    terrain_bytes: list[int] = []
+    terrain_content_hashes: set[str] = set()
 
     hole_json_paths = sorted((root / "prodgeometry").glob("*/*/hole.json"))
     for hole_path in hole_json_paths:
@@ -326,6 +476,20 @@ def inventory_courseview(root: Path) -> dict[str, Any]:
             asset_files[asset.name] += 1
             if asset.suffix.lower() == ".drc":
                 mesh_files[asset.name] += 1
+            elif asset.name == "Terrain.webp":
+                try:
+                    width, height, chunk = _webp_info(asset)
+                    terrain_dimensions[f"{width}x{height}"] += 1
+                    terrain_chunks[chunk] += 1
+                    terrain_bytes.append(asset.stat().st_size)
+                    terrain_content_hashes.add(hashlib.sha256(asset.read_bytes()).hexdigest())
+                except Exception as exc:
+                    errors.append(
+                        {
+                            "artifact": str(asset.relative_to(root)),
+                            "error": f"{type(exc).__name__}: {exc}",
+                        }
+                    )
 
         try:
             hole = json.loads(hole_path.read_text(encoding="utf-8"))
@@ -381,8 +545,10 @@ def inventory_courseview(root: Path) -> dict[str, Any]:
             )
 
     observed_meshes = set(mesh_files)
+    observed_assets = set(asset_files)
     semantic_meshes = set(FEATURES)
     structural_meshes = set(KNOWN_NON_HAZARD)
+    draco_stats = _draco_stats_inventory(mesh_stats_root, errors)
     return {
         "schema": SCHEMA,
         "rootLabel": root.name,
@@ -477,6 +643,12 @@ def inventory_courseview(root: Path) -> dict[str, Any]:
             "holeCount": len(hole_json_paths),
             "assetNames": _counter(asset_files),
             "meshNames": _counter(mesh_files),
+            "knownStaticAssetNames": sorted(observed_assets & KNOWN_STATIC_ASSETS),
+            "unclassifiedNonMeshAssetNames": sorted(
+                name
+                for name in observed_assets - KNOWN_STATIC_ASSETS
+                if not name.lower().endswith(".drc")
+            ),
             "topoConsumedMeshNames": sorted(observed_meshes & TOPO_MESHES),
             "semanticConsumedMeshNames": sorted(observed_meshes & semantic_meshes),
             "knownStructuralOrCosmeticMeshNames": sorted(observed_meshes & structural_meshes),
@@ -490,6 +662,15 @@ def inventory_courseview(root: Path) -> dict[str, Any]:
             "foliageItemCounts": _counter(foliage_categories),
             "foliageItemFields": {key: _counter(value) for key, value in sorted(foliage_item_fields.items())},
             "foliageAssetIds": {key: _counter(value) for key, value in sorted(foliage_ids.items())},
+            "terrain": {
+                "artifactCount": len(terrain_bytes),
+                "dimensionCounts": _counter(terrain_dimensions),
+                "encodingChunkCounts": _counter(terrain_chunks),
+                "minimumBytes": min(terrain_bytes) if terrain_bytes else None,
+                "maximumBytes": max(terrain_bytes) if terrain_bytes else None,
+                "uniqueContentCount": len(terrain_content_hashes),
+            },
+            "dracoStats": draco_stats,
         },
         "errors": errors,
     }
@@ -499,8 +680,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path, help="directory containing *_releases.pb and prodgeometry/")
     parser.add_argument("--out", type=Path)
+    parser.add_argument(
+        "--mesh-stats-root",
+        type=Path,
+        help="optional directory containing decoder *_stats.json files with Draco attribute schemas",
+    )
     args = parser.parse_args()
-    result = inventory_courseview(args.root)
+    result = inventory_courseview(args.root, mesh_stats_root=args.mesh_stats_root)
     text = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

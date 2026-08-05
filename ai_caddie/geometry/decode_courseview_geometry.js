@@ -59,6 +59,88 @@ function rounder(precision) {
   return (value) => Math.round(value * scale) / scale;
 }
 
+function attributeTypeName(decoderModule, value) {
+  const names = new Map([
+    [decoderModule.POSITION, "POSITION"],
+    [decoderModule.NORMAL, "NORMAL"],
+    [decoderModule.COLOR, "COLOR"],
+    [decoderModule.TEX_COORD, "TEX_COORD"],
+    [decoderModule.GENERIC, "GENERIC"],
+  ]);
+  return names.get(value) || `UNKNOWN_${value}`;
+}
+
+function dataTypeName(decoderModule, value) {
+  const names = new Map([
+    [decoderModule.DT_INVALID, "INVALID"],
+    [decoderModule.DT_INT8, "INT8"],
+    [decoderModule.DT_UINT8, "UINT8"],
+    [decoderModule.DT_INT16, "INT16"],
+    [decoderModule.DT_UINT16, "UINT16"],
+    [decoderModule.DT_INT32, "INT32"],
+    [decoderModule.DT_UINT32, "UINT32"],
+    [decoderModule.DT_INT64, "INT64"],
+    [decoderModule.DT_UINT64, "UINT64"],
+    [decoderModule.DT_FLOAT32, "FLOAT32"],
+    [decoderModule.DT_FLOAT64, "FLOAT64"],
+    [decoderModule.DT_BOOL, "BOOL"],
+  ]);
+  return names.get(value) || `UNKNOWN_${value}`;
+}
+
+function attributeSchema(decoderModule, decoder, mesh, precision) {
+  const toFixed = rounder(precision);
+  const rows = [];
+  for (let index = 0; index < mesh.num_attributes(); index += 1) {
+    const attribute = decoder.GetAttribute(mesh, index);
+    const components = attribute.num_components();
+    const values = new decoderModule.DracoFloat32Array();
+    try {
+      decoder.GetAttributeFloatForAllPoints(mesh, attribute, values);
+      const minimum = Array(components).fill(Infinity);
+      const maximum = Array(components).fill(-Infinity);
+      for (let offset = 0; offset < values.size(); offset += components) {
+        for (let component = 0; component < components; component += 1) {
+          const value = values.GetValue(offset + component);
+          if (value < minimum[component]) minimum[component] = value;
+          if (value > maximum[component]) maximum[component] = value;
+        }
+      }
+
+      const metadata = decoder.GetAttributeMetadata(mesh, index);
+      const metadataEntries = [];
+      if (metadata && metadata.ptr) {
+        const querier = new decoderModule.MetadataQuerier();
+        try {
+          for (let entry = 0; entry < querier.NumEntries(metadata); entry += 1) {
+            metadataEntries.push(querier.GetEntryName(metadata, entry));
+          }
+        } finally {
+          decoderModule.destroy(querier);
+        }
+      }
+
+      rows.push({
+        index,
+        uniqueId: attribute.unique_id(),
+        semantic: attributeTypeName(decoderModule, attribute.attribute_type()),
+        dataType: dataTypeName(decoderModule, attribute.data_type()),
+        components,
+        normalized: Boolean(attribute.normalized()),
+        valueCount: attribute.size(),
+        byteOffset: attribute.byte_offset(),
+        byteStride: attribute.byte_stride(),
+        minimum: minimum.map((value) => Number.isFinite(value) ? toFixed(value) : null),
+        maximum: maximum.map((value) => Number.isFinite(value) ? toFixed(value) : null),
+        metadataEntries,
+      });
+    } finally {
+      decoderModule.destroy(values);
+    }
+  }
+  return rows;
+}
+
 function boundsForPositions(positions) {
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
@@ -141,6 +223,7 @@ function decodeMesh(decoderModule, file, precision) {
           points: mesh.num_points(),
           faces: mesh.num_faces(),
           attributes: mesh.num_attributes(),
+          attributeSchema: attributeSchema(decoderModule, decoder, mesh, precision),
           positionComponents: dims,
           positionBounds: boundsForPositions(positions),
           hole2dBounds: hole2dBounds(positions),
