@@ -112,14 +112,58 @@ Sentosa against their matching Draco meshes proved:
   code `18124` points land on `Bunker.drc`;
 - for all 50 proven water/bunker spans, point 1 is Tee-side and point 2 is
   green-side. This is a legitimate coarse `到 / 过` fallback;
-- codes `3243`, `3244` and `18125` remain unknown and receive no product label.
+- line code `3243` and anchor code `18125` are the paired third Garmin hazard
+  category, but the matched meshes do not support a stable water, bunker,
+  beach, ocean, cliff, rough or cart-path label. They are terminally classified
+  as opaque: preserve the raw code and never expose a guessed surface name;
+- line code `3244` is not a cart path. Every observed row is a forward subspan
+  of the code-`3240` route and adds no independent 2D surface.
 
-The route endpoint matches the `hole.json` dogleg/green centre within `0.10 m` in
-all 17 holes. The 30 `GreenRadii` samples consistently start at north and run
-clockwise (all 17 best fits; median start `89.5°` in an east/north frame). Their
-absolute scale versus `Green.drc` is course-dependent (`0.8685–1.0022 m` per raw
-unit), so the parser intentionally keeps them unitless until the difference
-between the legacy outline and the rendered green/fringe is explained.
+A second read-only audit binds the complete captured fetch manifest to 114
+`MEDIUM_PLUS` responses: 114 layouts, 1,701 holes and ten Garmin BuildIds. All
+114 filename `layout + build` pairs match the response body, and every manifest
+URL, byte count and hole count matches its file. Across that full corpus:
+
+- every hole has exactly one code-`3240` route;
+- `InfoMask == ((uint32(route.Flags) >> 28) & 0xF)` for `1,701/1,701`
+  holes. It is a duplicate view of the route flags high nibble, not a separate
+  map layer;
+- the low 28 route flag bits equal the bitset of route points whose `Flag=1`
+  for `1,701/1,701` holes, using bit `PointNumber - 1`;
+- all 17,273 line points have `Closure=0`, and all point flags are either zero
+  or one. This is an observed absence result; a future non-zero closure remains
+  raw and must trigger a new format review rather than receiving a guessed
+  meaning;
+- the low two hazard flag bits have stable route-relative direction:
+  `1=right`, `2=left`, `3=centre/crossing/mixed`. Of 4,649 single-side line and
+  anchor records, 4,646 agree geometrically (`99.935%`). The three disagreeing
+  Garmin rows are retained as raw exceptions. Higher flag bits are opaque
+  subtype bits;
+- all 105 code-`3244` lines across 61 courses have flags `3`, two points in
+  Tee-to-green order, maximum route cross-track `0.123901 m` and maximum
+  declared-length delta `0.984911 m`;
+- code `3243` occurs 14 times across 3 courses and code `18125` 18 times across
+  2 courses. Their structural pairing and side flags are reproducible, while a
+  specific surface label is not.
+
+The authority report is
+`report/course-data-corpus-1701-audit.json` on the homeserver, SHA-256
+`a519f9772cdd4dba2eebb72c5b128e18dd5856631d1ad44d3b67816438064372`.
+`tools/courseview/audit_course_data_corpus.py` regenerates it and fails closed on
+binding, field, type-code or geometric drift.
+
+The route endpoint matches the authority-compatible `hole.json` dogleg/green
+centre within `0.10 m` in the original 17-hole set. The 30 `GreenRadii` samples
+consistently start at north and run clockwise. The larger matched corpus changes
+the earlier target, however: the radial shape follows the displayed
+`VfxGreenA.drc` outline more closely than the playable `Green.drc` surface, and
+its scale clusters by course at roughly `0.87–0.98 m/raw` rather than using one
+global metre or yard unit. Layout `38059` also exposes a necessary authority
+gate: eight courseData route endpoints are 24–45 m from the available
+prodgeometry build and cannot be used as scale samples. Until course/build/hole
+binding and the `VfxGreenA/B` selection rule are closed, the parser deliberately
+keeps these values unitless and uses them only as a display outline, never for
+numeric front/middle/back distance.
 
 The production fetch path was also exercised directly against the anonymous
 endpoint on 2026-08-04, rather than only through fixtures. Cypress Point build
@@ -428,7 +472,7 @@ terminal result.
 | Workstream | Remaining evidence required | Completion gate |
 |---|---|---|
 | Acquisition and updates | Catalogue, name/city, radius, release, `MEDIUM`, `MEDIUM_PLUS`, `INTERMEDIATE`, prodgeometry, raster and Green Contours request chains; version/check-for-update semantics | Every APK call path is bound to endpoint, identifiers, auth level, pagination, version and cache invalidation behavior |
-| Lightweight `courseData` | Codes `3243`, `3244`, `18125`; `InfoMask`, flags and `GreenRadii` scale | Every field is preserved and either named from multi-course evidence or accompanied by a proven non-rendering/opaque classification |
+| Lightweight `courseData` | **Codes/flags closed:** manifest-bound 114-course / 1,701-hole audit classifies `InfoMask`, route point bitset, Closure absence, hazard sides, opaque `3243/18125` and non-rendering route subspan `3244`. Remaining: GreenRadii build authority, `VfxGreenA/B` selection and scale | Every field is preserved and either named from multi-course evidence or accompanied by a proven non-rendering/opaque classification |
 | DSKIMG | Semantic classification of the remaining private TRE/RGN vector types | FAT/GMP/TRE/RGN/LBL/default DEM are structurally decoded across 48 strict packages; every declared type is observed. Non-default DEM descriptors have an explicit absence result across 52 courses and remain a version-gated rejection, not an unbounded search task |
 | prodgeometry bundle | **CLOSED:** 184 holes / 2,545 meshes across 15 courses; all mesh/static assets, JSON fields and Draco attributes classified; coordinate/elevation frame independently cross-checked | Zero unclassified mesh, static asset, attribute semantic or data type; every consumed and ignored layer has a recorded product reason, with future unknown channels rejected by the package version gate |
 | Green Contours | Authenticated membership download request, response package, course/build/part binding and S70 rendering behavior | One positive and one negative course are captured and decoded end-to-end; availability flag alone is not accepted as payload evidence |
@@ -439,8 +483,9 @@ terminal result.
 1. Freeze the reproduced FAT, default DEM codec/cross-check, strict 48-course
    vector/LBL inventory and `courseData` findings as a checkpoint; this is not
    a declaration that Deep Mine is complete.
-2. Resolve the remaining `courseData` codes/flags and DSKIMG vector types
-   across the existing multi-region corpus, retaining raw values throughout.
+2. Close `GreenRadii` authority/`VfxGreenA/B` selection and the remaining DSKIMG
+   vector-type semantics across the existing multi-region corpus, retaining raw
+   values throughout.
 3. Trace and capture the membership Green Contours path, including one positive
    and one negative course and its S70-visible result.
 4. Productize the proven lightweight facts as a fast fallback and verify their
