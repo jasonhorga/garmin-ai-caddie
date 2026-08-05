@@ -303,20 +303,20 @@ Build 35 的可安装性不等于产品视觉获批。当前重新以 2026-07-02
 
 发布门：完成清单后，由 CI 生成真实 App 模拟器截图；Codex 将批准图与最终图按状态并排提交用户审批。用户明确批准前，不创建下一版 TestFlight。
 
-## 当前剩余产品任务（2026-08-04）
+## 当前剩余产品任务（2026-08-05）
 
 | 顺序 | 可见结果 | 当前状态 | 完成门 |
 |---|---|---|---|
-| 1 | iOS 复盘/备战的 Topo 只显示真实洞形，Watch 长文字不越界 | `IMPLEMENTED / 待模拟器回归` | 真实 App 截图无外围绿色矩形，45 mm 全部长文字状态留在表盘内 |
+| 1 | iOS 复盘/备战的 Topo 只显示真实洞形，Watch 长文字不越界 | `VERIFIED / Native + Watch 运行态通过` | 真实 App 截图无外围绿色矩形，45 mm 全部长文字状态留在表盘内 |
 | 2 | 新开一场时可按城市、球场关键字或两者组合查找任意 Garmin 球场 | `IMPLEMENTED / Native 基础验证通过` | 只查目录；只填城市或关键字均可用；两者都填时分别查询并按 `globalId` 取交集；选中后才下载单座球场 |
 | 3 | 不输入名称，直接列出当前坐标 50 km 内的 provider-wide 附近球场 | `IMPLEMENTED / Native 基础通过，待集成旅程复验` | Garmin 独立 radius 路由按 50 条完整分页；默认 50 km、可切 100/200 km；覆盖未缓存球场并按真实距离排序；选中后才下载单座球场 |
 | 4 | CourseView Deep Mine 将现有 release/prodgeometry 中未使用的真实数据逐项转成产品判断 | `当前数据 checkpoint 完成 / 会员 Green Contours 抓包待用户方便时补` | 对未分类字段/mesh 给出可重放证据、跨球场语义和明确的使用/不使用结论，不为挖数据而增加无产品价值的平台 |
-| 5 | 任意新球场先用轻量真实数据秒开，再原位升级为精确地图 | `IMPLEMENTED / iOS Native 通过，Watch real-course 门运行中` | `courseData` 先提供路线、计分卡、果岭外形和水/沙粗距离；`prodgeometry` 到达后不换 round/course identity 地升级，断网重开仍可用 |
-| 6 | 后端、iOS、Watch、Web 使用同一球场发现、地图权威和缓存升级规则 | `IMPLEMENTED CANDIDATE / Web+后端门通过，待集成 CI` | 同一 `globalId + build/release` 在三端得到一致洞、Tee、障碍、地形与版本；轻量/精确 source precedence 只有一套 |
-| 7 | 把 Topo、Watch 越界、附近/搜索/任意新球场串成真实模拟器旅程 | `PENDING / 等待 1–6 汇合` | 从当前位置或城市/关键字选一座未缓存球场，下载、开局、离线重开并完成复盘；逐屏留存真实 App 截图，不以单元测试代替旅程 |
+| 5 | 任意新球场先用轻量真实数据秒开，再原位升级为精确地图 | `VERIFIED / iOS Native + Watch runtime 通过` | `courseData` 先提供路线、计分卡、果岭外形和水/沙粗距离；`prodgeometry` 到达后不换 round/course identity 地升级，断网重开仍可用 |
+| 6 | 后端、iOS、Watch、Web 使用同一球场发现、地图权威和缓存升级规则 | `VERIFIED / 完整 CI 与 Native 基线通过` | 同一 `globalId + build/release` 在三端得到一致洞、Tee、障碍、地形与版本；轻量/精确 source precedence 只有一套 |
+| 7 | 把 Topo、Watch 越界、附近/搜索/任意新球场串成真实模拟器旅程 | `IMPLEMENTED / 等待新版公开 API 运行` | 从当前位置或城市/关键字选一座未缓存球场，下载、开局、离线重开并完成复盘；逐屏留存真实 App 截图，不以单元测试代替旅程 |
 | 8 | 最终图逐张对照冻结批准图，由用户视觉批准后再进入 TestFlight | `BLOCKED BY PRODUCT WORK / 发布门` | Watch 与 iOS 按完整打球顺序并排展示批准图和最终模拟器图；差异清零或经用户明确接受；批准前不发布 TestFlight |
 
-当前执行指针在第 6 项；其集成门关闭后立即回到第 7 项完整旅程，最后经过第 8 项。不得因为继续解析某个格式而从这张表向下无限派生。
+当前执行指针在第 7 项。SHA `c4deddd` 的完整 CI [30973099582](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30973099582)、Watch runtime [30972012631](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30972012631) 与 Native review [30973099590](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30973099590) 均成功；现有公开 API 的 `/api/v2/courses/nearby` 仍为 `404`，所以第 7 项只差让同一分支的新版 API 可被模拟器访问并运行 full scope。完成后立即进入第 8 项，不得因为继续解析某个格式而从这张表向下无限派生。
 
 球场发现的固定产品规则：开局页同时提供“附近球场”和“搜索球场”两条入口，不二选一。附近球场默认 50 km，无结果时可扩大范围；手动搜索的“城市”和“球场关键字”至少填一项。两项都填时不拼成单个 Garmin query，而是分别查询后按 `globalId` 取交集；真实验证中“深圳”、“观澜”分别有结果，而“深圳 观澜”直接查询返回 0。搜索结果始终是轻量目录，只在用户选中后下载该球场的 Tee、洞和地图。
 
