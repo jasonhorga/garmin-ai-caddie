@@ -81,7 +81,7 @@ public struct MobileCourseSearchView: View {
                     .submitLabel(.search)
                     .onSubmit { submitSearch() }
 
-                TextField("球场关键字（可选）", text: $query)
+                TextField("球场关键字（例如：观澜）", text: $query)
                     .submitLabel(.search)
                     .onSubmit { submitSearch() }
 
