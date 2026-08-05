@@ -199,6 +199,64 @@ contained 18 route lines (`3240`); `MEDIUM_PLUS` contained 60 lines with raw
 codes `3240`, `3242` and `3243`. Both responses passed request/response BuildId
 and GlobalLayoutId authority binding.
 
+### DSKIMG vector semantics closed against prodgeometry
+
+The private TRE/RGN vector-type workstream is now closed. The final replay
+uses 13 release-bound DSKIMG artifacts representing 11 unique embedded images,
+14 bound `courseData` layouts and all 184 unique prodgeometry holes in the
+current corpus. Of those holes, 166 bind to an available DSKIMG. The other 18
+are exactly the nine holes of layout `31636` and nine holes of `31637`, whose
+anonymous release requests are reproducible HTTP 404s; there are no extra or
+stale exceptions. Every one of the 15 area, 3 line and 2 point types has a
+terminal decision:
+
+| Kind / type | Objects | Terminal semantic | Permitted product use |
+|---|---:|---|---|
+| area `0x010b01` | 10 | ocean context | coarse/offline display fallback only |
+| area `0x010b08` | 169 | opaque mixed context area | preserve raw; do not consume |
+| area `0x010d01` | 11 | course/complex boundary | structural framing only |
+| area `0x011400` | 13 | opaque singleton context area | preserve raw; do not consume |
+| area `0x011402` | 1,345 | tee area | coarse/offline display fallback only |
+| area `0x011403` | 351 | fairway area | coarse/offline display fallback only |
+| area `0x011404` | 324 | green area | coarse/offline display fallback only |
+| area `0x011405` | 1,489 | bunker area | coarse/offline display fallback only |
+| area `0x011406` | 38 | opaque coastal-terrain area | preserve raw; do not consume |
+| area `0x011407` | 1,493 | tree area | coarse/offline display fallback only |
+| area `0x011409` | 324 | inner hole corridor | structural clipping only |
+| area `0x01140a` | 13 | stream/water area | coarse/offline display fallback only |
+| area `0x01140b` | 825 | teebox surface | coarse/offline display fallback only |
+| area `0x01140d` | 16 | opaque small context area | preserve raw; do not consume |
+| area `0x01140e` | 324 | outer hole domain | structural clipping only |
+| line `0x010a00` | 13 | stream/water edge | coarse/offline display fallback only |
+| line `0x012e00` | 324 | hole route | fallback route only |
+| line `0x012e05` | 261 | cart path | coarse/offline display fallback only |
+| point `0x013800` | 5 | course/layout label anchor | metadata anchor only |
+| point `0x013801` | 88 | tee/route-start anchor | fallback position anchor only |
+
+The important corrections are cross-source, not visual guesses. Line
+`0x012e05` overlaps decoded `Cartpath.drc` by `80.563920%` across seven
+observed images, so it is the cart path; area `0x010b08` is mixed and remains
+opaque. Line `0x010a00` overlaps `Lake.drc` by `99.056604%` and
+`VfxStream.drc` by `85.849057%`. All 159 of its vertices bind to the boundary
+of area `0x01140a`, with median residual `0 m`, P95 `0.645269 m` and `100%`
+within 2 m. The two 324-object hole layers are nested rather than playable
+surfaces: `95.944526%` of inner-`0x011409` vertices fall inside outer
+`0x01140e`, while the reverse coverage is only `56.001678%`.
+
+These mappings do not change source precedence. DSKIMG fairway, green, bunker,
+water and tree geometry is deliberately coarse and may support lightweight or
+offline display when prodgeometry has not arrived. Exact distance, lie,
+obstacle and penalty decisions continue to use release-bound prodgeometry and
+`courseData`. Opaque types remain losslessly available for a future format
+version review but cannot enter current UI or scoring logic.
+
+The frozen authority report is
+`/home/jason/codex-runs/garmin-search-deepmine-20260804-root/deepmine-output/dskimg-vector-semantics-184-final.json`,
+SHA-256 `ff271c6bddc67de3bebfdee7609e774ac7849527c1db489a9bb7c983c688e8a3`.
+`tools/courseview/audit_dskimg_vector_semantics.py` regenerates the report and
+fails closed on strict decode, source binding, hole accounting or an observed
+type without a terminal classification.
+
 ## Current Position
 
 The IMG files are definitely valuable. They are not random blobs. They are Garmin
@@ -500,18 +558,16 @@ terminal result.
 |---|---|---|
 | Acquisition and updates | Catalogue, name/city, radius, release, `MEDIUM`, `MEDIUM_PLUS`, `INTERMEDIATE`, prodgeometry, raster and Green Contours request chains; version/check-for-update semantics | Every APK call path is bound to endpoint, identifiers, auth level, pagination, version and cache invalidation behavior |
 | Lightweight `courseData` | **CLOSED:** manifest-bound 114-course / 1,701-hole field/code audit plus 166-hole GreenRadii authority and A/B-selection audit; `InfoMask`, route bitset, Closure absence, hazard sides, `3244`, opaque `3243/18125` and the latitude-corrected 30-vector outline all have terminal decisions | Every field is preserved and either named from multi-course evidence or accompanied by a proven non-rendering/opaque classification |
-| DSKIMG | Semantic classification of the remaining private TRE/RGN vector types | FAT/GMP/TRE/RGN/LBL/default DEM are structurally decoded across 48 strict packages; every declared type is observed. Non-default DEM descriptors have an explicit absence result across 52 courses and remain a version-gated rejection, not an unbounded search task |
+| DSKIMG | **CLOSED:** FAT/GMP/TRE/RGN/LBL/default DEM plus all 15 area, 3 line and 2 point types have terminal decisions; the final vector audit accounts for 184/184 prodgeometry holes, with 166 source-bound and exactly 18 release-unavailable holes on layouts `31636/31637` | Strict 48-package structure and 52-course DEM results remain green; the 184-hole cross-source audit has zero unclassified types, zero unexpected unavailable layouts and explicit consume/fallback/preserve-raw decisions |
 | prodgeometry bundle | **CLOSED:** 184 holes / 2,545 meshes across 15 courses; all mesh/static assets, JSON fields and Draco attributes classified; coordinate/elevation frame independently cross-checked | Zero unclassified mesh, static asset, attribute semantic or data type; every consumed and ignored layer has a recorded product reason, with future unknown channels rejected by the package version gate |
 | Green Contours | Authenticated membership download request, response package, course/build/part binding and S70 rendering behavior | One positive and one negative course are captured and decoded end-to-end; availability flag alone is not accepted as payload evidence |
 | Product package | **CLOSED for current sources:** source precedence, lightweight-to-precise upgrade, offline cache and shared iOS/Watch/Web representation are integrated; dual-green route/component authority is included | A newly discovered uncached course opens from factual lightweight data, upgrades without changing round identity, survives offline restart and renders consistently on all three clients |
 
 ## Next Work
 
-1. Close the remaining DSKIMG private TRE/RGN type semantics across the existing
-   multi-region corpus, retaining raw values and explicit absence results.
-2. Finish the APK acquisition/update ledger for any request or invalidation path
+1. Finish the APK acquisition/update ledger for any request or invalidation path
    that is not yet terminally bound.
-3. Trace and capture the membership Green Contours path, including one positive
+2. Trace and capture the membership Green Contours path, including one positive
    and one negative course and its S70-visible result.
 
 ## Practical Conclusion For Now

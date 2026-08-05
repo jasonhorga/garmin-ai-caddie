@@ -310,7 +310,7 @@ Build 35 的可安装性不等于产品视觉获批。当前重新以 2026-07-02
 | 1 | iOS 复盘/备战的 Topo 只显示真实洞形，Watch 长文字不越界 | `VERIFIED / Native + Watch 运行态通过` | 真实 App 截图无外围绿色矩形，45 mm 全部长文字状态留在表盘内 |
 | 2 | 新开一场时可按城市、球场关键字或两者组合查找任意 Garmin 球场 | `VERIFIED / 真实新球场旅程通过` | 只查目录；只填城市或关键字均可用；两者都填时分别查询并按 `globalId` 取交集；选中后才下载单座球场 |
 | 3 | 不输入名称，直接列出当前坐标 50 km 内的 provider-wide 附近球场 | `VERIFIED / 当前位置旅程通过` | Garmin 独立 radius 路由按 50 条完整分页；默认 50 km、可切 100/200 km；覆盖未缓存球场并按真实距离排序；选中后才下载单座球场 |
-| 4 | CourseView Deep Mine 将现有 release/prodgeometry 中未使用的真实数据逐项转成产品判断 | `IN PROGRESS — prodgeometry、courseData/GreenRadii 已闭合；DSKIMG/获取账本继续` | 对未分类字段/mesh 给出可重放证据、跨球场语义和明确的使用/不使用结论，不为挖数据而增加无产品价值的平台；会员 Green Contours 抓包等用户方便时补，不阻塞其他分支 |
+| 4 | CourseView Deep Mine 将现有 release/prodgeometry 中未使用的真实数据逐项转成产品判断 | `IN PROGRESS — prodgeometry、courseData/GreenRadii、DSKIMG 已闭合；APK 获取/更新账本继续` | 对未分类字段/mesh 给出可重放证据、跨球场语义和明确的使用/不使用结论，不为挖数据而增加无产品价值的平台；会员 Green Contours 抓包等用户方便时补，不阻塞其他分支 |
 | 5 | 任意新球场先用轻量真实数据秒开，再原位升级为精确地图 | `VERIFIED / iOS Native + Watch runtime 通过` | `courseData` 先提供路线、计分卡、果岭外形和水/沙粗距离；`prodgeometry` 到达后不换 round/course identity 地升级，断网重开仍可用 |
 | 6 | 后端、iOS、Watch、Web 使用同一球场发现、地图权威和缓存升级规则 | `VERIFIED / 完整 CI 与 Native 基线通过` | 同一 `globalId + build/release` 在三端得到一致洞、Tee、障碍、地形与版本；轻量/精确 source precedence 只有一套 |
 | 7 | 把 Topo、Watch 越界、附近/搜索/任意新球场串成真实模拟器旅程 | `VERIFIED / 完整真实模拟器旅程通过` | 从当前位置或城市/关键字选一座未缓存球场，下载、开局、离线重开并完成复盘；逐屏留存真实 App 截图，不以单元测试代替旅程 |
@@ -336,6 +336,7 @@ Deep Mine 当前结论（细节与证据见 `docs/research/IMG_RESEARCH.md`）�
 - `courseData` 已扩大为抓取 manifest 绑定的 114 场、1,701 洞机械审计：`InfoMask` 在 1,701/1,701 洞等于 route flags 高四位，route flags 低 28 位在 1,701/1,701 洞等于 `Flag=1` 路线点的 PointNumber 位图，17,273 个 point 的 `Closure` 全为 0。障碍 flags 低两位在 4,649 个单侧样本中有 4,646 个与 `1=球路右、2=球路左` 一致，3 个 Garmin 原始异常不修饰；高位 subtype 保持 opaque。`3244` 的 105 条全是主路线共线子段，不是球车道或新表面；`3243/18125` 终态保留为第三种 opaque hazard category，不展示猜测标签。权威报告 SHA-256 为 `a519f9772cdd4dba2eebb72c5b128e18dd5856631d1ad44d3b67816438064372`。
 - 每洞 30 个 `GreenRadii` 已在 166 个 authority-bound 洞闭合：从正北顺时针每 12° 采样，东向分量需乘 `cos(endpointLatitude)`；4,980 点对选中 VFX 的 P95 误差 `0.355094 m`。它只用于轻量显示轮廓，不冒充 F/M/B 或坡度。真实双果岭 layout `38059` 进一步证明 `hole.json Doglegs` 固定指 A，而 `courseData` 路线末端选择当前 A/B；产品已统一用该选择驱动路线、目标距离、Topo 标记、F/M/B 与坡度 component，18 洞实跑 A=8/B=10，路线/目标最大残差 `0.020981 m`。权威报告 SHA-256 为 `9f5524c80780d6d30357cdefc484a6a766294b18174a46d2178d93544b4675a8`。
 - `prodgeometry` 全资产分支已闭合：15 个真实球场、184 洞、2,545 个 Draco mesh 覆盖三个 CourseGen 版本、三个 biome 与海边/内陆场；24 个 mesh 名、`hole.json`、`foliage.json`、每洞独有的 `1024×1024 Terrain.webp` 以及 POSITION/UV/NORMAL/COLOR 通道均有终态产品裁决，未知 mesh、静态资产、attribute semantic 和 data type 都为 0。`Terrain.webp` 经 184 张像素统计确认是 3D 光照用切线空间法线图，不是隐藏彩色地图或 Green Contours；权威报告 SHA-256 为 `cdf931f4c77896ffb1b95d123aa265bfd67dced57fc173c24382f58f965c44cc`。
+- DSKIMG 私有矢量语义分支已闭合：13 个 release-bound artifact、11 个唯一 embedded IMG 与 184 洞 prodgeometry 全部入账，166 洞完成跨源绑定；剩余 18 洞严格等于匿名 release 404 的 `31636/31637`，无额外豁免。15 个 area、3 个 line、2 个 point 类型全部得到终态裁决；`0x012e05` 已纠正为 cart path，`0x010b08` 保持 opaque，`0x011409/0x01140e` 是内外嵌套洞域。DSKIMG 只承担粗略/离线显示 fallback，精确距离、lie、障碍和罚杆仍由 prodgeometry/courseData 掌权。冻结报告 SHA-256 为 `ff271c6bddc67de3bebfdee7609e774ac7849527c1db489a9bb7c983c688e8a3`。
 
 Deep Mine 下一可见产品切片不是继续造研究平台，而是让新球场在 `prodgeometry` 尚未准备时，用该轻量包秒开真实路线、计分卡、果岭外形以及水/沙的粗 `到 / 过`；精确 mesh 到达后仍自动升级为现有地图。订阅 Green Contours 本体只在用户方便时做一次真实 S70/会员下载抓包，不阻塞普通球场获取。
 

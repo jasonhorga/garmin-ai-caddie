@@ -284,48 +284,40 @@ Extended-type polygon record:
 
 ### `ext_type` codes seen in 31795.img (黑骑士)
 
-`ext_type = 0x10000 | (type_byte << 8) | subtype`. Counts and shapes from 591 decoded polygons:
+`ext_type = 0x10000 | (type_byte << 8) | subtype`. The old shape-only guesses
+have been superseded by the 184-hole cross-source audit:
 
-| ext_type | n | avg vertices | observed shape | best guess |
-|---|---|---|---|---|
-| 0x011407 | 258 | 14 | small angular shapes scattered | bunkers + greens + tees? |
-| 0x011402 | 103 | 5 | tiny markers | yardage points? |
-| 0x011405 | 100 | 31 | small elongated | cart path segments? |
-| 0x011403 | 30 | 95 | narrow strips following holes | fairway centerline? |
-| 0x01140e | 27 | 71 | large overlapping ovals (300×400m each) | **per-hole overview blob** (level 0, not detail) |
-| 0x011409 | 27 | 119 | large overlapping ovals | same — another overview layer |
-| 0x011404 | 27 | 28 | medium irregular | ? |
-| 0x010b08 | 17 | 67 | thin lines along visible cart paths | **cart paths** (confirmed visually) |
-| 0x011400 | 1 | 8 | — | edge case |
-| others (singletons) | — | varies | likely course boundary / OB markers | — |
+| ext_type | n | terminal classification | product use |
+|---|---:|---|---|
+| `0x011407` | 258 | tree area | coarse display fallback |
+| `0x011402` | 103 | tee area | coarse display fallback |
+| `0x011405` | 100 | bunker area | coarse display fallback |
+| `0x011403` | 30 | fairway area | coarse display fallback |
+| `0x01140e` | 27 | outer hole domain | structural clipping only |
+| `0x011409` | 27 | inner hole corridor | structural clipping only |
+| `0x011404` | 27 | green area | coarse display fallback |
+| `0x010b08` | 17 | opaque mixed context area | preserve raw; do not consume |
+| `0x011400` | 1 | opaque singleton context area | preserve raw; do not consume |
 
-**THIS MAPPING IS LARGELY UNVERIFIED.** It's based on shape and frequency. Most identifications are guesses except cart paths.
+Cart paths are line type `0x012e05`, not area `0x010b08`. Exact surface and
+scoring authority remains prodgeometry/courseData.
 
 ---
 
-## 5. The Current Uncertainty (the active question)
+## 5. DSKIMG Semantic Status — Closed
 
-After overlaying the decoded polygons on Esri satellite tiles for 黑骑士:
+The final audit uses 13 DSKIMG artifacts, 11 unique embedded images, 14 bound
+lightweight layouts and 184 unique prodgeometry holes. It binds 166 holes and
+accounts for the other 18 exactly as the two release-unavailable nine-hole
+layouts `31636/31637`; no unexpected or stale exemption remains. All 15 area,
+3 line and 2 point types are terminally classified.
 
-- **Cart paths (0x010b08)** clearly trace the visible cart paths in satellite — strong alignment evidence.
-- **But many other polygons cover non-course areas**: warehouses east of the course, the river south of the course. Either:
-  - (a) There's a real coordinate offset (Garmin polygons are shifted relative to satellite); or
-  - (b) Those polygons aren't course features but rather building/OB/boundary markers Garmin includes for context; or
-  - (c) Many of the "fairway/water" type codes I assigned colors to are actually course-level summary polygons (not individual features).
-
-The most likely explanation is **(c) + (b)**: some `ext_type` codes are level-0 overview blobs, others are legitimate context features (clubhouse, OB), and the actual fairway/green/bunker mapping is in different codes than I labeled.
-
-**The cleanest verification**: overlay actual shot lat/lon (which we know are correct since you played them) and see if shots land on the polygons in reasonable ways. Shots should be:
-- Mostly inside one of the "playable surface" polygon types
-- Distance distribution should match plausible club distances (1W = ~180m median for this user)
-- Misses to bunkers/water should show as shots landing inside those polygons
-
-Without this verification we can't confidently say "polygon at X represents bunker Y".
-
-**Files showing the current state**:
-- `output/hole_views/31795_satellite.png` — combined polygon + Esri (the "doesn't look perfectly aligned" image)
-- `output/hole_views/debug/31795_only_*.png` — per-type renders showing what each `ext_type` covers
-- `output/courseview/31795.png` — polygons over plain dark background, no satellite
+The decisive corrections are reproducible: `0x012e05` has `80.563920%` direct
+Cartpath mesh overlap; `0x010a00` has `99.056604%` Lake overlap and all 159
+vertices bind the `0x01140a` boundary within 2 m; the two 324-object layers
+`0x011409/0x01140e` are demonstrably nested inner/outer hole domains. The
+frozen authority report and exact product rules live in
+`docs/research/IMG_RESEARCH.md`.
 
 ---
 
@@ -341,11 +333,15 @@ Without this verification we can't confidently say "polygon at X represents bunk
 
 ## 7. Known limitations / open questions
 
-1. **Type → feature mapping is unverified**. We need shot-overlay validation before we can claim "bunker at (lat, lon)".
-2. **60/591 polygons (~10%) at 黑骑士 are OOB** of the bbox. Not investigated — could be decoder edge cases or legitimate features outside course extent.
-3. **Hole boundaries unknown**. We have 19 level-1 subdivisions but don't know which subdivision corresponds to which hole number (1–18). Probable to infer from tee positions once we decode the points sections.
-4. **Point sections (tee/pin) not yet decoded**. RGN has two additional sections (511 B + 309 B in 黑骑士) that we identified earlier as "point-like" data. Decoding these would give us tee + pin lat/lon per hole.
-5. **Pencil shape of fairway polygons** — even when we filter to small types, fairways aren't traced cleanly. They might be in the level-0 summary types (0x01140e / 0x011409) but those are too smoothed to be useful.
+1. DSKIMG surface geometry is intentionally coarse. It may support lightweight
+   or offline display but does not replace prodgeometry for exact distance,
+   lie, obstacle or penalty decisions.
+2. Four sparse/mixed area classes remain terminally opaque. Their raw records
+   are preserved, but a visual resemblance is not enough to expose them in the
+   product.
+3. Garmin Green Contours are a separate membership-gated payload. Their
+   positive/negative authenticated capture remains external to this closed
+   DSKIMG workstream.
 
 ---
 
@@ -360,14 +356,14 @@ Without this verification we can't confidently say "polygon at X represents bunk
 
 ## 9. Suggested next steps
 
-In priority order:
-
-1. **Overlay shots on top of polygons** for 1 round at 黑骑士 (`build_hole_view.py` + extract shots from a `data/shots/{scorecard_id}.json`). This is the next 30–60 min task and immediately validates or refutes the alignment hypothesis.
-2. **Decode point sections** in RGN to get tee + pin lat/lon. The point format is much simpler than the polygon bitstream (no delta compression). Should be ~1 hr.
-3. **Map subdivisions to hole numbers**. Probably: for each hole, find the subdivision whose bbox contains the tee (from step 2). Once known, we can extract per-hole feature lists.
-4. **Identify which `ext_type` is which feature** using shot-overlay frequency (shots-in-polygon counts per type) + known facts (tee is near hole start, green is near hole end).
-5. **Fix the remaining ~10% OOB polygons** — likely a small bitstream edge case still missing.
-6. **Batch render all 90 courses** once 黑骑士 is verified end-to-end.
+1. Finish the Garmin Golf APK acquisition, update and cache-invalidation ledger
+   across catalogue, release, MEDIUM, MEDIUM_PLUS, INTERMEDIATE, raster and
+   prodgeometry paths.
+2. When membership capture is convenient, capture one Green Contours-positive
+   and one negative course and bind the payload to its visible S70 result.
+3. Reopen DSKIMG semantics only if a future package version introduces an
+   unclassified type or a non-default DEM descriptor; do not continue mining
+   the frozen corpus without a new product-relevant fact.
 
 ---
 
