@@ -632,6 +632,10 @@ class CIWorkflowTests(unittest.TestCase):
         # URL to its pathname before logging and must never print the capability, full URL, request
         # headers, or the temporary credential-bearing browser location.
         self.assertIn("const url = new URL(response.url())", text)
+        self.assertIn("LIVE_EVIDENCE_OVERVIEW_RESPONSE", text)
+        self.assertIn("response.request().method() === 'GET'", text)
+        self.assertIn("overviewResponse.status()", text)
+        self.assertIn("review-workbench-load-failure.png", text)
         self.assertIn("pathname: url.pathname", text)
         self.assertNotIn("console.log(playerToken", text)
         self.assertNotIn("console.log(response.url()", text)

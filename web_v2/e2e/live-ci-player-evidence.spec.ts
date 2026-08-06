@@ -62,7 +62,12 @@ test.describe('real isolated CI player evidence', () => {
     })
     page.on('requestfailed', (request) => {
       const url = new URL(request.url())
-      if (url.pathname.endsWith('/topo.png')) {
+      if (url.pathname.endsWith('/history/overview')) {
+        console.log(
+          'LIVE_EVIDENCE_OVERVIEW_FAILED',
+          JSON.stringify({ pathname: url.pathname, error: request.failure()?.errorText ?? 'unknown' }),
+        )
+      } else if (url.pathname.endsWith('/topo.png')) {
         console.log(
           'LIVE_EVIDENCE_TOPO_FAILED',
           JSON.stringify({ pathname: url.pathname, error: request.failure()?.errorText ?? 'unknown' }),
@@ -70,10 +75,29 @@ test.describe('real isolated CI player evidence', () => {
       }
     })
 
+    const overviewResponsePromise = page.waitForResponse(
+      (response) => {
+        const url = new URL(response.url())
+        return response.request().method() === 'GET' && url.pathname.endsWith('/history/overview')
+      },
+      { timeout: 60_000 },
+    )
     await page.goto(`/p/${encodeURIComponent(playerToken)}`, { waitUntil: 'domcontentloaded' })
+    const overviewResponse = await overviewResponsePromise
+    const overviewPath = new URL(overviewResponse.url()).pathname
+    console.log(
+      'LIVE_EVIDENCE_OVERVIEW_RESPONSE',
+      JSON.stringify({ pathname: overviewPath, status: overviewResponse.status() }),
+    )
+    expect(overviewResponse.status(), 'isolated player overview must authorize in the browser').toBe(200)
 
     const roundPicker = page.locator('[aria-label="选择球局"]')
-    await expect(roundPicker).toBeVisible()
+    try {
+      await expect(roundPicker).toBeVisible({ timeout: 60_000 })
+    } catch (error) {
+      await captureWithoutCredentialInLocation(page, 'review-workbench-load-failure.png')
+      throw error
+    }
     await expect(roundPicker).toContainText('Cypress Point')
     await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
     try {
