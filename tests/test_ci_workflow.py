@@ -840,6 +840,8 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn('require "shellwords"', text)
         self.assertIn("AI_CADDIE_API_BASE_URL=#{Shellwords.escape(api_base_url)}", text)
         self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", text)
+        self.assertIn('ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"', text)
+        self.assertIn('UI.success("Signed IPA built; TestFlight upload was not requested.")', text)
         self.assertNotIn("create_app_online", text)
 
         project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))
@@ -856,8 +858,11 @@ class CIWorkflowTests(unittest.TestCase):
         workflow = yaml.safe_load(Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8"))
         inputs = workflow[True]["workflow_dispatch"]["inputs"]
         self.assertIn("api_base_url", inputs)
+        self.assertIn("upload_to_testflight", inputs)
+        self.assertFalse(inputs["upload_to_testflight"]["default"])
         workflow_text = Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8")
         self.assertIn("vars.AI_CADDIE_API_BASE_URL", workflow_text)
+        self.assertIn("UPLOAD_TO_TESTFLIGHT", workflow_text)
         self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", workflow_text)
 
         info_plist = Path("mobile/ios/AICaddie/Info.plist").read_text(encoding="utf-8")

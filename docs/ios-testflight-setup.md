@@ -39,10 +39,12 @@ but does not create a new app record for this account.
   ```
   A fully connected external trial should not be considered ready until this
   reports `state=ready`.
-- Run the `iOS TestFlight (CD)` workflow manually from `integration/v2` with
+- Run the `iOS TestFlight (CD)` workflow manually from the exact candidate ref with
   optional release notes and optional origin-only `api_base_url`. It runs
   `xcodegen generate` → `fastlane ios beta` → archives the app (with embedded
-  watch app) → uploads to TestFlight.
+  watch app). The safe default `upload_to_testflight=false` stops after uploading
+  the signed IPA as a GitHub artifact. Set it to `true` only when the exact SHA is
+  explicitly approved for TestFlight upload.
   If `api_base_url` is blank, the workflow falls back to repo variable
   `AI_CADDIE_API_BASE_URL`; if both are blank, the app keeps the offline/fixture fallback.
   TestFlight never receives or embeds `AI_CADDIE_ADMIN_TOKEN`: Release requires

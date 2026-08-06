@@ -160,9 +160,13 @@ platform :ios do
       xcargs: build_xcargs
     )
 
-    upload_to_testflight(
-      api_key: api_key, skip_waiting_for_build_processing: true,
-      distribute_external: false, changelog: ENV.fetch("RELEASE_NOTES", "Automated CI build")
-    )
+    if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
+      upload_to_testflight(
+        api_key: api_key, skip_waiting_for_build_processing: true,
+        distribute_external: false, changelog: ENV.fetch("RELEASE_NOTES", "Automated CI build")
+      )
+    else
+      UI.success("Signed IPA built; TestFlight upload was not requested.")
+    end
   end
 end
