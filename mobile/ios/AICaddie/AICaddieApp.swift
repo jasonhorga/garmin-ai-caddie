@@ -1007,9 +1007,7 @@ public final class LiveRoundAppModel: ObservableObject {
         if includePersisted, let persisted = BackendConfigurationStore.loadAdminToken() {
             return persisted
         }
-        // Baked at build time for the single-owner TestFlight build (Info.plist
-        // AICaddieAdminToken = $(AI_CADDIE_ADMIN_TOKEN)); empty/unexpanded → nil.
-        return sanitizedConfigurationValue(Bundle.main.object(forInfoDictionaryKey: "AICaddieAdminToken") as? String)
+        return nil
         #else
         return nil
         #endif

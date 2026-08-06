@@ -839,6 +839,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("SecureRandom.hex(24)", text)
         self.assertIn('require "shellwords"', text)
         self.assertIn("AI_CADDIE_API_BASE_URL=#{Shellwords.escape(api_base_url)}", text)
+        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", text)
         self.assertNotIn("create_app_online", text)
 
         project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))
@@ -848,6 +849,7 @@ class CIWorkflowTests(unittest.TestCase):
         watch_release = project["targets"]["AICaddieWatch"]["settings"]["configs"]["Release"]
         app_base = project["targets"]["AICaddie"]["settings"]["base"]
         self.assertEqual(app_base["AI_CADDIE_API_BASE_URL"], "")
+        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", app_base)
         self.assertEqual(app_release["PROVISIONING_PROFILE_SPECIFIER"], "match AppStore com.ai-caddie.mobile")
         self.assertEqual(watch_release["PROVISIONING_PROFILE_SPECIFIER"], "match AppStore com.ai-caddie.mobile.watchkitapp")
 
@@ -856,6 +858,11 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("api_base_url", inputs)
         workflow_text = Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8")
         self.assertIn("vars.AI_CADDIE_API_BASE_URL", workflow_text)
+        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", workflow_text)
+
+        info_plist = Path("mobile/ios/AICaddie/Info.plist").read_text(encoding="utf-8")
+        self.assertNotIn("AICaddieAdminToken", info_plist)
+        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", info_plist)
 
     def test_signing_bootstrap_syncs_release_entitlements_before_match(self) -> None:
         text = Path("fastlane/Fastfile").read_text(encoding="utf-8")

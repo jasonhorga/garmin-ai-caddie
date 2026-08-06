@@ -45,9 +45,8 @@ but does not create a new app record for this account.
   watch app) → uploads to TestFlight.
   If `api_base_url` is blank, the workflow falls back to repo variable
   `AI_CADDIE_API_BASE_URL`; if both are blank, the app keeps the offline/fixture fallback.
-  The iPhone app also has a runtime Backend screen for an origin-only `https://`
-  API URL and private admin token, so a tester can point an already uploaded
-  TestFlight build at a deployed backend without another upload.
+  TestFlight never receives or embeds `AI_CADDIE_ADMIN_TOKEN`: Release requires
+  Sign in with Apple and forwards the resulting scoped session to the Watch.
 - Run the `iOS TestFlight Testers` workflow manually:
   - `operation=list` shows uploaded builds, TestFlight groups, and currently visible testers.
   - `operation=add` adds comma-separated external tester emails to the configured group

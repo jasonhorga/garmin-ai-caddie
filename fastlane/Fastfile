@@ -90,11 +90,6 @@ platform :ios do
     ]
     api_base_url = ENV["AI_CADDIE_API_BASE_URL"].to_s.strip
     args << "AI_CADDIE_API_BASE_URL=#{Shellwords.escape(api_base_url)}" unless api_base_url.empty?
-    # Single private owner: bake the admin token so the shipped app authenticates to the
-    # private backend without manual entry. Safe here because every TestFlight tester is
-    # the owner; do NOT enable if this build is ever distributed to third parties.
-    admin_token = ENV["AI_CADDIE_ADMIN_TOKEN"].to_s.strip
-    args << "AI_CADDIE_ADMIN_TOKEN=#{Shellwords.escape(admin_token)}" unless admin_token.empty?
     args.join(" ")
   end
 
