@@ -4,6 +4,7 @@ struct WatchCourseRowPresentation: Equatable, Identifiable {
     var id: String { "\(course.globalId):\(course.segmentLabel ?? course.name)" }
 
     let course: WatchCourseOption
+    let title: String
     let subtitle: String
     let isCached: Bool
 }
@@ -98,7 +99,7 @@ public struct WatchStartView: View {
             }
         }
         .persistentSystemOverlays(.hidden)
-        .onChange(of: singleNearbyCourse?.id, initial: true) { _, _ in
+        .onChange(of: singleNearbyVenue?.id, initial: true) { _, _ in
             openSingleNearbyCourseIfNeeded()
         }
     }
@@ -379,6 +380,7 @@ public struct WatchStartView: View {
         courseButton(
             WatchCourseRowPresentation(
                 course: course,
+                title: course.displayName,
                 subtitle: subtitle ?? standardSubtitle(for: course),
                 isCached: cachedCourseIds.contains(course.globalId)
             ),
@@ -399,7 +401,7 @@ public struct WatchStartView: View {
         } label: {
             HStack(alignment: .center, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(row.course.displayName)
+                    Text(row.title)
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(2)
                         .minimumScaleFactor(0.72)
@@ -438,9 +440,10 @@ public struct WatchStartView: View {
         [
             WatchCourseGroupPresentation(
                 title: "附近球场",
-                rows: nearbyCourses.map {
-                    courseRow($0, subtitle: nearbySubtitle(for: $0))
-                },
+                // Garmin presents a nearby venue once, then lets the player choose A/B/C (or an
+                // 18-hole layout) inside setup. Counting each nine-hole segment as another nearby
+                // course prevented the single-venue fast path and duplicated one place three times.
+                rows: nearbyVenueRows,
                 showsRefresh: true
             )
         ]
@@ -452,6 +455,7 @@ public struct WatchStartView: View {
     ) -> WatchCourseRowPresentation {
         WatchCourseRowPresentation(
             course: course,
+            title: course.displayName,
             subtitle: subtitle ?? standardSubtitle(for: course),
             isCached: cachedCourseIds.contains(course.globalId)
         )
@@ -522,18 +526,66 @@ public struct WatchStartView: View {
         }
     }
 
-    private var singleNearbyCourse: WatchCourseRowPresentation? {
-        guard hasCurrentLocation, nearbyCourses.count == 1,
-              let course = nearbyCourses.first else { return nil }
-        return courseRow(course, subtitle: nearbySubtitle(for: course))
+    var singleNearbyVenue: WatchCourseRowPresentation? {
+        guard hasCurrentLocation, nearbyVenueRows.count == 1 else { return nil }
+        return nearbyVenueRows[0]
     }
 
     private func openSingleNearbyCourseIfNeeded() {
         guard setupDestination == nil,
               !showingRemoteSearch,
               preparingCourseId == nil,
-              let row = singleNearbyCourse else { return }
+              let row = singleNearbyVenue else { return }
         setupDestination = WatchCourseSetupDestination(row: row, ensureGeometry: false)
+    }
+
+    /// One row per physical venue, retaining the provider's nearest-first order. The representative
+    /// remains a real selectable segment, while setup receives `allSelectableCourses` and exposes the
+    /// venue's other 9-hole groups without downloading them in advance.
+    private var nearbyVenueRows: [WatchCourseRowPresentation] {
+        var seen = Set<String>()
+        var rows: [WatchCourseRowPresentation] = []
+        for course in nearbyCourses {
+            let venue = venueName(for: course)
+            let key = venue.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            guard seen.insert(key).inserted else { continue }
+            let segments = nearbyCourses.filter {
+                venueName(for: $0).caseInsensitiveCompare(venue) == .orderedSame
+            }
+            rows.append(WatchCourseRowPresentation(
+                course: course,
+                title: venue,
+                subtitle: nearbyVenueSubtitle(segments: segments, representative: course),
+                isCached: cachedCourseIds.contains(course.globalId)
+            ))
+        }
+        return rows
+    }
+
+    private func venueName(for course: WatchCourseOption) -> String {
+        let explicit = course.venueName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let explicit, !explicit.isEmpty { return explicit }
+        return course.name.components(separatedBy: " ~ ").first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? course.name
+    }
+
+    private func nearbyVenueSubtitle(
+        segments: [WatchCourseOption],
+        representative: WatchCourseOption
+    ) -> String {
+        let structure: String
+        if segments.count > 1, segments.allSatisfy({ $0.playableHoleCount == 9 }) {
+            structure = "\(segments.count) 个 9 洞组"
+        } else if segments.count > 1 {
+            structure = "\(segments.count) 个洞组"
+        } else {
+            structure = "\(representative.playableHoleCount) 洞"
+        }
+        guard let distance = nearbyDistance(to: representative),
+              let label = WatchCourseProximity.distanceLabel(distance) else {
+            return structure
+        }
+        return "\(structure) · \(label)"
     }
 
     private func searchResultSubtitle(_ match: WatchCourseSearchMatch) -> String {

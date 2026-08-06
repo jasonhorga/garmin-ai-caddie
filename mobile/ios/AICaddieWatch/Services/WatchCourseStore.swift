@@ -84,11 +84,29 @@ public enum WatchCourseTemplateBuilder {
                 landingM: prep?.landingM
             )
 
-            if let data = topoImagesByGlobalId[globalId]?[localHole] {
-                images.append(WatchCourseImage(globalId: globalId, hole: hole.number, data: data))
-            } else if let image = prep?.map?.image, let data = imageData(from: image) {
-                images.append(WatchCourseImage(globalId: globalId, hole: hole.number, data: data))
+            let imageData: Data?
+            if let data = topoImagesByGlobalId[globalId]?[localHole],
+               WatchHoleImageStore.isValidImageData(data) {
+                imageData = data
+            } else if let image = prep?.map?.image,
+                      let data = imageData(from: image),
+                      WatchHoleImageStore.isValidImageData(data) {
+                imageData = data
+            } else {
+                imageData = nil
             }
+            if let imageData {
+                images.append(WatchCourseImage(globalId: globalId, hole: hole.number, data: imageData))
+            }
+
+            let reportedCoverage = prep?.geometryCoverage ?? hole.geometryCoverage
+            // A ready projection with no decodable raster still supports the honest vector fallback,
+            // but it is not a completed offline download. Keep it partial so the background upgrader
+            // continues asking for the real topo instead of permanently accepting an empty map.
+            let effectiveCoverage = reportedCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+                && imageData == nil
+                ? "partial"
+                : reportedCoverage
 
             return WatchRoundState(
                 roundId: package.roundId,
@@ -117,7 +135,7 @@ public enum WatchCourseTemplateBuilder {
                 holeMap: holeMap,
                 playsLikeDistanceM: deltaM.flatMap { delta in distanceM.map { $0 + delta } },
                 elevationDeltaM: deltaM,
-                geometryCoverage: prep?.geometryCoverage ?? hole.geometryCoverage,
+                geometryCoverage: effectiveCoverage,
                 caddieOptions: preparedOptions,
                 hazards: watchHazards(prep?.hazards),
                 score: 0,

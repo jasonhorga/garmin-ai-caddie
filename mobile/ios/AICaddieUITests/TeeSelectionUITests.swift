@@ -38,6 +38,20 @@ final class TeeSelectionUITests: XCTestCase {
         }
         settle(9)
         save("02-start-round"); dump("02-start-round")  // 选球场 + 发球台 row + 开始记分
+
+        // This injected coordinate can legitimately return several nearby venues. Reaching the Tee
+        // selector therefore requires an explicit venue/segment choice; history must never silently
+        // select one for the player. Use the real Beijing Palace catalogue row verified by the same GPS.
+        let palace = app.buttons["start-round-course-segment-31793"]
+        guard palace.waitForExistence(timeout: 15), palace.isHittable else {
+            XCTFail("the production nearby response must expose Beijing Palace segment 31793")
+            return
+        }
+        palace.tap()
+        XCTAssertTrue(
+            waitForValue("已选择", on: palace, timeout: 8),
+            "the explicit nearby-course choice must become the active segment"
+        )
         XCTAssertTrue(
             app.staticTexts["选择全场开始 18 洞球局。"].waitForExistence(timeout: 5),
             "an 18-hole whole-course selection must not describe itself as a 9-hole loop"
@@ -57,6 +71,35 @@ final class TeeSelectionUITests: XCTestCase {
         }
     }
 
+    func testDeniedGPSStillOffersCatalogueSearchInsteadOfHistory() throws {
+        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LAT")
+        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LON")
+        app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "denied"
+        launchFresh()
+
+        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+            XCTFail("the home must keep the new-round entry available when GPS is denied")
+            return
+        }
+        XCTAssertTrue(
+            app.staticTexts["定位权限未开启；可以直接按城市或球场名搜索。"]
+                .waitForExistence(timeout: 12),
+            "denied GPS must explain the manual catalogue fallback"
+        )
+        let search = app.buttons["start-round-search-all-courses"]
+        XCTAssertTrue(
+            search.waitForExistence(timeout: 5) && search.isHittable,
+            "denied GPS must never strand the player without city/name search"
+        )
+        let start = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(start.exists)
+        XCTAssertFalse(start.isEnabled, "no historical course may be silently selected as nearby")
+
+        search.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.textFields["course-catalog-keyword-field"].exists)
+    }
+
     // MARK: - navigation helpers
 
     private func launchFresh() {
@@ -68,6 +111,15 @@ final class TeeSelectionUITests: XCTestCase {
     }
 
     private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+
+    private func waitForValue(_ expected: String, on element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if (element.value as? String) == expected { return true }
+            Thread.sleep(forTimeInterval: 0.2)
+        } while Date() < deadline
+        return (element.value as? String) == expected
+    }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.
     @discardableResult

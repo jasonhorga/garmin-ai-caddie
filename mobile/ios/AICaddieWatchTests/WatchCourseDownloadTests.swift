@@ -4,6 +4,10 @@ import XCTest
 final class WatchCourseDownloadTests: XCTestCase {
     private let client = WatchBackendClient(baseURL: URL(string: "https://caddie.example")!)
 
+    private func validTopoData() throws -> Data {
+        try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
+    }
+
     func testPreparedCourseBuildsThreeGroundedBagPlans() throws {
         let clubs = [
             WatchClubOption(clubName: "1W", medianM: 220, source: "course-prep"),
@@ -93,10 +97,12 @@ final class WatchCourseDownloadTests: XCTestCase {
             #"{"schema":"ai-caddie-course-prep-v1","globalId":31669,"holeCount":1,"clubs":[{"name":"1W","m":220.0,"yd":241},{"name":"7I","m":140.0,"yd":153}],"holes":[{"hole":1,"par":4,"geometryCoverage":"ready","landing_m":220.0,"tee_club":"1W","hazards":{"water_carry":[[100.0,130.0]],"bunkers":[[180.0,15.0]],"details":[{"kind":"water","frontM":100.0,"backM":130.0,"frontRouteM":100.0,"backRouteM":130.0,"frontPx":[300.0,550.0],"backPx":[360.0,505.0],"sideM":null},{"kind":"bunker","frontM":168.0,"backM":184.0,"frontRouteM":170.0,"backRouteM":190.0,"frontPx":[440.0,445.0],"backPx":[470.0,420.0],"sideM":15.0}]},"map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":1000,"h":800,"ppm":1.0,"ln":400.0,"route":[[100.0,700.0,0.0],[500.0,400.0,200.0],[600.0,100.0,400.0]]}},"greenDistances":{"available":true,"frontM":350.0,"middleM":360.0,"backM":370.0,"frontLat":40.0035,"frontLon":116.005,"middleLat":40.0036,"middleLon":116.0051,"backLat":40.0037,"backLon":116.0052},"playsLike":{"available":true,"deltaM":5.0,"deltaYd":5},"holeImageProjection":{"available":true,"widthPx":1000,"heightPx":800,"refs":[{"lat":40.0,"lon":116.0,"px":100.0,"py":700.0},{"lat":40.0,"lon":116.001,"px":200.0,"py":700.0},{"lat":40.001,"lon":116.0,"px":100.0,"py":600.0}]}}]}"#.utf8
         ))
 
+        let topo = try validTopoData()
         let download = try WatchCourseTemplateBuilder.build(
             option: option,
             package: package,
             prepsByGlobalId: [31669: prep],
+            topoImagesByGlobalId: [31669: [1: topo]],
             cachedAt: "2026-07-26T00:00:00Z"
         )
 
@@ -104,7 +110,7 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertEqual(download.template.teeBox, "Blue")
         XCTAssertEqual(download.template.holeStates.count, 1)
         XCTAssertEqual(download.images, [
-            WatchCourseImage(globalId: 31669, hole: 1, data: Data([1, 2, 3]))
+            WatchCourseImage(globalId: 31669, hole: 1, data: topo)
         ])
 
         let round = download.template.makeRound(roundId: "watch-live-1")
@@ -158,7 +164,7 @@ final class WatchCourseDownloadTests: XCTestCase {
         let prep = try client.decodeCoursePrep(Data(
             #"{"globalId":31669,"clubs":[],"holes":[{"hole":1,"hazards":{},"map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":678,"h":1060,"route":[]}}}]}"#.utf8
         ))
-        let sharedTopo = Data([9, 8, 7])
+        let sharedTopo = try validTopoData()
 
         let download = try WatchCourseTemplateBuilder.build(
             option: option,
@@ -186,7 +192,7 @@ final class WatchCourseDownloadTests: XCTestCase {
         let prep = try client.decodeCoursePrep(Data(
             #"{"globalId":3881,"clubs":[],"holes":[{"hole":1,"par":5,"geometryCoverage":"ready","landing_m":220.0,"tee_club":"1W","route":[[0.0,0.0,0.0],[0.0,200.0,200.0],[30.0,320.0,323.7]],"hazards":{},"holeImageProjection":{"available":true,"widthPx":678,"heightPx":1060,"refs":[{"lat":36.58,"lon":-121.97,"px":100.0,"py":700.0},{"lat":36.58,"lon":-121.9686,"px":220.0,"py":700.0},{"lat":36.5811,"lon":-121.97,"px":100.0,"py":580.0}]}}]}"#.utf8
         ))
-        let sharedTopo = Data([9, 8, 7])
+        let sharedTopo = try validTopoData()
 
         let download = try WatchCourseTemplateBuilder.build(
             option: option,
@@ -247,6 +253,34 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertEqual(geometry.greenOutlinePx.count, 3)
         XCTAssertEqual(geometry.hazardSpans.count, 1)
         XCTAssertEqual(geometry.hazardSpans.first?.kind, "water")
+    }
+
+    func testReadyGeometryWithInvalidRasterStaysPartialAndKeepsVectorFallback() throws {
+        let option = WatchCourseOption(
+            globalId: 3881,
+            name: "Cypress Point Club",
+            holes: 18,
+            teeBox: "championship"
+        )
+        let package = try client.decodeCoursePackage(Data(
+            #"{"roundId":"watch-invalid-raster","course":{"globalId":3881,"name":"Cypress Point Club","teeBox":"championship"},"holes":[{"number":1,"par":5,"yards":407,"geometryCoverage":"ready","sourceGlobalId":3881,"sourceLocalHole":1}]}"#.utf8
+        ))
+        let prep = try client.decodeCoursePrep(Data(
+            #"{"globalId":3881,"clubs":[],"holes":[{"hole":1,"par":5,"geometryCoverage":"ready","landing_m":220.0,"route":[[0.0,0.0,0.0],[0.0,200.0,200.0],[30.0,320.0,323.7]],"hazards":{},"holeImageProjection":{"available":true,"widthPx":678,"heightPx":1060,"refs":[{"lat":36.58,"lon":-121.97,"px":100.0,"py":700.0},{"lat":36.58,"lon":-121.9686,"px":220.0,"py":700.0},{"lat":36.5811,"lon":-121.97,"px":100.0,"py":580.0}]}}]}"#.utf8
+        ))
+
+        let download = try WatchCourseTemplateBuilder.build(
+            option: option,
+            package: package,
+            prepsByGlobalId: [3881: prep],
+            topoImagesByGlobalId: [3881: [1: Data([9, 8, 7])]],
+            cachedAt: "2026-08-06T00:00:00Z"
+        )
+
+        let state = try XCTUnwrap(download.template.holeStates.first)
+        XCTAssertTrue(download.images.isEmpty)
+        XCTAssertEqual(state.geometryCoverage, "partial")
+        XCTAssertNotNil(state.holeMap, "invalid raster must not suppress the honest vector map")
     }
 
     func testBuildUsesSelectedPackageTeeWhenRenderedPrepIsAbsent() throws {

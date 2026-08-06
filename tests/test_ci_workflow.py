@@ -471,6 +471,39 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertGreater(real_flow.index(review_exit), real_flow.index('save("05-last-round-review")'))
         self.assertLess(real_flow.index(review_exit), real_flow.index("// ---- Section 4:"))
 
+    def test_native_journeys_preflight_real_course_discovery_before_launch(self) -> None:
+        script_path = Path(".github/scripts/preflight_live_course_catalogue.py")
+        self.assertTrue(script_path.is_file())
+        script = script_path.read_text(encoding="utf-8")
+        self.assertIn("/api/v2/health", script)
+        self.assertIn("/api/v2/courses/nearby", script)
+        self.assertIn("/api/v2/courses/search", script)
+        self.assertIn("require_distance_order=True", script)
+
+        native = yaml.safe_load(
+            Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8")
+        )["jobs"]["native-mobile"]["steps"]
+        watch = yaml.safe_load(
+            Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8")
+        )["jobs"]["watch-runtime"]["steps"]
+        native_steps = {step.get("name"): step for step in native}
+        watch_steps = {step.get("name"): step for step in watch}
+
+        native_preflight = native_steps["Preflight live course discovery"]
+        watch_preflight = watch_steps["Preflight live course discovery"]
+        self.assertEqual("admin", native_preflight["env"]["AI_CADDIE_PREFLIGHT_AUTH_MODE"])
+        self.assertEqual("bearer", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_AUTH_MODE"])
+        self.assertIn("AI_CADDIE_ADMIN_TOKEN", native_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
+        self.assertIn("AI_CADDIE_CI_PLAYER_TOKEN", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
+        self.assertLess(
+            list(native_steps).index("Preflight live course discovery"),
+            list(native_steps).index("Real-simulator screenshots (iOS, XCUITest against live backend)"),
+        )
+        self.assertLess(
+            list(watch_steps).index("Preflight live course discovery"),
+            list(watch_steps).index("Seed and restore a real Watch round"),
+        )
+
     def test_watch_runtime_uses_an_isolated_player_bearer_instead_of_the_owner_admin_token(self) -> None:
         workflow_path = Path(".github/workflows/watch-runtime.yml")
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))

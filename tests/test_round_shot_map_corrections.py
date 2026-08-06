@@ -82,6 +82,16 @@ class RoundShotMapCorrectionsTests(unittest.TestCase):
         self.assertIn("五号铁", clubs)
         self.assertLess(clubs.index("五号铁"), clubs.index("七号铁"))
 
+    def test_add_shot_reconnects_the_following_shot_origin(self):
+        corr = [{"op": "addShot", "px": [360, 500], "club": "五号铁", "lie": "fairway",
+                 "insertAfterShotId": "s:r1:201"}]
+        out = self._build(corr)
+        added_index = next(i for i, shot in enumerate(out["shots"]) if shot.get("club") == "五号铁")
+        added = out["shots"][added_index]
+        following = out["shots"][added_index + 1]
+
+        self.assertEqual(following["start"], added["end"])
+
     def test_add_shot_keeps_start_and_end_lie_independent(self):
         corr = [{"op": "addShot", "px": [360, 500], "club": "五号铁", "lie": "rough", "insertAfterShotId": "s:r1:201"}]
         out = self._build(corr)
@@ -104,6 +114,23 @@ class RoundShotMapCorrectionsTests(unittest.TestCase):
         shot = next(s for s in out["shots"] if s.get("id") == "s:r1:1")
         # 拖到像素 (400,300):pixel_to_world → world → 再 project 回到 [400,300](在画框内)。
         self.assertEqual(shot["end"], [400, 300])
+
+    def test_edit_position_reconnects_next_shot_after_server_rebuild(self):
+        corr = [{"op": "editField", "shotId": "s:r1:201", "field": "position", "value": [400, 300]}]
+        out = self._build(corr)
+        first = next(s for s in out["shots"] if s.get("id") == "s:r1:201")
+        second = next(s for s in out["shots"] if s.get("id") == "s:r1:202")
+
+        self.assertEqual(first["end"], [400, 300])
+        self.assertEqual(second["start"], [400, 300])
+
+    def test_editing_last_landing_does_not_change_an_earlier_origin(self):
+        before = self._build([])
+        corr = [{"op": "editField", "shotId": "s:r1:202", "field": "position", "value": [410, 310]}]
+        after = self._build(corr)
+
+        self.assertEqual(after["shots"][0]["start"], before["shots"][0]["start"])
+        self.assertEqual(after["shots"][1]["end"], [410, 310])
 
 
 if __name__ == "__main__":

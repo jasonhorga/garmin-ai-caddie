@@ -466,8 +466,85 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
         XCTAssertEqual(view.courseGroups.map(\.title), ["附近球场"])
         XCTAssertEqual(view.courseGroups[0].rows.map(\.course.globalId), [nearby.globalId])
+        XCTAssertEqual(view.courseGroups[0].rows.first?.title, "附近球场")
         XCTAssertEqual(view.courseGroups[0].rows.first?.subtitle, "18 洞 · 0.0 km")
         XCTAssertEqual(view.courseGroups[0].rows.first?.isCached, true)
+        XCTAssertEqual(view.singleNearbyVenue?.course.globalId, nearby.globalId)
+    }
+
+    @MainActor
+    func testCoursePickerGroupsThreeNineHoleSegmentsAsOneNearbyVenue() {
+        let loops = ["A", "B", "C"].enumerated().map { index, label in
+            WatchCourseOption(
+                globalId: 201 + index,
+                name: "北京黑骑士 ~ \(label)",
+                holes: 9,
+                teeBox: "Blue",
+                venueName: "北京黑骑士",
+                segmentLabel: label,
+                segmentHoles: 9,
+                latitude: 40.0 + Double(index) * 0.000_01,
+                longitude: 116.0
+            )
+        }
+        let view = WatchStartView(
+            phoneReachable: true,
+            courses: loops,
+            currentLatitude: 40.0,
+            currentLongitude: 116.0
+        )
+
+        XCTAssertEqual(view.courseGroups[0].rows.count, 1)
+        XCTAssertEqual(view.courseGroups[0].rows.first?.title, "北京黑骑士")
+        XCTAssertEqual(view.courseGroups[0].rows.first?.subtitle, "3 个 9 洞组 · 0.0 km")
+        XCTAssertEqual(view.singleNearbyVenue?.course.globalId, 201)
+    }
+
+    @MainActor
+    func testCoursePickerDoesNotAutoOpenWhenTwoPhysicalVenuesAreNearby() {
+        let first = WatchCourseOption(
+            globalId: 301,
+            name: "近场",
+            holes: 18,
+            latitude: 40.0,
+            longitude: 116.0
+        )
+        let second = WatchCourseOption(
+            globalId: 302,
+            name: "远场",
+            holes: 18,
+            latitude: 40.01,
+            longitude: 116.0
+        )
+        let view = WatchStartView(
+            phoneReachable: true,
+            courses: [second, first],
+            currentLatitude: 40.0,
+            currentLongitude: 116.0
+        )
+
+        XCTAssertEqual(view.courseGroups[0].rows.map(\.course.globalId), [301, 302])
+        XCTAssertNil(view.singleNearbyVenue)
+    }
+
+    @MainActor
+    func testCoursePickerNeverTurnsCachedHistoryIntoNearbyWithoutAQualifiedFix() {
+        let historical = WatchCourseOption(
+            globalId: 401,
+            name: "过去打过的球场",
+            holes: 18,
+            latitude: 22.0,
+            longitude: 114.0,
+            roundCount: 9
+        )
+        let view = WatchStartView(
+            phoneReachable: false,
+            courses: [historical],
+            cachedCourseIds: [historical.globalId]
+        )
+
+        XCTAssertTrue(view.courseGroups[0].rows.isEmpty)
+        XCTAssertNil(view.singleNearbyVenue)
     }
 
     @MainActor
@@ -951,6 +1028,97 @@ final class WatchDesignSnapshotTests: XCTestCase {
         .frame(width: 198, height: 242)
         .background(Color.black)
         try render(view, named: "watch-holemap-pindrag")
+    }
+
+    /// The approved 45/46mm canvas is not a sufficient overflow test. These 41mm (176×215pt)
+    /// snapshots deliberately combine the longest normal copy with each high-frequency surface;
+    /// CI uploads them for pixel inspection alongside the main-size references.
+    @MainActor
+    func testRenderCompactWatchCriticalSurfaces() throws {
+        let pips = (1...18).map {
+            WatchRingPip(hole: $0, toPar: $0 < 8 ? ($0 % 3) - 1 : nil, isCurrent: $0 == 8)
+        }
+        try render(
+            WatchHoleMapView(
+                holeNumber: 18,
+                par: 5,
+                frontGreen: 248,
+                centerGreen: 262,
+                backGreen: 274,
+                playsLikeDelta: 8,
+                lastShot: 201,
+                caddieClub: "50° 挖起杆",
+                caddieNote: "推进 · 后接九号铁并避开右沙坑",
+                showCaddieRecommendation: true,
+                showPreparedPlan: true,
+                ringPips: pips
+            )
+            .frame(width: 176, height: 215)
+            .background(Color.black),
+            named: "watch-compact-holemap-long-copy"
+        )
+        try render(
+            WatchScoreHoleView(
+                hole: 18,
+                par: 5,
+                score: 7,
+                putts: 3,
+                penalty: 2,
+                step: .fairway,
+                candidateNextHole: 1
+            )
+            .frame(width: 176, height: 215)
+            .background(Color.black),
+            named: "watch-compact-score-fairway"
+        )
+        try render(
+            WatchClubPromptView(
+                hole: 18,
+                shotNumber: 4,
+                recommendedClub: "50° 挖起杆",
+                clubs: [
+                    WatchClubOption(clubName: "50° 挖起杆", medianM: 92),
+                    WatchClubOption(clubName: "九号铁", medianM: 118),
+                    WatchClubOption(clubName: "八号铁", medianM: 130),
+                    WatchClubOption(clubName: "七号铁", medianM: 142),
+                ]
+            )
+            .frame(width: 176, height: 215)
+            .background(Color.black),
+            named: "watch-compact-club-prompt"
+        )
+        try render(
+            WatchFinishRoundView(
+                courseName: "北京黑骑士国际高尔夫俱乐部 · C 场",
+                holesPlayed: 18,
+                holeCount: 18,
+                totalStrokes: 93,
+                toPar: 21,
+                totalPutts: 37,
+                fairwaySummary: WatchOutcomeSummary(hits: 8, recorded: 14),
+                girSummary: WatchOutcomeSummary(hits: 6, recorded: 18),
+                pendingUploads: 18
+            )
+            .frame(width: 176, height: 215)
+            .background(Color.black),
+            named: "watch-compact-finish"
+        )
+        try render(
+            WatchRoundHomeView(
+                courseName: "北京黑骑士国际高尔夫俱乐部 · C 场",
+                hole: 18,
+                par: 5,
+                holeCount: 18,
+                scoredHoles: 17,
+                toPar: 12,
+                distanceText: "262 码",
+                pendingUploads: 18,
+                canRecordShot: true
+            )
+            .frame(width: 176, height: 215)
+            .background(Color.black),
+            named: "watch-compact-long-course-name"
+        )
     }
 
     @MainActor

@@ -42,6 +42,9 @@ public final class RoundEditModel: ObservableObject {
                              clubSource: club != nil ? "manual" : nil,
                              lieSource: lie != nil ? "manual" : nil, synthetic: false)
         map.shots.insert(shot, at: idx)
+        if idx + 1 < map.shots.count {
+            map.shots[idx + 1] = withEndpoints(map.shots[idx + 1], start: endPx)
+        }
         post(.add(px: px, club: club, lie: lie, after: afterShotId)) { await self.refetch() }
     }
 

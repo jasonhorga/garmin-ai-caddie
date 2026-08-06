@@ -133,15 +133,29 @@ final class ReviewEditUITests: XCTestCase {
         XCTAssertTrue(waitUntilGone(addSheet, timeout: 5), "cancel must dismiss the add sheet before editing a landing")
         settle(1)
 
-        // ---- 改这一杆: tap a landing → the edit sheet appears; dismiss with 完成 (no write) ----
-        // Use the real topo element as the coordinate frame and the endpoint verified by the same
-        // live shot-map response. A screen-centre guess can hit empty map and silently reopen 补一杆.
+        // ---- 改这一杆: tap selects the landing first; the explicit details button opens the sheet ----
+        // A landing tap must remain available for a drag and therefore must not unexpectedly replace
+        // the map with a sheet. Use the real topo coordinate, prove selection via the newly exposed
+        // 第 N 杆详情 action, then open the editor deliberately.
         editTopoReady.coordinate(withNormalizedOffset: CGVector(
             dx: reviewEvidence.landing.x,
             dy: reviewEvidence.landing.y
         )).tap()
         let editSheet = app.navigationBars["改这一杆"]
-        XCTAssertTrue(editSheet.waitForExistence(timeout: 5), "06 must edit a recorded landing, not reopen 补一杆")
+        XCTAssertFalse(
+            editSheet.waitForExistence(timeout: 1),
+            "a landing tap must select for drag instead of immediately covering the map"
+        )
+        let detailsButton = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH '第 ' AND label CONTAINS '杆详情'")
+        ).firstMatch
+        XCTAssertTrue(
+            detailsButton.waitForExistence(timeout: 5) && detailsButton.isHittable,
+            "the selected landing must expose its explicit details action"
+        )
+        XCTAssertTrue(editTopoReady.exists, "the selected landing must remain on the editable map")
+        detailsButton.tap()
+        XCTAssertTrue(editSheet.waitForExistence(timeout: 5), "06 must edit the deliberately selected recorded landing")
         let deleteShot = app.buttons["删除这一杆"]
         XCTAssertTrue(
             deleteShot.waitForExistence(timeout: 5) && deleteShot.isHittable,

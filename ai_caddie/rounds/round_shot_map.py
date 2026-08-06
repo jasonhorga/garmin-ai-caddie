@@ -141,12 +141,18 @@ def build_round_hole_shot_map(
                     break
         prev = shots[idx - 1] if idx > 0 else None
         start = dict(prev.get("end") or {}) if prev else {"lat": lat, "lon": lon}
-        shots.insert(idx, {
+        added_shot = {
             "id": f"m{_added}", "scorecardId": str(row.get("id")), "hole": hole,
             "order": (prev.get("order") if prev else 0),
             "start": {**start, "lie": e.get("lie")}, "end": {"lat": lat, "lon": lon},
             "endLie": None, "clubName": e.get("club"), "type": "MANUAL", "manualAdded": True,
-        })
+        }
+        shots.insert(idx, added_shot)
+        # The inserted landing is the next shot's physical origin. Keep that next shot's recorded lie
+        # but reconnect its coordinates, matching the optimistic iOS route and surviving a refetch.
+        if idx + 1 < len(shots):
+            next_start = dict(shots[idx + 1].get("start") or {})
+            shots[idx + 1]["start"] = {**next_start, "lat": lat, "lon": lon, "posSource": "manual"}
         _added += 1
 
     # editField position(拖动改落点):px 反投影成世界坐标,改这一杆的 end。作用于原始杆 + 手动加的杆。
@@ -157,11 +163,22 @@ def build_round_hole_shot_map(
             if len(v) == 2:
                 pos_edits[str(e["shotId"])] = v
     if pos_edits:
-        for s in shots:
+        for index, s in enumerate(shots):
             v = pos_edits.get(round_corrections.mint_shot_id(s))
             if v:
                 lat, lon = shot_projection.pixel_to_world(float(v[0]), float(v[1]), ref_lat=ref_lat, ref_lon=ref_lon, from_px=from_px)
                 s["end"] = {**(s.get("end") or {}), "lat": lat, "lon": lon, "posSource": "manual"}
+                # A landing and the following shot's origin are the same point. Previously the iOS
+                # preview updated both but this rebuilt server response updated only `end`, so the
+                # route snapped into a broken line after closing and reopening the review.
+                if index + 1 < len(shots):
+                    next_start = dict(shots[index + 1].get("start") or {})
+                    shots[index + 1]["start"] = {
+                        **next_start,
+                        "lat": lat,
+                        "lon": lon,
+                        "posSource": "manual",
+                    }
 
     plotted: list[dict[str, Any]] = []
     for shot in shots:

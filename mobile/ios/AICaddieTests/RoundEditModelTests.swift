@@ -63,4 +63,45 @@ final class RoundEditModelTests: XCTestCase {
         XCTAssertEqual(model.map.shots[1].start, [44, 56])
         await fulfillment(of: [unexpectedPost], timeout: 0.25)
     }
+
+    func testAddedLandingImmediatelyReconnectsTheFollowingShot() async throws {
+        let posted = expectation(description: "add correction posted")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            if request.httpMethod == "POST" {
+                posted.fulfill()
+                return (HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!, Data())
+            }
+            return (HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 500,
+                httpVersion: nil,
+                headerFields: nil
+            )!, Data())
+        }
+        let first = RoundShot(shotId: "shot-1", start: [10, 90], end: [20, 60])
+        let second = RoundShot(shotId: "shot-2", start: [20, 60], end: [30, 20])
+        let model = RoundEditModel(
+            map: RoundHoleShotMap(found: true, hole: 1, shots: [first, second]),
+            sync: SyncClient(
+                baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+                session: session
+            ),
+            roundRef: "round-1"
+        )
+
+        model.addShot(px: [25.2, 42.8], club: "7I", lie: "fairway", afterShotId: "shot-1")
+
+        XCTAssertEqual(model.map.shots[1].start, [20, 60])
+        XCTAssertEqual(model.map.shots[1].end, [25, 43])
+        XCTAssertEqual(model.map.shots[2].start, [25, 43])
+        await fulfillment(of: [posted], timeout: 2)
+    }
 }

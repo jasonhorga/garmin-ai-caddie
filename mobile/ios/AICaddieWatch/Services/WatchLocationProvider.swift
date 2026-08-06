@@ -39,27 +39,46 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
     private let manager: CLLocationManager
     private let formatter = ISO8601DateFormatter()
     private let log = Logger(subsystem: "com.aicaddie.watch", category: "location")
+    private var wantsLocationUpdates = false
 
     @Published public private(set) var latestFix: WatchLocationFix?
     @Published public private(set) var latestHeading: WatchHeadingFix?
     @Published public private(set) var authorizationStatus: CLAuthorizationStatus
 
     private let simulatedFix: WatchLocationFix?
+    private let simulatedAuthorizationStatus: CLAuthorizationStatus?
 
     public init(manager: CLLocationManager = CLLocationManager()) {
         self.manager = manager
         let env = ProcessInfo.processInfo.environment
-        if let latText = env["UITEST_GPS_LAT"], let lonText = env["UITEST_GPS_LON"],
-           let lat = Double(latText), let lon = Double(lonText) {
-            self.simulatedFix = WatchLocationFix(
+        #if DEBUG
+        let forcedAuthorization: CLAuthorizationStatus? = {
+            switch env["UITEST_LOCATION_AUTHORIZATION"]?.lowercased() {
+            case "denied": return .denied
+            case "restricted": return .restricted
+            case "authorized", "authorizedwheninuse": return .authorizedWhenInUse
+            default: return nil
+            }
+        }()
+        #else
+        let forcedAuthorization: CLAuthorizationStatus? = nil
+        #endif
+        let injectedFix: WatchLocationFix?
+        if forcedAuthorization == nil,
+           let latText = env["UITEST_GPS_LAT"], let lonText = env["UITEST_GPS_LON"],
+           let lat = Double(latText), lat.isFinite, (-90...90).contains(lat),
+           let lon = Double(lonText), lon.isFinite, (-180...180).contains(lon) {
+            injectedFix = WatchLocationFix(
                 coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
                 horizontalAccuracyM: 5,
                 capturedAt: ISO8601DateFormatter().string(from: Date()))
-            self.authorizationStatus = .authorizedWhenInUse
         } else {
-            self.simulatedFix = nil
-            self.authorizationStatus = manager.authorizationStatus
+            injectedFix = nil
         }
+        self.simulatedFix = injectedFix
+        self.simulatedAuthorizationStatus = forcedAuthorization
+        self.authorizationStatus = forcedAuthorization
+            ?? (injectedFix == nil ? manager.authorizationStatus : .authorizedWhenInUse)
         super.init()
         self.manager.delegate = self
         self.manager.desiredAccuracy = kCLLocationAccuracyBest
@@ -71,6 +90,10 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
     }
 
     public func requestAuthorization() {
+        if let simulatedAuthorizationStatus {
+            authorizationStatus = simulatedAuthorizationStatus
+            return
+        }
         if simulatedFix != nil {
             authorizationStatus = .authorizedWhenInUse
             return
@@ -79,6 +102,10 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
     }
 
     public func startUpdatingLocation() {
+        wantsLocationUpdates = true
+        if simulatedAuthorizationStatus != nil {
+            return
+        }
         if let simulatedFix {
             latestFix = simulatedFix
             return
@@ -90,12 +117,33 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
     }
 
     public func stopUpdatingLocation() {
+        wantsLocationUpdates = false
         manager.stopUpdatingLocation()
         manager.stopUpdatingHeading()
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            // startUpdatingLocation is normally called while permission is still undetermined.
+            // Resume both wrist location and heading immediately after the player grants access.
+            if wantsLocationUpdates {
+                manager.startUpdatingLocation()
+                if CLLocationManager.headingAvailable() {
+                    manager.startUpdatingHeading()
+                }
+            }
+        case .denied, .restricted:
+            latestFix = nil
+            latestHeading = nil
+            manager.stopUpdatingLocation()
+            manager.stopUpdatingHeading()
+        case .notDetermined:
+            break
+        @unknown default:
+            break
+        }
     }
 
     public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
@@ -103,11 +151,27 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
     }
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
+        guard let location = Self.latestUsableLocation(in: locations) else { return }
         latestFix = WatchLocationFix(
             coordinate: location.coordinate,
             horizontalAccuracyM: location.horizontalAccuracy,
             capturedAt: formatter.string(from: location.timestamp))
+    }
+
+    static func latestUsableLocation(
+        in locations: [CLLocation],
+        now: Date = Date()
+    ) -> CLLocation? {
+        locations.last { isUsable($0, now: now) }
+    }
+
+    static func isUsable(_ location: CLLocation, now: Date = Date()) -> Bool {
+        CLLocationCoordinate2DIsValid(location.coordinate)
+            && location.coordinate.latitude.isFinite
+            && location.coordinate.longitude.isFinite
+            && location.horizontalAccuracy.isFinite
+            && location.horizontalAccuracy >= 0
+            && abs(location.timestamp.timeIntervalSince(now)) <= 300
     }
 
     public func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
