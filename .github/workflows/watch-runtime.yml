@@ -155,7 +155,12 @@ jobs:
           xcrun simctl bootstatus "$WATCH_UDID" -b
           xcrun simctl uninstall "$WATCH_UDID" "$BID" 2>/dev/null || true
           xcrun simctl install "$WATCH_UDID" "$APP"
-          xcrun simctl privacy "$WATCH_UDID" grant location "$BID"
+          # watchOS 11.5 can apply the location authorization successfully and still make
+          # `simctl privacy` return 1. Do not let that simulator-only exit code suppress the
+          # real runtime gates below; they still fail if the app cannot reach its GPS-backed state.
+          if ! xcrun simctl privacy "$WATCH_UDID" grant location "$BID"; then
+            echo "::warning::simctl privacy returned non-zero; continuing to the runtime GPS gate"
+          fi
           mkdir -p watch-runtime-artifacts
           JOURNEY_ROUND_ID=""
 

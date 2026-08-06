@@ -491,6 +491,11 @@ class CIWorkflowTests(unittest.TestCase):
             "SIMCTL_CHILD_AI_CADDIE_PLAYER_TOKEN=\"$REAL_COURSE_PLAYER_TOKEN\"",
             script,
         )
+        self.assertIn(
+            'if ! xcrun simctl privacy "$WATCH_UDID" grant location "$BID"; then',
+            script,
+        )
+        self.assertIn("continuing to the runtime GPS gate", script)
         self.assertNotIn("SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN", script)
         self.assertNotIn("secrets.AI_CADDIE_ADMIN_TOKEN", workflow_text)
 
