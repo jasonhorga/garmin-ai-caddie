@@ -264,9 +264,6 @@ public struct RoundHomeView: View {
 
     private var startRoundView: some View {
         StartRoundView(
-            defaultRoundId: package.roundId,
-            defaultCourseGlobalId: package.course.globalId == 0 ? nil : package.course.globalId,
-            defaultTeeBox: package.course.teeBox,
             courseOptions: courseOptions,
             syncStatus: syncStatus,
             isPreparing: isPreparingRound,

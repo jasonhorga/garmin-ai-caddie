@@ -12,6 +12,7 @@ public struct LocationFix {
 public final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager: CLLocationManager
     private let formatter = ISO8601DateFormatter()
+    private var wantsLocationUpdates = false
 
     @Published public private(set) var latestFix: LocationFix?
     @Published public private(set) var authorizationStatus: CLAuthorizationStatus
@@ -56,6 +57,7 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     }
 
     public func startUpdatingLocation() {
+        wantsLocationUpdates = true
         if let simulatedFix {
             latestFix = simulatedFix
             return
@@ -64,6 +66,7 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     }
 
     public func stopUpdatingLocation() {
+        wantsLocationUpdates = false
         manager.stopUpdatingLocation()
     }
 
@@ -87,6 +90,20 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
         AICaddieLog.location.debug("Location authorization changed: \(manager.authorizationStatus.rawValue, privacy: .public)")
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            // The first start request commonly happens while permission is still `.notDetermined`.
+            // Resume explicitly after the answer instead of leaving course discovery waiting forever.
+            if wantsLocationUpdates {
+                manager.startUpdatingLocation()
+            }
+        case .denied, .restricted:
+            latestFix = nil
+        case .notDetermined:
+            break
+        @unknown default:
+            break
+        }
     }
 
     public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
@@ -95,7 +112,13 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     }
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else {
+        // Core Location may first replay an old cached or invalid fix. A stale city can be tens of
+        // kilometres away and would make a healthy Garmin nearby query honestly return the wrong list.
+        guard let location = locations.last(where: {
+            CLLocationCoordinate2DIsValid($0.coordinate)
+                && $0.horizontalAccuracy >= 0
+                && abs($0.timestamp.timeIntervalSinceNow) <= 300
+        }) else {
             return
         }
         latestFix = LocationFix(

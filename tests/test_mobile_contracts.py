@@ -1472,9 +1472,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let courseOptions: [MobileCourseOption]", start_view)
         self.assertIn("public let onPrepareRound: (String) -> Void", start_view)
         self.assertIn("public let onPrepareCourseRound: (Int, String, String, String) -> Void",start_view)
-        # 按真实结构选场:球场 → 列出它的各 9 洞环(segmentLabel)/ 整场,选一个开始(不再
-        # 用「最近球场」下拉 + 前九/后九 segmented;那是 18 洞洞号切片的旧错模型)。
-        self.assertIn("选择球场", start_view)
+        # 按真实结构选场:GPS 只列附近球场 → 列出它的各 9 洞环(segmentLabel)/整场,
+        # 其他球场必须由玩家主动搜索；历史球场不能重新混入开局列表。
+        self.assertIn("附近球场", start_view)
+        self.assertIn("nearbyCourseOptions + remoteCourseOptions", start_view)
+        self.assertNotIn("return (courseOptions + remoteCourseOptions)", start_view)
+        self.assertIn("await discoverNearbyCourses()", start_view)
         self.assertIn("venueGroups", start_view)
         self.assertIn("func segmentRow(", start_view)
         self.assertIn("segment.segmentLabel", start_view)
@@ -2050,8 +2053,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('title: "备战"', round_home)
         self.assertIn("PrepCoursePickerView(courseOptions: courseOptions", round_home)
         self.assertIn("struct PrepCoursePickerView", prep_picker)
-        self.assertIn("courseVenueGroups(allCourseOptions)", prep_picker)
-        self.assertIn("courseOptions + remoteCourseOptions", prep_picker)
+        self.assertIn("nearbyCourseOptions + remoteCourseOptions", prep_picker)
+        self.assertNotIn("return (courseOptions + remoteCourseOptions)", prep_picker)
+        self.assertIn("await discoverNearbyCourses()", prep_picker)
+        self.assertIn("radiusKm: 50", prep_picker)
         self.assertIn("MobileCourseSearchView(", prep_picker)
         self.assertIn("installedGlobalIds: Set(courseOptions.map(\\.globalId))", prep_picker)
         self.assertIn("onNearby: nearbyCourses", prep_picker)
@@ -2170,9 +2175,9 @@ class MobileContractTests(unittest.TestCase):
             self.assertNotIn('systemImage: "server.rack"', source)
 
         self.assertIn("runtime Backend screen", readme)
-        self.assertIn("admin token is saved in Keychain", readme)
-        self.assertIn("without another", readme)
-        self.assertIn("TestFlight upload", readme)
+        self.assertIn("DEBUG/CI aid", readme)
+        self.assertIn("TestFlight/Release builds never embed the owner admin token", readme)
+        self.assertIn("Sign in with Apple", readme)
 
     def test_ios_app_activates_watch_bridge_for_live_round(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")

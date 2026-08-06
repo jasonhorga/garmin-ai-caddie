@@ -447,7 +447,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    func testCoursePickerPresentationKeepsNearbyDistanceAndOfflineStatus() {
+    func testCoursePickerPresentationShowsOnlyProviderNearbyRows() {
         let nearby = WatchCourseOption(
             globalId: 101,
             name: "附近球场",
@@ -456,29 +456,18 @@ final class WatchDesignSnapshotTests: XCTestCase {
             latitude: 40.0,
             longitude: 116.0
         )
-        let known = WatchCourseOption(
-            globalId: 202,
-            name: "远方球场",
-            holes: 18,
-            teeBox: "White",
-            latitude: 31.2,
-            longitude: 121.5
-        )
         let view = WatchStartView(
             phoneReachable: false,
-            courses: [known, nearby],
+            courses: [nearby],
             cachedCourseIds: [nearby.globalId],
             currentLatitude: 40.0,
             currentLongitude: 116.0
         )
 
-        XCTAssertEqual(view.courseGroups.map(\.title), ["附近球场", "已知球场"])
+        XCTAssertEqual(view.courseGroups.map(\.title), ["附近球场"])
         XCTAssertEqual(view.courseGroups[0].rows.map(\.course.globalId), [nearby.globalId])
         XCTAssertEqual(view.courseGroups[0].rows.first?.subtitle, "18 洞 · 0.0 km")
         XCTAssertEqual(view.courseGroups[0].rows.first?.isCached, true)
-        XCTAssertEqual(view.courseGroups[1].rows.map(\.course.globalId), [known.globalId])
-        XCTAssertEqual(view.courseGroups[1].rows.first?.subtitle, "18 洞 · White")
-        XCTAssertEqual(view.courseGroups[1].rows.first?.isCached, false)
     }
 
     @MainActor
@@ -497,7 +486,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
             ]
         )
 
-        XCTAssertTrue(view.courseGroups.isEmpty)
+        XCTAssertEqual(view.courseGroups.map(\.title), ["附近球场"])
+        XCTAssertTrue(view.courseGroups[0].rows.isEmpty)
     }
 
     @MainActor

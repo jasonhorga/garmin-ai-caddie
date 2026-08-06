@@ -139,6 +139,9 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
     public let city: String?
     public let province: String?
     public let ratio: Double
+    public let latitude: Double?
+    public let longitude: Double?
+    public let distanceKm: Double?
 
     public init(
         globalId: Int,
@@ -146,7 +149,10 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
         holes: Int?,
         city: String?,
         province: String?,
-        ratio: Double
+        ratio: Double,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        distanceKm: Double? = nil
     ) {
         self.globalId = globalId
         self.name = name
@@ -154,6 +160,9 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
         self.city = city
         self.province = province
         self.ratio = ratio
+        self.latitude = latitude
+        self.longitude = longitude
+        self.distanceKm = distanceKm
     }
 
     public var courseOption: WatchCourseOption? {
@@ -169,7 +178,9 @@ public struct WatchCourseSearchMatch: Decodable, Equatable, Identifiable {
             holes: holes,
             venueName: venue.isEmpty ? name : venue,
             segmentLabel: segment?.isEmpty == false ? segment : nil,
-            segmentHoles: holes
+            segmentHoles: holes,
+            latitude: latitude,
+            longitude: longitude
         )
     }
 }

@@ -487,6 +487,9 @@ class CIWorkflowTests(unittest.TestCase):
         )
         self.assertNotIn("REAL_COURSE_ADMIN_TOKEN", journey["env"])
         self.assertIn("test -n \"$REAL_COURSE_PLAYER_TOKEN\"", script)
+        self.assertIn("select(.isOwner == false)", script)
+        self.assertIn("| .id", script)
+        self.assertIn('select(type == "string" and length > 0 and . != "me")', script)
         self.assertIn(
             "SIMCTL_CHILD_AI_CADDIE_PLAYER_TOKEN=\"$REAL_COURSE_PLAYER_TOKEN\"",
             script,

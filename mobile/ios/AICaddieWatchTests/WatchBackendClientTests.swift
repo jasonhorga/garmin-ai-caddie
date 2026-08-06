@@ -182,6 +182,21 @@ final class WatchBackendClientTests: XCTestCase {
         )
         XCTAssertEqual(search.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
 
+        let nearby = try client.makeNearbyCoursesRequest(
+            latitude: 22.7402,
+            longitude: 114.0715,
+            radiusKm: 50
+        )
+        XCTAssertEqual(nearby.url?.path, "/api/v2/courses/nearby")
+        let nearbyQuery = try XCTUnwrap(URLComponents(
+            url: try XCTUnwrap(nearby.url),
+            resolvingAgainstBaseURL: false
+        ))
+        XCTAssertEqual(nearbyQuery.queryItems?.first(where: { $0.name == "latitude" })?.value, "22.7402")
+        XCTAssertEqual(nearbyQuery.queryItems?.first(where: { $0.name == "longitude" })?.value, "114.0715")
+        XCTAssertEqual(nearbyQuery.queryItems?.first(where: { $0.name == "radius_km" })?.value, "50")
+        XCTAssertEqual(nearby.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
+
         let tees = try client.makeCourseTeesRequest(globalId: 31870)
         XCTAssertEqual(tees.url?.path, "/api/v2/courses/31870/tees")
         let teeQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(tees.url), resolvingAgainstBaseURL: false))
@@ -295,6 +310,14 @@ final class WatchBackendClientTests: XCTestCase {
         ])
         XCTAssertEqual(matches.first?.courseOption?.segmentLabel, "A")
         XCTAssertEqual(matches.first?.courseOption?.venueName, "Mission Hills")
+
+        let nearbyMatches = try client.decodeCourseSearch(Data(
+            #"{"schema":"ai-caddie-course-nearby-v1","radiusKm":50,"matches":[{"globalId":31870,"name":"Mission Hills ~ A","holes":9,"city":"深圳","province":"广东","ratio":0.0,"latitude":22.7402,"longitude":114.0715,"distanceKm":0.4}]}"#.utf8
+        ))
+        XCTAssertEqual(nearbyMatches.first?.latitude, 22.7402)
+        XCTAssertEqual(nearbyMatches.first?.longitude, 114.0715)
+        XCTAssertEqual(nearbyMatches.first?.distanceKm, 0.4)
+        XCTAssertEqual(nearbyMatches.first?.courseOption?.latitude, 22.7402)
 
         let incompleteMatches = try client.decodeCourseSearch(Data(
             #"{"schema":"ai-caddie-course-search-v1","query":"unknown","matches":[{"globalId":39999,"name":"Unclassified Course","holes":null,"city":null,"province":null,"ratio":0.5}]}"#.utf8

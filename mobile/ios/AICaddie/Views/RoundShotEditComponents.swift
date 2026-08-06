@@ -24,9 +24,11 @@ public let roundEditCommonClubs: [String] = [
 #if canImport(UIKit)
 /// The edit affordance layer, overlaid on the read-only shot map when editing. Draws a drag-handle
 /// ring on each landing, and disambiguates ONE single-finger gesture (设计 §2/§5):
-///   • press a handle and **drag** → move that landing (live rubber-band both lines + magnifier loupe),
-///   • **tap** a handle (barely moved) → edit that shot (球杆/球位/删),
+///   • **tap** a handle → select and keep that landing highlighted,
+///   • drag the selected (or newly touched) handle → move it (live lines + magnifier),
 ///   • **tap** empty → add a shot there.
+/// Club/lie/delete are a secondary button after selection, so tapping a landing never unexpectedly
+/// replaces the map with a sheet before the player has a chance to drag it.
 /// Pixel↔view conversion uses the fitted map size from GeometryReader (same projection as the canvas).
 public struct RoundShotEditLayer: View {
     @ObservedObject var editModel: RoundEditModel
@@ -39,6 +41,7 @@ public struct RoundShotEditLayer: View {
 
     @State private var editingShot: RoundShot?
     @State private var addAtPx: [Double]?
+    @State private var selectedShotId: String?
     /// Current finger location (view coords) during a drag — drives the magnifier + the committed px.
     @State private var dragLocation: CGPoint?
     /// The shot whose handle this gesture grabbed (nil = started on empty), and whether it has
@@ -70,11 +73,16 @@ public struct RoundShotEditLayer: View {
                         guard let e = shot.end, e.count >= 2 else { continue }
                         let p = CGPoint(x: CGFloat(e[0]) * sx, y: CGFloat(e[1]) * sy)
                         let dragging = editModel.draggingShotId == shot.id
-                        let r: CGFloat = dragging ? 15 : 11
+                        let selected = selectedShotId == shot.id
+                        let r: CGFloat = dragging ? 15 : (selected ? 13 : 11)
                         let ring = Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r))
-                        ctx.stroke(ring, with: .color(.white), lineWidth: dragging ? 3 : 2)
+                        ctx.stroke(
+                            ring,
+                            with: .color(selected ? LiveHoleStyle.green : .white),
+                            lineWidth: dragging ? 3.5 : (selected ? 3 : 2)
+                        )
                         ctx.stroke(ring, with: .color(.black.opacity(0.45)), lineWidth: 0.5)
-                        if dragging {
+                        if dragging || selected {
                             ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5)),
                                      with: .color(.white))
                         }
@@ -123,6 +131,28 @@ public struct RoundShotEditLayer: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(sheetFocusLabel)
                 }
+
+                if let selectedShot {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Button {
+                                editingShot = selectedShot
+                            } label: {
+                                Label(selectedShotLabel, systemImage: "slider.horizontal.3")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 7)
+                                    .background(.black.opacity(0.78), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("修改球杆、球位或删除这一杆")
+                        }
+                    }
+                    .padding(10)
+                }
             }
         }
         .sheet(item: $editingShot) { shot in
@@ -130,7 +160,10 @@ public struct RoundShotEditLayer: View {
                 shot: shot, clubs: effectiveClubs,
                 onClub: { editModel.editClub(shotId: shot.id, $0) },
                 onLie: { editModel.editLie(shotId: shot.id, $0) },
-                onDelete: { editModel.delete(shotId: shot.id) }
+                onDelete: {
+                    editModel.delete(shotId: shot.id)
+                    selectedShotId = nil
+                }
             )
         }
         .sheet(isPresented: Binding(get: { addAtPx != nil }, set: { if !$0 { addAtPx = nil } })) {
@@ -145,15 +178,16 @@ public struct RoundShotEditLayer: View {
 
     /// One `DragGesture(minimumDistance:0)` handling both tap and drag. First frame decides if we
     /// grabbed a handle; past the threshold it's a drag (live preview, commit on release); otherwise
-    /// it's a tap (edit a landing / add on empty). No pan/zoom in this view, so no gesture contention.
+    /// it's a tap (select a landing / add on empty). No pan/zoom in this view, so no gesture contention.
     private func dragGesture(sx: CGFloat, sy: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { v in
                 if !gestureActive {
                     gestureActive = true
                     movedFar = false
-                    if let hit = editModel.map.shots.first(where: { hitTest($0, v.startLocation, sx, sy) }) {
+                    if let hit = nearestHit(to: v.startLocation, sx: sx, sy: sy) {
                         grabbedShotId = hit.id
+                        selectedShotId = hit.id
                         editModel.draggingShotId = hit.id
                     } else {
                         grabbedShotId = nil
@@ -165,17 +199,18 @@ public struct RoundShotEditLayer: View {
                 }
                 // Live rubber-band the grabbed landing (local only, no network) once clearly dragging.
                 if let id = grabbedShotId, movedFar {
-                    editModel.previewMove(shotId: id, px: [Double(v.location.x / sx), Double(v.location.y / sy)])
+                    editModel.previewMove(shotId: id, px: clampedPixel(v.location, sx: sx, sy: sy))
                 }
             }
             .onEnded { v in
                 if let id = grabbedShotId, movedFar {
-                    editModel.move(shotId: id, px: [Double(v.location.x / sx), Double(v.location.y / sy)])
+                    editModel.move(shotId: id, px: clampedPixel(v.location, sx: sx, sy: sy))
                 } else if !movedFar {
-                    if let hit = editModel.map.shots.first(where: { hitTest($0, v.location, sx, sy) }) {
-                        editingShot = hit
+                    if let hit = nearestHit(to: v.location, sx: sx, sy: sy) {
+                        selectedShotId = hit.id
                     } else {
-                        addAtPx = [Double(v.location.x / sx), Double(v.location.y / sy)]
+                        selectedShotId = nil
+                        addAtPx = clampedPixel(v.location, sx: sx, sy: sy)
                     }
                 }
                 editModel.draggingShotId = nil
@@ -195,6 +230,19 @@ public struct RoundShotEditLayer: View {
     }
 
     private var effectiveClubs: [String] { clubs.isEmpty ? roundEditCommonClubs : clubs }
+
+    private var selectedShot: RoundShot? {
+        guard let selectedShotId else { return nil }
+        return editModel.map.shots.first { $0.id == selectedShotId }
+    }
+
+    private var selectedShotLabel: String {
+        guard let selectedShot,
+              let index = editModel.map.shots.firstIndex(where: { $0.id == selectedShot.id }) else {
+            return "编辑这一杆"
+        }
+        return "第 \(index + 1) 杆详情"
+    }
 
     private var sheetFocusLabel: String {
         if let editingShot,
@@ -219,6 +267,32 @@ public struct RoundShotEditLayer: View {
         guard let e = s.end, e.count >= 2 else { return false }
         let p = CGPoint(x: CGFloat(e[0]) * sx, y: CGFloat(e[1]) * sy)
         return hypot(p.x - loc.x, p.y - loc.y) <= hitRadius
+    }
+
+    private func nearestHit(to location: CGPoint, sx: CGFloat, sy: CGFloat) -> RoundShot? {
+        editModel.map.shots
+            .filter { hitTest($0, location, sx, sy) }
+            .min { lhs, rhs in
+                viewDistance(lhs, to: location, sx: sx, sy: sy)
+                    < viewDistance(rhs, to: location, sx: sx, sy: sy)
+            }
+    }
+
+    private func viewDistance(
+        _ shot: RoundShot,
+        to location: CGPoint,
+        sx: CGFloat,
+        sy: CGFloat
+    ) -> CGFloat {
+        guard let end = shot.end, end.count >= 2 else { return .greatestFiniteMagnitude }
+        return hypot(CGFloat(end[0]) * sx - location.x, CGFloat(end[1]) * sy - location.y)
+    }
+
+    private func clampedPixel(_ location: CGPoint, sx: CGFloat, sy: CGFloat) -> [Double] {
+        [
+            min(max(Double(location.x / sx), 0), Double(overlay.w)),
+            min(max(Double(location.y / sy), 0), Double(overlay.h)),
+        ]
     }
 
     /// Insert the new shot after the existing landing nearest the tap (a sensible "which gap"; the
@@ -440,7 +514,7 @@ public struct RoundShotEditContent: View {
             RoundShotMapView(shotMap: editModel.map, topoURL: topoURL, editModel: editModel)
             PenaltyStepper(value: editModel.map.manualPenalty) { editModel.setPenalty($0) }
                 .hubCard()
-            Text("拖动落点微调 · 点空白补杆 · 点落点修改/删除")
+            Text("点中落点后直接拖动 · 点空白补杆 · 详情可改球杆/球位")
                 .font(.caption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)

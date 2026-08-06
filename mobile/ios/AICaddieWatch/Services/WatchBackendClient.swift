@@ -173,6 +173,31 @@ public final class WatchBackendClient {
         return request
     }
 
+    public func makeNearbyCoursesRequest(
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Int = 50
+    ) throws -> URLRequest {
+        guard latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude),
+              (1...200).contains(radiusKm),
+              var components = URLComponents(
+                  url: endpointURL("/api/v2/courses/nearby"),
+                  resolvingAgainstBaseURL: false
+              ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [
+            URLQueryItem(name: "latitude", value: String(latitude)),
+            URLQueryItem(name: "longitude", value: String(longitude)),
+            URLQueryItem(name: "radius_km", value: String(radiusKm)),
+        ]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+        return request
+    }
+
     public func makeCourseTeesRequest(globalId: Int) throws -> URLRequest {
         var components = URLComponents(
             url: endpointURL("/api/v2/courses/\(globalId)/tees"),
@@ -282,6 +307,20 @@ public final class WatchBackendClient {
 
     public func searchCourses(name: String) async throws -> [WatchCourseSearchMatch] {
         let request = try makeCourseSearchRequest(name: name)
+        let data = try await sendForData(request)
+        return try decodeCourseSearch(data)
+    }
+
+    public func nearbyCourses(
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Int = 50
+    ) async throws -> [WatchCourseSearchMatch] {
+        let request = try makeNearbyCoursesRequest(
+            latitude: latitude,
+            longitude: longitude,
+            radiusKm: radiusKm
+        )
         let data = try await sendForData(request)
         return try decodeCourseSearch(data)
     }

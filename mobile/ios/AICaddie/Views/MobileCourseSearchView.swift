@@ -4,8 +4,7 @@ import SwiftUI
 /// firing on every keystroke; the result list is metadata-only and selecting a row does not install
 /// every match.
 public struct MobileCourseSearchView: View {
-    public let nearbyLatitude: Double?
-    public let nearbyLongitude: Double?
+    @ObservedObject public var locationProvider: LocationProvider
     public let installedGlobalIds: Set<Int>
     public let onSearch: (String) async throws -> [MobileCourseSearchMatch]
     public let onNearby: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
@@ -33,15 +32,13 @@ public struct MobileCourseSearchView: View {
     @State private var errorText: String?
 
     public init(
-        nearbyLatitude: Double? = nil,
-        nearbyLongitude: Double? = nil,
+        locationProvider: LocationProvider,
         installedGlobalIds: Set<Int> = [],
         onSearch: @escaping (String) async throws -> [MobileCourseSearchMatch],
         onNearby: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
         onSelect: @escaping (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
     ) {
-        self.nearbyLatitude = nearbyLatitude
-        self.nearbyLongitude = nearbyLongitude
+        self.locationProvider = locationProvider
         self.installedGlobalIds = installedGlobalIds
         self.onSearch = onSearch
         self.onNearby = onNearby
@@ -198,7 +195,8 @@ public struct MobileCourseSearchView: View {
     }
 
     private var hasNearbyLocation: Bool {
-        guard let nearbyLatitude, let nearbyLongitude else { return false }
+        guard let nearbyLatitude = locationProvider.latestFix?.coordinate.latitude,
+              let nearbyLongitude = locationProvider.latestFix?.coordinate.longitude else { return false }
         return nearbyLatitude.isFinite && (-90...90).contains(nearbyLatitude)
             && nearbyLongitude.isFinite && (-180...180).contains(nearbyLongitude)
     }
@@ -243,7 +241,9 @@ public struct MobileCourseSearchView: View {
 
     @MainActor
     private func searchNearby() async {
-        guard canSearchNearby, let nearbyLatitude, let nearbyLongitude else { return }
+        guard canSearchNearby,
+              let nearbyLatitude = locationProvider.latestFix?.coordinate.latitude,
+              let nearbyLongitude = locationProvider.latestFix?.coordinate.longitude else { return }
         focusedField = nil
         activeSearch = .nearby
         lastSearch = .nearby

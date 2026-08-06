@@ -6,9 +6,13 @@ import Foundation
 @MainActor
 public final class WatchCourseLibrary: ObservableObject {
     @Published public private(set) var courses: [WatchCourseOption]
+    /// Provider-wide rows around the Watch's current fix. This is the only list shown by the
+    /// new-round picker; `courses` remains lookup/cache metadata and is never presented as history.
+    @Published public private(set) var nearbyCourses: [WatchCourseOption] = []
     @Published public private(set) var searchMatches: [WatchCourseSearchMatch] = []
     @Published public private(set) var cachedCourseIds: Set<Int>
     @Published public private(set) var isLoadingCourses = false
+    @Published public private(set) var isLoadingNearby = false
     @Published public private(set) var isSearchingCourses = false
     @Published public private(set) var preparingCourseId: Int?
     @Published public private(set) var errorMessage: String?
@@ -57,6 +61,59 @@ public final class WatchCourseLibrary: ObservableObject {
             errorMessage = courses.isEmpty
                 ? "无法获取球场，请检查网络或登录状态"
                 : "无法更新球场，已缓存球场仍可离线使用"
+        }
+    }
+
+    /// Resolve Garmin's full catalogue around the current wrist location. Previously the Watch
+    /// filtered only the player's historical/cached options, so a genuinely nearby new course could
+    /// never appear. A failed network request may fall back to *nearby* cached rows, never to the
+    /// complete history list.
+    public func refreshNearby(
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Int = 50,
+        config: WatchRoundConfig?
+    ) async {
+        guard latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude),
+              (1...200).contains(radiusKm) else {
+            nearbyCourses = []
+            errorMessage = "正在等待有效 GPS 定位"
+            return
+        }
+
+        let cachedNearby = localNearbyCourses(
+            latitude: latitude,
+            longitude: longitude,
+            radiusKm: radiusKm
+        )
+        guard let config else {
+            nearbyCourses = cachedNearby
+            errorMessage = cachedNearby.isEmpty ? "请先在 iPhone 登录并同步一次" : nil
+            return
+        }
+
+        isLoadingNearby = true
+        errorMessage = nil
+        defer { isLoadingNearby = false }
+        do {
+            let matches = try await makeClient(config).nearbyCourses(
+                latitude: latitude,
+                longitude: longitude,
+                radiusKm: radiusKm
+            )
+            var seen = Set<Int>()
+            nearbyCourses = matches.compactMap { resolvedNearbyOption($0) }.filter {
+                seen.insert($0.globalId).inserted
+            }
+            if nearbyCourses.isEmpty {
+                errorMessage = "当前位置 \(radiusKm) km 内没有找到球场"
+            }
+        } catch {
+            nearbyCourses = cachedNearby
+            errorMessage = cachedNearby.isEmpty
+                ? "无法读取附近球场，可改用名称搜索"
+                : "无法更新附近球场，已显示本机附近缓存"
         }
     }
 
@@ -293,5 +350,44 @@ public final class WatchCourseLibrary: ObservableObject {
     private static func uniqueOptions(from options: [WatchCourseOption]) -> [WatchCourseOption] {
         var seen = Set<Int>()
         return options.filter { seen.insert($0.globalId).inserted }
+    }
+
+    private func localNearbyCourses(
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Int
+    ) -> [WatchCourseOption] {
+        WatchCourseProximity.ranked(
+            courses.filter { option in
+                guard let distance = WatchCourseProximity.distanceM(
+                    to: option,
+                    fromLatitude: latitude,
+                    longitude: longitude
+                ) else { return false }
+                return distance <= Double(radiusKm) * 1_000
+            },
+            fromLatitude: latitude,
+            longitude: longitude
+        )
+    }
+
+    private func resolvedNearbyOption(_ match: WatchCourseSearchMatch) -> WatchCourseOption? {
+        guard let provider = match.courseOption else { return nil }
+        guard let known = courses.first(where: { $0.globalId == match.globalId }) else {
+            return provider
+        }
+        return WatchCourseOption(
+            globalId: provider.globalId,
+            name: provider.name,
+            holes: provider.holes,
+            teeBox: known.teeBox,
+            venueName: provider.venueName ?? known.venueName,
+            segmentLabel: provider.segmentLabel ?? known.segmentLabel,
+            segmentHoles: provider.segmentHoles ?? known.segmentHoles,
+            latitude: provider.latitude ?? known.latitude,
+            longitude: provider.longitude ?? known.longitude,
+            tees: known.tees,
+            roundCount: known.roundCount
+        )
     }
 }

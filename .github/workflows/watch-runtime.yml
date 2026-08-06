@@ -364,7 +364,10 @@ jobs:
               -H "Authorization: Bearer $REAL_COURSE_PLAYER_TOKEN" \
               "$REAL_COURSE_API_BASE_URL/api/v2/history/overview")
             CI_PLAYER_ID=$(jq -er \
-              '.currentPlayer.id | select(type == "string" and length > 0)' \
+              '.currentPlayer
+                | select(.isOwner == false)
+                | .id
+                | select(type == "string" and length > 0 and . != "me")' \
               <<< "$overview")
             [[ "$CI_PLAYER_ID" =~ ^[A-Za-z0-9._-]+$ ]]
 

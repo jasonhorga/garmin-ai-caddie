@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// 开始一场 — 选起始 9 洞 + 球场,直接开始记分。
-/// 默认自动选中第一个真实球场(发球台随之带出),所以「开始记分」开箱即用。
+/// 开始一场 — GPS 先列附近球场；其他球场由玩家按城市或名称主动搜索。
+/// 附近只有一个球场时自动进入该球场的洞组/发球台选择，多个时由玩家选择。
 /// 手动 ID / 仅刷新离线包 / 后端连接等工程项收进折叠的「高级设置」,默认不打扰。
 public struct StartRoundView: View {
     public let defaultRoundId: String
@@ -35,10 +35,13 @@ public struct StartRoundView: View {
     @State private var nine: String
     /// 所选球场的发球台列表(含码数/默认),来自 GET /courses/{id}/tees;为空则用球场自带 Tee 名。
     @State private var fetchedTees: [CourseTee] = []
+    @State private var nearbyCourseOptions: [MobileCourseOption] = []
     @State private var remoteCourseOptions: [MobileCourseOption] = []
     @State private var showingCourseSearch = false
     @State private var isLoadingTees = false
     @State private var teeLoadFailed = false
+    @State private var isLoadingNearby = false
+    @State private var nearbyStatusText: String?
 
     public init(
         // 不在消费者界面里写死可读的原始局号(如 900001):没显式传时生成一个不透明的本地局号,
@@ -76,12 +79,9 @@ public struct StartRoundView: View {
         self.onLoadCourseTees = onLoadCourseTees
         self.onSearchCourses = onSearchCourses
         self.onNearbyCourses = onNearbyCourses
-        // Pre-select a real course (the given default, else the most-played) so the
-        // primary action works out of the box instead of stranding on "manual entry".
-        let mostPlayed = courseOptions.max { $0.roundCount < $1.roundCount }
-        let resolvedCourseId = defaultCourseGlobalId.map(String.init)
-            ?? mostPlayed.map { String($0.globalId) }
-            ?? ""
+        // An explicit caller selection may be retained, but history alone is not a course picker.
+        // Normal new-round entry waits for Garmin's nearby catalogue, matching S70 behaviour.
+        let resolvedCourseId = defaultCourseGlobalId.map(String.init) ?? ""
         let selected = courseOptions.first { String($0.globalId) == resolvedCourseId }
         self._courseGlobalIdText = State(initialValue: resolvedCourseId)
         self._roundId = State(initialValue: selected?.suggestedLiveRoundId ?? defaultRoundId)
@@ -132,12 +132,9 @@ public struct StartRoundView: View {
         .onAppear {
             locationProvider.requestAuthorization()
             locationProvider.startUpdatingLocation()
-            ensureDefaultSelection()
         }
-        .onChange(of: locationProvider.latestFix?.coordinate.latitude) { _, _ in
-            // GPS arrived → if the player hasn't picked yet, jump to the nearest course.
-            ensureDefaultSelection()
-        }
+        .onDisappear { locationProvider.stopUpdatingLocation() }
+        .task(id: locationDiscoveryKey) { await discoverNearbyCourses() }
         // 选了/换了球场 → 拉该球场的可选发球台(颜色 + 码数 + 默认),填充选台器。
         .task(id: courseGlobalIdText) {
             await loadTees()
@@ -145,8 +142,7 @@ public struct StartRoundView: View {
         .sheet(isPresented: $showingCourseSearch) {
             NavigationStack {
                 MobileCourseSearchView(
-                    nearbyLatitude: locationProvider.latestFix?.coordinate.latitude,
-                    nearbyLongitude: locationProvider.latestFix?.coordinate.longitude,
+                    locationProvider: locationProvider,
                     installedGlobalIds: Set(courseOptions.map(\.globalId)),
                     onSearch: { query in
                         let coordinate = locationProvider.latestFix?.coordinate
@@ -219,10 +215,10 @@ public struct StartRoundView: View {
         applySelectedCourse(globalIdText: courseGlobalIdText)
     }
 
-    /// Default to the top venue (nearest when GPS is available, else most-played) until the player
-    /// picks one — and recover if the current selection isn't a real course.
+    /// S70 only auto-selects when GPS finds one nearby venue. With more than one, the player chooses
+    /// from the nearby list; history never silently becomes the default course.
     private func ensureDefaultSelection() {
-        guard let top = displayVenues.first else { return }
+        guard displayVenues.count == 1, let top = displayVenues.first else { return }
         let currentIsValid = selectedSegment != nil
         if !currentIsValid {
             selectVenue(top.venue, userInitiated: false)
@@ -231,7 +227,7 @@ public struct StartRoundView: View {
         }
     }
 
-    /// Venues ordered nearest-first when GPS is available, else most-played first.
+    /// Venues ordered nearest-first from the provider-wide GPS result.
     private var displayVenues: [(venue: String, segments: [MobileCourseOption])] {
         let groups = venueGroups
         guard let fix = locationProvider.latestFix else {
@@ -258,33 +254,29 @@ public struct StartRoundView: View {
     /// 按真实结构选场:每个球场列出它的各 9 洞环(黑骑士 A/B/C)或整场(北湖 18);选一个开始。
     @ViewBuilder private var courseCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("选择球场").font(.caption).foregroundStyle(.secondary)
+            Text("附近球场").font(.caption).foregroundStyle(.secondary)
             if displayVenues.isEmpty {
-                // 还没有球场:给一个清晰的消费者 CTA(已用 Apple 登录),而不是「先去同步 Garmin」。
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("连接 Garmin 或开始手机记分")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text("连接 Garmin 自动拉取你常打的球场,用手机就能记分;手表也可独立记分。")
-                        .font(.caption)
+                    if isLoadingNearby {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("正在定位并查找附近球场…")
+                        }
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    Button(action: onConnectGarmin) {
-                        Label("连接 Garmin", systemImage: "link")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background(LiveHoleStyle.green)
-                            .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    } else {
+                        Label(
+                            nearbyStatusText ?? "等待 GPS 定位；也可以直接按城市或球场名搜索。",
+                            systemImage: "location"
+                        )
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
                 }
             } else {
-                if locationProvider.latestFix != nil {
-                    Label("已按距离排序 · 最近在前", systemImage: "location.fill")
-                        .font(.caption2).foregroundStyle(LiveHoleStyle.green)
-                }
-                // 下拉选球场(GPS 可用时最近在前,否则最常打在前)。球场名从选中环派生,不会空白。
+                Label("当前位置 50 km · 最近在前", systemImage: "location.fill")
+                    .font(.caption2).foregroundStyle(LiveHoleStyle.green)
+                // Only provider-nearby venues (plus one explicit text-search selection) appear here.
                 Picker("球场", selection: selectedVenueBinding) {
                     ForEach(displayVenues, id: \.venue) { group in
                         Text(group.venue).tag(group.venue)
@@ -301,33 +293,35 @@ public struct StartRoundView: View {
                 Text(segmentSelectionHelp)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                Divider().padding(.vertical, 2)
-                HStack(spacing: 8) {
-                    Text("发球台").font(.subheadline).foregroundStyle(.secondary)
-                    Spacer()
-                    Menu {
-                        ForEach(teeOptions, id: \.self) { tee in
-                            Button {
-                                teeBox = tee
-                            } label: {
-                                if tee.caseInsensitiveCompare(teeBox) == .orderedSame {
-                                    Label(teeMenuLabel(tee), systemImage: "checkmark")
-                                } else {
-                                    Text(teeMenuLabel(tee))
+                if selectedSegment != nil {
+                    Divider().padding(.vertical, 2)
+                    HStack(spacing: 8) {
+                        Text("发球台").font(.subheadline).foregroundStyle(.secondary)
+                        Spacer()
+                        Menu {
+                            ForEach(teeOptions, id: \.self) { tee in
+                                Button {
+                                    teeBox = tee
+                                } label: {
+                                    if tee.caseInsensitiveCompare(teeBox) == .orderedSame {
+                                        Label(teeMenuLabel(tee), systemImage: "checkmark")
+                                    } else {
+                                        Text(teeMenuLabel(tee))
+                                    }
                                 }
                             }
+                            Divider()
+                            Button("取消", role: .cancel) {}
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(teeBox.isEmpty ? "默认" : teeMenuLabel(teeBox))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(LiveHoleStyle.green)
+                                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+                            }
                         }
-                        Divider()
-                        Button("取消", role: .cancel) {}
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(teeBox.isEmpty ? "默认" : teeMenuLabel(teeBox))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(LiveHoleStyle.green)
-                            Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
-                        }
+                        .disabled(teeOptions.isEmpty)
                     }
-                    .disabled(teeOptions.isEmpty)
                 }
                 if selectedCourseRequiresRemoteTees, isLoadingTees {
                     ProgressView("正在获取发球台…")
@@ -343,7 +337,7 @@ public struct StartRoundView: View {
             Button {
                 showingCourseSearch = true
             } label: {
-                Label("搜索其他球场", systemImage: "magnifyingglass")
+                Label("按城市或球场名搜索", systemImage: "magnifyingglass")
                     .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
@@ -557,19 +551,21 @@ public struct StartRoundView: View {
         }
     }
 
-    /// Group options by venue → each venue lists its playable segments (9-hole loops A/B/C, or a
-    /// whole 18). Loops sorted by label (A/B/C…), single course last; venues by most-played first.
+    /// Group the provider-ranked nearby rows by venue without re-sorting them by historical play count.
     private var venueGroups: [(venue: String, segments: [MobileCourseOption])] {
-        var byVenue: [String: [MobileCourseOption]] = [:]
+        var groups: [(venue: String, segments: [MobileCourseOption])] = []
         for option in availableCourseOptions {
             let venue = option.venueName ?? baseCourseName(option.name)
-            byVenue[venue, default: []].append(option)
-        }
-        return byVenue
-            .map { entry in
-                (venue: entry.key, segments: entry.value.sorted { segmentSortKey($0) < segmentSortKey($1) })
+            if let index = groups.firstIndex(where: { $0.venue == venue }) {
+                groups[index].segments.append(option)
+            } else {
+                groups.append((venue: venue, segments: [option]))
             }
-            .sorted { ($0.segments.map(\.roundCount).max() ?? 0) > ($1.segments.map(\.roundCount).max() ?? 0) }
+        }
+        for index in groups.indices {
+            groups[index].segments.sort { segmentSortKey($0) < segmentSortKey($1) }
+        }
+        return groups
     }
 
     private func segmentSortKey(_ segment: MobileCourseOption) -> String {
@@ -583,7 +579,7 @@ public struct StartRoundView: View {
 
     private func applySelectedCourse(globalIdText: String) {
         guard let globalId = Int(globalIdText),
-              let option = availableCourseOptions.first(where: { $0.globalId == globalId }) else {
+              let option = courseLookupOptions.first(where: { $0.globalId == globalId }) else {
             return
         }
         // P1-3: a fixed "live-<globalId>" fallback is reused across rounds on the same course, so two
@@ -601,25 +597,27 @@ public struct StartRoundView: View {
 
     private var availableCourseOptions: [MobileCourseOption] {
         var seen = Set<Int>()
-        return (courseOptions + remoteCourseOptions).filter { seen.insert($0.globalId).inserted }
+        return (nearbyCourseOptions + remoteCourseOptions).filter { seen.insert($0.globalId).inserted }
+    }
+
+    private var courseLookupOptions: [MobileCourseOption] {
+        var seen = Set<Int>()
+        return (availableCourseOptions + courseOptions).filter { seen.insert($0.globalId).inserted }
     }
 
     private var selectedCourseRequiresRemoteTees: Bool {
         guard let courseGlobalId else { return false }
-        return remoteCourseOptions.contains { $0.globalId == courseGlobalId }
-            && !courseOptions.contains { $0.globalId == courseGlobalId }
+        return !courseOptions.contains { $0.globalId == courseGlobalId }
     }
 
     private func selectSearchResult(
         _ selected: MobileCourseSearchMatch,
         _ matches: [MobileCourseSearchMatch]
     ) {
+        _ = matches
         let isSameCourse = courseGlobalId == selected.globalId
-        var seen = Set((courseOptions + remoteCourseOptions).map(\.globalId))
-        for option in matches.compactMap(\.courseOption) where seen.insert(option.globalId).inserted {
-            remoteCourseOptions.append(option)
-        }
-        guard selected.courseOption != nil else { return }
+        guard let option = resolvedOption(for: selected) else { return }
+        remoteCourseOptions = [option]
         userPickedVenue = true
         courseGlobalIdText = String(selected.globalId)
         backGlobalIdText = ""
@@ -632,5 +630,88 @@ public struct StartRoundView: View {
             teeLoadFailed = false
         }
         applySelectedCourse(globalIdText: courseGlobalIdText)
+    }
+
+    private var locationDiscoveryKey: String {
+        guard let coordinate = locationProvider.latestFix?.coordinate else {
+            return "waiting:\(locationProvider.authorizationStatus.rawValue)"
+        }
+        return "\(Int((coordinate.latitude * 10_000).rounded())):\(Int((coordinate.longitude * 10_000).rounded()))"
+    }
+
+    @MainActor
+    private func discoverNearbyCourses() async {
+        guard let fix = locationProvider.latestFix else {
+            nearbyCourseOptions = []
+            isLoadingNearby = locationProvider.authorizationStatus == .notDetermined
+                || locationProvider.authorizationStatus == .authorizedAlways
+                || locationProvider.authorizationStatus == .authorizedWhenInUse
+            nearbyStatusText = locationProvider.authorizationStatus == .denied
+                || locationProvider.authorizationStatus == .restricted
+                ? "定位权限未开启；可以直接按城市或球场名搜索。"
+                : nil
+            return
+        }
+        isLoadingNearby = true
+        nearbyStatusText = nil
+        defer { isLoadingNearby = false }
+        do {
+            let matches = try await onNearbyCourses(
+                fix.coordinate.latitude,
+                fix.coordinate.longitude,
+                50
+            )
+            var seen = Set<Int>()
+            nearbyCourseOptions = matches.compactMap { resolvedOption(for: $0) }.filter {
+                seen.insert($0.globalId).inserted
+            }
+            nearbyStatusText = nearbyCourseOptions.isEmpty
+                ? "当前位置 50 km 内没有找到球场；可以扩大范围或按名称搜索。"
+                : nil
+            if !userPickedVenue {
+                if displayVenues.count == 1 {
+                    ensureDefaultSelection()
+                } else if selectedSegment == nil || !nearbyCourseOptions.contains(where: {
+                    String($0.globalId) == courseGlobalIdText
+                }) {
+                    courseGlobalIdText = ""
+                    teeBox = ""
+                    fetchedTees = []
+                }
+            }
+        } catch {
+            nearbyCourseOptions = []
+            nearbyStatusText = "附近球场暂时读取失败；可以先按城市或球场名搜索。"
+        }
+    }
+
+    private func resolvedOption(for match: MobileCourseSearchMatch) -> MobileCourseOption? {
+        guard let provider = match.courseOption else { return nil }
+        guard let known = courseOptions.first(where: { $0.globalId == match.globalId }) else {
+            return provider
+        }
+        // Catalogue coordinates/name remain authoritative for a nearby result, while an installed
+        // row contributes its cached package, tee and history metadata. Preferring the old row
+        // wholesale can discard the GPS coordinates and break nearest-first ordering.
+        return MobileCourseOption(
+            globalId: provider.globalId,
+            courseKey: known.courseKey,
+            name: provider.name,
+            roundCount: known.roundCount,
+            latestRoundId: known.latestRoundId,
+            latestRoundDate: known.latestRoundDate,
+            templateRoundId: known.templateRoundId,
+            suggestedLiveRoundId: known.suggestedLiveRoundId,
+            holes: provider.holes,
+            teeBox: known.teeBox,
+            geometryCoverage: known.geometryCoverage,
+            sourceRefs: known.sourceRefs,
+            venueName: provider.venueName ?? known.venueName,
+            segmentLabel: provider.segmentLabel ?? known.segmentLabel,
+            segmentHoles: provider.segmentHoles ?? known.segmentHoles,
+            latitude: provider.latitude ?? known.latitude,
+            longitude: provider.longitude ?? known.longitude,
+            tees: known.tees
+        )
     }
 }

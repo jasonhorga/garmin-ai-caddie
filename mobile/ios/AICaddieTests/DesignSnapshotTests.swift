@@ -309,8 +309,7 @@ final class DesignSnapshotTests: XCTestCase {
         try captureScreen(
             NavigationStack {
                 MobileCourseSearchView(
-                    nearbyLatitude: 22.7401328,
-                    nearbyLongitude: 114.0714097,
+                    locationProvider: LocationProvider(),
                     onSearch: { _ in [] },
                     onNearby: { _, _, _ in [] },
                     onSelect: { _, _ in }

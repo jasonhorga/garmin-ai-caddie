@@ -21,8 +21,9 @@ private struct WatchCourseSetupDestination: Equatable {
     let ensureGeometry: Bool
 }
 
-/// Home-before-a-round. Every production path starts from a real course; downloaded rows remain
-/// available with no phone or network, while unavailable course data stays unavailable.
+/// Home-before-a-round. Every production path starts from a real course. The picker shows only the
+/// provider-wide nearby result; cached/history rows can support those results but never form a second
+/// visible list. Any other course is reached through explicit catalogue search.
 public struct WatchStartView: View {
     public let phoneReachable: Bool
     public let courses: [WatchCourseOption]
@@ -97,6 +98,9 @@ public struct WatchStartView: View {
             }
         }
         .persistentSystemOverlays(.hidden)
+        .onChange(of: singleNearbyCourse?.id, initial: true) { _, _ in
+            openSingleNearbyCourseIfNeeded()
+        }
     }
 
     private var coursePicker: some View {
@@ -154,7 +158,7 @@ public struct WatchStartView: View {
                         .foregroundStyle(.secondary)
                         .padding(7)
                     } else {
-                        Text(searchText.isEmpty ? "暂无已知球场" : "已知球场中没有匹配")
+                        Text(hasCurrentLocation ? "附近没有找到球场" : "正在等待 GPS 定位")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
                             .padding(7)
@@ -260,7 +264,7 @@ public struct WatchStartView: View {
                 }
 
                 if !searchMatches.isEmpty, visibleSearchMatches.isEmpty {
-                    Text("搜索结果已在已知球场中")
+                    Text("该球场已在附近列表中")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -431,34 +435,15 @@ public struct WatchStartView: View {
     }
 
     var courseGroups: [WatchCourseGroupPresentation] {
-        var groups: [WatchCourseGroupPresentation] = []
-
-        if hasCurrentLocation, !nearbyCourses.isEmpty {
-            groups.append(
-                WatchCourseGroupPresentation(
-                    title: "附近球场",
-                    rows: nearbyCourses.map {
-                        courseRow($0, subtitle: nearbySubtitle(for: $0))
-                    },
-                    showsRefresh: knownCourses.isEmpty
-                )
+        [
+            WatchCourseGroupPresentation(
+                title: "附近球场",
+                rows: nearbyCourses.map {
+                    courseRow($0, subtitle: nearbySubtitle(for: $0))
+                },
+                showsRefresh: true
             )
-        }
-
-        if !hasCurrentLocation || !knownCourses.isEmpty || nearbyCourses.isEmpty {
-            let rows = knownCourses.map { courseRow($0) }
-            if !rows.isEmpty || visibleSearchMatches.isEmpty {
-                groups.append(
-                    WatchCourseGroupPresentation(
-                        title: hasCurrentLocation ? "已知球场" : "选择球场",
-                        rows: rows,
-                        showsRefresh: true
-                    )
-                )
-            }
-        }
-
-        return groups
+        ]
     }
 
     private func courseRow(
@@ -477,17 +462,11 @@ public struct WatchStartView: View {
     }
 
     private var filteredCourses: [WatchCourseOption] {
-        let query = trimmedSearchText
-        let matches = query.isEmpty ? courses : courses.filter { course in
-            [course.name, course.venueName, course.segmentLabel]
-                .compactMap { $0 }
-                .contains { $0.localizedCaseInsensitiveContains(query) }
-        }
         guard hasCurrentLocation,
               let currentLatitude,
-              let currentLongitude else { return matches }
+              let currentLongitude else { return [] }
         return WatchCourseProximity.ranked(
-            matches,
+            courses,
             fromLatitude: currentLatitude,
             longitude: currentLongitude
         )
@@ -511,17 +490,7 @@ public struct WatchStartView: View {
     }
 
     private var nearbyCourses: [WatchCourseOption] {
-        guard hasCurrentLocation else { return [] }
-        return filteredCourses.filter { course in
-            guard let distance = nearbyDistance(to: course) else { return false }
-            return WatchCourseProximity.isNearby(distanceM: distance)
-        }
-    }
-
-    private var knownCourses: [WatchCourseOption] {
-        guard hasCurrentLocation else { return filteredCourses }
-        let nearbyIds = Set(nearbyCourses.map(\.globalId))
-        return filteredCourses.filter { !nearbyIds.contains($0.globalId) }
+        hasCurrentLocation ? filteredCourses : []
     }
 
     private func nearbySubtitle(for course: WatchCourseOption) -> String? {
@@ -551,6 +520,20 @@ public struct WatchStartView: View {
         return (courses + searchMatches.compactMap(\.courseOption)).filter {
             seen.insert($0.globalId).inserted
         }
+    }
+
+    private var singleNearbyCourse: WatchCourseRowPresentation? {
+        guard hasCurrentLocation, nearbyCourses.count == 1,
+              let course = nearbyCourses.first else { return nil }
+        return courseRow(course, subtitle: nearbySubtitle(for: course))
+    }
+
+    private func openSingleNearbyCourseIfNeeded() {
+        guard setupDestination == nil,
+              !showingRemoteSearch,
+              preparingCourseId == nil,
+              let row = singleNearbyCourse else { return }
+        setupDestination = WatchCourseSetupDestination(row: row, ensureGeometry: false)
     }
 
     private func searchResultSubtitle(_ match: WatchCourseSearchMatch) -> String {

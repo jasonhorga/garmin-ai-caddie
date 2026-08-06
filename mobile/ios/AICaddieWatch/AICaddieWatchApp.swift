@@ -3,6 +3,12 @@ import WatchKit
 
 @main
 public struct AICaddieWatchApp: App {
+    private struct NearbyCourseDiscoveryKey: Equatable {
+        let config: WatchRoundConfig?
+        let latitudeBucket: Int?
+        let longitudeBucket: Int?
+    }
+
     @StateObject private var syncClient = WatchSyncClient()
     @StateObject private var roundModel = WatchRoundModel()
     @StateObject private var courseLibrary = WatchCourseLibrary()
@@ -102,17 +108,25 @@ public struct AICaddieWatchApp: App {
             } else {
                 WatchStartView(
                     phoneReachable: syncClient.phoneReachable,
-                    courses: courseLibrary.courses,
+                    courses: courseLibrary.nearbyCourses,
                     searchMatches: courseLibrary.searchMatches,
                     cachedCourseIds: courseLibrary.cachedCourseIds,
-                    isLoadingCourses: courseLibrary.isLoadingCourses,
+                    isLoadingCourses: courseLibrary.isLoadingNearby,
                     isSearchingCourses: courseLibrary.isSearchingCourses,
                     preparingCourseId: courseLibrary.preparingCourseId,
                     errorMessage: courseLibrary.errorMessage,
                     currentLatitude: watchLocation.latestFix?.coordinate.latitude,
                     currentLongitude: watchLocation.latestFix?.coordinate.longitude,
                     onRefresh: {
-                        Task { await courseLibrary.refresh(config: syncClient.config) }
+                        Task {
+                            if let fix = watchLocation.latestFix {
+                                await courseLibrary.refreshNearby(
+                                    latitude: fix.coordinate.latitude,
+                                    longitude: fix.coordinate.longitude,
+                                    config: syncClient.config
+                                )
+                            }
+                        }
                     },
                     onSearchAllCourses: { name in
                         Task {
@@ -153,9 +167,29 @@ public struct AICaddieWatchApp: App {
                 )
             }
         }
-        .task(id: syncClient.config) {
-            await courseLibrary.refresh(config: syncClient.config)
+        .task(id: nearbyCourseDiscoveryKey) {
+            guard let fix = watchLocation.latestFix else { return }
+            await courseLibrary.refreshNearby(
+                latitude: fix.coordinate.latitude,
+                longitude: fix.coordinate.longitude,
+                config: syncClient.config
+            )
         }
+    }
+
+    private var nearbyCourseDiscoveryKey: NearbyCourseDiscoveryKey {
+        guard let coordinate = watchLocation.latestFix?.coordinate else {
+            return NearbyCourseDiscoveryKey(
+                config: syncClient.config,
+                latitudeBucket: nil,
+                longitudeBucket: nil
+            )
+        }
+        return NearbyCourseDiscoveryKey(
+            config: syncClient.config,
+            latitudeBucket: Int((coordinate.latitude * 10_000).rounded()),
+            longitudeBucket: Int((coordinate.longitude * 10_000).rounded())
+        )
     }
 
     private func sendQuickInputEvent(_ event: WatchInputEvent) {
