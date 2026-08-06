@@ -165,7 +165,7 @@ final class DesignSnapshotTests: XCTestCase {
             HubInProgressCard(courseName: "北京丽宫 · 前九", activeHole: 8, recorded: 7, total: 9)
             HubPlayTile()
             HStack(spacing: 11) {
-                HubTile(icon: "scope", title: "备战", subtitle: "选场 · 球童试算")
+                HubTile(icon: "scope", title: "备战", subtitle: "搜索球场 · 球童试算")
                 HubTile(icon: "clock.arrow.circlepath", title: "历史复盘", subtitle: "逐洞落点")
                 HubTile(icon: "chart.bar.xaxis", title: "数据统计", subtitle: "均杆 · 趋势")
             }

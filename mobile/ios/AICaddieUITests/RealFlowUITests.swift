@@ -233,22 +233,36 @@ final class RealFlowUITests: XCTestCase {
         // READ-ONLY (GET /courses/{id}/prep) — shows real geometry F/M/B + caddie + hazards WITHOUT
         // starting a live round, so CI never writes a junk round into the owner's real history.
         launchFresh()
-        XCTAssertTrue(tapContaining(["备战", "选场 · 球童试算"]), "home must expose pre-round prep")
+        XCTAssertTrue(tapContaining(["备战", "搜索球场 · 球童试算"]), "home must expose pre-round prep")
         XCTAssertTrue(
-            app.navigationBars["选球场备战"].waitForExistence(timeout: 12),
-            "pre-round entry must navigate to the real course picker"
+            app.navigationBars["搜索备战球场"].waitForExistence(timeout: 12),
+            "pre-round entry must navigate directly to catalogue search"
         )
-        save("06-prep-course-picker"); dump("06-prep-course-picker")
+        XCTAssertFalse(
+            app.buttons["course-catalog-nearby-action"].exists,
+            "pre-round planning must not expose the on-course GPS nearby action"
+        )
+        save("06-prep-course-search"); dump("06-prep-course-search")
 
-        // Enter the same installed 北京丽宫 course used by the approved live journey. CourseReviewView
-        // itself is the per-hole review; no obsolete intermediate `逐洞攻略` button is required.
+        // Search for the same 北京丽宫 course used by the approved live journey. Selecting the
+        // provider result enters CourseReviewView directly; no nearby/history picker sits between.
+        let prepQuery = app.textFields["course-catalog-keyword-field"]
+        XCTAssertTrue(scrollTo(prepQuery, maxSwipes: 8))
+        prepQuery.tap()
+        prepQuery.typeText("北京丽宫")
+        let prepSearch = app.buttons["course-catalog-search-action"]
+        XCTAssertTrue(waitUntilEnabled(prepSearch, timeout: 5))
+        prepSearch.tap()
+        XCTAssertTrue(waitUntilGone(app.keyboards.firstMatch, timeout: 8))
+        let prepResult = app.buttons["course-catalog-result-\(approvedJourneyCourseGlobalId)"]
         XCTAssertTrue(
-            tapCourseSegment(globalId: approvedJourneyCourseGlobalId),
-            "course picker must expose the installed 北京丽宫 course used by the approved live flow"
+            scrollTo(prepResult, maxSwipes: 30),
+            "pre-round name search must return the approved 北京丽宫 course"
         )
+        prepResult.tap()
         XCTAssertTrue(
             app.navigationBars["赛前球场攻略"].waitForExistence(timeout: 20),
-            "installed course must navigate to its per-hole prep cards"
+            "selecting a pre-round search result must navigate directly to its per-hole prep cards"
         )
         let loading = app.staticTexts["加载中…"]
         _ = loading.waitForExistence(timeout: 5) // fast cache hits may finish before this appears
@@ -1228,17 +1242,6 @@ final class RealFlowUITests: XCTestCase {
             }
         }
         return false
-    }
-
-    /// Tap a course-segment row BUTTON (not the inner static text — that wouldn't fire the NavigationLink).
-    /// The visual journey is locked to 北京丽宫, so a changing catalogue order cannot silently switch
-    /// the evidence to a cold, unrelated course and block on generating a different topo bitmap.
-    @discardableResult
-    private func tapCourseSegment(globalId: Int) -> Bool {
-        let row = app.buttons["prep-course-row-\(globalId)"]
-        guard row.waitForExistence(timeout: 6), scrollTo(row, maxSwipes: 24) else { return false }
-        row.tap()
-        return true
     }
 
     /// Prefer the normal visible history row. When the five newest owner rows are CI-polluted rounds,
