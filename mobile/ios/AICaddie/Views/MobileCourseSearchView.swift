@@ -1,10 +1,19 @@
 import SwiftUI
 
+public enum MobileCourseSearchMode: Equatable {
+    /// On-course entry: GPS nearby first, with manual catalogue search as the fallback.
+    case nearbyAndName
+    /// Pre-round planning: the player already has a destination in mind, so search only.
+    case nameOnly
+}
+
 /// iPhone entry to Garmin's full CourseView catalogue. Search is deliberately explicit rather than
 /// firing on every keystroke; the result list is metadata-only and selecting a row does not install
 /// every match.
 public struct MobileCourseSearchView: View {
     @ObservedObject public var locationProvider: LocationProvider
+    public let mode: MobileCourseSearchMode
+    public let dismissAfterSelection: Bool
     public let installedGlobalIds: Set<Int>
     public let onSearch: (String) async throws -> [MobileCourseSearchMatch]
     public let onNearby: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
@@ -33,12 +42,16 @@ public struct MobileCourseSearchView: View {
 
     public init(
         locationProvider: LocationProvider,
+        mode: MobileCourseSearchMode = .nearbyAndName,
+        dismissAfterSelection: Bool = true,
         installedGlobalIds: Set<Int> = [],
         onSearch: @escaping (String) async throws -> [MobileCourseSearchMatch],
         onNearby: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
         onSelect: @escaping (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
     ) {
         self.locationProvider = locationProvider
+        self.mode = mode
+        self.dismissAfterSelection = dismissAfterSelection
         self.installedGlobalIds = installedGlobalIds
         self.onSearch = onSearch
         self.onNearby = onNearby
@@ -47,35 +60,37 @@ public struct MobileCourseSearchView: View {
 
     public var body: some View {
         List {
-            Section {
-                Picker("搜索范围", selection: $nearbyRadiusKm) {
-                    Text("50 km").tag(50)
-                    Text("100 km").tag(100)
-                    Text("200 km").tag(200)
-                }
-                .pickerStyle(.segmented)
-
-                Button {
-                    Task { await searchNearby() }
-                } label: {
-                    HStack(spacing: 8) {
-                        if activeSearch == .nearby {
-                            ProgressView()
-                        } else {
-                            Image(systemName: "location.fill")
-                        }
-                        Text(activeSearch == .nearby ? "正在查找" : "查找当前位置附近球场")
-                        Spacer()
+            if mode == .nearbyAndName {
+                Section {
+                    Picker("搜索范围", selection: $nearbyRadiusKm) {
+                        Text("50 km").tag(50)
+                        Text("100 km").tag(100)
+                        Text("200 km").tag(200)
                     }
+                    .pickerStyle(.segmented)
+
+                    Button {
+                        Task { await searchNearby() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if activeSearch == .nearby {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "location.fill")
+                            }
+                            Text(activeSearch == .nearby ? "正在查找" : "查找当前位置附近球场")
+                            Spacer()
+                        }
+                    }
+                    .disabled(!canSearchNearby)
+                    .accessibilityIdentifier("course-catalog-nearby-action")
+                } header: {
+                    Text("附近球场")
+                } footer: {
+                    Text(hasNearbyLocation
+                        ? "直接读取 Garmin 在所选半径内的完整球场目录，并按真实距离排序。"
+                        : "正在获取当前位置；你仍然可以先用下面的城市或球场名搜索。")
                 }
-                .disabled(!canSearchNearby)
-                .accessibilityIdentifier("course-catalog-nearby-action")
-            } header: {
-                Text("附近球场")
-            } footer: {
-                Text(hasNearbyLocation
-                    ? "直接读取 Garmin 在所选半径内的完整球场目录，并按真实距离排序。"
-                    : "正在获取当前位置；你仍然可以先用下面的城市或球场名搜索。")
             }
 
             Section {
@@ -138,7 +153,9 @@ public struct MobileCourseSearchView: View {
                         Button {
                             guard match.courseOption != nil else { return }
                             onSelect(match, matches)
-                            dismiss()
+                            if dismissAfterSelection {
+                                dismiss()
+                            }
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: match.courseOption == nil ? "exclamationmark.triangle" : "flag.fill")
@@ -173,7 +190,7 @@ public struct MobileCourseSearchView: View {
                 }
             }
         }
-        .navigationTitle("找球场")
+        .navigationTitle(mode == .nameOnly ? "搜索备战球场" : "找球场")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

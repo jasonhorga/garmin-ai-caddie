@@ -325,10 +325,10 @@ public struct RoundHomeView: View {
         HStack(spacing: 11) {
             if let apiBaseURL {
                 NavigationLink {
-                    // 备战先选球场,而不是锁死在当前球场。
+                    // 备战者已有目的地：直接名称搜索，不走现场 GPS 选场。
                     PrepCoursePickerView(courseOptions: courseOptions, apiBaseURL: apiBaseURL, adminToken: adminToken)
                 } label: {
-                    HubTile(icon: "scope", title: "备战", subtitle: "选场 · 球童试算")
+                    HubTile(icon: "scope", title: "备战", subtitle: "搜索球场 · 球童试算")
                 }
                 .buttonStyle(.plain)
             }

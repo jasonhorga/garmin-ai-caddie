@@ -2045,24 +2045,32 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("CaddieDecisionClient(baseURL:", current_hole)
         self.assertIn("MediaUploadClient(baseURL:", current_hole)
 
-    def test_ios_prep_picks_course_before_review(self) -> None:
+    def test_ios_prep_searches_directly_before_review(self) -> None:
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
         prep_picker = _read_required_source(self, IOS_DIR / "Views" / "PrepCoursePickerView.swift")
+        course_search = _read_required_source(self, IOS_DIR / "Views" / "MobileCourseSearchView.swift")
 
-        # 备战先选球场(PrepCoursePickerView)再进赛前攻略,而不是锁死在当前球场。
+        # 备战者已经知道目的地：入口直接名称/城市搜索，选中后进攻略；不能复用现场
+        # “开始一场”的 GPS 附近列表，也不能把历史球场重新列出来。
         self.assertIn('title: "备战"', round_home)
+        self.assertIn('subtitle: "搜索球场 · 球童试算"', round_home)
         self.assertIn("PrepCoursePickerView(courseOptions: courseOptions", round_home)
         self.assertIn("struct PrepCoursePickerView", prep_picker)
-        self.assertIn("nearbyCourseOptions + remoteCourseOptions", prep_picker)
-        self.assertNotIn("return (courseOptions + remoteCourseOptions)", prep_picker)
-        self.assertIn("await discoverNearbyCourses()", prep_picker)
-        self.assertIn("radiusKm: 50", prep_picker)
         self.assertIn("MobileCourseSearchView(", prep_picker)
+        self.assertIn("mode: .nameOnly", prep_picker)
+        self.assertIn("dismissAfterSelection: false", prep_picker)
+        self.assertIn("if mode == .nearbyAndName", course_search)
+        self.assertIn('mode == .nameOnly ? "搜索备战球场" : "找球场"', course_search)
         self.assertIn("installedGlobalIds: Set(courseOptions.map(\\.globalId))", prep_picker)
-        self.assertIn("onNearby: nearbyCourses", prep_picker)
+        self.assertIn("onNearby: { _, _, _ in [] }", prep_picker)
+        self.assertNotIn("requestAuthorization()", prep_picker)
+        self.assertNotIn("startUpdatingLocation()", prep_picker)
+        self.assertNotIn("discoverNearbyCourses", prep_picker)
+        self.assertIn(".navigationDestination(isPresented: selectedCoursePresented)", prep_picker)
         self.assertIn("CourseReviewView(", prep_picker)
         self.assertIn("client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken)", prep_picker)
-        self.assertIn("globalId: segment.globalId", prep_picker)
+        self.assertIn("globalId: course.globalId", prep_picker)
+        self.assertIn("holeCount: course.resolvedHoles", prep_picker)
 
     def test_ios_course_review_product_copy_and_route_yardage_contract(self) -> None:
         course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
