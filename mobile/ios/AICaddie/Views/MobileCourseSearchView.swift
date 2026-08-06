@@ -193,8 +193,10 @@ public struct MobileCourseSearchView: View {
         .navigationTitle(mode == .nameOnly ? "搜索备战球场" : "找球场")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("取消") { dismiss() }
+            if mode == .nearbyAndName {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
             }
         }
     }
