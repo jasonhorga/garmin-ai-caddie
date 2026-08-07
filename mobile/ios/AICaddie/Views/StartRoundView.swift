@@ -266,7 +266,7 @@ public struct StartRoundView: View {
                         .foregroundStyle(.secondary)
                     } else {
                         Label(
-                            nearbyStatusText ?? "等待 GPS 定位；也可以直接按城市或球场名搜索。",
+                            effectiveNearbyStatusText,
                             systemImage: "location"
                         )
                         .font(.subheadline)
@@ -381,6 +381,7 @@ public struct StartRoundView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("start-round-course-segment-\(segment.globalId)")
         .accessibilityValue(selected ? "已选择" : "未选择")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func segmentTitle(_ segment: MobileCourseOption) -> String {
@@ -639,6 +640,18 @@ public struct StartRoundView: View {
         return "\(Int((coordinate.latitude * 10_000).rounded())):\(Int((coordinate.longitude * 10_000).rounded()))"
     }
 
+    /// Permission denial is a synchronous product state, not a network result. Derive its copy
+    /// directly from the provider so the player never sees a transient "waiting for GPS" message
+    /// while Core Location has already denied/restricted access. The async discovery task still
+    /// owns empty-result and transport-error copy for authorized fixes.
+    private var effectiveNearbyStatusText: String {
+        if locationProvider.authorizationStatus == .denied
+            || locationProvider.authorizationStatus == .restricted {
+            return "定位权限未开启；可以直接按城市或球场名搜索。"
+        }
+        return nearbyStatusText ?? "等待 GPS 定位；也可以直接按城市或球场名搜索。"
+    }
+
     @MainActor
     private func discoverNearbyCourses() async {
         guard let fix = locationProvider.latestFix else {
@@ -690,13 +703,16 @@ public struct StartRoundView: View {
         guard let known = courseOptions.first(where: { $0.globalId == match.globalId }) else {
             return provider
         }
-        // Catalogue coordinates/name remain authoritative for a nearby result, while an installed
-        // row contributes its cached package, tee and history metadata. Preferring the old row
-        // wholesale can discard the GPS coordinates and break nearest-first ordering.
+        // Catalogue coordinates remain authoritative for a nearby result, while an installed row
+        // keeps the player's established display name and loop labels. Garmin can return an English
+        // provider alias for the same globalId (for example Shadow Creek for the locally known
+        // 北京丽宫); replacing the installed name made 开始一场 disagree with history, prep and the
+        // downloaded package. Do not prefer the old row wholesale, because that can still discard
+        // fresh catalogue coordinates and break nearest-first ordering.
         return MobileCourseOption(
             globalId: provider.globalId,
             courseKey: known.courseKey,
-            name: provider.name,
+            name: known.name,
             roundCount: known.roundCount,
             latestRoundId: known.latestRoundId,
             latestRoundDate: known.latestRoundDate,
@@ -706,9 +722,9 @@ public struct StartRoundView: View {
             teeBox: known.teeBox,
             geometryCoverage: known.geometryCoverage,
             sourceRefs: known.sourceRefs,
-            venueName: provider.venueName ?? known.venueName,
-            segmentLabel: provider.segmentLabel ?? known.segmentLabel,
-            segmentHoles: provider.segmentHoles ?? known.segmentHoles,
+            venueName: known.venueName ?? provider.venueName,
+            segmentLabel: known.segmentLabel ?? provider.segmentLabel,
+            segmentHoles: known.segmentHoles ?? provider.segmentHoles,
             latitude: provider.latitude ?? known.latitude,
             longitude: provider.longitude ?? known.longitude,
             tees: known.tees

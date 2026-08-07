@@ -49,9 +49,15 @@ final class TeeSelectionUITests: XCTestCase {
             return
         }
         palace.tap()
+        let becameSelected = waitForValue("已选择", on: palace, timeout: 8)
+        save("02b-start-round-selected"); dump("02b-start-round-selected")
         XCTAssertTrue(
-            waitForValue("已选择", on: palace, timeout: 8),
+            becameSelected,
             "the explicit nearby-course choice must become the active segment"
+        )
+        XCTAssertTrue(
+            waitUntilEnabled(app.buttons["start-round-primary-action"], timeout: 90),
+            "the selected nearby course must load its Tee authority and become startable"
         )
         XCTAssertTrue(
             app.staticTexts["选择全场开始 18 洞球局。"].waitForExistence(timeout: 5),
@@ -83,6 +89,8 @@ final class TeeSelectionUITests: XCTestCase {
             XCTFail("the home must keep the new-round entry available when GPS is denied")
             return
         }
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        save("denied-01-start-round"); dump("denied-01-start-round")
         XCTAssertTrue(
             app.staticTexts["定位权限未开启；可以直接按城市或球场名搜索。"]
                 .waitForExistence(timeout: 12),
