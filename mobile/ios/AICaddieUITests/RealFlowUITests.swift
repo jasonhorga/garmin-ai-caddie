@@ -1132,6 +1132,18 @@ final class RealFlowUITests: XCTestCase {
                 "hole \(hole) \(identifier) must settle to a real whole-yard range"
             )
         }
+        let topoReady = app.descendants(matching: .any)
+            .matching(identifier: "topo-hole-base-ready").firstMatch
+        XCTAssertTrue(
+            topoReady.waitForExistence(timeout: 90),
+            "hole \(hole) must finish its precise topo instead of treating a fallback map as complete"
+        )
+        let topoLoading = app.descendants(matching: .any)
+            .matching(identifier: "topo-hole-base-loading").firstMatch
+        XCTAssertTrue(
+            waitUntilGone(topoLoading, timeout: 5),
+            "hole \(hole) must not retain the topo loading overlay in its runtime evidence"
+        )
         let loading = app.activityIndicators["正在更新球童建议"]
         _ = loading.waitForExistence(timeout: 1)
         XCTAssertTrue(
