@@ -241,6 +241,17 @@ private enum LiveRoundFinishError: Error {
     case incompleteAcknowledgement
 }
 
+private struct OfflineTopoDownloadResult: Sendable {
+    let globalId: Int
+    let localHole: Int
+    let data: Data?
+    let errorDescription: String?
+}
+
+private struct OfflineTopoDownloadClient: @unchecked Sendable {
+    let value: SyncClient
+}
+
 @MainActor
 public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var package: LiveRoundPackage?
@@ -635,9 +646,13 @@ public final class LiveRoundAppModel: ObservableObject {
     /// After a fresh round is prepared, point the UI at its first hole so it enters the live screen.
     private func signalFreshRoundEntry(cacheOfflineAssets: Bool = false) {
         pendingLiveHole = liveRoundState?.activeHole ?? package?.holes.first?.number
-        prewarmRoundTopo()
         if cacheOfflineAssets {
+            // This pipeline downloads every topo itself. Running the server-wide prewarmer at the
+            // same time makes both jobs parse/render the same 18 holes and, on a four-core server,
+            // more than doubles the time before the course is actually available offline.
             beginOfflineCourseDownload()
+        } else {
+            prewarmRoundTopo()
         }
     }
 
@@ -682,6 +697,66 @@ public final class LiveRoundAppModel: ObservableObject {
         "\(globalId):\(localHole)"
     }
 
+    private func offlinePrepNeedsRefresh(_ prep: CoursePrepHole?) -> Bool {
+        prep?.resolvedMapOverlay == nil
+    }
+
+    /// Fetch topo PNGs with a small concurrency window. A real 18-hole download used to request
+    /// them strictly one-by-one; over the public funnel that added more than 100 seconds after the
+    /// course facts were ready. Four in flight keeps the phone/server/network busy without creating
+    /// an unbounded request burst. Each result is saved serially by the MainActor caller.
+    private func fetchOfflineTopoImages(
+        _ holes: [(globalId: Int, localHole: Int)],
+        using syncClient: SyncClient,
+        maximumConcurrentRequests: Int = 4
+    ) async -> [OfflineTopoDownloadResult] {
+        guard !holes.isEmpty else { return [] }
+        let client = OfflineTopoDownloadClient(value: syncClient)
+        let limit = max(1, min(maximumConcurrentRequests, holes.count))
+        return await withTaskGroup(
+            of: OfflineTopoDownloadResult.self,
+            returning: [OfflineTopoDownloadResult].self
+        ) { group in
+            var iterator = holes.makeIterator()
+            var results: [OfflineTopoDownloadResult] = []
+            results.reserveCapacity(holes.count)
+            let fetch: @Sendable ((globalId: Int, localHole: Int)) async -> OfflineTopoDownloadResult = { hole in
+                do {
+                    let data = try await client.value.fetchTopoImage(
+                        globalId: hole.globalId,
+                        localHole: hole.localHole
+                    )
+                    return OfflineTopoDownloadResult(
+                        globalId: hole.globalId,
+                        localHole: hole.localHole,
+                        data: data,
+                        errorDescription: nil
+                    )
+                } catch {
+                    return OfflineTopoDownloadResult(
+                        globalId: hole.globalId,
+                        localHole: hole.localHole,
+                        data: nil,
+                        errorDescription: String(describing: error)
+                    )
+                }
+            }
+
+            for _ in 0..<limit {
+                if let hole = iterator.next() {
+                    group.addTask { await fetch(hole) }
+                }
+            }
+            while let result = await group.next() {
+                results.append(result)
+                if !Task.isCancelled, let hole = iterator.next() {
+                    group.addTask { await fetch(hole) }
+                }
+            }
+            return results
+        }
+    }
+
     private func downloadOfflineCourseAssets(
         for snapshot: LiveRoundPackage,
         using syncClient: SyncClient
@@ -715,10 +790,9 @@ public final class LiveRoundAppModel: ObservableObject {
                     $0.sourceLocalHole ?? $0.number
                 })).sorted()
                 let requested = localHoles.filter { localHole in
-                    guard let prep = prepBySource[
+                    offlinePrepNeedsRefresh(prepBySource[
                         offlinePrepKey(globalId: globalId, localHole: localHole)
-                    ] else { return true }
-                    return prep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+                    ])
                 }
                 guard !requested.isEmpty else { continue }
                 do {
@@ -736,10 +810,9 @@ public final class LiveRoundAppModel: ObservableObject {
                     )
                 }
                 shouldRetry = shouldRetry || requested.contains { localHole in
-                    guard let prep = prepBySource[
+                    offlinePrepNeedsRefresh(prepBySource[
                         offlinePrepKey(globalId: globalId, localHole: localHole)
-                    ] else { return true }
-                    return prep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+                    ])
                 }
             }
             guard shouldRetry, attempt < retryDelays.count else { break }
@@ -769,31 +842,55 @@ public final class LiveRoundAppModel: ObservableObject {
                 )]
         ))
 
-        for roundHole in snapshot.holes {
+        let topoRetryDelays: [UInt64] = [5, 10, 20]
+        for attempt in 0...topoRetryDelays.count {
             guard !Task.isCancelled else { return }
-            let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
-            let localHole = roundHole.sourceLocalHole ?? roundHole.number
-            let prep = prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]
-            guard prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
-                  offlineStore.loadCourseTopoImageURL(
-                      globalId: globalId,
-                      localHole: localHole
-                  ) == nil else { continue }
+            let missingTopoHoles = snapshot.holes.compactMap { roundHole -> (globalId: Int, localHole: Int)? in
+                let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
+                let localHole = roundHole.sourceLocalHole ?? roundHole.number
+                let prep = prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]
+                guard prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+                      offlineStore.loadCourseTopoImageURL(
+                          globalId: globalId,
+                          localHole: localHole
+                      ) == nil else { return nil }
+                return (globalId, localHole)
+            }
+            guard !missingTopoHoles.isEmpty else { break }
+
+            let downloads = await fetchOfflineTopoImages(missingTopoHoles, using: syncClient)
+            guard !Task.isCancelled else { return }
+            for download in downloads {
+                guard let data = download.data else {
+                    AICaddieLog.network.error(
+                        "Offline topo download failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(download.errorDescription ?? \"unknown error\", privacy: .public)"
+                    )
+                    continue
+                }
+                do {
+                    _ = try offlineStore.saveCourseTopoImage(
+                        data,
+                        globalId: download.globalId,
+                        localHole: download.localHole
+                    )
+                } catch {
+                    AICaddieLog.storage.error(
+                        "Offline topo cache save failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(String(describing: error), privacy: .public)"
+                    )
+                }
+            }
+
+            let stillMissing = missingTopoHoles.contains { hole in
+                offlineStore.loadCourseTopoImageURL(
+                    globalId: hole.globalId,
+                    localHole: hole.localHole
+                ) == nil
+            }
+            guard stillMissing, attempt < topoRetryDelays.count else { break }
             do {
-                let data = try await syncClient.fetchTopoImage(
-                    globalId: globalId,
-                    localHole: localHole
-                )
-                guard !Task.isCancelled else { return }
-                _ = try offlineStore.saveCourseTopoImage(
-                    data,
-                    globalId: globalId,
-                    localHole: localHole
-                )
+                try await Task.sleep(nanoseconds: topoRetryDelays[attempt] * 1_000_000_000)
             } catch {
-                AICaddieLog.network.error(
-                    "Offline topo download failed for \(globalId, privacy: .public)/\(localHole, privacy: .public): \(String(describing: error), privacy: .public)"
-                )
+                return
             }
         }
 

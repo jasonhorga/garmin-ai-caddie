@@ -313,8 +313,15 @@ final class TeeSelectionUITests: XCTestCase {
         onlineStart.tap()
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 90))
         let cacheReady = app.descendants(matching: .any)["live-hole-offline-course-ready"]
+        let becameReady = cacheReady.waitForExistence(timeout: 240)
+        if !becameReady {
+            // Preserve the actual screen and accessibility state before XCTest aborts this method.
+            // A failed cache gate must be diagnosable without guessing or merely extending timeouts.
+            save("offline-cache-01-timeout")
+            dump("offline-cache-01-timeout")
+        }
         XCTAssertTrue(
-            cacheReady.waitForExistence(timeout: 240),
+            becameReady,
             "the selected course must retain every drawable hole and available topo before offline acceptance"
         )
         save("offline-cache-01-online-ready"); dump("offline-cache-01-online-ready")

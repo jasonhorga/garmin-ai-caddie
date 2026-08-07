@@ -263,8 +263,13 @@ final class LiveRoundAppModelTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
+        let requestLock = NSLock()
+        var requestedPaths: [String] = []
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
+            requestLock.lock()
+            requestedPaths.append(url.path)
+            requestLock.unlock()
             let body: Data
             let contentType: String
             switch url.path {
@@ -324,6 +329,18 @@ final class LiveRoundAppModelTests: XCTestCase {
             teeBox: online.course.teeBox,
             nine: online.nine ?? "all"
         )?.coursePrep)
+        requestLock.lock()
+        let paths = requestedPaths
+        requestLock.unlock()
+        XCTAssertFalse(
+            paths.contains("/api/v2/courses/\(online.course.globalId)/topo/prewarm"),
+            "the complete offline download must not compete with a duplicate server-wide prewarm"
+        )
+        XCTAssertEqual(
+            paths.filter { $0.hasSuffix("/topo.png") }.count,
+            online.holes.count,
+            "every drawable hole must be fetched exactly once on the successful path"
+        )
     }
 
     func testFinishActiveRoundAcknowledgesEventsBeforeFinishAndOnlyThenClearsLocalRound() async throws {
