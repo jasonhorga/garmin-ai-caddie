@@ -84,19 +84,19 @@ public enum WatchCourseTemplateBuilder {
                 landingM: prep?.landingM
             )
 
-            let imageData: Data?
+            let resolvedImageData: Data?
             if let data = topoImagesByGlobalId[globalId]?[localHole],
                WatchHoleImageStore.isValidImageData(data) {
-                imageData = data
+                resolvedImageData = data
             } else if let image = prep?.map?.image,
                       let data = imageData(from: image),
                       WatchHoleImageStore.isValidImageData(data) {
-                imageData = data
+                resolvedImageData = data
             } else {
-                imageData = nil
+                resolvedImageData = nil
             }
-            if let imageData {
-                images.append(WatchCourseImage(globalId: globalId, hole: hole.number, data: imageData))
+            if let resolvedImageData {
+                images.append(WatchCourseImage(globalId: globalId, hole: hole.number, data: resolvedImageData))
             }
 
             let reportedCoverage = prep?.geometryCoverage ?? hole.geometryCoverage
@@ -104,7 +104,7 @@ public enum WatchCourseTemplateBuilder {
             // but it is not a completed offline download. Keep it partial so the background upgrader
             // continues asking for the real topo instead of permanently accepting an empty map.
             let effectiveCoverage = reportedCoverage?.caseInsensitiveCompare("ready") == .orderedSame
-                && imageData == nil
+                && resolvedImageData == nil
                 ? "partial"
                 : reportedCoverage
 
