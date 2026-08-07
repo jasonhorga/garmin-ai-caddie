@@ -435,6 +435,27 @@ public final class SyncClient {
         return prep.holes.first { $0.hole == localHole } ?? prep.holes.first
     }
 
+    /// Download one public realistic-topo PNG through the client's injected URLSession so offline
+    /// asset caching is deterministic in tests and shares the normal transport/cancellation rules.
+    public func fetchTopoImage(globalId: Int, localHole: Int) async throws -> Data {
+        guard let url = Self.topoImageURL(
+            baseURL: baseURL,
+            globalId: globalId,
+            localHole: localHole
+        ) else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        guard data.starts(with: pngSignature) else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        return data
+    }
+
     public func postEventBatch(
         _ events: [LiveRoundEvent],
         roundId: String,

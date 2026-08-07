@@ -26,6 +26,7 @@ public struct RoundHomeView: View {
     public let watchBridge: WatchEventBridge?
     public let liveRoundState: LiveRoundStateSnapshot?
     public let courseOptions: [MobileCourseOption]
+    public let downloadedCourseOptions: [MobileCourseOption]
     public let startingNine: String?
     public let isPreparingRound: Bool
     public let isFinishingRound: Bool
@@ -66,6 +67,7 @@ public struct RoundHomeView: View {
         watchBridge: WatchEventBridge? = nil,
         liveRoundState: LiveRoundStateSnapshot? = nil,
         courseOptions: [MobileCourseOption] = [],
+        downloadedCourseOptions: [MobileCourseOption] = [],
         startingNine: String? = nil,
         isPreparingRound: Bool = false,
         isFinishingRound: Bool = false,
@@ -98,6 +100,7 @@ public struct RoundHomeView: View {
         self.watchBridge = watchBridge
         self.liveRoundState = liveRoundState
         self.courseOptions = courseOptions
+        self.downloadedCourseOptions = downloadedCourseOptions
         self.startingNine = startingNine
         self.isPreparingRound = isPreparingRound
         self.isFinishingRound = isFinishingRound
@@ -265,6 +268,7 @@ public struct RoundHomeView: View {
     private var startRoundView: some View {
         StartRoundView(
             courseOptions: courseOptions,
+            downloadedCourseOptions: downloadedCourseOptions,
             syncStatus: syncStatus,
             isPreparing: isPreparingRound,
             apiBaseURL: apiBaseURL,
@@ -326,7 +330,12 @@ public struct RoundHomeView: View {
             if let apiBaseURL {
                 NavigationLink {
                     // 备战者已有目的地：直接名称搜索，不走现场 GPS 选场。
-                    PrepCoursePickerView(courseOptions: courseOptions, apiBaseURL: apiBaseURL, adminToken: adminToken)
+                    PrepCoursePickerView(
+                        courseOptions: courseOptions,
+                        downloadedCourseOptions: downloadedCourseOptions,
+                        apiBaseURL: apiBaseURL,
+                        adminToken: adminToken
+                    )
                 } label: {
                     HubTile(icon: "scope", title: "备战", subtitle: "搜索球场 · 球童试算")
                 }

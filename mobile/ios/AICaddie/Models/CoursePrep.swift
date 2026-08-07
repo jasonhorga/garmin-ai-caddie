@@ -352,6 +352,52 @@ public struct CoursePrepHole: Codable, Equatable {
         case teeClub = "tee_club"
     }
 
+    public init(
+        hole: Int,
+        par: Int,
+        parSource: String,
+        blueYards: Int,
+        routeLenM: Double,
+        route: [[Double]] = [],
+        geometryCoverage: String = "missing",
+        sourceRefs: [String] = [],
+        missingData: [CoursePrepMissingData] = [],
+        candidateRoutes: [CoursePrepCandidateRoute] = [],
+        carryTargets: [CoursePrepCarryTarget] = [],
+        steps: [CoursePrepStep] = [],
+        cautions: [String] = [],
+        landingM: Double? = nil,
+        teeClub: String? = nil,
+        hazards: CoursePrepHazards = CoursePrepHazards(),
+        map: CoursePrepMap? = nil,
+        greenDistances: CoursePrepGreenDistances? = nil,
+        playsLike: CoursePrepPlaysLike? = nil,
+        holeImageProjection: CoursePrepHoleImageProjection? = nil,
+        greenOutline: CoursePrepGreenOutline? = nil
+    ) {
+        self.hole = hole
+        self.par = par
+        self.parSource = parSource
+        self.blueYards = blueYards
+        self.routeLenM = routeLenM
+        self.route = route
+        self.geometryCoverage = geometryCoverage
+        self.sourceRefs = sourceRefs
+        self.missingData = missingData
+        self.candidateRoutes = candidateRoutes
+        self.carryTargets = carryTargets
+        self.steps = steps
+        self.cautions = cautions
+        self.landingM = landingM
+        self.teeClub = teeClub
+        self.hazards = hazards
+        self.map = map
+        self.greenDistances = greenDistances
+        self.playsLike = playsLike
+        self.holeImageProjection = holeImageProjection
+        self.greenOutline = greenOutline
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.hole = try container.decode(Int.self, forKey: .hole)
@@ -442,6 +488,34 @@ public struct CoursePrepHole: Codable, Equatable {
             ppm: ppm,
             ln: length,
             route: projectedRoute
+        )
+    }
+
+    /// Composite rounds renumber the second CourseView loop from local holes 1...9 to round holes
+    /// 10...18. Retain every factual prep field while moving only that display/event identity.
+    public func renumbered(to roundHole: Int) -> CoursePrepHole {
+        CoursePrepHole(
+            hole: roundHole,
+            par: par,
+            parSource: parSource,
+            blueYards: blueYards,
+            routeLenM: routeLenM,
+            route: route,
+            geometryCoverage: geometryCoverage,
+            sourceRefs: sourceRefs,
+            missingData: missingData,
+            candidateRoutes: candidateRoutes,
+            carryTargets: carryTargets,
+            steps: steps,
+            cautions: cautions,
+            landingM: landingM,
+            teeClub: teeClub,
+            hazards: hazards,
+            map: map,
+            greenDistances: greenDistances,
+            playsLike: playsLike,
+            holeImageProjection: holeImageProjection,
+            greenOutline: greenOutline
         )
     }
 }

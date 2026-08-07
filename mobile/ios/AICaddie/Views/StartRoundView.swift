@@ -6,6 +6,7 @@ import SwiftUI
 public struct StartRoundView: View {
     public let defaultRoundId: String
     public let courseOptions: [MobileCourseOption]
+    public let downloadedCourseOptions: [MobileCourseOption]
     public let syncStatus: String
     public let isPreparing: Bool
     public let apiBaseURL: URL?
@@ -50,6 +51,7 @@ public struct StartRoundView: View {
         defaultCourseGlobalId: Int? = nil,
         defaultTeeBox: String = "unknown",
         courseOptions: [MobileCourseOption] = [],
+        downloadedCourseOptions: [MobileCourseOption] = [],
         syncStatus: String = "Offline ready",
         isPreparing: Bool = false,
         apiBaseURL: URL? = nil,
@@ -66,6 +68,7 @@ public struct StartRoundView: View {
     ) {
         self.defaultRoundId = defaultRoundId
         self.courseOptions = courseOptions
+        self.downloadedCourseOptions = downloadedCourseOptions
         self.syncStatus = syncStatus
         self.isPreparing = isPreparing
         self.apiBaseURL = apiBaseURL
@@ -82,7 +85,9 @@ public struct StartRoundView: View {
         // An explicit caller selection may be retained, but history alone is not a course picker.
         // Normal new-round entry waits for Garmin's nearby catalogue, matching S70 behaviour.
         let resolvedCourseId = defaultCourseGlobalId.map(String.init) ?? ""
-        let selected = courseOptions.first { String($0.globalId) == resolvedCourseId }
+        let selected = (courseOptions + downloadedCourseOptions).first {
+            String($0.globalId) == resolvedCourseId
+        }
         self._courseGlobalIdText = State(initialValue: resolvedCourseId)
         self._roundId = State(initialValue: selected?.suggestedLiveRoundId ?? defaultRoundId)
         // Default to the course's real tee (prefer Blue/White), else the given/played tee.
@@ -143,7 +148,7 @@ public struct StartRoundView: View {
             NavigationStack {
                 MobileCourseSearchView(
                     locationProvider: locationProvider,
-                    installedGlobalIds: Set(courseOptions.map(\.globalId)),
+                    installedGlobalIds: Set(downloadedCourseOptions.map(\.globalId)),
                     onSearch: { query in
                         let coordinate = locationProvider.latestFix?.coordinate
                         return try await onSearchCourses(
@@ -645,12 +650,14 @@ public struct StartRoundView: View {
 
     private var courseLookupOptions: [MobileCourseOption] {
         var seen = Set<Int>()
-        return (availableCourseOptions + courseOptions).filter { seen.insert($0.globalId).inserted }
+        return (availableCourseOptions + courseOptions + downloadedCourseOptions)
+            .filter { seen.insert($0.globalId).inserted }
     }
 
     private var selectedCourseRequiresRemoteTees: Bool {
         guard let courseGlobalId else { return false }
         return !courseOptions.contains { $0.globalId == courseGlobalId }
+            && !downloadedCourseOptions.contains { $0.globalId == courseGlobalId }
     }
 
     private func selectSearchResult(
@@ -708,7 +715,7 @@ public struct StartRoundView: View {
             return
         }
         let localNearby = Self.locallyAvailableNearbyCourses(
-            courseOptions,
+            downloadedCourseOptions,
             latitude: fix.coordinate.latitude,
             longitude: fix.coordinate.longitude,
             radiusKm: 50
@@ -758,7 +765,8 @@ public struct StartRoundView: View {
 
     private func resolvedOption(for match: MobileCourseSearchMatch) -> MobileCourseOption? {
         guard let provider = match.courseOption else { return nil }
-        guard let known = courseOptions.first(where: { $0.globalId == match.globalId }) else {
+        let knownOptions = courseOptions + downloadedCourseOptions
+        guard let known = knownOptions.first(where: { $0.globalId == match.globalId }) else {
             return provider
         }
         // Catalogue coordinates remain authoritative for a nearby result, while an installed row

@@ -556,6 +556,8 @@ public final class OfflineStore {
     private let directoryURL: URL
     private let logURL: URL
     private let packagesDirectoryURL: URL
+    private let courseTemplatesDirectoryURL: URL
+    private let courseTopoDirectoryURL: URL
     private let currentPackageURL: URL
     private let homePackageURL: URL
     private let liveProgressURL: URL
@@ -631,6 +633,14 @@ public final class OfflineStore {
             "packages",
             isDirectory: true
         )
+        self.courseTemplatesDirectoryURL = resolvedDirectory.appendingPathComponent(
+            "course_templates",
+            isDirectory: true
+        )
+        self.courseTopoDirectoryURL = resolvedDirectory.appendingPathComponent(
+            "course_topo",
+            isDirectory: true
+        )
         self.currentPackageURL = resolvedDirectory.appendingPathComponent("current_package.json")
         self.homePackageURL = resolvedDirectory.appendingPathComponent("home_package.json")
         self.liveProgressURL = resolvedDirectory.appendingPathComponent("live_progress.json")
@@ -665,6 +675,7 @@ public final class OfflineStore {
         let encoded = try encoder.encode(package)
         try encoded.write(to: packageURL(roundId: package.roundId), options: [.atomic])
         try encoded.write(to: currentPackageURL, options: [.atomic])
+        try saveCourseTemplate(package)
         AICaddieLog.storage.debug("Saved round package \(package.roundId, privacy: .public) (\(package.holes.count, privacy: .public) holes)")
     }
 
@@ -731,6 +742,7 @@ public final class OfflineStore {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let encoded = try encoder.encode(package)
         try encoded.write(to: homePackageURL, options: [.atomic])
+        try saveCourseTemplate(package)
     }
 
     public func loadHomePackage() throws -> LiveRoundPackage? {
@@ -738,6 +750,173 @@ public final class OfflineStore {
             return nil
         }
         return try decoder.decode(LiveRoundPackage.self, from: Data(contentsOf: homePackageURL))
+    }
+
+    /// Preserve one immutable package per factual course/Tee/hole-set signature after a round ends.
+    /// Events are not stored here. A future offline start rebases this template to a new roundId.
+    public func saveCourseTemplate(_ package: LiveRoundPackage) throws {
+        guard package.course.globalId > 0,
+              package.dataMode != "fixture",
+              !package.holes.isEmpty else { return }
+        try FileManager.default.createDirectory(
+            at: courseTemplatesDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let url = courseTemplateURL(package)
+        if FileManager.default.fileExists(atPath: url.path),
+           let data = try? Data(contentsOf: url),
+           let existing = try? decoder.decode(LiveRoundPackage.self, from: data),
+           !Self.shouldReplaceCourseTemplate(existing, with: package) {
+            return
+        }
+        try encoder.encode(package).write(to: url, options: [.atomic])
+    }
+
+    public func loadCourseTemplates() throws -> [LiveRoundPackage] {
+        guard FileManager.default.fileExists(atPath: courseTemplatesDirectoryURL.path) else {
+            return []
+        }
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey]
+        let urls = try FileManager.default.contentsOfDirectory(
+            at: courseTemplatesDirectoryURL,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        )
+        return urls.compactMap { url in
+            guard url.pathExtension.lowercased() == "json",
+                  let values = try? url.resourceValues(forKeys: keys),
+                  values.isRegularFile == true,
+                  values.isSymbolicLink != true,
+                  let data = try? Data(contentsOf: url),
+                  let package = try? decoder.decode(LiveRoundPackage.self, from: data),
+                  package.course.globalId > 0,
+                  package.dataMode != "fixture" else {
+                return nil
+            }
+            return package
+        }
+    }
+
+    public func loadCourseTemplate(
+        globalId: Int,
+        teeBox: String,
+        nine: String
+    ) throws -> LiveRoundPackage? {
+        let requestedTee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let requestedNine = nine.isEmpty ? "all" : nine.lowercased()
+        return try loadCourseTemplates()
+            .filter { package in
+                let packageNine = (package.nine ?? "all").lowercased()
+                let sourceGlobalIds = Set(package.holes.map {
+                    $0.sourceGlobalId ?? package.course.globalId
+                })
+                return package.course.globalId == globalId
+                    && sourceGlobalIds == Set([globalId])
+                    && package.course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == requestedTee
+                    && packageNine == requestedNine
+            }
+            .sorted { lhs, rhs in
+                if lhs.geometryCoverage.state != rhs.geometryCoverage.state {
+                    return lhs.geometryCoverage.state == .ready
+                }
+                return lhs.generatedAt > rhs.generatedAt
+            }
+            .first
+    }
+
+    /// Persist a validated topo bitmap independently from the round identity. CourseView globalId +
+    /// local hole are the factual asset key, so the same image is reusable by every later round.
+    @discardableResult
+    public func saveCourseTopoImage(
+        _ data: Data,
+        globalId: Int,
+        localHole: Int
+    ) throws -> Bool {
+        let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        guard globalId > 0, localHole > 0, data.starts(with: pngSignature) else {
+            return false
+        }
+        try FileManager.default.createDirectory(
+            at: courseTopoDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        try data.write(
+            to: courseTopoURL(globalId: globalId, localHole: localHole),
+            options: [.atomic]
+        )
+        return true
+    }
+
+    public func loadCourseTopoImageURL(globalId: Int, localHole: Int) -> URL? {
+        guard globalId > 0, localHole > 0 else { return nil }
+        let url = courseTopoURL(globalId: globalId, localHole: localHole)
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+        guard let values = try? url.resourceValues(forKeys: keys),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              (values.fileSize ?? 0) >= 8 else {
+            return nil
+        }
+        return url
+    }
+
+    public func loadCourseTopoImage(globalId: Int, localHole: Int) -> Data? {
+        guard let url = loadCourseTopoImageURL(globalId: globalId, localHole: localHole),
+              let data = try? Data(contentsOf: url) else { return nil }
+        let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        return data.starts(with: pngSignature) ? data : nil
+    }
+
+    public func hasCourseTopoImages(for package: LiveRoundPackage) -> Bool {
+        let readyRoundHoles = Set(package.coursePrep?.holes.compactMap { prep in
+            prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
+                ? prep.hole
+                : nil
+        } ?? [])
+        let readyHoles = package.holes.filter { readyRoundHoles.contains($0.number) }
+        return readyHoles.allSatisfy { hole in
+            loadCourseTopoImageURL(
+                globalId: hole.sourceGlobalId ?? package.course.globalId,
+                localHole: hole.sourceLocalHole ?? hole.number
+            ) != nil
+        }
+    }
+
+    /// A transient/degraded refresh must not erase a previously complete offline template. Within
+    /// the same course/Tee/hole-set signature, retain the package with the most playable holes, then
+    /// the greatest precise-geometry coverage, and use recency only as the final tie-breaker.
+    private static func shouldReplaceCourseTemplate(
+        _ existing: LiveRoundPackage,
+        with candidate: LiveRoundPackage
+    ) -> Bool {
+        let candidatePrepCount = candidate.coursePrep?.holes.filter {
+            $0.resolvedMapOverlay != nil
+        }.count ?? 0
+        let existingPrepCount = existing.coursePrep?.holes.filter {
+            $0.resolvedMapOverlay != nil
+        }.count ?? 0
+        if candidatePrepCount != existingPrepCount {
+            return candidatePrepCount > existingPrepCount
+        }
+        if candidate.holes.count != existing.holes.count {
+            return candidate.holes.count > existing.holes.count
+        }
+        if candidate.geometryCoverage.readyHoles != existing.geometryCoverage.readyHoles {
+            return candidate.geometryCoverage.readyHoles > existing.geometryCoverage.readyHoles
+        }
+        func geometryRank(_ state: GeometryCoverageState) -> Int {
+            switch state {
+            case .ready: return 2
+            case .partial: return 1
+            case .missing: return 0
+            }
+        }
+        let candidateRank = geometryRank(candidate.geometryCoverage.state)
+        let existingRank = geometryRank(existing.geometryCoverage.state)
+        if candidateRank != existingRank {
+            return candidateRank > existingRank
+        }
+        return candidate.generatedAt >= existing.generatedAt
     }
 
     public func saveActiveHole(roundId: String, hole: Int) throws {
@@ -1231,6 +1410,28 @@ public final class OfflineStore {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
         let fileName = roundId.addingPercentEncoding(withAllowedCharacters: allowed) ?? roundId.replacingOccurrences(of: "/", with: "_")
         return packagesDirectoryURL.appendingPathComponent("\(fileName).json")
+    }
+
+    private func courseTemplateURL(_ package: LiveRoundPackage) -> URL {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+        func safe(_ value: String) -> String {
+            value.addingPercentEncoding(withAllowedCharacters: allowed)
+                ?? value.replacingOccurrences(of: "/", with: "_")
+        }
+        let sources = Set(package.holes.map {
+            $0.sourceGlobalId ?? package.course.globalId
+        }).sorted().map(String.init).joined(separator: "-")
+        let signature = [
+            String(package.course.globalId),
+            safe(package.course.teeBox.lowercased()),
+            safe((package.nine ?? "all").lowercased()),
+            sources,
+        ].joined(separator: "--")
+        return courseTemplatesDirectoryURL.appendingPathComponent("\(signature).json")
+    }
+
+    private func courseTopoURL(globalId: Int, localHole: Int) -> URL {
+        courseTopoDirectoryURL.appendingPathComponent("\(globalId)-\(localHole).png")
     }
 
     private func withEventLogLock<T>(_ operation: () throws -> T) rethrows -> T {

@@ -247,34 +247,101 @@ final class TeeSelectionUITests: XCTestCase {
         )
     }
 
-    func testNearbyServiceFailureUsesOnlyDownloadedCoursesActuallyNearTheGPSFix() throws {
-        app.launchEnvironment["UITEST_FORCE_NEARBY_FAILURE"] = "1"
+    func testDownloadedNearbyCourseStartsACompletelyNewRoundWithAllLiveServicesOffline() throws {
+        // Phase 1: use the production path once to retain the selected course's all-hole lightweight
+        // facts and topo bitmaps. Start remains immediate; this marker arrives from its background
+        // download and proves that the later offline launch is not relying on another test's cache.
         launchFresh()
-
         guard tapContaining(["打球", "开始一场", "开始记分"]) else {
-            XCTFail("the home must open a new round while the nearby service is offline")
+            XCTFail("the real home must open a course for the offline-cache setup")
             return
         }
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
-        XCTAssertTrue(
-            app.staticTexts["附近服务不可用；已显示下载到本机的附近球场。"]
-                .waitForExistence(timeout: 20),
-            "a nearby transport failure must fall back to downloaded courses proven near the GPS fix"
-        )
         let palace = app.buttons["start-round-course-segment-31793"]
         XCTAssertTrue(
-            palace.waitForExistence(timeout: 8),
-            "the downloaded Beijing Palace segment must remain available at its real nearby coordinate"
+            palace.waitForExistence(timeout: 20),
+            "the production nearby result must expose the real Beijing Palace segment"
         )
         if palace.value as? String != "已选择" {
             palace.tap()
         }
         XCTAssertTrue(waitForValue("已选择", on: palace, timeout: 8))
+        let onlineStart = app.buttons["start-round-primary-action"]
         XCTAssertTrue(
-            waitUntilEnabled(app.buttons["start-round-primary-action"], timeout: 15),
-            "an already downloaded nearby course must remain startable without the nearby service"
+            waitUntilEnabled(onlineStart, timeout: 90),
+            "the selected real course must load Tee authority"
         )
-        save("nearby-offline-01-local-course"); dump("nearby-offline-01-local-course")
+        XCTAssertTrue(bringIntoView(onlineStart, maxSwipes: 20))
+        onlineStart.tap()
+        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 90))
+        let cacheReady = app.descendants(matching: .any)["live-hole-offline-course-ready"]
+        XCTAssertTrue(
+            cacheReady.waitForExistence(timeout: 240),
+            "the selected course must retain every drawable hole and available topo before offline acceptance"
+        )
+        save("offline-cache-01-online-ready"); dump("offline-cache-01-online-ready")
+        let back = app.buttons["返回球局首页"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        back.tap()
+        XCTAssertTrue(app.staticTexts["打球"].waitForExistence(timeout: 8))
+        app.terminate()
+
+        // Phase 2: disable bootstrap refresh, nearby discovery, Tee lookup, course package, per-hole
+        // prep, online caddie, topo fetch, and map-upgrade polling. The only valid source now is the
+        // local template and local bitmaps produced above.
+        app.launchEnvironment["UITEST_FORCE_NEARBY_FAILURE"] = "1"
+        app.launchEnvironment["UITEST_FORCE_COURSE_PACKAGE_FAILURE"] = "1"
+        app.launchEnvironment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] = "1"
+        launchFresh()
+
+        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+            XCTFail("the home must open a new round with all live services offline")
+            return
+        }
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.staticTexts["附近服务不可用；已显示下载到本机的附近球场。"]
+                .waitForExistence(timeout: 20)
+        )
+
+        let downloaded = firstDownloadedCourseSegment()
+        XCTAssertTrue(
+            downloaded.waitForExistence(timeout: 8),
+            "only a genuinely downloaded nearby course may survive the service failure"
+        )
+        if downloaded.value as? String != "已选择" {
+            downloaded.tap()
+        }
+        XCTAssertTrue(waitForValue("已选择", on: downloaded, timeout: 8))
+
+        let start = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(
+            waitUntilEnabled(start, timeout: 20),
+            "a downloaded course must remain startable without any live metadata request"
+        )
+        if !start.isHittable { app.swipeUp() }
+        XCTAssertTrue(start.isHittable)
+        start.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["第 1 洞"].waitForExistence(timeout: 30),
+            "the fully offline action must enter the factual first hole"
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["topo-hole-base-ready"].waitForExistence(timeout: 10),
+            "the offline first hole must render the retained topo bitmap, not a network loading state"
+        )
+        XCTAssertTrue(
+            app.staticTexts.matching(
+                NSPredicate(format: "label CONTAINS %@", "离线模式")
+            ).firstMatch.waitForExistence(timeout: 10),
+            "the live caddie must explicitly use the retained offline decision"
+        )
+        XCTAssertFalse(
+            app.buttons["编辑第 1 洞成绩"].exists,
+            "rebasing a downloaded course must not inherit a previous round's score events"
+        )
+        save("offline-start-01-new-first-hole"); dump("offline-start-01-new-first-hole")
     }
 
     // MARK: - navigation helpers
@@ -347,6 +414,12 @@ final class TeeSelectionUITests: XCTestCase {
             settle(0.6)
         }
         return element.exists && element.isHittable
+    }
+
+    private func firstDownloadedCourseSegment() -> XCUIElement {
+        app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "start-round-course-segment-")
+        ).firstMatch
     }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.

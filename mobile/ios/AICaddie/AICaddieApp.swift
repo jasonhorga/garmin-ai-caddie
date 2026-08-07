@@ -54,6 +54,7 @@ public struct AICaddieApp: App {
                         watchBridge: model.watchBridge,
                         liveRoundState: model.liveRoundState,
                         courseOptions: model.courseOptions,
+                        downloadedCourseOptions: model.downloadedCourseOptions,
                         startingNine: model.startingNine,
                         isPreparingRound: model.isPreparingRound,
                         isFinishingRound: model.isFinishingRound,
@@ -123,6 +124,7 @@ public struct AICaddieApp: App {
                     NavigationStack {
                         StartRoundView(
                             courseOptions: model.courseOptions,
+                            downloadedCourseOptions: model.downloadedCourseOptions,
                             syncStatus: model.syncStatus,
                             isPreparing: model.isPreparingRound,
                             apiBaseURL: model.apiBaseURL,
@@ -253,6 +255,7 @@ public final class LiveRoundAppModel: ObservableObject {
     }
     @Published public private(set) var liveRoundState: LiveRoundStateSnapshot?
     @Published public private(set) var courseOptions: [MobileCourseOption] = []
+    @Published public private(set) var downloadedCourseOptions: [MobileCourseOption] = []
     /// 本局的起始九洞(用于「移除另外 9 洞」撤销目标);随新 roundId 重置。
     @Published public private(set) var startingNine: String?
     public let watchBridge: WatchEventBridge?
@@ -316,6 +319,7 @@ public final class LiveRoundAppModel: ObservableObject {
         watchBridge?.activateSession()
         syncConfigToWatch()
         observeSessionForWatch()
+        refreshDownloadedCourseOptions()
     }
 
     /// round-12 P3.4 (Watch standalone): hand the watch this phone's backend config so a standalone
@@ -440,6 +444,12 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     public func refreshCourseOptions() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            courseOptions = []
+            return
+        }
+        #endif
         guard let syncClient else {
             return
         }
@@ -546,8 +556,8 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             if let remotePackage = await fetchRemoteCoursePackage(globalId: globalId, roundId: requestedRoundId, teeBox: teeBox, nine: nine, capturedAt: preparedAt) {
                 try offlineStore.saveRoundPackage(remotePackage)
-                try activatePackage(remotePackage, status: "已下载离线")
-                if isNewRound { signalFreshRoundEntry() }
+                try activatePackage(remotePackage, status: "球场已就绪")
+                if isNewRound { signalFreshRoundEntry(cacheOfflineAssets: true) }
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
@@ -555,6 +565,18 @@ public final class LiveRoundAppModel: ObservableObject {
                 // started without network still resumes on relaunch (continue card survives quit).
                 try offlineStore.saveRoundPackage(cachedPackage)
                 try activatePackage(cachedPackage, status: "已下载离线")
+                if isNewRound { signalFreshRoundEntry() }
+            } else if let template = try offlineStore.loadCourseTemplate(
+                globalId: globalId,
+                teeBox: teeBox,
+                nine: nine
+            ) {
+                let offlinePackage = template.rebasedForOfflineStart(
+                    roundId: requestedRoundId,
+                    generatedAt: preparedAt
+                )
+                try offlineStore.saveRoundPackage(offlinePackage)
+                try activatePackage(offlinePackage, status: "离线球场已就绪")
                 if isNewRound { signalFreshRoundEntry() }
             } else {
                 syncStatus = "暂时无法开始,稍后重试"
@@ -566,9 +588,12 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// After a fresh round is prepared, point the UI at its first hole so it enters the live screen.
-    private func signalFreshRoundEntry() {
+    private func signalFreshRoundEntry(cacheOfflineAssets: Bool = false) {
         pendingLiveHole = liveRoundState?.activeHole ?? package?.holes.first?.number
         prewarmRoundTopo()
+        if cacheOfflineAssets {
+            beginOfflineCourseDownload()
+        }
     }
 
     /// 开局提前备料:后端把这局涉及的**每个球场**的所有球洞 topo 底图渲好缓存,之后逐洞浏览命中热缓存。
@@ -576,11 +601,168 @@ public final class LiveRoundAppModel: ObservableObject {
     /// FIRE-AND-FORGET:绝不阻塞开局(SyncClient 内已吞错)。这是负责人的大原则「开局后端统一预加载」在 iOS 的落地。
     private func prewarmRoundTopo() {
         guard let package, let syncClient else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return
+        }
+        #endif
         let gids = Set(package.holes.map { $0.sourceGlobalId ?? package.course.globalId })
         Task {
             for gid in gids {
                 await syncClient.prewarmCourseTopo(globalId: gid)
             }
+        }
+    }
+
+    /// Keep start latency low, then make the selected course genuinely reusable without a network:
+    /// retain every hole's lightweight route/hazard/F-M-B facts and its precise topo bitmap. The
+    /// package identity remains the live round's; the course template and bitmap keys are static.
+    private func beginOfflineCourseDownload() {
+        guard var snapshot = package, let syncClient else { return }
+        if let retained = try? offlineStore.loadCourseTemplate(
+            globalId: snapshot.course.globalId,
+            teeBox: snapshot.course.teeBox,
+            nine: snapshot.nine ?? "all"
+        ), retained.hasCompleteOfflineCoursePrep {
+            snapshot = snapshot.replacingCoursePrep(retained.coursePrep)
+        }
+        Task { [weak self] in
+            await self?.downloadOfflineCourseAssets(for: snapshot, using: syncClient)
+        }
+    }
+
+    private func offlinePrepKey(globalId: Int, localHole: Int) -> String {
+        "\(globalId):\(localHole)"
+    }
+
+    private func downloadOfflineCourseAssets(
+        for snapshot: LiveRoundPackage,
+        using syncClient: SyncClient
+    ) async {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return
+        }
+        #endif
+        var prepBySource: [String: CoursePrepHole] = [:]
+
+        // Preserve any facts already embedded in an older/full package before fetching only gaps.
+        for roundHole in snapshot.holes {
+            guard let existing = snapshot.coursePrep?.holes.first(where: {
+                $0.hole == roundHole.number
+            }) else { continue }
+            let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
+            let localHole = roundHole.sourceLocalHole ?? roundHole.number
+            prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)] = existing
+        }
+
+        let groups = Dictionary(grouping: snapshot.holes) { hole in
+            hole.sourceGlobalId ?? snapshot.course.globalId
+        }
+        let retryDelays: [UInt64] = [5, 10, 20]
+        for attempt in 0...retryDelays.count {
+            var shouldRetry = false
+            for (globalId, roundHoles) in groups.sorted(by: { $0.key < $1.key }) {
+                guard !Task.isCancelled else { return }
+                let localHoles = Array(Set(roundHoles.map {
+                    $0.sourceLocalHole ?? $0.number
+                })).sorted()
+                let requested = localHoles.filter { localHole in
+                    guard let prep = prepBySource[
+                        offlinePrepKey(globalId: globalId, localHole: localHole)
+                    ] else { return true }
+                    return prep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+                }
+                guard !requested.isEmpty else { continue }
+                do {
+                    let response = try await syncClient.fetchCoursePrep(
+                        globalId: globalId,
+                        holes: requested,
+                        render: false
+                    )
+                    for prep in response.holes {
+                        prepBySource[offlinePrepKey(globalId: globalId, localHole: prep.hole)] = prep
+                    }
+                } catch {
+                    AICaddieLog.network.error(
+                        "Offline course facts download failed for \(globalId, privacy: .public): \(String(describing: error), privacy: .public)"
+                    )
+                }
+                shouldRetry = shouldRetry || requested.contains { localHole in
+                    guard let prep = prepBySource[
+                        offlinePrepKey(globalId: globalId, localHole: localHole)
+                    ] else { return true }
+                    return prep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+                }
+            }
+            guard shouldRetry, attempt < retryDelays.count else { break }
+            do {
+                try await Task.sleep(nanoseconds: retryDelays[attempt] * 1_000_000_000)
+            } catch {
+                return
+            }
+        }
+
+        let mappedPrep = snapshot.holes.compactMap { roundHole -> CoursePrepHole? in
+            let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
+            let localHole = roundHole.sourceLocalHole ?? roundHole.number
+            return prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]?
+                .renumbered(to: roundHole.number)
+        }
+        let enriched = snapshot.replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: snapshot.course.globalId,
+            holes: mappedPrep,
+            missingData: mappedPrep.count == snapshot.holes.count
+                ? nil
+                : [CoursePrepMissingData(
+                    label: "offline_course_prep",
+                    reason: "\(mappedPrep.count)/\(snapshot.holes.count) hole maps retained"
+                )]
+        ))
+
+        for roundHole in snapshot.holes {
+            guard !Task.isCancelled else { return }
+            let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
+            let localHole = roundHole.sourceLocalHole ?? roundHole.number
+            let prep = prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]
+            guard prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+                  offlineStore.loadCourseTopoImageURL(
+                      globalId: globalId,
+                      localHole: localHole
+                  ) == nil else { continue }
+            do {
+                let data = try await syncClient.fetchTopoImage(
+                    globalId: globalId,
+                    localHole: localHole
+                )
+                _ = try offlineStore.saveCourseTopoImage(
+                    data,
+                    globalId: globalId,
+                    localHole: localHole
+                )
+            } catch {
+                AICaddieLog.network.error(
+                    "Offline topo download failed for \(globalId, privacy: .public)/\(localHole, privacy: .public): \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+
+        do {
+            try offlineStore.saveCourseTemplate(enriched)
+            if package?.roundId == snapshot.roundId, liveRoundState != nil {
+                try offlineStore.saveRoundPackage(enriched)
+                package = enriched
+            }
+            refreshDownloadedCourseOptions()
+            if enriched.hasCompleteOfflineCoursePrep,
+               offlineStore.hasCourseTopoImages(for: enriched) {
+                syncStatus = "离线地图已准备"
+            }
+        } catch {
+            AICaddieLog.storage.error(
+                "Offline course cache save failed: \(String(describing: error), privacy: .public)"
+            )
         }
     }
 
@@ -604,8 +786,8 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             if let remotePackage = await fetchRemoteCompositePackage(globalId: globalId, backGlobalId: backGlobalId, roundId: requestedRoundId, teeBox: teeBox, capturedAt: preparedAt) {
                 try offlineStore.saveRoundPackage(remotePackage)
-                try activatePackage(remotePackage, status: "已下载离线")
-                if isNewRound { signalFreshRoundEntry() }
+                try activatePackage(remotePackage, status: "球场已就绪")
+                if isNewRound { signalFreshRoundEntry(cacheOfflineAssets: true) }
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
@@ -1049,6 +1231,13 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func fetchRemoteCoursePackage(globalId courseGlobalId: Int, roundId: String, teeBox: String, nine: String = "all", capturedAt: Date = Date()) async -> LiveRoundPackage? {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_PACKAGE_FAILURE"] == "1"
+            || ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            syncStatus = "离线中,使用已保存数据"
+            return nil
+        }
+        #endif
         guard let syncClient else {
             syncStatus = "未联网,稍后同步"
             return nil
@@ -1063,6 +1252,12 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func fetchRemoteCompositePackage(globalId courseGlobalId: Int, backGlobalId: Int, roundId: String, teeBox: String, capturedAt: Date = Date()) async -> LiveRoundPackage? {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            syncStatus = "离线中,使用已保存数据"
+            return nil
+        }
+        #endif
         guard let syncClient else {
             syncStatus = "未联网,稍后同步"
             return nil
@@ -1116,6 +1311,11 @@ public final class LiveRoundAppModel: ObservableObject {
     /// colour + total yards + default. Returns [] offline / on error so the picker falls back to the
     /// course's bundled CourseView tee colours (no yardage) rather than showing nothing.
     public func loadCourseTees(globalId: Int) async -> [CourseTee] {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return []
+        }
+        #endif
         guard let syncClient else { return [] }
         do {
             return try await syncClient.fetchCourseTees(globalId: globalId).tees
@@ -1126,6 +1326,8 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func activatePackage(_ nextPackage: LiveRoundPackage, status: String) throws {
+        try? offlineStore.saveCourseTemplate(nextPackage)
+        refreshDownloadedCourseOptions()
         package = nextPackage
         let restored = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)
         try offlineStore.saveActiveHole(roundId: nextPackage.roundId, hole: restored.activeHole)
@@ -1151,12 +1353,77 @@ public final class LiveRoundAppModel: ObservableObject {
         startingNine = nil
         pendingEventCount = 0
         try? offlineStore.saveHomePackage(nextPackage)
+        refreshDownloadedCourseOptions()
         syncStatus = status
+    }
+
+    private func refreshDownloadedCourseOptions() {
+        let templates = (try? offlineStore.loadCourseTemplates()) ?? []
+        let standalone = templates.filter { package in
+            Set(package.holes.map { $0.sourceGlobalId ?? package.course.globalId })
+                == Set([package.course.globalId])
+                && package.hasCompleteOfflineCoursePrep
+                && offlineStore.hasCourseTopoImages(for: package)
+        }
+        downloadedCourseOptions = Dictionary(grouping: standalone, by: { $0.course.globalId })
+            .values
+            .compactMap { packages -> MobileCourseOption? in
+                let ranked = packages.sorted { lhs, rhs in
+                    if lhs.holes.count != rhs.holes.count {
+                        return lhs.holes.count > rhs.holes.count
+                    }
+                    if lhs.geometryCoverage.readyHoles != rhs.geometryCoverage.readyHoles {
+                        return lhs.geometryCoverage.readyHoles > rhs.geometryCoverage.readyHoles
+                    }
+                    return lhs.generatedAt > rhs.generatedAt
+                }
+                guard let preferred = ranked.first else {
+                    return nil
+                }
+                var seenTees = Set<String>()
+                let tees = ranked.compactMap { package -> String? in
+                    let tee = package.course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !tee.isEmpty, tee.lowercased() != "unknown",
+                          seenTees.insert(tee.lowercased()).inserted else { return nil }
+                    return tee
+                }
+                let parts = preferred.course.name.split(
+                    separator: "~",
+                    maxSplits: 1,
+                    omittingEmptySubsequences: false
+                )
+                let venue = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let segment = parts.count > 1
+                    ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    : nil
+                let anchor = preferred.holes.first {
+                    $0.teeLatitude != nil && $0.teeLongitude != nil
+                }
+                return MobileCourseOption(
+                    globalId: preferred.course.globalId,
+                    name: preferred.course.name,
+                    holes: preferred.holes.count,
+                    teeBox: preferred.course.teeBox,
+                    geometryCoverage: preferred.geometryCoverage.state.rawValue,
+                    venueName: venue.isEmpty ? preferred.course.name : venue,
+                    segmentLabel: segment?.isEmpty == false ? segment : nil,
+                    segmentHoles: preferred.holes.count,
+                    latitude: anchor?.teeLatitude,
+                    longitude: anchor?.teeLongitude,
+                    tees: tees
+                )
+            }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     /// Fetch the home package for an explicitly finished course, or the most-played course during
     /// ordinary bootstrap. The bootstrap path falls back to cache offline; geometry is unnecessary.
     private func fetchHomePackage(preferredCourse: Course? = nil) async -> LiveRoundPackage? {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return try? offlineStore.loadHomePackage()
+        }
+        #endif
         if let preferredCourse {
             guard let syncClient else { return nil }
             return try? await syncClient.fetchCoursePackage(

@@ -122,6 +122,9 @@ public struct CurrentHoleView: View {
         self._selectedStrategyMode = State(initialValue: restoredHoleState?.selectedStrategyMode ?? "stock")
         self._distanceToPinText = State(initialValue: restoredHoleState?.distanceToPinM.map(Self.yardsText(fromMetres:)) ?? "")
         self._selectedLie = State(initialValue: restoredHoleState?.lie ?? "fairway")
+        self._holePrep = State(
+            initialValue: package.coursePrep?.holes.first { $0.hole == hole.number }
+        )
         self._currentHorizontalAccuracyM = State(initialValue: restoredHoleState?.horizontalAccuracyM)
         self._lastAppliedRestoredHoleState = State(initialValue: restoredHoleState)
         self._scoreDraft = State(
@@ -200,6 +203,18 @@ public struct CurrentHoleView: View {
                     }
                 }
             }
+            #if DEBUG
+            if package.hasCompleteOfflineCoursePrep,
+               offlineStore?.hasCourseTopoImages(for: package) == true {
+                Text("离线地图已准备")
+                    .font(.system(size: 1))
+                    .foregroundStyle(Color.white.opacity(0.02))
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("离线地图已准备")
+                    .accessibilityIdentifier("live-hole-offline-course-ready")
+            }
+            #endif
         }
         // The app shell is intentionally light, but this approved live-play surface is dark.
         // Request dark system chrome here so the status-bar time, network, and battery stay visible.
@@ -568,19 +583,30 @@ public struct CurrentHoleView: View {
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
     /// gid)。给 `HoleImageMapView` 当底图;无后端地址/占位球场时为 nil → 回退到 payload flat 渲染图。
     private var liveTopoURL: URL? {
-        guard let caddieBaseURL,
-              holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
+        guard holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
             return nil
         }
         let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
         let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        if let local = offlineStore?.loadCourseTopoImageURL(
+            globalId: mapGlobalId,
+            localHole: mapLocalHole
+        ) {
+            return local
+        }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return nil
+        }
+        #endif
+        guard let caddieBaseURL else { return nil }
         return SyncClient.topoImageURL(baseURL: caddieBaseURL, globalId: mapGlobalId, localHole: mapLocalHole)
     }
 
     @MainActor
     private func loadCurrentHole() async {
         isLoadingCaddieDecision = true
-        await loadHoleMap()
+        let canPollForPreciseMap = await loadHoleMap()
         guard !Task.isCancelled else {
             isLoadingCaddieDecision = false
             return
@@ -595,28 +621,44 @@ public struct CurrentHoleView: View {
         // vectors usable now, then replace only this hole's map facts when the precise mesh arrives.
         // The structured `.task(id: hole.number)` owns this loop, so changing holes or leaving the
         // screen cancels it without leaving a detached poller behind.
-        if holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
+        if canPollForPreciseMap,
+           holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
             await waitForPreciseHoleMap()
         }
     }
 
-    private func loadHoleMap() async {
+    private func loadHoleMap() async -> Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return false
+        }
+        #endif
         guard let caddieBaseURL else {
-            return
+            return false
         }
         // 每洞用自己的 source 球场 + 本地洞号(组合局后九在第二个环的 gid)。
         let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
         let mapLocalHole = hole.sourceLocalHole ?? hole.number
         guard mapGlobalId != 0 else {
-            return
+            return false
         }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
-        let lightweight = try? await client.fetchHolePrep(globalId: mapGlobalId, localHole: mapLocalHole)
-        holePrep = lightweight
+        let lightweight: CoursePrepHole
+        do {
+            guard let fetched = try await client.fetchHolePrep(
+                globalId: mapGlobalId,
+                localHole: mapLocalHole
+            ) else { return false }
+            lightweight = fetched
+            holePrep = fetched
+        } catch {
+            // Keep the package's retained prep facts. Returning false prevents the partial-map
+            // upgrade loop from polling forever while the player is offline.
+            return false
+        }
         // Old cached/server payloads may lack the three topo anchors. Keep that compatibility path,
         // but never make current geometry pay the cold server-render cost that lost hole 4's facts.
-        if let lightweight,
-           lightweight.resolvedMapOverlay == nil,
+        if lightweight.resolvedMapOverlay == nil,
            !lightweight.route.isEmpty,
            let rendered = try? await client.fetchHolePrep(
                globalId: mapGlobalId,
@@ -642,6 +684,7 @@ public struct CurrentHoleView: View {
                 )
             }
         }
+        return true
     }
 
     @MainActor
@@ -708,10 +751,29 @@ public struct CurrentHoleView: View {
     /// WatchConnectivity (transferFile) so the watch draws the hole map from local storage. Best-effort —
     /// a missing base URL / watch bridge / failed fetch just leaves the watch on the text hub.
     private func pushTopoToWatch(globalId: Int, sourceLocalHole: Int, watchHole: Int) async {
-        guard let watchBridge, let caddieBaseURL,
-              globalId != 0,
-              let url = SyncClient.topoImageURL(baseURL: caddieBaseURL, globalId: globalId, localHole: sourceLocalHole),
-              let (data, _) = try? await URLSession.shared.data(from: url), !data.isEmpty else { return }
+        guard let watchBridge, globalId != 0 else { return }
+        if let cached = offlineStore?.loadCourseTopoImage(
+            globalId: globalId,
+            localHole: sourceLocalHole
+        ) {
+            watchBridge.pushHoleImage(globalId: globalId, hole: watchHole, imageData: cached)
+            return
+        }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return
+        }
+        #endif
+        guard let caddieBaseURL,
+              let data = try? await SyncClient(
+                  baseURL: caddieBaseURL,
+                  adminToken: adminToken
+              ).fetchTopoImage(globalId: globalId, localHole: sourceLocalHole) else { return }
+        try? offlineStore?.saveCourseTopoImage(
+            data,
+            globalId: globalId,
+            localHole: sourceLocalHole
+        )
         watchBridge.pushHoleImage(globalId: globalId, hole: watchHole, imageData: data)
     }
 
@@ -1221,7 +1283,14 @@ public struct CurrentHoleView: View {
 
     @MainActor
     private func loadCaddieDecision(syncClub: Bool = false) async {
-        guard let caddieClient else {
+        #if DEBUG
+        let effectiveClient = ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1"
+            ? nil
+            : caddieClient
+        #else
+        let effectiveClient = caddieClient
+        #endif
+        guard let effectiveClient else {
             caddieDecision = makeOfflineCaddieDecision()
             caddieErrorMessage = caddieDecision == nil
                 ? "这一洞暂时无法给建议。"
@@ -1243,7 +1312,7 @@ public struct CurrentHoleView: View {
         }
 
         do {
-            let response = try await caddieClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
+            let response = try await effectiveClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
             guard !Task.isCancelled else { return }
             // If prep arrived while a manual distance-free request was in flight, the ordered hole
             // bootstrap will launch the context-complete request next. Never let the stale answer

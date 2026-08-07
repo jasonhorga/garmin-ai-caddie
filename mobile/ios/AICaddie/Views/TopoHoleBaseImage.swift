@@ -21,28 +21,38 @@ struct TopoHoleBaseImage: View {
 
     var body: some View {
         if let topoURL {
-            AsyncImage(url: topoURL) { phase in
-                switch phase {
-                case .empty:
-                    loadingImage
-                case .success(let image):
-                    // topo-v6 has a transparent off-course canvas. Preserve it in every context so
-                    // review/prep do not manufacture a second rectangular terrain layer around the
-                    // real hole. The legacy JPEG is only a loading/failure fallback, never a second
-                    // ready map.
-                    image.resizable().scaledToFit()
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("球场地图")
-                        .accessibilityIdentifier("topo-hole-base-ready")
-                case .failure:
+            if topoURL.isFileURL {
+                if let image = UIImage(contentsOfFile: topoURL.path) {
+                    readyImage(Image(uiImage: image))
+                } else {
                     fallbackImage
-                @unknown default:
-                    fallbackImage
+                }
+            } else {
+                AsyncImage(url: topoURL) { phase in
+                    switch phase {
+                    case .empty:
+                        loadingImage
+                    case .success(let image):
+                        readyImage(image)
+                    case .failure:
+                        fallbackImage
+                    @unknown default:
+                        fallbackImage
+                    }
                 }
             }
         } else {
             fallbackImage
         }
+    }
+
+    /// topo-v6 has a transparent off-course canvas. Preserve it in every context so review/prep do
+    /// not manufacture a second rectangular terrain layer around the real hole.
+    private func readyImage(_ image: Image) -> some View {
+        image.resizable().scaledToFit()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("球场地图")
+            .accessibilityIdentifier("topo-hole-base-ready")
     }
 
     private var loadingImage: some View {
@@ -61,8 +71,10 @@ struct TopoHoleBaseImage: View {
     @ViewBuilder private var fallbackImage: some View {
         if let fallback {
             Image(uiImage: fallback).resizable().scaledToFit()
+                .accessibilityIdentifier("topo-hole-base-fallback")
         } else {
             Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255)
+                .accessibilityIdentifier("topo-hole-base-fallback")
         }
     }
 }

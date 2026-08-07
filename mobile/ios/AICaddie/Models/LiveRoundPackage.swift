@@ -86,6 +86,87 @@ public struct LiveRoundPackage: Codable, Equatable {
     public func cacheState(now: Date = Date()) -> OfflinePackageCacheState {
         offlinePackageStatus.cacheState(now: now)
     }
+
+    /// A fast live package intentionally omits all-hole prep. Once the phone's background download
+    /// fills it, every round hole must have a retained route/projection that can draw without a
+    /// server. Missing-geometry courses remain scoreable but are not advertised as map-complete.
+    public var hasCompleteOfflineCoursePrep: Bool {
+        guard !holes.isEmpty, let preparedHoles = coursePrep?.holes else { return false }
+        let drawable = Set(preparedHoles.compactMap { prep in
+            prep.resolvedMapOverlay == nil ? nil : prep.hole
+        })
+        return Set(holes.map(\.number)).isSubset(of: drawable)
+    }
+
+    public func replacingCoursePrep(_ nextCoursePrep: CoursePrepPackage?) -> LiveRoundPackage {
+        LiveRoundPackage(
+            schema: schema,
+            roundId: roundId,
+            dataMode: dataMode,
+            sourceCoverage: sourceCoverage,
+            missingData: missingData,
+            playerProfile: playerProfile,
+            course: course,
+            holes: holes,
+            nine: nine,
+            coursePrep: nextCoursePrep,
+            geometryCoverage: geometryCoverage,
+            readinessChecks: readinessChecks,
+            caddieContextSeeds: caddieContextSeeds,
+            weatherSnapshot: weatherSnapshot,
+            clubProfiles: clubProfiles,
+            caddieDecisionEndpoint: caddieDecisionEndpoint,
+            offlinePackageStatus: offlinePackageStatus,
+            eventCursor: eventCursor,
+            recentHistory: recentHistory,
+            cachedCaddieRules: cachedCaddieRules,
+            generatedAt: generatedAt
+        )
+    }
+
+    /// Reuse immutable course/geometry/caddie facts for a brand-new offline round without reusing
+    /// the old round's identity or server cursor. Hole events live in OfflineStore separately and
+    /// are therefore intentionally absent from this new identity.
+    public func rebasedForOfflineStart(roundId: String, generatedAt: Date = Date()) -> LiveRoundPackage {
+        LiveRoundPackage(
+            schema: schema,
+            roundId: roundId,
+            dataMode: dataMode,
+            sourceCoverage: SourceCoverage(
+                state: sourceCoverage.state,
+                dataMode: sourceCoverage.dataMode,
+                requestedRoundId: roundId,
+                selectedRoundId: nil,
+                roundFound: false,
+                availableRoundCount: sourceCoverage.availableRoundCount,
+                holeCount: holes.count,
+                clubProfileCount: sourceCoverage.clubProfileCount
+            ),
+            missingData: missingData,
+            playerProfile: playerProfile,
+            course: course,
+            holes: holes,
+            nine: nine,
+            coursePrep: coursePrep,
+            geometryCoverage: geometryCoverage,
+            readinessChecks: readinessChecks,
+            caddieContextSeeds: caddieContextSeeds,
+            weatherSnapshot: weatherSnapshot,
+            clubProfiles: clubProfiles,
+            caddieDecisionEndpoint: caddieDecisionEndpoint,
+            offlinePackageStatus: offlinePackageStatus,
+            eventCursor: EventCursor(
+                serverSequence: 0,
+                pendingEventCount: 0,
+                clientId: eventCursor.clientId,
+                lastAckedServerSequence: 0,
+                replayEndpoint: nil
+            ),
+            recentHistory: recentHistory,
+            cachedCaddieRules: cachedCaddieRules,
+            generatedAt: ISO8601DateFormatter().string(from: generatedAt)
+        )
+    }
 }
 
 public struct SourceCoverage: Codable, Equatable {

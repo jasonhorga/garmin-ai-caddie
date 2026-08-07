@@ -190,6 +190,142 @@ private func capturedRequestBodyData(from request: URLRequest) throws -> Data {
 
 @MainActor
 final class LiveRoundAppModelTests: XCTestCase {
+    func testPrepareCourseRoundRebasesDownloadedTemplateWhenPackageRequestIsOffline() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let template = try offlineReadyPackage(localFixturePackage())
+        try store.saveCourseTemplate(template)
+        _ = try store.saveCourseTopoImage(
+            minimalPNGData(),
+            globalId: template.course.globalId,
+            localHole: template.holes[0].sourceLocalHole ?? template.holes[0].number
+        )
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 503,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"detail":"offline"}"#.utf8)
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://offline.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client
+        )
+
+        XCTAssertEqual(model.downloadedCourseOptions.map(\.globalId), [template.course.globalId])
+        await model.prepareCourseRound(
+            globalId: template.course.globalId,
+            roundId: "offline-new-round",
+            teeBox: template.course.teeBox,
+            nine: template.nine ?? "all"
+        )
+
+        XCTAssertEqual(model.package?.roundId, "offline-new-round")
+        XCTAssertEqual(model.package?.course, template.course)
+        XCTAssertEqual(model.liveRoundState?.roundId, "offline-new-round")
+        XCTAssertEqual(model.pendingLiveHole, template.holes.first?.number)
+        XCTAssertEqual(try store.loadRoundPackage(roundId: "offline-new-round")?.roundId, "offline-new-round")
+        XCTAssertTrue(try store.loadPendingEvents(roundId: "offline-new-round").isEmpty)
+    }
+
+    func testOnlineCourseStartRetainsAllHolePrepAndTopoForLaterOfflineUse() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let online = package(
+            source,
+            roundId: "online-new-round",
+            recentRounds: source.recentHistory.rounds
+        ).replacingCoursePrep(nil)
+        let packageData = try JSONEncoder().encode(online)
+        let prepData = try offlinePrepResponseData(for: online)
+        let png = minimalPNGData()
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let body: Data
+            let contentType: String
+            switch url.path {
+            case let path where path.contains("/api/v2/mobile/courses/"):
+                body = packageData
+                contentType = "application/json"
+            case let path where path.hasSuffix("/prep"):
+                body = prepData
+                contentType = "application/json"
+            case let path where path.hasSuffix("/topo.png"):
+                body = png
+                contentType = "image/png"
+            default:
+                body = Data(#"{"queued":true}"#.utf8)
+                contentType = "application/json"
+            }
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": contentType]
+                )!,
+                body
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://cache.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client
+        )
+
+        await model.prepareCourseRound(
+            globalId: online.course.globalId,
+            roundId: online.roundId,
+            teeBox: online.course.teeBox,
+            nine: online.nine ?? "all"
+        )
+
+        let deadline = Date().addingTimeInterval(5)
+        while model.downloadedCourseOptions.isEmpty, Date() < deadline {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTAssertEqual(model.downloadedCourseOptions.map(\.globalId), [online.course.globalId])
+        XCTAssertTrue(model.package?.hasCompleteOfflineCoursePrep == true)
+        XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))
+        XCTAssertNotNil(try store.loadCourseTemplate(
+            globalId: online.course.globalId,
+            teeBox: online.course.teeBox,
+            nine: online.nine ?? "all"
+        )?.coursePrep)
+    }
+
     func testFinishActiveRoundAcknowledgesEventsBeforeFinishAndOnlyThenClearsLocalRound() async throws {
         let fixture = try completedFixtureRound()
         let finishedRound = RecentRoundSummary(
@@ -1137,6 +1273,36 @@ final class LiveRoundAppModelTests: XCTestCase {
         let fixture = try String(contentsOf: url, encoding: .utf8)
             .replacingOccurrences(of: #""dataMode": "fixture""#, with: #""dataMode": "local""#)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: Data(fixture.utf8))
+    }
+
+    private func offlineReadyPackage(_ package: LiveRoundPackage) throws -> LiveRoundPackage {
+        let response = try JSONDecoder().decode(
+            CoursePrepResponse.self,
+            from: offlinePrepResponseData(for: package)
+        )
+        return package.replacingCoursePrep(CoursePrepPackage(
+            schema: response.schema,
+            globalId: response.globalId,
+            holes: response.holes,
+            missingData: nil
+        ))
+    }
+
+    private func offlinePrepResponseData(for package: LiveRoundPackage) throws -> Data {
+        let hole = try XCTUnwrap(package.holes.first)
+        return Data("""
+        {"schema":"ai-caddie-course-prep-v1","globalId":\(package.course.globalId),"holeCount":1,
+         "clubs":[],"holes":[{"hole":\(hole.sourceLocalHole ?? hole.number),"par":\(hole.par),
+         "par_source":"courseview","blue_yards":\(hole.yards),"route_len_m":360,
+         "route":[[0,0,0],[0,360,360]],"geometryCoverage":"ready","steps":[],"cautions":[],
+         "hazards":{"water_carry":[],"bunkers":[],"details":[]},
+         "map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":720,"h":1120,
+         "ppm":1,"ln":360,"route":[[360,1000,0],[360,100,360]]}}}]}
+        """.utf8)
+    }
+
+    private func minimalPNGData() -> Data {
+        Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     }
 
     private func package(

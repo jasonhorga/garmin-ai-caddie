@@ -4,6 +4,7 @@ import SwiftUI
 /// 选中结果后立即进入赛前攻略；不请求 GPS，也不展示附近或历史球场。
 public struct PrepCoursePickerView: View {
     public let courseOptions: [MobileCourseOption]
+    public let downloadedCourseOptions: [MobileCourseOption]
     public let apiBaseURL: URL?
     public let adminToken: String?
 
@@ -12,8 +13,14 @@ public struct PrepCoursePickerView: View {
     @StateObject private var locationProvider = LocationProvider()
     @State private var selectedCourse: MobileCourseOption?
 
-    public init(courseOptions: [MobileCourseOption], apiBaseURL: URL?, adminToken: String?) {
+    public init(
+        courseOptions: [MobileCourseOption],
+        downloadedCourseOptions: [MobileCourseOption] = [],
+        apiBaseURL: URL?,
+        adminToken: String?
+    ) {
         self.courseOptions = courseOptions
+        self.downloadedCourseOptions = downloadedCourseOptions
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
     }
@@ -23,7 +30,7 @@ public struct PrepCoursePickerView: View {
             locationProvider: locationProvider,
             mode: .nameOnly,
             dismissAfterSelection: false,
-            installedGlobalIds: Set(courseOptions.map(\.globalId)),
+            installedGlobalIds: Set(downloadedCourseOptions.map(\.globalId)),
             onSearch: searchCourses,
             onNearby: { _, _, _ in [] },
             onSelect: selectSearchResult
@@ -65,7 +72,8 @@ public struct PrepCoursePickerView: View {
 
     private func resolvedOption(for match: MobileCourseSearchMatch) -> MobileCourseOption? {
         guard let provider = match.courseOption else { return nil }
-        guard let known = courseOptions.first(where: { $0.globalId == match.globalId }) else {
+        let knownOptions = courseOptions + downloadedCourseOptions
+        guard let known = knownOptions.first(where: { $0.globalId == match.globalId }) else {
             return provider
         }
         return MobileCourseOption(

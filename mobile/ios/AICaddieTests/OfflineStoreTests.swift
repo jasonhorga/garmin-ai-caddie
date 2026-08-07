@@ -64,6 +64,111 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
     }
 
+    func testCourseTemplateSurvivesRoundDiscardAndRebasesWithoutOldIdentityOrCursor() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let package = try localFixturePackage()
+        try store.saveRoundPackage(package)
+        try store.appendEvent(LiveRoundEvent(
+            eventId: "old-score",
+            roundId: package.roundId,
+            timestamp: "2026-08-07T00:00:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(4)]
+        ))
+
+        try store.discardRound(roundId: package.roundId)
+        XCTAssertNil(try store.loadRoundPackage(roundId: package.roundId))
+        XCTAssertFalse(try store.loadEvents().contains { $0.roundId == package.roundId })
+
+        let template = try XCTUnwrap(store.loadCourseTemplate(
+            globalId: package.course.globalId,
+            teeBox: package.course.teeBox,
+            nine: package.nine ?? "all"
+        ))
+        let rebased = template.rebasedForOfflineStart(
+            roundId: "offline-new-round",
+            generatedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+        XCTAssertEqual(rebased.roundId, "offline-new-round")
+        XCTAssertEqual(rebased.course, package.course)
+        XCTAssertEqual(rebased.holes, package.holes)
+        XCTAssertEqual(rebased.eventCursor.serverSequence, 0)
+        XCTAssertEqual(rebased.eventCursor.pendingEventCount, 0)
+        XCTAssertEqual(rebased.eventCursor.lastAckedServerSequence, 0)
+        XCTAssertNil(rebased.eventCursor.replayEndpoint)
+        XCTAssertEqual(rebased.sourceCoverage.requestedRoundId, "offline-new-round")
+        XCTAssertNil(rebased.sourceCoverage.selectedRoundId)
+        XCTAssertFalse(rebased.sourceCoverage.roundFound)
+        XCTAssertFalse(try store.loadEvents().contains { $0.roundId == rebased.roundId })
+        XCTAssertNil(try store.loadCourseTemplate(
+            globalId: package.course.globalId,
+            teeBox: "white",
+            nine: package.nine ?? "all"
+        ))
+    }
+
+    func testCourseTemplateDoesNotDowngradeWhenLaterPackageHasLessGeometry() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let partial = try localFixturePackage()
+        let ready = replacingGeometryCoverage(
+            in: partial,
+            with: GeometryCoverage(
+                state: .ready,
+                readyHoles: partial.holes.count,
+                totalHoles: partial.holes.count
+            ),
+            generatedAt: "2026-08-06T00:00:00Z"
+        )
+        let laterPartial = replacingGeometryCoverage(
+            in: partial,
+            with: GeometryCoverage(
+                state: .partial,
+                readyHoles: 0,
+                totalHoles: partial.holes.count
+            ),
+            generatedAt: "2026-08-07T00:00:00Z"
+        )
+
+        try store.saveCourseTemplate(ready)
+        try store.saveCourseTemplate(laterPartial)
+
+        let retained = try XCTUnwrap(store.loadCourseTemplate(
+            globalId: ready.course.globalId,
+            teeBox: ready.course.teeBox,
+            nine: ready.nine ?? "all"
+        ))
+        XCTAssertEqual(retained.geometryCoverage.state, .ready)
+        XCTAssertEqual(retained.geometryCoverage.readyHoles, ready.holes.count)
+        XCTAssertEqual(retained.generatedAt, "2026-08-06T00:00:00Z")
+    }
+
+    func testCourseTopoCacheAcceptsOnlyPngAndUsesStaticCourseHoleIdentity() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
+
+        XCTAssertFalse(try store.saveCourseTopoImage(
+            Data("not-an-image".utf8),
+            globalId: 31795,
+            localHole: 1
+        ))
+        XCTAssertNil(store.loadCourseTopoImageURL(globalId: 31795, localHole: 1))
+        XCTAssertTrue(try store.saveCourseTopoImage(
+            png,
+            globalId: 31795,
+            localHole: 1
+        ))
+        XCTAssertEqual(store.loadCourseTopoImage(globalId: 31795, localHole: 1), png)
+        XCTAssertNil(store.loadCourseTopoImage(globalId: 31795, localHole: 2))
+        XCTAssertNil(store.loadCourseTopoImage(globalId: -1, localHole: 1))
+    }
+
     func testSaveAndLoadHomePackageCreatesFreshStoreDirectory() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -2057,6 +2162,46 @@ final class OfflineStoreTests: XCTestCase {
             .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: data)
+    }
+
+    private func localFixturePackage() throws -> LiveRoundPackage {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
+        let fixture = try String(contentsOf: url, encoding: .utf8)
+            .replacingOccurrences(of: #""dataMode": "fixture""#, with: #""dataMode": "local""#)
+        return try JSONDecoder().decode(LiveRoundPackage.self, from: Data(fixture.utf8))
+    }
+
+    private func replacingGeometryCoverage(
+        in package: LiveRoundPackage,
+        with geometryCoverage: GeometryCoverage,
+        generatedAt: String
+    ) -> LiveRoundPackage {
+        LiveRoundPackage(
+            schema: package.schema,
+            roundId: package.roundId,
+            dataMode: package.dataMode,
+            sourceCoverage: package.sourceCoverage,
+            missingData: package.missingData,
+            playerProfile: package.playerProfile,
+            course: package.course,
+            holes: package.holes,
+            nine: package.nine,
+            coursePrep: package.coursePrep,
+            geometryCoverage: geometryCoverage,
+            readinessChecks: package.readinessChecks,
+            caddieContextSeeds: package.caddieContextSeeds,
+            weatherSnapshot: package.weatherSnapshot,
+            clubProfiles: package.clubProfiles,
+            caddieDecisionEndpoint: package.caddieDecisionEndpoint,
+            offlinePackageStatus: package.offlinePackageStatus,
+            eventCursor: package.eventCursor,
+            recentHistory: package.recentHistory,
+            cachedCaddieRules: package.cachedCaddieRules,
+            generatedAt: generatedAt
+        )
     }
 
     private func twoHoleFixturePackage() throws -> LiveRoundPackage {
