@@ -277,9 +277,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         var requestedURLs: [URL] = []
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
-            requestLock.lock()
-            requestedURLs.append(url)
-            requestLock.unlock()
+            requestLock.withLock {
+                requestedURLs.append(url)
+            }
             let body: Data
             let contentType: String
             switch url.path {
@@ -290,7 +290,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                     .filter { $0.name == "holes" }
                     .compactMap { $0.value.flatMap(Int.init) } ?? []
-                body = try offlinePrepResponseData(for: online, localHoles: requested)
+                body = try self.offlinePrepResponseData(for: online, localHoles: requested)
                 contentType = "application/json"
             case let path where path.hasSuffix("/topo.png"):
                 body = png
@@ -342,9 +342,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             teeBox: online.course.teeBox,
             nine: online.nine ?? "all"
         )?.coursePrep)
-        requestLock.lock()
-        let urls = requestedURLs
-        requestLock.unlock()
+        let urls = requestLock.withLock { requestedURLs }
         let paths = urls.map(\.path)
         XCTAssertFalse(
             paths.contains("/api/v2/courses/\(online.course.globalId)/topo/prewarm"),
