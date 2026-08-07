@@ -835,6 +835,23 @@ struct LivePlayReticle: View {
     }
 }
 
+enum LivePlayMapOverlayLayout {
+    private static let upperHazardLane: CGFloat = 0.48
+    private static let lowerHazardLane: CGFloat = 0.70
+    private static let landingLaneThreshold: CGFloat = 0.64
+
+    /// The landing label moves along the route when the player changes clubs. Use the opposite map
+    /// lane for the hazard readout instead of pinning both facts to the same fixed 45% position.
+    static func hazardPillCenterY(heroHeight: CGFloat, landingFractionY: CGFloat?) -> CGFloat {
+        guard heroHeight.isFinite, heroHeight > 0 else { return 0 }
+        guard let landingFractionY, landingFractionY.isFinite else {
+            return heroHeight * lowerHazardLane
+        }
+        let lane = landingFractionY <= landingLaneThreshold ? lowerHazardLane : upperHazardLane
+        return heroHeight * lane
+    }
+}
+
 /// One amber hazard pill over the map (e.g. 水域 · 到 213 · 过 235 码).
 struct LiveHazardPill: View {
     let text: String

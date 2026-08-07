@@ -98,7 +98,10 @@ public struct HoleImageMapView: View {
         }
         // Landing point + club label: live (selected club's distance) when playing, else the prep's
         // recommended landing. Switching clubs mid-shot moves the marker here.
-        if let landing = landingOverlayPoint(overlay) {
+        if let landing = Self.landingOverlayPoint(
+            overlay,
+            targetMetres: selectedClubMetres ?? hole.landingM
+        ) {
             let center = CGPoint(x: landing[0] * sx, y: landing[1] * sy)
             context.fill(Path(ellipseIn: CGRect(x: center.x - 8, y: center.y - 8, width: 16, height: 16)), with: .color(LiveHoleStyle.green))
             context.fill(Path(ellipseIn: CGRect(x: center.x - 3, y: center.y - 3, width: 6, height: 6)), with: .color(.white))
@@ -178,8 +181,11 @@ public struct HoleImageMapView: View {
 
     /// Landing point in overlay px: walk the route polyline to where cumulative metres reach the
     /// target (selected club's distance when playing, else the prep's recommended landingM).
-    private func landingOverlayPoint(_ overlay: CoursePrepOverlay) -> [Double]? {
-        guard let targetM = selectedClubMetres ?? hole.landingM, !overlay.route.isEmpty else {
+    static func landingOverlayPoint(
+        _ overlay: CoursePrepOverlay,
+        targetMetres targetM: Double?
+    ) -> [Double]? {
+        guard let targetM, !overlay.route.isEmpty else {
             return nil
         }
         for row in overlay.route where row.count >= 3 {

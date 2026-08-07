@@ -115,6 +115,28 @@ final class DesignSnapshotTests: XCTestCase {
         XCTAssertEqual(alpha, 1, accuracy: 0.001)
     }
 
+    func testLiveHazardPillUsesTheLaneOppositeTheClubLandingLabel() {
+        let heroHeight: CGFloat = 360
+        let upperLanding = LivePlayMapOverlayLayout.hazardPillCenterY(
+            heroHeight: heroHeight,
+            landingFractionY: 0.42
+        )
+        let lowerLanding = LivePlayMapOverlayLayout.hazardPillCenterY(
+            heroHeight: heroHeight,
+            landingFractionY: 0.78
+        )
+        let unknownLanding = LivePlayMapOverlayLayout.hazardPillCenterY(
+            heroHeight: heroHeight,
+            landingFractionY: nil
+        )
+
+        XCTAssertEqual(upperLanding, 252, accuracy: 0.001)
+        XCTAssertEqual(lowerLanding, 172.8, accuracy: 0.001)
+        XCTAssertEqual(unknownLanding, upperLanding, accuracy: 0.001)
+        XCTAssertGreaterThan(abs(upperLanding - heroHeight * 0.42 + 18), 80)
+        XCTAssertGreaterThan(abs(lowerLanding - heroHeight * 0.78 + 18), 80)
+    }
+
     func testMediaCaptureCustomerCopyIsChinese() {
         XCTAssertEqual(MediaCaptureCopy.empty, "尚未添加照片或视频")
         XCTAssertEqual(MediaCaptureCopy.unavailable, "无法读取所选媒体")

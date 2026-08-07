@@ -350,7 +350,13 @@ public struct CurrentHoleView: View {
                         .position(x: geo.size.width * 0.55, y: geo.size.height * 0.30)
                     if let hazardPillText {
                         LiveHazardPill(text: hazardPillText)
-                            .position(x: geo.size.width * 0.62, y: geo.size.height * 0.45)
+                            .position(
+                                x: geo.size.width * 0.62,
+                                y: LivePlayMapOverlayLayout.hazardPillCenterY(
+                                    heroHeight: geo.size.height,
+                                    landingFractionY: liveLandingFractionY
+                                )
+                            )
                     }
                 }
             }
@@ -601,6 +607,23 @@ public struct CurrentHoleView: View {
         #endif
         guard let caddieBaseURL else { return nil }
         return SyncClient.topoImageURL(baseURL: caddieBaseURL, globalId: mapGlobalId, localHole: mapLocalHole)
+    }
+
+    /// The live-map club label sits 18 points above this landing marker. Feed its normalized map
+    /// position into the callout layout so a hazard fact never covers the selected club name.
+    private var liveLandingFractionY: CGFloat? {
+        guard let holePrep,
+              let overlay = holePrep.resolvedMapOverlay,
+              overlay.h > 0,
+              let landing = HoleImageMapView.landingOverlayPoint(
+                  overlay,
+                  targetMetres: selectedClubMetres ?? holePrep.landingM
+              ),
+              landing.count >= 2,
+              landing[1].isFinite else {
+            return nil
+        }
+        return CGFloat(landing[1] / overlay.h)
     }
 
     @MainActor
