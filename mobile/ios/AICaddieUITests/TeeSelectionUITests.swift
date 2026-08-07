@@ -113,6 +113,57 @@ final class TeeSelectionUITests: XCTestCase {
         }
     }
 
+    /// Unlike the deterministic journeys below, this path must use the simulator's real
+    /// CLLocationManager delivery. The workflow resets TCC and sets the simulator coordinate before
+    /// xcodebuild starts; this test accepts the system sheet and proves that the authorization
+    /// callback restarts location updates and reaches the provider-backed nearby catalogue.
+    func testRealCoreLocationAuthorizationFindsNearbyCourse() throws {
+        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LAT")
+        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LON")
+        app.launchEnvironment.removeValue(forKey: "UITEST_LOCATION_AUTHORIZATION")
+        launchFresh()
+
+        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+            XCTFail("the home must expose 开始一场 before the real Core Location request")
+            return
+        }
+
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let locationAlert = springboard.alerts.firstMatch
+        XCTAssertTrue(
+            locationAlert.waitForExistence(timeout: 12),
+            "the clean simulator must show the real iOS location authorization sheet"
+        )
+        let allowedLabels = [
+            "Allow While Using App",
+            "使用 App 时允许",
+            "使用App时允许",
+        ]
+        let allow = allowedLabels.lazy
+            .map { locationAlert.buttons[$0] }
+            .first { $0.exists && $0.isHittable }
+        XCTAssertNotNil(allow, "the real location sheet must expose its while-in-use approval")
+        allow?.tap()
+
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        let palace = app.buttons["start-round-course-segment-31793"]
+        XCTAssertTrue(
+            palace.waitForExistence(timeout: 60),
+            "a real Core Location fix at Beijing Palace must reach the Garmin nearby result"
+        )
+        XCTAssertEqual(
+            palace.value as? String,
+            "未选择",
+            "real GPS with several nearby venues must not silently select a historical course"
+        )
+        XCTAssertFalse(
+            app.staticTexts["正在定位并查找附近球场…"].exists,
+            "the authorization callback must leave the waiting state after the real fix arrives"
+        )
+        save("real-core-location-01-nearby")
+        dump("real-core-location-01-nearby")
+    }
+
     func testDeniedGPSStillOffersCatalogueSearchInsteadOfHistory() throws {
         app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LAT")
         app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LON")

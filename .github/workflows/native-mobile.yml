@@ -237,6 +237,11 @@ jobs:
           echo "iOS sim UDID: $UDID"
           xcrun simctl boot "$UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$UDID" || true
+          # One TeeSelection journey intentionally bypasses UITEST_GPS_* and exercises the actual
+          # Core Location permission callback + simulator location delivery. Keep TCC clean so the
+          # test proves the notDetermined -> authorizedWhenInUse transition on every fresh runner.
+          xcrun simctl privacy "$UDID" reset location com.ai-caddie.mobile
+          xcrun simctl location "$UDID" set 40.0454995,116.5461531
           mkdir -p real-videos
           # Record the simulator screen for the whole XCUITest run (background; SIGINT finalizes the mp4).
           ( xcrun simctl io "$UDID" recordVideo --codec h264 --force real-videos/real-flow.mp4 ) &
