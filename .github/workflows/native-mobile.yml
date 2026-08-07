@@ -352,6 +352,7 @@ jobs:
           path: watch-snapshots/
           if-no-files-found: warn
       - name: Real Watch round seed and restore screenshots
+        id: capture_watch_real_screenshots
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full'
         run: |
           set -euo pipefail
@@ -423,12 +424,12 @@ jobs:
           launch_and_capture club-prompt watch-club-prompt.png
       - name: Scan Watch runtime screenshots for secret bytes
         id: scan_watch_real_screenshots
-        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full'
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success'
         env:
           ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-real-screenshots
       - name: Upload watch real screenshots
-        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.scan_watch_real_screenshots.outcome == 'success'
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && steps.scan_watch_real_screenshots.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: watch-real-screenshots

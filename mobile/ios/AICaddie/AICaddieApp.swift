@@ -746,6 +746,15 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
+    #if DEBUG
+    /// Test-only synchronization point. Course preparation intentionally returns before the
+    /// complete-course cache finishes, but a test must not let that background work escape into
+    /// the next test's process-wide URLProtocol handler.
+    func waitForOfflineCourseDownloadForTesting() async {
+        await offlineCourseDownloadTask?.value
+    }
+    #endif
+
     private func offlinePrepKey(globalId: Int, localHole: Int) -> String {
         "\(globalId):\(localHole)"
     }

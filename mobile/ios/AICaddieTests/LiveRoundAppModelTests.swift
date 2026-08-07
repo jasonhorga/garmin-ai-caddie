@@ -695,6 +695,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.liveRoundState?.roundId, refreshedHome.roundId)
         XCTAssertEqual(model.pendingLiveHole, refreshedHome.holes.first?.number)
         XCTAssertTrue(try fixture.store.loadPendingEvents(roundId: refreshedHome.roundId).isEmpty)
+        await model.waitForOfflineCourseDownloadForTesting()
     }
 
     func testLatestCoursePreparationWinsWhenAnOlderResponseArrivesLate() async throws {
@@ -770,6 +771,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.pendingLiveHole, fast.holes.first?.number)
         XCTAssertFalse(model.isPreparingRound)
         XCTAssertNil(try store.loadRoundPackage(roundId: slow.roundId))
+        await model.waitForOfflineCourseDownloadForTesting()
     }
 
     func testFinishActiveRoundRejectsPartialAcknowledgementAndPreservesWholeRound() async throws {
