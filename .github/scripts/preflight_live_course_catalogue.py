@@ -18,9 +18,16 @@ def _require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def validate_health(payload: Any) -> None:
+def validate_health(payload: Any, *, expected_revision: str | None = None) -> None:
     _require(isinstance(payload, dict), "health response must be an object")
     _require(payload.get("schema") == "ai-caddie-health-v2", "health schema mismatch")
+    revision = payload.get("revision")
+    _require(isinstance(revision, str) and bool(revision.strip()), "health revision is missing")
+    if expected_revision is not None:
+        _require(
+            revision == expected_revision,
+            f"backend revision mismatch: expected {expected_revision}, got {revision}",
+        )
 
 
 def validate_matches(
@@ -91,9 +98,10 @@ def main() -> int:
     search_name = os.environ.get("AI_CADDIE_PREFLIGHT_SEARCH_NAME", "北京丽宫")
     nearby_gid = int(os.environ.get("AI_CADDIE_PREFLIGHT_NEARBY_GID", "31793"))
     search_gid = int(os.environ.get("AI_CADDIE_PREFLIGHT_SEARCH_GID", str(nearby_gid)))
+    expected_revision = os.environ.get("AI_CADDIE_PREFLIGHT_EXPECTED_REVISION", "").strip() or None
 
     health = _get_json(base_url, "/api/v2/health", None, {})
-    validate_health(health)
+    validate_health(health, expected_revision=expected_revision)
     nearby = _get_json(
         base_url,
         "/api/v2/courses/nearby",

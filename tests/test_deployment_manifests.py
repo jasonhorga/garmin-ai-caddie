@@ -237,6 +237,7 @@ class DeploymentManifestTests(unittest.TestCase):
         ]:
             self.assertIn(required, docker_text)
         self.assertIn("AI_CADDIE_PRIVATE_ROOT: /var/lib/ai-caddie", compose_text)
+        self.assertIn("AI_CADDIE_BUILD_REVISION", compose_text)
         self.assertIn("ai-caddie-private:/var/lib/ai-caddie", compose_text)
         self.assertIn("restart: unless-stopped", compose_text)
         self.assertIn("VITE_AI_CADDIE_API_BASE_URL", compose_text)
@@ -280,6 +281,7 @@ class DeploymentManifestTests(unittest.TestCase):
 
         self.assertEqual(payload["build"]["dockerfile"], "Dockerfile")
         self.assertEqual(payload["env"]["AI_CADDIE_SECURITY_PROFILE"], "private")
+        self.assertEqual(payload["env"]["AI_CADDIE_BUILD_REVISION"], "unknown")
         self.assertEqual(payload["env"]["AI_CADDIE_PRIVATE_ROOT"], "/var/lib/ai-caddie")
         self.assertEqual(payload["mounts"]["source"], "ai_caddie_private")
         self.assertEqual(payload["mounts"]["destination"], "/var/lib/ai-caddie")

@@ -492,6 +492,9 @@ public struct WatchRoundSetupView: View {
         case "green": "绿 T"
         case "yellow": "黄 T"
         case "silver": "银 T"
+        case "back": "后 T"
+        case "middle": "中 T"
+        case "forward": "前 T"
         default:
             tee.name.hasSuffix("台") || tee.name.uppercased().hasSuffix(" T")
                 ? tee.name

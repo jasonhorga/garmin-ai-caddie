@@ -495,6 +495,11 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual("bearer", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_AUTH_MODE"])
         self.assertIn("AI_CADDIE_ADMIN_TOKEN", native_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
         self.assertIn("AI_CADDIE_CI_PLAYER_TOKEN", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
+        self.assertEqual("${{ github.sha }}", native_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
+        self.assertIn(
+            "github.event_name == 'workflow_dispatch'",
+            watch_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"],
+        )
         self.assertLess(
             list(native_steps).index("Preflight live course discovery"),
             list(native_steps).index("Real-simulator screenshots (iOS, XCUITest against live backend)"),
@@ -727,6 +732,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn('--org "$FLY_ORG"', text)
         self.assertIn("flyctl volumes create ai_caddie_private", text)
         self.assertIn("flyctl secrets set", text)
+        self.assertIn('AI_CADDIE_BUILD_REVISION="$GITHUB_SHA"', text)
         self.assertIn("flyctl deploy --remote-only --config fly.toml", text)
         self.assertIn("AI_CADDIE_API_BASE_URL", text)
         self.assertIn("Content-Type: application/json", text)

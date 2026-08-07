@@ -424,19 +424,13 @@ public struct WatchRoundContainerView: View {
             return "留 \(WatchUnits.yards(remaining)) 码"
         }
 
-        // A downloaded/offline plan has no calibrated dispersion, but its carry and following club
-        // are real package facts. Use those to explain what this recommendation is trying to do
-        // instead of showing only the vague strategy word ("稳妥").
-        var parts: [String] = []
+        // The shallow S70-style glance has room for one current-shot fact. Keep the full club chain
+        // in the expanded caddie view instead of shrinking or truncating it on the hole root.
         if let carry = option?.plan?.first?.carryM ?? option?.carryM,
            carry.isFinite,
            carry > 0 {
-            parts.append("打 \(WatchUnits.yards(carry))")
+            return "推荐 · \(WatchUnits.yards(carry))码"
         }
-        if let plan = option?.plan, let next = plan.dropFirst().first {
-            parts.append("后接\(WatchClubDisplay.name(next.clubName))")
-        }
-        if !parts.isEmpty { return parts.joined(separator: " · ") }
         return option?.label ?? ""
     }
 

@@ -652,6 +652,27 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
     }
 
+    func testRoundSetupTranslatesProviderPositionTeesConsistently() {
+        let cases = [
+            ("back", "Back", "后 T"),
+            ("middle", "Middle", "中 T"),
+            ("forward", "Forward", "前 T"),
+        ]
+
+        for (teeBox, name, expected) in cases {
+            let choice = WatchRoundSetupView.teeChoice(
+                for: WatchCourseTee(
+                    teeBox: teeBox,
+                    name: name,
+                    yards: nil,
+                    isDefault: false
+                ),
+                isSelected: false
+            )
+            XCTAssertEqual(choice.title, expected)
+        }
+    }
+
     @MainActor
     func testRoundSetupExplainsCachedAndFirstDownloadStatesWithoutChangingStartSemantics() {
         let front = WatchCourseOption(

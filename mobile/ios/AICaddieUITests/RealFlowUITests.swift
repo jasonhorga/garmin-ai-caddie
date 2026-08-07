@@ -867,7 +867,12 @@ final class RealFlowUITests: XCTestCase {
         let openSearch = app.buttons["start-round-search-all-courses"]
         XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20), "start form must expose full-catalogue search")
         openSearch.tap()
-        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
+        let openedCourseSearch = app.navigationBars["找球场"].waitForExistence(timeout: 8)
+        if !openedCourseSearch {
+            save("09-course-search-sheet-missing")
+            dump("09-course-search-sheet-missing")
+        }
+        XCTAssertTrue(openedCourseSearch, "the visible catalogue action must present the course-search sheet")
 
         let radius = app.segmentedControls.firstMatch.buttons["\(evidence.radiusKm) km"]
         XCTAssertTrue(radius.waitForExistence(timeout: 5), "nearby search must expose the resolver radius")

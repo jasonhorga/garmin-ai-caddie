@@ -453,6 +453,7 @@ def health() -> dict[str, str]:
         "schema": "ai-caddie-health-v2",
         "status": "ok",
         "service": "server_v2",
+        "revision": os.getenv("AI_CADDIE_BUILD_REVISION", "unknown").strip() or "unknown",
     }
 
 

@@ -490,8 +490,13 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(waitUntilGone(app.keyboards.firstMatch, timeout: 8))
 
         let result = app.buttons["course-catalog-result-31793"]
+        let foundResult = bringIntoView(result, maxSwipes: 30)
+        if !foundResult {
+            save("catalogue-\(identifier)-result-missing")
+            dump("catalogue-\(identifier)-result-missing")
+        }
         XCTAssertTrue(
-            bringIntoView(result, maxSwipes: 30),
+            foundResult,
             "manual catalogue fallback must return the real Beijing Palace row"
         )
         result.tap()

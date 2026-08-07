@@ -592,6 +592,12 @@ public struct StartRoundView: View {
             return "黄 T"
         case "silver":
             return "银 T"
+        case "back":
+            return "后 T"
+        case "middle":
+            return "中 T"
+        case "forward":
+            return "前 T"
         default:
             return tee
         }

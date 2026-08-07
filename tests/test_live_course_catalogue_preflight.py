@@ -54,9 +54,22 @@ class LiveCourseCataloguePreflightTests(unittest.TestCase):
                 )
 
     def test_health_requires_the_production_schema(self) -> None:
-        preflight.validate_health({"schema": "ai-caddie-health-v2"})
+        preflight.validate_health({"schema": "ai-caddie-health-v2", "revision": "abc123"})
         with self.assertRaises(ValueError):
-            preflight.validate_health({"status": "ok"})
+            preflight.validate_health({"status": "ok", "revision": "abc123"})
+        with self.assertRaisesRegex(ValueError, "health revision is missing"):
+            preflight.validate_health({"schema": "ai-caddie-health-v2"})
+
+    def test_health_requires_the_expected_backend_revision(self) -> None:
+        preflight.validate_health(
+            {"schema": "ai-caddie-health-v2", "revision": "abc123"},
+            expected_revision="abc123",
+        )
+        with self.assertRaisesRegex(ValueError, "backend revision mismatch"):
+            preflight.validate_health(
+                {"schema": "ai-caddie-health-v2", "revision": "old456"},
+                expected_revision="abc123",
+            )
 
 
 if __name__ == "__main__":

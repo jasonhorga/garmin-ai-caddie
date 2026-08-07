@@ -205,6 +205,7 @@ jobs:
           AI_CADDIE_PREFLIGHT_SEARCH_NAME: 北京丽宫
           AI_CADDIE_PREFLIGHT_NEARBY_GID: '31793'
           AI_CADDIE_PREFLIGHT_SEARCH_GID: '31793'
+          AI_CADDIE_PREFLIGHT_EXPECTED_REVISION: ${{ github.sha }}
         run: python3 .github/scripts/preflight_live_course_catalogue.py
       - name: Real-simulator screenshots (iOS, XCUITest against live backend)
         # On-demand only (XCUITest + live-funnel + watch simctl add ~10min) — trigger with
