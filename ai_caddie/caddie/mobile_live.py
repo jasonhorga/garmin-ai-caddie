@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,7 @@ DIAGNOSTIC_SOURCE_REF_LIMIT = 12
 COURSE_OPTION_LIMIT = 24
 OFFLINE_OPTION_STRONG_SAMPLE = 10
 OFFLINE_OPTION_SAMPLE_REF_LIMIT = 6
+MOBILE_CADDIE_RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
 
 
 def _format_time(value: datetime) -> str:
@@ -1088,15 +1090,30 @@ def _option_risks(avoid_zones: list[dict[str, Any]] | None, carry_m: float) -> t
     every option. near = lands by it; line = a carry hazard this carry is near/just clearing."""
     near: list[dict[str, Any]] = []
     line: list[dict[str, Any]] = []
+
+    def _fact(zone: dict[str, Any], *, kind: str, zone_id: str) -> dict[str, Any]:
+        fact: dict[str, Any] = {"kind": kind, "id": zone_id}
+        for key in (
+            "carryToFront_m",
+            "carryToClear_m",
+            "distanceToCenter_m",
+            "landingRadius_m",
+            "overlap_m",
+            "source",
+        ):
+            if zone.get(key) is not None:
+                fact[key] = zone[key]
+        return fact
+
     for zone in avoid_zones or []:
         kind = str(zone.get("kind") or "hazard")
         zone_id = str(zone.get("id") or "hazard")
         center = zone.get("distanceToCenter_m")
         clear = zone.get("carryToClear_m")
         if center is not None and abs(float(center) - carry_m) <= 18.0:
-            near.append({"kind": kind, "id": zone_id})
+            near.append(_fact(zone, kind=kind, zone_id=zone_id))
         elif clear is not None and -10.0 <= (float(clear) - carry_m) <= 30.0:
-            line.append({"kind": kind, "id": zone_id})
+            line.append(_fact(zone, kind=kind, zone_id=zone_id))
     return near, line
 
 
@@ -1293,6 +1310,7 @@ def _route_evidence_seed(
     hole: dict[str, Any],
     source_ref: str,
     club_profiles: list[dict[str, Any]],
+    tee_box: str | None = None,
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
     yards = hole.get("yards")
     target_y = _route_target_yards_or_club_m(yards, club_profiles)
@@ -1300,11 +1318,42 @@ def _route_evidence_seed(
         return None, [], [{"label": "route_geometry", "reason": "globalId and playable route target are required for offline seed"}]
     try:
         hazard_source = _load_mobile_hazards(int(global_id), int(local_hole)) or None
+        start = {"x": 0.0, "y": 0.0}
+        target = {"x": 0.0, "y": target_y}
+        if hazard_source:
+            # The compact authority already binds every real Tee and the selected green/dogleg
+            # endpoint in prodgeometry's local frame.  A synthetic (0, 0) -> (0, yardage) line is
+            # not that frame and can miss every real hazard on a rotated hole.  Use the requested
+            # Tee and factual target whenever they are available; keep the old fallback only for
+            # legacy exports that do not carry these anchors.
+            from ai_caddie.caddie.analysis import _selected_tee
+
+            selected_tee = _selected_tee(
+                {"globalId": int(global_id), "hazards": hazard_source},
+                tee_box,
+            )
+            target_position = (hazard_source.get("target") or {}).get("position")
+            tee_position = (selected_tee or {}).get("position")
+            if (
+                isinstance(tee_position, list)
+                and len(tee_position) >= 2
+                and isinstance(target_position, list)
+                and len(target_position) >= 2
+            ):
+                coordinates = [*tee_position[:2], *target_position[:2]]
+                if all(
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(float(value))
+                    for value in coordinates
+                ):
+                    start = {"x": float(tee_position[0]), "y": float(tee_position[1])}
+                    target = {"x": float(target_position[0]), "y": float(target_position[1])}
         route = build_route_geometry_evidence(
             global_id,
             local_hole,
-            start={"x": 0.0, "y": 0.0},
-            target={"x": 0.0, "y": target_y},
+            start=start,
+            target=target,
             landing_radius_m=18.0,
             _hazards_override=hazard_source,
         )
@@ -1329,6 +1378,71 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def hydrate_live_caddie_geometry_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Refresh a cold iOS decision seed once precise geometry finishes.
+
+    A new course intentionally starts from the small CourseView package while prodgeometry is
+    generated in the background.  The immutable live-round package therefore contains a degraded
+    caddie seed.  The phone retries its decision after the per-hole precise map arrives; use that
+    request boundary to replace only geometry-derived fields with current server authority, while
+    retaining the round/player/history facts carried by the seed.
+    """
+
+    refreshed = dict(context)
+    if str(context.get("source") or "") != "ios_live":
+        return refreshed
+    global_id = _safe_int(context.get("globalId"))
+    local_hole = _safe_int(context.get("localHole") or context.get("hole"))
+    if not global_id or not local_hole or global_id <= 0 or local_hole <= 0:
+        return refreshed
+
+    fallback_coverage = str((context.get("geometry") or {}).get("coverage") or "missing")
+    geometry, _geometry_evidence, _geometry_missing = _geometry_seed(
+        global_id,
+        local_hole,
+        fallback_coverage,
+    )
+    if str(geometry.get("coverage") or "").lower() != "ready":
+        return refreshed
+
+    raw_profiles = context.get("clubProfiles")
+    if isinstance(raw_profiles, dict):
+        club_profiles = [row for row in raw_profiles.values() if isinstance(row, dict)]
+    elif isinstance(raw_profiles, list):
+        club_profiles = [row for row in raw_profiles if isinstance(row, dict)]
+    else:
+        club_profiles = []
+
+    source_ref = str(context.get("sourceRef") or f"live-course-{global_id}:{local_hole}")
+    route_evidence, _route_evidence_rows, _route_missing = _route_evidence_seed(
+        global_id,
+        local_hole,
+        {"yards": context.get("yards")},
+        source_ref,
+        club_profiles,
+        str(context.get("teeBox") or "unknown"),
+    )
+
+    refreshed["geometry"] = geometry
+    refreshed["hazards"] = geometry.get("hazards") or []
+    if route_evidence:
+        refreshed["routeEvidence"] = route_evidence
+        target_distance_m = float(route_evidence.get("routeLength_m") or 0.0)
+        if target_distance_m > 0:
+            refreshed["holeRemaining_m"] = round(target_distance_m, 1)
+        candidate_routes = _tee_candidate_routes(
+            {"yards": context.get("yards")},
+            club_profiles,
+            geometry.get("hazards") or [],
+            par=_safe_int(context.get("par")) or 4,
+            target_m=target_distance_m,
+            avoid_zones=route_evidence.get("avoidZones") or [],
+        )
+        if candidate_routes:
+            refreshed["candidateRoutes"] = candidate_routes
+    return refreshed
 
 
 def _compact_source_refs(value: Any, *, limit: int) -> list[str]:
@@ -1437,6 +1551,12 @@ def _hazards_from_geometry(geometry: dict[str, Any]) -> list[dict[str, Any]]:
     for row in rows:
         if not isinstance(row, dict):
             continue
+        kind = str(row.get("kind") or row.get("type") or "hazard")
+        # The compact prodgeometry authority groups every decoded surface under `hazards`, including
+        # fairway, green, rough and Tee boxes.  Only penalty/obstruction surfaces belong in caddie
+        # avoid zones; treating a fairway as a hazard reverses the product recommendation.
+        if kind not in MOBILE_CADDIE_RISK_KINDS:
+            continue
         ring = row.get("polygon") or row.get("points") or row.get("path")
         has_polygon = isinstance(ring, list) and len(ring) >= 3
         has_bound_identity = bool(row.get("id")) and bool(row.get("kind") or row.get("type"))
@@ -1448,7 +1568,7 @@ def _hazards_from_geometry(geometry: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         hazards.append(
             {
-                "kind": str(row.get("kind") or row.get("type") or "hazard"),
+                "kind": kind,
                 "id": str(row.get("id") or f"hazard-{len(hazards) + 1}"),
                 "source": "geometry_map",
             }
@@ -1502,6 +1622,7 @@ def _caddie_context_seeds(
             hole,
             source_ref,
             club_profiles,
+            str(round_row.get("teeBox") or round_row.get("tee") or "unknown"),
         )
         # Distance + distance-aware avoid zones for picking sensible (safe/stock/attack) clubs and
         # per-option risks (instead of "always the longest club" + the hole's one dominant hazard).
@@ -1531,6 +1652,7 @@ def _caddie_context_seeds(
             "hole": number,
             "globalId": geometry_global_id or None,
             "localHole": local_hole,
+            "teeBox": str(round_row.get("teeBox") or round_row.get("tee") or "unknown"),
             "par": hole.get("par"),
             "yards": hole.get("yards"),
             "geometry": geometry,

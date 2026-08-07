@@ -58,6 +58,7 @@ SURFACE_KIND_ALIASES = {
 }
 SURFACE_PRIORITY = ["water", "bunker", "green", "fairway", "rough", "tree_area", "teebox", "playable_bounds"]
 GENERIC_SURFACE_KINDS = {"mesh", "hazard", "surface", "feature"}
+ROUTE_RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
 
 
 def _display_path(path: Path) -> str:
@@ -397,18 +398,37 @@ def build_route_geometry_evidence(
     landing_window_risks: list[dict[str, Any]] = []
     avoid_zones: list[dict[str, Any]] = []
     route_length = _point_distance(start_local, target_local) if start_local and target_local else None
+    authority_tee_index = _authority_tee_index_for_route(
+        hazards,
+        start_local=start_local,
+        target_local=target_local,
+    )
 
     if start_local and target_local:
         for index, hazard in enumerate(hazards.get("hazards") or []):
             if not isinstance(hazard, dict):
                 continue
             fallback_id = f"hazard-{index + 1}"
+            kind = _surface_kind(hazard, "hazard")
+            if kind not in ROUTE_RISK_KINDS:
+                continue
             route_rows = _route_intersections_for_hazard(
                 start_local,
                 target_local,
                 hazard,
                 fallback_id=fallback_id,
             )
+            used_authority_distances = False
+            if not route_rows and authority_tee_index is not None and route_length is not None:
+                route_rows = _authority_tee_route_intersections(
+                    start_local,
+                    target_local,
+                    route_length=route_length,
+                    hazard=hazard,
+                    tee_index=authority_tee_index,
+                    fallback_id=fallback_id,
+                )
+                used_authority_distances = bool(route_rows)
             landing_risk = _landing_window_risk_for_hazard(
                 target_local,
                 float(landing_radius_m),
@@ -416,7 +436,6 @@ def build_route_geometry_evidence(
                 fallback_id=fallback_id,
             )
             hazard_id = str(hazard.get("id") or f"hazard-{index + 1}")
-            kind = str(hazard.get("kind") or hazard.get("type") or "hazard")
             if route_rows:
                 line_intersections.extend(route_rows)
                 distances = [float(row["distanceFromStart_m"]) for row in route_rows]
@@ -427,8 +446,13 @@ def build_route_geometry_evidence(
                     "carryToClear_m": round(max(distances), 1),
                     "intersectionCount": len(route_rows),
                 }
+                if used_authority_distances:
+                    clear["source"] = "authority_tee_distances"
                 hazard_clearances.append(clear)
-                avoid_zones.append({"id": hazard_id, "kind": kind, "carryToClear_m": clear["carryToClear_m"]})
+                avoid_zone = {"id": hazard_id, "kind": kind, "carryToClear_m": clear["carryToClear_m"]}
+                if used_authority_distances:
+                    avoid_zone["source"] = "authority_tee_distances"
+                avoid_zones.append(avoid_zone)
             if landing_risk:
                 landing_window_risks.append(landing_risk)
                 existing_avoid_zone = next((row for row in avoid_zones if row.get("id") == hazard_id), None)
@@ -494,6 +518,108 @@ def _point_distance(start: list[float] | None, end: list[float] | None) -> float
     return math.hypot(float(end[0]) - float(start[0]), float(end[1]) - float(start[1]))
 
 
+def _authority_tee_index_for_route(
+    hazards: dict[str, Any],
+    *,
+    start_local: list[float] | None,
+    target_local: list[float] | None,
+    tolerance_m: float = 0.75,
+) -> int | None:
+    """Match an exact Tee→selected-target request to compact export measurements.
+
+    Production hazard exports intentionally retain small authority summaries rather than polygon
+    boundaries.  They do retain exact Tee positions and precomputed intersections for each Tee.
+    Those measurements are valid only for the same Tee and selected target, so an arbitrary live
+    position must never inherit them.
+    """
+
+    if start_local is None or target_local is None:
+        return None
+    authority_target = hazards.get("target") if isinstance(hazards.get("target"), dict) else {}
+    target_position = _position_to_local(authority_target.get("position"), None, None)
+    target_distance = _point_distance(target_local, target_position)
+    if target_distance is None or target_distance > tolerance_m:
+        return None
+
+    matches: list[tuple[float, int]] = []
+    for row in hazards.get("tees") or []:
+        if not isinstance(row, dict):
+            continue
+        position = _position_to_local(row.get("position"), None, None)
+        try:
+            tee_index = int(row.get("tee_index"))
+        except (TypeError, ValueError):
+            continue
+        distance = _point_distance(start_local, position)
+        if distance is not None and math.isfinite(distance):
+            matches.append((distance, tee_index))
+    if not matches:
+        return None
+    distance, tee_index = min(matches)
+    return tee_index if distance <= tolerance_m else None
+
+
+def _authority_tee_route_intersections(
+    start: list[float],
+    target: list[float],
+    *,
+    route_length: float,
+    hazard: dict[str, Any],
+    tee_index: int,
+    fallback_id: str,
+) -> list[dict[str, Any]]:
+    """Recover the front/back route boundaries stored in a compact hazard export."""
+
+    selected = next(
+        (
+            row
+            for row in hazard.get("tee_distances") or []
+            if isinstance(row, dict) and str(row.get("tee_index")) == str(tee_index)
+        ),
+        None,
+    )
+    if selected is None or not math.isfinite(route_length) or route_length <= 0:
+        return []
+
+    intervals: list[tuple[float, float]] = []
+    for row in selected.get("along_target_line_m") or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            first = float(row.get("start_m"))
+            second = float(row.get("end_m"))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(first) or not math.isfinite(second):
+            continue
+        front = max(0.0, min(first, second))
+        back = min(float(route_length), max(first, second))
+        if back >= front:
+            intervals.append((front, back))
+    if not intervals:
+        return []
+
+    boundary_distances = [min(row[0] for row in intervals), max(row[1] for row in intervals)]
+    hazard_id = str(hazard.get("id") or fallback_id)
+    kind = _surface_kind(hazard, "hazard")
+    rows: list[dict[str, Any]] = []
+    for distance in dict.fromkeys(round(value, 6) for value in boundary_distances):
+        fraction = max(0.0, min(1.0, float(distance) / float(route_length)))
+        x = float(start[0]) + fraction * (float(target[0]) - float(start[0]))
+        y = float(start[1]) + fraction * (float(target[1]) - float(start[1]))
+        rows.append(
+            {
+                "hazardId": hazard_id,
+                "kind": kind,
+                "local": [round(x, 3), round(y, 3)],
+                "routeFraction": round(fraction, 4),
+                "distanceFromStart_m": round(float(distance), 1),
+                "source": "authority_tee_distances",
+            }
+        )
+    return rows
+
+
 def _landing_window_risk_for_hazard(
     center: list[float],
     radius_m: float,
@@ -509,7 +635,7 @@ def _landing_window_risk_for_hazard(
         return None
     return {
         "hazardId": str(hazard.get("id") or fallback_id),
-        "kind": str(hazard.get("kind") or hazard.get("type") or "hazard"),
+        "kind": _surface_kind(hazard, "hazard"),
         "distanceToCenter_m": round(distance, 1),
         "landingRadius_m": round(float(radius_m), 1),
         "overlap_m": round(max(0.0, float(radius_m) - distance), 1),
@@ -560,7 +686,7 @@ def _route_intersections_for_hazard(
     if not isinstance(ring, list) or len(ring) < 3:
         return []
     hazard_id = str(hazard.get("id") or fallback_id)
-    kind = str(hazard.get("kind") or hazard.get("type") or "hazard")
+    kind = _surface_kind(hazard, "hazard")
     rows: list[dict[str, Any]] = []
     seen: set[tuple[float, float, float]] = set()
     points = ring if ring[0] == ring[-1] else [*ring, ring[0]]

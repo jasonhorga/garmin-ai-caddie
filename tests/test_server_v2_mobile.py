@@ -20,6 +20,122 @@ from server_v2.main import app
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def test_mobile_geometry_context_keeps_only_caddie_risk_surfaces(self) -> None:
+        from ai_caddie.caddie.mobile_live import _hazards_from_geometry
+
+        hazards = _hazards_from_geometry(
+            {
+                "hazards": [
+                    {"id": "water-1", "kind": "water", "centroid": [10, 20]},
+                    {"id": "bunker-1", "kind": "bunker", "centroid": [30, 40]},
+                    {"id": "trees-1", "kind": "tree_area", "centroid": [50, 60]},
+                    {"id": "fairway-1", "kind": "fairway", "centroid": [70, 80]},
+                    {"id": "green-1", "kind": "green", "centroid": [90, 100]},
+                    {"id": "tee-1", "kind": "teebox", "centroid": [0, 0]},
+                ]
+            }
+        )
+
+        self.assertEqual([row["id"] for row in hazards], ["water-1", "bunker-1", "trees-1"])
+
+    def test_mobile_route_seed_uses_bound_tee_and_target_instead_of_synthetic_axis(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        hazard_authority = {
+            "globalId": 39271,
+            "target": {"position": [45.25, 315.25]},
+            "tees": [
+                {"tee_index": 2, "sets": [2], "position": [209.25, 48.5], "target_distance_m": 313.1}
+            ],
+            "hazards": [],
+        }
+        route = {
+            "routeLength_m": 313.1,
+            "avoidZones": [],
+            "missingData": [],
+        }
+        with (
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", return_value=hazard_authority),
+            patch("ai_caddie.courses.course_reference.courseview_tees", return_value=[]),
+            patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", return_value=route) as build,
+        ):
+            resolved, _evidence, _missing = mobile_live._route_evidence_seed(
+                39271,
+                1,
+                {"yards": 372},
+                "live-39271:1",
+                [{"clubName": "1W", "median_m": 220.0, "sampleSize": 30}],
+                "blue",
+            )
+
+        self.assertEqual(resolved["routeLength_m"], 313.1)
+        self.assertEqual(build.call_args.kwargs["start"], {"x": 209.25, "y": 48.5})
+        self.assertEqual(build.call_args.kwargs["target"], {"x": 45.25, "y": 315.25})
+
+    def test_live_ios_decision_refresh_replaces_cold_geometry_and_candidate_risks(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        context = {
+            "source": "ios_live",
+            "sourceRef": "live-39271:1",
+            "globalId": 39271,
+            "localHole": 1,
+            "teeBox": "blue",
+            "par": 4,
+            "yards": 372,
+            "geometry": {"coverage": "missing", "hasHazards": False, "hasMeshes": False},
+            "hazards": [],
+            "clubProfiles": {
+                "1W": {"clubName": "1W", "median_m": 190.0, "p10_m": 170.0, "p90_m": 210.0, "sampleSize": 30},
+                "3W": {"clubName": "3W", "median_m": 160.0, "p10_m": 145.0, "p90_m": 175.0, "sampleSize": 30},
+            },
+            "candidateRoutes": [{"id": "stale", "lineRisks": []}],
+        }
+        geometry = {
+            "coverage": "ready",
+            "hasHazards": True,
+            "hasMeshes": True,
+            "hazardCount": 1,
+            "hazards": [{"id": "water-near", "kind": "water"}],
+        }
+        route = {
+            "routeLength_m": 313.1,
+            "avoidZones": [{"id": "water-near", "kind": "water", "carryToClear_m": 200.0}],
+            "missingData": [],
+        }
+        with (
+            patch("ai_caddie.caddie.mobile_live._geometry_seed", return_value=(geometry, [], [])),
+            patch("ai_caddie.caddie.mobile_live._route_evidence_seed", return_value=(route, [], [])),
+        ):
+            refreshed = mobile_live.hydrate_live_caddie_geometry_context(context)
+
+        self.assertEqual(refreshed["geometry"], geometry)
+        self.assertEqual(refreshed["hazards"], geometry["hazards"])
+        self.assertEqual(refreshed["routeEvidence"], route)
+        self.assertEqual(refreshed["holeRemaining_m"], 313.1)
+        self.assertEqual(
+            [row["id"] for row in refreshed["candidateRoutes"]],
+            ["conservative_layup", "stock_line", "aggressive_line"],
+        )
+        self.assertEqual(refreshed["candidateRoutes"][1]["lineRisks"][0]["id"], "water-near")
+        self.assertEqual(refreshed["candidateRoutes"][1]["lineRisks"][0]["carryToClear_m"], 200.0)
+
+    def test_non_live_decision_context_is_not_rehydrated(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        context = {
+            "source": "fixture",
+            "globalId": 39271,
+            "localHole": 1,
+            "geometry": {"coverage": "missing"},
+        }
+        with patch("ai_caddie.caddie.mobile_live._geometry_seed") as geometry_seed:
+            refreshed = mobile_live.hydrate_live_caddie_geometry_context(context)
+
+        self.assertEqual(refreshed, context)
+        self.assertIsNot(refreshed, context)
+        geometry_seed.assert_not_called()
+
     def test_course_geometry_ensure_invalidates_geometry_loader_cache(self) -> None:
         from ai_caddie.caddie import mobile_live
 

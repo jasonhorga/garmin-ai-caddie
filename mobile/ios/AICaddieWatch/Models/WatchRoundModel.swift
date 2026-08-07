@@ -398,6 +398,7 @@ public final class WatchRoundModel: ObservableObject {
               let teeLongitude = state.teeLongitude,
               teeLatitude.isFinite, (-90...90).contains(teeLatitude),
               teeLongitude.isFinite, (-180...180).contains(teeLongitude),
+              state.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame,
               state.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
               !state.caddieOptions.isEmpty,
               (state.holeMap?.route?.count ?? 0) >= 2 else {

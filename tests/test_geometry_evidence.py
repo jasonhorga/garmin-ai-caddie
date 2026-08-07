@@ -315,6 +315,91 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertEqual(route["hazardClearances"][0]["carryToClear_m"], 110.0)
         self.assertEqual(route["avoidZones"], [{"id": "water_crossing", "kind": "water", "carryToClear_m": 110.0}])
 
+    def test_route_evidence_uses_compact_authority_distances_only_for_the_bound_tee_route(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid39271_h01_hazards.json"
+            hazard.write_text(
+                """
+                {
+                  "refLat": 40.0,
+                  "refLon": 116.0,
+                  "target": {"position": [200, 0]},
+                  "tees": [{"tee_index": 2, "position": [0, 0]}],
+                  "hazards": [
+                    {
+                      "id": "water_crossing",
+                      "kind": "water",
+                      "tee_distances": [
+                        {
+                          "tee_index": 2,
+                          "along_target_line_m": [
+                            {"start_m": 80, "end_m": 90},
+                            {"start_m": 90, "end_m": 110}
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "fairway_is_not_a_risk",
+                      "kind": "fairway",
+                      "tee_distances": [
+                        {"tee_index": 2, "along_target_line_m": [{"start_m": 20, "end_m": 190}]}
+                      ]
+                    }
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            with (
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=root / "missing_meshes.json"),
+            ):
+                bound = build_route_geometry_evidence(
+                    39271,
+                    1,
+                    start={"x": 0, "y": 0},
+                    target={"x": 200, "y": 0},
+                )
+                arbitrary = build_route_geometry_evidence(
+                    39271,
+                    1,
+                    start={"x": 2, "y": 0},
+                    target={"x": 200, "y": 0},
+                )
+
+        self.assertEqual(
+            [row["distanceFromStart_m"] for row in bound["lineIntersections"]],
+            [80.0, 110.0],
+        )
+        self.assertEqual(
+            bound["hazardClearances"],
+            [
+                {
+                    "hazardId": "water_crossing",
+                    "kind": "water",
+                    "carryToFront_m": 80.0,
+                    "carryToClear_m": 110.0,
+                    "intersectionCount": 2,
+                    "source": "authority_tee_distances",
+                }
+            ],
+        )
+        self.assertEqual(
+            bound["avoidZones"],
+            [
+                {
+                    "id": "water_crossing",
+                    "kind": "water",
+                    "carryToClear_m": 110.0,
+                    "source": "authority_tee_distances",
+                }
+            ],
+        )
+        self.assertEqual(arbitrary["lineIntersections"], [])
+        self.assertEqual(arbitrary["avoidZones"], [])
+
     def test_route_evidence_flags_hazards_overlapping_landing_window_without_line_intersection(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

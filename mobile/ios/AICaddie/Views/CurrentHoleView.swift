@@ -43,6 +43,7 @@ public struct CurrentHoleView: View {
     @State private var puttCount: Int = 2
     @State private var penaltyCount: Int = 0
     @State private var selectedClub: String
+    @State private var hasUserSelectedClub = false
     @State private var selectedShotType: String
     @State private var selectedStrategyMode: String = "stock"
     @State private var holePrep: CoursePrepHole?
@@ -167,9 +168,13 @@ public struct CurrentHoleView: View {
                             LiveCaddieStrip(
                                 clubs: caddieClubChips,
                                 playsText: caddiePlaysText,
-                                isLoading: isLoadingCaddieDecision,
-                                isReady: caddieDecision != nil,
-                                errorText: caddieErrorMessage,
+                                isLoading: isLoadingCaddieDecision || isPreciseHoleMapPending,
+                                isReady: caddieDecision != nil
+                                    && !isPreciseHoleMapPending
+                                    && !isLoadingCaddieDecision,
+                                errorText: isPreciseHoleMapPending
+                                    ? "精确地图准备中 · 球童建议稍后更新"
+                                    : caddieErrorMessage,
                                 onExpand: { showCaddieDetail = true },
                                 onSelect: { selectClub($0) }
                             )
@@ -361,6 +366,9 @@ public struct CurrentHoleView: View {
                                     landingCenterY: landingTarget?.y
                                 )
                             )
+                    } else if isPreciseHoleMapPending {
+                        LiveMapPreparingPill()
+                            .position(x: geo.size.width * 0.5, y: geo.size.height * 0.88)
                     }
                 }
             }
@@ -578,6 +586,7 @@ public struct CurrentHoleView: View {
     /// The nearest mapped hazard over the live map. New geometry shows the same front/back semantics
     /// for sand and water; legacy bunkers retain only their one provable distance.
     private var hazardPillText: String? {
+        guard !isPreciseHoleMapPending else { return nil }
         if let liveHazards = liveHazardReadouts {
             guard let nearest = liveHazards.first else { return nil }
             return "\(nearest.label) · \(nearest.detail)"
@@ -588,6 +597,13 @@ public struct CurrentHoleView: View {
             return nil
         }
         return "\(nearest.label) · \(detail)"
+    }
+
+    /// CourseView's small package is a factual drawing source, but its hazard spans are not a
+    /// completeness guarantee.  Keep map/distance play available while prodgeometry downloads,
+    /// without presenting that provisional subset as the nearest-hazard or final caddie answer.
+    private var isPreciseHoleMapPending: Bool {
+        holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
     }
 
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
@@ -658,7 +674,9 @@ public struct CurrentHoleView: View {
         // Sync the selected club to the recommendation on a fresh hole; a hole the player already
         // recorded keeps their actual choice.
         let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
-        await loadCaddieDecision(syncClub: !alreadyRecorded)
+        await loadCaddieDecision(
+            syncClub: !alreadyRecorded && !isPreciseHoleMapPending && !hasUserSelectedClub
+        )
         isLoadingCaddieDecision = false
 
         // The package request has already queued prodgeometry in the backend. Keep the CourseView
@@ -667,7 +685,7 @@ public struct CurrentHoleView: View {
         // screen cancels it without leaving a detached poller behind.
         if canPollForPreciseMap,
            holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
-            await waitForPreciseHoleMap()
+            await waitForPreciseHoleMap(syncClub: !alreadyRecorded)
         }
     }
 
@@ -732,7 +750,7 @@ public struct CurrentHoleView: View {
     }
 
     @MainActor
-    private func waitForPreciseHoleMap() async {
+    private func waitForPreciseHoleMap(syncClub: Bool) async {
         guard let caddieBaseURL else { return }
         let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
         let mapLocalHole = hole.sourceLocalHole ?? hole.number
@@ -760,13 +778,16 @@ public struct CurrentHoleView: View {
             }
 
             holePrep = refreshed
-            sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+            // Do not publish ready geometry beside the provisional CourseView decision. The
+            // decision request rehydrates its geometry authority on the server and sends one
+            // coherent ready state to the Watch when it completes.
+            await loadCaddieDecision(syncClub: syncClub && !hasUserSelectedClub)
+            guard !Task.isCancelled else { return }
             await pushTopoToWatch(
                 globalId: mapGlobalId,
                 sourceLocalHole: mapLocalHole,
                 watchHole: hole.number
             )
-            await loadCaddieDecision(syncClub: false)
             return
         }
     }
@@ -868,7 +889,8 @@ public struct CurrentHoleView: View {
     /// 本洞避开区:取按洞拉取的 prep 水域区间与沙坑路线点/横距供球童方案展示。
     /// (live 包为提速不再内置全洞 coursePrep;按洞 prep 随 2D 图一起加载。)
     private var caddiePlanHazards: [CaddiePlanHazard] {
-        guard let holePrep else {
+        guard let holePrep,
+              holePrep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
             return []
         }
         if let liveHazards = liveHazardReadouts {
@@ -889,6 +911,7 @@ public struct CurrentHoleView: View {
     /// means this older prep lacks the projection needed for live ranging and should use static facts.
     private var liveHazardReadouts: [CoursePrepLiveHazardReadout]? {
         guard let holePrep,
+              holePrep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
               let fix = locationProvider.latestFix,
               let route = holePrep.resolvedMapOverlay?.route,
               let projection = holePrep.holeImageProjection,
@@ -908,7 +931,8 @@ public struct CurrentHoleView: View {
     /// Measured hazard facts mirrored to the Watch. New prep carries true front/back boundary facts;
     /// old caches fall back to water intervals and a single reliable bunker route point.
     private func watchHazards() -> [WatchHazard] {
-        guard let holePrep else {
+        guard let holePrep,
+              holePrep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
             return []
         }
         var out: [WatchHazard] = []
@@ -1059,6 +1083,7 @@ public struct CurrentHoleView: View {
         let changed = club != selectedClub
         selectedClub = club
         guard changed, !club.isEmpty else { return }
+        hasUserSelectedClub = true
         emit(kind: .club, timestamp: ISO8601DateFormatter().string(from: Date()), payload: [
             "clubName": .string(selectedClub),
             "shotType": .string(selectedShotType),

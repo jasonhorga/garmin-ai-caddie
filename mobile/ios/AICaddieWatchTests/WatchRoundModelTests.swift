@@ -145,6 +145,7 @@ final class WatchRoundModelTests: XCTestCase {
             globalId: 3881,
             holeMap: partialMap,
             geometryCoverage: "partial",
+            hazards: [WatchHazard(kind: "water", label: "临时水域", startM: 120, endM: 150)],
             score: 5,
             putts: 2,
             penaltyCount: 1,
@@ -190,6 +191,7 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.activeHoleState?.putts, 2)
         XCTAssertEqual(model.activeHoleState?.penaltyCount, 1)
         XCTAssertEqual(model.activeHoleState?.selectedClub, "7I")
+        XCTAssertTrue(model.activeHoleState?.hazards.isEmpty, "ready empty authority must clear partial ghost hazards")
         XCTAssertEqual(model.screen, .scoring)
         XCTAssertEqual(model.draftScore, 6)
     }
@@ -949,6 +951,7 @@ final class WatchRoundModelTests: XCTestCase {
                 greenCtrl: [500, 300],
                 route: [[500, 900, 0], [500, 500, 220], [500, 100, 400]]
             ),
+            geometryCoverage: "ready",
             caddieOptions: [
                 WatchCaddieOption(
                     optionId: "stock", label: "标准", clubName: "1W", carryM: 220,
@@ -967,6 +970,18 @@ final class WatchRoundModelTests: XCTestCase {
         )))
         XCTAssertFalse(model.preparedRootCaddieLayerAvailable(at: WatchLocationFix(
             coordinate: CLLocationCoordinate2D(latitude: 40.0461, longitude: 116.5462),
+            horizontalAccuracyM: 6,
+            capturedAt: "2026-06-20T00:00:00Z"
+        )))
+
+        let partial = state.applyingCourseMapUpgrade(WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, selectedClub: nil,
+            geometryCoverage: "partial",
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        ))
+        let partialModel = seededModel(holes: [partial])
+        XCTAssertFalse(partialModel.preparedRootCaddieLayerAvailable(at: WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.0455, longitude: 116.5462),
             horizontalAccuracyM: 6,
             capturedAt: "2026-06-20T00:00:00Z"
         )))

@@ -544,6 +544,8 @@ struct LiveCaddieStrip: View {
                     Text("展开 ›").font(.system(size: 12, weight: .bold)).foregroundStyle(LivePlayStyle.ink45)
                 }
                 .buttonStyle(.plain)
+                .disabled(!isReady)
+                .opacity(isReady ? 1 : 0.45)
             }
             if !clubs.isEmpty {
                 HStack(spacing: 8) {
@@ -905,6 +907,23 @@ struct LiveHazardPill: View {
             .background(Color(red: 10 / 255, green: 14 / 255, blue: 20 / 255).opacity(0.8), in: Capsule())
             .overlay(Capsule().stroke(LivePlayStyle.hazard.opacity(0.5)))
             .shadow(color: .black.opacity(0.45), radius: 6, y: 4)
+    }
+}
+
+/// A cold course can draw Garmin's lightweight route immediately, but that package does not prove
+/// that every hazard is present.  Keep the provisional map usable while making the incomplete fact
+/// state explicit instead of flashing a nearest-hazard distance that may be reordered moments later.
+struct LiveMapPreparingPill: View {
+    var body: some View {
+        Label("地图准备中 · 危险区稍后更新", systemImage: "arrow.triangle.2.circlepath")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(.white.opacity(0.9))
+            .padding(.vertical, 5)
+            .padding(.horizontal, 10)
+            .background(Color.black.opacity(0.74), in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.24)))
+            .shadow(color: .black.opacity(0.4), radius: 5, y: 3)
+            .accessibilityIdentifier("live-map-preparing")
     }
 }
 

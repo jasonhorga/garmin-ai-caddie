@@ -137,7 +137,11 @@ public enum WatchCourseTemplateBuilder {
                 elevationDeltaM: deltaM,
                 geometryCoverage: effectiveCoverage,
                 caddieOptions: preparedOptions,
-                hazards: watchHazards(prep?.hazards),
+                // CourseView's fast package can omit hazards that precise prodgeometry later
+                // reveals.  Do not turn that provisional subset into a Watch hazard list.
+                hazards: effectiveCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+                    ? watchHazards(prep?.hazards)
+                    : [],
                 score: 0,
                 putts: 0,
                 penaltyCount: 0,

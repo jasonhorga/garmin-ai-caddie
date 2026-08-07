@@ -655,7 +655,11 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             fairwayResult: fairwayResult,
             geometryCoverage: upgraded.geometryCoverage ?? geometryCoverage,
             caddieOptions: upgraded.caddieOptions.isEmpty ? caddieOptions : upgraded.caddieOptions,
-            hazards: upgraded.hazards.isEmpty ? hazards : upgraded.hazards,
+            // A ready upgrade owns the complete hazard answer, including the honest empty set.
+            // Keeping an older partial row when precise geometry has none leaves a ghost hazard.
+            hazards: upgraded.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+                ? upgraded.hazards
+                : (upgraded.hazards.isEmpty ? hazards : upgraded.hazards),
             rootCaddieRecommendation: rootCaddieRecommendation,
             score: score,
             putts: putts,

@@ -251,8 +251,8 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertNil(geometry.image)
         XCTAssertEqual(geometry.routePx.count, 3)
         XCTAssertEqual(geometry.greenOutlinePx.count, 3)
-        XCTAssertEqual(geometry.hazardSpans.count, 1)
-        XCTAssertEqual(geometry.hazardSpans.first?.kind, "water")
+        XCTAssertTrue(state.hazards.isEmpty, "partial CourseView hazards are not a completeness guarantee")
+        XCTAssertTrue(geometry.hazardSpans.isEmpty)
     }
 
     func testReadyGeometryWithInvalidRasterStaysPartialAndKeepsVectorFallback() throws {

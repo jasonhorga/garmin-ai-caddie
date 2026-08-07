@@ -452,6 +452,19 @@ public struct WatchHoleMapView: View {
                 .padding(.leading, size.width * 0.07)   // HIG safe-area margin — not jammed against the edge
                 .padding(.top, size.height * 0.09)
             }
+            if geometry.image == nil {
+                Text("地图准备中")
+                    .font(.system(size: 8.5, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(.black.opacity(0.68)))
+                    .position(
+                        x: fullMap ? size.width * 0.5 : size.width * (columnFrac + (1 - columnFrac) * 0.5),
+                        y: size.height - 13
+                    )
+                    .accessibilityIdentifier("watch-map-preparing")
+            }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
     }

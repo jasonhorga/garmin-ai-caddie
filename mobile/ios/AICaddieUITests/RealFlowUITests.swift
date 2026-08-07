@@ -953,6 +953,17 @@ final class RealFlowUITests: XCTestCase {
         )
         let observedLightweightMap = partialMap.exists
         if observedLightweightMap {
+            XCTAssertTrue(
+                app.descendants(matching: .any)["live-map-preparing"].firstMatch
+                    .waitForExistence(timeout: 5),
+                "a partial Garmin map must disclose that precise hazard facts are still preparing"
+            )
+            XCTAssertFalse(
+                app.staticTexts.matching(
+                    NSPredicate(format: "label CONTAINS ' · 到 ' AND (label BEGINSWITH '水域' OR label BEGINSWITH '沙坑')")
+                ).firstMatch.exists,
+                "an incomplete CourseView hazard subset must not masquerade as the nearest precise hazard"
+            )
             settle(1); save("09d-new-course-lightweight-map"); dump("09d-new-course-lightweight-map")
         }
 
@@ -964,6 +975,10 @@ final class RealFlowUITests: XCTestCase {
             XCTAssertTrue(
                 waitUntilGone(partialMap, timeout: 10),
                 "the precise topo must replace the observed lightweight map in place"
+            )
+            XCTAssertTrue(
+                waitUntilGone(app.descendants(matching: .any)["live-map-preparing"].firstMatch, timeout: 10),
+                "the preparing disclosure must leave with the partial map"
             )
         }
         settle(1); save("09e-new-course-precise-map"); dump("09e-new-course-precise-map")
