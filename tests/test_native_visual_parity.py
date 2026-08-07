@@ -7,6 +7,20 @@ WATCH_VIEWS = Path("mobile/ios/AICaddieWatch/Views")
 
 
 class NativeVisualParityTests(unittest.TestCase):
+    def test_real_native_journeys_fail_closed_instead_of_skipping_missing_surfaces(self) -> None:
+        ui_tests = Path("mobile/ios/AICaddieUITests")
+        real_flow = (ui_tests / "RealFlowUITests.swift").read_text(encoding="utf-8")
+        review_edit = (ui_tests / "ReviewEditUITests.swift").read_text(encoding="utf-8")
+        tee_selection = (ui_tests / "TeeSelectionUITests.swift").read_text(encoding="utf-8")
+
+        for source in (real_flow, review_edit, tee_selection):
+            self.assertIn("continueAfterFailure = false", source)
+        self.assertIn("let enteredHistory = tapContaining", real_flow)
+        self.assertIn("this section may never be silently skipped", real_flow)
+        self.assertIn("the loaded real shot map must expose a tappable edit action", real_flow)
+        self.assertIn("the real home must expose and open 开始一场", tee_selection)
+        self.assertIn("the selected real course must expose a tappable Tee menu", tee_selection)
+
     def test_real_review_capture_selects_resolver_verified_spatial_garmin_round(self) -> None:
         ui_tests = Path("mobile/ios/AICaddieUITests")
         real_flow = (ui_tests / "RealFlowUITests.swift").read_text(encoding="utf-8")

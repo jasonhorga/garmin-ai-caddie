@@ -17,7 +17,7 @@ final class TeeSelectionUITests: XCTestCase {
     }
 
     override func setUpWithError() throws {
-        continueAfterFailure = true
+        continueAfterFailure = false
         app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = cfg("AI_CADDIE_API_BASE_URL") ?? ""
         app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
         // 北京丽宫第 1 洞蓝 T: a real CourseView tee on the same course this flow verifies.
@@ -34,6 +34,7 @@ final class TeeSelectionUITests: XCTestCase {
         // 打球 → 开始一场 (StartRoundView). The wide primary tile opens the start screen.
         guard tapContaining(["打球", "开始一场", "开始记分"]) else {
             save("02-start-missing"); dump("02-start-missing")
+            XCTFail("the real home must expose and open 开始一场")
             return
         }
         settle(9)
@@ -68,6 +69,7 @@ final class TeeSelectionUITests: XCTestCase {
             )
         } else {
             dump("03-tee-menu-missing")
+            XCTFail("the selected real course must expose a tappable Tee menu")
         }
     }
 

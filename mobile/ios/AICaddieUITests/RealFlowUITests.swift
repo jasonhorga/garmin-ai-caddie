@@ -90,7 +90,12 @@ final class RealFlowUITests: XCTestCase {
 
         // ---- Section 2: history list → a round review → shot-map → review-edit (merged #276) ----
         launchFresh()
-        if tapContaining(["历史复盘", "逐场逐洞"]) {
+        let enteredHistory = tapContaining(["历史复盘", "逐场逐洞"])
+        XCTAssertTrue(
+            enteredHistory,
+            "the real home must expose and open 历史复盘; this section may never be silently skipped"
+        )
+        if enteredHistory {
             settle(6); save("03-history-list"); dump("03-history-list")
             let longPatternChip = app.staticTexts.matching(
                 NSPredicate(format: "label BEGINSWITH %@", "双柏忌或更差")
@@ -172,6 +177,10 @@ final class RealFlowUITests: XCTestCase {
                         )
                         settle(2); save("04b-shot-map"); dump("04b-shot-map")
                     }
+                    XCTAssertTrue(
+                        editButton.isHittable,
+                        "the loaded real shot map must expose a tappable edit action"
+                    )
                     if loadedShotMap, editButton.isHittable {
                         editButton.tap()
                         let editTopoReady = app.descendants(matching: .any)

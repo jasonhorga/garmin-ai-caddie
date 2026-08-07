@@ -23,7 +23,9 @@ final class ReviewEditUITests: XCTestCase {
     private var allowWrites: Bool { (cfg("UITEST_ALLOW_EDIT_WRITES") ?? "0") == "1" }
 
     override func setUpWithError() throws {
-        continueAfterFailure = true
+        // Every later coordinate depends on the prior real screen. Stop at the first missing product
+        // prerequisite instead of letting taps on a different screen create misleading evidence.
+        continueAfterFailure = false
         app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = cfg("AI_CADDIE_API_BASE_URL") ?? ""
         app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
         app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
