@@ -24,6 +24,7 @@ on:
       - 'ops/write_native_build_evidence.py'
       - '.github/scripts/preflight_live_course_catalogue.py'
       - '.github/scripts/retry-transient-command.sh'
+      - '.github/scripts/scan_artifacts_for_secrets.py'
       - '.github/scripts/test-retry-transient-command.sh'
       - '.github/workflows/native-mobile.yml'
 
@@ -182,8 +183,14 @@ jobs:
           mkdir -p design-snapshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/design-snapshots/*.png" -exec cp {} design-snapshots/ \; 2>/dev/null || true
           ls -la design-snapshots || true
+      - name: Scan design snapshots for secret bytes
+        id: scan_design_snapshots
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit'
+        env:
+          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN design-snapshots
       - name: Upload design snapshots
-        if: always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit')
+        if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_design_snapshots.outcome == 'success'))
         uses: actions/upload-artifact@v4
         with:
           name: design-snapshots
@@ -273,15 +280,24 @@ jobs:
           mkdir -p real-screenshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/real-screenshots/*" -exec cp {} real-screenshots/ \; 2>/dev/null || true
           ls -la real-screenshots || true
-      - name: Upload real screenshots
+      - name: Scan real Native evidence for secret bytes
+        id: scan_real_native_evidence
         if: always() && github.event_name == 'workflow_dispatch'
+        env:
+          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+        run: >-
+          python3 .github/scripts/scan_artifacts_for_secrets.py
+          --secret-env ARTIFACT_ADMIN_TOKEN
+          real-screenshots real-videos
+      - name: Upload real screenshots
+        if: always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: real-screenshots
           path: real-screenshots/
           if-no-files-found: warn
       - name: Upload real video
-        if: always() && github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: real-video
@@ -322,8 +338,14 @@ jobs:
           mkdir -p watch-snapshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/watch-snapshots/*.png" -exec cp {} watch-snapshots/ \; 2>/dev/null || true
           ls -la watch-snapshots || true
+      - name: Scan Watch design snapshots for secret bytes
+        id: scan_watch_snapshots
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full'
+        env:
+          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-snapshots
       - name: Upload Watch design snapshots
-        if: always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full')
+        if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope == 'full' && steps.scan_watch_snapshots.outcome == 'success'))
         uses: actions/upload-artifact@v4
         with:
           name: watch-snapshots
@@ -399,8 +421,14 @@ jobs:
           launch_and_capture score-next-tee-candidate watch-score-next-tee-candidate.png
           launch_and_capture score-fairway watch-score-fairway.png
           launch_and_capture club-prompt watch-club-prompt.png
-      - name: Upload watch real screenshots
+      - name: Scan Watch runtime screenshots for secret bytes
+        id: scan_watch_real_screenshots
         if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full'
+        env:
+          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-real-screenshots
+      - name: Upload watch real screenshots
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.scan_watch_real_screenshots.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: watch-real-screenshots
@@ -409,8 +437,14 @@ jobs:
       - name: Write native build evidence
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit'
         run: python3 ops/write_native_build_evidence.py
+      - name: Scan native build evidence for secret bytes
+        id: scan_native_build_evidence
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit'
+        env:
+          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN mobile/ios/native_build_evidence.json
       - name: Upload native build evidence
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit'
+        if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_native_build_evidence.outcome == 'success'))
         uses: actions/upload-artifact@v4
         with:
           name: native-build-evidence

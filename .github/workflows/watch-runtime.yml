@@ -26,6 +26,7 @@ on:
     paths:
       - '.github/workflows/watch-runtime.yml'
       - '.github/scripts/preflight_live_course_catalogue.py'
+      - '.github/scripts/scan_artifacts_for_secrets.py'
       - 'mobile/ios/AICaddieWatch/**'
       - 'mobile/ios/AICaddieWatchTests/**'
       - 'mobile/ios/project.yml'
@@ -121,8 +122,15 @@ jobs:
             -exec cp {} watch-design-snapshots/ \; 2>/dev/null || true
           ls -la watch-design-snapshots
 
-      - name: Upload Watch design snapshots
+      - name: Scan Watch design snapshots for secret bytes
+        id: scan_watch_design_snapshots
         if: always()
+        env:
+          ARTIFACT_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_PLAYER_TOKEN watch-design-snapshots
+
+      - name: Upload Watch design snapshots
+        if: always() && steps.scan_watch_design_snapshots.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: watch-design-snapshots
@@ -602,8 +610,15 @@ jobs:
             -type f -iname '*AICaddieWatch*' -print0 2>/dev/null)
           find watch-runtime-artifacts -maxdepth 2 -type f -print
 
-      - name: Upload Watch runtime evidence
+      - name: Scan Watch runtime evidence for secret bytes
+        id: scan_watch_runtime_evidence
         if: always()
+        env:
+          ARTIFACT_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_PLAYER_TOKEN watch-runtime-artifacts
+
+      - name: Upload Watch runtime evidence
+        if: always() && steps.scan_watch_runtime_evidence.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: watch-runtime-evidence
@@ -656,8 +671,16 @@ jobs:
             --project=desktop-chromium \
             --reporter=line
 
-      - name: Upload real Web player evidence
+      - name: Scan real Web evidence for secret bytes
+        id: scan_web_live_evidence
         if: always()
+        run: >-
+          python3 .github/scripts/scan_artifacts_for_secrets.py
+          --secret-env AI_CADDIE_CI_PLAYER_TOKEN
+          web_v2/web-live-evidence
+
+      - name: Upload real Web player evidence
+        if: always() && steps.scan_web_live_evidence.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: web-live-evidence
