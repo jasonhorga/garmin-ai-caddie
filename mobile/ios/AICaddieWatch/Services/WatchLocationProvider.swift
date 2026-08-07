@@ -123,6 +123,14 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        if let simulatedAuthorizationStatus {
+            authorizationStatus = simulatedAuthorizationStatus
+            if simulatedAuthorizationStatus == .denied || simulatedAuthorizationStatus == .restricted {
+                latestFix = nil
+                latestHeading = nil
+            }
+            return
+        }
         authorizationStatus = manager.authorizationStatus
         switch manager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:

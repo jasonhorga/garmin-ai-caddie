@@ -240,14 +240,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    func testRenderWatchMenu() throws {
-        let view = WatchMenuView(hasCaddie: true, hasHazards: true)
-            .frame(width: 198)
-            .background(Color.black)
-        try render(view, named: "watch-menu")
-    }
-
-    @MainActor
     func testRenderWatchScoreHole() throws {
         let view = WatchScoreHoleView(
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0
@@ -726,7 +718,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             watchGreenYards: (front: 164, center: 173, back: 181),
             shotLocation: Self.snapshotWatchFix
         )
-            .frame(width: 198)
+            .frame(width: 198, height: 242)
             .background(Color.black)
         try render(view, named: "watch-container-home")
     }
@@ -1065,6 +1057,32 @@ final class WatchDesignSnapshotTests: XCTestCase {
         guard let cgImage = renderer.cgImage else {
             XCTFail("ImageRenderer produced no image for \(name)")
             return
+        }
+        // A non-nil CGImage is not sufficient on watchOS: ScrollView-backed views can produce an
+        // all-black bitmap, and a container without an explicit height can collapse to a thin strip.
+        // Runtime-only scroll surfaces are captured by watch-runtime.yml; every design snapshot kept
+        // here must be a real, reviewable Watch-sized image.
+        XCTAssertGreaterThanOrEqual(cgImage.width, 300, "\(name) snapshot collapsed horizontally")
+        XCTAssertGreaterThanOrEqual(cgImage.height, 300, "\(name) snapshot collapsed vertically")
+        if let provider = cgImage.dataProvider,
+           let data = provider.data {
+            let bytes = CFDataGetBytePtr(data)
+            let count = CFDataGetLength(data)
+            var distinct = Set<UInt8>()
+            if let bytes {
+                let samplingStep = max(1, count / 4_096)
+                for offset in stride(from: 0, to: count, by: samplingStep) {
+                    distinct.insert(bytes[offset])
+                    if distinct.count > 8 { break }
+                }
+            }
+            XCTAssertGreaterThan(
+                distinct.count,
+                2,
+                "\(name) snapshot contains no visible UI; use a real simulator capture for scroll content"
+            )
+        } else {
+            XCTFail("could not inspect rendered pixels for \(name)")
         }
         let dir = try FileManager.default
             .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
