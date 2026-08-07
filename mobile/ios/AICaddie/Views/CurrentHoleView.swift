@@ -805,7 +805,7 @@ public struct CurrentHoleView: View {
     ) async {
         if prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
            prep.resolvedMapOverlay != nil {
-            await cacheTopoAndPushToWatch(
+            await pushTopoToWatch(
                 globalId: globalId,
                 sourceLocalHole: sourceLocalHole,
                 watchHole: watchHole
@@ -837,13 +837,15 @@ public struct CurrentHoleView: View {
 
     /// Cache the clean topo independently of Watch availability, then relay the same bytes when a
     /// bridge exists. Phone durability must not depend on whether WatchConnectivity was created.
-    private func cacheTopoAndPushToWatch(globalId: Int, sourceLocalHole: Int, watchHole: Int) async {
+    private func pushTopoToWatch(globalId: Int, sourceLocalHole: Int, watchHole: Int) async {
         guard globalId != 0, offlineStore != nil || watchBridge != nil else { return }
         if let cached = offlineStore?.loadCourseTopoImage(
             globalId: globalId,
             localHole: sourceLocalHole
         ) {
-            watchBridge?.pushHoleImage(globalId: globalId, hole: watchHole, imageData: cached)
+            if let watchBridge {
+                watchBridge.pushHoleImage(globalId: globalId, hole: watchHole, imageData: cached)
+            }
             return
         }
         #if DEBUG
@@ -867,7 +869,9 @@ public struct CurrentHoleView: View {
                 "Live topo cache save failed for \(globalId, privacy: .public)/\(sourceLocalHole, privacy: .public): \(String(describing: error), privacy: .public)"
             )
         }
-        watchBridge?.pushHoleImage(globalId: globalId, hole: watchHole, imageData: data)
+        if let watchBridge {
+            watchBridge.pushHoleImage(globalId: globalId, hole: watchHole, imageData: data)
+        }
     }
 
     /// round-13 LIVE: 本洞前/中/后果岭(F/M/B)prep 数据,仅在 prep 几何可用时。distances 是 tee→green
