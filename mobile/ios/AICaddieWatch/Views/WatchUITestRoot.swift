@@ -502,7 +502,7 @@ public struct WatchUITestRoot: View {
         let tees = await library.loadCourseTees(globalId: Self.realCourseGlobalId, config: config)
         guard let tee = tees.first(where: { $0.teeBox.caseInsensitiveCompare("championship") == .orderedSame })
                 ?? tees.first else {
-            failRealCourse("真实球场没有可用 Tee")
+            failRealCourse(library.diagnosticErrorMessage ?? "真实球场没有可用 Tee")
             return
         }
 
@@ -513,7 +513,11 @@ public struct WatchUITestRoot: View {
             ensureGeometry: true
         )
         guard let prepared = await library.startCourse(selection, config: config) else {
-            failRealCourse(library.errorMessage ?? "真实球场下载失败")
+            failRealCourse(
+                library.diagnosticErrorMessage
+                    ?? library.errorMessage
+                    ?? "真实球场下载失败"
+            )
             return
         }
 
@@ -947,7 +951,7 @@ public struct WatchUITestRoot: View {
         realCourseStatus = message
         switch screen {
         case "real-course-download-seed":
-            writeRealCourseMarker("real-course-download-failed")
+            writeRealCourseMarker("real-course-download-failed", contents: message)
         case "real-course-hazard-map", "real-course-hazard-mid-map":
             writeRealCourseMarker(screen == "real-course-hazard-mid-map"
                 ? "real-course-hazard-mid-failed"

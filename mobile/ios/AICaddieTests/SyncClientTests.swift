@@ -355,6 +355,7 @@ final class SyncClientTests: XCTestCase {
             let queryItems = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
             XCTAssertEqual(queryItems?.first { $0.name == "ensure_release" }?.value, "true")
             XCTAssertNil(queryItems?.first { $0.name == "ensure_geometry" })
+            XCTAssertEqual(request.timeoutInterval, SyncClient.courseReleaseTimeoutInterval)
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,
@@ -374,6 +375,55 @@ final class SyncClientTests: XCTestCase {
 
         XCTAssertEqual(response.globalId, 10283)
         XCTAssertEqual(response.tees.first?.set, 1)
+    }
+
+    func testFetchCourseTeesRetriesOnlyTransientReleaseFailures() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-tees-v1","globalId":10283,"defaultTeeBox":"blue","tees":[{"teeBox":"blue","name":"Blue","set":1,"yards":6828,"holeCount":18,"default":true}]}"#.utf8
+        )
+        var attempts = 0
+        CapturingURLProtocol.requestHandler = { request in
+            attempts += 1
+            if attempts == 1 {
+                let response = HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 503,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!
+                return (response, Data("cooldown".utf8))
+            }
+            if attempts == 2 {
+                throw URLError(.timedOut)
+            }
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { _ in }
+        )
+
+        let response = try await client.fetchCourseTees(globalId: 10283)
+
+        XCTAssertEqual(response.globalId, 10283)
+        XCTAssertEqual(attempts, 3)
+        XCTAssertTrue(SyncClient.isTransientCourseReleaseError(URLError(.timedOut)))
+        XCTAssertTrue(SyncClient.isTransientCourseReleaseError(SyncClientError.http(status: 429, body: nil)))
+        XCTAssertFalse(SyncClient.isTransientCourseReleaseError(URLError(.cancelled)))
+        XCTAssertFalse(SyncClient.isTransientCourseReleaseError(SyncClientError.http(status: 401, body: nil)))
+        XCTAssertEqual(SyncClient.courseReleaseRetryDelayNanoseconds(afterAttempt: 1), 500_000_000)
+        XCTAssertEqual(SyncClient.courseReleaseRetryDelayNanoseconds(afterAttempt: 2), 1_000_000_000)
     }
 
     func testFetchCoursePackageWithGeometryAllowsLongFirstDownload() async throws {

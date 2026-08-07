@@ -113,6 +113,10 @@ public enum SyncClientError: Error, Equatable {
 }
 
 public final class SyncClient {
+    static let courseReleaseTimeoutInterval: TimeInterval = 180
+    static let courseReleaseMaximumAttempts = 3
+    static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
+
     /// The configured API base (e.g. `https://caddie…ts.net`). Public so views can build the
     /// no-auth topo bitmap URL (see `topoImageURL(baseURL:globalId:localHole:)`).
     public let baseURL: URL
@@ -121,6 +125,7 @@ public final class SyncClient {
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let retrySleep: (UInt64) async throws -> Void
 
     public init(baseURL: URL, adminToken: String? = nil, clientId: String = "ios-phone", session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -129,6 +134,23 @@ public final class SyncClient {
         self.session = session
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
+        self.retrySleep = { try await Task.sleep(nanoseconds: $0) }
+    }
+
+    init(
+        baseURL: URL,
+        adminToken: String? = nil,
+        clientId: String = "ios-phone",
+        session: URLSession = .shared,
+        retrySleep: @escaping (UInt64) async throws -> Void
+    ) {
+        self.baseURL = baseURL
+        self.adminToken = adminToken
+        self.clientId = clientId
+        self.session = session
+        self.encoder = JSONEncoder()
+        self.decoder = JSONDecoder()
+        self.retrySleep = retrySleep
     }
 
     public func fetchRoundPackage(roundId: String, capturedAt: Date = Date(), ensureGeometry: Bool = false) async throws -> LiveRoundPackage {
@@ -273,9 +295,12 @@ public final class SyncClient {
         components.queryItems = [URLQueryItem(name: "ensure_release", value: "true")]
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
+        // On the first use of an un-cached course the server may need to fetch and validate Garmin's
+        // CourseView release. Give that explicit download action longer than URLSession's 60 s
+        // default, and retry only failures that are safe for this idempotent GET.
+        request.timeoutInterval = Self.courseReleaseTimeoutInterval
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        let data = try await fetchCourseReleaseData(request)
         return try decoder.decode(CourseTeesResponse.self, from: data)
     }
 
@@ -553,6 +578,48 @@ public final class SyncClient {
             let body = String(data: data, encoding: .utf8)
             AICaddieLog.network.error("Sync HTTP \(http.statusCode, privacy: .public) at \(http.url?.path ?? "", privacy: .public): \(body ?? "<no body>", privacy: .public)")
             throw SyncClientError.http(status: http.statusCode, body: body)
+        }
+    }
+
+    private func fetchCourseReleaseData(_ request: URLRequest) async throws -> Data {
+        var attempt = 1
+        while true {
+            try Task.checkCancellation()
+            do {
+                let (data, response) = try await session.data(for: request)
+                try validate(response: response, data: data)
+                return data
+            } catch {
+                if Task.isCancelled || error is CancellationError {
+                    throw CancellationError()
+                }
+                guard attempt < Self.courseReleaseMaximumAttempts,
+                      Self.isTransientCourseReleaseError(error) else {
+                    throw error
+                }
+                try await retrySleep(Self.courseReleaseRetryDelayNanoseconds(afterAttempt: attempt))
+                attempt += 1
+            }
+        }
+    }
+
+    static func courseReleaseRetryDelayNanoseconds(afterAttempt attempt: Int) -> UInt64 {
+        UInt64(1 << max(0, min(attempt - 1, 4))) * 500_000_000
+    }
+
+    static func isTransientCourseReleaseError(_ error: Error) -> Bool {
+        if error is CancellationError { return false }
+        if let syncError = error as? SyncClientError,
+           case let .http(status, _) = syncError {
+            return transientCourseReleaseHTTPStatuses.contains(status)
+        }
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost,
+             .dnsLookupFailed, .notConnectedToInternet:
+            return true
+        default:
+            return false
         }
     }
 }

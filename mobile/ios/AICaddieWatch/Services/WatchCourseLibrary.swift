@@ -16,6 +16,7 @@ public final class WatchCourseLibrary: ObservableObject {
     @Published public private(set) var isSearchingCourses = false
     @Published public private(set) var preparingCourseId: Int?
     @Published public private(set) var errorMessage: String?
+    public private(set) var diagnosticErrorMessage: String?
 
     private let store: WatchCourseStore
     private let imageStore: WatchHoleImageStore
@@ -152,14 +153,18 @@ public final class WatchCourseLibrary: ObservableObject {
     ) async -> [WatchCourseTee] {
         guard let config else {
             errorMessage = "这个球场尚未下载，请联网后重试"
+            diagnosticErrorMessage = errorMessage
             return []
         }
+        diagnosticErrorMessage = nil
         do {
             let tees = try await makeClient(config).fetchCourseTees(globalId: globalId)
             errorMessage = tees.isEmpty ? "这个球场没有可用的发球台数据" : nil
+            diagnosticErrorMessage = errorMessage
             return tees
         } catch {
             errorMessage = "无法获取发球台，请检查网络后重试"
+            diagnosticErrorMessage = "\(errorMessage!): \(error.localizedDescription)"
             return []
         }
     }
@@ -189,6 +194,7 @@ public final class WatchCourseLibrary: ObservableObject {
 
         preparingCourseId = selection.front.globalId
         errorMessage = nil
+        diagnosticErrorMessage = nil
         defer { preparingCourseId = nil }
         do {
             let roundId = makeRoundId()
@@ -202,6 +208,7 @@ public final class WatchCourseLibrary: ObservableObject {
             return download.template.makeRound(roundId: roundId)
         } catch {
             errorMessage = "球场下载失败，请保持联网后重试"
+            diagnosticErrorMessage = "\(errorMessage!): \(error.localizedDescription)"
             return nil
         }
     }

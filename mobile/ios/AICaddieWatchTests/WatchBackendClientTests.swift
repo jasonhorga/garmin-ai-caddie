@@ -203,6 +203,7 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(teeQuery.queryItems?.first(where: { $0.name == "ensure_release" })?.value, "true")
         XCTAssertNil(teeQuery.queryItems?.first(where: { $0.name == "ensure_geometry" }))
         XCTAssertEqual(tees.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
+        XCTAssertEqual(tees.timeoutInterval, WatchBackendClient.courseReleaseTimeoutInterval)
 
         let package = try client.makeCoursePackageRequest(
             globalId: 31669,
@@ -253,6 +254,58 @@ final class WatchBackendClientTests: XCTestCase {
         let topoQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(topo.url), resolvingAgainstBaseURL: false))
         XCTAssertEqual(topoQuery.queryItems?.first(where: { $0.name == "v" })?.value, "topo-v6")
         XCTAssertNil(topo.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testCourseReleaseRetryPolicyIsBoundedAndCancellationSafe() {
+        XCTAssertEqual(WatchBackendClient.courseReleaseMaximumAttempts, 3)
+        XCTAssertEqual(WatchBackendClient.courseReleaseRetryDelayNanoseconds(afterAttempt: 1), 500_000_000)
+        XCTAssertEqual(WatchBackendClient.courseReleaseRetryDelayNanoseconds(afterAttempt: 2), 1_000_000_000)
+        XCTAssertTrue(WatchBackendClient.isTransientCourseReleaseError(URLError(.timedOut)))
+        XCTAssertTrue(WatchBackendClient.isTransientCourseReleaseError(
+            WatchBackendClientError.http(status: 503, body: "cooldown")
+        ))
+        XCTAssertFalse(WatchBackendClient.isTransientCourseReleaseError(URLError(.cancelled)))
+        XCTAssertFalse(WatchBackendClient.isTransientCourseReleaseError(
+            WatchBackendClientError.http(status: 401, body: nil)
+        ))
+    }
+
+    func testFetchCourseTeesRetriesTransientHTTPAndTransportFailures() async throws {
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-tees-v1","globalId":3881,"defaultTeeBox":"championship","tees":[{"teeBox":"championship","name":"Championship","set":1,"yards":6536,"holeCount":18,"default":true}]}"#.utf8
+        )
+        var attempts = 0
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            dataLoader: { request in
+                attempts += 1
+                if attempts == 1 {
+                    let response = HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 503,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!
+                    return (Data("cooldown".utf8), response)
+                }
+                if attempts == 2 {
+                    throw URLError(.timedOut)
+                }
+                let response = HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                return (payload, response)
+            },
+            retrySleep: { _ in }
+        )
+
+        let tees = try await client.fetchCourseTees(globalId: 3881)
+
+        XCTAssertEqual(tees.first?.teeBox, "championship")
+        XCTAssertEqual(attempts, 3)
     }
 
     func testCoursePrepRequestRejectsAnEdgeUnsafeHoleBatch() throws {

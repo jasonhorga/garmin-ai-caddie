@@ -53,17 +53,39 @@ public struct WatchRoundFinishMetadata: Equatable {
 public enum WatchBackendClientError: Error {
     case invalidShotLocation
     case coursePrepBatchTooLarge
+    case http(status: Int, body: String?)
+}
+
+extension WatchBackendClientError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .invalidShotLocation:
+            return "Invalid shot location"
+        case .coursePrepBatchTooLarge:
+            return "Course prep batch is too large"
+        case let .http(status, body):
+            let detail = body?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let detail, !detail.isEmpty {
+                return "HTTP \(status): \(detail)"
+            }
+            return "HTTP \(status)"
+        }
+    }
 }
 
 public final class WatchBackendClient {
     static let maximumCoursePrepHolesPerRequest = 3
+    static let courseReleaseTimeoutInterval: TimeInterval = 180
+    static let courseReleaseMaximumAttempts = 3
+    static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
 
     private let baseURL: URL
     private let adminToken: String?
     private let sessionToken: String?
     private let sessionTokenExpiresAt: Date?
     private let clientId: String
-    private let session: URLSession
+    private let dataLoader: (URLRequest) async throws -> (Data, URLResponse)
+    private let retrySleep: (UInt64) async throws -> Void
 
     public init(
         baseURL: URL,
@@ -78,7 +100,26 @@ public final class WatchBackendClient {
         self.sessionToken = sessionToken
         self.sessionTokenExpiresAt = sessionTokenExpiresAt
         self.clientId = clientId
-        self.session = session
+        self.dataLoader = { try await session.data(for: $0) }
+        self.retrySleep = { try await Task.sleep(nanoseconds: $0) }
+    }
+
+    init(
+        baseURL: URL,
+        adminToken: String? = nil,
+        sessionToken: String? = nil,
+        sessionTokenExpiresAt: Date? = nil,
+        clientId: String = "apple-watch",
+        dataLoader: @escaping (URLRequest) async throws -> (Data, URLResponse),
+        retrySleep: @escaping (UInt64) async throws -> Void
+    ) {
+        self.baseURL = baseURL
+        self.adminToken = adminToken
+        self.sessionToken = sessionToken
+        self.sessionTokenExpiresAt = sessionTokenExpiresAt
+        self.clientId = clientId
+        self.dataLoader = dataLoader
+        self.retrySleep = retrySleep
     }
 
     // MARK: - WatchInputEvent → backend live-round-event wire dict
@@ -206,6 +247,9 @@ public final class WatchBackendClient {
         components?.queryItems = [URLQueryItem(name: "ensure_release", value: "true")]
         guard let url = components?.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
+        // A catalogue miss can make the backend fetch Garmin's small CourseView release before it
+        // can return the Tee list. That cold path legitimately exceeds URLSession's 60 s default.
+        request.timeoutInterval = Self.courseReleaseTimeoutInterval
         applyAuth(&request)
         return request
     }
@@ -327,7 +371,7 @@ public final class WatchBackendClient {
 
     public func fetchCourseTees(globalId: Int) async throws -> [WatchCourseTee] {
         let request = try makeCourseTeesRequest(globalId: globalId)
-        let data = try await sendForData(request)
+        let data = try await sendForData(request, retryingTransientFailures: true)
         return try decodeCourseTees(data)
     }
 
@@ -401,7 +445,7 @@ public final class WatchBackendClient {
     @discardableResult
     public func postEvents(_ events: [WatchInputEvent], roundId: String, idempotencyKey: String) async throws -> WatchBackendEventResult {
         let request = try makeEventBatchRequest(events, roundId: roundId, idempotencyKey: idempotencyKey)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await dataLoader(request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
@@ -489,13 +533,57 @@ public final class WatchBackendClient {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
     }
 
-    private func sendForData(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        guard (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
+    private func sendForData(
+        _ request: URLRequest,
+        retryingTransientFailures: Bool = false
+    ) async throws -> Data {
+        let maximumAttempts = retryingTransientFailures ? Self.courseReleaseMaximumAttempts : 1
+        var attempt = 1
+
+        while true {
+            try Task.checkCancellation()
+            do {
+                let (data, response) = try await dataLoader(request)
+                guard let http = response as? HTTPURLResponse else {
+                    throw URLError(.badServerResponse)
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    let body = String(data: data.prefix(1_024), encoding: .utf8)
+                    throw WatchBackendClientError.http(status: http.statusCode, body: body)
+                }
+                return data
+            } catch {
+                if Task.isCancelled || error is CancellationError {
+                    throw CancellationError()
+                }
+                guard attempt < maximumAttempts,
+                      Self.isTransientCourseReleaseError(error) else {
+                    throw error
+                }
+                try await retrySleep(Self.courseReleaseRetryDelayNanoseconds(afterAttempt: attempt))
+                attempt += 1
+            }
         }
-        return data
+    }
+
+    static func courseReleaseRetryDelayNanoseconds(afterAttempt attempt: Int) -> UInt64 {
+        UInt64(1 << max(0, min(attempt - 1, 4))) * 500_000_000
+    }
+
+    static func isTransientCourseReleaseError(_ error: Error) -> Bool {
+        if error is CancellationError { return false }
+        if let backendError = error as? WatchBackendClientError,
+           case let .http(status, _) = backendError {
+            return transientCourseReleaseHTTPStatuses.contains(status)
+        }
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost,
+             .dnsLookupFailed, .notConnectedToInternet:
+            return true
+        default:
+            return false
+        }
     }
 
     private func endpointURL(_ endpoint: String) -> URL {
