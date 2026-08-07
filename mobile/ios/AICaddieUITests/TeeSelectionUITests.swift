@@ -48,6 +48,15 @@ final class TeeSelectionUITests: XCTestCase {
             XCTFail("the production nearby response must expose Beijing Palace segment 31793")
             return
         }
+        XCTAssertEqual(
+            palace.value as? String,
+            "未选择",
+            "multiple nearby venues must wait for the player's explicit choice"
+        )
+        XCTAssertFalse(
+            app.buttons["start-round-primary-action"].isEnabled,
+            "a course from history must not become the implicit nearby selection"
+        )
         palace.tap()
         let becameSelected = waitForValue("已选择", on: palace, timeout: 8)
         save("02b-start-round-selected"); dump("02b-start-round-selected")

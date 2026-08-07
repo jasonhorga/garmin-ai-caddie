@@ -115,6 +115,17 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     #endif
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        // Core Location can deliver its real simulator/device callback after a DEBUG journey has
+        // installed a deterministic permission override. Letting that callback replace the forced
+        // denial with `.notDetermined` left the product spinner running forever and hid the manual
+        // city/name fallback that the test is meant to exercise.
+        if let simulatedAuthorizationStatus {
+            authorizationStatus = simulatedAuthorizationStatus
+            if simulatedAuthorizationStatus == .denied || simulatedAuthorizationStatus == .restricted {
+                latestFix = nil
+            }
+            return
+        }
         authorizationStatus = manager.authorizationStatus
         AICaddieLog.location.debug("Location authorization changed: \(manager.authorizationStatus.rawValue, privacy: .public)")
         switch manager.authorizationStatus {

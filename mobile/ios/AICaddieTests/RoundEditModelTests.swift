@@ -134,6 +134,23 @@ final class RoundEditModelTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         CapturingURLProtocol.requestHandler = { request in
             if request.httpMethod == "POST" {
+                XCTAssertEqual(
+                    request.url?.path,
+                    "/api/v2/history/rounds/round-1/corrections"
+                )
+                let body = try CapturingURLProtocol.requestBodyData(from: request)
+                let payload = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: Any]
+                )
+                XCTAssertEqual(payload["op"] as? String, "addShot")
+                XCTAssertEqual(
+                    (payload["px"] as? [NSNumber])?.map(\.doubleValue),
+                    [25.2, 42.8]
+                )
+                XCTAssertEqual(payload["club"] as? String, "7I")
+                XCTAssertEqual(payload["lie"] as? String, "fairway")
+                XCTAssertEqual(payload["insertAfterShotId"] as? String, "shot-1")
+                XCTAssertFalse((payload["clientMutationId"] as? String ?? "").isEmpty)
                 posted.fulfill()
                 return (HTTPURLResponse(
                     url: try XCTUnwrap(request.url),

@@ -5,6 +5,11 @@ import XCTest
 final class LocationProviderTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
+    override func tearDown() {
+        unsetenv("UITEST_LOCATION_AUTHORIZATION")
+        super.tearDown()
+    }
+
     func testRejectsInvalidInaccurateAndStaleSamples() {
         XCTAssertFalse(LocationProvider.isUsable(location(latitude: 91), now: now))
         XCTAssertFalse(LocationProvider.isUsable(location(longitude: 181), now: now))
@@ -25,6 +30,16 @@ final class LocationProviderTests: XCTestCase {
         ))
         XCTAssertEqual(selected.coordinate.latitude, 40.1)
         XCTAssertEqual(selected.coordinate.longitude, 116.1)
+    }
+
+    func testSimulatedDenialSurvivesARealManagerAuthorizationCallback() {
+        setenv("UITEST_LOCATION_AUTHORIZATION", "denied", 1)
+        let provider = LocationProvider()
+
+        XCTAssertEqual(provider.authorizationStatus, .denied)
+        provider.locationManagerDidChangeAuthorization(CLLocationManager())
+        XCTAssertEqual(provider.authorizationStatus, .denied)
+        XCTAssertNil(provider.latestFix)
     }
 
     private func location(

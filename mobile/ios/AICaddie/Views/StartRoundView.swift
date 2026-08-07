@@ -374,6 +374,10 @@ public struct StartRoundView: View {
             .padding(.vertical, 8)
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // The transparent Spacer is most of a wide course row. Without an explicit shape,
+            // tapping that centre area (including Voice Control/XCUITest's default tap point) can
+            // miss the Button even though its accessibility frame advertises the full row.
+            .contentShape(Rectangle())
             .background(selected ? LiveHoleStyle.green.opacity(0.10) : Color.clear)
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? LiveHoleStyle.green : LiveHoleStyle.line))
             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -454,6 +458,7 @@ public struct StartRoundView: View {
             .padding(.vertical, 8)
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .background(selected ? LiveHoleStyle.green.opacity(0.10) : Color.clear)
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? LiveHoleStyle.green : LiveHoleStyle.line))
             .clipShape(RoundedRectangle(cornerRadius: 10))

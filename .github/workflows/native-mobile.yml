@@ -252,6 +252,7 @@ jobs:
                 -only-testing:AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow
                 -only-testing:AICaddieUITests/ReviewEditUITests/testCaptureReviewEditFlow
                 -only-testing:AICaddieUITests/TeeSelectionUITests/testCaptureTeeSelector
+                -only-testing:AICaddieUITests/TeeSelectionUITests/testDeniedGPSStillOffersCatalogueSearchInsteadOfHistory
               )
               ;;
             edit)
