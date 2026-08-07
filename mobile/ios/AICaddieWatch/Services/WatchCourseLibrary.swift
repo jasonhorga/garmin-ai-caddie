@@ -22,6 +22,10 @@ public final class WatchCourseLibrary: ObservableObject {
     private let imageStore: WatchHoleImageStore
     private let makeRoundId: () -> String
     private let now: () -> String
+    private var refreshRequestToken: UUID?
+    private var nearbyRequestToken: UUID?
+    private var searchRequestToken: UUID?
+    private var teeRequestToken: UUID?
 
     public init(
         store: WatchCourseStore = WatchCourseStore(),
@@ -41,16 +45,24 @@ public final class WatchCourseLibrary: ObservableObject {
     }
 
     public func refresh(config: WatchRoundConfig?) async {
+        let requestToken = UUID()
+        refreshRequestToken = requestToken
         guard let config else {
+            isLoadingCourses = false
             if courses.isEmpty {
                 errorMessage = "请先在 iPhone 登录并同步一次"
             }
             return
         }
         isLoadingCourses = true
-        defer { isLoadingCourses = false }
+        defer {
+            if refreshRequestToken == requestToken {
+                isLoadingCourses = false
+            }
+        }
         do {
             let remote = try await makeClient(config).fetchCourseOptions()
+            guard !Task.isCancelled, refreshRequestToken == requestToken else { return }
             let cached = store.loadCourses()
             var merged = remote
             let cachedOptions = cached.flatMap { [$0.option, $0.backOption].compactMap { $0 } }
@@ -63,6 +75,7 @@ public final class WatchCourseLibrary: ObservableObject {
             })
             errorMessage = nil
         } catch {
+            guard !Task.isCancelled, refreshRequestToken == requestToken else { return }
             errorMessage = courses.isEmpty
                 ? "无法获取球场，请检查网络或登录状态"
                 : "无法更新球场，已缓存球场仍可离线使用"
@@ -79,9 +92,12 @@ public final class WatchCourseLibrary: ObservableObject {
         radiusKm: Int = 50,
         config: WatchRoundConfig?
     ) async {
+        let requestToken = UUID()
+        nearbyRequestToken = requestToken
         guard latitude.isFinite, (-90...90).contains(latitude),
               longitude.isFinite, (-180...180).contains(longitude),
               (1...200).contains(radiusKm) else {
+            isLoadingNearby = false
             nearbyCourses = []
             errorMessage = "正在等待有效 GPS 定位"
             return
@@ -93,6 +109,7 @@ public final class WatchCourseLibrary: ObservableObject {
             radiusKm: radiusKm
         )
         guard let config else {
+            isLoadingNearby = false
             nearbyCourses = cachedNearby
             errorMessage = cachedNearby.isEmpty ? "请先在 iPhone 登录并同步一次" : nil
             return
@@ -100,13 +117,18 @@ public final class WatchCourseLibrary: ObservableObject {
 
         isLoadingNearby = true
         errorMessage = nil
-        defer { isLoadingNearby = false }
+        defer {
+            if nearbyRequestToken == requestToken {
+                isLoadingNearby = false
+            }
+        }
         do {
             let matches = try await makeClient(config).nearbyCourses(
                 latitude: latitude,
                 longitude: longitude,
                 radiusKm: radiusKm
             )
+            guard !Task.isCancelled, nearbyRequestToken == requestToken else { return }
             var seen = Set<Int>()
             nearbyCourses = matches.compactMap { resolvedNearbyOption($0) }.filter {
                 seen.insert($0.globalId).inserted
@@ -115,6 +137,7 @@ public final class WatchCourseLibrary: ObservableObject {
                 errorMessage = "当前位置 \(radiusKm) km 内没有找到球场"
             }
         } catch {
+            guard !Task.isCancelled, nearbyRequestToken == requestToken else { return }
             nearbyCourses = cachedNearby
             errorMessage = cachedNearby.isEmpty
                 ? "无法读取附近球场，可改用名称搜索"
@@ -123,13 +146,17 @@ public final class WatchCourseLibrary: ObservableObject {
     }
 
     public func searchAllCourses(name: String, config: WatchRoundConfig?) async {
+        let requestToken = UUID()
+        searchRequestToken = requestToken
         let query = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.count >= 2 else {
+            isSearchingCourses = false
             searchMatches = []
             errorMessage = "请至少输入两个字再搜索全部球场"
             return
         }
         guard let config else {
+            isSearchingCourses = false
             searchMatches = []
             errorMessage = "请先在 iPhone 登录并同步一次"
             return
@@ -138,15 +165,21 @@ public final class WatchCourseLibrary: ObservableObject {
         isSearchingCourses = true
         searchMatches = []
         errorMessage = nil
-        defer { isSearchingCourses = false }
+        defer {
+            if searchRequestToken == requestToken {
+                isSearchingCourses = false
+            }
+        }
         do {
             let matches = try await makeClient(config).searchCourses(name: query)
+            guard !Task.isCancelled, searchRequestToken == requestToken else { return }
             var seen = Set<Int>()
             searchMatches = matches.filter { seen.insert($0.globalId).inserted }
             if searchMatches.isEmpty {
                 errorMessage = "未返回匹配球场，请检查名称或稍后重试"
             }
         } catch {
+            guard !Task.isCancelled, searchRequestToken == requestToken else { return }
             errorMessage = "无法搜索全部球场，请检查网络或登录状态"
         }
     }
@@ -155,6 +188,8 @@ public final class WatchCourseLibrary: ObservableObject {
         globalId: Int,
         config: WatchRoundConfig?
     ) async -> [WatchCourseTee] {
+        let requestToken = UUID()
+        teeRequestToken = requestToken
         guard let config else {
             errorMessage = "这个球场尚未下载，请联网后重试"
             diagnosticErrorMessage = errorMessage
@@ -163,10 +198,12 @@ public final class WatchCourseLibrary: ObservableObject {
         diagnosticErrorMessage = nil
         do {
             let tees = try await makeClient(config).fetchCourseTees(globalId: globalId)
+            guard !Task.isCancelled, teeRequestToken == requestToken else { return [] }
             errorMessage = tees.isEmpty ? "这个球场没有可用的发球台数据" : nil
             diagnosticErrorMessage = errorMessage
             return tees
         } catch {
+            guard !Task.isCancelled, teeRequestToken == requestToken else { return [] }
             errorMessage = "无法获取发球台，请检查网络后重试"
             diagnosticErrorMessage = "\(errorMessage!): \(error.localizedDescription)"
             return []

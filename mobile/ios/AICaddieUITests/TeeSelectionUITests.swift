@@ -247,6 +247,44 @@ final class TeeSelectionUITests: XCTestCase {
         )
     }
 
+    func testNearbyServiceFailureWithoutLocalCacheStillOffersCompleteCatalogueFallback() throws {
+        // A remote failure is different from an honest empty result. Use an ocean coordinate so
+        // any course cached by another test is factually outside the local 50 km fallback.
+        app.launchEnvironment["UITEST_GPS_LAT"] = "0"
+        app.launchEnvironment["UITEST_GPS_LON"] = "0"
+        app.launchEnvironment["UITEST_FORCE_NEARBY_FAILURE"] = "1"
+        app.launchEnvironment.removeValue(forKey: "UITEST_LOCATION_AUTHORIZATION")
+        launchFresh()
+
+        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+            XCTFail("the home must keep the new-round entry available when nearby discovery fails")
+            return
+        }
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.staticTexts["附近球场暂时读取失败；可以先按城市或球场名搜索。"]
+                .waitForExistence(timeout: 20),
+            "a transport failure without a factual local candidate must settle to the manual fallback"
+        )
+        XCTAssertFalse(
+            app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@", "start-round-course-segment-")
+            ).firstMatch.exists,
+            "a failed request at an ocean coordinate must not repopulate the picker from history"
+        )
+        XCTAssertFalse(app.buttons["start-round-primary-action"].isEnabled)
+
+        let search = app.buttons["start-round-search-all-courses"]
+        XCTAssertTrue(search.exists && search.isHittable)
+        search.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
+        try searchAndSelectBeijingPalace(field: "course-catalog-keyword-field", text: "北京丽宫")
+        XCTAssertTrue(
+            waitUntilEnabled(app.buttons["start-round-primary-action"], timeout: 90),
+            "nearby transport failure must still reach a startable real course through name search"
+        )
+    }
+
     func testDownloadedNearbyCourseStartsACompletelyNewRoundWithAllLiveServicesOffline() throws {
         // Phase 1: use the production path once to retain the selected course's all-hole lightweight
         // facts and topo bitmaps. Start remains immediate; this marker arrives from its background

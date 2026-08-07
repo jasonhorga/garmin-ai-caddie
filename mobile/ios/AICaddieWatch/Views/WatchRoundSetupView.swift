@@ -31,6 +31,7 @@ public struct WatchRoundSetupView: View {
     @State private var loadedTeesByCourseId: [Int: [WatchCourseTee]] = [:]
     @State private var isLoadingTees = false
     @State private var teeLoadAttempted = false
+    @State private var teeRequestToken: UUID?
     @State private var stage: WatchRoundSetupStage
     let initialStage: WatchRoundSetupStage
 
@@ -500,19 +501,31 @@ public struct WatchRoundSetupView: View {
 
     @MainActor
     private func loadTeesIfNeeded() async {
+        let requestToken = UUID()
+        teeRequestToken = requestToken
         let course = selectedPrimary
-        guard course.tees.isEmpty else { return }
+        guard course.tees.isEmpty else {
+            isLoadingTees = false
+            return
+        }
         if let teeBox = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines),
            !teeBox.isEmpty,
            teeBox.caseInsensitiveCompare("unknown") != .orderedSame {
+            isLoadingTees = false
             return
         }
 
         teeLoadAttempted = true
         isLoadingTees = true
+        defer {
+            if teeRequestToken == requestToken {
+                isLoadingTees = false
+            }
+        }
         let tees = await onLoadTees(course.globalId)
-        isLoadingTees = false
-        guard selectedPrimary.globalId == course.globalId else { return }
+        guard !Task.isCancelled,
+              teeRequestToken == requestToken,
+              selectedPrimary.globalId == course.globalId else { return }
         loadedTeesByCourseId[course.globalId] = tees
         if let defaultTee = tees.first(where: \.isDefault) ?? tees.first {
             selectedTee = defaultTee.teeBox
