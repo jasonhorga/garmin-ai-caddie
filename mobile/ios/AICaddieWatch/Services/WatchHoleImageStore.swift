@@ -63,7 +63,22 @@ public final class WatchHoleImageStore {
         let bytes = [UInt8](data.prefix(8))
         let isPNG = bytes == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
         let isJPEG = bytes.count >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF
-        guard isPNG || isJPEG,
+        let hasCompleteEnvelope: Bool
+        if isPNG {
+            // A complete PNG ends with its zero-length IEND chunk and CRC. ImageIO may otherwise
+            // advertise a source before the transfer has delivered the tail of the file.
+            hasCompleteEnvelope = [UInt8](data.suffix(12)) == [
+                0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+                0xAE, 0x42, 0x60, 0x82,
+            ]
+        } else if isJPEG {
+            // ImageIO reports some header-only/corrupt JPEG byte streams as statusComplete. The
+            // EOI marker is therefore an independent transfer-completeness requirement.
+            hasCompleteEnvelope = [UInt8](data.suffix(2)) == [0xFF, 0xD9]
+        } else {
+            hasCompleteEnvelope = false
+        }
+        guard hasCompleteEnvelope,
               let source = CGImageSourceCreateWithData(data as CFData, nil),
               CGImageSourceGetCount(source) > 0 else { return false }
         return CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete
