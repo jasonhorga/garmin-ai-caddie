@@ -58,6 +58,14 @@ def validate_matches(
     return matches
 
 
+def validate_empty_nearby(payload: Any) -> None:
+    """The open-ocean probe is the live proof for the honest zero-result branch."""
+    _require(isinstance(payload, dict), "empty nearby response must be an object")
+    _require(payload.get("schema") == "ai-caddie-course-nearby-v1", "empty nearby schema mismatch")
+    _require(payload.get("radiusKm") == 50, "empty nearby radius mismatch")
+    _require(payload.get("matches") == [], "open-ocean nearby probe must return no courses")
+
+
 def _headers() -> dict[str, str]:
     mode = os.environ.get("AI_CADDIE_PREFLIGHT_AUTH_MODE", "admin").strip().lower()
     token = os.environ.get("AI_CADDIE_PREFLIGHT_TOKEN", "").strip()
@@ -114,6 +122,13 @@ def main() -> int:
         expected_global_id=nearby_gid,
         require_distance_order=True,
     )
+    empty_nearby = _get_json(
+        base_url,
+        "/api/v2/courses/nearby",
+        {"latitude": "0", "longitude": "0", "radius_km": "50"},
+        headers,
+    )
+    validate_empty_nearby(empty_nearby)
     search = _get_json(
         base_url,
         "/api/v2/courses/search",
@@ -127,7 +142,7 @@ def main() -> int:
     )
     print(
         "course-catalogue-preflight ok "
-        f"health={health['schema']} nearby={len(nearby_matches)} search={len(search_matches)}"
+        f"health={health['schema']} nearby={len(nearby_matches)} empty=0 search={len(search_matches)}"
     )
     return 0
 

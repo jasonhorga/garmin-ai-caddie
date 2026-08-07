@@ -53,6 +53,23 @@ class LiveCourseCataloguePreflightTests(unittest.TestCase):
                     require_distance_order=True,
                 )
 
+    def test_empty_nearby_requires_a_real_zero_result_contract(self) -> None:
+        preflight.validate_empty_nearby(
+            {
+                "schema": "ai-caddie-course-nearby-v1",
+                "radiusKm": 50,
+                "matches": [],
+            }
+        )
+        invalid_payloads = [
+            {"schema": "ai-caddie-course-nearby-v1", "radiusKm": 50, "matches": [{}]},
+            {"schema": "wrong", "radiusKm": 50, "matches": []},
+            {"schema": "ai-caddie-course-nearby-v1", "radiusKm": 200, "matches": []},
+        ]
+        for payload in invalid_payloads:
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                preflight.validate_empty_nearby(payload)
+
     def test_health_requires_the_production_schema(self) -> None:
         preflight.validate_health({"schema": "ai-caddie-health-v2", "revision": "abc123"})
         with self.assertRaises(ValueError):

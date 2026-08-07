@@ -290,6 +290,41 @@ final class SyncClientTests: XCTestCase {
         XCTAssertNotNil(matches.first?.courseOption)
     }
 
+    func testNearbyCoursesRetriesATransientFailureWithoutDelayingTheFallback() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-nearby-v1","radiusKm":50,"matches":[]}"#.utf8
+        )
+        var attempts = 0
+        CapturingURLProtocol.requestHandler = { request in
+            attempts += 1
+            XCTAssertEqual(request.timeoutInterval, SyncClient.nearbyDiscoveryTimeoutInterval)
+            if attempts == 1 {
+                throw URLError(.networkConnectionLost)
+            }
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { _ in }
+        )
+
+        let matches = try await client.nearbyCourses(latitude: 0, longitude: 0, radiusKm: 50)
+
+        XCTAssertTrue(matches.isEmpty)
+        XCTAssertEqual(attempts, 2)
+    }
+
     func testCityAndKeywordSearchIntersectsProviderResultsByGlobalId() {
         let shenzhen = [
             MobileCourseSearchMatch(

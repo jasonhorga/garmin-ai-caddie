@@ -213,10 +213,19 @@ public struct StartRoundView: View {
         selectedSegment.map { $0.venueName ?? baseCourseName($0.name) } ?? displayVenues.first?.venue ?? ""
     }
 
-    private var selectedVenueBinding: Binding<String> {
+    /// Keep "no venue selected" as a real Picker value. Falling back to the first venue here used
+    /// to let SwiftUI normalise the binding by calling its setter when the first cached row arrived;
+    /// that looked exactly like a user tap and pinned the cached/history course before the complete
+    /// Garmin nearby response could add the other venues.
+    private var selectedVenueBinding: Binding<String?> {
         Binding(
-            get: { selectedVenueName },
-            set: { newVenue in selectVenue(newVenue, userInitiated: true) }
+            get: {
+                selectedSegment.map { $0.venueName ?? baseCourseName($0.name) }
+            },
+            set: { newVenue in
+                guard let newVenue else { return }
+                selectVenue(newVenue, userInitiated: true)
+            }
         )
     }
 
@@ -328,8 +337,20 @@ public struct StartRoundView: View {
                     }
                 }
             } else {
-                Label("当前位置 50 km · 最近在前", systemImage: "location.fill")
-                    .font(.caption2).foregroundStyle(LiveHoleStyle.green)
+                if isLoadingNearby {
+                    ProgressView("正在更新附近球场…")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("start-round-nearby-loading")
+                } else {
+                    Label(
+                        "当前位置 50 km · \(displayVenues.count) 个球场 · 最近在前",
+                        systemImage: "location.fill"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(LiveHoleStyle.green)
+                    .accessibilityIdentifier("start-round-nearby-results-summary")
+                }
                 if let nearbyStatusText {
                     Text(nearbyStatusText)
                         .font(.caption2)
@@ -337,12 +358,14 @@ public struct StartRoundView: View {
                 }
                 // Only provider-nearby venues (plus one explicit text-search selection) appear here.
                 Picker("球场", selection: selectedVenueBinding) {
+                    Text("选择附近球场").tag(String?.none)
                     ForEach(displayVenues, id: \.venue) { group in
-                        Text(group.venue).tag(group.venue)
+                        Text(group.venue).tag(Optional(group.venue))
                     }
                 }
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("start-round-course-venue-picker")
                 // 选中球场的各 9 洞环 / 整场。
                 if let group = displayVenues.first(where: { $0.venue == selectedVenueName }) ?? displayVenues.first {
                     ForEach(group.segments) { segment in

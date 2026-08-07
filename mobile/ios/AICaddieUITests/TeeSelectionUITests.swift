@@ -48,6 +48,11 @@ final class TeeSelectionUITests: XCTestCase {
             XCTFail("the production nearby response must expose Beijing Palace segment 31793")
             return
         }
+        XCTAssertTrue(
+            app.descendants(matching: .any)["start-round-nearby-results-summary"]
+                .waitForExistence(timeout: 60),
+            "the complete provider nearby result must replace any interim downloaded row"
+        )
         XCTAssertEqual(
             palace.value as? String,
             "未选择",
@@ -150,6 +155,15 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(
             palace.waitForExistence(timeout: 60),
             "a real Core Location fix at Beijing Palace must reach the Garmin nearby result"
+        )
+        let summary = app.descendants(matching: .any)["start-round-nearby-results-summary"]
+        XCTAssertTrue(
+            summary.waitForExistence(timeout: 60),
+            "real Core Location must reach a terminal provider result, not only the interim local cache"
+        )
+        XCTAssertFalse(
+            summary.label.contains("· 1 个球场 ·"),
+            "the live Beijing coordinate is known to return several physical venues"
         )
         XCTAssertEqual(
             palace.value as? String,
@@ -275,10 +289,14 @@ final class TeeSelectionUITests: XCTestCase {
             return
         }
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        let emptyCopy = "当前位置 50 km 内没有找到球场；可以扩大范围或按名称搜索。"
+        let failureCopy = "附近球场暂时读取失败；可以先按城市或球场名搜索。"
+        let terminal = app.staticTexts.matching(
+            NSPredicate(format: "label == %@ OR label == %@", emptyCopy, failureCopy)
+        ).firstMatch
         XCTAssertTrue(
-            app.staticTexts["当前位置 50 km 内没有找到球场；可以扩大范围或按名称搜索。"]
-                .waitForExistence(timeout: 60),
-            "a valid remote coordinate with no nearby course must settle to an empty result, not spin forever"
+            terminal.waitForExistence(timeout: 60),
+            "a valid remote coordinate must settle to an empty or honest recoverable network state"
         )
         XCTAssertFalse(
             app.buttons["start-round-course-segment-31793"].exists,

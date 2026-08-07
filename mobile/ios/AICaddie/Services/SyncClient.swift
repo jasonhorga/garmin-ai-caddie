@@ -131,6 +131,7 @@ public enum SyncClientError: Error, Equatable {
 public final class SyncClient {
     static let courseReleaseTimeoutInterval: TimeInterval = 180
     static let courseReleaseMaximumAttempts = 3
+    static let nearbyDiscoveryTimeoutInterval: TimeInterval = 10
     static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
 
     /// The configured API base (e.g. `https://caddie…ts.net`). Public so views can build the
@@ -292,9 +293,13 @@ public final class SyncClient {
         ]
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
+        // Nearby discovery is the time-sensitive entry to a round. A short-lived Funnel/DNS failure
+        // previously dropped straight to "读取失败" even though the same request worked moments
+        // later through manual search. Bound each attempt so the fallback remains responsive, then
+        // retry the idempotent GET using the same transient-only policy as course metadata.
+        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        let data = try await fetchRetriableGetData(request)
         return try decoder.decode(MobileNearbyCoursesResponse.self, from: data).matches
     }
 
@@ -316,7 +321,7 @@ public final class SyncClient {
         // default, and retry only failures that are safe for this idempotent GET.
         request.timeoutInterval = Self.courseReleaseTimeoutInterval
         applyAuth(to: &request)
-        let data = try await fetchCourseReleaseData(request)
+        let data = try await fetchRetriableGetData(request)
         return try decoder.decode(CourseTeesResponse.self, from: data)
     }
 
@@ -631,7 +636,7 @@ public final class SyncClient {
         }
     }
 
-    private func fetchCourseReleaseData(_ request: URLRequest) async throws -> Data {
+    private func fetchRetriableGetData(_ request: URLRequest) async throws -> Data {
         var attempt = 1
         while true {
             try Task.checkCancellation()
