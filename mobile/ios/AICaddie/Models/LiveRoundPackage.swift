@@ -92,7 +92,7 @@ public struct LiveRoundPackage: Codable, Equatable {
     /// A CourseView-only outline remains useful for online play, but is not a complete offline map.
     public var hasCompleteOfflineCoursePrep: Bool {
         guard !holes.isEmpty, let preparedHoles = coursePrep?.holes else { return false }
-        let preciseDrawable = Set(preparedHoles.compactMap { prep in
+        let preciseDrawable: Set<Int> = Set(preparedHoles.compactMap { prep -> Int? in
             guard prep.resolvedMapOverlay != nil,
                   prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
                 return nil
