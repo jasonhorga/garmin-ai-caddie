@@ -628,7 +628,6 @@ final class RealFlowUITests: XCTestCase {
             fetchPrepGreenYards(globalId: approvedJourneyCourseGlobalId, hole: 2),
             "the live backend must expose real static F/M/B facts for 北京丽宫 hole 2"
         )
-        continueAfterFailure = false
         let liveDistanceIdentifiers = ["live-green-front", "live-green-middle", "live-green-back"]
         for (identifier, staticYards) in zip(liveDistanceIdentifiers, hole2TeeGreenYards) {
             let distance = app.staticTexts[identifier]
@@ -646,7 +645,6 @@ final class RealFlowUITests: XCTestCase {
                 "the ordered next hole must move simulated GPS to its own Tee (live \(liveYards), static \(staticYards))"
             )
         }
-        continueAfterFailure = true
         let nextHoleCaddieLoading = app.activityIndicators["正在更新球童建议"]
         _ = nextHoleCaddieLoading.waitForExistence(timeout: 2)
         XCTAssertTrue(
