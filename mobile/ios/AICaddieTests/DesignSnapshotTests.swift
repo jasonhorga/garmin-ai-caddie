@@ -159,6 +159,19 @@ final class DesignSnapshotTests: XCTestCase {
         XCTAssertNotEqual(green, LivePlayMapOverlayLayout.fallbackGreenTarget(in: hero))
     }
 
+    func testParThreeClubLabelMovesOutsideTheGreenTargetReticle() {
+        let pin = CGPoint(x: 180, y: 90)
+
+        XCTAssertEqual(
+            HoleImageMapView.clubLabelPoint(landing: CGPoint(x: 182, y: 92), pin: pin),
+            CGPoint(x: 180, y: 134)
+        )
+        XCTAssertEqual(
+            HoleImageMapView.clubLabelPoint(landing: CGPoint(x: 180, y: 220), pin: pin),
+            CGPoint(x: 180, y: 202)
+        )
+    }
+
     func testMediaCaptureCustomerCopyIsChinese() {
         XCTAssertEqual(MediaCaptureCopy.empty, "尚未添加照片或视频")
         XCTAssertEqual(MediaCaptureCopy.unavailable, "无法读取所选媒体")

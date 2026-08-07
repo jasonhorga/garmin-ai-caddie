@@ -78,6 +78,7 @@ public struct HoleImageMapView: View {
         let routePoints: [CGPoint] = overlay.route.compactMap { row in
             row.count >= 2 ? CGPoint(x: row[0] * sx, y: row[1] * sy) : nil
         }
+        let pin = routePoints.last
         if hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
             drawLightweightFacts(
                 &context,
@@ -108,12 +109,12 @@ public struct HoleImageMapView: View {
             if let club = clubLabel {
                 context.draw(
                     Text(club).font(.caption2.weight(.bold)).foregroundColor(.white),
-                    at: CGPoint(x: center.x, y: center.y - 18)
+                    at: Self.clubLabelPoint(landing: center, pin: pin)
                 )
             }
         }
         // Pin (green end of the route).
-        if let pin = routePoints.last {
+        if let pin {
             context.fill(Path(ellipseIn: CGRect(x: pin.x - 5, y: pin.y - 5, width: 10, height: 10)), with: .color(.red))
         }
     }
@@ -194,6 +195,15 @@ public struct HoleImageMapView: View {
             }
         }
         return overlay.route.last
+    }
+
+    /// A Par-3 recommendation can end on the pin. Keep its club name outside the 60-point live
+    /// target reticle; ordinary fairway landings retain the compact label above their marker.
+    static func clubLabelPoint(landing: CGPoint, pin: CGPoint?) -> CGPoint {
+        guard let pin, hypot(landing.x - pin.x, landing.y - pin.y) <= 54 else {
+            return CGPoint(x: landing.x, y: landing.y - 18)
+        }
+        return CGPoint(x: pin.x, y: pin.y + 44)
     }
 
     /// Smooth play line through the route centreline points. Quadratic-through-midpoints: each
