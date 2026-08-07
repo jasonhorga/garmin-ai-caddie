@@ -127,6 +127,7 @@ public struct WatchFinishRoundView: View {
             .padding(.bottom, 4)
         }
         .scrollIndicators(.hidden)
+        .defaultScrollAnchor(initiallyShowSecondaryAction ? .bottom : .top)
         .background(Color.black)
         .ignoresSafeArea(edges: [.top, .leading, .trailing])
     }
