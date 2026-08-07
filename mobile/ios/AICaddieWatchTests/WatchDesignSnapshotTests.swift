@@ -30,6 +30,14 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(WatchClubDisplay.name("wedge60"), "60° 挖起杆")
     }
 
+    func testWatchHoleMapUsesCompactButUnambiguousLoftWedgeNames() {
+        XCTAssertEqual(WatchClubDisplay.compactMapName("wedge50"), "50°")
+        XCTAssertEqual(WatchClubDisplay.compactMapName("50° 挖起杆"), "50°")
+        XCTAssertEqual(WatchClubDisplay.compactMapName("50°挖起杆"), "50°")
+        XCTAssertEqual(WatchClubDisplay.compactMapName("3W"), "三号木")
+        XCTAssertEqual(WatchClubDisplay.compactMapName("自定义杆"), "自定义杆")
+    }
+
     @MainActor
     func testRenderAutoShotCandidateConfirmation() throws {
         let view = WatchAutoShotCandidateView()
@@ -377,6 +385,10 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(view.primaryActionLabel, "保存并结束")
         XCTAssertEqual(view.secondaryActionLabel, "继续打球")
         XCTAssertFalse(view.initiallyShowSecondaryAction)
+        XCTAssertGreaterThanOrEqual(
+            WatchFinishRoundLayout.systemTimeTrailingClearance,
+            WatchScoreHoleLayout.systemTimeTrailingClearance
+        )
     }
 
     @MainActor

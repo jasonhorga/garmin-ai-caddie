@@ -418,7 +418,7 @@ public struct WatchHoleMapView: View {
                         // Current-shot recommendation only; the map itself never draws a whole-hole route.
                         Button(action: onOpenCaddie) {
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(caddieClub)
+                                Text(WatchClubDisplay.compactMapName(caddieClub))
                                     .font(.system(size: 16, weight: .bold))
                                     .foregroundStyle(.white)
                                     .lineLimit(1)

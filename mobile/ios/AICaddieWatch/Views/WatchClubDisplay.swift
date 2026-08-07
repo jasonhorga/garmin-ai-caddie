@@ -47,6 +47,20 @@ enum WatchClubDisplay {
         return value
     }
 
+    /// The hole-map recommendation card is intentionally narrow beside the map. A loft already
+    /// identifies a wedge unambiguously, so prefer `50°` there instead of rendering `50...`.
+    /// Full club prompts and statistics continue to use the complete Chinese display name.
+    static func compactMapName(_ raw: String) -> String {
+        let display = name(raw)
+        let loft = display.prefix { $0.isNumber || $0 == "°" }
+        guard loft.hasSuffix("°"),
+              !loft.dropLast().isEmpty,
+              loft.dropLast().allSatisfy(\.isNumber) else {
+            return display
+        }
+        return String(loft)
+    }
+
     private static func numbered(_ value: String, suffix: String) -> String? {
         guard let digit = value.first(where: \.isNumber).map(String.init) else { return nil }
         return "\(chineseNumber[digit] ?? digit)\(suffix)"

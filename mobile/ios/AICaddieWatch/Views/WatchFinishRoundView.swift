@@ -1,5 +1,11 @@
 import SwiftUI
 
+enum WatchFinishRoundLayout {
+    /// watchOS owns the top-right clock lane even when the app asks for full-screen content.
+    /// Reserve the same horizontal space as scoring so a long course name cannot run under it.
+    static let systemTimeTrailingClearance: CGFloat = 48
+}
+
 /// The approved compact end-of-round summary. The richer GIR/fairway facts remain in the model for
 /// history and phone review, but this glance deliberately shows only the facts present in render #16.
 public struct WatchFinishRoundView: View {
@@ -55,6 +61,7 @@ public struct WatchFinishRoundView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
+                    .padding(.trailing, WatchFinishRoundLayout.systemTimeTrailingClearance)
                     .padding(.top, 2)
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
