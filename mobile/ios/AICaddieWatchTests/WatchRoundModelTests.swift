@@ -191,7 +191,10 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.activeHoleState?.putts, 2)
         XCTAssertEqual(model.activeHoleState?.penaltyCount, 1)
         XCTAssertEqual(model.activeHoleState?.selectedClub, "7I")
-        XCTAssertTrue(model.activeHoleState?.hazards.isEmpty, "ready empty authority must clear partial ghost hazards")
+        XCTAssertTrue(
+            model.activeHoleState?.hazards.isEmpty ?? false,
+            "ready empty authority must clear partial ghost hazards"
+        )
         XCTAssertEqual(model.screen, .scoring)
         XCTAssertEqual(model.draftScore, 6)
     }
@@ -975,7 +978,7 @@ final class WatchRoundModelTests: XCTestCase {
         )))
 
         let partial = state.applyingCourseMapUpgrade(WatchRoundState(
-            roundId: "r1", hole: 1, par: 4, selectedClub: nil,
+            roundId: "r1", hole: 1, par: 4, distanceM: nil, selectedClub: nil,
             geometryCoverage: "partial",
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
         ))
