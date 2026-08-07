@@ -248,7 +248,18 @@ private struct OfflineTopoDownloadResult: Sendable {
     let errorDescription: String?
 }
 
-private struct OfflineTopoDownloadClient: @unchecked Sendable {
+private struct OfflinePrepBatchRequest: Sendable {
+    let globalId: Int
+    let localHoles: [Int]
+}
+
+private struct OfflinePrepBatchResult: @unchecked Sendable {
+    let request: OfflinePrepBatchRequest
+    let holes: [CoursePrepHole]
+    let errorDescription: String?
+}
+
+private struct OfflineDownloadClient: @unchecked Sendable {
     let value: SyncClient
 }
 
@@ -701,6 +712,60 @@ public final class LiveRoundAppModel: ObservableObject {
         prep?.resolvedMapOverlay == nil
     }
 
+    /// Course prep cost grows non-linearly when one request parses all 18 large meshes. Keep the
+    /// first playing hole as its own highest-priority request (the live view asks for the same key,
+    /// so the backend singleflight can share it), then fetch the rest in small bounded batches.
+    private func fetchOfflinePrepBatches(
+        _ requests: [OfflinePrepBatchRequest],
+        using syncClient: SyncClient,
+        maximumConcurrentRequests: Int = 3
+    ) async -> [OfflinePrepBatchResult] {
+        guard !requests.isEmpty else { return [] }
+        let client = OfflineDownloadClient(value: syncClient)
+        let limit = max(1, min(maximumConcurrentRequests, requests.count))
+        return await withTaskGroup(
+            of: OfflinePrepBatchResult.self,
+            returning: [OfflinePrepBatchResult].self
+        ) { group in
+            var iterator = requests.makeIterator()
+            var results: [OfflinePrepBatchResult] = []
+            results.reserveCapacity(requests.count)
+            let fetch: @Sendable (OfflinePrepBatchRequest) async -> OfflinePrepBatchResult = { request in
+                do {
+                    let response = try await client.value.fetchCoursePrep(
+                        globalId: request.globalId,
+                        holes: request.localHoles,
+                        render: false
+                    )
+                    return OfflinePrepBatchResult(
+                        request: request,
+                        holes: response.holes,
+                        errorDescription: nil
+                    )
+                } catch {
+                    return OfflinePrepBatchResult(
+                        request: request,
+                        holes: [],
+                        errorDescription: String(describing: error)
+                    )
+                }
+            }
+
+            for _ in 0..<limit {
+                if let request = iterator.next() {
+                    group.addTask { await fetch(request) }
+                }
+            }
+            while let result = await group.next() {
+                results.append(result)
+                if !Task.isCancelled, let request = iterator.next() {
+                    group.addTask { await fetch(request) }
+                }
+            }
+            return results
+        }
+    }
+
     /// Fetch topo PNGs with a small concurrency window. A real 18-hole download used to request
     /// them strictly one-by-one; over the public funnel that added more than 100 seconds after the
     /// course facts were ready. Four in flight keeps the phone/server/network busy without creating
@@ -711,7 +776,7 @@ public final class LiveRoundAppModel: ObservableObject {
         maximumConcurrentRequests: Int = 4
     ) async -> [OfflineTopoDownloadResult] {
         guard !holes.isEmpty else { return [] }
-        let client = OfflineTopoDownloadClient(value: syncClient)
+        let client = OfflineDownloadClient(value: syncClient)
         let limit = max(1, min(maximumConcurrentRequests, holes.count))
         return await withTaskGroup(
             of: OfflineTopoDownloadResult.self,
@@ -781,11 +846,19 @@ public final class LiveRoundAppModel: ObservableObject {
         let groups = Dictionary(grouping: snapshot.holes) { hole in
             hole.sourceGlobalId ?? snapshot.course.globalId
         }
+        var orderedGlobalIds: [Int] = []
+        for hole in snapshot.holes {
+            let globalId = hole.sourceGlobalId ?? snapshot.course.globalId
+            if !orderedGlobalIds.contains(globalId) {
+                orderedGlobalIds.append(globalId)
+            }
+        }
         let retryDelays: [UInt64] = [5, 10, 20]
         for attempt in 0...retryDelays.count {
-            var shouldRetry = false
-            for (globalId, roundHoles) in groups.sorted(by: { $0.key < $1.key }) {
+            var batchRequests: [OfflinePrepBatchRequest] = []
+            for globalId in orderedGlobalIds {
                 guard !Task.isCancelled else { return }
+                guard let roundHoles = groups[globalId] else { continue }
                 let localHoles = Array(Set(roundHoles.map {
                     $0.sourceLocalHole ?? $0.number
                 })).sorted()
@@ -795,23 +868,42 @@ public final class LiveRoundAppModel: ObservableObject {
                     ])
                 }
                 guard !requested.isEmpty else { continue }
-                do {
-                    let response = try await syncClient.fetchCoursePrep(
+                // The playing group's first hole is deliberately a singleton. Remaining requests
+                // use three-hole batches: production measurements were ~7s/3 holes versus ~138s/18.
+                batchRequests.append(OfflinePrepBatchRequest(
+                    globalId: globalId,
+                    localHoles: [requested[0]]
+                ))
+                var index = 1
+                while index < requested.count {
+                    let end = min(index + 3, requested.count)
+                    batchRequests.append(OfflinePrepBatchRequest(
                         globalId: globalId,
-                        holes: requested,
-                        render: false
-                    )
-                    for prep in response.holes {
-                        prepBySource[offlinePrepKey(globalId: globalId, localHole: prep.hole)] = prep
-                    }
-                } catch {
+                        localHoles: Array(requested[index..<end])
+                    ))
+                    index = end
+                }
+            }
+
+            let batchResults = await fetchOfflinePrepBatches(batchRequests, using: syncClient)
+            guard !Task.isCancelled else { return }
+            for result in batchResults {
+                if let errorDescription = result.errorDescription {
+                    let holeList = result.request.localHoles.map(String.init).joined(separator: ",")
                     AICaddieLog.network.error(
-                        "Offline course facts download failed for \(globalId, privacy: .public): \(String(describing: error), privacy: .public)"
+                        "Offline course facts download failed for \(result.request.globalId, privacy: .public)/\(holeList, privacy: .public): \(errorDescription, privacy: .public)"
                     )
                 }
-                shouldRetry = shouldRetry || requested.contains { localHole in
+                for prep in result.holes {
+                    prepBySource[
+                        offlinePrepKey(globalId: result.request.globalId, localHole: prep.hole)
+                    ] = prep
+                }
+            }
+            let shouldRetry = batchRequests.contains { request in
+                request.localHoles.contains { localHole in
                     offlinePrepNeedsRefresh(prepBySource[
-                        offlinePrepKey(globalId: globalId, localHole: localHole)
+                        offlinePrepKey(globalId: request.globalId, localHole: localHole)
                     ])
                 }
             }
@@ -862,8 +954,9 @@ public final class LiveRoundAppModel: ObservableObject {
             guard !Task.isCancelled else { return }
             for download in downloads {
                 guard let data = download.data else {
+                    let errorDescription = download.errorDescription ?? "unknown error"
                     AICaddieLog.network.error(
-                        "Offline topo download failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(download.errorDescription ?? \"unknown error\", privacy: .public)"
+                        "Offline topo download failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(errorDescription, privacy: .public)"
                     )
                     continue
                 }

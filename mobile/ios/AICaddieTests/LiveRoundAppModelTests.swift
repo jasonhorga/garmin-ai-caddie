@@ -264,11 +264,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
-        var requestedPaths: [String] = []
+        var requestedURLs: [URL] = []
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
             requestLock.lock()
-            requestedPaths.append(url.path)
+            requestedURLs.append(url)
             requestLock.unlock()
             let body: Data
             let contentType: String
@@ -330,8 +330,9 @@ final class LiveRoundAppModelTests: XCTestCase {
             nine: online.nine ?? "all"
         )?.coursePrep)
         requestLock.lock()
-        let paths = requestedPaths
+        let urls = requestedURLs
         requestLock.unlock()
+        let paths = urls.map(\.path)
         XCTAssertFalse(
             paths.contains("/api/v2/courses/\(online.course.globalId)/topo/prewarm"),
             "the complete offline download must not compete with a duplicate server-wide prewarm"
@@ -340,6 +341,18 @@ final class LiveRoundAppModelTests: XCTestCase {
             paths.filter { $0.hasSuffix("/topo.png") }.count,
             online.holes.count,
             "every drawable hole must be fetched exactly once on the successful path"
+        )
+        let prepHoleBatches = urls.filter { $0.path.hasSuffix("/prep") }.map { url in
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .filter { $0.name == "holes" }
+                .compactMap { $0.value.flatMap(Int.init) } ?? []
+        }
+        XCTAssertTrue(prepHoleBatches.contains([online.holes[0].number]))
+        XCTAssertTrue(prepHoleBatches.allSatisfy { (1...3).contains($0.count) })
+        XCTAssertEqual(
+            Set(prepHoleBatches.flatMap { $0 }),
+            Set(online.holes.map(\.number)),
+            "bounded prep batches must cover the complete course exactly as the former all-hole request did"
         )
     }
 

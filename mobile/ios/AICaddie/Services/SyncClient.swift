@@ -408,7 +408,10 @@ public final class SyncClient {
         applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
-        return try decoder.decode(CoursePrepResponse.self, from: data)
+        // Offline course installation intentionally issues a few bounded prep batches in parallel.
+        // JSONDecoder has mutable decoding state and is not documented as safe for concurrent use;
+        // keep this read path local rather than sharing the client's general-purpose decoder.
+        return try JSONDecoder().decode(CoursePrepResponse.self, from: data)
     }
 
     /// Prep for one hole. The default lightweight response carries factual geometry plus topo
