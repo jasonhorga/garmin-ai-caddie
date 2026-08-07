@@ -289,9 +289,35 @@ final class OfflineStoreTests: XCTestCase {
             globalId: 31795,
             localHole: 1
         ))
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: directory
+                    .appendingPathComponent("course_topo", isDirectory: true)
+                    .appendingPathComponent(SyncClient.topoStyleVersion, isDirectory: true)
+                    .appendingPathComponent("31795-1.png")
+                    .path
+            ),
+            "renderer version must participate in the installed-device cache identity"
+        )
         XCTAssertEqual(store.loadCourseTopoImage(globalId: 31795, localHole: 1), png)
         XCTAssertNil(store.loadCourseTopoImage(globalId: 31795, localHole: 2))
         XCTAssertNil(store.loadCourseTopoImage(globalId: -1, localHole: 1))
+    }
+
+    func testCourseTopoCacheDoesNotReuseLegacyUnversionedPixels() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let legacyDirectory = directory.appendingPathComponent("course_topo", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+        try validOnePixelPNGData().write(
+            to: legacyDirectory.appendingPathComponent("31795-1.png"),
+            options: .atomic
+        )
+
+        let store = OfflineStore(directoryURL: directory)
+
+        XCTAssertNil(store.loadCourseTopoImage(globalId: 31795, localHole: 1))
+        XCTAssertNil(store.loadCourseTopoImageURL(globalId: 31795, localHole: 1))
     }
 
     func testOfflineMapCompletenessRequiresEveryPrecisePrepAndTopoImage() throws {

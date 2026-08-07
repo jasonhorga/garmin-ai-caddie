@@ -753,7 +753,14 @@ public final class WatchEventBridge: NSObject {
                 try? FileManager.default.removeItem(at: tmp)
             }
             try imageData.write(to: tmp, options: .atomic)
-            WCSession.default.transferFile(tmp, metadata: ["globalId": globalId, "hole": hole])
+            WCSession.default.transferFile(
+                tmp,
+                metadata: [
+                    "globalId": globalId,
+                    "hole": hole,
+                    "styleVersion": SyncClient.topoStyleVersion,
+                ]
+            )
         } catch {
             // best-effort; the watch simply renders no map for this hole
         }

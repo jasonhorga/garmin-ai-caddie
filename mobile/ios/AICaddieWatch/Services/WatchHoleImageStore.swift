@@ -10,14 +10,17 @@ public enum WatchHoleImageStoreError: Error, Equatable {
 
 /// watch P0.4: on-device cache of per-hole topo map images (`/topo.png`) the phone pushes over
 /// WatchConnectivity `transferFile`, so the watch renders the hole map from LOCAL storage while
-/// playing — offline-first, never fetching over the air mid-round. Keyed by `{globalId}_{hole}`.
+/// playing — offline-first, never fetching over the air mid-round. The style-versioned directory
+/// prevents an installed app from silently reusing pixels produced by an older renderer.
 public final class WatchHoleImageStore {
     private let directory: URL
 
     public init(directoryURL: URL? = nil) {
         let base = directoryURL
             ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        self.directory = base.appendingPathComponent("hole-images", isDirectory: true)
+        self.directory = base
+            .appendingPathComponent("hole-images", isDirectory: true)
+            .appendingPathComponent(WatchBackendClient.topoStyleVersion, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 

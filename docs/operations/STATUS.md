@@ -1,6 +1,6 @@
 # Garmin Golf Project — Status
 
-**Last updated**: 2026-08-05
+**Last updated**: 2026-08-07
 **Working directory**: `/home/ubuntu/claude-web-data/repo/garmin-ai-caddie`
 
 ---
@@ -10,9 +10,9 @@
 **Long term**: build an AI caddie that uses the user's full Garmin shot history + course geometry to give actionable advice (club selection, target lines, risk).
 
 **Current focus**: ordinary Garmin course discovery, acquisition, update and
-cross-client cache authority are closed. Execution returns to the product
-Overall list; membership Green Contours capture is an external, non-blocking
-research dependency.
+cross-client cache authority are closed. `topo-v8` closes the coastal outline,
+multi-water and installed-client cache-upgrade defects; membership Green
+Contours capture remains an external, non-blocking research dependency.
 
 **User**: ~10-year Garmin golfer. 14-club bag (1W, 3W, 3H, 5I–9I, PW, A, 50°, 54°, 58°, putter). Plays mostly in Beijing/China. ~443 rounds in Garmin (after dedup, 418 rounds covering ~90 unique courses).
 
@@ -338,7 +338,7 @@ frozen authority report and exact product rules live in
   the current canonical Garmin asset path/version. A sidecar records release,
   CourseGen version, asset paths, embedded version and ZIP SHA-256; signed URL
   queries and credentials are never persisted as identity.
-- Derived Topo uses the same `topo-v6` URL family on Web, iPhone and Watch. Its
+- Derived Topo uses the same `topo-v8` URL family on Web, iPhone and Watch. Its
   disk key and ETag include the geometry authority token, and HTTP clients
   revalidate instead of retaining a `gid + hole` image as immutable for a
   year.

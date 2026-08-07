@@ -4,6 +4,7 @@ import ast
 import hashlib
 import json
 import plistlib
+import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -1917,7 +1918,8 @@ class MobileContractTests(unittest.TestCase):
             sync_client,
         )
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
-        self.assertIn('URLQueryItem(name: "v", value: "topo-v7")', sync_client)
+        self.assertIn('public static let topoStyleVersion = "topo-v8"', sync_client)
+        self.assertIn('URLQueryItem(name: "v", value: topoStyleVersion)', sync_client)
         self.assertIn("TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)", hole_map_view)
         self.assertIn(
             'hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame ? topoURL : nil',
@@ -1930,6 +1932,30 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("topoURL: liveTopoURL", current_hole)
         self.assertIn("SyncClient.topoImageURL(baseURL: caddieBaseURL", current_hole)
         self.assertIn('"live-hole-map-partial"', current_hole)
+
+    def test_topo_style_version_invalidates_phone_watch_caches_and_transfers(self) -> None:
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
+        offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
+        bridge = _read_required_source(self, IOS_DIR / "Services" / "WatchEventBridge.swift")
+        watch_backend = _read_required_source(self, WATCH_DIR / "Services" / "WatchBackendClient.swift")
+        watch_store = _read_required_source(self, WATCH_DIR / "Services" / "WatchHoleImageStore.swift")
+        watch_sync = _read_required_source(self, WATCH_DIR / "Services" / "WatchSyncClient.swift")
+
+        phone_version = re.search(r'public static let topoStyleVersion = "([^"]+)"', sync_client)
+        watch_version = re.search(r'public static let topoStyleVersion = "([^"]+)"', watch_backend)
+        self.assertIsNotNone(phone_version)
+        self.assertIsNotNone(watch_version)
+        assert phone_version is not None and watch_version is not None
+        self.assertEqual(phone_version.group(1), watch_version.group(1))
+        self.assertEqual(phone_version.group(1), "topo-v8")
+
+        self.assertIn("SyncClient.topoStyleVersion", offline_store)
+        self.assertIn('"styleVersion": SyncClient.topoStyleVersion', bridge)
+        self.assertIn("WatchBackendClient.topoStyleVersion", watch_store)
+        self.assertIn(
+            'meta["styleVersion"] as? String == WatchBackendClient.topoStyleVersion',
+            watch_sync,
+        )
 
     def test_ios_topo_map_distinguishes_loading_ready_and_failure(self) -> None:
         topo_base = _read_required_source(self, IOS_DIR / "Views" / "TopoHoleBaseImage.swift")

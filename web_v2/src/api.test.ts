@@ -84,7 +84,7 @@ const HISTORY_OVERVIEW_PAYLOAD = {
 
 describe('release-revalidated topo asset URL', () => {
   it('includes the renderer style version so a new map cannot reuse a year-long old bitmap', () => {
-    expect(topoImageUrl(31793, 1)).toBe('/api/v2/courses/31793/holes/1/topo.png?v=topo-v7')
+    expect(topoImageUrl(31793, 1)).toBe('/api/v2/courses/31793/holes/1/topo.png?v=topo-v8')
   })
 })
 

@@ -159,7 +159,7 @@ final class WatchCourseDownloadTests: XCTestCase {
             teeBox: "Blue"
         )
         let package = try client.decodeCoursePackage(Data(
-            #"{"roundId":"watch-topo-v7","course":{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1}]}"#.utf8
+            #"{"roundId":"watch-topo-v8","course":{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1}]}"#.utf8
         ))
         let prep = try client.decodeCoursePrep(Data(
             #"{"globalId":31669,"clubs":[],"holes":[{"hole":1,"hazards":{},"map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":678,"h":1060,"route":[]}}}]}"#.utf8

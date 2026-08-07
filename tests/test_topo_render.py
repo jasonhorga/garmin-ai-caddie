@@ -4,7 +4,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Barrier, Event
+from threading import Barrier, Event, Lock
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -22,10 +22,10 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 class TopoRenderModuleTests(unittest.TestCase):
-    def test_topo_v7_starts_overlays_on_a_transparent_course_canvas(self) -> None:
+    def test_topo_v8_starts_overlays_on_a_transparent_course_canvas(self) -> None:
         from PIL import Image
 
-        self.assertEqual(topo_render.STYLE_VERSION, "topo-v7")
+        self.assertEqual(topo_render.STYLE_VERSION, "topo-v8")
         self.assertTrue(hasattr(topo_render, "_clip_to_transparent_canvas"))
 
         source = Image.new("RGB", (2, 1), topo_render.PAL["bg"])
@@ -168,10 +168,53 @@ class TopoRenderModuleTests(unittest.TestCase):
 
         render.assert_called_once()
 
+    def test_different_cold_holes_do_not_multiply_render_memory(self) -> None:
+        canned = _PNG_MAGIC + b"bounded-cold-topo"
+        callers_ready = Barrier(2)
+        first_started = Event()
+        overlap = Event()
+        release_render = Event()
+        state_lock = Lock()
+        active = 0
+
+        def memory_heavy_render(_gid: int, _hole: int) -> bytes:
+            nonlocal active
+            with state_lock:
+                active += 1
+                if active > 1:
+                    overlap.set()
+            first_started.set()
+            self.assertTrue(release_render.wait(timeout=2))
+            with state_lock:
+                active -= 1
+            return canned
+
+        def request(hole: int) -> bytes:
+            callers_ready.wait(timeout=2)
+            return topo_render.render_hole_topo_cached(31795, hole)
+
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
+                patch.object(topo_render, "render_hole_topo", side_effect=memory_heavy_render) as render, \
+                ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(request, 1)
+            second = pool.submit(request, 2)
+            self.assertTrue(first_started.wait(timeout=2))
+            self.assertFalse(
+                overlap.wait(timeout=0.2),
+                "different cold holes rendered concurrently and multiplied the NumPy memory peak",
+            )
+            release_render.set()
+            self.assertEqual(first.result(timeout=2), canned)
+            self.assertEqual(second.result(timeout=2), canned)
+
+        self.assertEqual(render.call_count, 2)
+        self.assertFalse(overlap.is_set())
+
     def test_cache_key_includes_style_version(self) -> None:
         with patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": "/x/y"}):
             path = topo_render.cache_path(31795, 7)
-        self.assertTrue(path.name.startswith("gid31795_h07_topo-v7-"))
+        self.assertTrue(path.name.startswith("gid31795_h07_topo-v8-"))
         self.assertTrue(path.name.endswith(".png"))
         self.assertIn(topo_render.STYLE_VERSION, str(path))
 
@@ -231,13 +274,29 @@ class TopoRenderModuleTests(unittest.TestCase):
         )
         self.assertEqual(result.tobytes(), current.tobytes())
 
-    def test_topo_v7_consumes_decoded_coast_and_ocean_layers(self) -> None:
+    def test_topo_v8_consumes_decoded_coast_and_ocean_layers(self) -> None:
         self.assertEqual(topo_render.OCEAN_LAYERS, ("Ocean", "VfxOcean", "OceanSide"))
         self.assertIn("Beach", topo_render.ORDER)
         self.assertIn("Cliff", topo_render.ORDER)
         self.assertNotIn("TreeArea", topo_render.ENVELOPE_SUPPORT_LAYERS)
         self.assertNotIn("Beach", topo_render.ENVELOPE_SUPPORT_LAYERS)
         self.assertNotIn("Cliff", topo_render.ENVELOPE_SUPPORT_LAYERS)
+
+    def test_combined_water_mask_keeps_multiple_lakes_and_ocean(self) -> None:
+        from PIL import Image
+
+        masks = {
+            "Lake": Image.new("L", (4, 1), 0),
+            "Ocean": Image.new("L", (4, 1), 0),
+        }
+        masks["Lake"].putpixel((0, 0), 255)
+        masks["Lake"].putpixel((2, 0), 255)  # a second disconnected Lake component
+        masks["Ocean"].putpixel((3, 0), 255)
+
+        combined = topo_render._combined_water_mask(masks.get)
+
+        self.assertIsNotNone(combined)
+        self.assertEqual(list(combined.tobytes()), [255, 0, 255, 255])
 
 
 class TopoEndpointTests(unittest.TestCase):

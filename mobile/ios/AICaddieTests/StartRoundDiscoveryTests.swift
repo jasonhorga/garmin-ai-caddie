@@ -86,6 +86,24 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    func testNearbyDiscoveryDoesNotRestartForNormalWalkingGPSUpdates() {
+        let initial = StartRoundView.nearbyDiscoveryBucket(
+            latitude: 40.0454995,
+            longitude: 116.5461531
+        )
+        let afterWalking = StartRoundView.nearbyDiscoveryBucket(
+            latitude: 40.0458995,
+            longitude: 116.5465531
+        )
+        let afterMeaningfulTravel = StartRoundView.nearbyDiscoveryBucket(
+            latitude: 40.0654995,
+            longitude: 116.5661531
+        )
+
+        XCTAssertEqual(initial, afterWalking)
+        XCTAssertNotEqual(initial, afterMeaningfulTravel)
+    }
+
     private func option(
         globalId: Int,
         name: String,

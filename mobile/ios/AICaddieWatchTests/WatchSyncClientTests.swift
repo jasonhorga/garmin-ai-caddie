@@ -5,6 +5,52 @@ import WatchConnectivity
 @testable import AICaddieWatch
 
 final class WatchSyncClientTests: XCTestCase {
+    func testHoleImageTransferRejectsMissingOrStaleRendererVersion() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let imageStore = WatchHoleImageStore(directoryURL: directory)
+        let client = WatchSyncClient(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            holeImageStore: imageStore
+        )
+        let imageURL = directory.appendingPathComponent("received.img")
+        let image = try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
+        try image.write(to: imageURL, options: .atomic)
+
+        XCTAssertFalse(client.receiveHoleImage(
+            fileURL: imageURL,
+            metadata: ["globalId": 31833, "hole": 1]
+        ))
+        XCTAssertFalse(client.receiveHoleImage(
+            fileURL: imageURL,
+            metadata: ["globalId": 31833, "hole": 1, "styleVersion": "topo-v7"]
+        ))
+        XCTAssertFalse(imageStore.hasImage(globalId: 31833, hole: 1))
+    }
+
+    func testHoleImageTransferAcceptsCurrentRendererVersion() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let imageStore = WatchHoleImageStore(directoryURL: directory)
+        let client = WatchSyncClient(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            holeImageStore: imageStore
+        )
+        let imageURL = directory.appendingPathComponent("received.img")
+        let image = try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
+        try image.write(to: imageURL, options: .atomic)
+
+        XCTAssertTrue(client.receiveHoleImage(
+            fileURL: imageURL,
+            metadata: [
+                "globalId": 31833,
+                "hole": 1,
+                "styleVersion": WatchBackendClient.topoStyleVersion,
+            ]
+        ))
+        XCTAssertEqual(imageStore.data(globalId: 31833, hole: 1), image)
+    }
+
     func testReceiveRoundSeedPublishesRealRoundForTheAppModel() throws {
         let client = WatchSyncClient(queueURL: tempQueueURL())
         let seed = WatchRoundSeed(

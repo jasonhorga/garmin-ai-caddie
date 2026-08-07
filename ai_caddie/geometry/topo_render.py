@@ -55,7 +55,7 @@ from ai_caddie.geometry.geometry_authority import authority_path, cache_token
 # topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
-STYLE_VERSION = "topo-v7"  # v7: bounded route envelope + decoded coast/ocean surface rendering
+STYLE_VERSION = "topo-v8"  # v8: bounded coast plus every route-visible water component
 
 # PhysicsMesh is clipped to the same route corridor used by the renderer.  Unlike the decoded
 # material layers, it is a continuous terrain authority and therefore cannot add TreeArea spikes.
@@ -89,6 +89,7 @@ ORDER = [
 # flat blue polygon clipped by the PNG edge.  OceanSide is a projected shoreline wall, but including
 # it closes small gaps between Ocean and VfxOcean without inventing water beyond source geometry.
 OCEAN_LAYERS = ("Ocean", "VfxOcean", "OceanSide")
+WATER_LAYERS = ("Lake",) + OCEAN_LAYERS
 
 # TreeArea is deliberately absent: some packages contain neighbouring-hole TreeArea triangles.
 # Beach/Cliff are rendered, but also stay out: a coastal strip can continue to the arbitrary mesh
@@ -172,6 +173,21 @@ def _ground_envelope(mask_for, fallback: Image.Image) -> Image.Image:
     """Choose continuous terrain; packages without it retain the exact legacy material union."""
     physics = mask_for("PhysicsMesh")
     return physics if physics is not None else fallback
+
+
+def _combined_water_mask(mask_for) -> Image.Image | None:
+    """Union every factual water component; the shared route/ground clip removes neighbour context.
+
+    Selecting only the Lake component nearest the green hid valid earlier hazards on holes with two
+    or more lakes.  Keeping the decoded union is both simpler and correct: the final hole corridor
+    and bounded terrain envelope already decide which part belongs on this hole's bitmap.
+    """
+    combined = None
+    for name in WATER_LAYERS:
+        mask = mask_for(name)
+        if mask is not None:
+            combined = mask if combined is None else ImageChops.lighter(combined, mask)
+    return combined
 
 
 def _convex_hull(points: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -468,24 +484,8 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     light_eff = 1.0 + (light - 1.0) * (1 - 0.92 * mown)
     np.copyto(base, base * (1 - land_np) + np.clip(base * light_eff, 0, 255) * land_np)
 
-    # ---- this hole's water: selected lake plus factual decoded coastal surfaces ----
-    lmask = mask_L("Lake")
-    water_keep = None
-    if lmask is not None:
-        la = np.asarray(lmask, dtype=np.uint8)
-        ys, xs = np.where(la == 255)
-        if len(xs):
-            tgt = project(tuple(route[-1]))
-            k = int(np.argmin((xs - tgt[0]) ** 2 + (ys - tgt[1]) ** 2))
-            ff = lmask.copy()
-            ImageDraw.floodfill(ff, (int(xs[k]), int(ys[k])), 128, thresh=0)
-            water_keep = ff.point(lambda v: 255 if v == 128 else 0)
-        else:
-            water_keep = lmask
-    for ocean_name in OCEAN_LAYERS:
-        ocean = mask_L(ocean_name)
-        if ocean is not None:
-            water_keep = ocean if water_keep is None else ImageChops.lighter(water_keep, ocean)
+    # ---- every factual water body; the final route/terrain mask removes neighbour context ----
+    water_keep = _combined_water_mask(mask_L)
 
     # ---- water: depth gradient + ripple + bright shoreline ----
     if water_keep is not None:
@@ -765,6 +765,11 @@ def cache_path(gid: int, hole: int) -> Path:
 
 _cache_lock = threading.Lock()
 _cache_inflight: dict[Path, threading.Event] = {}
+# A cold supersampled render owns several large NumPy rasters at once.  Different holes used to
+# render concurrently (the per-path singleflight only protects duplicate requests), so an iPhone
+# download plus Web/Watch prewarm could multiply that peak until the API host swapped or died.
+# Serialise cold renders process-wide; warm PNG reads never take this gate.
+_cold_render_slot = threading.BoundedSemaphore(1)
 
 
 def _read_cached_topo(path: Path) -> bytes | None:
@@ -810,7 +815,8 @@ def render_hole_topo_cached(gid: int, hole: int) -> bytes:
         return render_hole_topo_cached(gid, hole)
 
     try:
-        png = render_hole_topo(gid, hole)  # raises on missing/broken geometry (before any write)
+        with _cold_render_slot:
+            png = render_hole_topo(gid, hole)  # raises on missing/broken geometry (before any write)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".png.tmp")

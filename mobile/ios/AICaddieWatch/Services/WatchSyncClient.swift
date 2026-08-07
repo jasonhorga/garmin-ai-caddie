@@ -166,12 +166,17 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     private let decoder = JSONDecoder()
     /// watch P0.4: local cache of per-hole topo images the phone pushes via WatchConnectivity file
     /// transfer, so the hole map renders offline mid-round. Read by `WatchHoleMapView`'s geometry.
-    public let holeImageStore = WatchHoleImageStore()
+    public let holeImageStore: WatchHoleImageStore
     @Published public private(set) var lastHoleImageKey: String?
 
-    public init(queueURL: URL, stateURL: URL? = nil) {
+    public init(
+        queueURL: URL,
+        stateURL: URL? = nil,
+        holeImageStore: WatchHoleImageStore = WatchHoleImageStore()
+    ) {
         self.queueURL = queueURL
         self.stateURL = stateURL ?? queueURL.deletingLastPathComponent().appendingPathComponent("current_state.json")
+        self.holeImageStore = holeImageStore
         super.init()
         currentState = try? loadPersistedState()
         refreshQueuedEventCount()
@@ -487,17 +492,29 @@ extension WatchSyncClient: WCSessionDelegate {
     // watch P0.4: the phone pushes each hole's topo image via `transferFile`; cache it locally (keyed
     // by the file's {globalId, hole} metadata) so the hole map renders offline while playing.
     public func session(_ session: WCSession, didReceive file: WCSessionFile) {
-        let meta = file.metadata ?? [:]
+        receiveHoleImage(fileURL: file.fileURL, metadata: file.metadata ?? [:])
+    }
+
+    /// Accept only pixels produced for this Watch build's renderer contract. A transfer queued by
+    /// the previous phone build may arrive after upgrade; silently caching it would reintroduce the
+    /// exact stale map that the versioned directories are meant to retire.
+    @discardableResult
+    func receiveHoleImage(fileURL: URL, metadata meta: [String: Any]) -> Bool {
+        guard meta["styleVersion"] as? String == WatchBackendClient.topoStyleVersion else {
+            return false
+        }
         guard let gid = (meta["globalId"] as? Int) ?? (meta["globalId"] as? NSNumber)?.intValue,
               let hole = (meta["hole"] as? Int) ?? (meta["hole"] as? NSNumber)?.intValue else {
-            return
+            return false
         }
         do {
-            try holeImageStore.store(fileURL: file.fileURL, globalId: gid, hole: hole)
+            try holeImageStore.store(fileURL: fileURL, globalId: gid, hole: hole)
             let key = WatchHoleImageStore.key(globalId: gid, hole: hole)
             DispatchQueue.main.async { self.lastHoleImageKey = key }
+            return true
         } catch {
             WatchLog.sync.error("Store hole image failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 }

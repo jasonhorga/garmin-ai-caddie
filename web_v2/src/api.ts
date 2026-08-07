@@ -98,7 +98,7 @@ function apiUrl(path: string): string {
 // (course geometry, no auth). The query separates renderer styles; the response ETag additionally
 // binds Garmin's current geometry asset. 404s without CourseView geometry → client falls back.
 export function topoImageUrl(globalId: number, hole: number): string {
-  return apiUrl(`/api/v2/courses/${globalId}/holes/${hole}/topo.png?v=topo-v7`)
+  return apiUrl(`/api/v2/courses/${globalId}/holes/${hole}/topo.png?v=topo-v8`)
 }
 
 // Fire-and-forget: ask the server to render + cache EVERY geometry-backed hole's topo bitmap for a

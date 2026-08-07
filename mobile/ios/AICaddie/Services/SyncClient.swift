@@ -129,6 +129,9 @@ public enum SyncClientError: Error, Equatable {
 }
 
 public final class SyncClient {
+    /// Renderer contract shared with the phone's on-disk topo cache and Watch transfer metadata.
+    /// Bump this whenever existing rendered pixels must be invalidated on installed devices.
+    public static let topoStyleVersion = "topo-v8"
     static let courseReleaseTimeoutInterval: TimeInterval = 180
     static let courseReleaseMaximumAttempts = 3
     static let nearbyDiscoveryTimeoutInterval: TimeInterval = 10
@@ -620,7 +623,7 @@ public final class SyncClient {
         }
         // Separate renderer styles at the URL layer. The server ETag also binds the current
         // Garmin geometry asset, so an updated course cannot reuse an older topo bitmap.
-        components.queryItems = [URLQueryItem(name: "v", value: "topo-v7")]
+        components.queryItems = [URLQueryItem(name: "v", value: topoStyleVersion)]
         return components.url
     }
 

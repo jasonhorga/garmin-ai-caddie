@@ -643,6 +643,9 @@ public final class OfflineStore {
         self.courseTopoDirectoryURL = resolvedDirectory.appendingPathComponent(
             "course_topo",
             isDirectory: true
+        ).appendingPathComponent(
+            SyncClient.topoStyleVersion,
+            isDirectory: true
         )
         self.currentPackageURL = resolvedDirectory.appendingPathComponent("current_package.json")
         self.homePackageURL = resolvedDirectory.appendingPathComponent("home_package.json")

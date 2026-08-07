@@ -745,7 +745,18 @@ public struct StartRoundView: View {
         guard let coordinate = locationProvider.latestFix?.coordinate else {
             return "waiting:\(locationProvider.authorizationStatus.rawValue)"
         }
-        return "\(Int((coordinate.latitude * 10_000).rounded())):\(Int((coordinate.longitude * 10_000).rounded()))"
+        return Self.nearbyDiscoveryBucket(
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude
+        )
+    }
+
+    /// Nearby is a 50 km catalogue query, so restarting it for every 3–11 m Core Location update
+    /// only cancels useful in-flight requests while the player walks or arrives by cart.  A roughly
+    /// 1 km bucket still refreshes after meaningful travel without letting normal GPS jitter keep
+    /// the start screen in an endless loading loop.
+    static func nearbyDiscoveryBucket(latitude: Double, longitude: Double) -> String {
+        "\(Int(floor(latitude * 100))):\(Int(floor(longitude * 100)))"
     }
 
     /// Permission denial is a synchronous product state, not a network result. Derive its copy

@@ -57,12 +57,44 @@ final class WatchHoleImageStoreTests: XCTestCase {
 
     func testLegacyCorruptCacheFileIsNotAdvertisedAsAnImage() throws {
         let (store, directory) = tempStore()
-        let imageDirectory = directory.appendingPathComponent("hole-images", isDirectory: true)
+        let imageDirectory = directory
+            .appendingPathComponent("hole-images", isDirectory: true)
+            .appendingPathComponent(WatchBackendClient.topoStyleVersion, isDirectory: true)
         let target = imageDirectory.appendingPathComponent("42_3.img")
         try Data([1, 2, 3, 4]).write(to: target)
 
         XCTAssertNil(store.data(globalId: 42, hole: 3))
         XCTAssertFalse(store.hasImage(globalId: 42, hole: 3))
+    }
+
+    func testLegacyUnversionedImageIsNotReusedAfterRendererUpgrade() throws {
+        let (_, directory) = tempStore()
+        let legacyDirectory = directory.appendingPathComponent("hole-images", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+        let image = try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
+        try image.write(to: legacyDirectory.appendingPathComponent("42_3.img"), options: .atomic)
+
+        let upgradedStore = WatchHoleImageStore(directoryURL: directory)
+
+        XCTAssertFalse(upgradedStore.hasImage(globalId: 42, hole: 3))
+        XCTAssertNil(upgradedStore.data(globalId: 42, hole: 3))
+    }
+
+    func testStoredImageLivesUnderCurrentRendererVersion() throws {
+        let (store, directory) = tempStore()
+        let image = try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
+
+        try store.store(data: image, globalId: 42, hole: 3)
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: directory
+                    .appendingPathComponent("hole-images", isDirectory: true)
+                    .appendingPathComponent(WatchBackendClient.topoStyleVersion, isDirectory: true)
+                    .appendingPathComponent("42_3.img")
+                    .path
+            )
+        )
     }
 
     func testKeyIsGidUnderscoreHole() {

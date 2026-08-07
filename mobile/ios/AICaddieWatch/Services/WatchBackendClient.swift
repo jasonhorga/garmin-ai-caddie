@@ -74,6 +74,8 @@ extension WatchBackendClientError: LocalizedError {
 }
 
 public final class WatchBackendClient {
+    /// Must match the phone renderer/cache version; the cross-target contract test locks equality.
+    public static let topoStyleVersion = "topo-v8"
     static let maximumCoursePrepHolesPerRequest = 3
     static let courseReleaseTimeoutInterval: TimeInterval = 180
     static let courseReleaseMaximumAttempts = 3
@@ -318,7 +320,7 @@ public final class WatchBackendClient {
         ) else {
             throw URLError(.badURL)
         }
-        components.queryItems = [URLQueryItem(name: "v", value: "topo-v7")]
+        components.queryItems = [URLQueryItem(name: "v", value: topoStyleVersion)]
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         // A first request may be the one that finishes a cold server-side topo render. Cypress hole
