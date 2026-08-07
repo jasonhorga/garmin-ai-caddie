@@ -1685,8 +1685,9 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// Load the course's selectable tee boxes (GET /courses/{id}/tees) for the 开始一场 picker —
-    /// colour + total yards + default. Returns [] offline / on error so the picker falls back to the
-    /// course's bundled CourseView tee colours (no yardage) rather than showing nothing.
+    /// colour + total yards + default. Returns [] offline / on error: known/downloaded courses can
+    /// retain their bundled Tee names, while a newly searched course stays gated and exposes an
+    /// explicit retry rather than starting with invented Tee authority.
     public func loadCourseTees(globalId: Int) async -> [CourseTee] {
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
@@ -1697,7 +1698,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             return try await syncClient.fetchCourseTees(globalId: globalId).tees
         } catch {
-            AICaddieLog.network.error("Course tees fetch failed (using bundled tees): \(String(describing: error), privacy: .public)")
+            AICaddieLog.network.error("Course tees fetch failed (preserving current course state): \(String(describing: error), privacy: .public)")
             return []
         }
     }

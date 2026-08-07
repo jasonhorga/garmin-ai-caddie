@@ -152,6 +152,11 @@ class CourseviewSearchTests(unittest.TestCase):
         self.assertEqual({match.global_id for match in matches}, {1, 2, 3})
         self.assertEqual(fetch.call_count, 3)
 
+    def test_name_search_does_not_disguise_provider_failure_as_no_results(self) -> None:
+        with patch.object(cs, "_fetch_search", side_effect=OSError("offline")):
+            with self.assertRaises(OSError):
+                cs.courseview_search("Mission Hills")
+
     def test_nearby_paginates_provider_catalog_and_sorts_by_true_distance(self) -> None:
         pages = {
             1: [
@@ -267,6 +272,17 @@ class CourseSearchEndpointTests(unittest.TestCase):
             r = self._client().get("/api/v2/courses/search", params={"name": "nope"})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["matches"], [])
+
+    def test_search_endpoint_reports_provider_failure(self) -> None:
+        from server_v2 import main as server_main
+
+        with patch.object(server_main.course_search, "courseview_search", side_effect=OSError("offline")):
+            response = self._client().get(
+                "/api/v2/courses/search",
+                params={"name": "Mission Hills"},
+            )
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["detail"], "Garmin course catalogue unavailable")
 
     def test_nearby_endpoint_returns_provider_wide_matches(self) -> None:
         from ai_caddie.courses import course_search

@@ -20,7 +20,7 @@ public struct StartRoundView: View {
     /// 还没有球场时的「连接 Garmin」CTA:由 app 注入(打开 Garmin 连接流程),拉取球场后就能记分。
     public let onConnectGarmin: () -> Void
     /// 拉取所选球场的可选发球台(GET /courses/{id}/tees:颜色 + 总码数 + 默认台)。
-    /// 离线/出错返回 [] → 选台器回退到球场自带的 CourseView Tee 名(无码数)。
+    /// 离线/出错返回 []：已安装球场可保留包内 Tee；全库新球场必须重试真实 Tee authority。
     public let onLoadCourseTees: (Int) async -> [CourseTee]
     /// Garmin 全库名称搜索。只返回轻量 metadata；选中后仍走本页已有的单球场准备链。
     public let onSearchCourses: (String, Double?, Double?) async throws -> [MobileCourseSearchMatch]
@@ -386,9 +386,20 @@ public struct StartRoundView: View {
                     ProgressView("正在获取发球台…")
                         .font(.caption)
                 } else if selectedCourseRequiresRemoteTees, teeLoadFailed {
-                    Text("这个球场暂时没有可用的发球台数据，请联网后重试。")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("这个球场暂时没有可用的发球台数据。")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        Button {
+                            Task { await loadTees() }
+                        } label: {
+                            Label("重试获取发球台", systemImage: "arrow.clockwise")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(LiveHoleStyle.green)
+                        .accessibilityIdentifier("start-round-retry-course-tees")
+                    }
                 }
             }
 

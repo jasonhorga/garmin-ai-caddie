@@ -870,13 +870,16 @@ def course_search_endpoint(
     matches with globalId. Feed a chosen globalId into /api/v2/courses/{global_id}/prep."""
     if (latitude is None) != (longitude is None):
         raise HTTPException(status_code=422, detail="latitude and longitude must be supplied together")
-    matches = course_search.courseview_search(
-        name,
-        city=city,
-        expected_holes=holes,
-        latitude=latitude,
-        longitude=longitude,
-    )
+    try:
+        matches = course_search.courseview_search(
+            name,
+            city=city,
+            expected_holes=holes,
+            latitude=latitude,
+            longitude=longitude,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Garmin course catalogue unavailable") from exc
     return {
         "schema": "ai-caddie-course-search-v1",
         "query": name,

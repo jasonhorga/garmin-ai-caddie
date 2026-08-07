@@ -1516,6 +1516,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@State private var fetchedTees: [CourseTee] = []", start_view)
         self.assertIn(".task(id: courseGlobalIdText)", start_view)  # 换球场即重拉发球台
         self.assertIn("await onLoadCourseTees(globalId)", start_view)
+        # A transient Tee request cannot leave a newly searched course permanently unstartable.
+        self.assertIn('Label("重试获取发球台", systemImage: "arrow.clockwise")', start_view)
+        self.assertIn('.accessibilityIdentifier("start-round-retry-course-tees")', start_view)
+        self.assertIn("Task { await loadTees() }", start_view)
         self.assertIn("func teeMenuLabel(", start_view)  # 选台菜单:台名 + 码数
         self.assertIn("\\(yards) 码", start_view)  # 显示该台总码数(不造假,缺则不显示)
         self.assertIn("public func loadCourseTees(globalId: Int) async -> [CourseTee]", app_swift)

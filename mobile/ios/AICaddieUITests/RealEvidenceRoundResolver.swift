@@ -113,6 +113,24 @@ final class RealEvidenceRoundResolver {
                 continue
             }
 
+            // The detail payload already carries each hole's compact shot summaries, including
+            // the recorded club. Use that cheap metadata before requesting a shot map. Merely
+            // having two GPS refs is not enough for this evidence: older Garmin rounds often have
+            // many positions whose club is Unknown. Probing those holes forced the backend to cold
+            // render up to 18 topo images only to reject them afterwards, starving the real app
+            // and other Watch clients sharing the service. The shot map remains the final authority
+            // for geometry and spatial separation; this is only a truthful prefilter.
+            let labelledShotCounts: [Int: Int] = ((detail["holeDetails"] as? [[String: Any]]) ?? [])
+                .reduce(into: [:]) { counts, row in
+                    guard let hole = integer(row["hole"]), hole > 0 else { return }
+                    let count = ((row["shots"] as? [[String: Any]]) ?? []).reduce(into: 0) { total, shot in
+                        guard let club = nonEmptyString(shot["club"]),
+                              club.lowercased() != "unknown" else { return }
+                        total += 1
+                    }
+                    counts[hole] = max(counts[hole] ?? 0, count)
+                }
+
             let scoredHoles: [(hole: Int, globalId: Int?, localHole: Int?)] = scorecard.compactMap { row in
                 // `shotCount` belongs to holeDetails, while scorecard rows expose `shotRefs`.
                 // Reading a nonexistent scorecard field made every genuine hole look empty and
@@ -120,7 +138,8 @@ final class RealEvidenceRoundResolver {
                 let shotCount = (row["shotRefs"] as? [Any])?.count ?? integer(row["shotCount"]) ?? 0
                 guard let hole = integer(row["hole"]), hole > 0,
                       integer(row["score"]) != nil,
-                      shotCount >= 2 else {
+                      shotCount >= 2,
+                      (labelledShotCounts[hole] ?? 0) >= 2 else {
                     return nil
                 }
                 return (hole, integer(row["globalId"]), integer(row["localHole"]))

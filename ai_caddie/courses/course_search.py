@@ -254,8 +254,9 @@ def courseview_search(
 
     Fuzzy-ranks each candidate's name against ``name`` (stdlib difflib) and applies a guard:
     drop a candidate whose hole count != ``expected_holes`` (when given) or whose city/province
-    doesn't contain ``city`` (when given). Empty list on a too-short query, no results, or fetch
-    failure — never raises, never silently returns a wrong course (the guard filters).
+    doesn't contain ``city`` (when given). A too-short query or a factual no-match returns an empty
+    list; provider transport failures propagate so the API can expose a retryable 502 instead of
+    silently presenting them as no matches.
     """
     q = (name or "").strip()
     if len(q) < _MIN_QUERY:
@@ -269,26 +270,26 @@ def courseview_search(
     )
     records: dict[int, dict] = {}
     previous_page_ids: tuple[int, ...] | None = None
-    try:
-        for page in range(1, _NEARBY_MAX_PAGES + 1):
-            pb = _fetch_search(
-                q,
-                latitude=float(latitude) if has_location else None,
-                longitude=float(longitude) if has_location else None,
-                page=page,
-                page_size=_NEARBY_PAGE_SIZE,
-            )
-            rows = parse_course_search(pb, coordinate_bits=31 if has_location else 23)
-            page_ids = tuple(int(row["global_id"]) for row in rows)
-            if page_ids and page_ids == previous_page_ids:
-                break
-            previous_page_ids = page_ids
-            for row in rows:
-                records.setdefault(int(row["global_id"]), row)
-            if len(rows) < _NEARBY_PAGE_SIZE:
-                break
-    except Exception:
-        return []
+    for page in range(1, _NEARBY_MAX_PAGES + 1):
+        # A provider/network failure is not a truthful "no matches" result. Let the API map the
+        # exception to 502 so iOS can show its existing retryable network state, matching nearby
+        # discovery instead of telling the player to change a perfectly valid course name.
+        pb = _fetch_search(
+            q,
+            latitude=float(latitude) if has_location else None,
+            longitude=float(longitude) if has_location else None,
+            page=page,
+            page_size=_NEARBY_PAGE_SIZE,
+        )
+        rows = parse_course_search(pb, coordinate_bits=31 if has_location else 23)
+        page_ids = tuple(int(row["global_id"]) for row in rows)
+        if page_ids and page_ids == previous_page_ids:
+            break
+        previous_page_ids = page_ids
+        for row in rows:
+            records.setdefault(int(row["global_id"]), row)
+        if len(rows) < _NEARBY_PAGE_SIZE:
+            break
     ql = q.lower()
     matches: list[CourseMatch] = []
     for rec in records.values():
