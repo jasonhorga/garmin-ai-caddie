@@ -159,6 +159,25 @@ final class DesignSnapshotTests: XCTestCase {
         XCTAssertNotEqual(green, LivePlayMapOverlayLayout.fallbackGreenTarget(in: hero))
     }
 
+    func testLiveMapHeaderInsetKeepsAFactualTopGreenAndReticleBelowTheTitle() throws {
+        let hero = CGSize(width: 390, height: 360)
+        let green = try XCTUnwrap(LivePlayMapOverlayLayout.project(
+            overlayPoint: [390, 140],
+            overlayWidth: 780,
+            overlayHeight: 1_400,
+            into: hero,
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset
+        ))
+
+        XCTAssertEqual(green.x, 195, accuracy: 0.001)
+        XCTAssertEqual(green.y, 108, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(
+            green.y - 30,
+            LivePlayMapOverlayLayout.liveMapTopInset - 2,
+            "the 60-point reticle must not cross back into the fixed header lane"
+        )
+    }
+
     func testParThreeClubLabelMovesOutsideTheGreenTargetReticle() {
         let pin = CGPoint(x: 180, y: 90)
 

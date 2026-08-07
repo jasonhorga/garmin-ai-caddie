@@ -838,6 +838,10 @@ struct LivePlayReticle: View {
 }
 
 enum LivePlayMapOverlayLayout {
+    /// The map begins below the fixed live header. Applying the same inset to the bitmap and every
+    /// projected marker keeps a shallow/partial hole's green reticle from crossing the title while
+    /// preserving pixel alignment with the factual route.
+    static let liveMapTopInset: CGFloat = 80
     private static let upperHazardLane: CGFloat = 0.48
     private static let lowerHazardLane: CGFloat = 0.70
     private static let landingLaneThreshold: CGFloat = 0.64
@@ -852,7 +856,8 @@ enum LivePlayMapOverlayLayout {
         overlayPoint: [Double],
         overlayWidth: Int,
         overlayHeight: Int,
-        into heroSize: CGSize
+        into heroSize: CGSize,
+        topInset: CGFloat = 0
     ) -> CGPoint? {
         guard overlayPoint.count >= 2,
               overlayPoint[0].isFinite,
@@ -862,18 +867,22 @@ enum LivePlayMapOverlayLayout {
               heroSize.width.isFinite,
               heroSize.height.isFinite,
               heroSize.width > 0,
-              heroSize.height > 0 else {
+              heroSize.height > 0,
+              topInset.isFinite,
+              topInset >= 0,
+              topInset < heroSize.height else {
             return nil
         }
+        let mapHeight = heroSize.height - topInset
         let scale = min(
             heroSize.width / CGFloat(overlayWidth),
-            heroSize.height / CGFloat(overlayHeight)
+            mapHeight / CGFloat(overlayHeight)
         )
         let renderedWidth = CGFloat(overlayWidth) * scale
         let renderedHeight = CGFloat(overlayHeight) * scale
         let origin = CGPoint(
             x: (heroSize.width - renderedWidth) / 2,
-            y: (heroSize.height - renderedHeight) / 2
+            y: topInset + (mapHeight - renderedHeight) / 2
         )
         return CGPoint(
             x: origin.x + CGFloat(overlayPoint[0]) * scale,

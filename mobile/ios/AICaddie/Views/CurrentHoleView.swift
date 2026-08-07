@@ -345,6 +345,7 @@ public struct CurrentHoleView: View {
     private var heroSection: some View {
         ZStack(alignment: .top) {
             liveMapBackdrop
+                .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
                 .frame(height: 360)
                 .frame(maxWidth: .infinity)
                 .clipped()
@@ -647,7 +648,8 @@ public struct CurrentHoleView: View {
             overlayPoint: landing,
             overlayWidth: overlay.w,
             overlayHeight: overlay.h,
-            into: heroSize
+            into: heroSize,
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset
         )
     }
 
@@ -662,7 +664,8 @@ public struct CurrentHoleView: View {
             overlayPoint: greenTarget,
             overlayWidth: overlay.w,
             overlayHeight: overlay.h,
-            into: heroSize
+            into: heroSize,
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset
         )
     }
 

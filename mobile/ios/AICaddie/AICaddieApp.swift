@@ -667,6 +667,33 @@ public final class LiveRoundAppModel: ObservableObject {
         let preparedAt = Date()
 
         do {
+            // A course advertised as downloaded already has the exact Tee/hole-set facts and every
+            // precise topo bitmap on disk.  Starting that new round must not sit behind a slow or
+            // unavailable package request: rebase its immutable template to the new round identity
+            // and enter hole 1 immediately.  Same-round nine changes deliberately keep the remote
+            // path below because they mutate the active package rather than start a fresh round.
+            if isNewRound,
+               let template = try offlineStore.loadCourseTemplate(
+                   globalId: globalId,
+                   teeBox: teeBox,
+                   nine: nine
+               ),
+               template.hasCompleteOfflineCoursePrep,
+               offlineStore.hasCourseTopoImages(for: template) {
+                let offlinePackage = template.rebasedForOfflineStart(
+                    roundId: requestedRoundId,
+                    generatedAt: preparedAt
+                )
+                try offlineStore.saveRoundPackage(offlinePackage)
+                try activatePackage(offlinePackage, status: "本地球场已就绪")
+                signalFreshRoundEntry()
+                // Re-validates/publishes the retained course asynchronously.  With a complete
+                // download this performs no network fetch, while preserving the normal cache task
+                // lifecycle and its "离线地图已准备" status.
+                beginOfflineCourseDownload()
+                return
+            }
+
             let fetched = await fetchRemoteCoursePackage(
                 globalId: globalId,
                 roundId: requestedRoundId,

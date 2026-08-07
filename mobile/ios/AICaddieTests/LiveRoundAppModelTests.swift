@@ -302,7 +302,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
-    func testPrepareCourseRoundRebasesDownloadedTemplateWhenPackageRequestIsOffline() async throws {
+    func testPrepareCourseRoundStartsDownloadedTemplateWithoutWaitingForPackageRequest() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -317,8 +317,13 @@ final class LiveRoundAppModelTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
+        let requestLock = NSLock()
+        var requestCount = 0
         CapturingURLProtocol.requestHandler = { request in
-            (
+            requestLock.withLock {
+                requestCount += 1
+            }
+            return (
                 HTTPURLResponse(
                     url: try XCTUnwrap(request.url),
                     statusCode: 503,
@@ -356,6 +361,12 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.pendingLiveHole, template.holes.first?.number)
         XCTAssertEqual(try store.loadRoundPackage(roundId: "offline-new-round")?.roundId, "offline-new-round")
         XCTAssertTrue(try store.loadPendingEvents(roundId: "offline-new-round").isEmpty)
+        await model.waitForOfflineCourseDownloadForTesting()
+        XCTAssertEqual(
+            requestLock.withLock { requestCount },
+            0,
+            "a fully downloaded exact Tee/hole-set must not wait for any live package or map request"
+        )
     }
 
     func testOnlineCourseStartRetainsAllHolePrepAndTopoForLaterOfflineUse() async throws {

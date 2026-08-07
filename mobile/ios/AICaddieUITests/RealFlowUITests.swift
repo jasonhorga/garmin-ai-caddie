@@ -644,8 +644,8 @@ final class RealFlowUITests: XCTestCase {
         for (identifier, staticYards) in zip(liveDistanceIdentifiers, hole2TeeGreenYards) {
             let distance = app.staticTexts[identifier]
             XCTAssertTrue(
-                distance.waitForExistence(timeout: 20),
-                "the ordered next hole must expose its identified live F/M/B distance \(identifier)"
+                waitForWholeYardValue(distance, timeout: 30),
+                "the ordered next hole must settle its identified live F/M/B distance \(identifier) to whole yards"
             )
             let liveYards = try XCTUnwrap(Int(distance.label), "\(identifier) must expose whole yards")
             // Static prep is measured in the decoded mesh plane; the live readout ranges between
