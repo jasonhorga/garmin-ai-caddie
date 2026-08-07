@@ -452,16 +452,17 @@ class MobileContractTests(unittest.TestCase):
                 "missingData": [],
             }
 
-        def ready_map(global_id: int, local_hole: int) -> dict[str, object]:
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
             return {
-                "schema": "ai-caddie-hole-map-v1",
-                "globalId": global_id,
-                "localHole": local_hole,
-                "provider": {"coordinateSystem": "local"},
-                "coverage": "ready",
-                "layers": ["hazard"],
-                "featureCollection": {"type": "FeatureCollection", "features": []},
-                "missingData": [],
+                "refLat": 40.0,
+                "refLon": 116.0,
+                "hazards": [
+                    {
+                        "id": f"bunker-{local_hole}",
+                        "kind": "bunker",
+                        "polygon": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+                    }
+                ],
             }
 
         def ready_route(global_id: int, local_hole: int, **_kwargs: object) -> dict[str, object]:
@@ -493,7 +494,7 @@ class MobileContractTests(unittest.TestCase):
             with (
                 patch("ai_caddie.history.history_stats.geometry_coverage_for_hole", side_effect=ready_coverage),
                 patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=ready_coverage),
-                patch("ai_caddie.caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
+                patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
                 patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
             ):
                 package = build_live_round_package(
@@ -596,10 +597,23 @@ class MobileContractTests(unittest.TestCase):
                 "missingData": [] if ready else [{"label": "geometry", "reason": "not prefetched"}],
             }
 
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "refLat": 40.0,
+                "refLon": 116.0,
+                "hazards": [
+                    {
+                        "id": f"bunker-{local_hole}",
+                        "kind": "bunker",
+                        "polygon": [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+                    }
+                ],
+            }
+
         with (
             patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", side_effect=ensure_for_test),
             patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
-            patch("ai_caddie.caddie.mobile_live.build_hole_map_dto", return_value={"missingData": []}),
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
             patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", return_value={"missingData": [], "coverage": "ready"}),
         ):
             package = build_live_round_package(
@@ -1234,7 +1248,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)", app_swift)
         self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
         self.assertIn(
-            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true)",
+            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)",
             app_swift,
         )
         self.assertIn(
@@ -1249,6 +1263,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("includeEventCursor: Bool = true", sync_client)
         self.assertIn('URLQueryItem(name: "include_event_cursor", value: includeEventCursor ? "true" : "false")', sync_client)
         self.assertIn("includeEventCursor: false", app_swift)
+        self.assertEqual(app_swift.count("includeEventCursor: false"), 4)
 
     def test_ios_app_entry_bootstraps_cached_or_fixture_package(self) -> None:
         package_swift = _read_required_source(self, Path("Package.swift"))

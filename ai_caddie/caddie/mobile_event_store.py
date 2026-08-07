@@ -77,6 +77,12 @@ class _StoredLog:
 
 
 @dataclass(frozen=True)
+class _RoundSequenceSnapshot:
+    positions: tuple[int, ...]
+    high_water: int
+
+
+@dataclass(frozen=True)
 class _CommitMarker:
     committed_byte_length: int
     committed_prefix_sha256: str
@@ -926,6 +932,57 @@ class FileEventStore:
     def _stored_rows(self, *, handle: BinaryIO | None = None) -> list[_StoredRow]:
         return list(self._stored_log(handle=handle).rows)
 
+    def _round_sequence_snapshot(self, round_id: str) -> _RoundSequenceSnapshot:
+        """Read only sequence metadata for one round, without materializing event payloads.
+
+        Package cursors need positions and an ACK, not replay bodies.  Running every unrelated
+        event through the recursive privacy sanitizer made a new round scan the owner's entire
+        multi-megabyte history before it could open.  Integrity validation still happens through
+        ``_visible_committed_length_unlocked``; this second pass deliberately retains only the
+        structural fields needed for cursor semantics and never returns payload data.
+        """
+
+        committed_byte_length = self._visible_committed_length_unlocked()
+        if committed_byte_length == 0:
+            return _RoundSequenceSnapshot((), 0)
+        try:
+            handle = self.log.open("rb")
+        except FileNotFoundError as exc:
+            raise ValueError("event_commit_store_corrupt") from exc
+        positions: list[int] = []
+        running_high_water = 0
+        try:
+            remaining = committed_byte_length
+            line_number = 0
+            while remaining > 0:
+                raw_line = handle.readline(remaining)
+                if not raw_line:
+                    raise ValueError("event_commit_store_corrupt")
+                remaining -= len(raw_line)
+                line_number += 1
+                if not raw_line.strip():
+                    running_high_water = max(running_high_water, line_number)
+                    continue
+                try:
+                    parsed = json.loads(raw_line.decode("utf-8"))
+                except (UnicodeDecodeError, ValueError):
+                    running_high_water = max(running_high_water, line_number)
+                    continue
+                if not isinstance(parsed, dict):
+                    running_high_water = max(running_high_water, line_number)
+                    continue
+                explicit_position = self._explicit_position(parsed)
+                position = max(explicit_position or 0, running_high_water + 1, line_number)
+                running_high_water = position
+                if (
+                    str(parsed.get("roundId") or "") == round_id
+                    and self._is_legacy_compatible_event(parsed.get("event"))
+                ):
+                    positions.append(position)
+        finally:
+            handle.close()
+        return _RoundSequenceSnapshot(tuple(positions), running_high_water)
+
     @staticmethod
     def _is_legacy_compatible_event(event: Any) -> bool:
         if not isinstance(event, dict):
@@ -973,6 +1030,27 @@ class FileEventStore:
                 ack_row = acks.get(self._ack_key(round_key, client_key), {})
                 acked_sequence = max(0, int(ack_row.get("serverSequence") or 0))
         return rows, acked_sequence
+
+    def read_round_cursor(
+        self,
+        round_id: str,
+        consumer_id: str | None = None,
+    ) -> tuple[int, int, int]:
+        """Return ``(latest, pending, acked)`` from one integrity-checked log snapshot."""
+
+        round_key = str(round_id)
+        client_key = str(consumer_id) if consumer_id is not None else None
+        with self._locked(self.event_lock, shared=True):
+            snapshot = self._round_sequence_snapshot(round_key)
+            acked_sequence = 0
+            if client_key is not None:
+                with self._locked(self.ack_lock):
+                    acks = self._load_safe_acks_unlocked(snapshot.high_water)
+                    ack_row = acks.get(self._ack_key(round_key, client_key), {})
+                    acked_sequence = max(0, int(ack_row.get("serverSequence") or 0))
+        latest_sequence = max(snapshot.positions, default=0)
+        pending_count = sum(position > acked_sequence for position in snapshot.positions)
+        return latest_sequence, pending_count, acked_sequence
 
     def read_events(self, round_id: str) -> list[EventReceipt]:
         receipts: list[EventReceipt] = []

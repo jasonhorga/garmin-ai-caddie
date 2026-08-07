@@ -33,11 +33,13 @@ class ServerV2MobileTests(unittest.TestCase):
         with (
             patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", return_value=ready),
             patch("ai_caddie.caddie.analysis.load_geometry.cache_clear") as clear_cache,
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards.cache_clear") as clear_mobile_cache,
         ):
             summary = mobile_live._ensure_geometry_for_course(3881, holes=[1])
 
         self.assertEqual(summary["state"], "ready")
         clear_cache.assert_called_once_with()
+        clear_mobile_cache.assert_called_once_with()
 
     def test_recent_history_hole_issue_label_is_chinese_from_token(self) -> None:
         # 复盘 holes 的 repeatedIssues label 必须中文(iOS 直接展示该字符串)。
@@ -46,6 +48,42 @@ class ServerV2MobileTests(unittest.TestCase):
         # 无 token 的旧/测试行回退到既有 label;未知 token 原样透出(与 web issueLabels 一致)。
         self.assertEqual(_hole_issue_label_zh({"label": "approach short"}), "approach short")
         self.assertEqual(_hole_issue_label_zh({"issue": "weird_unknown_token"}), "weird_unknown_token")
+
+    def test_offline_diagnostic_context_caps_repeated_source_refs(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        refs = [f"round-{index}:1" for index in range(100)]
+        context = mobile_live._diagnostic_context_for_seed(
+            {
+                "diagnosis": {
+                    "topIssue": {
+                        "issue": "approach_short",
+                        "sourceRefs": refs,
+                    }
+                },
+                "dataQuality": [
+                    {
+                        "label": "putts",
+                        "state": "degraded",
+                        "ready": 1,
+                        "total": 100,
+                        "sourceRefs": refs,
+                    }
+                ],
+            },
+            source_ref="new-round:1",
+            round_id="new-round",
+            local_hole=1,
+            hole_stats={},
+            course_form=None,
+        )
+
+        self.assertIsNotNone(context)
+        assert context is not None
+        self.assertEqual(len(context["topIssue"]["sourceRefs"]), 12)
+        self.assertEqual(context["topIssue"]["sourceRefCount"], 100)
+        self.assertEqual(len(context["qualityGaps"][0]["sourceRefs"]), 12)
+        self.assertEqual(context["qualityGaps"][0]["sourceRefCount"], 100)
 
     def test_recent_history_resolves_synthetic_course_key(self) -> None:
         # round-9 C1/C2: a course-mode package carries a synthetic "gid_<id>" courseKey that used to
@@ -165,7 +203,7 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual(package["eventCursor"], {"serverSequence": 0, "pendingEventCount": 0})
 
-    def test_event_cursor_scans_the_event_log_once_and_preserves_client_progress(self) -> None:
+    def test_event_cursor_scans_sequence_metadata_once_and_preserves_client_progress(self) -> None:
         from ai_caddie.caddie import mobile_live
         from ai_caddie.caddie.mobile_event_store import FileEventStore, open_mobile_event_store
 
@@ -194,14 +232,21 @@ class ServerV2MobileTests(unittest.TestCase):
             store.ack(round_id, client_id, 1)
 
             scan_count = 0
-            original_stored_log = FileEventStore._stored_log
+            original_sequence_snapshot = FileEventStore._round_sequence_snapshot
 
-            def counted_stored_log(event_store: FileEventStore, *args: object, **kwargs: object):
+            def counted_sequence_snapshot(event_store: FileEventStore, *args: object, **kwargs: object):
                 nonlocal scan_count
                 scan_count += 1
-                return original_stored_log(event_store, *args, **kwargs)
+                return original_sequence_snapshot(event_store, *args, **kwargs)
 
-            with patch.object(FileEventStore, "_stored_log", new=counted_stored_log):
+            with (
+                patch.object(FileEventStore, "_round_sequence_snapshot", new=counted_sequence_snapshot),
+                patch.object(
+                    FileEventStore,
+                    "_stored_log",
+                    side_effect=AssertionError("cursor materialized replay payloads"),
+                ),
+            ):
                 cursor = mobile_live._event_cursor(round_id, root=root, client_id=client_id)
 
         self.assertEqual(
@@ -215,6 +260,52 @@ class ServerV2MobileTests(unittest.TestCase):
             },
         )
         self.assertEqual(scan_count, 1)
+
+    def test_event_cursor_does_not_sanitize_unrelated_event_payloads(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.caddie.mobile_event_store import FileEventStore, open_mobile_event_store
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = open_mobile_event_store((root / mobile_live.EVENT_LOG).parent)
+            store.append_batch(
+                "older-round",
+                [
+                    {
+                        "schema": "ai-caddie-live-round-event-v1",
+                        "roundId": "older-round",
+                        "clientId": "watch",
+                        "eventId": "large-but-unrelated",
+                        "timestamp": "2026-07-29T00:00:00Z",
+                        "hole": 1,
+                        "kind": "score",
+                        "payload": {"diagnosticRows": ["x" * 500 for _ in range(200)]},
+                    }
+                ],
+                request_key="large-but-unrelated",
+            )
+
+            with patch.object(
+                FileEventStore,
+                "_sanitize_event",
+                side_effect=AssertionError("sequence-only cursor touched event payload"),
+            ):
+                cursor = mobile_live._event_cursor(
+                    "brand-new-round",
+                    root=root,
+                    client_id="ios-phone",
+                )
+
+        self.assertEqual(
+            cursor,
+            {
+                "serverSequence": 0,
+                "pendingEventCount": 0,
+                "clientId": "ios-phone",
+                "lastAckedServerSequence": 0,
+                "replayEndpoint": "/api/v2/mobile/rounds/brand-new-round/events/replay",
+            },
+        )
 
     def test_course_package_route_forwards_event_cursor_opt_out(self) -> None:
         from server_v2 import main as server_main
@@ -323,16 +414,18 @@ class ServerV2MobileTests(unittest.TestCase):
                 "missingData": [] if ready else [{"label": "geometry", "reason": "not prefetched"}],
             }
 
-        def ready_map(global_id: int, local_hole: int) -> dict[str, object]:
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
             return {
-                "schema": "ai-caddie-hole-map-v1",
-                "globalId": int(global_id),
-                "localHole": int(local_hole),
-                "provider": {"coordinateSystem": "local"},
-                "coverage": "ready",
-                "layers": ["hazard"],
-                "featureCollection": {"type": "FeatureCollection", "features": []},
-                "missingData": [],
+                "refLat": 40.0,
+                "refLon": 116.0,
+                "hazards": [
+                    {
+                        "id": f"bunker-{local_hole}",
+                        "kind": "bunker",
+                        "centroid": [12.0, 80.0],
+                        "tee_distances": [],
+                    }
+                ],
             }
 
         def ready_route(global_id: int, local_hole: int, **_kwargs: object) -> dict[str, object]:
@@ -350,8 +443,11 @@ class ServerV2MobileTests(unittest.TestCase):
             patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
             patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", side_effect=ensure_for_test),
             patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
-            patch("ai_caddie.caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
-            patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
+            patch(
+                "ai_caddie.caddie.mobile_live.build_route_geometry_evidence",
+                side_effect=ready_route,
+            ) as build_route,
         ):
             response = client.get(
                 "/api/v2/mobile/rounds/900001/package",
@@ -370,6 +466,15 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(ensure["failed"], 0)
         self.assertEqual(len(ensure["results"]), 18)
         self.assertNotIn("geometry", {row["label"] for row in payload["missingData"]})
+        self.assertEqual(
+            payload["caddieContextSeeds"][0]["context"]["geometry"]["hazards"][0],
+            {"kind": "bunker", "id": "bunker-1", "source": "geometry_map"},
+        )
+        self.assertEqual(build_route.call_count, 18)
+        self.assertTrue(
+            all(call.kwargs.get("_hazards_override", {}).get("hazards") for call in build_route.call_args_list),
+            "mobile seeds must reuse bound hazards instead of rebuilding a full hole-map DTO",
+        )
 
     def test_mobile_round_package_carries_player_profile_into_offline_decision_context(self) -> None:
         client = TestClient(app)
@@ -583,15 +688,13 @@ class ServerV2MobileTests(unittest.TestCase):
 
         def geometry_for_test(global_id: int, local_hole: int) -> dict[str, object]:
             return {
-                "hazards": {
-                    "globalId": global_id,
-                    "tees": [{
-                        "tee_index": 1,
-                        "sets": [1],
-                        "position": [0.0, 0.0],
-                        "target_distance_m": 300.0 + local_hole,
-                    }],
-                }
+                "globalId": global_id,
+                "tees": [{
+                    "tee_index": 1,
+                    "sets": [1],
+                    "position": [0.0, 0.0],
+                    "target_distance_m": 300.0 + local_hole,
+                }],
             }
 
         with (
@@ -603,7 +706,7 @@ class ServerV2MobileTests(unittest.TestCase):
                 "courseview_tees",
                 return_value=[{"name": "Blue", "gender": "MEN", "index": 1}],
             ),
-            patch("ai_caddie.caddie.analysis.load_geometry", side_effect=geometry_for_test),
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=geometry_for_test),
         ):
             response = client.get(
                 "/api/v2/mobile/courses/55555/package",
@@ -641,18 +744,16 @@ class ServerV2MobileTests(unittest.TestCase):
 
         def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
             return {
-                "hazards": {
-                    "globalId": int(global_id),
-                    "tees": [
-                        {
-                            "tee_index": 2,
-                            "sets": [2],
-                            "position": [0.0, 0.0],
-                            # Hole 1 is 401 yards from the selected Blue Tee.
-                            "target_distance_m": 366.7 + local_hole - 1,
-                        }
-                    ],
-                }
+                "globalId": int(global_id),
+                "tees": [
+                    {
+                        "tee_index": 2,
+                        "sets": [2],
+                        "position": [0.0, 0.0],
+                        # Hole 1 is 401 yards from the selected Blue Tee.
+                        "target_distance_m": 366.7 + local_hole - 1,
+                    }
+                ],
             }
 
         def ready_coverage(global_id: int, local_hole: int) -> dict[str, object]:
@@ -668,7 +769,7 @@ class ServerV2MobileTests(unittest.TestCase):
 
         with (
             patch.object(mobile_live, "geometry_coverage_for_hole", side_effect=ready_coverage),
-            patch("ai_caddie.caddie.analysis.load_geometry", side_effect=ready_geometry),
+            patch.object(mobile_live, "_load_mobile_hazards", side_effect=ready_geometry),
             patch.object(
                 course_reference,
                 "courseview_tees",
@@ -697,29 +798,27 @@ class ServerV2MobileTests(unittest.TestCase):
 
         def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
             return {
-                "hazards": {
-                    "globalId": int(global_id),
-                    "refLat": 40.0 + local_hole / 1000,
-                    "refLon": 116.0,
-                    "tees": [
-                        {
-                            "tee_index": 1,
-                            "sets": [1],
-                            "position": [900.0, 900.0],
-                            "target_distance_m": 390.0,
-                        },
-                        {
-                            "tee_index": 2,
-                            "sets": [2],
-                            "position": [100.0, 200.0],
-                            "target_distance_m": 366.7,
-                        },
-                    ],
-                }
+                "globalId": int(global_id),
+                "refLat": 40.0 + local_hole / 1000,
+                "refLon": 116.0,
+                "tees": [
+                    {
+                        "tee_index": 1,
+                        "sets": [1],
+                        "position": [900.0, 900.0],
+                        "target_distance_m": 390.0,
+                    },
+                    {
+                        "tee_index": 2,
+                        "sets": [2],
+                        "position": [100.0, 200.0],
+                        "target_distance_m": 366.7,
+                    },
+                ],
             }
 
         with (
-            patch("ai_caddie.caddie.analysis.load_geometry", side_effect=ready_geometry),
+            patch.object(mobile_live, "_load_mobile_hazards", side_effect=ready_geometry),
             patch.object(
                 course_reference,
                 "courseview_tees",

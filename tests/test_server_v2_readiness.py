@@ -584,16 +584,18 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 "missingData": [],
             }
 
-        def ready_map(global_id: int, local_hole: int) -> dict[str, object]:
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
             return {
-                "schema": "ai-caddie-hole-map-v1",
-                "globalId": global_id,
-                "localHole": local_hole,
-                "provider": {"coordinateSystem": "local"},
-                "coverage": "ready",
-                "layers": ["hazard"],
-                "featureCollection": {"type": "FeatureCollection", "features": []},
-                "missingData": [],
+                "refLat": 40.0,
+                "refLon": 116.0,
+                "hazards": [
+                    {
+                        "id": f"bunker-{local_hole}",
+                        "kind": "bunker",
+                        "centroid": [12.0, 80.0],
+                        "tee_distances": [],
+                    }
+                ],
             }
 
         def ready_route(global_id: int, local_hole: int, **_kwargs: object) -> dict[str, object]:
@@ -627,7 +629,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 patch("server_v2.mobile.MOBILE_ROOT", root),
                 patch("ai_caddie.history.history_stats.geometry_coverage_for_hole", side_effect=ready_coverage),
                 patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=ready_coverage),
-                patch("ai_caddie.caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
+                patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
                 patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
             ):
                 response = client.get("/api/v2/readiness")

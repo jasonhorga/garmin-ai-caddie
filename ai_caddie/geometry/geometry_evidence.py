@@ -365,9 +365,16 @@ def build_route_geometry_evidence(
     start: Any,
     target: Any | None = None,
     landing_radius_m: float = 18.0,
+    _hazards_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     coverage = geometry_coverage_for_hole(int(global_id), int(local_hole))
-    hazards, _meshes = _load_hole_sources(global_id, local_hole)
+    if _hazards_override is None:
+        hazards, _meshes = _load_hole_sources(global_id, local_hole)
+    else:
+        # Internal fast path for mobile package assembly. The caller supplies the already-loaded
+        # authority-bound hazard export, avoiding a second parse of the same geometry sources.
+        # Public geometry APIs keep the normal loader path.
+        hazards = _hazards_override
     ref_lat = hazards.get("refLat")
     ref_lon = hazards.get("refLon")
     ref_lat_float = float(ref_lat) if ref_lat is not None else None

@@ -1603,7 +1603,9 @@ public final class LiveRoundAppModel: ObservableObject {
             return nil
         }
         do {
-            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true)
+            // A newly generated round has no server events yet. Replay/ACK owns recovery later;
+            // scanning the owner's historical event log here only delays the first-hole screen.
+            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)
         } catch {
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             if preparationToken == nil || preparationToken == roundPreparationToken {
@@ -1636,7 +1638,7 @@ public final class LiveRoundAppModel: ObservableObject {
             return nil
         }
         do {
-            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: "all", capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, backGlobalId: backGlobalId)
+            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: "all", capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, backGlobalId: backGlobalId, includeEventCursor: false)
         } catch {
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             if preparationToken == nil || preparationToken == roundPreparationToken {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 import json
 from pathlib import Path
 from typing import Any
@@ -10,8 +11,9 @@ from typing import Any
 from ai_caddie.courses import course_prep
 from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.reports.annotations import annotations_for_target, list_annotations
+from ai_caddie.core.data import hazard_path, read_json
 from ai_caddie.core.fixtures import fixture_history_data
-from ai_caddie.geometry.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
+from ai_caddie.geometry.geometry_evidence import build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.geometry.shot_projection import local_to_world
 from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.history.history_stats import _effective_score_data
@@ -34,6 +36,7 @@ LIVE_SHOT_TYPES = ["tee", "approach", "recovery"]
 MANUAL_NOTE_KINDS = {"strategy_note", "hole_note", "round_note", "weather_context_note"}
 PLAYER_PROFILE_SOURCE_REF_LIMIT = 30
 PLAYER_PROFILE_SIGNAL_REF_LIMIT = 12
+DIAGNOSTIC_SOURCE_REF_LIMIT = 12
 COURSE_OPTION_LIMIT = 24
 OFFLINE_OPTION_STRONG_SAMPLE = 10
 OFFLINE_OPTION_SAMPLE_REF_LIMIT = 6
@@ -41,6 +44,23 @@ OFFLINE_OPTION_SAMPLE_REF_LIMIT = 6
 
 def _format_time(value: datetime) -> str:
     return value.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+@lru_cache(maxsize=128)
+def _load_mobile_hazards(global_id: int, local_hole: int) -> dict[str, Any]:
+    """Load the small hazard/Tee authority needed by a mobile package.
+
+    ``analysis.load_geometry`` also expands every surface mesh into triangle components for shot
+    classification. A start-round package never consumes those components, but retaining 18 of
+    them pushed one API worker above 700 MB. The release-bound hazard export already carries the
+    selected Tee positions/distances and compact hazard identities needed here.
+    """
+
+    path = hazard_path(int(global_id), int(local_hole))
+    if not path.exists():
+        return {}
+    value = read_json(path)
+    return value if isinstance(value, dict) else {}
 
 
 def _event_cursor(
@@ -54,18 +74,10 @@ def _event_cursor(
     # partition (owner unchanged) — no short-circuit needed; a member only ever sees their own
     # sequence/pending-count, never the owner's (different path).
     clean_client_id = _clean_client_id(client_id)
-    if clean_client_id:
-        path = mobile_event_log(root, player_id=player_id)
-        rows, last_acked = open_mobile_event_store(path.parent).read_rows_and_ack(
-            str(round_id),
-            clean_client_id,
-        )
-    else:
-        rows = _event_log_rows(round_id, root=root, player_id=player_id)
-        last_acked = 0
-    latest_sequence = max(
-        (_safe_int(row.get("serverSequence")) or 0 for row in rows),
-        default=0,
+    path = mobile_event_log(root, player_id=player_id)
+    latest_sequence, pending_count, last_acked = open_mobile_event_store(path.parent).read_round_cursor(
+        str(round_id),
+        clean_client_id,
     )
     cursor: dict[str, Any] = {"serverSequence": latest_sequence, "pendingEventCount": 0}
     if not clean_client_id:
@@ -74,11 +86,7 @@ def _event_cursor(
         {
             "clientId": clean_client_id,
             "lastAckedServerSequence": last_acked,
-            "pendingEventCount": sum(
-                1
-                for row in rows
-                if (_safe_int(row.get("serverSequence")) or 0) > last_acked
-            ),
+            "pendingEventCount": pending_count,
             "replayEndpoint": f"/api/v2/mobile/rounds/{round_id}/events/replay",
         }
     )
@@ -696,11 +704,12 @@ def _ensure_geometry_for_package_holes(round_row: dict[str, Any], hole_numbers: 
                 result=result,
             )
         )
-    # ``load_geometry`` caches missing files too. A successful first download must invalidate
-    # those entries so the same process can immediately expose the new map/tee distances.
+    # Both loaders cache missing files. A successful first download must become visible to the
+    # same process immediately, without requiring an app/server restart.
     from ai_caddie.caddie.analysis import load_geometry
 
     load_geometry.cache_clear()
+    _load_mobile_hazards.cache_clear()
     return _geometry_ensure_summary(results, requested=True)
 
 
@@ -721,11 +730,12 @@ def _ensure_geometry_for_course(global_id: int, holes: list[int] | None = None) 
                 result=result,
             )
         )
-    # ``load_geometry`` caches missing files too. A first course download must be visible to
-    # the package response and the next Tee read without requiring an app/server restart.
+    # Both loaders cache missing files. A first course download must be visible to the package
+    # response and the next Tee read without requiring an app/server restart.
     from ai_caddie.caddie.analysis import load_geometry
 
     load_geometry.cache_clear()
+    _load_mobile_hazards.cache_clear()
     return _geometry_ensure_summary(results, requested=True)
 
 
@@ -737,7 +747,7 @@ def _package_holes(
     hole_numbers: list[int] | None = None,
     tee_box: str | None = None,
 ) -> list[dict[str, Any]]:
-    from ai_caddie.caddie.analysis import _selected_tee, load_geometry
+    from ai_caddie.caddie.analysis import _selected_tee
 
     source_holes: dict[int, dict[str, Any]] = {}
     for index, hole in enumerate(round_row.get("holes") or [], start=1):
@@ -782,7 +792,7 @@ def _package_holes(
                 else None
             )
             try:
-                geometry = load_geometry(int(source_gid), int(source_local))
+                geometry = {"hazards": _load_mobile_hazards(int(source_gid), int(source_local))}
                 selected_tee = _selected_tee(geometry, tee_box)
                 target_distance_m = float((selected_tee or {}).get("target_distance_m"))
                 if target_distance_m > 0:
@@ -925,6 +935,14 @@ def _diagnostic_row_matches(row: dict[str, Any], relevant_refs: set[str], issue_
     return bool(issue and issue in issue_names)
 
 
+def _diagnostic_ref_fields(row: dict[str, Any]) -> dict[str, Any]:
+    refs = _refs_from_row(row)
+    fields: dict[str, Any] = {"sourceRefs": refs[:DIAGNOSTIC_SOURCE_REF_LIMIT]}
+    if len(refs) > DIAGNOSTIC_SOURCE_REF_LIMIT:
+        fields["sourceRefCount"] = len(refs)
+    return fields
+
+
 def _compact_diagnostic_row(row: dict[str, Any]) -> dict[str, Any]:
     compact = {
         "issue": row.get("issue"),
@@ -933,7 +951,7 @@ def _compact_diagnostic_row(row: dict[str, Any]) -> dict[str, Any]:
         "estimatedStrokesLost": row.get("estimatedStrokesLost"),
         "actualStrokesLost": row.get("actualStrokesLost"),
         "actualToParImpact": row.get("actualToParImpact"),
-        "sourceRefs": _refs_from_row(row),
+        **_diagnostic_ref_fields(row),
         "coverage": row.get("coverage"),
         "confidence": row.get("confidence"),
     }
@@ -975,7 +993,7 @@ def _diagnostic_context_for_seed(
             "state": row.get("state"),
             "ready": row.get("ready"),
             "total": row.get("total"),
-            "sourceRefs": _refs_from_row(row),
+            **_diagnostic_ref_fields(row),
         }
         for row in (stats.get("dataQuality") if isinstance(stats.get("dataQuality"), list) else [])
         if isinstance(row, dict) and str(row.get("state") or "").lower() not in {"good", "ready"}
@@ -1245,9 +1263,13 @@ def _geometry_seed(global_id: int, local_hole: int, fallback_coverage: str) -> t
         missing_data.append({"label": "geometry", "reason": "globalId missing from live round package"})
         return {**geometry, "hazards": hazards}, evidence, missing_data
     try:
+        # The offline seed only needs compact hazard identity. Building a full WGS84 hole-map DTO
+        # expanded every fairway/rough/green mesh into GeoJSON, then immediately discarded every
+        # non-hazard feature. On a real 18-hole course that made the fast start package take about
+        # 25 seconds on every request. Read the authority-bound compact hazard/Tee export instead.
         coverage = geometry_coverage_for_hole(global_id, local_hole)
-        hole_map = build_hole_map_dto(global_id, local_hole)
-        hazards = _hazards_from_hole_map(hole_map)
+        hazard_source = _load_mobile_hazards(int(global_id), int(local_hole))
+        hazards = _hazards_from_geometry(hazard_source)
         geometry = {
             "coverage": str(coverage.get("coverage") or fallback_coverage),
             "hasHazards": bool(coverage.get("hasHazards")),
@@ -1257,7 +1279,8 @@ def _geometry_seed(global_id: int, local_hole: int, fallback_coverage: str) -> t
         }
         evidence.extend(coverage.get("evidence") or [])
         missing_data.extend(coverage.get("missingData") or [])
-        missing_data.extend(hole_map.get("missingData") or [])
+        if hazard_source and (hazard_source.get("refLat") is None or hazard_source.get("refLon") is None):
+            missing_data.append({"label": "geometry_reference", "reason": "hazard geometry missing WGS84 reference"})
     except Exception:
         missing_data.append({"label": "geometry", "reason": "geometry evidence could not be loaded for offline seed"})
         geometry["hazards"] = hazards
@@ -1276,12 +1299,14 @@ def _route_evidence_seed(
     if not global_id or target_y is None:
         return None, [], [{"label": "route_geometry", "reason": "globalId and playable route target are required for offline seed"}]
     try:
+        hazard_source = _load_mobile_hazards(int(global_id), int(local_hole)) or None
         route = build_route_geometry_evidence(
             global_id,
             local_hole,
             start={"x": 0.0, "y": 0.0},
             target={"x": 0.0, "y": target_y},
             landing_radius_m=18.0,
+            _hazards_override=hazard_source,
         )
     except Exception:
         return None, [], [{"label": "route_geometry", "reason": "route geometry evidence could not be loaded for offline seed"}]
@@ -1406,17 +1431,25 @@ def _mobile_player_profile(stats: dict[str, Any]) -> dict[str, Any]:
     return profile
 
 
-def _hazards_from_hole_map(hole_map: dict[str, Any]) -> list[dict[str, Any]]:
-    features = ((hole_map.get("featureCollection") or {}).get("features") or [])
+def _hazards_from_geometry(geometry: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = geometry.get("hazards") if isinstance(geometry.get("hazards"), list) else []
     hazards: list[dict[str, Any]] = []
-    for feature in features:
-        properties = feature.get("properties") if isinstance(feature, dict) else None
-        if not isinstance(properties, dict) or properties.get("layer") != "hazard":
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        ring = row.get("polygon") or row.get("points") or row.get("path")
+        has_polygon = isinstance(ring, list) and len(ring) >= 3
+        has_bound_identity = bool(row.get("id")) and bool(row.get("kind") or row.get("type"))
+        # Current prodgeometry deliberately stores compact authority-bound hazard summaries
+        # (id/kind/centroid/Tee distances) rather than duplicating mesh polygons. They are still
+        # factual hazards and must not collapse the offline context to hazardCount=0. Legacy rows
+        # without either a usable polygon or an explicit bound identity remain excluded.
+        if not has_polygon and not has_bound_identity:
             continue
         hazards.append(
             {
-                "kind": str(properties.get("kind") or "hazard"),
-                "id": str(properties.get("id") or f"hazard-{len(hazards) + 1}"),
+                "kind": str(row.get("kind") or row.get("type") or "hazard"),
+                "id": str(row.get("id") or f"hazard-{len(hazards) + 1}"),
                 "source": "geometry_map",
             }
         )
@@ -2014,7 +2047,7 @@ def _geometry_only_course_template(
     ensure_lightweight: bool = False,
     root: Path | str | None = None,
 ) -> dict[str, Any] | None:
-    from ai_caddie.caddie.analysis import _selected_tee, load_geometry
+    from ai_caddie.caddie.analysis import _selected_tee
     from ai_caddie.courses import course_reference, courseview_core
 
     holes = []
@@ -2090,7 +2123,10 @@ def _geometry_only_course_template(
                 tee_latitude = first.get("latitude")
                 tee_longitude = first.get("longitude")
         try:
-            selected_tee = _selected_tee(load_geometry(int(global_id), local_hole), tee_box)
+            selected_tee = _selected_tee(
+                {"hazards": _load_mobile_hazards(int(global_id), local_hole)},
+                tee_box,
+            )
             target_distance_m = float((selected_tee or {}).get("target_distance_m"))
             if target_distance_m > 0:
                 yards = int(round(target_distance_m * 1.09361))
