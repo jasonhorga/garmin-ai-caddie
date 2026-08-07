@@ -31,6 +31,7 @@ public struct AICaddieApp: App {
                 if requiresSignIn {
                     SignInView(apiBaseURL: model.apiBaseURL) { session in
                         sessionStore.save(session)
+                        model.activateSession(session, migrateLegacyData: false)
                         Task { await model.bootstrap() }
                     }
                 } else if model.isBootstrapping {
@@ -185,7 +186,14 @@ public struct AICaddieApp: App {
             // hosting controller owns status-bar contrast for the whole NavigationStack.
             .preferredColorScheme(usesDarkLiveChrome ? .dark : .light)
             .task {
+                #if DEBUG
                 await model.bootstrap()
+                #else
+                if let session = sessionStore.currentSession {
+                    model.activateSession(session, migrateLegacyData: true)
+                    await model.bootstrap()
+                }
+                #endif
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
@@ -265,6 +273,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private var syncClient: SyncClient?
     private var mediaUploadClient: MediaUploadClient?
     private var isSyncingPendingEvents = false
+    private var offlineCourseDownloadTask: Task<Void, Never>?
+    private var courseOptionsRefreshSucceeded = false
+    private var boundPlayerId: String?
     private let preferredRoundId: String
     /// Keeps the Apple-session observer alive so the watch's standalone-sync auth tracks sign-in /
     /// refresh / sign-out (round-13 watch-auth).
@@ -364,6 +375,35 @@ public final class LiveRoundAppModel: ObservableObject {
         adminToken?.isEmpty == false
     }
 
+    /// Bind all personal offline state before a production bootstrap. A new account starts with an
+    /// empty in-memory model and its own disk scope, while immutable course topo images remain
+    /// reusable. This must run synchronously after sign-in so bootstrap cannot see another member's
+    /// cached package, bag or history.
+    public func activateSession(_ session: AppSession, migrateLegacyData: Bool) {
+        guard boundPlayerId != session.playerId else {
+            syncConfigToWatch()
+            return
+        }
+        offlineCourseDownloadTask?.cancel()
+        offlineCourseDownloadTask = nil
+        offlineStore.bindAccount(
+            playerId: session.playerId,
+            migrateLegacyData: migrateLegacyData
+        )
+        boundPlayerId = session.playerId
+        package = nil
+        liveRoundState = nil
+        pendingEventCount = 0
+        pendingLiveHole = nil
+        startingNine = nil
+        courseOptions = []
+        courseOptionsRefreshSucceeded = false
+        syncStatus = "离线就绪"
+        isBootstrapping = true
+        refreshDownloadedCourseOptions()
+        syncConfigToWatch()
+    }
+
     public func bootstrap() async {
         defer { isBootstrapping = false }
         #if DEBUG
@@ -408,8 +448,11 @@ public final class LiveRoundAppModel: ObservableObject {
             if let active = try offlineStore.loadResumablePackage(),
                active.dataMode != "fixture",
                active.course.globalId != 0,
-               try offlineStore.hasRecordedEvents(roundId: active.roundId) {
+                try offlineStore.hasRecordedEvents(roundId: active.roundId) {
                 try activatePackage(active, status: "继续进行中的球局")
+                if courseOptionsRefreshSucceeded {
+                    beginOfflineCourseDownload()
+                }
                 return
             }
             #if DEBUG
@@ -444,6 +487,7 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     public func refreshCourseOptions() async {
+        courseOptionsRefreshSucceeded = false
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             courseOptions = []
@@ -455,6 +499,7 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         do {
             courseOptions = try await syncClient.fetchCourseOptions().courses
+            courseOptionsRefreshSucceeded = true
         } catch {
             AICaddieLog.network.error("Course options fetch failed: \(String(describing: error), privacy: .public)")
             courseOptions = []
@@ -626,8 +671,10 @@ public final class LiveRoundAppModel: ObservableObject {
         ), retained.hasCompleteOfflineCoursePrep {
             snapshot = snapshot.replacingCoursePrep(retained.coursePrep)
         }
-        Task { [weak self] in
-            await self?.downloadOfflineCourseAssets(for: snapshot, using: syncClient)
+        let downloadSnapshot = snapshot
+        offlineCourseDownloadTask?.cancel()
+        offlineCourseDownloadTask = Task { [weak self] in
+            await self?.downloadOfflineCourseAssets(for: downloadSnapshot, using: syncClient)
         }
     }
 

@@ -553,16 +553,17 @@ private let REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
 
 public final class OfflineStore {
     private let trustedDirectoryAnchor: URL
-    private let directoryURL: URL
-    private let logURL: URL
-    private let packagesDirectoryURL: URL
-    private let courseTemplatesDirectoryURL: URL
+    private let baseDirectoryURL: URL
+    private var directoryURL: URL
+    private var logURL: URL
+    private var packagesDirectoryURL: URL
+    private var courseTemplatesDirectoryURL: URL
     private let courseTopoDirectoryURL: URL
-    private let currentPackageURL: URL
-    private let homePackageURL: URL
-    private let liveProgressURL: URL
-    private let pendingMediaDirectoryURL: URL
-    private let pendingMediaIndexURL: URL
+    private var currentPackageURL: URL
+    private var homePackageURL: URL
+    private var liveProgressURL: URL
+    private var pendingMediaDirectoryURL: URL
+    private var pendingMediaIndexURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let syncEventLogFile: (URL) throws -> Void
@@ -627,6 +628,7 @@ public final class OfflineStore {
             .resolvingSymlinksInPath()
         let resolvedDirectory = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
         self.trustedDirectoryAnchor = resolvedAnchor
+        self.baseDirectoryURL = resolvedDirectory
         self.directoryURL = resolvedDirectory
         self.logURL = resolvedDirectory.appendingPathComponent("events.jsonl")
         self.packagesDirectoryURL = resolvedDirectory.appendingPathComponent(
@@ -668,6 +670,76 @@ public final class OfflineStore {
             syncEventLogFile: { _ in },
             syncEventLogDirectory: { _ in }
         )
+    }
+
+    /// Keep every player's packages, events, profile, bag and history in a separate local scope.
+    /// Course topo bitmaps are factual assets and stay shared at the store root. `migrateLegacyData`
+    /// is used only when a valid session already existed during an app upgrade; a newly signed-in
+    /// account must never inherit an unowned legacy cache.
+    public func bindAccount(playerId: String, migrateLegacyData: Bool) {
+        let trimmed = playerId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let component = trimmed.addingPercentEncoding(withAllowedCharacters: allowed)
+            ?? "invalid-account"
+        let accountDirectory = baseDirectoryURL
+            .appendingPathComponent("accounts", isDirectory: true)
+            .appendingPathComponent(component, isDirectory: true)
+
+        if migrateLegacyData, accountDirectory != directoryURL {
+            migrateLegacyPersonalDataIfNeeded(to: accountDirectory)
+        }
+        configurePersonalDirectory(accountDirectory)
+    }
+
+    private func configurePersonalDirectory(_ directory: URL) {
+        directoryURL = directory
+        logURL = directory.appendingPathComponent("events.jsonl")
+        packagesDirectoryURL = directory.appendingPathComponent("packages", isDirectory: true)
+        courseTemplatesDirectoryURL = directory.appendingPathComponent(
+            "course_templates",
+            isDirectory: true
+        )
+        currentPackageURL = directory.appendingPathComponent("current_package.json")
+        homePackageURL = directory.appendingPathComponent("home_package.json")
+        liveProgressURL = directory.appendingPathComponent("live_progress.json")
+        pendingMediaDirectoryURL = directory.appendingPathComponent(
+            "pending_media",
+            isDirectory: true
+        )
+        pendingMediaIndexURL = directory.appendingPathComponent("pending_media.jsonl")
+    }
+
+    private func migrateLegacyPersonalDataIfNeeded(to accountDirectory: URL) {
+        let manager = FileManager.default
+        let legacyNames = [
+            "events.jsonl",
+            "packages",
+            "course_templates",
+            "current_package.json",
+            "home_package.json",
+            "live_progress.json",
+            "pending_media",
+            "pending_media.jsonl",
+        ]
+        guard legacyNames.contains(where: {
+            manager.fileExists(atPath: baseDirectoryURL.appendingPathComponent($0).path)
+        }) else { return }
+
+        do {
+            try manager.createDirectory(at: accountDirectory, withIntermediateDirectories: true)
+            for name in legacyNames {
+                let source = baseDirectoryURL.appendingPathComponent(name)
+                let destination = accountDirectory.appendingPathComponent(name)
+                guard manager.fileExists(atPath: source.path),
+                      !manager.fileExists(atPath: destination.path) else { continue }
+                try manager.moveItem(at: source, to: destination)
+            }
+        } catch {
+            AICaddieLog.storage.error(
+                "Legacy account cache migration incomplete: \(String(describing: error), privacy: .public)"
+            )
+        }
     }
 
     public func saveRoundPackage(_ package: LiveRoundPackage) throws {
@@ -889,6 +961,9 @@ public final class OfflineStore {
         _ existing: LiveRoundPackage,
         with candidate: LiveRoundPackage
     ) -> Bool {
+        if candidate.holes.count != existing.holes.count {
+            return candidate.holes.count > existing.holes.count
+        }
         let candidatePrepCount = candidate.coursePrep?.holes.filter {
             $0.resolvedMapOverlay != nil
         }.count ?? 0
@@ -897,9 +972,6 @@ public final class OfflineStore {
         }.count ?? 0
         if candidatePrepCount != existingPrepCount {
             return candidatePrepCount > existingPrepCount
-        }
-        if candidate.holes.count != existing.holes.count {
-            return candidate.holes.count > existing.holes.count
         }
         if candidate.geometryCoverage.readyHoles != existing.geometryCoverage.readyHoles {
             return candidate.geometryCoverage.readyHoles > existing.geometryCoverage.readyHoles

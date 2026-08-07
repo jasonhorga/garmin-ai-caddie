@@ -64,6 +64,63 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
     }
 
+    func testAccountScopesNeverReuseAnotherPlayersPackageEventsOrTemplate() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let package = try localFixturePackage()
+        let accountAEvent = LiveRoundEvent(
+            eventId: "account-a-score",
+            roundId: package.roundId,
+            timestamp: "2026-08-07T00:00:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(4)]
+        )
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
+
+        // Upgrade path: an already-authenticated player owns the legacy unscoped cache.
+        try store.saveRoundPackage(package)
+        try store.saveHomePackage(package)
+        try store.appendEvent(accountAEvent)
+        XCTAssertTrue(try store.saveCourseTopoImage(
+            png,
+            globalId: package.course.globalId,
+            localHole: 1
+        ))
+        store.bindAccount(playerId: "player-a", migrateLegacyData: true)
+        XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
+        XCTAssertEqual(try store.loadEvents(), [accountAEvent])
+        XCTAssertFalse(try store.loadCourseTemplates().isEmpty)
+
+        // A new family member gets a clean personal scope, but can reuse factual map pixels.
+        store.bindAccount(playerId: "player-b", migrateLegacyData: false)
+        XCTAssertNil(try store.loadCurrentRoundPackage())
+        XCTAssertNil(try store.loadHomePackage())
+        XCTAssertTrue(try store.loadEvents().isEmpty)
+        XCTAssertTrue(try store.loadCourseTemplates().isEmpty)
+        XCTAssertEqual(
+            store.loadCourseTopoImage(globalId: package.course.globalId, localHole: 1),
+            png
+        )
+
+        let accountBEvent = LiveRoundEvent(
+            eventId: "account-b-score",
+            roundId: package.roundId,
+            timestamp: "2026-08-07T00:01:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(6)]
+        )
+        try store.saveRoundPackage(package)
+        try store.appendEvent(accountBEvent)
+        XCTAssertEqual(try store.loadEvents(), [accountBEvent])
+
+        store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+        XCTAssertEqual(try store.loadEvents(), [accountAEvent])
+        XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
+    }
+
     func testCourseTemplateSurvivesRoundDiscardAndRebasesWithoutOldIdentityOrCursor() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -102,6 +159,28 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(rebased.sourceCoverage.requestedRoundId, "offline-new-round")
         XCTAssertNil(rebased.sourceCoverage.selectedRoundId)
         XCTAssertFalse(rebased.sourceCoverage.roundFound)
+        let oldSeed = try XCTUnwrap(package.caddieContextSeeds.first)
+        let seed = try XCTUnwrap(rebased.caddieContextSeeds.first)
+        let expectedSeedRef = "offline-new-round:\(seed.hole)"
+        XCTAssertEqual(seed.sourceRef, expectedSeedRef)
+        XCTAssertEqual(seed.context["roundId"], .string("offline-new-round"))
+        XCTAssertEqual(seed.context["sourceRef"], .string(expectedSeedRef))
+        XCTAssertFalse(seed.offlineOptions.isEmpty)
+        XCTAssertTrue(seed.offlineOptions.allSatisfy { option in
+            option.sourceRefs.contains(expectedSeedRef)
+                && !option.sourceRefs.contains(oldSeed.sourceRef)
+        })
+        XCTAssertEqual(
+            seed.offlineOptions.map(\.sampleRefs),
+            oldSeed.offlineOptions.map(\.sampleRefs),
+            "historical shot evidence must survive a new offline round"
+        )
+        XCTAssertFalse(seed.evidence.contains { row in
+            row.values.contains(.string(oldSeed.sourceRef))
+        })
+        XCTAssertTrue(rebased.readinessChecks.allSatisfy { check in
+            !check.sourceRefs.contains(oldSeed.sourceRef)
+        })
         XCTAssertFalse(try store.loadEvents().contains { $0.roundId == rebased.roundId })
         XCTAssertNil(try store.loadCourseTemplate(
             globalId: package.course.globalId,

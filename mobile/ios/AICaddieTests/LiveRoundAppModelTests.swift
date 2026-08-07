@@ -1290,10 +1290,11 @@ final class LiveRoundAppModelTests: XCTestCase {
 
     private func offlinePrepResponseData(for package: LiveRoundPackage) throws -> Data {
         let hole = try XCTUnwrap(package.holes.first)
+        let blueYards = hole.yards.map(String.init) ?? "null"
         return Data("""
         {"schema":"ai-caddie-course-prep-v1","globalId":\(package.course.globalId),"holeCount":1,
          "clubs":[],"holes":[{"hole":\(hole.sourceLocalHole ?? hole.number),"par":\(hole.par),
-         "par_source":"courseview","blue_yards":\(hole.yards),"route_len_m":360,
+         "par_source":"courseview","blue_yards":\(blueYards),"route_len_m":360,
          "route":[[0,0,0],[0,360,360]],"geometryCoverage":"ready","steps":[],"cautions":[],
          "hazards":{"water_carry":[],"bunkers":[],"details":[]},
          "map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":720,"h":1120,

@@ -128,7 +128,14 @@ public struct LiveRoundPackage: Codable, Equatable {
     /// the old round's identity or server cursor. Hole events live in OfflineStore separately and
     /// are therefore intentionally absent from this new identity.
     public func rebasedForOfflineStart(roundId: String, generatedAt: Date = Date()) -> LiveRoundPackage {
-        LiveRoundPackage(
+        let rebasedSeeds = caddieContextSeeds.map {
+            $0.rebasedForOfflineStart(roundId: roundId)
+        }
+        var rebasedSeedRefs: [String: String] = [:]
+        for (oldSeed, newSeed) in zip(caddieContextSeeds, rebasedSeeds) {
+            rebasedSeedRefs[oldSeed.sourceRef] = newSeed.sourceRef
+        }
+        return LiveRoundPackage(
             schema: schema,
             roundId: roundId,
             dataMode: dataMode,
@@ -149,8 +156,17 @@ public struct LiveRoundPackage: Codable, Equatable {
             nine: nine,
             coursePrep: coursePrep,
             geometryCoverage: geometryCoverage,
-            readinessChecks: readinessChecks,
-            caddieContextSeeds: caddieContextSeeds,
+            readinessChecks: readinessChecks.map { check in
+                PackageReadinessCheck(
+                    label: check.label,
+                    state: check.state,
+                    ready: check.ready,
+                    total: check.total,
+                    reason: check.reason,
+                    sourceRefs: check.sourceRefs.map { rebasedSeedRefs[$0] ?? $0 }
+                )
+            },
+            caddieContextSeeds: rebasedSeeds,
             weatherSnapshot: weatherSnapshot,
             clubProfiles: clubProfiles,
             caddieDecisionEndpoint: caddieDecisionEndpoint,
@@ -305,6 +321,28 @@ public struct CaddieContextSeed: Codable, Equatable, Identifiable {
         case missingData
     }
 
+    public init(
+        hole: Int,
+        sourceRef: String,
+        shotTypes: [String],
+        requiredLiveInputs: [String],
+        context: [String: JSONValue],
+        selectedOfflineOptionId: String?,
+        offlineOptions: [OfflineCaddieOption],
+        evidence: [[String: JSONValue]],
+        missingData: [[String: JSONValue]]
+    ) {
+        self.hole = hole
+        self.sourceRef = sourceRef
+        self.shotTypes = shotTypes
+        self.requiredLiveInputs = requiredLiveInputs
+        self.context = context
+        self.selectedOfflineOptionId = selectedOfflineOptionId
+        self.offlineOptions = offlineOptions
+        self.evidence = evidence
+        self.missingData = missingData
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.hole = try container.decode(Int.self, forKey: .hole)
@@ -317,6 +355,36 @@ public struct CaddieContextSeed: Codable, Equatable, Identifiable {
         self.offlineOptions = offlineOptions ?? []
         self.evidence = try container.decode([[String: JSONValue]].self, forKey: .evidence)
         self.missingData = try container.decode([[String: JSONValue]].self, forKey: .missingData)
+    }
+
+    /// A cached seed contains both reusable golf evidence and identity that belongs to the round
+    /// which originally downloaded it. Rebind only that runtime identity. Historical shot samples
+    /// remain untouched so the recommendation keeps its real provenance.
+    public func rebasedForOfflineStart(roundId: String) -> CaddieContextSeed {
+        let nextSourceRef = "\(roundId):\(hole)"
+        var nextContext = context.mapValues {
+            $0.replacingExactString(sourceRef, with: nextSourceRef)
+        }
+        nextContext["roundId"] = .string(roundId)
+        nextContext["sourceRef"] = .string(nextSourceRef)
+
+        return CaddieContextSeed(
+            hole: hole,
+            sourceRef: nextSourceRef,
+            shotTypes: shotTypes,
+            requiredLiveInputs: requiredLiveInputs,
+            context: nextContext,
+            selectedOfflineOptionId: selectedOfflineOptionId,
+            offlineOptions: offlineOptions.map {
+                $0.replacingRuntimeSourceRef(sourceRef, with: nextSourceRef)
+            },
+            evidence: evidence.map { row in
+                row.mapValues { $0.replacingExactString(sourceRef, with: nextSourceRef) }
+            },
+            missingData: missingData.map { row in
+                row.mapValues { $0.replacingExactString(sourceRef, with: nextSourceRef) }
+            }
+        )
     }
 }
 
@@ -385,6 +453,30 @@ public struct OfflineCaddieOption: Codable, Equatable, Identifiable {
         case sourceRefs
         case sampleRefs
         case missingData
+    }
+
+    fileprivate func replacingRuntimeSourceRef(
+        _ oldSourceRef: String,
+        with newSourceRef: String
+    ) -> OfflineCaddieOption {
+        OfflineCaddieOption(
+            optionId: optionId,
+            label: label,
+            clubName: clubName,
+            carryM: carryM,
+            p10M: p10M,
+            p90M: p90M,
+            sampleSize: sampleSize,
+            confidence: confidence,
+            coverage: coverage,
+            riskScore: riskScore,
+            source: source,
+            sourceRefs: sourceRefs.map { $0 == oldSourceRef ? newSourceRef : $0 },
+            sampleRefs: sampleRefs,
+            missingData: missingData?.map { row in
+                row.mapValues { $0.replacingExactString(oldSourceRef, with: newSourceRef) }
+            }
+        )
     }
 }
 
@@ -553,4 +645,23 @@ public struct CachedCaddieRules: Codable, Equatable {
     public let offlineCapable: Bool
     public let requiredInputs: [String]
     public let degradeWhenMissing: [String]
+}
+
+private extension JSONValue {
+    func replacingExactString(_ oldValue: String, with newValue: String) -> JSONValue {
+        switch self {
+        case .string(let value):
+            return .string(value == oldValue ? newValue : value)
+        case .object(let object):
+            return .object(object.mapValues {
+                $0.replacingExactString(oldValue, with: newValue)
+            })
+        case .array(let array):
+            return .array(array.map {
+                $0.replacingExactString(oldValue, with: newValue)
+            })
+        case .number(_), .bool(_), .null:
+            return self
+        }
+    }
 }

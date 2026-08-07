@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
@@ -16,13 +17,19 @@ import UIKit
 /// projection frame (`hole_render._frame`), so a route/shot overlay drawn on top in overlay-pixel
 /// space aligns with either bitmap pixel-perfect — the caller draws that overlay as a sibling layer.
 struct TopoHoleBaseImage: View {
+    private static let localImageCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 8
+        return cache
+    }()
+
     let topoURL: URL?
     let fallback: UIImage?
 
     var body: some View {
         if let topoURL {
             if topoURL.isFileURL {
-                if let image = UIImage(contentsOfFile: topoURL.path) {
+                if let image = localImage(at: topoURL) {
                     readyImage(Image(uiImage: image))
                 } else {
                     fallbackImage
@@ -44,6 +51,16 @@ struct TopoHoleBaseImage: View {
         } else {
             fallbackImage
         }
+    }
+
+    private func localImage(at url: URL) -> UIImage? {
+        let key = url.path as NSString
+        if let cached = Self.localImageCache.object(forKey: key) {
+            return cached
+        }
+        guard let image = UIImage(contentsOfFile: url.path) else { return nil }
+        Self.localImageCache.setObject(image, forKey: key)
+        return image
     }
 
     /// topo-v6 has a transparent off-course canvas. Preserve it in every context so review/prep do
