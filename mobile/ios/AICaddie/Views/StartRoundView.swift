@@ -236,19 +236,51 @@ public struct StartRoundView: View {
         func distance(_ group: (venue: String, segments: [MobileCourseOption])) -> Double {
             group.segments.compactMap { segment -> Double? in
                 guard let lat = segment.latitude, let lon = segment.longitude else { return nil }
-                return haversineMetres(fix.coordinate.latitude, fix.coordinate.longitude, lat, lon)
+                return Self.haversineMetres(fix.coordinate.latitude, fix.coordinate.longitude, lat, lon)
             }.min() ?? .greatestFiniteMagnitude
         }
         return groups.sorted { distance($0) < distance($1) }
     }
 
-    private func haversineMetres(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
+    static func haversineMetres(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
         let r = 6_371_000.0
         let dLat = (lat2 - lat1) * .pi / 180
         let dLon = (lon2 - lon1) * .pi / 180
         let a = sin(dLat / 2) * sin(dLat / 2)
             + cos(lat1 * .pi / 180) * cos(lat2 * .pi / 180) * sin(dLon / 2) * sin(dLon / 2)
-        return r * 2 * atan2(sqrt(a), sqrt(1 - a))
+        let boundedA = min(max(a, 0), 1)
+        return r * 2 * atan2(sqrt(boundedA), sqrt(1 - boundedA))
+    }
+
+    /// A downloaded course is an offline fallback only when its retained provider coordinate proves
+    /// that it is actually near the current fix. `courseOptions` also contains play history, so rows
+    /// without coordinates or outside the radius must never reappear as a disguised history list.
+    static func locallyAvailableNearbyCourses(
+        _ options: [MobileCourseOption],
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Int
+    ) -> [MobileCourseOption] {
+        guard latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude),
+              radiusKm > 0 else { return [] }
+        let radiusMetres = Double(radiusKm) * 1_000
+        var seen = Set<Int>()
+        return options.filter { option in
+            guard seen.insert(option.globalId).inserted,
+                  let courseLatitude = option.latitude,
+                  let courseLongitude = option.longitude,
+                  courseLatitude.isFinite, (-90...90).contains(courseLatitude),
+                  courseLongitude.isFinite, (-180...180).contains(courseLongitude) else {
+                return false
+            }
+            return haversineMetres(
+                latitude,
+                longitude,
+                courseLatitude,
+                courseLongitude
+            ) <= radiusMetres
+        }
     }
 
     /// 按真实结构选场:每个球场列出它的各 9 洞环(黑骑士 A/B/C)或整场(北湖 18);选一个开始。
@@ -276,6 +308,11 @@ public struct StartRoundView: View {
             } else {
                 Label("当前位置 50 km · 最近在前", systemImage: "location.fill")
                     .font(.caption2).foregroundStyle(LiveHoleStyle.green)
+                if let nearbyStatusText {
+                    Text(nearbyStatusText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 // Only provider-nearby venues (plus one explicit text-search selection) appear here.
                 Picker("球场", selection: selectedVenueBinding) {
                     ForEach(displayVenues, id: \.venue) { group in
@@ -670,6 +707,16 @@ public struct StartRoundView: View {
                 : nil
             return
         }
+        let localNearby = Self.locallyAvailableNearbyCourses(
+            courseOptions,
+            latitude: fix.coordinate.latitude,
+            longitude: fix.coordinate.longitude,
+            radiusKm: 50
+        )
+        // Publish the factual local candidates immediately, but do not auto-select the only local
+        // venue yet: the provider response may add a second nearby venue, which must restore the
+        // explicit-choice rule. The player may still tap a local row while the request is pending.
+        nearbyCourseOptions = localNearby
         isLoadingNearby = true
         nearbyStatusText = nil
         defer { isLoadingNearby = false }
@@ -680,7 +727,8 @@ public struct StartRoundView: View {
                 50
             )
             var seen = Set<Int>()
-            nearbyCourseOptions = matches.compactMap { resolvedOption(for: $0) }.filter {
+            let providerNearby = matches.compactMap { resolvedOption(for: $0) }
+            nearbyCourseOptions = (providerNearby + localNearby).filter {
                 seen.insert($0.globalId).inserted
             }
             nearbyStatusText = nearbyCourseOptions.isEmpty
@@ -698,8 +746,13 @@ public struct StartRoundView: View {
                 }
             }
         } catch {
-            nearbyCourseOptions = []
-            nearbyStatusText = "附近球场暂时读取失败；可以先按城市或球场名搜索。"
+            nearbyCourseOptions = localNearby
+            nearbyStatusText = localNearby.isEmpty
+                ? "附近球场暂时读取失败；可以先按城市或球场名搜索。"
+                : "附近服务不可用；已显示下载到本机的附近球场。"
+            if !userPickedVenue {
+                ensureDefaultSelection()
+            }
         }
     }
 

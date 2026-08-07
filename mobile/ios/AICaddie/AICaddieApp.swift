@@ -1096,6 +1096,14 @@ public final class LiveRoundAppModel: ObservableObject {
         longitude: Double,
         radiusKm: Int
     ) async throws -> [MobileCourseSearchMatch] {
+        #if DEBUG
+        // Real-simulator acceptance seam: keep bootstrap, search and course downloads on the live
+        // backend while forcing only the automatic nearby request offline. Release/TestFlight never
+        // compile this branch.
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_NEARBY_FAILURE"] == "1" {
+            throw URLError(.notConnectedToInternet)
+        }
+        #endif
         guard let syncClient else { throw URLError(.notConnectedToInternet) }
         return try await syncClient.nearbyCourses(
             latitude: latitude,

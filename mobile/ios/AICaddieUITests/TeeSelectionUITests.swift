@@ -247,6 +247,36 @@ final class TeeSelectionUITests: XCTestCase {
         )
     }
 
+    func testNearbyServiceFailureUsesOnlyDownloadedCoursesActuallyNearTheGPSFix() throws {
+        app.launchEnvironment["UITEST_FORCE_NEARBY_FAILURE"] = "1"
+        launchFresh()
+
+        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+            XCTFail("the home must open a new round while the nearby service is offline")
+            return
+        }
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.staticTexts["附近服务不可用；已显示下载到本机的附近球场。"]
+                .waitForExistence(timeout: 20),
+            "a nearby transport failure must fall back to downloaded courses proven near the GPS fix"
+        )
+        let palace = app.buttons["start-round-course-segment-31793"]
+        XCTAssertTrue(
+            palace.waitForExistence(timeout: 8),
+            "the downloaded Beijing Palace segment must remain available at its real nearby coordinate"
+        )
+        if palace.value as? String != "已选择" {
+            palace.tap()
+        }
+        XCTAssertTrue(waitForValue("已选择", on: palace, timeout: 8))
+        XCTAssertTrue(
+            waitUntilEnabled(app.buttons["start-round-primary-action"], timeout: 15),
+            "an already downloaded nearby course must remain startable without the nearby service"
+        )
+        save("nearby-offline-01-local-course"); dump("nearby-offline-01-local-course")
+    }
+
     // MARK: - navigation helpers
 
     private func launchFresh() {
