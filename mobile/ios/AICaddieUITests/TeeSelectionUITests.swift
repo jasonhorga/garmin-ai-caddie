@@ -99,7 +99,38 @@ final class TeeSelectionUITests: XCTestCase {
 
         search.tap()
         XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.textFields["course-catalog-keyword-field"].exists)
+        let nearby = app.buttons["course-catalog-nearby-action"]
+        XCTAssertTrue(nearby.exists, "the start-round catalogue must retain the nearby affordance")
+        XCTAssertFalse(nearby.isEnabled, "denied GPS must not issue a nearby query with invented coordinates")
+
+        // Do not stop at proving that a text field exists. Exercise the complete fallback against the
+        // live Garmin catalogue: city-only search -> factual provider row -> selection -> real Tee load.
+        let city = app.textFields["course-catalog-city-field"]
+        XCTAssertTrue(city.waitForExistence(timeout: 5))
+        city.tap()
+        city.typeText("北京")
+        let submit = app.buttons["course-catalog-search-action"]
+        XCTAssertTrue(waitUntilEnabled(submit, timeout: 5))
+        submit.tap()
+        XCTAssertTrue(waitUntilGone(app.keyboards.firstMatch, timeout: 8))
+
+        let palaceResult = app.buttons["course-catalog-result-31793"]
+        XCTAssertTrue(
+            bringIntoView(palaceResult, maxSwipes: 30),
+            "city-only search must return the real Beijing Palace catalogue row while GPS is denied"
+        )
+        palaceResult.tap()
+
+        let selectedPalace = app.buttons["start-round-course-segment-31793"]
+        XCTAssertTrue(selectedPalace.waitForExistence(timeout: 12))
+        XCTAssertTrue(
+            waitForValue("已选择", on: selectedPalace, timeout: 8),
+            "the manual fallback result must become the explicit start-round selection"
+        )
+        XCTAssertTrue(
+            waitUntilEnabled(app.buttons["start-round-primary-action"], timeout: 90),
+            "the denied-GPS fallback must load real Tee authority and leave the round startable"
+        )
     }
 
     // MARK: - navigation helpers
@@ -121,6 +152,33 @@ final class TeeSelectionUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.2)
         } while Date() < deadline
         return (element.value as? String) == expected
+    }
+
+    private func waitUntilEnabled(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        if element.exists, element.isEnabled { return true }
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND enabled == true"),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitUntilGone(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        if !element.exists { return true }
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func bringIntoView(_ element: XCUIElement, maxSwipes: Int) -> Bool {
+        for _ in 0..<maxSwipes {
+            if element.exists, element.isHittable { return true }
+            app.swipeUp()
+            settle(0.6)
+        }
+        return element.exists && element.isHittable
     }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.

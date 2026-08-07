@@ -95,6 +95,7 @@ public struct MobileCourseSearchView: View {
 
             Section {
                 TextField("城市（例如：深圳）", text: $city)
+                    .accessibilityIdentifier("course-catalog-city-field")
                     .textContentType(.addressCity)
                     .focused($focusedField, equals: .city)
                     .submitLabel(.search)
