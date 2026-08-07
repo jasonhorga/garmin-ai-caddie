@@ -512,7 +512,7 @@ public struct WatchUITestRoot: View {
             teeBox: tee.teeBox,
             ensureGeometry: true
         )
-        guard let prepared = await library.startCourse(selection, config: config) else {
+        guard var prepared = await library.startCourse(selection, config: config) else {
             failRealCourse(
                 library.diagnosticErrorMessage
                     ?? library.errorMessage
@@ -521,12 +521,35 @@ public struct WatchUITestRoot: View {
             return
         }
 
+        // The production start path deliberately permits a lightweight vector round while precise
+        // rasters finish. This download fixture must wait for that same recovery before terminating,
+        // otherwise the following offline launch can falsely certify a 17/18 cache.
+        if !preciseMissingHoles(in: prepared.holeStates).isEmpty {
+            guard let upgraded = await library.upgradeCourseWhenReady(
+                selection,
+                roundId: prepared.roundId,
+                config: config
+            ) else {
+                failRealCourse(library.diagnosticErrorMessage ?? "真实球场地图没有补齐")
+                return
+            }
+            prepared = upgraded
+        }
+        let missing = preciseMissingHoles(in: prepared.holeStates)
+        guard missing.isEmpty else {
+            failRealCourse("真实球场仍缺第 \(missing.map(String.init).joined(separator: "、")) 洞地图")
+            return
+        }
+
         model.seedRound(
             prepared.holeStates,
             activeHole: prepared.holeStates.first?.hole,
             courseName: prepared.courseName
         )
-        writeRealCourseMarker("real-course-download-ready")
+        writeRealCourseMarker(
+            "real-course-download-ready",
+            contents: "global_id=\(Self.realCourseGlobalId)\nmapped_holes=18"
+        )
     }
 
     @MainActor
@@ -869,16 +892,13 @@ public struct WatchUITestRoot: View {
             return
         }
 
-        let imageStore = WatchHoleImageStore()
-        let mappedHoles = round.holeStates.filter { state in
-            guard state.holeMap != nil,
-                  let image = imageStore.image(globalId: Self.realCourseGlobalId, hole: state.hole) else {
-                return false
-            }
-            return WatchHoleMapGeometry.from(holeMap: state.holeMap, image: image) != nil
-        }.count
-        guard mappedHoles == 18 else {
-            failRealCourseJourney("18 洞 production image store 只有 \(mappedHoles) 洞可渲染")
+        let missingMapHoles = preciseMissingHoles(in: round.holeStates)
+        let mappedHoles = round.holeStates.count - missingMapHoles.count
+        guard missingMapHoles.isEmpty, mappedHoles == 18 else {
+            let holes = missingMapHoles.map(String.init).joined(separator: "、")
+            failRealCourseJourney(
+                "18 洞 production image store 缺第 \(holes) 洞（\(mappedHoles)/18 可渲染）"
+            )
             return
         }
 
@@ -914,6 +934,20 @@ public struct WatchUITestRoot: View {
         round: WatchRoundStore.PersistedRound
     ) -> Int {
         round.pendingEvents.filter { $0.hole == hole && $0.kind == .location }.count
+    }
+
+    private func preciseMissingHoles(in states: [WatchRoundState]) -> [Int] {
+        let imageStore = WatchHoleImageStore()
+        return states.compactMap { state in
+            guard state.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame,
+                  let holeMap = state.holeMap,
+                  let globalId = state.globalId,
+                  let image = imageStore.image(globalId: globalId, hole: state.hole),
+                  WatchHoleMapGeometry.from(holeMap: holeMap, image: image) != nil else {
+                return state.hole
+            }
+            return nil
+        }
     }
 
     private func journeyRecommendationParMarker(_ par: Int) -> URL {
@@ -1020,23 +1054,19 @@ public struct WatchUITestRoot: View {
 
     @MainActor
     private func seedStandaloneCourse() async {
-        let courseStore = WatchCourseStore()
         let imageStore = WatchHoleImageStore()
         guard let imageData = Data(base64Encoded: WatchHoleMapSample.jpegBase64) else { return }
         do {
-            try courseStore.save(Self.standaloneCourseTemplate)
             try imageStore.store(data: imageData, globalId: 31669, hole: 4)
         } catch {
             return
         }
-        let library = WatchCourseLibrary(
-            store: courseStore,
-            imageStore: imageStore,
-            makeRoundId: { "ci-watch-offline-course-round" }
+        // This focused fixture proves round + active-map restoration only. It intentionally does not
+        // advertise a one-image template as a downloaded 18-hole course; the credentialed Cypress
+        // journey below is the full production course-library/offline authority gate.
+        let prepared = Self.standaloneCourseTemplate.makeRound(
+            roundId: "ci-watch-offline-course-round"
         )
-        guard let prepared = await library.startCourse(Self.standaloneCourseOption, config: nil) else {
-            return
-        }
         model.seedRound(
             prepared.holeStates,
             activeHole: prepared.holeStates.first?.hole,
@@ -1372,8 +1402,8 @@ public struct WatchUITestRoot: View {
         ),
     ]
 
-    /// The same real gid31669/hole-4 render already baked for design review, persisted through the
-    /// production course/image stores so the second process proves an offline course start and map load.
+    /// The same real gid31669/hole-4 render already baked for design review. This compact fixture
+    /// drives round-state restoration; the later Cypress download is the full 18-hole offline gate.
     private static let standaloneCourseTemplate = WatchCourseTemplate(
         option: standaloneCourseOption,
         courseName: "北京丽宫体育公园高尔夫俱乐部",

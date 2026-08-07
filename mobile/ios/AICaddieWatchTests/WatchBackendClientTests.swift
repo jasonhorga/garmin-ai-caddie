@@ -251,6 +251,7 @@ final class WatchBackendClientTests: XCTestCase {
 
         let topo = try client.makeCourseTopoRequest(globalId: 31669, localHole: 4)
         XCTAssertEqual(topo.url?.path, "/api/v2/courses/31669/holes/4/topo.png")
+        XCTAssertEqual(topo.timeoutInterval, WatchBackendClient.courseReleaseTimeoutInterval)
         let topoQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(topo.url), resolvingAgainstBaseURL: false))
         XCTAssertEqual(topoQuery.queryItems?.first(where: { $0.name == "v" })?.value, "topo-v6")
         XCTAssertNil(topo.value(forHTTPHeaderField: "Authorization"))
@@ -306,6 +307,82 @@ final class WatchBackendClientTests: XCTestCase {
 
         XCTAssertEqual(tees.first?.teeBox, "championship")
         XCTAssertEqual(attempts, 3)
+    }
+
+    func testFetchCourseTopoRetriesATimedOutColdRender() async throws {
+        let payload = Data([0x89, 0x50, 0x4E, 0x47])
+        var attempts = 0
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            dataLoader: { request in
+                attempts += 1
+                XCTAssertEqual(
+                    request.timeoutInterval,
+                    WatchBackendClient.courseReleaseTimeoutInterval
+                )
+                if attempts == 1 {
+                    throw URLError(.timedOut)
+                }
+                let response = HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "image/png"]
+                )!
+                return (payload, response)
+            },
+            retrySleep: { _ in }
+        )
+
+        let topo = try await client.fetchCourseTopo(globalId: 3881, localHole: 1)
+
+        XCTAssertEqual(topo, payload)
+        XCTAssertEqual(attempts, 2)
+    }
+
+    func testCoursePackageAndPrepRetryTransientCooldowns() async throws {
+        var attempts: [String: Int] = [:]
+        let packagePayload = Data(
+            #"{"roundId":"watch-retry","course":{"globalId":3881,"name":"Cypress Point","teeBox":"championship"},"holes":[{"number":1,"par":5}]}"#.utf8
+        )
+        let prepPayload = Data(
+            #"{"globalId":3881,"clubs":[],"holes":[{"hole":1,"hazards":{}}]}"#.utf8
+        )
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            dataLoader: { request in
+                let path = try XCTUnwrap(request.url?.path)
+                attempts[path, default: 0] += 1
+                if attempts[path] == 1 {
+                    return (Data("cooldown".utf8), HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 503,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!)
+                }
+                let payload = path.hasSuffix("/prep") ? prepPayload : packagePayload
+                return (payload, HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!)
+            },
+            retrySleep: { _ in }
+        )
+
+        let package = try await client.fetchCoursePackage(
+            globalId: 3881,
+            roundId: "watch-retry",
+            teeBox: "championship"
+        )
+        let prep = try await client.fetchCoursePrep(globalId: 3881, localHoles: [1])
+
+        XCTAssertEqual(package.holes.map(\.number), [1])
+        XCTAssertEqual(prep.holes.map(\.hole), [1])
+        XCTAssertEqual(attempts["/api/v2/mobile/courses/3881/package"], 2)
+        XCTAssertEqual(attempts["/api/v2/courses/3881/prep"], 2)
     }
 
     func testCoursePrepRequestRejectsAnEdgeUnsafeHoleBatch() throws {

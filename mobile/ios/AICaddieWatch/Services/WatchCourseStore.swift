@@ -100,11 +100,11 @@ public enum WatchCourseTemplateBuilder {
             }
 
             let reportedCoverage = prep?.geometryCoverage ?? hole.geometryCoverage
-            // A ready projection with no decodable raster still supports the honest vector fallback,
-            // but it is not a completed offline download. Keep it partial so the background upgrader
-            // continues asking for the real topo instead of permanently accepting an empty map.
+            // A server "ready" flag is not sufficient offline authority. Without both a decodable
+            // raster and projected route/map facts the Watch cannot construct the production hole
+            // geometry, so retain the honest fallback but keep recovery active.
             let effectiveCoverage = reportedCoverage?.caseInsensitiveCompare("ready") == .orderedSame
-                && resolvedImageData == nil
+                && (resolvedImageData == nil || holeMap == nil)
                 ? "partial"
                 : reportedCoverage
 

@@ -35,7 +35,9 @@ public final class WatchCourseLibrary: ObservableObject {
         self.now = now
         let cached = store.loadCourses()
         courses = Self.uniqueOptions(from: cached.flatMap { [$0.option, $0.backOption].compactMap { $0 } })
-        cachedCourseIds = Set(cached.map { $0.option.globalId })
+        cachedCourseIds = Set(cached.compactMap {
+            Self.preciseTemplateReady($0, imageStore: imageStore) ? $0.option.globalId : nil
+        })
     }
 
     public func refresh(config: WatchRoundConfig?) async {
@@ -56,7 +58,9 @@ public final class WatchCourseLibrary: ObservableObject {
                 merged.append(option)
             }
             courses = Self.uniqueOptions(from: merged)
-            cachedCourseIds = Set(cached.map { $0.option.globalId })
+            cachedCourseIds = Set(cached.compactMap {
+                Self.preciseTemplateReady($0, imageStore: imageStore) ? $0.option.globalId : nil
+            })
             errorMessage = nil
         } catch {
             errorMessage = courses.isEmpty
@@ -184,6 +188,12 @@ public final class WatchCourseLibrary: ObservableObject {
         config: WatchRoundConfig?
     ) async -> WatchPreparedCourse? {
         if let cached = store.course(globalId: selection.front.globalId), cached.matches(selection) {
+            if config == nil, !Self.preciseTemplateReady(cached, imageStore: imageStore) {
+                let missing = Self.missingPreciseHoles(in: cached, imageStore: imageStore)
+                errorMessage = "球场地图还没下载完整，请联网后继续补齐"
+                diagnosticErrorMessage = "\(errorMessage!): 缺第 \(Self.holeList(missing)) 洞"
+                return nil
+            }
             errorMessage = nil
             return cached.makeRound(roundId: makeRoundId())
         }
@@ -202,7 +212,8 @@ public final class WatchCourseLibrary: ObservableObject {
                 selection,
                 roundId: roundId,
                 config: config,
-                backgroundGeometry: selection.ensureGeometry
+                backgroundGeometry: true,
+                includePreparedGeometry: false
             )
             try persist(download)
             return download.template.makeRound(roundId: roundId)
@@ -231,11 +242,15 @@ public final class WatchCourseLibrary: ObservableObject {
                     selection,
                     roundId: roundId,
                     config: config,
-                    backgroundGeometry: shouldQueueGeometry
+                    backgroundGeometry: shouldQueueGeometry,
+                    includePreparedGeometry: true
                 )
                 shouldQueueGeometry = false
+                // Persist every valid partial attempt so one slow hole cannot make the Watch fetch
+                // the other seventeen again after a relaunch. `cachedCourseIds` remains false until
+                // the template, map geometry and every production raster are all present.
+                try persist(download)
                 if Self.preciseDownloadReady(download) {
-                    try persist(download)
                     errorMessage = nil
                     return download.template.makeRound(roundId: roundId)
                 }
@@ -254,11 +269,34 @@ public final class WatchCourseLibrary: ObservableObject {
         return nil
     }
 
+    /// Resume a precise-map download for an already-started/restored round. The immutable cached
+    /// template retains the chosen Tee and optional back nine, so the app can recover after being
+    /// killed without asking the golfer to choose the course again.
+    public func upgradeCachedCourseWhenReady(
+        globalId: Int,
+        roundId: String,
+        config: WatchRoundConfig?
+    ) async -> WatchPreparedCourse? {
+        guard let config,
+              let cached = store.course(globalId: globalId),
+              !Self.preciseTemplateReady(cached, imageStore: imageStore) else {
+            return nil
+        }
+        let selection = WatchCourseSelection(
+            front: cached.option,
+            back: cached.backOption,
+            teeBox: cached.teeBox,
+            ensureGeometry: true
+        )
+        return await upgradeCourseWhenReady(selection, roundId: roundId, config: config)
+    }
+
     private func fetchCourseDownload(
         _ selection: WatchCourseSelection,
         roundId: String,
         config: WatchRoundConfig,
-        backgroundGeometry: Bool
+        backgroundGeometry: Bool,
+        includePreparedGeometry: Bool
     ) async throws -> WatchCourseDownload {
         let client = makeClient(config)
         let package = try await client.fetchCoursePackage(
@@ -270,11 +308,30 @@ public final class WatchCourseLibrary: ObservableObject {
             backgroundGeometry: backgroundGeometry
         )
 
+        // Starting a round must not wait while a new course renders eighteen maps. Package facts
+        // already provide ordered holes, Par, Tee and yardage, which are enough to start recording
+        // honestly. The active-round recovery task fetches prep + rasters and upgrades in place.
+        if !includePreparedGeometry {
+            let lightweight = try WatchCourseTemplateBuilder.build(
+                option: selection.front,
+                backOption: selection.back,
+                package: package,
+                prepsByGlobalId: [:],
+                topoImagesByGlobalId: [:],
+                cachedAt: now()
+            )
+            let missing = Self.missingPreciseHoles(in: lightweight)
+            diagnosticErrorMessage = "地图后台准备中：第 \(Self.holeList(missing)) 洞"
+            return lightweight
+        }
+
         var requestedByGlobalId: [Int: Set<Int>] = [:]
+        var displayHoleByGlobalId: [Int: [Int: Int]] = [:]
         for hole in package.holes {
             let globalId = hole.sourceGlobalId ?? package.course.globalId
             let localHole = hole.sourceLocalHole ?? hole.number
             requestedByGlobalId[globalId, default: []].insert(localHole)
+            displayHoleByGlobalId[globalId, default: [:]][localHole] = hole.number
         }
         var preps: [Int: WatchCoursePrepResponse] = [:]
         var topoImages: [Int: [Int: Data]] = [:]
@@ -307,16 +364,27 @@ public final class WatchCourseLibrary: ObservableObject {
                     : nil
             })
             for localHole in localHoles where readyHoles.contains(localHole) {
-                if let data = try? await client.fetchCourseTopo(
-                    globalId: globalId,
-                    localHole: localHole
-                ), !data.isEmpty {
+                let displayHole = displayHoleByGlobalId[globalId]?[localHole] ?? localHole
+                if let cached = imageStore.data(globalId: globalId, hole: displayHole) {
+                    topoImages[globalId, default: [:]][localHole] = cached
+                    continue
+                }
+                do {
+                    let data = try await client.fetchCourseTopo(
+                        globalId: globalId,
+                        localHole: localHole
+                    )
+                    guard WatchHoleImageStore.isValidImageData(data) else { continue }
                     topoImages[globalId, default: [:]][localHole] = data
+                } catch {
+                    // The builder marks this exact display hole partial. The caller may begin with
+                    // vector facts while the bounded background recovery retries only missing maps.
+                    continue
                 }
             }
         }
 
-        return try WatchCourseTemplateBuilder.build(
+        let download = try WatchCourseTemplateBuilder.build(
             option: selection.front,
             backOption: selection.back,
             package: package,
@@ -324,6 +392,11 @@ public final class WatchCourseLibrary: ObservableObject {
             topoImagesByGlobalId: topoImages,
             cachedAt: now()
         )
+        let missing = Self.missingPreciseHoles(in: download)
+        diagnosticErrorMessage = missing.isEmpty
+            ? nil
+            : "地图仍待补齐：第 \(Self.holeList(missing)) 洞"
+        return download
     }
 
     private func persist(_ download: WatchCourseDownload) throws {
@@ -331,18 +404,70 @@ public final class WatchCourseLibrary: ObservableObject {
             try imageStore.store(data: image.data, globalId: image.globalId, hole: image.hole)
         }
         try store.save(download.template)
-        cachedCourseIds.insert(download.template.option.globalId)
+        if Self.preciseTemplateReady(download.template, imageStore: imageStore) {
+            cachedCourseIds.insert(download.template.option.globalId)
+        } else {
+            cachedCourseIds.remove(download.template.option.globalId)
+        }
         courses = Self.uniqueOptions(
             from: [download.template.option, download.template.backOption].compactMap { $0 } + courses
         )
     }
 
     private static func preciseDownloadReady(_ download: WatchCourseDownload) -> Bool {
-        !download.template.holeStates.isEmpty
-            && download.template.holeStates.allSatisfy {
-                $0.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+        expectedHoleCount(for: download.template) > 0 && missingPreciseHoles(in: download).isEmpty
+    }
+
+    private static func missingPreciseHoles(in download: WatchCourseDownload) -> [Int] {
+        let imageKeys = Set(download.images.map {
+            WatchHoleImageStore.key(globalId: $0.globalId, hole: $0.hole)
+        })
+        var missing = Set(1...max(expectedHoleCount(for: download.template), 1))
+        for state in download.template.holeStates {
+            guard state.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame,
+                  state.holeMap != nil,
+                  let globalId = state.globalId,
+                  imageKeys.contains(WatchHoleImageStore.key(globalId: globalId, hole: state.hole)) else {
+                missing.insert(state.hole)
+                continue
             }
-            && download.images.count == download.template.holeStates.count
+            missing.remove(state.hole)
+        }
+        return missing.sorted()
+    }
+
+    private static func preciseTemplateReady(
+        _ template: WatchCourseTemplate,
+        imageStore: WatchHoleImageStore
+    ) -> Bool {
+        expectedHoleCount(for: template) > 0
+            && missingPreciseHoles(in: template, imageStore: imageStore).isEmpty
+    }
+
+    private static func missingPreciseHoles(
+        in template: WatchCourseTemplate,
+        imageStore: WatchHoleImageStore
+    ) -> [Int] {
+        var missing = Set(1...max(expectedHoleCount(for: template), 1))
+        for state in template.holeStates {
+            guard state.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame,
+                  state.holeMap != nil,
+                  let globalId = state.globalId,
+                  imageStore.hasImage(globalId: globalId, hole: state.hole) else {
+                missing.insert(state.hole)
+                continue
+            }
+            missing.remove(state.hole)
+        }
+        return missing.sorted()
+    }
+
+    private static func expectedHoleCount(for template: WatchCourseTemplate) -> Int {
+        template.option.playableHoleCount + (template.backOption?.playableHoleCount ?? 0)
+    }
+
+    private static func holeList(_ holes: [Int]) -> String {
+        holes.sorted().map(String.init).joined(separator: "、")
     }
 
     private func makeClient(_ config: WatchRoundConfig) -> WatchBackendClient {

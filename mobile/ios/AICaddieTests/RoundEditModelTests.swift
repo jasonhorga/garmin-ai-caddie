@@ -76,7 +76,7 @@ final class RoundEditModelTests: XCTestCase {
                 request.url?.path,
                 "/api/v2/history/rounds/round-1/corrections"
             )
-            let body = try XCTUnwrap(request.httpBody)
+            let body = try CapturingURLProtocol.requestBodyData(from: request)
             let payload = try XCTUnwrap(
                 JSONSerialization.jsonObject(with: body) as? [String: Any]
             )

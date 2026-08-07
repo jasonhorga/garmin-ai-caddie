@@ -9,6 +9,12 @@ public struct AICaddieWatchApp: App {
         let longitudeBucket: Int?
     }
 
+    private struct ActiveCourseUpgradeKey: Equatable {
+        let roundId: String
+        let globalId: Int
+        let config: WatchRoundConfig
+    }
+
     @StateObject private var syncClient = WatchSyncClient()
     @StateObject private var roundModel = WatchRoundModel()
     @StateObject private var courseLibrary = WatchCourseLibrary()
@@ -153,31 +159,38 @@ public struct AICaddieWatchApp: App {
                                 activeHole: prepared.holeStates.first?.hole,
                                 courseName: prepared.courseName
                             )
-                            if prepared.holeStates.contains(where: {
-                                $0.geometryCoverage?.caseInsensitiveCompare("ready") != .orderedSame
-                            }), let upgraded = await courseLibrary.upgradeCourseWhenReady(
-                                selection,
-                                roundId: prepared.roundId,
-                                config: syncClient.config
-                            ) {
-                                roundModel.applyCourseMapUpgrade(upgraded.holeStates)
-                            }
                         }
                     }
                 )
             }
         }
         .task(id: nearbyCourseDiscoveryKey) {
-            guard let fix = watchLocation.latestFix else { return }
+            guard nearbyCourseDiscoveryKey != nil,
+                  let fix = watchLocation.latestFix else { return }
             await courseLibrary.refreshNearby(
                 latitude: fix.coordinate.latitude,
                 longitude: fix.coordinate.longitude,
                 config: syncClient.config
             )
         }
+        .task(id: activeCourseUpgradeKey) {
+            guard let key = activeCourseUpgradeKey,
+                  let upgraded = await courseLibrary.upgradeCachedCourseWhenReady(
+                    globalId: key.globalId,
+                    roundId: key.roundId,
+                    config: key.config
+                  ),
+                  roundModel.round?.roundId == key.roundId else {
+                return
+            }
+            roundModel.applyCourseMapUpgrade(upgraded.holeStates)
+        }
     }
 
-    private var nearbyCourseDiscoveryKey: NearbyCourseDiscoveryKey {
+    private var nearbyCourseDiscoveryKey: NearbyCourseDiscoveryKey? {
+        // Nearby discovery belongs only to the start surface. Letting the 11-metre location bucket
+        // keep firing through an active round wastes Watch battery and backend work.
+        guard roundModel.round == nil, syncClient.currentState == nil else { return nil }
         guard let coordinate = watchLocation.latestFix?.coordinate else {
             return NearbyCourseDiscoveryKey(
                 config: syncClient.config,
@@ -189,6 +202,19 @@ public struct AICaddieWatchApp: App {
             config: syncClient.config,
             latitudeBucket: Int((coordinate.latitude * 10_000).rounded()),
             longitudeBucket: Int((coordinate.longitude * 10_000).rounded())
+        )
+    }
+
+    private var activeCourseUpgradeKey: ActiveCourseUpgradeKey? {
+        guard let round = roundModel.round,
+              let globalId = round.holeStates.first?.globalId,
+              let config = syncClient.config else {
+            return nil
+        }
+        return ActiveCourseUpgradeKey(
+            roundId: round.roundId,
+            globalId: globalId,
+            config: config
         )
     }
 

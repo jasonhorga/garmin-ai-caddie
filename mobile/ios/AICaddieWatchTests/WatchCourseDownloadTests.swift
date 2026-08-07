@@ -315,6 +315,11 @@ final class WatchCourseDownloadTests: XCTestCase {
             116.5461531,
             accuracy: 0.000_001
         )
+        XCTAssertEqual(
+            hole.geometryCoverage,
+            "partial",
+            "package-only start must remain playable without claiming precise offline maps"
+        )
     }
 
     func testNewCourseTemplateKeepsSearchResultNameWhenPackageOnlyHasGenericIdName() throws {
@@ -461,23 +466,39 @@ final class WatchCourseDownloadTests: XCTestCase {
             .appendingPathComponent("watch-course-library-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = WatchCourseStore(directoryURL: directory)
+        let imageStore = WatchHoleImageStore(directoryURL: directory)
         let option = WatchCourseOption(globalId: 31669, name: "北京丽宫", holes: 18, teeBox: "Blue")
+        let states = (1...18).map { hole in
+            WatchRoundState(
+                roundId: "download-only", hole: hole, par: 4, distanceM: 369.4,
+                selectedClub: nil,
+                globalId: 31669,
+                holeMap: WatchHoleMap(
+                    w: 678,
+                    h: 1_060,
+                    you: [120, 900],
+                    pin: [430, 120],
+                    route: [[120, 900, 0], [430, 120, 369.4]]
+                ),
+                geometryCoverage: "ready",
+                score: 0, putts: 0, penaltyCount: 0,
+                caddieConfidence: "offline"
+            )
+        }
         try store.save(WatchCourseTemplate(
             option: option,
             courseName: "北京丽宫",
             teeBox: "Blue",
-            holeStates: [
-                WatchRoundState(
-                    roundId: "download-only", hole: 1, par: 4, distanceM: 369.4,
-                    selectedClub: nil, score: 0, putts: 0, penaltyCount: 0,
-                    caddieConfidence: "offline"
-                )
-            ],
+            holeStates: states,
             cachedAt: "2026-07-26T00:00:00Z"
         ))
+        let topo = try validTopoData()
+        for hole in 1...18 {
+            try imageStore.store(data: topo, globalId: 31669, hole: hole)
+        }
         let library = WatchCourseLibrary(
             store: store,
-            imageStore: WatchHoleImageStore(directoryURL: directory),
+            imageStore: imageStore,
             makeRoundId: { "watch-offline-round" }
         )
 
@@ -487,5 +508,52 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertEqual(prepared?.roundId, "watch-offline-round")
         XCTAssertEqual(prepared?.holeStates.first?.roundId, "watch-offline-round")
         XCTAssertNil(library.errorMessage)
+    }
+
+    @MainActor
+    func testPartialCourseIsNotAdvertisedOrStartedAsACompleteOfflineDownload() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("watch-course-partial-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WatchCourseStore(directoryURL: directory)
+        let imageStore = WatchHoleImageStore(directoryURL: directory)
+        let option = WatchCourseOption(globalId: 3881, name: "Cypress Point", holes: 18, teeBox: "championship")
+        try store.save(WatchCourseTemplate(
+            option: option,
+            courseName: "Cypress Point",
+            teeBox: "championship",
+            holeStates: [
+                WatchRoundState(
+                    roundId: "download-only", hole: 1, par: 5, distanceM: 372,
+                    selectedClub: nil,
+                    globalId: 3881,
+                    holeMap: WatchHoleMap(
+                        w: 678,
+                        h: 1_060,
+                        you: [120, 900],
+                        pin: [430, 120],
+                        route: [[120, 900, 0], [430, 120, 372]]
+                    ),
+                    geometryCoverage: "partial",
+                    score: 0, putts: 0, penaltyCount: 0,
+                    caddieConfidence: "offline"
+                )
+            ],
+            cachedAt: "2026-08-07T00:00:00Z"
+        ))
+        let library = WatchCourseLibrary(
+            store: store,
+            imageStore: imageStore,
+            makeRoundId: { "must-not-start" }
+        )
+
+        XCTAssertEqual(library.courses, [option], "partial metadata remains resumable")
+        XCTAssertTrue(library.cachedCourseIds.isEmpty, "partial maps must not show the downloaded badge")
+
+        let prepared = await library.startCourse(option, config: nil)
+
+        XCTAssertNil(prepared)
+        XCTAssertEqual(library.errorMessage, "球场地图还没下载完整，请联网后继续补齐")
+        XCTAssertTrue(library.diagnosticErrorMessage?.contains("第 1 洞") == true)
     }
 }

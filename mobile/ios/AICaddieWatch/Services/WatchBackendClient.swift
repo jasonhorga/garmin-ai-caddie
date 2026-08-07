@@ -320,7 +320,12 @@ public final class WatchBackendClient {
         }
         components.queryItems = [URLQueryItem(name: "v", value: "topo-v6")]
         guard let url = components.url else { throw URLError(.badURL) }
-        return URLRequest(url: url)
+        var request = URLRequest(url: url)
+        // A first request may be the one that finishes a cold server-side topo render. Cypress hole
+        // 1 has exceeded URLSession's 60-second default in production, then become immediately
+        // available. Give that legitimate cold path the same bounded window as course release.
+        request.timeoutInterval = Self.courseReleaseTimeoutInterval
+        return request
     }
 
     public func decodeCourseOptions(_ data: Data) throws -> [WatchCourseOption] {
@@ -391,18 +396,21 @@ public final class WatchBackendClient {
             ensureGeometry: ensureGeometry,
             backgroundGeometry: backgroundGeometry
         )
-        let data = try await sendForData(request)
+        let data = try await sendForData(request, retryingTransientFailures: true)
         return try decodeCoursePackage(data)
     }
 
     public func fetchCoursePrep(globalId: Int, localHoles: [Int]) async throws -> WatchCoursePrepResponse {
         let request = try makeCoursePrepRequest(globalId: globalId, localHoles: localHoles)
-        let data = try await sendForData(request)
+        let data = try await sendForData(request, retryingTransientFailures: true)
         return try decodeCoursePrep(data)
     }
 
     public func fetchCourseTopo(globalId: Int, localHole: Int) async throws -> Data {
-        try await sendForData(makeCourseTopoRequest(globalId: globalId, localHole: localHole))
+        try await sendForData(
+            makeCourseTopoRequest(globalId: globalId, localHole: localHole),
+            retryingTransientFailures: true
+        )
     }
 
     /// Build the POST /events request (headers + mapped batch body). Split out from `postEvents` so it
