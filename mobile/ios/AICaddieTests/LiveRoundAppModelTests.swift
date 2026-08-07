@@ -251,13 +251,23 @@ final class LiveRoundAppModelTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
         let source = try localFixturePackage()
+        let holes = (1...7).map { number in
+            Hole(
+                number: number,
+                par: number % 3 == 0 ? 3 : 4,
+                yards: 320 + number * 10,
+                geometryCoverage: .ready,
+                sourceGlobalId: source.course.globalId,
+                sourceLocalHole: number
+            )
+        }
         let online = package(
             source,
             roundId: "online-new-round",
-            recentRounds: source.recentHistory.rounds
+            recentRounds: source.recentHistory.rounds,
+            holes: holes
         ).replacingCoursePrep(nil)
         let packageData = try JSONEncoder().encode(online)
-        let prepData = try offlinePrepResponseData(for: online)
         let png = minimalPNGData()
 
         let configuration = URLSessionConfiguration.ephemeral
@@ -277,7 +287,10 @@ final class LiveRoundAppModelTests: XCTestCase {
                 body = packageData
                 contentType = "application/json"
             case let path where path.hasSuffix("/prep"):
-                body = prepData
+                let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .filter { $0.name == "holes" }
+                    .compactMap { $0.value.flatMap(Int.init) } ?? []
+                body = try offlinePrepResponseData(for: online, localHoles: requested)
                 contentType = "application/json"
             case let path where path.hasSuffix("/topo.png"):
                 body = png
@@ -353,6 +366,11 @@ final class LiveRoundAppModelTests: XCTestCase {
             Set(prepHoleBatches.flatMap { $0 }),
             Set(online.holes.map(\.number)),
             "bounded prep batches must cover the complete course exactly as the former all-hole request did"
+        )
+        XCTAssertEqual(
+            prepHoleBatches.flatMap { $0 }.count,
+            online.holes.count,
+            "the successful path must not download the same hole facts twice"
         )
     }
 
@@ -1318,30 +1336,45 @@ final class LiveRoundAppModelTests: XCTestCase {
         ))
     }
 
-    private func offlinePrepResponseData(for package: LiveRoundPackage) throws -> Data {
-        let hole = try XCTUnwrap(package.holes.first)
-        let blueYards = hole.yards.map(String.init) ?? "null"
+    private func offlinePrepResponseData(
+        for package: LiveRoundPackage,
+        localHoles: [Int]? = nil
+    ) throws -> Data {
+        let requested = localHoles.map { Set($0) }
+        let holes = package.holes.filter { hole in
+            guard let requested else { return true }
+            return requested.contains(hole.sourceLocalHole ?? hole.number)
+        }
+        XCTAssertFalse(holes.isEmpty)
+        let rows = holes.map { hole in
+            let blueYards = hole.yards.map(String.init) ?? "null"
+            return """
+            {"hole":\(hole.sourceLocalHole ?? hole.number),"par":\(hole.par),
+             "par_source":"courseview","blue_yards":\(blueYards),"route_len_m":360,
+             "route":[[0,0,0],[0,360,360]],"geometryCoverage":"ready","steps":[],"cautions":[],
+             "hazards":{"water_carry":[],"bunkers":[],"details":[]},
+             "map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":720,"h":1120,
+             "ppm":1,"ln":360,"route":[[360,1000,0],[360,100,360]]}}}
+            """
+        }.joined(separator: ",")
         return Data("""
-        {"schema":"ai-caddie-course-prep-v1","globalId":\(package.course.globalId),"holeCount":1,
-         "clubs":[],"holes":[{"hole":\(hole.sourceLocalHole ?? hole.number),"par":\(hole.par),
-         "par_source":"courseview","blue_yards":\(blueYards),"route_len_m":360,
-         "route":[[0,0,0],[0,360,360]],"geometryCoverage":"ready","steps":[],"cautions":[],
-         "hazards":{"water_carry":[],"bunkers":[],"details":[]},
-         "map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":720,"h":1120,
-         "ppm":1,"ln":360,"route":[[360,1000,0],[360,100,360]]}}}]}
+        {"schema":"ai-caddie-course-prep-v1","globalId":\(package.course.globalId),
+         "holeCount":\(holes.count),"clubs":[],"holes":[\(rows)]}
         """.utf8)
     }
 
     private func minimalPNGData() -> Data {
-        Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        validOnePixelPNGData()
     }
 
     private func package(
         _ source: LiveRoundPackage,
         roundId: String,
-        recentRounds: [RecentRoundSummary]
+        recentRounds: [RecentRoundSummary],
+        holes: [Hole]? = nil
     ) -> LiveRoundPackage {
-        LiveRoundPackage(
+        let selectedHoles = holes ?? source.holes
+        return LiveRoundPackage(
             schema: source.schema,
             roundId: roundId,
             dataMode: source.dataMode,
@@ -1349,10 +1382,16 @@ final class LiveRoundAppModelTests: XCTestCase {
             missingData: source.missingData,
             playerProfile: source.playerProfile,
             course: source.course,
-            holes: source.holes,
+            holes: selectedHoles,
             nine: source.nine,
             coursePrep: source.coursePrep,
-            geometryCoverage: source.geometryCoverage,
+            geometryCoverage: GeometryCoverage(
+                state: source.geometryCoverage.state,
+                readyHoles: source.geometryCoverage.state == .ready
+                    ? selectedHoles.count
+                    : min(source.geometryCoverage.readyHoles, selectedHoles.count),
+                totalHoles: selectedHoles.count
+            ),
             readinessChecks: source.readinessChecks,
             caddieContextSeeds: source.caddieContextSeeds,
             weatherSnapshot: source.weatherSnapshot,

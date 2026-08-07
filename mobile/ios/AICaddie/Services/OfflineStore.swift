@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -898,14 +899,34 @@ public final class OfflineStore {
 
     /// Persist a validated topo bitmap independently from the round identity. CourseView globalId +
     /// local hole are the factual asset key, so the same image is reusable by every later round.
+    public static func isValidCourseTopoImageData(_ data: Data) -> Bool {
+        guard hasCompletePNGEnvelope(data),
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) == 1 else { return false }
+        return CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete
+    }
+
+    private static func hasCompletePNGEnvelope(_ data: Data) -> Bool {
+        guard data.count >= 64,
+              [UInt8](data.prefix(16)) == [
+                  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+                  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+              ] else { return false }
+        // IEND's CRC is fixed. Requiring the exact final chunk rejects interrupted transfers that
+        // happen to contain a valid signature/IHDR but never completed the bitmap.
+        return [UInt8](data.suffix(12)) == [
+            0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+            0xAE, 0x42, 0x60, 0x82,
+        ]
+    }
+
     @discardableResult
     public func saveCourseTopoImage(
         _ data: Data,
         globalId: Int,
         localHole: Int
     ) throws -> Bool {
-        let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
-        guard globalId > 0, localHole > 0, data.starts(with: pngSignature) else {
+        guard globalId > 0, localHole > 0, Self.isValidCourseTopoImageData(data) else {
             return false
         }
         try FileManager.default.createDirectory(
@@ -926,7 +947,9 @@ public final class OfflineStore {
         guard let values = try? url.resourceValues(forKeys: keys),
               values.isRegularFile == true,
               values.isSymbolicLink != true,
-              (values.fileSize ?? 0) >= 8 else {
+              (values.fileSize ?? 0) >= 64,
+              let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              Self.hasCompletePNGEnvelope(data) else {
             return nil
         }
         return url
@@ -935,8 +958,7 @@ public final class OfflineStore {
     public func loadCourseTopoImage(globalId: Int, localHole: Int) -> Data? {
         guard let url = loadCourseTopoImageURL(globalId: globalId, localHole: localHole),
               let data = try? Data(contentsOf: url) else { return nil }
-        let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
-        return data.starts(with: pngSignature) ? data : nil
+        return Self.isValidCourseTopoImageData(data) ? data : nil
     }
 
     public func hasCourseTopoImages(for package: LiveRoundPackage) -> Bool {

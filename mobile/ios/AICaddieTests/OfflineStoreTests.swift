@@ -77,7 +77,7 @@ final class OfflineStoreTests: XCTestCase {
             kind: .score,
             payload: ["strokes": .number(4)]
         )
-        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
+        let png = validOnePixelPNGData()
 
         // Upgrade path: an already-authenticated player owns the legacy unscoped cache.
         try store.saveRoundPackage(package)
@@ -271,10 +271,15 @@ final class OfflineStoreTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
-        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
+        let png = validOnePixelPNGData()
 
         XCTAssertFalse(try store.saveCourseTopoImage(
             Data("not-an-image".utf8),
+            globalId: 31795,
+            localHole: 1
+        ))
+        XCTAssertFalse(try store.saveCourseTopoImage(
+            Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
             globalId: 31795,
             localHole: 1
         ))

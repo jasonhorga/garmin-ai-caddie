@@ -3,6 +3,14 @@ import Foundation
 import FoundationNetworking
 #endif
 
+func validOnePixelPNGData() -> Data {
+    // Complete, decoder-valid 1x1 PNG. Signature-only placeholders must never satisfy offline-map
+    // readiness because a real UIImage/CGImage cannot render them.
+    Data(
+        base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )!
+}
+
 /// Shared URLProtocol stub for client tests: install on an ephemeral `URLSessionConfiguration` and
 /// set `requestHandler` to inspect the outgoing request + return a canned response. Used by
 /// `SyncClientTests` and `AppleAuthClientTests` (so it must not be `private` to one file).
