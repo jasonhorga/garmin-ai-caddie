@@ -840,13 +840,53 @@ enum LivePlayMapOverlayLayout {
     private static let lowerHazardLane: CGFloat = 0.70
     private static let landingLaneThreshold: CGFloat = 0.64
 
+    static func fallbackGreenTarget(in heroSize: CGSize) -> CGPoint {
+        CGPoint(x: heroSize.width * 0.55, y: heroSize.height * 0.30)
+    }
+
+    /// Mirror `HoleImageMapView`'s `.aspectRatio(..., contentMode: .fit)` projection so native
+    /// overlays remain pixel-aligned with the server-rendered map on every phone aspect ratio.
+    static func project(
+        overlayPoint: [Double],
+        overlayWidth: Int,
+        overlayHeight: Int,
+        into heroSize: CGSize
+    ) -> CGPoint? {
+        guard overlayPoint.count >= 2,
+              overlayPoint[0].isFinite,
+              overlayPoint[1].isFinite,
+              overlayWidth > 0,
+              overlayHeight > 0,
+              heroSize.width.isFinite,
+              heroSize.height.isFinite,
+              heroSize.width > 0,
+              heroSize.height > 0 else {
+            return nil
+        }
+        let scale = min(
+            heroSize.width / CGFloat(overlayWidth),
+            heroSize.height / CGFloat(overlayHeight)
+        )
+        let renderedWidth = CGFloat(overlayWidth) * scale
+        let renderedHeight = CGFloat(overlayHeight) * scale
+        let origin = CGPoint(
+            x: (heroSize.width - renderedWidth) / 2,
+            y: (heroSize.height - renderedHeight) / 2
+        )
+        return CGPoint(
+            x: origin.x + CGFloat(overlayPoint[0]) * scale,
+            y: origin.y + CGFloat(overlayPoint[1]) * scale
+        )
+    }
+
     /// The landing label moves along the route when the player changes clubs. Use the opposite map
     /// lane for the hazard readout instead of pinning both facts to the same fixed 45% position.
-    static func hazardPillCenterY(heroHeight: CGFloat, landingFractionY: CGFloat?) -> CGFloat {
+    static func hazardPillCenterY(heroHeight: CGFloat, landingCenterY: CGFloat?) -> CGFloat {
         guard heroHeight.isFinite, heroHeight > 0 else { return 0 }
-        guard let landingFractionY, landingFractionY.isFinite else {
+        guard let landingCenterY, landingCenterY.isFinite else {
             return heroHeight * lowerHazardLane
         }
+        let landingFractionY = landingCenterY / heroHeight
         let lane = landingFractionY <= landingLaneThreshold ? lowerHazardLane : upperHazardLane
         return heroHeight * lane
     }

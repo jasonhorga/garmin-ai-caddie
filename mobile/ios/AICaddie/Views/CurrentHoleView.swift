@@ -345,16 +345,20 @@ public struct CurrentHoleView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
                 .allowsHitTesting(false)
             GeometryReader { geo in
+                let greenTarget = liveGreenTarget(in: geo.size)
+                let landingTarget = liveLandingTarget(in: geo.size)
                 ZStack {
                     LivePlayReticle()
-                        .position(x: geo.size.width * 0.55, y: geo.size.height * 0.30)
+                        .position(
+                            greenTarget ?? LivePlayMapOverlayLayout.fallbackGreenTarget(in: geo.size)
+                        )
                     if let hazardPillText {
                         LiveHazardPill(text: hazardPillText)
                             .position(
                                 x: geo.size.width * 0.62,
                                 y: LivePlayMapOverlayLayout.hazardPillCenterY(
                                     heroHeight: geo.size.height,
-                                    landingFractionY: liveLandingFractionY
+                                    landingCenterY: landingTarget?.y
                                 )
                             )
                     }
@@ -609,21 +613,38 @@ public struct CurrentHoleView: View {
         return SyncClient.topoImageURL(baseURL: caddieBaseURL, globalId: mapGlobalId, localHole: mapLocalHole)
     }
 
-    /// The live-map club label sits 18 points above this landing marker. Feed its normalized map
-    /// position into the callout layout so a hazard fact never covers the selected club name.
-    private var liveLandingFractionY: CGFloat? {
+    /// Project the selected club's factual route station through the same aspect-fit transform as
+    /// `HoleImageMapView`; the hazard callout can then choose the opposite vertical lane.
+    private func liveLandingTarget(in heroSize: CGSize) -> CGPoint? {
         guard let holePrep,
               let overlay = holePrep.resolvedMapOverlay,
-              overlay.h > 0,
               let landing = HoleImageMapView.landingOverlayPoint(
                   overlay,
                   targetMetres: selectedClubMetres ?? holePrep.landingM
-              ),
-              landing.count >= 2,
-              landing[1].isFinite else {
+              ) else {
             return nil
         }
-        return CGFloat(landing[1] / overlay.h)
+        return LivePlayMapOverlayLayout.project(
+            overlayPoint: landing,
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            into: heroSize
+        )
+    }
+
+    /// The route endpoint is the selected green target used by the shared map render. Projecting it
+    /// here keeps the live target ring on that real green instead of at one fixed screen coordinate.
+    private func liveGreenTarget(in heroSize: CGSize) -> CGPoint? {
+        guard let overlay = holePrep?.resolvedMapOverlay,
+              let greenTarget = overlay.route.last else {
+            return nil
+        }
+        return LivePlayMapOverlayLayout.project(
+            overlayPoint: greenTarget,
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            into: heroSize
+        )
     }
 
     @MainActor

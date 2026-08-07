@@ -119,15 +119,15 @@ final class DesignSnapshotTests: XCTestCase {
         let heroHeight: CGFloat = 360
         let upperLanding = LivePlayMapOverlayLayout.hazardPillCenterY(
             heroHeight: heroHeight,
-            landingFractionY: 0.42
+            landingCenterY: heroHeight * 0.42
         )
         let lowerLanding = LivePlayMapOverlayLayout.hazardPillCenterY(
             heroHeight: heroHeight,
-            landingFractionY: 0.78
+            landingCenterY: heroHeight * 0.78
         )
         let unknownLanding = LivePlayMapOverlayLayout.hazardPillCenterY(
             heroHeight: heroHeight,
-            landingFractionY: nil
+            landingCenterY: nil
         )
 
         XCTAssertEqual(upperLanding, 252, accuracy: 0.001)
@@ -135,6 +135,28 @@ final class DesignSnapshotTests: XCTestCase {
         XCTAssertEqual(unknownLanding, upperLanding, accuracy: 0.001)
         XCTAssertGreaterThan(abs(upperLanding - heroHeight * 0.42 + 18), 80)
         XCTAssertGreaterThan(abs(lowerLanding - heroHeight * 0.78 + 18), 80)
+    }
+
+    func testLiveGreenTargetUsesTheSameAspectFitProjectionAsTheHoleMap() throws {
+        let hero = CGSize(width: 390, height: 360)
+        let topLeft = try XCTUnwrap(LivePlayMapOverlayLayout.project(
+            overlayPoint: [0, 0],
+            overlayWidth: 780,
+            overlayHeight: 1_400,
+            into: hero
+        ))
+        let green = try XCTUnwrap(LivePlayMapOverlayLayout.project(
+            overlayPoint: [390, 140],
+            overlayWidth: 780,
+            overlayHeight: 1_400,
+            into: hero
+        ))
+
+        XCTAssertEqual(topLeft.x, 94.714, accuracy: 0.001)
+        XCTAssertEqual(topLeft.y, 0, accuracy: 0.001)
+        XCTAssertEqual(green.x, 195, accuracy: 0.001)
+        XCTAssertEqual(green.y, 36, accuracy: 0.001)
+        XCTAssertNotEqual(green, LivePlayMapOverlayLayout.fallbackGreenTarget(in: hero))
     }
 
     func testMediaCaptureCustomerCopyIsChinese() {
