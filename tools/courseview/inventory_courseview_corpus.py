@@ -37,15 +37,22 @@ SCHEMA = "ai-caddie-courseview-corpus-inventory-v1"
 
 KNOWN_STATIC_ASSETS = {"hole.json", "foliage.json", "Terrain.webp"}
 
-# topo-v6's factual drawing inputs. Other decoded meshes may still feed semantic export.
+# Factual mesh inputs consumed by the current topo renderer. Other decoded meshes may still feed
+# semantic export without participating in the bitmap.
 TOPO_MESHES = {
     "PhysicsMesh.drc",
     "Rough.drc",
     "TreeArea.drc",
+    "Beach.drc",
+    "Cliff.drc",
+    "CliffUV2.drc",
     "Fairway.drc",
     "Fringe.drc",
     "Bunker.drc",
     "Lake.drc",
+    "Ocean.drc",
+    "VfxOcean.drc",
+    "OceanSide.drc",
     "Teebox.drc",
     "Green.drc",
 }

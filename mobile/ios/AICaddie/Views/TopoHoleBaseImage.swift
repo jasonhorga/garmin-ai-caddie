@@ -63,7 +63,7 @@ struct TopoHoleBaseImage: View {
         return image
     }
 
-    /// topo-v6 has a transparent off-course canvas. Preserve it in every context so review/prep do
+    /// topo-v7 has a transparent off-course canvas. Preserve it in every context so review/prep do
     /// not manufacture a second rectangular terrain layer around the real hole.
     private func readyImage(_ image: Image) -> some View {
         image.resizable().scaledToFit()

@@ -253,7 +253,7 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(topo.url?.path, "/api/v2/courses/31669/holes/4/topo.png")
         XCTAssertEqual(topo.timeoutInterval, WatchBackendClient.courseReleaseTimeoutInterval)
         let topoQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(topo.url), resolvingAgainstBaseURL: false))
-        XCTAssertEqual(topoQuery.queryItems?.first(where: { $0.name == "v" })?.value, "topo-v6")
+        XCTAssertEqual(topoQuery.queryItems?.first(where: { $0.name == "v" })?.value, "topo-v7")
         XCTAssertNil(topo.value(forHTTPHeaderField: "Authorization"))
     }
 

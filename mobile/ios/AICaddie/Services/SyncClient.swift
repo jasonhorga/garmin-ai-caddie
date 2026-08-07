@@ -620,7 +620,7 @@ public final class SyncClient {
         }
         // Separate renderer styles at the URL layer. The server ETag also binds the current
         // Garmin geometry asset, so an updated course cannot reuse an older topo bitmap.
-        components.queryItems = [URLQueryItem(name: "v", value: "topo-v6")]
+        components.queryItems = [URLQueryItem(name: "v", value: "topo-v7")]
         return components.url
     }
 

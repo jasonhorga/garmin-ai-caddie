@@ -343,7 +343,7 @@ Deep Mine 当前结论（细节与证据见 `docs/research/IMG_RESEARCH.md`）�
 - 每洞 30 个 `GreenRadii` 已在 166 个 authority-bound 洞闭合：从正北顺时针每 12° 采样，东向分量需乘 `cos(endpointLatitude)`；4,980 点对选中 VFX 的 P95 误差 `0.355094 m`。它只用于轻量显示轮廓，不冒充 F/M/B 或坡度。真实双果岭 layout `38059` 进一步证明 `hole.json Doglegs` 固定指 A，而 `courseData` 路线末端选择当前 A/B；产品已统一用该选择驱动路线、目标距离、Topo 标记、F/M/B 与坡度 component，18 洞实跑 A=8/B=10，路线/目标最大残差 `0.020981 m`。权威报告 SHA-256 为 `9f5524c80780d6d30357cdefc484a6a766294b18174a46d2178d93544b4675a8`。
 - `prodgeometry` 全资产分支已闭合：15 个真实球场、184 洞、2,545 个 Draco mesh 覆盖三个 CourseGen 版本、三个 biome 与海边/内陆场；24 个 mesh 名、`hole.json`、`foliage.json`、每洞独有的 `1024×1024 Terrain.webp` 以及 POSITION/UV/NORMAL/COLOR 通道均有终态产品裁决，未知 mesh、静态资产、attribute semantic 和 data type 都为 0。`Terrain.webp` 经 184 张像素统计确认是 3D 光照用切线空间法线图，不是隐藏彩色地图或 Green Contours；权威报告 SHA-256 为 `cdf931f4c77896ffb1b95d123aa265bfd67dced57fc173c24382f58f965c44cc`。
 - DSKIMG 私有矢量语义分支已闭合：13 个 release-bound artifact、11 个唯一 embedded IMG 与 184 洞 prodgeometry 全部入账，166 洞完成跨源绑定；剩余 18 洞严格等于匿名 release 404 的 `31636/31637`，无额外豁免。15 个 area、3 个 line、2 个 point 类型全部得到终态裁决；`0x012e05` 已纠正为 cart path，`0x010b08` 保持 opaque，`0x011409/0x01140e` 是内外嵌套洞域。DSKIMG 只承担粗略/离线显示 fallback，精确距离、lie、障碍和罚杆仍由 prodgeometry/courseData 掌权。冻结报告 SHA-256 为 `ff271c6bddc67de3bebfdee7609e774ac7849527c1db489a9bb7c983c688e8a3`。
-- Garmin Golf APK 的普通地图获取/更新链也已闭合：Course 用 `BuildId + GlobalLayoutId + Version`，Image 用 `PartNumber + GlobalLayoutId + Version`，两者不混用；名称、位置+名称和附近目录均完整分页。产品已修正 release 永久旧缓存、仅凭 `gid + hole` 永久复用 prodgeometry、Topo 一年 immutable 和名称搜索只读第一页四个缺口。release 先完整解析再原子替换，离线保留最后有效版本；精确几何以 canonical asset path/version 与 sidecar 绑定，派生 Topo 的磁盘 key/ETag 同时绑定 renderer style 和 geometry authority，Web/iPhone/Watch 统一使用 `topo-v6` 并重新验证。
+- Garmin Golf APK 的普通地图获取/更新链也已闭合：Course 用 `BuildId + GlobalLayoutId + Version`，Image 用 `PartNumber + GlobalLayoutId + Version`，两者不混用；名称、位置+名称和附近目录均完整分页。产品已修正 release 永久旧缓存、仅凭 `gid + hole` 永久复用 prodgeometry、Topo 一年 immutable 和名称搜索只读第一页四个缺口。release 先完整解析再原子替换，离线保留最后有效版本；精确几何以 canonical asset path/version 与 sidecar 绑定，派生 Topo 的磁盘 key/ETag 同时绑定 renderer style 和 geometry authority，Web/iPhone/Watch 统一使用 `topo-v7` 并重新验证。
 
 普通地图的 Deep Mine 与可见产品切片现在均已闭合：新球场可先用轻量包秒开真实路线、计分卡、果岭外形以及水/沙的粗 `到 / 过`，精确 mesh 到达后原位升级；以后 Garmin 更新同一球场也不会继续使用旧 release、旧几何或旧 Topo。订阅 Green Contours 本体只在用户方便时做一次真实 S70/会员正反球场抓包，不阻塞普通球场获取或 Overall 主线。
 
@@ -352,6 +352,12 @@ Deep Mine 当前结论（细节与证据见 `docs/research/IMG_RESEARCH.md`）�
 同日第 6 项已接通 Web：选择任意目录球场先调用与 iOS/Watch 相同的 mobile course package，取得完整真实洞号并触发同一后台精确升级；Web 从 `route + holeImageProjection` 重建同一像素 overlay，在 partial 阶段绘制真实路线、GreenRadii 和水/沙 span，只有单洞变为 ready 后才请求 topo。partial 页面保留当前事实图并每 30 秒低频复读，精确图到达后原位替换；topo 首次渲染竞态也不再把同一 URL 永久钉死在 fallback。备战缓存指纹已纳入该 `globalId` 的 release/courseData 文件，BuildId 或轻量事实变化会自动失效旧缓存。homeserver 结果：相关后端 `112 passed + 2 skipped`，Web 全量 `581 passed + 2 skipped`，production build 与 lint 均通过。iOS Native [run 30969165514](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30969165514) 成功；该 run 的 review scope 明确跳过 Watch，因此另以 [Watch real-course run 30970447204](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/30970447204) 关闭 Watch 门。
 
 Deep Mine 的软件与普通地图完成门已经全部关闭：APK 地图请求/更新链、`courseData` 字段与类型码、DSKIMG FAT/GMP/TRE/RGN/LBL/DEM、prodgeometry 全资产、搜索分页以及 iOS/Watch/Web 同 round identity 的轻量→精确升级均有证据。完整研究账本只剩 Green Contours 一正一反会员抓取和解码这一项外部依赖；详细标准只维护在 `docs/research/IMG_RESEARCH.md`，不再复制庞大计划，也不让它占住当前执行指针。
+
+### 2026-08-07 Topo 海岸轮廓修复（冻结候选）
+
+- Cypress Point 15–17 洞的异常外框不是 iOS 圆角问题：旧 renderer 没有消费 Garmin 包中已有的 `Ocean / VfxOcean / OceanSide / Beach / Cliff / CliffUV2`，并把延伸到画布边缘的海底 `PhysicsMesh` 当成洞形。`topo-v7` 现在渲染这些真实海岸层，只让与本洞路线相连的可打区域支撑连续轮廓，再与原始 `PhysicsMesh` 相交；不改变投影、overlay 坐标或三端 round identity。
+- 真实语料机械审计覆盖 11 场 171 洞：render error、空图、触边、断裂多组件、路线丢失均为 `0`。Cypress 15–18、旧尖刺洞、海岸洞和内陆湖洞另做逐图检查；审计 JSON SHA256 为 `d58d0b11d44723d2f311f43f94dc3ec332e636fcf721bbaa56d5e7c69df93cde`，15 图联系表 SHA256 为 `3cf94e374834d0c5a54fbcdc914636d6e34389e40e0207cdfbbc154212189104`。
+- Deep Mine inventory 同步把上述六类 mesh 记为 Topo 已消费，避免研究报告继续误报“存在但未使用”。homeserver 冻结候选回归为 Python `1815 tests / 13 skipped`，Web `581 passed / 2 skipped`，lint 与 production build 通过；真实 Cypress 15–17 专项及 reference/multi-hole 泛化均通过。最终 Native、Watch runtime、真实三端截图和 build-only 签名 IPA 必须绑定同一个不可变提交，仍不得自动上传 TestFlight。
 
 ## 防止再次过度设计
 

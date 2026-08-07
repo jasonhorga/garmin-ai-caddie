@@ -17,14 +17,15 @@ from server_v2.main import app
 # locally (where output/prodgeometry is populated) and skip in CI. gid31795 h1 is the
 # design-system §九 reference hole (funnel /render-final.png).
 _HAVE_GEOMETRY = mesh_path(31795, 1).exists()
+_HAVE_CYPRESS_COAST = all(mesh_path(3881, hole).exists() for hole in (15, 16, 17))
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 class TopoRenderModuleTests(unittest.TestCase):
-    def test_topo_v6_starts_overlays_on_a_transparent_course_canvas(self) -> None:
+    def test_topo_v7_starts_overlays_on_a_transparent_course_canvas(self) -> None:
         from PIL import Image
 
-        self.assertEqual(topo_render.STYLE_VERSION, "topo-v6")
+        self.assertEqual(topo_render.STYLE_VERSION, "topo-v7")
         self.assertTrue(hasattr(topo_render, "_clip_to_transparent_canvas"))
 
         source = Image.new("RGB", (2, 1), topo_render.PAL["bg"])
@@ -93,6 +94,34 @@ class TopoRenderModuleTests(unittest.TestCase):
         self.assertGreaterEqual(len(seen), 1)
         self.assertEqual(len(seen), len([h for h in (2, 3, 4) if mesh_path(31795, h).exists()]))
 
+    @unittest.skipUnless(_HAVE_CYPRESS_COAST, "requires decoded Cypress coast meshes")
+    def test_cypress_coast_renders_inside_canvas_without_losing_route(self) -> None:
+        import gc
+
+        from ai_caddie.geometry import hole_render
+        from ai_caddie.courses import course_prep
+
+        for hole in (15, 16, 17):
+            image = topo_render.render_hole_topo_image(3881, hole)
+            alpha = image.getchannel("A")
+            self.assertIsNotNone(alpha.getbbox())
+            self.assertEqual(alpha.crop((0, 0, image.width, 1)).getextrema()[1], 0)
+            self.assertEqual(alpha.crop((0, image.height - 1, image.width, image.height)).getextrema()[1], 0)
+            self.assertEqual(alpha.crop((0, 0, 1, image.height)).getextrema()[1], 0)
+            self.assertEqual(alpha.crop((image.width - 1, 0, image.width, image.height)).getextrema()[1], 0)
+
+            metadata, meshes = hole_render.load_mesh(3881, hole)
+            route, _length = course_prep.derive_route(metadata)
+            to_px = hole_render.overlay_projector(meshes, route)
+            for point in route:
+                x, y = to_px(point)
+                self.assertGreater(alpha.getpixel((round(x), round(y))), 0)
+            # A supersampled render uses several large numpy rasters.  This optional corpus test
+            # runs three real holes in one worker; release each before starting the next so a
+            # verification run cannot exhaust a small shared homeserver merely by retaining arenas.
+            del image, alpha, metadata, meshes, route, to_px
+            gc.collect()
+
     def test_missing_geometry_raises_unavailable_not_crash(self) -> None:
         with TemporaryDirectory() as tmp, patch("ai_caddie.core.data.MESH_DIR", Path(tmp)):
             with self.assertRaises(topo_render.TopoGeometryUnavailable):
@@ -142,7 +171,7 @@ class TopoRenderModuleTests(unittest.TestCase):
     def test_cache_key_includes_style_version(self) -> None:
         with patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": "/x/y"}):
             path = topo_render.cache_path(31795, 7)
-        self.assertTrue(path.name.startswith("gid31795_h07_topo-v6-"))
+        self.assertTrue(path.name.startswith("gid31795_h07_topo-v7-"))
         self.assertTrue(path.name.endswith(".png"))
         self.assertIn(topo_render.STYLE_VERSION, str(path))
 
@@ -161,6 +190,54 @@ class TopoRenderModuleTests(unittest.TestCase):
             fragmented_land,
         )
         self.assertIs(selected_without_physics, fragmented_land)
+
+    def test_bounded_route_envelope_removes_edge_mesh_and_disconnected_spike(self) -> None:
+        from PIL import Image, ImageDraw
+
+        # The continuous authority deliberately reaches the arbitrary right canvas edge.  The main
+        # factual surface is route-connected; a detached neighbour fragment near that edge is not.
+        physics = Image.new("L", (120, 160), 0)
+        ImageDraw.Draw(physics).rectangle((12, 8, 119, 151), fill=255)
+        support = Image.new("L", physics.size, 0)
+        draw = ImageDraw.Draw(support)
+        draw.ellipse((20, 14, 80, 148), fill=255)
+        draw.rectangle((105, 60, 118, 92), fill=255)  # neighbouring-hole material spike
+
+        route = [(50.0, 140.0), (48.0, 82.0), (52.0, 24.0)]
+        bounded = topo_render._bounded_route_envelope(
+            physics,
+            support,
+            route,
+            1.0,
+            supersample=1,
+            padding_m=4.0,
+        )
+
+        self.assertEqual(max(bounded.getpixel((119, y)) for y in range(160)), 0)
+        self.assertEqual(bounded.getpixel((110, 76)), 0)
+        self.assertTrue(all(bounded.getpixel((int(x), int(y))) == 255 for x, y in route))
+        self.assertIsNotNone(bounded.getbbox())
+
+    def test_bounded_route_envelope_falls_back_when_support_is_absent(self) -> None:
+        from PIL import Image
+
+        current = Image.new("L", (8, 8), 255)
+        result = topo_render._bounded_route_envelope(
+            current,
+            Image.new("L", current.size, 0),
+            [(4.0, 7.0), (4.0, 1.0)],
+            1.0,
+            supersample=1,
+        )
+        self.assertEqual(result.tobytes(), current.tobytes())
+
+    def test_topo_v7_consumes_decoded_coast_and_ocean_layers(self) -> None:
+        self.assertEqual(topo_render.OCEAN_LAYERS, ("Ocean", "VfxOcean", "OceanSide"))
+        self.assertIn("Beach", topo_render.ORDER)
+        self.assertIn("Cliff", topo_render.ORDER)
+        self.assertNotIn("TreeArea", topo_render.ENVELOPE_SUPPORT_LAYERS)
+        self.assertNotIn("Beach", topo_render.ENVELOPE_SUPPORT_LAYERS)
+        self.assertNotIn("Cliff", topo_render.ENVELOPE_SUPPORT_LAYERS)
 
 
 class TopoEndpointTests(unittest.TestCase):

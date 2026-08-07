@@ -22,8 +22,8 @@ The rich topo texturing is ported from the standalone prototype
   - trees: 1..9 species field (size/brightness), broccoli silhouette + smooth NW->SE gradient +
     fine grain + one soft grounded shadow layer; trees only fall in the side rough, never the
     fairway/green; shadows never darken mown surfaces
-  - water: THIS hole's connected water only (flood-filled from the green end), shallow->deep
-    gradient + ripple + bright shoreline
+  - water: THIS hole's connected lake plus decoded coastal Ocean/VfxOcean/OceanSide surfaces,
+    shallow->deep gradient + ripple + bright shoreline
   - green: white target ring + flag on the REAL per-hole green centroid (clustered to the play
     line so a neighbour green never steals the flag)
   - clean super-sampled material edges (no Gaussian blur softening)
@@ -55,7 +55,7 @@ from ai_caddie.geometry.geometry_authority import authority_path, cache_token
 # topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
-STYLE_VERSION = "topo-v6"  # v6: selected-layout A/B green route + component marker authority
+STYLE_VERSION = "topo-v7"  # v7: bounded route envelope + decoded coast/ocean surface rendering
 
 # PhysicsMesh is clipped to the same route corridor used by the renderer.  Unlike the decoded
 # material layers, it is a continuous terrain authority and therefore cannot add TreeArea spikes.
@@ -70,6 +70,7 @@ PAL = {  # Garmin-matched realistic palette (the locked "realistic" panel of the
     "Rough": (110, 168, 66), "TreeArea": (92, 148, 58),
     "Fairway": (160, 216, 88), "Fringe": (172, 220, 104), "Green": (158, 216, 78),
     "Bunker": (232, 224, 178), "Teebox": (128, 186, 90),
+    "Beach": (226, 211, 164), "Cliff": (139, 130, 108), "CliffUV2": (139, 130, 108),
     "rough_lo": np.array([84, 138, 56], np.float32),
     "rough_hi": np.array([138, 190, 86], np.float32),
     "water_shallow": np.array([96, 190, 214], np.float32),
@@ -78,7 +79,25 @@ PAL = {  # Garmin-matched realistic palette (the locked "realistic" panel of the
     "edge": (46, 72, 38),
 }
 
-ORDER = ["Rough", "TreeArea", "Fairway", "Fringe", "Bunker", "Teebox", "Green"]
+ORDER = [
+    "Rough", "TreeArea", "Beach", "Cliff", "CliffUV2",
+    "Fairway", "Fringe", "Bunker", "Teebox", "Green",
+]
+
+# These layers are genuine coastal surfaces in Garmin's decoded course package.  Older renderers
+# ignored them, leaving PAL["bg"] visible inside PhysicsMesh; on Cypress 15--17 that looked like a
+# flat blue polygon clipped by the PNG edge.  OceanSide is a projected shoreline wall, but including
+# it closes small gaps between Ocean and VfxOcean without inventing water beyond source geometry.
+OCEAN_LAYERS = ("Ocean", "VfxOcean", "OceanSide")
+
+# TreeArea is deliberately absent: some packages contain neighbouring-hole TreeArea triangles.
+# Beach/Cliff are rendered, but also stay out: a coastal strip can continue to the arbitrary mesh
+# edge and therefore cannot decide the visible hole envelope.  Only factual playable surfaces do.
+ENVELOPE_SUPPORT_LAYERS = (
+    "Rough", "Fairway", "Fringe", "Bunker", "Teebox", "Green",
+)
+
+ENVELOPE_PADDING_M = 4.0
 
 # id -> distinct top-down tree look (our species field, which Garmin does not expose).
 # rad=radius multiplier; base=body, hi=sun highlight, lo=dark underside, dap=dapple clump.
@@ -155,6 +174,139 @@ def _ground_envelope(mask_for, fallback: Image.Image) -> Image.Image:
     return physics if physics is not None else fallback
 
 
+def _convex_hull(points: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Small monotone-chain hull used by the silhouette pass (keeps cv2 out of request workers)."""
+    unique = sorted(set(points))
+    if len(unique) <= 1:
+        return unique
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower: list[tuple[int, int]] = []
+    for point in unique:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], point) <= 0:
+            lower.pop()
+        lower.append(point)
+    upper: list[tuple[int, int]] = []
+    for point in reversed(unique):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], point) <= 0:
+            upper.pop()
+        upper.append(point)
+    return lower[:-1] + upper[:-1]
+
+
+def _bounded_route_envelope(
+    current_mask: Image.Image,
+    support_mask: Image.Image,
+    route_px: list[tuple[float, float]],
+    pixels_per_metre: float,
+    *,
+    supersample: int = SS,
+    padding_m: float = ENVELOPE_PADDING_M,
+) -> Image.Image:
+    """Keep the continuous PhysicsMesh shape, but only near this hole's factual surfaces.
+
+    PhysicsMesh is the best continuous outline, yet seaside packages also contain ocean floor all
+    the way to an arbitrary mesh/canvas edge.  The old renderer exposed that edge as a rectangular
+    blue appendage.  Conversely, using the raw material union brought back neighbouring-hole spikes
+    and large gaps.  This pass finds only material components touched by the selected route, wraps
+    them in a rounded convex envelope, and intersects that envelope with the continuous current
+    mask.  It therefore removes unsupported far-ocean pixels without changing the shared projector.
+
+    Work happens at final display resolution; the result is expanded back to the supersampled mask
+    and re-intersected with the original authority, so no pixel outside PhysicsMesh can be invented.
+    """
+    if current_mask.size != support_mask.size or not route_px:
+        return current_mask
+
+    ss = max(1, int(supersample))
+    dw = max(1, current_mask.width // ss)
+    dh = max(1, current_mask.height // ss)
+    display_size = (dw, dh)
+
+    def binary_small(mask: Image.Image) -> Image.Image:
+        return mask.resize(display_size, Image.Resampling.NEAREST).point(
+            lambda value: 255 if value >= 128 else 0
+        )
+
+    current = binary_small(current_mask)
+    support = ImageChops.multiply(binary_small(support_mask), current)
+    current_np = np.asarray(current, dtype=np.uint8)
+    if not np.any(current_np) or not support.getbbox():
+        return current_mask
+
+    route_display = [
+        (
+            max(0, min(dw - 1, int(round(float(x) / ss)))),
+            max(0, min(dh - 1, int(round(float(y) / ss)))),
+        )
+        for x, y in route_px
+    ]
+
+    # Label only support components reached by the selected route.  A small metric search tolerates
+    # a tee/green centre that sits just outside the rasterised surface.  PIL floodfill is sufficient
+    # here and avoids importing a second image-processing runtime into each API worker.
+    labelled = support.copy()
+    search_px = max(5, int(round(8.0 * float(pixels_per_metre) / ss)))
+    touched = False
+    for rx, ry in route_display:
+        labelled_np = np.asarray(labelled, dtype=np.uint8)
+        if labelled_np[ry, rx] == 128:  # this component was already retained
+            continue
+        x0, x1 = max(0, rx - search_px), min(dw, rx + search_px + 1)
+        y0, y1 = max(0, ry - search_px), min(dh, ry + search_px + 1)
+        patch = labelled_np[y0:y1, x0:x1]
+        ys, xs = np.where(patch == 255)
+        if not len(xs):
+            continue
+        distances = (xs + x0 - rx) ** 2 + (ys + y0 - ry) ** 2
+        nearest = int(np.argmin(distances))
+        seed = (int(xs[nearest] + x0), int(ys[nearest] + y0))
+        ImageDraw.floodfill(labelled, seed, 128, thresh=0)
+        touched = True
+
+    labelled_np = np.asarray(labelled, dtype=np.uint8)
+    selected = labelled_np == 128 if touched else labelled_np == 255
+    # Row extrema are enough for a convex hull and bound the input to at most 2*height points.
+    hull_points: list[tuple[int, int]] = []
+    for y in np.flatnonzero(np.any(selected, axis=1)):
+        xs = np.flatnonzero(selected[y])
+        hull_points.append((int(xs[0]), int(y)))
+        hull_points.append((int(xs[-1]), int(y)))
+    hull_points.extend(route_display)
+    hull = _convex_hull(hull_points)
+    if len(hull) < 3:
+        return current_mask
+
+    min_x = min(point[0] for point in hull)
+    max_x = max(point[0] for point in hull)
+    min_y = min(point[1] for point in hull)
+    max_y = max(point[1] for point in hull)
+    requested_padding = max(0, int(round(float(padding_m) * float(pixels_per_metre) / ss)))
+    # Always leave at least two final pixels between the bounded envelope and the arbitrary canvas
+    # edge.  Normal holes already have the frame's 6% margin, so this cap changes only bad packages.
+    edge_clearance = min(min_x, dw - 1 - max_x, min_y, dh - 1 - max_y) - 2
+    padding = min(requested_padding, max(0, edge_clearance))
+
+    envelope = Image.new("L", display_size, 0)
+    draw = ImageDraw.Draw(envelope)
+    draw.polygon(hull, fill=255)
+    if padding:
+        closed = hull + [hull[0]]
+        draw.line(closed, fill=255, width=padding * 2 + 1, joint="curve")
+        for x, y in hull:
+            draw.ellipse((x - padding, y - padding, x + padding, y + padding), fill=255)
+
+    bounded = ImageChops.multiply(current, envelope)
+    if not bounded.getbbox():
+        return current_mask
+    expanded = bounded.resize(current_mask.size, Image.Resampling.NEAREST)
+    return ImageChops.multiply(current_mask, expanded).point(
+        lambda value: 255 if value >= 128 else 0
+    )
+
+
 def _fbm(w, h, seed, octaves=5, base_cells=6, persistence=0.55):
     """Fractal value noise (0..1, mean ~0.5) from upscaled random grids. No scipy needed."""
     rng = np.random.default_rng(seed)
@@ -219,17 +371,22 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     # ---- flat base fills ----
     img = Image.new("RGB", (w, h), PAL["bg"])
     land_L = Image.new("L", (w, h), 0)
+    support_L = Image.new("L", (w, h), 0)
     for name in ORDER:
         mk = mask_L(name)
         if mk is None:
             continue
         img.paste(Image.new("RGB", (w, h), PAL[name]), (0, 0), mk)
         land_L = ImageChops.lighter(land_L, mk)
+        if name in ENVELOPE_SUPPORT_LAYERS:
+            support_L = ImageChops.lighter(support_L, mk)
     base = np.asarray(img, dtype=np.float32)
 
     a_rough = alpha("Rough"); a_tree = alpha("TreeArea")
     a_fair = alpha("Fairway"); a_fringe = alpha("Fringe")
     a_green = alpha("Green"); a_bunker = alpha("Bunker"); a_tee = alpha("Teebox")
+    a_beach = alpha("Beach")
+    a_cliff = alpha("Cliff"); a_cliff_uv = alpha("CliffUV2")
     land_np = (np.asarray(land_L, np.float32) / 255.0)[..., None]
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
 
@@ -289,6 +446,21 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         depth = np.asarray(bmask.filter(ImageFilter.GaussianBlur(15 * SS)), np.float32) / 255.0
         base += ((depth - 0.5) * 10.0)[..., None] * a_bunker[..., None]
 
+    # ---- decoded coast: warm beach grain + muted rock variation (never leave bg-blue holes) ----
+    if a_beach is not None:
+        beach_grain = _fbm(w, h, gid * 7 + 67, octaves=4, base_cells=42, persistence=0.5)
+        base += ((beach_grain - 0.5) * 2 * 8.0)[..., None] * a_beach[..., None]
+    cliff_all = None
+    if a_cliff is not None or a_cliff_uv is not None:
+        cliff_all = np.clip(
+            (a_cliff if a_cliff is not None else 0) +
+            (a_cliff_uv if a_cliff_uv is not None else 0),
+            0,
+            1,
+        )
+        rock = _fbm(w, h, gid * 7 + 71, octaves=4, base_cells=24, persistence=0.55)
+        mul(cliff_all, (0.91 + 0.17 * rock)[..., None])
+
     # ---- hillshade over land; DAMPED on mown surfaces so the fairway/green stay evenly flat-lit ----
     mown = np.clip((a_fair if a_fair is not None else 0) + (a_green if a_green is not None else 0)
                    + (a_fringe if a_fringe is not None else 0) + (a_tee if a_tee is not None else 0),
@@ -296,7 +468,7 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     light_eff = 1.0 + (light - 1.0) * (1 - 0.92 * mown)
     np.copyto(base, base * (1 - land_np) + np.clip(base * light_eff, 0, 255) * land_np)
 
-    # ---- this hole's water only (flood fill the body nearest the green) ----
+    # ---- this hole's water: selected lake plus factual decoded coastal surfaces ----
     lmask = mask_L("Lake")
     water_keep = None
     if lmask is not None:
@@ -310,6 +482,10 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
             water_keep = ff.point(lambda v: 255 if v == 128 else 0)
         else:
             water_keep = lmask
+    for ocean_name in OCEAN_LAYERS:
+        ocean = mask_L(ocean_name)
+        if ocean is not None:
+            water_keep = ocean if water_keep is None else ImageChops.lighter(water_keep, ocean)
 
     # ---- water: depth gradient + ripple + bright shoreline ----
     if water_keep is not None:
@@ -346,6 +522,7 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     if water_keep is not None:
         visible_water = ImageChops.multiply(water_keep, corr).point(lambda v: 255 if v >= 128 else 0)
         hole_mask = ImageChops.lighter(hole_mask, visible_water)
+    hole_mask = _bounded_route_envelope(hole_mask, support_L, rpx, sc)
     img = _clip_to_transparent_canvas(img, hole_mask)
     outline = ImageChops.difference(hole_mask, hole_mask.filter(ImageFilter.MinFilter(3)))
     stroke = Image.new("RGBA", (w, h), PAL["edge"] + (0,))

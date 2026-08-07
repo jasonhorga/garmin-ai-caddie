@@ -29,7 +29,10 @@ class CourseViewCorpusInventoryTests(unittest.TestCase):
                 + len(vp8x_payload).to_bytes(4, "little") + vp8x_payload
             )
             (hole_dir / "unexpected.bin").write_bytes(b"opaque")
-            for name in ("Fairway.drc", "PhysicsMesh.drc", "Bridge.drc", "WasteArea.drc"):
+            for name in (
+                "Fairway.drc", "Ocean.drc", "Beach.drc", "Cliff.drc",
+                "PhysicsMesh.drc", "Bridge.drc", "WasteArea.drc",
+            ):
                 (hole_dir / name).write_bytes(b"drc")
 
             stats_root = root / "mesh-stats"
@@ -74,6 +77,9 @@ class CourseViewCorpusInventoryTests(unittest.TestCase):
             self.assertEqual(geometry["courseCount"], 1)
             self.assertEqual(geometry["holeCount"], 1)
             self.assertIn("Fairway.drc", geometry["topoConsumedMeshNames"])
+            self.assertIn("Ocean.drc", geometry["topoConsumedMeshNames"])
+            self.assertIn("Beach.drc", geometry["topoConsumedMeshNames"])
+            self.assertIn("Cliff.drc", geometry["topoConsumedMeshNames"])
             self.assertIn("PhysicsMesh.drc", geometry["knownStructuralOrCosmeticMeshNames"])
             self.assertIn("Bridge.drc", geometry["knownStructuralOrCosmeticMeshNames"])
             self.assertEqual(geometry["unclassifiedMeshNames"], ["WasteArea.drc"])

@@ -1917,7 +1917,7 @@ class MobileContractTests(unittest.TestCase):
             sync_client,
         )
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
-        self.assertIn('URLQueryItem(name: "v", value: "topo-v6")', sync_client)
+        self.assertIn('URLQueryItem(name: "v", value: "topo-v7")', sync_client)
         self.assertIn("TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)", hole_map_view)
         self.assertIn(
             'hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame ? topoURL : nil',
