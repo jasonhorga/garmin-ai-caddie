@@ -367,24 +367,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    func testRenderWatchClubPrompt() throws {
-        let view = WatchClubPromptView(
-            hole: 8,
-            shotNumber: 1,
-            recommendedClub: "一号木",
-            clubs: [
-                WatchClubOption(clubName: "一号木", medianM: 201),
-                WatchClubOption(clubName: "三号木", medianM: 183),
-                WatchClubOption(clubName: "5号铁", medianM: 165),
-                WatchClubOption(clubName: "7号铁", medianM: 139),
-            ]
-        )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
-        try render(view, named: "watch-club-prompt")
-    }
-
-    @MainActor
     func testFinishSummaryUsesTheApprovedCompactFactsAndActions() {
         let view = WatchFinishRoundView(
             courseName: "北京丽宫 · 前九",
@@ -403,21 +385,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(view.primaryActionLabel, "保存并结束")
         XCTAssertEqual(view.secondaryActionLabel, "继续打球")
         XCTAssertFalse(view.initiallyShowSecondaryAction)
-    }
-
-    @MainActor
-    func testRenderWatchFinishRound() throws {
-        let view = WatchFinishRoundView(
-            courseName: "北京丽宫 · 前九",
-            holesPlayed: 9, holeCount: 9,
-            totalStrokes: 41, toPar: 5, totalPutts: 16,
-            fairwaySummary: WatchOutcomeSummary(hits: 5, recorded: 7),
-            girSummary: WatchOutcomeSummary(hits: 4, recorded: 9),
-            pendingUploads: 2
-        )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
-        try render(view, named: "watch-finish-round")
     }
 
     @MainActor
@@ -1030,9 +997,9 @@ final class WatchDesignSnapshotTests: XCTestCase {
         try render(view, named: "watch-holemap-pindrag")
     }
 
-    /// The approved 45/46mm canvas is not a sufficient overflow test. These 41mm (176×215pt)
-    /// snapshots deliberately combine the longest normal copy with each high-frequency surface;
-    /// CI uploads them for pixel inspection alongside the main-size references.
+    /// Deterministic compact geometry checks. ScrollView-backed club/finish screens are deliberately
+    /// absent: watchOS ImageRenderer does not lay out their scroll content and produces misleading
+    /// blank PNGs. The workflow launches those screens in a real 41mm simulator instead.
     @MainActor
     func testRenderCompactWatchCriticalSurfaces() throws {
         let pips = (1...18).map {
@@ -1070,38 +1037,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
             .frame(width: 176, height: 215)
             .background(Color.black),
             named: "watch-compact-score-fairway"
-        )
-        try render(
-            WatchClubPromptView(
-                hole: 18,
-                shotNumber: 4,
-                recommendedClub: "50° 挖起杆",
-                clubs: [
-                    WatchClubOption(clubName: "50° 挖起杆", medianM: 92),
-                    WatchClubOption(clubName: "九号铁", medianM: 118),
-                    WatchClubOption(clubName: "八号铁", medianM: 130),
-                    WatchClubOption(clubName: "七号铁", medianM: 142),
-                ]
-            )
-            .frame(width: 176, height: 215)
-            .background(Color.black),
-            named: "watch-compact-club-prompt"
-        )
-        try render(
-            WatchFinishRoundView(
-                courseName: "北京黑骑士国际高尔夫俱乐部 · C 场",
-                holesPlayed: 18,
-                holeCount: 18,
-                totalStrokes: 93,
-                toPar: 21,
-                totalPutts: 37,
-                fairwaySummary: WatchOutcomeSummary(hits: 8, recorded: 14),
-                girSummary: WatchOutcomeSummary(hits: 6, recorded: 18),
-                pendingUploads: 18
-            )
-            .frame(width: 176, height: 215)
-            .background(Color.black),
-            named: "watch-compact-finish"
         )
         try render(
             WatchRoundHomeView(

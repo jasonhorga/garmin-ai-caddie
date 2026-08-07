@@ -184,11 +184,76 @@ public struct WatchUITestRoot: View {
                 toPar: 5,
                 pendingUploads: 2
             )
+        case "compact-holemap-long-copy":
+            WatchHoleMapView(
+                holeNumber: 18,
+                par: 5,
+                frontGreen: 248,
+                centerGreen: 262,
+                backGreen: 274,
+                playsLikeDelta: 8,
+                lastShot: 201,
+                caddieClub: "50° 挖起杆",
+                caddieNote: "推进 · 后接九号铁并避开右沙坑",
+                showCaddieRecommendation: true,
+                showPreparedPlan: true,
+                ringPips: Self.compactRingPips
+            )
+        case "compact-score-fairway":
+            WatchScoreHoleView(
+                hole: 18,
+                par: 5,
+                score: 7,
+                putts: 3,
+                penalty: 2,
+                step: .fairway,
+                candidateNextHole: 1
+            )
+        case "compact-club-prompt":
+            WatchClubPromptView(
+                hole: 18,
+                shotNumber: 4,
+                recommendedClub: "50° 挖起杆",
+                clubs: [
+                    WatchClubOption(clubName: "50° 挖起杆", medianM: 92),
+                    WatchClubOption(clubName: "九号铁", medianM: 118),
+                    WatchClubOption(clubName: "八号铁", medianM: 130),
+                    WatchClubOption(clubName: "七号铁", medianM: 142),
+                ]
+            )
+        case "compact-finish":
+            WatchFinishRoundView(
+                courseName: "北京黑骑士国际高尔夫俱乐部 · C 场",
+                holesPlayed: 18,
+                holeCount: 18,
+                totalStrokes: 93,
+                toPar: 21,
+                totalPutts: 37,
+                fairwaySummary: WatchOutcomeSummary(hits: 8, recorded: 14),
+                girSummary: WatchOutcomeSummary(hits: 6, recorded: 18),
+                pendingUploads: 18
+            )
+        case "compact-home":
+            WatchRoundHomeView(
+                courseName: "北京黑骑士国际高尔夫俱乐部 · C 场",
+                hole: 18,
+                par: 5,
+                holeCount: 18,
+                scoredHoles: 17,
+                toPar: 12,
+                distanceText: "262 码",
+                pendingUploads: 18,
+                canRecordShot: true
+            )
         case "start":
             WatchStartView(phoneReachable: false)
         default:
             Text("unknown uitest screen: \(screen)")
         }
+    }
+
+    private static let compactRingPips = (1...18).map {
+        WatchRingPip(hole: $0, toPar: $0 < 8 ? ($0 % 3) - 1 : nil, isCurrent: $0 == 8)
     }
 
     private var cachedCoursePicker: some View {

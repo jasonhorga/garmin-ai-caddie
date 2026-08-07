@@ -598,6 +598,28 @@ class CIWorkflowTests(unittest.TestCase):
         ]:
             self.assertIn(f"launch_and_capture {mode} ", script)
 
+    def test_watch_runtime_uses_a_real_41mm_device_for_compact_scroll_surfaces(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]}
+        compact = steps["Capture compact 41mm runtime boundaries"]["run"]
+        snapshots = Path(
+            "mobile/ios/AICaddieWatchTests/WatchDesignSnapshotTests.swift"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Apple Watch Series 9 (41mm)", compact)
+        self.assertIn('= "352"', compact)
+        self.assertIn('= "430"', compact)
+        for mode in [
+            "compact-holemap-long-copy",
+            "compact-score-fairway",
+            "compact-club-prompt",
+            "compact-finish",
+            "compact-home",
+        ]:
+            self.assertIn(f"capture_compact {mode} ", compact)
+        self.assertNotIn('named: "watch-compact-club-prompt"', snapshots)
+        self.assertNotIn('named: "watch-compact-finish"', snapshots)
+
     def test_watch_runtime_real_course_visual_scope_stops_before_score_writes_and_web(self) -> None:
         workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
         scopes = workflow[True]["workflow_dispatch"]["inputs"]["runtime_scope"]["options"]

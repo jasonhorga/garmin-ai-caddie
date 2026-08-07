@@ -138,6 +138,66 @@ jobs:
             -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
             -derivedDataPath "$RUNNER_TEMP/WatchDerivedData"
 
+      - name: Capture compact 41mm runtime boundaries
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
+          BID=com.ai-caddie.mobile.watchkitapp
+          test -d "$APP"
+
+          # ImageRenderer does not lay out ScrollView/List content on watchOS, so a generated PNG can
+          # be blank while its XCTest still passes. Exercise the longest normal copy in a real small
+          # Watch runtime instead; 41mm Series 7/8/9 all use the 352x430 physical screenshot canvas.
+          COMPACT_DEVICE=$(xcrun simctl list devices available -j | jq -r \
+            --arg runtime "$WATCH_RUNTIME" '
+              [.devices[$runtime][]?
+                | select(.isAvailable == true)
+                | select(.name == "Apple Watch Series 9 (41mm)"
+                    or .name == "Apple Watch Series 8 (41mm)"
+                    or .name == "Apple Watch Series 7 (41mm)")
+                | .udid]
+              | first // empty')
+          if [[ -z "$COMPACT_DEVICE" ]]; then
+            COMPACT_TYPE=$(xcrun simctl list devicetypes -j | jq -er '
+              [.devicetypes[]
+                | select(.name == "Apple Watch Series 9 (41mm)"
+                    or .name == "Apple Watch Series 8 (41mm)"
+                    or .name == "Apple Watch Series 7 (41mm)")]
+              | first
+              | .identifier')
+            COMPACT_DEVICE=$(xcrun simctl create \
+              "AI Caddie Compact 41mm" "$COMPACT_TYPE" "$WATCH_RUNTIME")
+          fi
+
+          xcrun simctl boot "$COMPACT_DEVICE" 2>/dev/null || true
+          xcrun simctl bootstatus "$COMPACT_DEVICE" -b
+          xcrun simctl uninstall "$COMPACT_DEVICE" "$BID" 2>/dev/null || true
+          xcrun simctl install "$COMPACT_DEVICE" "$APP"
+          mkdir -p watch-runtime-artifacts
+
+          capture_compact() {
+            local mode="$1"
+            local screenshot="$2"
+            xcrun simctl launch "$COMPACT_DEVICE" "$BID" -uitest-screen "$mode" \
+              | tee "watch-runtime-artifacts/launch-$mode-41mm.txt"
+            sleep 3
+            xcrun simctl io "$COMPACT_DEVICE" screenshot \
+              "watch-runtime-artifacts/$screenshot"
+            test "$(sips -g pixelWidth "watch-runtime-artifacts/$screenshot" \
+              | awk '/pixelWidth/{print $2}')" = "352"
+            test "$(sips -g pixelHeight "watch-runtime-artifacts/$screenshot" \
+              | awk '/pixelHeight/{print $2}')" = "430"
+            # A successful terminate also proves that this long-copy surface remained alive.
+            xcrun simctl terminate "$COMPACT_DEVICE" "$BID"
+          }
+
+          capture_compact compact-holemap-long-copy compact-41mm-holemap-long-copy.png
+          capture_compact compact-score-fairway compact-41mm-score-fairway.png
+          capture_compact compact-club-prompt compact-41mm-club-prompt.png
+          capture_compact compact-finish compact-41mm-finish.png
+          capture_compact compact-home compact-41mm-home-long-course.png
+          xcrun simctl shutdown "$COMPACT_DEVICE"
+
       - name: Preflight live course discovery
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.runtime_scope != 'setup-visual'
         env:
