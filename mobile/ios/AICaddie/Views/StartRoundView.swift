@@ -43,6 +43,8 @@ public struct StartRoundView: View {
     @State private var teeLoadFailed = false
     @State private var isLoadingNearby = false
     @State private var nearbyStatusText: String?
+    @State private var teeRequestToken: UUID?
+    @State private var nearbyRequestToken: UUID?
 
     public init(
         // 不在消费者界面里写死可读的原始局号(如 900001):没显式传时生成一个不透明的本地局号,
@@ -167,7 +169,13 @@ public struct StartRoundView: View {
     /// Fetch the selected course's tee boxes (colour + yardage + default). Empty → keep the bundled
     /// tee colours. When the current pick isn't offered by this course, jump to the course default.
     private func loadTees() async {
-        guard let globalId = courseGlobalId else { return }
+        let requestToken = UUID()
+        teeRequestToken = requestToken
+        guard let globalId = courseGlobalId else {
+            isLoadingTees = false
+            teeLoadFailed = false
+            return
+        }
         let requiresRemoteTees = selectedCourseRequiresRemoteTees
         if requiresRemoteTees {
             isLoadingTees = true
@@ -175,10 +183,14 @@ public struct StartRoundView: View {
             fetchedTees = []
         }
         defer {
-            if requiresRemoteTees { isLoadingTees = false }
+            if requiresRemoteTees, teeRequestToken == requestToken {
+                isLoadingTees = false
+            }
         }
         let tees = await onLoadCourseTees(globalId)
-        guard courseGlobalId == globalId else { return }
+        guard !Task.isCancelled,
+              teeRequestToken == requestToken,
+              courseGlobalId == globalId else { return }
         guard !tees.isEmpty else {
             if requiresRemoteTees { teeLoadFailed = true }
             return
@@ -703,6 +715,8 @@ public struct StartRoundView: View {
 
     @MainActor
     private func discoverNearbyCourses() async {
+        let requestToken = UUID()
+        nearbyRequestToken = requestToken
         guard let fix = locationProvider.latestFix else {
             nearbyCourseOptions = []
             isLoadingNearby = locationProvider.authorizationStatus == .notDetermined
@@ -720,19 +734,27 @@ public struct StartRoundView: View {
             longitude: fix.coordinate.longitude,
             radiusKm: 50
         )
+        let requestKey = locationDiscoveryKey
         // Publish the factual local candidates immediately, but do not auto-select the only local
         // venue yet: the provider response may add a second nearby venue, which must restore the
         // explicit-choice rule. The player may still tap a local row while the request is pending.
         nearbyCourseOptions = localNearby
         isLoadingNearby = true
         nearbyStatusText = nil
-        defer { isLoadingNearby = false }
+        defer {
+            if nearbyRequestToken == requestToken {
+                isLoadingNearby = false
+            }
+        }
         do {
             let matches = try await onNearbyCourses(
                 fix.coordinate.latitude,
                 fix.coordinate.longitude,
                 50
             )
+            guard !Task.isCancelled,
+                  nearbyRequestToken == requestToken,
+                  locationDiscoveryKey == requestKey else { return }
             var seen = Set<Int>()
             let providerNearby = matches.compactMap { resolvedOption(for: $0) }
             nearbyCourseOptions = (providerNearby + localNearby).filter {
@@ -753,6 +775,9 @@ public struct StartRoundView: View {
                 }
             }
         } catch {
+            guard !Task.isCancelled,
+                  nearbyRequestToken == requestToken,
+                  locationDiscoveryKey == requestKey else { return }
             nearbyCourseOptions = localNearby
             nearbyStatusText = localNearby.isEmpty
                 ? "附近球场暂时读取失败；可以先按城市或球场名搜索。"

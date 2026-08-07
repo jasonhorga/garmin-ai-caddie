@@ -226,6 +226,47 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(retained.generatedAt, "2026-08-06T00:00:00Z")
     }
 
+    func testCourseTemplateDoesNotReplaceEighteenPlayableHolesWithANewerSingleHolePackage() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let partial = try localFixturePackage()
+        let sourceHole = try XCTUnwrap(partial.holes.first)
+        let fullHoles = (1...18).map { number in
+            Hole(
+                number: number,
+                par: number % 3 == 0 ? 3 : (number % 5 == 0 ? 5 : 4),
+                yards: sourceHole.yards,
+                geometryCoverage: sourceHole.geometryCoverage,
+                sourceGlobalId: partial.course.globalId,
+                sourceLocalHole: number,
+                teeLatitude: sourceHole.teeLatitude,
+                teeLongitude: sourceHole.teeLongitude
+            )
+        }
+        let full = replacingHoles(
+            in: partial,
+            with: fullHoles,
+            generatedAt: "2026-08-06T00:00:00Z"
+        )
+        let laterSingleHole = replacingHoles(
+            in: partial,
+            with: [sourceHole],
+            generatedAt: "2026-08-07T00:00:00Z"
+        )
+
+        try store.saveCourseTemplate(full)
+        try store.saveCourseTemplate(laterSingleHole)
+
+        let retained = try XCTUnwrap(store.loadCourseTemplate(
+            globalId: full.course.globalId,
+            teeBox: full.course.teeBox,
+            nine: full.nine ?? "all"
+        ))
+        XCTAssertEqual(retained.holes.count, 18)
+        XCTAssertEqual(retained.generatedAt, "2026-08-06T00:00:00Z")
+    }
+
     func testCourseTopoCacheAcceptsOnlyPngAndUsesStaticCourseHoleIdentity() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -2270,6 +2311,40 @@ final class OfflineStoreTests: XCTestCase {
             nine: package.nine,
             coursePrep: package.coursePrep,
             geometryCoverage: geometryCoverage,
+            readinessChecks: package.readinessChecks,
+            caddieContextSeeds: package.caddieContextSeeds,
+            weatherSnapshot: package.weatherSnapshot,
+            clubProfiles: package.clubProfiles,
+            caddieDecisionEndpoint: package.caddieDecisionEndpoint,
+            offlinePackageStatus: package.offlinePackageStatus,
+            eventCursor: package.eventCursor,
+            recentHistory: package.recentHistory,
+            cachedCaddieRules: package.cachedCaddieRules,
+            generatedAt: generatedAt
+        )
+    }
+
+    private func replacingHoles(
+        in package: LiveRoundPackage,
+        with holes: [Hole],
+        generatedAt: String
+    ) -> LiveRoundPackage {
+        LiveRoundPackage(
+            schema: package.schema,
+            roundId: package.roundId,
+            dataMode: package.dataMode,
+            sourceCoverage: package.sourceCoverage,
+            missingData: package.missingData,
+            playerProfile: package.playerProfile,
+            course: package.course,
+            holes: holes,
+            nine: package.nine,
+            coursePrep: package.coursePrep,
+            geometryCoverage: GeometryCoverage(
+                state: package.geometryCoverage.state,
+                readyHoles: min(package.geometryCoverage.readyHoles, holes.count),
+                totalHoles: holes.count
+            ),
             readinessChecks: package.readinessChecks,
             caddieContextSeeds: package.caddieContextSeeds,
             weatherSnapshot: package.weatherSnapshot,

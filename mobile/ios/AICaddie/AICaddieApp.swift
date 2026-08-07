@@ -756,6 +756,7 @@ public final class LiveRoundAppModel: ObservableObject {
             return prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]?
                 .renumbered(to: roundHole.number)
         }
+        guard !Task.isCancelled else { return }
         let enriched = snapshot.replacingCoursePrep(CoursePrepPackage(
             schema: "ai-caddie-course-prep-v1",
             globalId: snapshot.course.globalId,
@@ -783,6 +784,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     globalId: globalId,
                     localHole: localHole
                 )
+                guard !Task.isCancelled else { return }
                 _ = try offlineStore.saveCourseTopoImage(
                     data,
                     globalId: globalId,
@@ -795,6 +797,7 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
 
+        guard !Task.isCancelled else { return }
         do {
             try offlineStore.saveCourseTemplate(enriched)
             if package?.roundId == snapshot.roundId, liveRoundState != nil {
