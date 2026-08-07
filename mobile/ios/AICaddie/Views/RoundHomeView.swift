@@ -38,6 +38,7 @@ public struct RoundHomeView: View {
     public let onChangeNine: (String) -> Void
     public let onFinishRound: () async -> Bool
     public let onSetActiveHole: (Int) -> Void
+    public let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
     public let onSync: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
@@ -79,6 +80,7 @@ public struct RoundHomeView: View {
         onChangeNine: @escaping (String) -> Void = { _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onSetActiveHole: @escaping (Int) -> Void = { _ in },
+        onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
         onSync: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
@@ -112,6 +114,7 @@ public struct RoundHomeView: View {
         self.onChangeNine = onChangeNine
         self.onFinishRound = onFinishRound
         self.onSetActiveHole = onSetActiveHole
+        self.onRetainReadyHolePrep = onRetainReadyHolePrep
         self.onSync = onSync
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
@@ -254,6 +257,7 @@ public struct RoundHomeView: View {
                     onSetActiveHole(next)
                     path = [.hole(next)]
                 },
+                onRetainReadyHolePrep: onRetainReadyHolePrep,
                 onEvent: onEvent
             )
             // A hole owns its score/club/map/GPS presentation state and scroll position. NavigationStack

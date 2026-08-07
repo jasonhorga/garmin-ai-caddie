@@ -87,6 +87,13 @@ public struct AICaddieApp: App {
                         onSetActiveHole: { hole in
                             model.setActiveHole(hole)
                         },
+                        onRetainReadyHolePrep: { roundId, roundHole, prep in
+                            model.retainReadyHolePrep(
+                                roundId: roundId,
+                                roundHole: roundHole,
+                                prep: prep
+                            )
+                        },
                         onSync: {
                             Task {
                                 await model.syncPendingEvents()
@@ -764,6 +771,73 @@ public final class LiveRoundAppModel: ObservableObject {
         return prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
     }
 
+    /// Persist one foreground hole as soon as its precise prep is available. The expected round ID
+    /// rejects a late async callback after the player has started another round; renumbering keeps a
+    /// composite back nine's source hole 1 attached to round hole 10. Saving precedes publication so
+    /// a map that SwiftUI can display is already resumable on disk.
+    @discardableResult
+    public func retainReadyHolePrep(
+        roundId: String,
+        roundHole: Int,
+        prep: CoursePrepHole
+    ) -> Bool {
+        guard offlinePrepIsPrecise(prep),
+              let current = package,
+              current.roundId == roundId,
+              liveRoundState?.roundId == roundId,
+              current.holes.contains(where: { $0.number == roundHole }) else {
+            return false
+        }
+
+        let retained = prep.renumbered(to: roundHole)
+        var holes = current.coursePrep?.holes.filter { $0.hole != roundHole } ?? []
+        holes.append(retained)
+        holes.sort { $0.hole < $1.hole }
+        let updated = current.replacingCoursePrep(CoursePrepPackage(
+            schema: current.coursePrep?.schema ?? "ai-caddie-course-prep-v1",
+            globalId: current.coursePrep?.globalId ?? current.course.globalId,
+            holes: holes,
+            missingData: current.coursePrep?.missingData
+        ))
+
+        do {
+            try offlineStore.saveRoundPackage(updated)
+            package = updated
+            refreshDownloadedCourseOptions()
+            return true
+        } catch {
+            AICaddieLog.storage.error(
+                "Live hole prep save failed for \(roundId, privacy: .public)/\(roundHole, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+            return false
+        }
+    }
+
+    /// The all-hole downloader starts from an immutable snapshot. If the foreground has meanwhile
+    /// retained a precise hole, do not let a later partial/missing snapshot overwrite that progress.
+    private func preservingForegroundPrecisePrep(in candidate: LiveRoundPackage) -> LiveRoundPackage {
+        guard let current = package,
+              current.roundId == candidate.roundId,
+              let currentPrep = current.coursePrep else { return candidate }
+
+        var merged = Dictionary(
+            uniqueKeysWithValues: (candidate.coursePrep?.holes ?? []).map { ($0.hole, $0) }
+        )
+        for retained in currentPrep.holes {
+            let replacement = merged[retained.hole]
+            if replacement == nil || (offlinePrepIsPrecise(retained) && !offlinePrepIsPrecise(replacement)) {
+                merged[retained.hole] = retained
+            }
+        }
+        let base = candidate.coursePrep
+        return candidate.replacingCoursePrep(CoursePrepPackage(
+            schema: base?.schema ?? currentPrep.schema,
+            globalId: base?.globalId ?? currentPrep.globalId,
+            holes: merged.values.sorted { $0.hole < $1.hole },
+            missingData: base?.missingData ?? currentPrep.missingData
+        ))
+    }
+
     /// Course prep cost grows non-linearly when one request parses all 18 large meshes. Keep the
     /// first playing hole as its own highest-priority request (the live view asks for the same key,
     /// so the backend singleflight can share it), then fetch the rest in small bounded batches.
@@ -1035,10 +1109,11 @@ public final class LiveRoundAppModel: ObservableObject {
         // already-cached precise image. The downloaded-course list still requires every bitmap, so
         // this early save cannot falsely advertise that the whole course is offline-ready.
         do {
-            try offlineStore.saveCourseTemplate(enriched)
+            let durableEnriched = preservingForegroundPrecisePrep(in: enriched)
+            try offlineStore.saveCourseTemplate(durableEnriched)
             if package?.roundId == snapshot.roundId, liveRoundState != nil {
-                try offlineStore.saveRoundPackage(enriched)
-                package = enriched
+                try offlineStore.saveRoundPackage(durableEnriched)
+                package = durableEnriched
             }
         } catch {
             AICaddieLog.storage.error(
@@ -1106,14 +1181,15 @@ public final class LiveRoundAppModel: ObservableObject {
 
         guard !Task.isCancelled else { return }
         do {
-            try offlineStore.saveCourseTemplate(enriched)
+            let durableEnriched = preservingForegroundPrecisePrep(in: enriched)
+            try offlineStore.saveCourseTemplate(durableEnriched)
             if package?.roundId == snapshot.roundId, liveRoundState != nil {
-                try offlineStore.saveRoundPackage(enriched)
-                package = enriched
+                try offlineStore.saveRoundPackage(durableEnriched)
+                package = durableEnriched
             }
             refreshDownloadedCourseOptions()
-            if enriched.hasCompleteOfflineCoursePrep,
-               offlineStore.hasCourseTopoImages(for: enriched) {
+            if durableEnriched.hasCompleteOfflineCoursePrep,
+               offlineStore.hasCourseTopoImages(for: durableEnriched) {
                 syncStatus = "离线地图已准备"
             }
         } catch {

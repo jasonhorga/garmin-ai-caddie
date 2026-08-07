@@ -15,6 +15,7 @@ public struct CurrentHoleView: View {
     public let package: LiveRoundPackage
     public let hole: Hole
     public let onEvent: (LiveRoundEvent) -> Void
+    private let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
     private let requestBuilder = CaddieDecisionRequestBuilder()
     private let offlineDecisionEvaluator = OfflineCaddieDecisionEvaluator()
     private let caddieClient: CaddieDecisionClient?
@@ -89,6 +90,7 @@ public struct CurrentHoleView: View {
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onAdvanceHole: @escaping (Int) -> Void = { _ in },
+        onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
     ) {
         self.package = package
@@ -112,6 +114,7 @@ public struct CurrentHoleView: View {
         self.onPrepareCompositeRound = onPrepareCompositeRound
         self.onFinishRound = onFinishRound
         self.onAdvanceHole = onAdvanceHole
+        self.onRetainReadyHolePrep = onRetainReadyHolePrep
         let seed = package.caddieContextSeeds.first { $0.hole == hole.number }
         let restoredHoleState = liveRoundState?.holeState(for: hole.number)
         self._score = State(initialValue: restoredHoleState?.score ?? hole.par)
@@ -712,7 +715,6 @@ public struct CurrentHoleView: View {
                 localHole: mapLocalHole
             ) else { return false }
             lightweight = fetched
-            holePrep = fetched
         } catch {
             // Keep the package's retained prep facts. Returning false prevents the partial-map
             // upgrade loop from polling forever while the player is offline.
@@ -720,6 +722,7 @@ public struct CurrentHoleView: View {
         }
         // Old cached/server payloads may lack the three topo anchors. Keep that compatibility path,
         // but never make current geometry pay the cold server-render cost that lost hole 4's facts.
+        var resolved = lightweight
         if lightweight.resolvedMapOverlay == nil,
            !lightweight.route.isEmpty,
            let rendered = try? await client.fetchHolePrep(
@@ -727,8 +730,14 @@ public struct CurrentHoleView: View {
                localHole: mapLocalHole,
                render: true
            ) {
-            holePrep = rendered
+            resolved = rendered
         }
+        await retainThenPublishHolePrep(
+            resolved,
+            globalId: mapGlobalId,
+            sourceLocalHole: mapLocalHole,
+            watchHole: hole.number
+        )
         // Re-push to the watch now that F/M/B + plays-like are available. The ordered bootstrap will
         // fetch and push the matching caddie decision immediately after this map step.
         if let holePrep {
@@ -736,15 +745,6 @@ public struct CurrentHoleView: View {
             moveSimulatedLocationToHoleTeeIfRequested(holePrep)
             #endif
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
-            // watch P1b: relay the clean topo bitmap so the watch renders the hole map offline. Keyed by
-            // the round hole number (what WatchRoundState.hole carries), fetched by the source local hole.
-            if holePrep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame {
-                await pushTopoToWatch(
-                    globalId: mapGlobalId,
-                    sourceLocalHole: mapLocalHole,
-                    watchHole: hole.number
-                )
-            }
         }
         return true
     }
@@ -777,19 +777,42 @@ public struct CurrentHoleView: View {
                 continue
             }
 
-            holePrep = refreshed
-            // Do not publish ready geometry beside the provisional CourseView decision. The
-            // decision request rehydrates its geometry authority on the server and sends one
-            // coherent ready state to the Watch when it completes.
-            await loadCaddieDecision(syncClub: syncClub && !hasUserSelectedClub)
-            guard !Task.isCancelled else { return }
-            await pushTopoToWatch(
+            // Cache the matching bitmap and retain the precise prep before SwiftUI can publish the
+            // ready map. A force-quit immediately after the map appears must therefore reopen the
+            // same factual map instead of the partial package captured when the round started.
+            await retainThenPublishHolePrep(
+                refreshed,
                 globalId: mapGlobalId,
                 sourceLocalHole: mapLocalHole,
                 watchHole: hole.number
             )
+            // Rehydrate the decision from precise geometry after the durable map state is visible.
+            await loadCaddieDecision(syncClub: syncClub && !hasUserSelectedClub)
+            guard !Task.isCancelled else { return }
             return
         }
+    }
+
+    /// A ready prep and its bitmap are one user-visible fact. Make both durable before assigning
+    /// `holePrep`; otherwise the player can see the precise map, kill the app, and resume from the
+    /// older partial round package. Partial CourseView facts remain intentionally immediate.
+    @MainActor
+    private func retainThenPublishHolePrep(
+        _ prep: CoursePrepHole,
+        globalId: Int,
+        sourceLocalHole: Int,
+        watchHole: Int
+    ) async {
+        if prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+           prep.resolvedMapOverlay != nil {
+            await cacheTopoAndPushToWatch(
+                globalId: globalId,
+                sourceLocalHole: sourceLocalHole,
+                watchHole: watchHole
+            )
+            onRetainReadyHolePrep(package.roundId, hole.number, prep)
+        }
+        holePrep = prep
     }
 
     #if DEBUG
@@ -812,16 +835,15 @@ public struct CurrentHoleView: View {
     }
     #endif
 
-    /// watch P1b: fetch this hole's clean topo bitmap (/topo.png) and relay it to the watch over
-    /// WatchConnectivity (transferFile) so the watch draws the hole map from local storage. Best-effort —
-    /// a missing base URL / watch bridge / failed fetch just leaves the watch on the text hub.
-    private func pushTopoToWatch(globalId: Int, sourceLocalHole: Int, watchHole: Int) async {
-        guard let watchBridge, globalId != 0 else { return }
+    /// Cache the clean topo independently of Watch availability, then relay the same bytes when a
+    /// bridge exists. Phone durability must not depend on whether WatchConnectivity was created.
+    private func cacheTopoAndPushToWatch(globalId: Int, sourceLocalHole: Int, watchHole: Int) async {
+        guard globalId != 0, offlineStore != nil || watchBridge != nil else { return }
         if let cached = offlineStore?.loadCourseTopoImage(
             globalId: globalId,
             localHole: sourceLocalHole
         ) {
-            watchBridge.pushHoleImage(globalId: globalId, hole: watchHole, imageData: cached)
+            watchBridge?.pushHoleImage(globalId: globalId, hole: watchHole, imageData: cached)
             return
         }
         #if DEBUG
@@ -834,12 +856,18 @@ public struct CurrentHoleView: View {
                   baseURL: caddieBaseURL,
                   adminToken: adminToken
               ).fetchTopoImage(globalId: globalId, localHole: sourceLocalHole) else { return }
-        try? offlineStore?.saveCourseTopoImage(
-            data,
-            globalId: globalId,
-            localHole: sourceLocalHole
-        )
-        watchBridge.pushHoleImage(globalId: globalId, hole: watchHole, imageData: data)
+        do {
+            try offlineStore?.saveCourseTopoImage(
+                data,
+                globalId: globalId,
+                localHole: sourceLocalHole
+            )
+        } catch {
+            AICaddieLog.storage.error(
+                "Live topo cache save failed for \(globalId, privacy: .public)/\(sourceLocalHole, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+        }
+        watchBridge?.pushHoleImage(globalId: globalId, hole: watchHole, imageData: data)
     }
 
     /// round-13 LIVE: 本洞前/中/后果岭(F/M/B)prep 数据,仅在 prep 几何可用时。distances 是 tee→green

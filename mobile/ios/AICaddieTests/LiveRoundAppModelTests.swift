@@ -190,6 +190,118 @@ private func capturedRequestBodyData(from request: URLRequest) throws -> Data {
 
 @MainActor
 final class LiveRoundAppModelTests: XCTestCase {
+    func testReadyForegroundPrepIsDurablePreservesOtherHolesAndRenumbersCompositeBackNine() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let frontSourceHole = try XCTUnwrap(source.holes.first)
+        let factualPrep = try JSONDecoder().decode(
+            CoursePrepResponse.self,
+            from: offlinePrepResponseData(
+                for: source,
+                localHoles: [frontSourceHole.sourceLocalHole ?? frontSourceHole.number]
+            )
+        ).holes[0]
+        let partialPrep = try JSONDecoder().decode(
+            CoursePrepResponse.self,
+            from: offlinePrepResponseData(
+                for: source,
+                localHoles: [frontSourceHole.sourceLocalHole ?? frontSourceHole.number],
+                geometryCoverage: "partial"
+            )
+        ).holes[0]
+        let compositeHoles = [
+            Hole(
+                number: 9,
+                par: 4,
+                yards: 390,
+                geometryCoverage: .ready,
+                sourceGlobalId: source.course.globalId,
+                sourceLocalHole: 9
+            ),
+            Hole(
+                number: 10,
+                par: factualPrep.par,
+                yards: factualPrep.blueYards,
+                geometryCoverage: .ready,
+                sourceGlobalId: source.course.globalId + 1,
+                sourceLocalHole: factualPrep.hole
+            ),
+        ]
+        let round = package(
+            source,
+            roundId: "foreground-prep-retention",
+            recentRounds: [],
+            holes: compositeHoles
+        ).replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: source.course.globalId,
+            holes: [factualPrep.renumbered(to: 9)],
+            missingData: [CoursePrepMissingData(label: "offline_course_prep", reason: "1/2 retained")]
+        ))
+        try store.saveRoundPackage(round)
+        try store.saveActiveHole(roundId: round.roundId, hole: 10)
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 503,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"detail":"offline"}"#.utf8)
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            preferredRoundId: round.roundId,
+            syncClient: SyncClient(
+                baseURL: URL(string: "https://offline.example.test")!,
+                session: session,
+                retrySleep: { _ in }
+            )
+        )
+        await model.bootstrap()
+
+        XCTAssertTrue(model.retainReadyHolePrep(
+            roundId: round.roundId,
+            roundHole: 10,
+            prep: factualPrep
+        ))
+        XCTAssertEqual(model.package?.coursePrep?.holes.map(\.hole), [9, 10])
+        XCTAssertEqual(model.package?.coursePrep?.holes.first(where: { $0.hole == 9 }), factualPrep.renumbered(to: 9))
+        XCTAssertEqual(model.package?.coursePrep?.holes.first(where: { $0.hole == 10 }), factualPrep.renumbered(to: 10))
+
+        let resumed = try XCTUnwrap(store.loadResumablePackage())
+        XCTAssertEqual(resumed.roundId, round.roundId)
+        XCTAssertEqual(resumed.coursePrep?.holes.map(\.hole), [9, 10])
+        XCTAssertEqual(resumed.coursePrep?.holes.first(where: { $0.hole == 10 })?.geometryCoverage, "ready")
+
+        XCTAssertFalse(model.retainReadyHolePrep(
+            roundId: "a-later-round",
+            roundHole: 10,
+            prep: factualPrep
+        ), "a late callback from another round must not overwrite the active package")
+        XCTAssertFalse(model.retainReadyHolePrep(
+            roundId: round.roundId,
+            roundHole: 9,
+            prep: partialPrep
+        ), "partial geometry must not replace a retained precise hole")
+        XCTAssertEqual(
+            try store.loadResumablePackage()?.coursePrep?.holes.first(where: { $0.hole == 9 })?.geometryCoverage,
+            "ready"
+        )
+    }
+
     func testPrepareCourseRoundRebasesDownloadedTemplateWhenPackageRequestIsOffline() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
