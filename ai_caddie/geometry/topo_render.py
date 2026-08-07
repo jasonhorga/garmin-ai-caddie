@@ -39,6 +39,7 @@ import io
 import math
 import os
 import random
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -585,6 +586,19 @@ def cache_path(gid: int, hole: int) -> Path:
     return cache_dir() / f"gid{int(gid)}_h{int(hole):02d}_{cache_identity(gid, hole)}.png"
 
 
+_cache_lock = threading.Lock()
+_cache_inflight: dict[Path, threading.Event] = {}
+
+
+def _read_cached_topo(path: Path) -> bytes | None:
+    if not path.exists():
+        return None
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
 def render_hole_topo_cached(gid: int, hole: int) -> bytes:
     """PNG bytes for (gid, hole, geometry authority), cached after the first render.
 
@@ -593,17 +607,42 @@ def render_hole_topo_cached(gid: int, hole: int) -> bytes:
     malformed mesh. A Garmin geometry update changes the cache identity and therefore
     cannot reuse the previous release's bitmap."""
     path = cache_path(gid, hole)
-    if path.exists():
-        try:
-            return path.read_bytes()
-        except OSError:
-            pass  # unreadable cache entry -> re-render below
-    png = render_hole_topo(gid, hole)  # raises on missing/broken geometry (before any write)
+    if cached := _read_cached_topo(path):
+        return cached
+
+    # AsyncImage, the phone's offline cache, Watch transfer and Web may request the same cold hole
+    # together. Rendering each copy wastes tens of seconds of CPU and can block unrelated catalogue
+    # requests. One process-level leader renders; followers reuse its atomic cache result.
+    with _cache_lock:
+        if cached := _read_cached_topo(path):
+            return cached
+        waiter = _cache_inflight.get(path)
+        if waiter is None:
+            waiter = threading.Event()
+            _cache_inflight[path] = waiter
+            is_leader = True
+        else:
+            is_leader = False
+
+    if not is_leader:
+        waiter.wait()
+        if cached := _read_cached_topo(path):
+            return cached
+        # The leader failed before producing a cache file. Become the next leader and preserve the
+        # endpoint's existing honest 404/error behaviour instead of returning invented bytes.
+        return render_hole_topo_cached(gid, hole)
+
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".png.tmp")
-        tmp.write_bytes(png)
-        os.replace(tmp, path)  # atomic: concurrent readers never see a half-written file
-    except OSError:
-        pass  # cache write is best-effort; still return the freshly rendered bytes
-    return png
+        png = render_hole_topo(gid, hole)  # raises on missing/broken geometry (before any write)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".png.tmp")
+            tmp.write_bytes(png)
+            os.replace(tmp, path)  # atomic: concurrent readers never see a half-written file
+        except OSError:
+            pass  # cache write is best-effort; still return the freshly rendered bytes
+        return png
+    finally:
+        with _cache_lock:
+            _cache_inflight.pop(path, None)
+            waiter.set()

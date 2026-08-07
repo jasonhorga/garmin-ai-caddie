@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Barrier, Event
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -108,6 +110,34 @@ class TopoRenderModuleTests(unittest.TestCase):
         self.assertEqual(first, canned)
         self.assertEqual(second, canned)
         render.assert_called_once()  # second hit served from the on-disk cache
+
+    def test_concurrent_cold_requests_share_one_render(self) -> None:
+        canned = _PNG_MAGIC + b"singleflight-topo"
+        callers_ready = Barrier(2)
+        render_started = Event()
+        release_render = Event()
+
+        def slow_render(_gid: int, _hole: int) -> bytes:
+            render_started.set()
+            self.assertTrue(release_render.wait(timeout=2))
+            return canned
+
+        def request() -> bytes:
+            callers_ready.wait(timeout=2)
+            return topo_render.render_hole_topo_cached(31795, 1)
+
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
+                patch.object(topo_render, "render_hole_topo", side_effect=slow_render) as render, \
+                ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(request)
+            second = pool.submit(request)
+            self.assertTrue(render_started.wait(timeout=2))
+            release_render.set()
+            self.assertEqual(first.result(timeout=2), canned)
+            self.assertEqual(second.result(timeout=2), canned)
+
+        render.assert_called_once()
 
     def test_cache_key_includes_style_version(self) -> None:
         with patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": "/x/y"}):

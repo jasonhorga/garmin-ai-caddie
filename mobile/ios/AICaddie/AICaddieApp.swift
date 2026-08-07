@@ -809,14 +809,14 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// Fetch topo PNGs with a small concurrency window. A real 18-hole download used to request
-    /// them strictly one-by-one; over the public funnel that added more than 100 seconds after the
-    /// course facts were ready. Four in flight keeps the phone/server/network busy without creating
-    /// an unbounded request burst. Each result is saved serially by the MainActor caller.
+    /// Fetch topo PNGs with a bounded concurrency window. The offline caller deliberately invokes
+    /// this one hole at a time: a cold topo render is CPU-heavy, and four simultaneous renders made
+    /// interactive nearby/search/map requests wait behind the background course download. Returning
+    /// after each hole also lets the caller persist that bitmap before a process death.
     private func fetchOfflineTopoImages(
         _ holes: [(globalId: Int, localHole: Int)],
         using syncClient: SyncClient,
-        maximumConcurrentRequests: Int = 4
+        maximumConcurrentRequests: Int = 1
     ) async -> [OfflineTopoDownloadResult] {
         guard !holes.isEmpty else { return [] }
         let client = OfflineDownloadClient(value: syncClient)
@@ -1020,6 +1020,23 @@ public final class LiveRoundAppModel: ObservableObject {
                 )]
         ))
 
+        // Course facts and topo bitmaps have independent durability. Persist the precise per-hole
+        // facts before starting the potentially long bitmap pass; otherwise a force-quit after the
+        // visible first-hole topo succeeds can restore the old partial package and never select the
+        // already-cached precise image. The downloaded-course list still requires every bitmap, so
+        // this early save cannot falsely advertise that the whole course is offline-ready.
+        do {
+            try offlineStore.saveCourseTemplate(enriched)
+            if package?.roundId == snapshot.roundId, liveRoundState != nil {
+                try offlineStore.saveRoundPackage(enriched)
+                package = enriched
+            }
+        } catch {
+            AICaddieLog.storage.error(
+                "Offline course facts save failed: \(String(describing: error), privacy: .public)"
+            )
+        }
+
         let topoRetryDelays: [UInt64] = [5, 10, 20]
         for attempt in 0...topoRetryDelays.count {
             guard !Task.isCancelled else { return }
@@ -1036,9 +1053,14 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             guard !missingTopoHoles.isEmpty else { break }
 
-            let downloads = await fetchOfflineTopoImages(missingTopoHoles, using: syncClient)
-            guard !Task.isCancelled else { return }
-            for download in downloads {
+            // Persist each hole as soon as it arrives. The previous all-course task group returned
+            // only after every cold render completed, so killing the app on hole 1 discarded even a
+            // successfully downloaded first bitmap and four renders could starve foreground APIs.
+            for hole in missingTopoHoles {
+                guard !Task.isCancelled else { return }
+                let downloads = await fetchOfflineTopoImages([hole], using: syncClient)
+                guard !Task.isCancelled else { return }
+                guard let download = downloads.first else { continue }
                 guard let data = download.data else {
                     let errorDescription = download.errorDescription ?? "unknown error"
                     AICaddieLog.network.error(
@@ -1655,6 +1677,7 @@ public final class LiveRoundAppModel: ObservableObject {
         latitude: Double? = nil,
         longitude: Double? = nil
     ) async throws -> [MobileCourseSearchMatch] {
+        prioritizeCourseDiscovery()
         guard let syncClient else { throw URLError(.notConnectedToInternet) }
         return try await syncClient.searchCourses(
             name: name,
@@ -1668,6 +1691,7 @@ public final class LiveRoundAppModel: ObservableObject {
         longitude: Double,
         radiusKm: Int
     ) async throws -> [MobileCourseSearchMatch] {
+        prioritizeCourseDiscovery()
         #if DEBUG
         // Real-simulator acceptance seam: keep bootstrap, search and course downloads on the live
         // backend while forcing only the automatic nearby request offline. Release/TestFlight never
@@ -1682,6 +1706,14 @@ public final class LiveRoundAppModel: ObservableObject {
             longitude: longitude,
             radiusKm: radiusKm
         )
+    }
+
+    /// Nearby/name discovery is the player's foreground intent. Stop an older round's best-effort
+    /// all-hole cache pass before issuing it so background topo work cannot strand Start Round.
+    /// A selected course starts its own download again after preparation.
+    private func prioritizeCourseDiscovery() {
+        offlineCourseDownloadTask?.cancel()
+        offlineCourseDownloadTask = nil
     }
 
     /// Load the course's selectable tee boxes (GET /courses/{id}/tees) for the 开始一场 picker —

@@ -275,6 +275,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var requestedURLs: [URL] = []
+        var topoRequestCount = 0
+        var firstTopoWasDurableBeforeSecondRequest: Bool?
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
             requestLock.withLock {
@@ -293,6 +295,20 @@ final class LiveRoundAppModelTests: XCTestCase {
                 body = try self.offlinePrepResponseData(for: online, localHoles: requested)
                 contentType = "application/json"
             case let path where path.hasSuffix("/topo.png"):
+                let isSecondTopo = requestLock.withLock {
+                    topoRequestCount += 1
+                    return topoRequestCount == 2
+                }
+                if isSecondTopo {
+                    let firstHole = try XCTUnwrap(online.holes.first)
+                    let durable = store.loadCourseTopoImageURL(
+                        globalId: firstHole.sourceGlobalId ?? online.course.globalId,
+                        localHole: firstHole.sourceLocalHole ?? firstHole.number
+                    ) != nil
+                    requestLock.withLock {
+                        firstTopoWasDurableBeforeSecondRequest = durable
+                    }
+                }
                 body = png
                 contentType = "image/png"
             default:
@@ -337,6 +353,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.downloadedCourseOptions.map(\.globalId), [online.course.globalId])
         XCTAssertTrue(model.package?.hasCompleteOfflineCoursePrep == true)
         XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))
+        XCTAssertEqual(
+            requestLock.withLock { firstTopoWasDurableBeforeSecondRequest },
+            true,
+            "each cold topo must be persisted before the background downloader asks for the next hole"
+        )
         XCTAssertNotNil(try store.loadCourseTemplate(
             globalId: online.course.globalId,
             teeBox: online.course.teeBox,
