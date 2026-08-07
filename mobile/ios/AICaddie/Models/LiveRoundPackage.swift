@@ -88,14 +88,18 @@ public struct LiveRoundPackage: Codable, Equatable {
     }
 
     /// A fast live package intentionally omits all-hole prep. Once the phone's background download
-    /// fills it, every round hole must have a retained route/projection that can draw without a
-    /// server. Missing-geometry courses remain scoreable but are not advertised as map-complete.
+    /// fills it, every round hole must have both a retained route/projection and precise geometry.
+    /// A CourseView-only outline remains useful for online play, but is not a complete offline map.
     public var hasCompleteOfflineCoursePrep: Bool {
         guard !holes.isEmpty, let preparedHoles = coursePrep?.holes else { return false }
-        let drawable = Set(preparedHoles.compactMap { prep in
-            prep.resolvedMapOverlay == nil ? nil : prep.hole
+        let preciseDrawable = Set(preparedHoles.compactMap { prep in
+            guard prep.resolvedMapOverlay != nil,
+                  prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
+                return nil
+            }
+            return prep.hole
         })
-        return Set(holes.map(\.number)).isSubset(of: drawable)
+        return Set(holes.map(\.number)).isSubset(of: preciseDrawable)
     }
 
     public func replacingCoursePrep(_ nextCoursePrep: CoursePrepPackage?) -> LiveRoundPackage {

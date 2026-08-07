@@ -372,6 +372,124 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
+    func testPartialCoursePrepWaitsOnCheapCoverageThenFetchesEachPreciseHoleOnce() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let holes = (1...2).map { number in
+            Hole(
+                number: number,
+                par: 4,
+                yards: 350 + number,
+                geometryCoverage: .partial,
+                sourceGlobalId: source.course.globalId,
+                sourceLocalHole: number
+            )
+        }
+        let online = package(
+            source,
+            roundId: "partial-upgrade-round",
+            recentRounds: [],
+            holes: holes
+        ).replacingCoursePrep(nil)
+        let packageData = try JSONEncoder().encode(online)
+        let png = minimalPNGData()
+        let requestLock = NSLock()
+        var geometryReady = false
+        var prepCoverages: [String] = []
+        var coverageRequestCount = 0
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let body: Data
+            let contentType: String
+            switch url.path {
+            case let path where path.contains("/api/v2/mobile/courses/"):
+                body = packageData
+                contentType = "application/json"
+            case let path where path.contains("/geometry/course/"):
+                requestLock.withLock {
+                    coverageRequestCount += 1
+                    geometryReady = true
+                }
+                body = Data(
+                    """
+                    {"schema":"ai-caddie-course-geometry-coverage-v1",\
+                    "globalId":\(online.course.globalId),"coverage":"ready",\
+                    "readyHoles":2,"partialHoles":0,"totalHoles":2,"holes":[\
+                    {"globalId":\(online.course.globalId),"localHole":1,"coverage":"ready"},\
+                    {"globalId":\(online.course.globalId),"localHole":2,"coverage":"ready"}]}
+                    """.utf8
+                )
+                contentType = "application/json"
+            case let path where path.hasSuffix("/prep"):
+                let ready = requestLock.withLock { geometryReady }
+                let coverage = ready ? "ready" : "partial"
+                requestLock.withLock { prepCoverages.append(coverage) }
+                let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .filter { $0.name == "holes" }
+                    .compactMap { $0.value.flatMap(Int.init) } ?? []
+                body = try self.offlinePrepResponseData(
+                    for: online,
+                    localHoles: requested,
+                    geometryCoverage: coverage
+                )
+                contentType = "application/json"
+            case let path where path.hasSuffix("/topo.png"):
+                body = png
+                contentType = "image/png"
+            default:
+                body = Data(#"{"queued":true}"#.utf8)
+                contentType = "application/json"
+            }
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": contentType]
+                )!,
+                body
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://partial.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: [0, 0]
+        )
+
+        await model.prepareCourseRound(
+            globalId: online.course.globalId,
+            roundId: online.roundId,
+            teeBox: online.course.teeBox,
+            nine: "all"
+        )
+        let deadline = Date().addingTimeInterval(5)
+        while !store.hasCourseTopoImages(for: model.package ?? online), Date() < deadline {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+
+        let observations = requestLock.withLock { prepCoverages }
+        XCTAssertEqual(observations.filter { $0 == "partial" }.count, holes.count)
+        XCTAssertEqual(observations.filter { $0 == "ready" }.count, holes.count)
+        XCTAssertEqual(requestLock.withLock { coverageRequestCount }, 1)
+        XCTAssertTrue(model.package?.hasCompleteOfflineCoursePrep == true)
+        XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))
+    }
+
     func testFinishActiveRoundAcknowledgesEventsBeforeFinishAndOnlyThenClearsLocalRound() async throws {
         let fixture = try completedFixtureRound()
         let finishedRound = RecentRoundSummary(
@@ -499,7 +617,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                 baseURL: try XCTUnwrap(URL(string: "https://example.test")),
                 clientId: "ios-phone",
                 session: session
-            )
+            ),
+            offlineGeometryRetryDelaysNanoseconds: [0]
         )
 
         await model.bootstrap()
@@ -543,6 +662,93 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertNil(model.liveRoundState)
         XCTAssertNil(try fixture.store.loadCurrentRoundPackage())
         XCTAssertFalse(try fixture.store.loadEvents().contains { $0.roundId == fixture.package.roundId })
+
+        // A home package intentionally keeps this same identity. Starting it again must still enter
+        // hole 1; comparing only package.roundId used to leave the UI stuck on “准备中”.
+        await model.prepareCourseRound(
+            globalId: fixture.package.course.globalId,
+            roundId: refreshedHome.roundId,
+            teeBox: refreshedHome.course.teeBox,
+            nine: refreshedHome.nine ?? "all"
+        )
+        XCTAssertEqual(model.liveRoundState?.roundId, refreshedHome.roundId)
+        XCTAssertEqual(model.pendingLiveHole, refreshedHome.holes.first?.number)
+        XCTAssertTrue(try fixture.store.loadPendingEvents(roundId: refreshedHome.roundId).isEmpty)
+    }
+
+    func testLatestCoursePreparationWinsWhenAnOlderResponseArrivesLate() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let slow = package(source, roundId: "slow-round", recentRounds: [])
+        let fast = package(source, roundId: "fast-round", recentRounds: [])
+        let slowData = try JSONEncoder().encode(slow)
+        let fastData = try JSONEncoder().encode(fast)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path.contains("/api/v2/mobile/courses/") {
+                let roundId = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .first { $0.name == "round_id" }?.value
+                if roundId == slow.roundId {
+                    Thread.sleep(forTimeInterval: 0.25)
+                }
+                return (
+                    HTTPURLResponse(
+                        url: url, statusCode: 200, httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    roundId == slow.roundId ? slowData : fastData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: url, statusCode: 503, httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"detail":"not needed"}"#.utf8)
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://generation.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: [0]
+        )
+
+        let slowTask = Task {
+            await model.prepareCourseRound(
+                globalId: source.course.globalId,
+                roundId: slow.roundId,
+                teeBox: source.course.teeBox,
+                nine: "all"
+            )
+        }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        await model.prepareCourseRound(
+            globalId: source.course.globalId,
+            roundId: fast.roundId,
+            teeBox: source.course.teeBox,
+            nine: "all"
+        )
+        await slowTask.value
+
+        XCTAssertEqual(model.package?.roundId, fast.roundId)
+        XCTAssertEqual(model.liveRoundState?.roundId, fast.roundId)
+        XCTAssertEqual(model.pendingLiveHole, fast.holes.first?.number)
+        XCTAssertFalse(model.isPreparingRound)
+        XCTAssertNil(try store.loadRoundPackage(roundId: slow.roundId))
     }
 
     func testFinishActiveRoundRejectsPartialAcknowledgementAndPreservesWholeRound() async throws {
@@ -1336,7 +1542,8 @@ final class LiveRoundAppModelTests: XCTestCase {
 
     private func offlinePrepResponseData(
         for package: LiveRoundPackage,
-        localHoles: [Int]? = nil
+        localHoles: [Int]? = nil,
+        geometryCoverage: String = "ready"
     ) throws -> Data {
         let requested = localHoles.map { Set($0) }
         let holes = package.holes.filter { hole in
@@ -1349,7 +1556,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             return """
             {"hole":\(hole.sourceLocalHole ?? hole.number),"par":\(hole.par),
              "par_source":"courseview","blue_yards":\(blueYards),"route_len_m":360,
-             "route":[[0,0,0],[0,360,360]],"geometryCoverage":"ready","steps":[],"cautions":[],
+             "route":[[0,0,0],[0,360,360]],"geometryCoverage":"\(geometryCoverage)","steps":[],"cautions":[],
              "hazards":{"water_carry":[],"bunkers":[],"details":[]},
              "map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":720,"h":1120,
              "ppm":1,"ln":360,"route":[[360,1000,0],[360,100,360]]}}}

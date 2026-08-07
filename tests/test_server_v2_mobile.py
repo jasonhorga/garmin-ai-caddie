@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
@@ -278,6 +278,23 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(len(tasks.tasks), 1)
         self.assertIs(tasks.tasks[0].func, server_main._upgrade_course_geometry)
         self.assertEqual(tasks.tasks[0].args, ({31796: [1], 31797: [1]},))
+
+    def test_background_geometry_upgrade_does_not_duplicate_client_topo_downloads(self) -> None:
+        from server_v2 import main as server_main
+
+        with (
+            patch(
+                "ai_caddie.caddie.mobile_live._ensure_geometry_for_course"
+            ) as ensure_geometry,
+            patch.object(server_main, "_prewarm_course_topo") as prewarm_topo,
+        ):
+            server_main._upgrade_course_geometry({31796: [1, 2], 31797: [4]})
+
+        self.assertEqual(
+            ensure_geometry.call_args_list,
+            [call(31796, holes=[1, 2]), call(31797, holes=[4])],
+        )
+        prewarm_topo.assert_not_called()
 
     def test_mobile_round_package_can_prefetch_geometry_for_offline_readiness(self) -> None:
         client = TestClient(app)

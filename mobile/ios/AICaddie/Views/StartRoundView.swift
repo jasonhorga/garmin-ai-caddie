@@ -91,7 +91,12 @@ public struct StartRoundView: View {
             String($0.globalId) == resolvedCourseId
         }
         self._courseGlobalIdText = State(initialValue: resolvedCourseId)
-        self._roundId = State(initialValue: selected?.suggestedLiveRoundId ?? defaultRoundId)
+        // `suggestedLiveRoundId` describes a reusable course/home package, not a golf-round
+        // identity.  Every explicit Start must own a fresh id even when this is the same course the
+        // player just finished; otherwise its old progress/events can be restored into the new round.
+        self._roundId = State(initialValue: selected.map {
+            Self.freshLiveRoundId(globalId: $0.globalId)
+        } ?? defaultRoundId)
         // Default to the course's real tee (prefer Blue/White), else the given/played tee.
         let courseTees = selected?.tees ?? []
         let resolvedTee = courseTees.first(where: { ["blue", "white"].contains($0.lowercased()) })
@@ -642,9 +647,7 @@ public struct StartRoundView: View {
               let option = courseLookupOptions.first(where: { $0.globalId == globalId }) else {
             return
         }
-        // P1-3: a fixed "live-<globalId>" fallback is reused across rounds on the same course, so two
-        // real rounds merge locally and post to the same backend round. Seed a unique id per round.
-        roundId = option.suggestedLiveRoundId ?? "live-\(option.globalId)-\(UUID().uuidString)"
+        roundId = Self.freshLiveRoundId(globalId: option.globalId)
         if let optionTeeBox = option.teeBox, optionTeeBox != "unknown" {
             teeBox = optionTeeBox
         }
@@ -653,6 +656,10 @@ public struct StartRoundView: View {
         if !tees.isEmpty, !tees.contains(where: { $0.lowercased() == teeBox.lowercased() }) {
             teeBox = tees.first(where: { ["blue", "white"].contains($0.lowercased()) }) ?? tees.first ?? teeBox
         }
+    }
+
+    static func freshLiveRoundId(globalId: Int, uuid: UUID = UUID()) -> String {
+        "live-\(globalId)-\(uuid.uuidString)"
     }
 
     private var availableCourseOptions: [MobileCourseOption] {

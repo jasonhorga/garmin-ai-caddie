@@ -829,6 +829,30 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertFalse(app.navigationBars["开始一场"].exists, "finish must not strand the player in the setup form")
         XCTAssertFalse(app.staticTexts["进行中"].exists, "the explicitly finished round must no longer be active")
         settle(1); save("journey-finished-home"); dump("journey-finished-home")
+
+        // The last home package deliberately still describes 北京丽宫.  Starting that same course
+        // immediately must create a distinct round and enter hole 1 instead of comparing the home
+        // package id, deciding “not new”, and remaining forever on the preparation screen.
+        XCTAssertTrue(tapContaining(["打球", "开始一场"]))
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+        let repeatSegment = app.buttons[
+            "start-round-course-segment-\(approvedJourneyCourseGlobalId)"
+        ]
+        XCTAssertTrue(scrollTo(repeatSegment, maxSwipes: 24))
+        if repeatSegment.value as? String != "已选择" {
+            repeatSegment.tap()
+        }
+        XCTAssertEqual(repeatSegment.value as? String, "已选择")
+        let repeatStart = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(waitUntilEnabled(repeatStart, timeout: 90))
+        XCTAssertTrue(scrollTo(repeatStart, maxSwipes: 20))
+        repeatStart.tap()
+        XCTAssertTrue(
+            app.staticTexts["第 1 洞"].waitForExistence(timeout: 90),
+            "the same course must be startable again immediately after finish"
+        )
+        XCTAssertTrue(app.staticTexts["363"].waitForExistence(timeout: 60))
+        settle(1); save("journey-same-course-restarted"); dump("journey-same-course-restarted")
     }
 
     /// Proves the complete empty-cache path without replacing the existing 北京丽宫 18-hole

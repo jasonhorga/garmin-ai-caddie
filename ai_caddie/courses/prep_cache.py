@@ -19,6 +19,7 @@ could serve stale prep for it.
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import os
 import threading
@@ -73,6 +74,30 @@ def _dir_sig(directory: Path) -> tuple[int, str]:
     return (len(files), digest.hexdigest())
 
 
+def _matching_dir_sig(directory: Path, pattern: str) -> tuple[int, str]:
+    """Fingerprint only regular files whose basename matches ``pattern``.
+
+    Geometry is stored for every course in two shared directories.  Using the whole
+    directory as one prep-cache dependency meant installing course B invalidated the
+    already-stable prep for course A.  Course prep reads only ``gid<id>_h*`` geometry,
+    so its cache dependency must have the same course boundary.
+    """
+    files: list[tuple[str, int, int]] = []
+    try:
+        with os.scandir(directory) as it:
+            for entry in it:
+                if entry.is_file() and fnmatch.fnmatchcase(entry.name, pattern):
+                    st = entry.stat()
+                    files.append((entry.name, st.st_size, st.st_mtime_ns))
+    except (FileNotFoundError, NotADirectoryError):
+        return (0, "")
+    files.sort()
+    digest = hashlib.blake2b(digest_size=16)
+    for name, size, mtime_ns in files:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00".encode("utf-8"))
+    return (len(files), digest.hexdigest())
+
+
 def _file_sig(path: Path) -> tuple[int, int] | None:
     try:
         st = path.stat()
@@ -103,11 +128,14 @@ def _course_data_sig(global_id: int) -> tuple[int, str]:
 
 
 def _fingerprint(global_id: int, player_id: str = OWNER_ID) -> tuple:
-    par_sig = _file_sig(_COURSES_DIR / f"{int(global_id)}.json")  # par record (shared)
+    gid = int(global_id)
+    par_sig = _file_sig(_COURSES_DIR / f"{gid}.json")  # par record (shared)
+    mesh_sig = _matching_dir_sig(MESH_DIR, f"gid{gid}_h*_meshes.json")
+    hazard_sig = _matching_dir_sig(HAZARD_DIR, f"gid{gid}_h*_hazards.json")
     if player_id == OWNER_ID:
         return (
-            _dir_sig(MESH_DIR),                              # mesh geometry (the ~19s cost)
-            _dir_sig(HAZARD_DIR),                            # hazard intervals
+            mesh_sig,                                       # this course's mesh geometry
+            hazard_sig,                                     # this course's hazard intervals
             _dir_sig(SHOT_DIR),                              # club ladder (profiles) + your-shots scatter
             _dir_sig(SCORECARD_DIR),                         # your-shots scatter reads scorecards too
             _file_sig(CLUBS_BAG_FILE),                       # restrict_to_bag (real Garmin bag)
@@ -120,8 +148,8 @@ def _fingerprint(global_id: int, player_id: str = OWNER_ID) -> tuple:
     # history import) and mirrors history._player_shot_sources' member layout.
     base = DATA_DIR / "players" / player_id
     return (
-        _dir_sig(MESH_DIR),
-        _dir_sig(HAZARD_DIR),
+        mesh_sig,
+        hazard_sig,
         _dir_sig(base / "shots"),                            # their measured ladder + scatter
         _dir_sig(base / "scorecards"),                       # their scatter reads scorecards too
         _file_sig(base / "club_bag_manual.json"),            # their manual bag (selection + typed dist)

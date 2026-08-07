@@ -1227,7 +1227,10 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("let preparedAt = Date()", app_swift)
         self.assertIn("fetchRemotePackage(capturedAt: Date = Date())", app_swift)
-        self.assertIn("fetchRemotePackage(roundId: requestedRoundId, capturedAt: preparedAt)", app_swift)
+        self.assertIn("let fetched = await fetchRemotePackage(", app_swift)
+        self.assertIn("roundId: requestedRoundId", app_swift)
+        self.assertIn("capturedAt: preparedAt", app_swift)
+        self.assertIn("preparationToken: preparationToken", app_swift)
         self.assertIn("fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)", app_swift)
         self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
         self.assertIn(
@@ -1428,8 +1431,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String, nine: String) async", app_swift)
         self.assertIn("@Published public private(set) var courseOptions: [MobileCourseOption] = []", app_swift)
         self.assertIn("courseOptions = try await syncClient.fetchCourseOptions().courses", app_swift)
-        self.assertIn("fetchRemotePackage(roundId:", app_swift)
-        self.assertIn("fetchRemoteCoursePackage(globalId:", app_swift)
+        self.assertIn("let fetched = await fetchRemotePackage(", app_swift)
+        self.assertIn("let fetched = await fetchRemoteCoursePackage(", app_swift)
         self.assertIn("offlineStore.loadRoundPackage(roundId:", app_swift)
         self.assertIn("try activatePackage", app_swift)
         self.assertIn("StartRoundView(", app_swift)
@@ -1438,14 +1441,12 @@ class MobileContractTests(unittest.TestCase):
         # 1d: 开始记分后直接进实战屏(pendingLiveHole → Hub 路径导航到该洞),不弹回 Hub。
         self.assertIn("var pendingLiveHole: Int?", app_swift)
         self.assertIn("signalFreshRoundEntry()", app_swift)
-        # 开局提前备料:新局进入时后端预热本局涉及球场的所有洞 topo 底图(组合局跨 sourceGlobalId 全覆盖),
-        # 逐洞浏览命中热缓存。fire-and-forget,绝不阻塞开局。
-        self.assertIn("prewarmRoundTopo()", app_swift)
-        self.assertIn("$0.sourceGlobalId ?? package.course.globalId", app_swift)
-        self.assertIn("await syncClient.prewarmCourseTopo(globalId: gid)", app_swift)
-        sync_client_prewarm = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
-        self.assertIn("public func prewarmCourseTopo(globalId: Int) async", sync_client_prewarm)
-        self.assertIn("/api/v2/courses/\\(globalId)/topo/prewarm", sync_client_prewarm)
+        # The selected course installer owns each factual prep/topo download. It must not launch a
+        # competing whole-course server prewarm while the same holes are being fetched for offline use.
+        self.assertIn("beginOfflineCourseDownload()", app_swift)
+        self.assertIn("fetchOfflineTopoImages", app_swift)
+        self.assertNotIn("prewarmRoundTopo()", app_swift)
+        self.assertNotIn("prewarmCourseTopo(globalId:", app_swift)
         self.assertIn("enum HubRoute", round_home)
         self.assertIn("path = [.hole(hole)]", round_home)
         self.assertIn("onConsumePendingLiveHole()", round_home)

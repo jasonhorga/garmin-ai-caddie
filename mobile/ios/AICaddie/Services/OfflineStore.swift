@@ -962,13 +962,10 @@ public final class OfflineStore {
     }
 
     public func hasCourseTopoImages(for package: LiveRoundPackage) -> Bool {
-        let readyRoundHoles = Set(package.coursePrep?.holes.compactMap { prep in
-            prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
-                ? prep.hole
-                : nil
-        } ?? [])
-        let readyHoles = package.holes.filter { readyRoundHoles.contains($0.number) }
-        return readyHoles.allSatisfy { hole in
+        // Never let an empty ready-hole set pass via `allSatisfy`.  The downloaded-course list and
+        // "离线地图已准备" label mean every selected round hole has precise facts plus a valid PNG.
+        guard package.hasCompleteOfflineCoursePrep else { return false }
+        return package.holes.allSatisfy { hole in
             loadCourseTopoImageURL(
                 globalId: hole.sourceGlobalId ?? package.course.globalId,
                 localHole: hole.sourceLocalHole ?? hole.number

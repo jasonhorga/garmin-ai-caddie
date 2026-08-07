@@ -1170,13 +1170,17 @@ def mobile_course_package(
 
 
 def _upgrade_course_geometry(requested: dict[int, list[int]]) -> None:
-    """Best-effort precise upgrade after a lightweight package is already returned."""
+    """Best-effort precise upgrade after a lightweight package is already returned.
+
+    Mobile installers fetch the selected topo PNGs themselves (iOS concurrently, Watch in bounded
+    batches) and Web explicitly calls ``/topo/prewarm``. Rendering the entire course again here made
+    geometry decoding and the client's real download compete for the same four server cores.
+    """
     from ai_caddie.caddie.mobile_live import _ensure_geometry_for_course
 
     for global_id, holes in sorted(requested.items()):
         try:
             _ensure_geometry_for_course(int(global_id), holes=[int(hole) for hole in holes])
-            _prewarm_course_topo(int(global_id), [int(hole) for hole in holes])
         except Exception:
             # The active lightweight package remains valid; a later request may retry the
             # precise upgrade without changing the course or round identity.

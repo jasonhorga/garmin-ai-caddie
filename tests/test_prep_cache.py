@@ -92,6 +92,31 @@ class PrepCacheTests(unittest.TestCase):
             self.assertNotEqual(after_release, after_map)
             self.assertEqual(prep_cache._course_data_sig(31795), after_map)
 
+    def test_geometry_fingerprint_is_isolated_to_the_selected_course(self) -> None:
+        with tempfile.TemporaryDirectory() as mesh_tmp, tempfile.TemporaryDirectory() as hazard_tmp:
+            mesh_dir = Path(mesh_tmp)
+            hazard_dir = Path(hazard_tmp)
+            original_mesh = prep_cache.MESH_DIR
+            original_hazard = prep_cache.HAZARD_DIR
+            prep_cache.MESH_DIR = mesh_dir
+            prep_cache.HAZARD_DIR = hazard_dir
+            self.addCleanup(setattr, prep_cache, "MESH_DIR", original_mesh)
+            self.addCleanup(setattr, prep_cache, "HAZARD_DIR", original_hazard)
+
+            (mesh_dir / "gid31795_h01_meshes.json").write_text("{}", encoding="utf-8")
+            (hazard_dir / "gid31795_h01_hazards.json").write_text("{}", encoding="utf-8")
+            selected_before = prep_cache._fingerprint(31795)
+
+            # Installing another course must not evict this course's expensive prep cache.
+            (mesh_dir / "gid45979_h01_meshes.json").write_text("{}", encoding="utf-8")
+            (hazard_dir / "gid45979_h01_hazards.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(prep_cache._fingerprint(31795), selected_before)
+
+            # Regenerating this course still invalidates it immediately.
+            selected_mesh = mesh_dir / "gid31795_h01_meshes.json"
+            selected_mesh.write_text('{"changed":true}', encoding="utf-8")
+            self.assertNotEqual(prep_cache._fingerprint(31795), selected_before)
+
     def test_singleflight_same_key_cold_cache_builds_once(self) -> None:
         # Thundering-herd guard: N concurrent first-requests for the SAME uncached key must
         # run the ~19s build exactly once; the late arrivals wait and read the cached result.

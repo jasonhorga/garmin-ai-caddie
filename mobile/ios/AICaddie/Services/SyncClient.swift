@@ -98,6 +98,22 @@ public struct MobileRoundFinishMetadata: Codable, Equatable {
     }
 }
 
+public struct CourseGeometryHoleCoverage: Codable, Equatable {
+    public let globalId: Int
+    public let localHole: Int
+    public let coverage: String
+}
+
+public struct CourseGeometryCoverageResponse: Codable, Equatable {
+    public let schema: String
+    public let globalId: Int
+    public let coverage: String
+    public let readyHoles: Int
+    public let partialHoles: Int
+    public let totalHoles: Int
+    public let holes: [CourseGeometryHoleCoverage]
+}
+
 private struct MobileRoundFinishRequest: Codable {
     let meta: MobileRoundFinishMetadata
 }
@@ -414,6 +430,28 @@ public final class SyncClient {
         return try JSONDecoder().decode(CoursePrepResponse.self, from: data)
     }
 
+    /// Cheap readiness probe for a background CourseView geometry upgrade.  Unlike `/prep`, this
+    /// reads file presence only, so an offline install can wait for newly-ready holes without
+    /// repeatedly rebuilding the same partial route/hazard payloads.
+    public func fetchCourseGeometryCoverage(
+        globalId: Int,
+        holes: [Int]
+    ) async throws -> CourseGeometryCoverageResponse {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/geometry/course/\(globalId)/coverage"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = holes.map {
+            URLQueryItem(name: "holes", value: String($0))
+        }
+        guard let url = components.url else { throw URLError(.badURL) }
+        let (data, response) = try await session.data(for: URLRequest(url: url))
+        try validate(response: response, data: data)
+        return try JSONDecoder().decode(CourseGeometryCoverageResponse.self, from: data)
+    }
+
     /// Prep for one hole. The default lightweight response carries factual geometry plus topo
     /// projection anchors; callers may explicitly request the legacy embedded rendered bitmap.
     public func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false) async throws -> CoursePrepHole? {
@@ -579,18 +617,6 @@ public final class SyncClient {
         // Garmin geometry asset, so an updated course cannot reuse an older topo bitmap.
         components.queryItems = [URLQueryItem(name: "v", value: "topo-v6")]
         return components.url
-    }
-
-    /// 开局提前备料:让后端把这个球场每个 geometry 洞的 topo 底图渲好缓存
-    /// (`POST /api/v2/courses/{globalId}/topo/prewarm`),之后逐洞浏览命中热缓存、不用每洞现渲。
-    /// FIRE-AND-FORGET:后端本身是后台任务立即返回;这里吞掉一切错误,**绝不阻塞开局**。
-    /// 镜像网页的开局 prewarm(#231)。gid `0`(占位)跳过。
-    public func prewarmCourseTopo(globalId: Int) async {
-        guard globalId != 0 else { return }
-        var request = URLRequest(url: endpointURL("/api/v2/courses/\(globalId)/topo/prewarm"))
-        request.httpMethod = "POST"
-        applyAuth(to: &request)
-        _ = try? await session.data(for: request)
     }
 
     private func validate(response: URLResponse, data: Data) throws {

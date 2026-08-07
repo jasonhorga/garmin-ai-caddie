@@ -294,6 +294,42 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertNil(store.loadCourseTopoImage(globalId: -1, localHole: 1))
     }
 
+    func testOfflineMapCompletenessRequiresEveryPrecisePrepAndTopoImage() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+
+        let noPrep = source.replacingCoursePrep(nil)
+        XCTAssertFalse(noPrep.hasCompleteOfflineCoursePrep)
+        XCTAssertFalse(store.hasCourseTopoImages(for: noPrep))
+
+        let partial = replacingCoursePrep(in: source, geometryCoverage: "partial")
+        XCTAssertFalse(partial.hasCompleteOfflineCoursePrep)
+        XCTAssertTrue(try store.saveCourseTopoImage(
+            validOnePixelPNGData(),
+            globalId: source.course.globalId,
+            localHole: source.holes[0].sourceLocalHole ?? source.holes[0].number
+        ))
+        XCTAssertFalse(
+            store.hasCourseTopoImages(for: partial),
+            "a lightweight outline plus PNG must not masquerade as a precise offline course"
+        )
+
+        let ready = replacingCoursePrep(in: source, geometryCoverage: "ready")
+        XCTAssertTrue(ready.hasCompleteOfflineCoursePrep)
+        XCTAssertTrue(store.hasCourseTopoImages(for: ready))
+
+        let missingImageStore = OfflineStore(
+            directoryURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        )
+        XCTAssertFalse(
+            missingImageStore.hasCourseTopoImages(for: ready),
+            "ready facts without the production PNG are not a complete offline map"
+        )
+    }
+
     func testSaveAndLoadHomePackageCreatesFreshStoreDirectory() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -2327,6 +2363,40 @@ final class OfflineStoreTests: XCTestCase {
             cachedCaddieRules: package.cachedCaddieRules,
             generatedAt: generatedAt
         )
+    }
+
+    private func replacingCoursePrep(
+        in package: LiveRoundPackage,
+        geometryCoverage: String
+    ) -> LiveRoundPackage {
+        let preps = package.holes.map { hole in
+            CoursePrepHole(
+                hole: hole.number,
+                par: hole.par,
+                parSource: "test",
+                blueYards: hole.yards ?? 0,
+                routeLenM: 360,
+                route: [[0, 0, 0], [0, 360, 360]],
+                geometryCoverage: geometryCoverage,
+                hazards: CoursePrepHazards(),
+                map: CoursePrepMap(
+                    image: "data:image/jpeg;base64,AQID",
+                    overlay: CoursePrepOverlay(
+                        w: 720,
+                        h: 1120,
+                        ppm: 1,
+                        ln: 360,
+                        route: [[360, 1000, 0], [360, 100, 360]]
+                    )
+                )
+            )
+        }
+        return package.replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: package.course.globalId,
+            holes: preps,
+            missingData: nil
+        ))
     }
 
     private func replacingHoles(

@@ -2,6 +2,21 @@ import XCTest
 @testable import AICaddie
 
 final class StartRoundDiscoveryTests: XCTestCase {
+    func testEveryExplicitCourseStartUsesANewRoundIdentity() {
+        let first = StartRoundView.freshLiveRoundId(
+            globalId: 31793,
+            uuid: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        )
+        let second = StartRoundView.freshLiveRoundId(
+            globalId: 31793,
+            uuid: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        )
+
+        XCTAssertEqual(first, "live-31793-00000000-0000-0000-0000-000000000001")
+        XCTAssertNotEqual(first, second)
+        XCTAssertNotEqual(first, "live-31793")
+    }
+
     func testOfflineNearbyFallbackIncludesOnlyCoordinateProvenDownloadedCourses() {
         let near = option(
             globalId: 1,

@@ -154,6 +154,49 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(response.globalId, 31870)
     }
 
+    func testFetchCourseGeometryCoverageUsesCheapSelectedHoleProbe() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-geometry-coverage-v1","globalId":31870,"coverage":"partial","readyHoles":1,"partialHoles":0,"totalHoles":2,"holes":[{"globalId":31870,"localHole":1,"coverage":"ready"},{"globalId":31870,"localHole":4,"coverage":"missing"}]}"#.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v2/geometry/course/31870/coverage")
+            let queryItems = URLComponents(
+                url: try XCTUnwrap(request.url),
+                resolvingAgainstBaseURL: false
+            )?.queryItems
+            XCTAssertEqual(
+                queryItems?.filter { $0.name == "holes" }.compactMap(\.value),
+                ["1", "4"]
+            )
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                payload
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session
+        )
+
+        let coverage = try await client.fetchCourseGeometryCoverage(
+            globalId: 31870,
+            holes: [1, 4]
+        )
+
+        XCTAssertEqual(coverage.readyHoles, 1)
+        XCTAssertEqual(coverage.holes.first?.localHole, 1)
+    }
+
     func testSearchCoursesFetchesMetadataWithoutPreparingAssets() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
