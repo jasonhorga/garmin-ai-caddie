@@ -593,6 +593,9 @@ public struct WatchUITestRoot: View {
         if screen == "real-course-download-caddie" {
             model.openCaddie()
         }
+        if screen == "real-course-map-measured" || screen == "real-course-map-pin-drag" {
+            model.openHoleMap()
+        }
         if selectHazardHole {
             writeRealCourseMarker(screen == "real-course-hazard-mid-map"
                 ? "real-course-hazard-mid-ready"
