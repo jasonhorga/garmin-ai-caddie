@@ -78,10 +78,35 @@ final class TeeSelectionUITests: XCTestCase {
         if tapTeeSelector() {
             settle(2)
             save("03-tee-menu"); dump("03-tee-menu")  // open menu: colour + yards choices
+            let cancel = app.buttons["取消"]
             XCTAssertTrue(
-                app.buttons["取消"].waitForExistence(timeout: 5),
+                cancel.waitForExistence(timeout: 5),
                 "the open tee menu must offer an explicit non-mutating dismissal"
             )
+            cancel.tap()
+            XCTAssertTrue(waitUntilGone(cancel, timeout: 5), "cancelling the Tee menu must close it")
+
+            // Opening a menu is not enough evidence that the player's Tee choice is usable. Change
+            // from the real default to the real white Tee and prove the selected label survives the
+            // menu dismissal while the course remains startable.
+            XCTAssertTrue(tapTeeSelector(), "the Tee menu must remain reopenable after cancellation")
+            let whiteTee = app.buttons.matching(
+                NSPredicate(format: "label BEGINSWITH %@", "白 T")
+            ).firstMatch
+            XCTAssertTrue(
+                whiteTee.waitForExistence(timeout: 5) && whiteTee.isHittable,
+                "the real Beijing Palace Tee authority must expose its white Tee"
+            )
+            whiteTee.tap()
+            XCTAssertTrue(waitUntilGone(cancel, timeout: 5), "selecting a Tee must dismiss the menu")
+            XCTAssertTrue(
+                app.descendants(matching: .any).matching(
+                    NSPredicate(format: "label BEGINSWITH %@", "白 T")
+                ).firstMatch.waitForExistence(timeout: 5),
+                "the start form must retain the newly selected white Tee"
+            )
+            XCTAssertTrue(app.buttons["start-round-primary-action"].isEnabled)
+            save("04-white-tee-selected"); dump("04-white-tee-selected")
         } else {
             dump("03-tee-menu-missing")
             XCTFail("the selected real course must expose a tappable Tee menu")
@@ -150,6 +175,78 @@ final class TeeSelectionUITests: XCTestCase {
         )
     }
 
+    func testAuthorizedGPSWithoutFixStillOffersCompleteCatalogueFallback() throws {
+        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LAT")
+        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LON")
+        app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "authorized"
+        launchFresh()
+
+        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+            XCTFail("the home must keep the new-round entry available while an authorized GPS waits for a fix")
+            return
+        }
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.staticTexts["正在定位并查找附近球场…"].waitForExistence(timeout: 12),
+            "authorized Core Location without a fix must be represented honestly"
+        )
+        let search = app.buttons["start-round-search-all-courses"]
+        XCTAssertTrue(
+            search.waitForExistence(timeout: 5) && search.isHittable,
+            "waiting for a GPS fix must never block city/name search"
+        )
+        XCTAssertFalse(app.buttons["start-round-primary-action"].isEnabled)
+        save("no-fix-01-start-round"); dump("no-fix-01-start-round")
+
+        search.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
+        XCTAssertFalse(
+            app.buttons["course-catalog-nearby-action"].isEnabled,
+            "the app must not invent coordinates merely because permission is granted"
+        )
+        try searchAndSelectBeijingPalace(field: "course-catalog-keyword-field", text: "北京丽宫")
+        XCTAssertTrue(
+            waitUntilEnabled(app.buttons["start-round-primary-action"], timeout: 90),
+            "an authorized-but-fixless player must still reach a startable real course"
+        )
+    }
+
+    func testNoCourseWithinFiftyKilometresStillOffersCompleteCatalogueFallback() throws {
+        // 0,0 is open ocean. This drives the production nearby endpoint to an honest empty result
+        // without a fake response or a test-only app route.
+        app.launchEnvironment["UITEST_GPS_LAT"] = "0"
+        app.launchEnvironment["UITEST_GPS_LON"] = "0"
+        app.launchEnvironment.removeValue(forKey: "UITEST_LOCATION_AUTHORIZATION")
+        launchFresh()
+
+        guard tapContaining(["打球", "开始一场", "开始记分"]) else {
+            XCTFail("the home must open a new round even when the current area has no course")
+            return
+        }
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.staticTexts["当前位置 50 km 内没有找到球场；可以扩大范围或按名称搜索。"]
+                .waitForExistence(timeout: 60),
+            "a valid remote coordinate with no nearby course must settle to an empty result, not spin forever"
+        )
+        XCTAssertFalse(
+            app.buttons["start-round-course-segment-31793"].exists,
+            "the empty nearby result must not be repopulated from play history"
+        )
+        XCTAssertFalse(app.buttons["start-round-primary-action"].isEnabled)
+        save("empty-nearby-01-start-round"); dump("empty-nearby-01-start-round")
+
+        let search = app.buttons["start-round-search-all-courses"]
+        XCTAssertTrue(search.exists && search.isHittable)
+        search.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
+        try searchAndSelectBeijingPalace(field: "course-catalog-city-field", text: "北京")
+        XCTAssertTrue(
+            waitUntilEnabled(app.buttons["start-round-primary-action"], timeout: 90),
+            "an empty nearby result must still reach a startable real course through city search"
+        )
+    }
+
     // MARK: - navigation helpers
 
     private func launchFresh() {
@@ -187,6 +284,30 @@ final class TeeSelectionUITests: XCTestCase {
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func searchAndSelectBeijingPalace(field identifier: String, text: String) throws {
+        let field = app.textFields[identifier]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText(text)
+        let submit = app.buttons["course-catalog-search-action"]
+        XCTAssertTrue(waitUntilEnabled(submit, timeout: 5))
+        submit.tap()
+        XCTAssertTrue(waitUntilGone(app.keyboards.firstMatch, timeout: 8))
+
+        let result = app.buttons["course-catalog-result-31793"]
+        XCTAssertTrue(
+            bringIntoView(result, maxSwipes: 30),
+            "manual catalogue fallback must return the real Beijing Palace row"
+        )
+        result.tap()
+        let selected = app.buttons["start-round-course-segment-31793"]
+        XCTAssertTrue(selected.waitForExistence(timeout: 12))
+        XCTAssertTrue(
+            waitForValue("已选择", on: selected, timeout: 8),
+            "the manually found course must become the explicit start-round selection"
+        )
     }
 
     private func bringIntoView(_ element: XCUIElement, maxSwipes: Int) -> Bool {

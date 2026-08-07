@@ -600,6 +600,18 @@ final class RealFlowUITests: XCTestCase {
         )
         XCTAssertEqual(acceptRecommendation.label, "接受推荐 3 杆", "one recorded shot should recommend shot + two putts")
         settle(1); save("12-score-confirmation"); dump("12-score-confirmation")
+
+        // Looking at a recommendation must never commit it. Cancel once, prove the recorded GPS shot
+        // and active hole are intact, then reopen the same confirmation and accept it.
+        let cancelScore = app.buttons["取消"]
+        XCTAssertTrue(cancelScore.waitForExistence(timeout: 3))
+        cancelScore.tap()
+        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["已记第 1 杆"].exists)
+        XCTAssertTrue(saveHoleButton.waitForExistence(timeout: 5) && saveHoleButton.isHittable)
+        settle(1); save("12b-score-cancelled"); dump("12b-score-cancelled")
+        saveHoleButton.tap()
+        XCTAssertTrue(acceptRecommendation.waitForExistence(timeout: 5))
         acceptRecommendation.tap()
         let nextHoleHeading = app.staticTexts["第 2 洞"]
         XCTAssertTrue(
