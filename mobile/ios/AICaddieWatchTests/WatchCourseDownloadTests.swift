@@ -478,6 +478,9 @@ final class WatchCourseDownloadTests: XCTestCase {
                     h: 1_060,
                     you: [120, 900],
                     pin: [430, 120],
+                    layup: [275, 510],
+                    apex: [198, 705],
+                    greenCtrl: [353, 315],
                     route: [[120, 900, 0], [430, 120, 369.4]]
                 ),
                 geometryCoverage: "ready",
@@ -532,6 +535,9 @@ final class WatchCourseDownloadTests: XCTestCase {
                         h: 1_060,
                         you: [120, 900],
                         pin: [430, 120],
+                        layup: [275, 510],
+                        apex: [198, 705],
+                        greenCtrl: [353, 315],
                         route: [[120, 900, 0], [430, 120, 372]]
                     ),
                     geometryCoverage: "partial",
