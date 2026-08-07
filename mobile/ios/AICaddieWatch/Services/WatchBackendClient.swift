@@ -320,7 +320,7 @@ public final class WatchBackendClient {
         ) else {
             throw URLError(.badURL)
         }
-        components.queryItems = [URLQueryItem(name: "v", value: topoStyleVersion)]
+        components.queryItems = [URLQueryItem(name: "v", value: Self.topoStyleVersion)]
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         // A first request may be the one that finishes a cold server-side topo render. Cypress hole
