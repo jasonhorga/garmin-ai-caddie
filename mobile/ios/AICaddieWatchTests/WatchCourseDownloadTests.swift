@@ -521,32 +521,37 @@ final class WatchCourseDownloadTests: XCTestCase {
         let store = WatchCourseStore(directoryURL: directory)
         let imageStore = WatchHoleImageStore(directoryURL: directory)
         let option = WatchCourseOption(globalId: 3881, name: "Cypress Point", holes: 18, teeBox: "championship")
+        let states = (1...18).map { hole in
+            WatchRoundState(
+                roundId: "download-only", hole: hole, par: hole == 1 ? 5 : 4, distanceM: 372,
+                selectedClub: nil,
+                globalId: 3881,
+                holeMap: WatchHoleMap(
+                    w: 678,
+                    h: 1_060,
+                    you: [120, 900],
+                    pin: [430, 120],
+                    layup: [275, 510],
+                    apex: [198, 705],
+                    greenCtrl: [353, 315],
+                    route: [[120, 900, 0], [430, 120, 372]]
+                ),
+                geometryCoverage: hole == 1 ? "partial" : "ready",
+                score: 0, putts: 0, penaltyCount: 0,
+                caddieConfidence: "offline"
+            )
+        }
         try store.save(WatchCourseTemplate(
             option: option,
             courseName: "Cypress Point",
             teeBox: "championship",
-            holeStates: [
-                WatchRoundState(
-                    roundId: "download-only", hole: 1, par: 5, distanceM: 372,
-                    selectedClub: nil,
-                    globalId: 3881,
-                    holeMap: WatchHoleMap(
-                        w: 678,
-                        h: 1_060,
-                        you: [120, 900],
-                        pin: [430, 120],
-                        layup: [275, 510],
-                        apex: [198, 705],
-                        greenCtrl: [353, 315],
-                        route: [[120, 900, 0], [430, 120, 372]]
-                    ),
-                    geometryCoverage: "partial",
-                    score: 0, putts: 0, penaltyCount: 0,
-                    caddieConfidence: "offline"
-                )
-            ],
+            holeStates: states,
             cachedAt: "2026-08-07T00:00:00Z"
         ))
+        let topo = try validTopoData()
+        for hole in 2...18 {
+            try imageStore.store(data: topo, globalId: 3881, hole: hole)
+        }
         let library = WatchCourseLibrary(
             store: store,
             imageStore: imageStore,
