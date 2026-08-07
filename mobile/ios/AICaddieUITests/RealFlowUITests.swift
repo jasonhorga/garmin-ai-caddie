@@ -242,7 +242,7 @@ final class RealFlowUITests: XCTestCase {
         // READ-ONLY (GET /courses/{id}/prep) — shows real geometry F/M/B + caddie + hazards WITHOUT
         // starting a live round, so CI never writes a junk round into the owner's real history.
         launchFresh()
-        XCTAssertTrue(tapContaining(["备战", "搜索球场 · 球童试算"]), "home must expose pre-round prep")
+        XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]), "home must expose pre-round prep")
         XCTAssertTrue(
             app.navigationBars["搜索备战球场"].waitForExistence(timeout: 12),
             "pre-round entry must navigate directly to catalogue search"

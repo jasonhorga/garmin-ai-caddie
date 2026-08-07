@@ -2053,7 +2053,7 @@ class MobileContractTests(unittest.TestCase):
         # 备战者已经知道目的地：入口直接名称/城市搜索，选中后进攻略；不能复用现场
         # “开始一场”的 GPS 附近列表，也不能把历史球场重新列出来。
         self.assertIn('title: "备战"', round_home)
-        self.assertIn('subtitle: "搜索球场 · 球童试算"', round_home)
+        self.assertIn('subtitle: "搜索 · 球童试算"', round_home)
         self.assertIn("PrepCoursePickerView(", round_home)
         self.assertIn("downloadedCourseOptions: downloadedCourseOptions", round_home)
         self.assertIn("struct PrepCoursePickerView", prep_picker)

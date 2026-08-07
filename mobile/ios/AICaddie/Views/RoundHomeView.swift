@@ -337,7 +337,7 @@ public struct RoundHomeView: View {
                         adminToken: adminToken
                     )
                 } label: {
-                    HubTile(icon: "scope", title: "备战", subtitle: "搜索球场 · 球童试算")
+                    HubTile(icon: "scope", title: "备战", subtitle: "搜索 · 球童试算")
                 }
                 .buttonStyle(.plain)
             }
