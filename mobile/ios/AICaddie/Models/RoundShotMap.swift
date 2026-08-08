@@ -12,6 +12,7 @@ public struct RoundHoleShotMap: Codable, Equatable {
     /// to fetch the realistic topo base bitmap for the 复盘 canvas.
     public let globalId: Int?
     public let localHole: Int?
+    public let geometryRevision: String?
     public let map: CoursePrepMap?
     /// `var` so RoundEditModel can apply edits optimistically in place before the server round-trips.
     public var shots: [RoundShot]
@@ -25,25 +26,28 @@ public struct RoundHoleShotMap: Codable, Equatable {
         par = try? c.decodeIfPresent(Int.self, forKey: .par)
         globalId = try? c.decodeIfPresent(Int.self, forKey: .globalId)
         localHole = try? c.decodeIfPresent(Int.self, forKey: .localHole)
+        geometryRevision = try? c.decodeIfPresent(String.self, forKey: .geometryRevision)
         map = try? c.decodeIfPresent(CoursePrepMap.self, forKey: .map)
         shots = (try? c.decodeIfPresent([RoundShot].self, forKey: .shots)) ?? []
         manualPenalty = (try? c.decodeIfPresent(Int.self, forKey: .manualPenalty)) ?? 0
     }
 
     public init(found: Bool, hole: Int, par: Int? = nil, globalId: Int? = nil, localHole: Int? = nil,
+                geometryRevision: String? = nil,
                 map: CoursePrepMap? = nil, shots: [RoundShot] = [], manualPenalty: Int = 0) {
         self.found = found
         self.hole = hole
         self.par = par
         self.globalId = globalId
         self.localHole = localHole
+        self.geometryRevision = geometryRevision
         self.map = map
         self.shots = shots
         self.manualPenalty = manualPenalty
     }
 
     private enum CodingKeys: String, CodingKey {
-        case found, hole, par, globalId, localHole, map, shots, manualPenalty
+        case found, hole, par, globalId, localHole, geometryRevision, map, shots, manualPenalty
     }
 }
 

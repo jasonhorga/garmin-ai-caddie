@@ -198,6 +198,10 @@
       "type": ["string", "null"],
       "enum": ["ready", "partial", "missing", null]
     },
+    "geometryRevision": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{16}$"
+    },
     "caddieOptions": {
       "type": "array",
       "items": {

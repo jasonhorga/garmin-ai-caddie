@@ -26,6 +26,11 @@ def _data(shots: list[dict]) -> HistoryData:
 def _geometry_mocks():
     overlay = {"w": 720, "h": 1120, "ppm": 1.0, "route": [[300, 900, 0], [320, 500, 200], [310, 200, 360]]}
     return [
+        patch.object(
+            rsm,
+            "geometry_coverage_for_hole",
+            return_value={"coverage": "ready", "geometryRevision": "0123456789abcdef"},
+        ),
         patch.object(rsm.hole_render, "load_mesh", return_value=({"hole": {"RefLat": 40.0, "RefLon": 116.5}}, {})),
         patch.object(rsm.course_prep, "derive_route", return_value=([(0.0, 0.0), (1.0, 1.0)], 360.0)),
         # 底图现在取缓存 topo(render_hole_topo_cached),画框走便宜的 render_hole_overlay;
@@ -62,6 +67,7 @@ class RoundShotMapTests(unittest.TestCase):
              "start": {"lat": 40.020, "lon": 116.50, "lie": "Fairway"}, "end": {"lat": 40.030, "lon": 116.50, "lie": "Green"}, "endLie": "Green"},
         ])
         self.assertTrue(out["found"])
+        self.assertEqual(out["geometryRevision"], "0123456789abcdef")
         self.assertEqual(out["map"]["overlay"]["w"], 720)
         # tee shot already recorded (lie TeeBox) → no synthetic shot prepended.
         self.assertEqual([s["synthetic"] for s in out["shots"]], [False, False])
@@ -118,11 +124,16 @@ class RoundShotMapTests(unittest.TestCase):
         self.assertIsNone(out["map"])
 
     def test_missing_geometry_is_graceful(self) -> None:
-        with patch.object(rsm.hole_render, "load_mesh", side_effect=Exception("no mesh")):
+        with patch.object(
+            rsm,
+            "geometry_coverage_for_hole",
+            return_value={"coverage": "partial", "geometryRevision": None},
+        ), patch.object(rsm.hole_render, "load_mesh", side_effect=Exception("no mesh")) as load_mesh:
             out = rsm.build_round_hole_shot_map(_data([]), "r1", 1)
         self.assertTrue(out["found"])
         self.assertIsNone(out["map"])
         self.assertTrue(any(r["label"] == "geometry" for r in out["missingData"]))
+        load_mesh.assert_not_called()
 
     def test_map_image_is_cached_topo_png_not_legacy_render(self):
         # 底图必须来自缓存 topo(PNG data URI),不是旧的 JPEG 现渲(render_hole)。

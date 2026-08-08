@@ -21,6 +21,7 @@ from typing import Any
 from ai_caddie.core.data import clean_club_name
 from ai_caddie.courses import course_prep
 from ai_caddie.geometry import hole_render, shot_projection, topo_render
+from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
 from ai_caddie.history.history import HistoryData
 from ai_caddie.rounds import round_corrections
 
@@ -82,7 +83,21 @@ def build_round_hole_shot_map(
     par = _par_for(row, hole)
     corr = corrections or []
     manual_penalty = round_corrections.hole_penalty(corr, hole)
+    geometry_revision: str | None = None
     try:
+        geometry_evidence = geometry_coverage_for_hole(
+            int(gid),
+            int(local),
+            require_current_authority=True,
+            refresh_release=True,
+        )
+        if geometry_evidence.get("coverage") != "ready":
+            raise ValueError("current geometry authority is not ready")
+        geometry_revision = (
+            str(geometry_evidence.get("geometryRevision"))
+            if geometry_evidence.get("geometryRevision")
+            else None
+        )
         md, by = hole_render.load_mesh(int(gid), int(local))
         route, route_len = course_prep.derive_route(md)
         if not route or not route_len:
@@ -236,6 +251,7 @@ def build_round_hole_shot_map(
         # fetch the realistic topo base bitmap for this exact hole. Only set when geometry rendered.
         "globalId": int(gid) if gid is not None else None,
         "localHole": int(local),
+        "geometryRevision": geometry_revision,
         "map": {"image": image, "overlay": overlay},
         "shots": plotted,
         "manualPenalty": manual_penalty,

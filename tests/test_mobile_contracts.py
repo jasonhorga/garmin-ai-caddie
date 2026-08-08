@@ -441,12 +441,17 @@ class MobileContractTests(unittest.TestCase):
     def test_live_round_package_can_report_ready_dependency_checks(self) -> None:
         schema = _load_schema("live_round_package.schema.json")
 
-        def ready_coverage(global_id: int, local_hole: int) -> dict[str, object]:
+        def ready_coverage(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
             return {
                 "schema": "ai-caddie-geometry-evidence-v1",
                 "globalId": global_id,
                 "localHole": local_hole,
                 "coverage": "ready",
+                "geometryRevision": f"{int(local_hole):016x}",
                 "hasHazards": True,
                 "hasMeshes": True,
                 "evidence": [{"label": "geometry", "ref": f"gid{global_id}_h{local_hole:02d}"}],
@@ -538,7 +543,29 @@ class MobileContractTests(unittest.TestCase):
             shots=[],
         )
 
-        package = build_live_round_package("partial-round", data=data, data_mode="fixture")
+        def current_coverage(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
+            ready = int(local_hole) <= 3
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1",
+                "globalId": int(global_id),
+                "localHole": int(local_hole),
+                "coverage": "ready" if ready else "missing",
+                "geometryRevision": f"{int(local_hole):016x}" if ready else None,
+                "hasHazards": ready,
+                "hasMeshes": ready,
+                "evidence": [],
+                "missingData": [] if ready else [{"label": "geometry", "reason": "not installed"}],
+            }
+
+        with patch(
+            "ai_caddie.caddie.mobile_live.geometry_coverage_for_hole",
+            side_effect=current_coverage,
+        ):
+            package = build_live_round_package("partial-round", data=data, data_mode="fixture")
 
         self.assertEqual(len(package["holes"]), 18)
         self.assertEqual(package["holes"][0]["geometryCoverage"], "ready")
@@ -585,13 +612,18 @@ class MobileContractTests(unittest.TestCase):
                 "releaseSource": "cache",
             }
 
-        def coverage_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+        def coverage_for_test(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
             ready = (int(global_id), int(local_hole)) in ensured
             return {
                 "schema": "ai-caddie-geometry-evidence-v1",
                 "globalId": int(global_id),
                 "localHole": int(local_hole),
                 "coverage": "ready" if ready else "missing",
+                "geometryRevision": f"{int(local_hole):016x}" if ready else None,
                 "hasHazards": ready,
                 "hasMeshes": ready,
                 "evidence": [{"label": "geometry", "ref": f"gid{global_id}_h{local_hole:02d}"}] if ready else [],
@@ -1263,8 +1295,10 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("includeEventCursor: Bool = true", sync_client)
         self.assertIn('URLQueryItem(name: "include_event_cursor", value: includeEventCursor ? "true" : "false")', sync_client)
-        self.assertIn("includeEventCursor: false", app_swift)
-        self.assertEqual(app_swift.count("includeEventCursor: false"), 4)
+        home_start = app_swift.index("private func fetchHomePackage(")
+        home_end = app_swift.index("private func canContinueExpiredPackage", home_start)
+        home_fetch = app_swift[home_start:home_end]
+        self.assertEqual(home_fetch.count("includeEventCursor: false"), 2)
 
     def test_ios_app_entry_bootstraps_cached_or_fixture_package(self) -> None:
         package_swift = _read_required_source(self, Path("Package.swift"))
@@ -1914,9 +1948,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("AsyncImage(url: topoURL)", topo_base)
         self.assertIn("Image(uiImage: fallback)", topo_base)  # graceful fallback, never a blank box
         self.assertIn(
-            "static func topoImageURL(baseURL: URL, globalId: Int, localHole: Int) -> URL?",
+            "public static func topoImageURL(",
             sync_client,
         )
+        self.assertIn("geometryRevision: String? = nil", sync_client)
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
         self.assertIn('public static let topoStyleVersion = "topo-v8"', sync_client)
         self.assertIn('URLQueryItem(name: "v", value: topoStyleVersion)', sync_client)
@@ -1930,7 +1965,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("map.mapSurface()", hole_map_view)
         self.assertIn(".mapSurface()", shot_map_view)
         self.assertIn("topoURL: liveTopoURL", current_hole)
-        self.assertIn("SyncClient.topoImageURL(baseURL: caddieBaseURL", current_hole)
+        self.assertIn("baseURL: caddieBaseURL", current_hole)
+        self.assertIn("geometryRevision: geometryRevision", current_hole)
         self.assertIn('"live-hole-map-partial"', current_hole)
 
     def test_topo_style_version_invalidates_phone_watch_caches_and_transfers(self) -> None:
@@ -2903,7 +2939,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let localHole: Int?", shot_map_model)
         self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: image)", shot_map_view)
         self.assertIn("RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))", shot_map_view)
-        self.assertIn("SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: gid, localHole: local)", shot_map_view)
+        self.assertIn("geometryRevision: shotMap.geometryRevision", shot_map_view)
         # round-9 B: color legend + 横滑翻洞 (TabView .page over the round's holes) + unknown lie → 「—」.
         self.assertIn("struct RoundShotMapPagerScreen", shot_map_view)
         self.assertIn("struct RoundShotMapLegend", shot_map_view)

@@ -927,7 +927,8 @@ public final class OfflineStore {
     public func saveCourseTopoImage(
         _ data: Data,
         globalId: Int,
-        localHole: Int
+        localHole: Int,
+        geometryRevision: String? = nil
     ) throws -> Bool {
         guard globalId > 0, localHole > 0, Self.isValidCourseTopoImageData(data) else {
             return false
@@ -936,16 +937,31 @@ public final class OfflineStore {
             at: courseTopoDirectoryURL,
             withIntermediateDirectories: true
         )
+        // Put the authority in the filename instead of replacing a shared image plus a second
+        // sidecar. Foreground and whole-course downloads can then finish in either order without
+        // any interleaving that labels old pixels as the new Garmin revision.
         try data.write(
-            to: courseTopoURL(globalId: globalId, localHole: localHole),
+            to: courseTopoURL(
+                globalId: globalId,
+                localHole: localHole,
+                geometryRevision: geometryRevision
+            ),
             options: [.atomic]
         )
         return true
     }
 
-    public func loadCourseTopoImageURL(globalId: Int, localHole: Int) -> URL? {
+    public func loadCourseTopoImageURL(
+        globalId: Int,
+        localHole: Int,
+        geometryRevision: String? = nil
+    ) -> URL? {
         guard globalId > 0, localHole > 0 else { return nil }
-        let url = courseTopoURL(globalId: globalId, localHole: localHole)
+        let url = courseTopoURL(
+            globalId: globalId,
+            localHole: localHole,
+            geometryRevision: geometryRevision
+        )
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
         guard let values = try? url.resourceValues(forKeys: keys),
               values.isRegularFile == true,
@@ -958,8 +974,16 @@ public final class OfflineStore {
         return url
     }
 
-    public func loadCourseTopoImage(globalId: Int, localHole: Int) -> Data? {
-        guard let url = loadCourseTopoImageURL(globalId: globalId, localHole: localHole),
+    public func loadCourseTopoImage(
+        globalId: Int,
+        localHole: Int,
+        geometryRevision: String? = nil
+    ) -> Data? {
+        guard let url = loadCourseTopoImageURL(
+            globalId: globalId,
+            localHole: localHole,
+            geometryRevision: geometryRevision
+        ),
               let data = try? Data(contentsOf: url) else { return nil }
         return Self.isValidCourseTopoImageData(data) ? data : nil
     }
@@ -969,9 +993,13 @@ public final class OfflineStore {
         // "离线地图已准备" label mean every selected round hole has precise facts plus a valid PNG.
         guard package.hasCompleteOfflineCoursePrep else { return false }
         return package.holes.allSatisfy { hole in
+            let prepRevision = package.coursePrep?.holes.first(where: {
+                $0.hole == hole.number
+            })?.geometryRevision
             loadCourseTopoImageURL(
                 globalId: hole.sourceGlobalId ?? package.course.globalId,
-                localHole: hole.sourceLocalHole ?? hole.number
+                localHole: hole.sourceLocalHole ?? hole.number,
+                geometryRevision: prepRevision ?? hole.geometryRevision
             ) != nil
         }
     }
@@ -1524,8 +1552,21 @@ public final class OfflineStore {
         return courseTemplatesDirectoryURL.appendingPathComponent("\(signature).json")
     }
 
-    private func courseTopoURL(globalId: Int, localHole: Int) -> URL {
-        courseTopoDirectoryURL.appendingPathComponent("\(globalId)-\(localHole).png")
+    private func courseTopoURL(
+        globalId: Int,
+        localHole: Int,
+        geometryRevision: String? = nil
+    ) -> URL {
+        let suffix = Self.normalizedGeometryRevision(geometryRevision).map { "-\($0)" } ?? ""
+        return courseTopoDirectoryURL.appendingPathComponent(
+            "\(globalId)-\(localHole)\(suffix).png"
+        )
+    }
+
+    private static func normalizedGeometryRevision(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !trimmed.isEmpty else { return nil }
+        return trimmed.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
     }
 
     private func withEventLogLock<T>(_ operation: () throws -> T) rethrows -> T {

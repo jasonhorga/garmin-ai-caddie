@@ -486,11 +486,16 @@ public final class SyncClient {
 
     /// Download one public realistic-topo PNG through the client's injected URLSession so offline
     /// asset caching is deterministic in tests and shares the normal transport/cancellation rules.
-    public func fetchTopoImage(globalId: Int, localHole: Int) async throws -> Data {
+    public func fetchTopoImage(
+        globalId: Int,
+        localHole: Int,
+        geometryRevision: String? = nil
+    ) async throws -> Data {
         guard let url = Self.topoImageURL(
             baseURL: baseURL,
             globalId: globalId,
-            localHole: localHole
+            localHole: localHole,
+            geometryRevision: geometryRevision
         ) else {
             throw URLError(.badURL)
         }
@@ -613,7 +618,12 @@ public final class SyncClient {
     /// Returns nil for the placeholder gid `0` or a non-positive hole (no real CourseView geometry →
     /// the caller keeps the flat render). The endpoint 404s when the mesh is absent → the base-image
     /// layer degrades to the fallback at load time.
-    public static func topoImageURL(baseURL: URL, globalId: Int, localHole: Int) -> URL? {
+    public static func topoImageURL(
+        baseURL: URL,
+        globalId: Int,
+        localHole: Int,
+        geometryRevision: String? = nil
+    ) -> URL? {
         guard globalId != 0, localHole > 0 else { return nil }
         guard var components = URLComponents(
             url: baseURL.appendingPathComponent("api/v2/courses/\(globalId)/holes/\(localHole)/topo.png"),
@@ -623,7 +633,12 @@ public final class SyncClient {
         }
         // Separate renderer styles at the URL layer. The server ETag also binds the current
         // Garmin geometry asset, so an updated course cannot reuse an older topo bitmap.
-        components.queryItems = [URLQueryItem(name: "v", value: topoStyleVersion)]
+        var queryItems = [URLQueryItem(name: "v", value: topoStyleVersion)]
+        if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !revision.isEmpty {
+            queryItems.append(URLQueryItem(name: "r", value: revision))
+        }
+        components.queryItems = queryItems
         return components.url
     }
 

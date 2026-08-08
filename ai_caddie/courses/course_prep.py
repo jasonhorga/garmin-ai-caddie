@@ -632,6 +632,7 @@ class HolePrep:
     route_len_m: float
     route: list[list[float]] = field(default_factory=list)
     geometryCoverage: str = "missing"
+    geometryRevision: str | None = None
     sourceRefs: list[str] = field(default_factory=list)
     missingData: list[dict] = field(default_factory=list)
     candidateRoutes: list[dict] = field(default_factory=list)
@@ -1306,6 +1307,27 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
     """Compose exact prep, or the cached factual CourseView fallback while geometry upgrades."""
     ladder = ladder or effective_club_ladder(player_id)
     try:
+        coverage = geometry_coverage_for_hole(
+            global_id,
+            local_hole,
+            require_current_authority=True,
+        )
+    except Exception:
+        coverage = {
+            "coverage": "missing",
+            "missingData": [{"label": "geometry", "reason": "prodgeometry geometry could not be loaded"}],
+        }
+    if coverage.get("coverage") != "ready":
+        lightweight = _lightweight_prep_hole(
+            global_id,
+            local_hole,
+            ladder=ladder,
+            par_record=par_record,
+            render=render,
+        )
+        if lightweight is not None:
+            return lightweight
+    try:
         md, by = hole_render.load_mesh(global_id, local_hole)
     except Exception:
         return _lightweight_prep_hole(
@@ -1335,13 +1357,6 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         par_source = "estimate"
     hazards = route_hazards(by, route)
     steps, cautions, landing, tee_club = _strategy(par, route_len, hazards, ladder)
-    try:
-        coverage = geometry_coverage_for_hole(global_id, local_hole)
-    except Exception:
-        coverage = {
-            "coverage": "missing",
-            "missingData": [{"label": "geometry", "reason": "prodgeometry geometry could not be loaded"}],
-        }
     missing_data = [
         row
         for row in coverage.get("missingData", [])
@@ -1353,6 +1368,11 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         blue_yards=yd(route_len), route_len_m=round(route_len, 1),
         route=_route_with_cumulative(route),
         geometryCoverage=str(coverage.get("coverage") or "missing"),
+        geometryRevision=(
+            str(coverage.get("geometryRevision"))
+            if coverage.get("geometryRevision")
+            else None
+        ),
         sourceRefs=[f"course:{int(global_id)}", f"geometry:{int(global_id)}:{int(local_hole)}"],
         missingData=missing_data,
         candidateRoutes=_candidate_routes(ladder, hazards),

@@ -313,14 +313,23 @@ public final class WatchBackendClient {
 
     /// The same release-revalidated realistic-topo bitmap used by iPhone and Web. This endpoint is public
     /// course knowledge, so the Watch does not attach member credentials to the image request.
-    public func makeCourseTopoRequest(globalId: Int, localHole: Int) throws -> URLRequest {
+    public func makeCourseTopoRequest(
+        globalId: Int,
+        localHole: Int,
+        geometryRevision: String? = nil
+    ) throws -> URLRequest {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/courses/\(globalId)/holes/\(localHole)/topo.png"),
             resolvingAgainstBaseURL: false
         ) else {
             throw URLError(.badURL)
         }
-        components.queryItems = [URLQueryItem(name: "v", value: Self.topoStyleVersion)]
+        var queryItems = [URLQueryItem(name: "v", value: Self.topoStyleVersion)]
+        if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !revision.isEmpty {
+            queryItems.append(URLQueryItem(name: "r", value: revision))
+        }
+        components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         // A first request may be the one that finishes a cold server-side topo render. Cypress hole
@@ -408,9 +417,17 @@ public final class WatchBackendClient {
         return try decodeCoursePrep(data)
     }
 
-    public func fetchCourseTopo(globalId: Int, localHole: Int) async throws -> Data {
+    public func fetchCourseTopo(
+        globalId: Int,
+        localHole: Int,
+        geometryRevision: String? = nil
+    ) async throws -> Data {
         try await sendForData(
-            makeCourseTopoRequest(globalId: globalId, localHole: localHole),
+            makeCourseTopoRequest(
+                globalId: globalId,
+                localHole: localHole,
+                geometryRevision: geometryRevision
+            ),
             retryingTransientFailures: true
         )
     }

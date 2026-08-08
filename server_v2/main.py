@@ -690,7 +690,12 @@ _TOPO_CACHE_CONTROL = "public, no-cache"
 
 
 @app.get("/api/v2/courses/{global_id}/holes/{hole}/topo.png")
-def course_hole_topo_png(request: Request, global_id: int, hole: int = Path(ge=1, le=36)) -> Response:
+def course_hole_topo_png(
+    request: Request,
+    global_id: int,
+    hole: int = Path(ge=1, le=36),
+    r: str | None = Query(default=None, max_length=128),
+) -> Response:
     """The LOCKED realistic-topo base bitmap for a course hole (design-system §九), the base
     <img> layer the web/mobile hole canvases draw their vector overlays over.
 
@@ -699,6 +704,26 @@ def course_hole_topo_png(request: Request, global_id: int, hole: int = Path(ge=1
     later hits revalidate by ETag. A hole without decoded CourseView geometry (most real/mock
     rounds) 404s so the client falls back to its placeholder — it never blocks or 500s."""
     from ai_caddie.geometry import topo_render
+    from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
+
+    # Do not combine a freshly refreshed course package with pixels decoded from an older
+    # Garmin release.  The lightweight vector remains playable while the normal background
+    # geometry upgrade validates or replaces the precise asset.
+    geometry_evidence = geometry_coverage_for_hole(
+        global_id,
+        hole,
+        require_current_authority=True,
+        refresh_release=True,
+    )
+    if geometry_evidence.get("coverage") != "ready":
+        raise HTTPException(status_code=404, detail="current topo geometry is still preparing")
+    # A package/prep revision and its bitmap are one atomic fact. If Garmin changes between those
+    # two requests, never return new pixels under the caller's old revision URL—the mobile cache
+    # would otherwise persist a projection mismatch with a perfectly plausible filename.
+    requested_revision = str(r or "").strip().lower()
+    current_revision = str(geometry_evidence.get("geometryRevision") or "").strip().lower()
+    if requested_revision and requested_revision != current_revision:
+        raise HTTPException(status_code=409, detail="topo geometry revision changed; refresh course facts")
 
     identity = topo_render.cache_identity(global_id, hole)
     etag = f'"{identity}-{int(global_id)}-{int(hole)}"'
@@ -822,6 +847,16 @@ def course_prep_nine(
     distances or shots ever leak to another (effective_club_ladder + the player-scoped loaders
     read solely the threaded player's tree)."""
     from ai_caddie.courses import course_prep, prep_cache
+    from ai_caddie.courses.course_reference import courseview_release_info
+
+    # `/prep` is also a direct product entry (Web 备战 and iOS/Watch per-hole refresh), not only a
+    # follow-up to a mobile package. Refresh the small release document before the prep-cache
+    # fingerprint and authority checks so this path cannot indefinitely bless an old Garmin map.
+    try:
+        courseview_release_info(global_id, allow_fetch=True)
+    except Exception:
+        # Provider failure keeps the last complete cached release/offline geometry usable.
+        pass
 
     requested = holes or course_prep.available_prep_holes(global_id)
 

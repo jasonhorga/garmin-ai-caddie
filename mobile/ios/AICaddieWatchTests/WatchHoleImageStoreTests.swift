@@ -32,6 +32,49 @@ final class WatchHoleImageStoreTests: XCTestCase {
         XCTAssertEqual(store.data(globalId: 42, hole: 3), png)
     }
 
+    func testGeometryRevisionsAreSeparateAndOldOfflinePixelsRemainAvailable() throws {
+        let (store, _) = tempStore()
+        let jpeg = try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
+        let png = try XCTUnwrap(Data(base64Encoded: Self.onePixelPNGBase64))
+        let revisionA = "aaaaaaaaaaaaaaaa"
+        let revisionB = "bbbbbbbbbbbbbbbb"
+
+        try store.store(
+            data: jpeg,
+            globalId: 42,
+            hole: 3,
+            geometryRevision: revisionA
+        )
+        XCTAssertEqual(store.data(
+            globalId: 42,
+            hole: 3,
+            geometryRevision: revisionA
+        ), jpeg)
+        XCTAssertNil(store.data(
+            globalId: 42,
+            hole: 3,
+            geometryRevision: revisionB
+        ))
+        XCTAssertNil(store.data(globalId: 42, hole: 3))
+
+        try store.store(
+            data: png,
+            globalId: 42,
+            hole: 3,
+            geometryRevision: revisionB
+        )
+        XCTAssertEqual(store.data(
+            globalId: 42,
+            hole: 3,
+            geometryRevision: revisionA
+        ), jpeg)
+        XCTAssertEqual(store.data(
+            globalId: 42,
+            hole: 3,
+            geometryRevision: revisionB
+        ), png)
+    }
+
     func testRejectsPlaceholderHTMLAndTruncatedImages() throws {
         let (store, _) = tempStore()
         let truncatedJPEG = Data([0xFF, 0xD8, 0xFF] + Array(repeating: 0, count: 100))

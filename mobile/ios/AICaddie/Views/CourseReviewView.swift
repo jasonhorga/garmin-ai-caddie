@@ -102,7 +102,8 @@ private struct CourseReviewHoleCard: View {
             topoURL: SyncClient.topoImageURL(
                 baseURL: client.baseURL,
                 globalId: globalId,
-                localHole: initialHole.hole
+                localHole: initialHole.hole,
+                geometryRevision: hole.geometryRevision
             ),
             isLoadingMap: isLoadingMap,
             mapUnavailable: didTryMap && renderedHole?.map == nil

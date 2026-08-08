@@ -45,7 +45,7 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
   const topoData = state.status === 'ready' ? state.data : null
   const topoSrc =
     map && topoData?.globalId != null && topoData?.localHole != null
-      ? topoImageUrl(topoData.globalId, topoData.localHole)
+      ? topoImageUrl(topoData.globalId, topoData.localHole, topoData.geometryRevision)
       : undefined
 
   let svg: React.ReactElement | null = null

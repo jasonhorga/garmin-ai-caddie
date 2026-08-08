@@ -305,7 +305,13 @@ class TopoEndpointTests(unittest.TestCase):
 
     def test_endpoint_returns_png_with_release_revalidation_headers(self) -> None:
         canned = _PNG_MAGIC + b"endpoint-topo"
-        with patch.object(topo_render, "render_hole_topo_cached", return_value=canned):
+        with (
+            patch.object(topo_render, "render_hole_topo_cached", return_value=canned),
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready"},
+            ),
+        ):
             resp = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.headers["content-type"], "image/png")
@@ -315,9 +321,15 @@ class TopoEndpointTests(unittest.TestCase):
 
     def test_endpoint_returns_304_for_current_geometry_etag(self) -> None:
         canned = _PNG_MAGIC + b"endpoint-topo"
-        with patch.object(
-            topo_render, "render_hole_topo_cached", return_value=canned
-        ) as render:
+        with (
+            patch.object(
+                topo_render, "render_hole_topo_cached", return_value=canned
+            ) as render,
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready"},
+            ),
+        ):
             first = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
             second = self.client.get(
                 "/api/v2/courses/31795/holes/1/topo.png",
@@ -338,8 +350,17 @@ class TopoEndpointTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 404)
 
     def test_endpoint_404s_on_render_error(self) -> None:
-        with patch.object(topo_render, "render_hole_topo_cached",
-                          side_effect=topo_render.TopoRenderError("boom")):
+        with (
+            patch.object(
+                topo_render,
+                "render_hole_topo_cached",
+                side_effect=topo_render.TopoRenderError("boom"),
+            ),
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready"},
+            ),
+        ):
             resp = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
         self.assertEqual(resp.status_code, 404)
 
@@ -351,10 +372,44 @@ class TopoEndpointTests(unittest.TestCase):
         # Pure course geometry (no source_ref) is public like /prep — the admin gate must not apply
         # even when an admin token is configured.
         canned = _PNG_MAGIC + b"public"
-        with patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}), \
-                patch.object(topo_render, "render_hole_topo_cached", return_value=canned):
+        with (
+            patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}),
+            patch.object(topo_render, "render_hole_topo_cached", return_value=canned),
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready"},
+            ),
+        ):
             resp = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
         self.assertEqual(resp.status_code, 200)
+
+    def test_endpoint_404s_without_current_geometry_authority(self) -> None:
+        with (
+            patch.object(topo_render, "render_hole_topo_cached") as render,
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "partial"},
+            ),
+        ):
+            response = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
+
+        self.assertEqual(response.status_code, 404)
+        render.assert_not_called()
+
+    def test_endpoint_rejects_pixels_when_requested_revision_is_no_longer_current(self) -> None:
+        with (
+            patch.object(topo_render, "render_hole_topo_cached") as render,
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready", "geometryRevision": "bbbbbbbbbbbbbbbb"},
+            ),
+        ):
+            response = self.client.get(
+                "/api/v2/courses/31795/holes/1/topo.png?r=aaaaaaaaaaaaaaaa"
+            )
+
+        self.assertEqual(response.status_code, 409)
+        render.assert_not_called()
 
 
 class TopoPrewarmEndpointTests(unittest.TestCase):

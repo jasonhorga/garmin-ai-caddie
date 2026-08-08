@@ -302,7 +302,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
-    func testPrepareCourseRoundStartsDownloadedTemplateWithoutWaitingForPackageRequest() async throws {
+    func testPrepareCourseRoundStartsDownloadedTemplateImmediatelyThenRevalidatesInBackground() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -362,11 +362,120 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(try store.loadRoundPackage(roundId: "offline-new-round")?.roundId, "offline-new-round")
         XCTAssertTrue(try store.loadPendingEvents(roundId: "offline-new-round").isEmpty)
         await model.waitForOfflineCourseDownloadForTesting()
-        XCTAssertEqual(
+        XCTAssertGreaterThan(
             requestLock.withLock { requestCount },
             0,
-            "a fully downloaded exact Tee/hole-set must not wait for any live package or map request"
+            "a complete cache starts immediately but must still verify the current Garmin release online"
         )
+    }
+
+    func testMatchingCourseRevisionReusesPrepAndTopoAfterBackgroundRevalidation() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let revision = "aaaaaaaaaaaaaaaa"
+        let revisedHoles = source.holes.map { hole in
+            Hole(
+                number: hole.number,
+                par: hole.par,
+                yards: hole.yards,
+                geometryCoverage: .ready,
+                geometryRevision: revision,
+                sourceGlobalId: hole.sourceGlobalId,
+                sourceLocalHole: hole.sourceLocalHole,
+                teeLatitude: hole.teeLatitude,
+                teeLongitude: hole.teeLongitude
+            )
+        }
+        let revisedSource = package(
+            source,
+            roundId: source.roundId,
+            recentRounds: source.recentHistory.rounds,
+            holes: revisedHoles
+        )
+        let template = try offlineReadyPackage(
+            revisedSource,
+            geometryRevision: revision
+        )
+        try store.saveCourseTemplate(template)
+        for hole in template.holes {
+            _ = try store.saveCourseTopoImage(
+                minimalPNGData(),
+                globalId: hole.sourceGlobalId ?? template.course.globalId,
+                localHole: hole.sourceLocalHole ?? hole.number,
+                geometryRevision: revision
+            )
+        }
+        let roundId = "matching-revision-round"
+        let remote = package(
+            template,
+            roundId: roundId,
+            recentRounds: template.recentHistory.rounds,
+            holes: template.holes
+        )
+        let remoteData = try JSONEncoder().encode(remote)
+        let requestLock = NSLock()
+        var paths: [String] = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            requestLock.withLock { paths.append(url.path) }
+            if url.path.contains("/api/v2/mobile/courses/") {
+                return (
+                    HTTPURLResponse(
+                        url: url,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    remoteData
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 500,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"detail":"unexpected"}"#.utf8)
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://revision.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: [0]
+        )
+
+        await model.prepareCourseRound(
+            globalId: template.course.globalId,
+            roundId: roundId,
+            teeBox: template.course.teeBox,
+            nine: template.nine ?? "all"
+        )
+        XCTAssertEqual(model.liveRoundState?.roundId, roundId)
+        await model.waitForOfflineCourseDownloadForTesting()
+
+        let requested = requestLock.withLock { paths }
+        XCTAssertEqual(
+            requested.filter { $0.contains("/api/v2/mobile/courses/") }.count,
+            1
+        )
+        XCTAssertFalse(requested.contains { $0.hasSuffix("/prep") })
+        XCTAssertFalse(requested.contains { $0.hasSuffix("/topo.png") })
+        XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))
     }
 
     func testOnlineCourseStartRetainsAllHolePrepAndTopoForLaterOfflineUse() async throws {
@@ -539,10 +648,20 @@ final class LiveRoundAppModelTests: XCTestCase {
         ).replacingCoursePrep(nil)
         let packageData = try JSONEncoder().encode(online)
         let png = minimalPNGData()
+        let currentRevision = "bbbbbbbbbbbbbbbb"
+        for hole in holes {
+            _ = try store.saveCourseTopoImage(
+                png,
+                globalId: hole.sourceGlobalId ?? online.course.globalId,
+                localHole: hole.sourceLocalHole ?? hole.number,
+                geometryRevision: "aaaaaaaaaaaaaaaa"
+            )
+        }
         let requestLock = NSLock()
         var geometryReady = false
         var prepCoverages: [String] = []
         var coverageRequestCount = 0
+        var requestedTopoRevisions: [String?] = []
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
@@ -580,10 +699,17 @@ final class LiveRoundAppModelTests: XCTestCase {
                 body = try self.offlinePrepResponseData(
                     for: online,
                     localHoles: requested,
-                    geometryCoverage: coverage
+                    geometryCoverage: coverage,
+                    geometryRevision: ready ? currentRevision : nil
                 )
                 contentType = "application/json"
             case let path where path.hasSuffix("/topo.png"):
+                requestLock.withLock {
+                    requestedTopoRevisions.append(
+                        URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                            .first { $0.name == "r" }?.value
+                    )
+                }
                 body = png
                 contentType = "image/png"
             default:
@@ -630,6 +756,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(observations.filter { $0 == "partial" }.count, holes.count)
         XCTAssertEqual(observations.filter { $0 == "ready" }.count, holes.count)
         XCTAssertEqual(requestLock.withLock { coverageRequestCount }, 1)
+        XCTAssertEqual(
+            requestLock.withLock { requestedTopoRevisions.compactMap { $0 } },
+            Array(repeating: currentRevision, count: holes.count),
+            "a previously cached Garmin revision must not satisfy the replacement bitmap request"
+        )
         XCTAssertTrue(model.package?.hasCompleteOfflineCoursePrep == true)
         XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))
     }
@@ -1673,10 +1804,16 @@ final class LiveRoundAppModelTests: XCTestCase {
         return try JSONDecoder().decode(LiveRoundPackage.self, from: Data(fixture.utf8))
     }
 
-    private func offlineReadyPackage(_ package: LiveRoundPackage) throws -> LiveRoundPackage {
+    private func offlineReadyPackage(
+        _ package: LiveRoundPackage,
+        geometryRevision: String? = nil
+    ) throws -> LiveRoundPackage {
         let response = try JSONDecoder().decode(
             CoursePrepResponse.self,
-            from: offlinePrepResponseData(for: package)
+            from: offlinePrepResponseData(
+                for: package,
+                geometryRevision: geometryRevision
+            )
         )
         return package.replacingCoursePrep(CoursePrepPackage(
             schema: response.schema,
@@ -1689,7 +1826,8 @@ final class LiveRoundAppModelTests: XCTestCase {
     private func offlinePrepResponseData(
         for package: LiveRoundPackage,
         localHoles: [Int]? = nil,
-        geometryCoverage: String = "ready"
+        geometryCoverage: String = "ready",
+        geometryRevision: String? = nil
     ) throws -> Data {
         let requested = localHoles.map { Set($0) }
         let holes = package.holes.filter { hole in
@@ -1699,10 +1837,13 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertFalse(holes.isEmpty)
         let rows = holes.map { hole in
             let blueYards = hole.yards.map(String.init) ?? "null"
+            let revisionField = geometryRevision.map {
+                ",\"geometryRevision\":\"\($0)\""
+            } ?? ""
             return """
             {"hole":\(hole.sourceLocalHole ?? hole.number),"par":\(hole.par),
              "par_source":"courseview","blue_yards":\(blueYards),"route_len_m":360,
-             "route":[[0,0,0],[0,360,360]],"geometryCoverage":"\(geometryCoverage)","steps":[],"cautions":[],
+             "route":[[0,0,0],[0,360,360]],"geometryCoverage":"\(geometryCoverage)"\(revisionField),"steps":[],"cautions":[],
              "hazards":{"water_carry":[],"bunkers":[],"details":[]},
              "map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":720,"h":1120,
              "ppm":1,"ln":360,"route":[[360,1000,0],[360,100,360]]}}}

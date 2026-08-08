@@ -465,6 +465,7 @@ class RoundHoleShotMapResponse(BaseModel):
     # the client uses it to fetch the realistic topo base bitmap (/courses/{gid}/holes/{hole}/topo.png).
     globalId: int | None = None
     localHole: int | None = None
+    geometryRevision: str | None = None
     map: dict[str, Any] | None = None
     shots: list[dict[str, Any]] = Field(default_factory=list)
     # 这一洞手填的罚杆数(复盘修改层,默认 0)。洞分 = 记录到的杆数 + 这个数。
@@ -637,6 +638,7 @@ class GeometryEvidenceResponse(BaseModel):
     globalId: int
     localHole: int
     coverage: GeometryCoverageState
+    geometryRevision: str | None = None
     hasHazards: bool
     hasMeshes: bool
     sourceRef: str | None = None

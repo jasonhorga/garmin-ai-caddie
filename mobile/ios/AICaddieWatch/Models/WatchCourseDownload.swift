@@ -281,6 +281,7 @@ public struct WatchCoursePackageHole: Decodable, Equatable {
     public let par: Int
     public let yards: Int?
     public let geometryCoverage: String?
+    public let geometryRevision: String?
     public let sourceGlobalId: Int?
     public let sourceLocalHole: Int?
     public let teeLatitude: Double?
@@ -302,6 +303,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
     public let hole: Int
     public let par: Int?
     public let geometryCoverage: String?
+    public let geometryRevision: String?
     public let landingM: Double?
     public let teeClub: String?
     public let route: [[Double]]
@@ -313,7 +315,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
     public let greenOutline: WatchCoursePrepGreenOutline?
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, geometryCoverage, route, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline
+        case hole, par, geometryCoverage, geometryRevision, route, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline
         case landingM = "landing_m"
         case teeClub = "tee_club"
     }
@@ -323,6 +325,7 @@ public struct WatchCoursePrepHole: Decodable, Equatable {
         hole = try container.decode(Int.self, forKey: .hole)
         par = try container.decodeIfPresent(Int.self, forKey: .par)
         geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage)
+        geometryRevision = try container.decodeIfPresent(String.self, forKey: .geometryRevision)
         landingM = try container.decodeIfPresent(Double.self, forKey: .landingM)
         teeClub = try container.decodeIfPresent(String.self, forKey: .teeClub)
         route = try container.decodeIfPresent([[Double]].self, forKey: .route) ?? []
@@ -474,11 +477,18 @@ public struct WatchCourseImage: Equatable {
     public let globalId: Int
     public let hole: Int
     public let data: Data
+    public let geometryRevision: String?
 
-    public init(globalId: Int, hole: Int, data: Data) {
+    public init(
+        globalId: Int,
+        hole: Int,
+        data: Data,
+        geometryRevision: String? = nil
+    ) {
         self.globalId = globalId
         self.hole = hole
         self.data = data
+        self.geometryRevision = geometryRevision
     }
 }
 

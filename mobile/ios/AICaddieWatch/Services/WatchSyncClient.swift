@@ -508,7 +508,12 @@ extension WatchSyncClient: WCSessionDelegate {
             return false
         }
         do {
-            try holeImageStore.store(fileURL: fileURL, globalId: gid, hole: hole)
+            try holeImageStore.store(
+                fileURL: fileURL,
+                globalId: gid,
+                hole: hole,
+                geometryRevision: meta["geometryRevision"] as? String
+            )
             let key = WatchHoleImageStore.key(globalId: gid, hole: hole)
             DispatchQueue.main.async { self.lastHoleImageKey = key }
             return true

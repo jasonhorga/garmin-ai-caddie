@@ -76,7 +76,13 @@ def _coverage(has_hazards: bool, has_meshes: bool) -> GeometryCoverage:
     return "missing"
 
 
-def geometry_coverage_for_hole(global_id: int, local_hole: int) -> dict[str, Any]:
+def geometry_coverage_for_hole(
+    global_id: int,
+    local_hole: int,
+    *,
+    require_current_authority: bool = False,
+    refresh_release: bool = False,
+) -> dict[str, Any]:
     hazards = hazard_path(int(global_id), int(local_hole))
     meshes = mesh_path(int(global_id), int(local_hole))
     has_hazards = hazards.exists()
@@ -94,11 +100,80 @@ def geometry_coverage_for_hole(global_id: int, local_hole: int) -> dict[str, Any
     else:
         missing_data.append({"label": "meshes", "reason": "prodgeometry mesh file missing"})
 
+    current_authority: bool | None = None
+    if require_current_authority and has_hazards and has_meshes:
+        try:
+            from ai_caddie.courses.course_reference import courseview_release_info
+            from ai_caddie.geometry.geometry_authority import (
+                authority_matches_release,
+                authority_path,
+                load_authority,
+            )
+
+            # Course-package callers refresh this small release document before evaluating
+            # coverage.  A direct/offline read with no cached release keeps the last playable
+            # precise map; it cannot honestly claim that an unknown remote version is stale.
+            release = courseview_release_info(
+                int(global_id),
+                allow_fetch=refresh_release,
+                root=ROOT,
+            )
+            if release is not None:
+                sidecar = authority_path(meshes)
+                current_authority = authority_matches_release(
+                    load_authority(sidecar),
+                    global_id=int(global_id),
+                    local_hole=int(local_hole),
+                    mesh_file=meshes,
+                    hazard_file=hazards,
+                    release=release,
+                )
+                if current_authority:
+                    evidence.append({"label": "geometry_authority", "ref": _display_path(sidecar)})
+                else:
+                    missing_data.append(
+                        {
+                            "label": "geometry_authority",
+                            "reason": "precise geometry is not bound to the current Garmin release",
+                        }
+                    )
+        except (OSError, TypeError, ValueError, OverflowError):
+            current_authority = False
+            missing_data.append(
+                {
+                    "label": "geometry_authority",
+                    "reason": "precise geometry authority could not be validated",
+                }
+            )
+
+    coverage = _coverage(has_hazards, has_meshes)
+    if coverage == "ready" and current_authority is False:
+        coverage = "partial"
+
+    geometry_revision: str | None = None
+    if coverage == "ready":
+        try:
+            from ai_caddie.geometry.geometry_authority import authority_path, cache_token
+
+            # This is the stable cross-client identity of the exact release-bound inputs used by
+            # topo/prep.  With no cached release it deliberately falls back to the last playable
+            # local artifact identity; the next online package refresh will replace it.
+            geometry_revision = cache_token(
+                global_id=int(global_id),
+                local_hole=int(local_hole),
+                mesh_file=meshes,
+                hazard_file=hazards,
+                sidecar=authority_path(meshes),
+            )
+        except (OSError, TypeError, ValueError, OverflowError):
+            geometry_revision = None
+
     return {
         "schema": "ai-caddie-geometry-evidence-v1",
         "globalId": int(global_id),
         "localHole": int(local_hole),
-        "coverage": _coverage(has_hazards, has_meshes),
+        "coverage": coverage,
+        "geometryRevision": geometry_revision,
         "hasHazards": has_hazards,
         "hasMeshes": has_meshes,
         "evidence": evidence,
@@ -873,8 +948,31 @@ def build_hole_map_dto(
     }
 
 
-def geometry_coverage_for_course(global_id: int, holes: Iterable[int] = range(1, 19)) -> dict[str, Any]:
-    hole_rows = [geometry_coverage_for_hole(int(global_id), int(hole)) for hole in holes]
+def geometry_coverage_for_course(
+    global_id: int,
+    holes: Iterable[int] = range(1, 19),
+    *,
+    require_current_authority: bool = False,
+    refresh_release: bool = False,
+) -> dict[str, Any]:
+    # Refresh the small release document once, before walking the requested holes. Subsequent
+    # per-hole checks are cache-only, avoiding both repeated protobuf parsing and a network herd.
+    if require_current_authority and refresh_release:
+        try:
+            from ai_caddie.courses.course_reference import courseview_release_info
+
+            courseview_release_info(int(global_id), allow_fetch=True, root=ROOT)
+        except (OSError, TypeError, ValueError, OverflowError):
+            pass
+    hole_rows = [
+        geometry_coverage_for_hole(
+            int(global_id),
+            int(hole),
+            require_current_authority=require_current_authority,
+            refresh_release=False,
+        )
+        for hole in holes
+    ]
     ready = sum(1 for row in hole_rows if row["coverage"] == "ready")
     partial = sum(1 for row in hole_rows if row["coverage"] == "partial")
     if ready == len(hole_rows) and hole_rows:

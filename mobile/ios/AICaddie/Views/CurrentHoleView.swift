@@ -618,9 +618,11 @@ public struct CurrentHoleView: View {
         }
         let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
         let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        let geometryRevision = holePrep?.geometryRevision ?? hole.geometryRevision
         if let local = offlineStore?.loadCourseTopoImageURL(
             globalId: mapGlobalId,
-            localHole: mapLocalHole
+            localHole: mapLocalHole,
+            geometryRevision: geometryRevision
         ) {
             return local
         }
@@ -630,7 +632,12 @@ public struct CurrentHoleView: View {
         }
         #endif
         guard let caddieBaseURL else { return nil }
-        return SyncClient.topoImageURL(baseURL: caddieBaseURL, globalId: mapGlobalId, localHole: mapLocalHole)
+        return SyncClient.topoImageURL(
+            baseURL: caddieBaseURL,
+            globalId: mapGlobalId,
+            localHole: mapLocalHole,
+            geometryRevision: geometryRevision
+        )
     }
 
     /// Project the selected club's factual route station through the same aspect-fit transform as
@@ -811,7 +818,8 @@ public struct CurrentHoleView: View {
             await pushTopoToWatch(
                 globalId: globalId,
                 sourceLocalHole: sourceLocalHole,
-                watchHole: watchHole
+                watchHole: watchHole,
+                geometryRevision: prep.geometryRevision
             )
             onRetainReadyHolePrep(package.roundId, hole.number, prep)
         }
@@ -840,14 +848,25 @@ public struct CurrentHoleView: View {
 
     /// Cache the clean topo independently of Watch availability, then relay the same bytes when a
     /// bridge exists. Phone durability must not depend on whether WatchConnectivity was created.
-    private func pushTopoToWatch(globalId: Int, sourceLocalHole: Int, watchHole: Int) async {
+    private func pushTopoToWatch(
+        globalId: Int,
+        sourceLocalHole: Int,
+        watchHole: Int,
+        geometryRevision: String?
+    ) async {
         guard globalId != 0, offlineStore != nil || watchBridge != nil else { return }
         if let cached = offlineStore?.loadCourseTopoImage(
             globalId: globalId,
-            localHole: sourceLocalHole
+            localHole: sourceLocalHole,
+            geometryRevision: geometryRevision
         ) {
             if let watchBridge {
-                watchBridge.pushHoleImage(globalId: globalId, hole: watchHole, imageData: cached)
+                watchBridge.pushHoleImage(
+                    globalId: globalId,
+                    hole: watchHole,
+                    imageData: cached,
+                    geometryRevision: geometryRevision
+                )
             }
             return
         }
@@ -860,12 +879,17 @@ public struct CurrentHoleView: View {
               let data = try? await SyncClient(
                   baseURL: caddieBaseURL,
                   adminToken: adminToken
-              ).fetchTopoImage(globalId: globalId, localHole: sourceLocalHole) else { return }
+              ).fetchTopoImage(
+                  globalId: globalId,
+                  localHole: sourceLocalHole,
+                  geometryRevision: geometryRevision
+              ) else { return }
         do {
             try offlineStore?.saveCourseTopoImage(
                 data,
                 globalId: globalId,
-                localHole: sourceLocalHole
+                localHole: sourceLocalHole,
+                geometryRevision: geometryRevision
             )
         } catch {
             AICaddieLog.storage.error(
@@ -873,7 +897,12 @@ public struct CurrentHoleView: View {
             )
         }
         if let watchBridge {
-            watchBridge.pushHoleImage(globalId: globalId, hole: watchHole, imageData: data)
+            watchBridge.pushHoleImage(
+                globalId: globalId,
+                hole: watchHole,
+                imageData: data,
+                geometryRevision: geometryRevision
+            )
         }
     }
 
@@ -1526,6 +1555,7 @@ public struct CurrentHoleView: View {
             playsLikeDistanceM: slopeM.flatMap { delta in effectiveDistanceToPinMetres.map { $0 + delta } },
             elevationDeltaM: slopeM,
             geometryCoverage: holePrep?.geometryCoverage ?? hole.geometryCoverage.rawValue,
+            geometryRevision: holePrep?.geometryRevision ?? hole.geometryRevision,
             hazards: watchHazards()
         )
         if let state {

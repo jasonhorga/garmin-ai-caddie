@@ -142,6 +142,53 @@ def same_release_binding(
     )
 
 
+def authority_matches_release(
+    value: Mapping[str, Any] | None,
+    *,
+    global_id: int,
+    local_hole: int,
+    mesh_file: Path,
+    hazard_file: Path,
+    release: Mapping[str, Any],
+) -> bool:
+    """Whether installed precise geometry is bound to the cached current release.
+
+    A mesh/hazard pair can predate the authority sidecar or belong to an older Garmin
+    release while still being perfectly readable.  Such bytes remain an offline fallback,
+    but an online course package must treat them as pending until ``ensure_prodgeometry``
+    validates or replaces them.  This comparison is cache-only; the caller decides when to
+    refresh Garmin's small release document.
+    """
+    if not authority_is_bound(
+        value,
+        global_id=global_id,
+        local_hole=local_hole,
+        mesh_file=mesh_file,
+        hazard_file=hazard_file,
+    ):
+        return False
+    hole = next(
+        (
+            row
+            for row in release.get("holes", [])
+            if isinstance(row, Mapping)
+            and int(row.get("hole") or -1) == int(local_hole)
+        ),
+        None,
+    )
+    if hole is None:
+        return False
+    expected = build_authority(
+        global_id=global_id,
+        local_hole=local_hole,
+        release=release,
+        hole=hole,
+        release_source=str(value.get("releaseSource") or "cache"),
+        geometry_zip_sha256=value.get("geometryZipSha256"),
+    )
+    return same_release_binding(value, expected)
+
+
 def _combined_hole_version(hole: Mapping[str, Any]) -> str | None:
     try:
         course_gen = int(hole["CourseGenVersion"])
@@ -215,9 +262,15 @@ def cache_token(
         stable = {
             "globalId": manifest.get("globalId"),
             "localHole": manifest.get("localHole"),
+            # A release can change its selected layout/route or raster while reusing the same
+            # prodgeometry zip.  Those facts influence the rendered hole envelope, so derivatives
+            # must follow the complete release binding rather than geometry bytes alone.
+            "releaseVersion": manifest.get("releaseVersion"),
+            "releaseId": manifest.get("releaseId"),
             "courseGenVersion": manifest.get("courseGenVersion"),
             "geometryAssetPath": manifest.get("geometryAssetPath"),
             "geometryAssetVersion": manifest.get("geometryAssetVersion"),
+            "rasterAssetPath": manifest.get("rasterAssetPath"),
             "geometryZipSha256": manifest.get("geometryZipSha256"),
         }
         raw = json.dumps(stable, sort_keys=True, separators=(",", ":")).encode()

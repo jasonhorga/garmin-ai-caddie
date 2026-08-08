@@ -5,6 +5,8 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+from ai_caddie.geometry.geometry_authority import build_authority, write_authority, authority_path
+
 from ai_caddie.geometry.geometry_evidence import (
     build_route_geometry_evidence,
     build_hole_map_dto,
@@ -16,6 +18,123 @@ from ai_caddie.geometry.geometry_evidence import (
 
 
 class GeometryEvidenceTests(unittest.TestCase):
+    @staticmethod
+    def _release(*, build: int = 267, version: str = "220542") -> dict:
+        return {
+            "release_version": build,
+            "release_id": f"release-{build}",
+            "course_gen_version": 22,
+            "holes": [
+                {
+                    "hole": 2,
+                    "geometry_url": f"https://maps.example/hole02_{version}.zip",
+                    "raster_url": f"https://maps.example/hole02_{version}.jpg",
+                }
+            ],
+        }
+
+    def test_current_authority_is_ready_and_exposes_revision(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h02_hazards.json"
+            mesh = root / "gid31795_h02_meshes.json"
+            hazard.write_text("{}", encoding="utf-8")
+            mesh.write_text("{}", encoding="utf-8")
+            release = self._release()
+            write_authority(
+                authority_path(mesh),
+                build_authority(
+                    global_id=31795,
+                    local_hole=2,
+                    release=release,
+                    hole=release["holes"][0],
+                    release_source="cache",
+                ),
+            )
+            with (
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
+                patch(
+                    "ai_caddie.courses.course_reference.courseview_release_info",
+                    return_value=release,
+                ),
+            ):
+                evidence = geometry_coverage_for_hole(
+                    31795,
+                    2,
+                    require_current_authority=True,
+                )
+
+        self.assertEqual(evidence["coverage"], "ready")
+        self.assertRegex(evidence["geometryRevision"], r"^[0-9a-f]{16}$")
+        self.assertTrue(any(row["label"] == "geometry_authority" for row in evidence["evidence"]))
+
+    def test_missing_or_old_authority_is_partial_until_rebound(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h02_hazards.json"
+            mesh = root / "gid31795_h02_meshes.json"
+            hazard.write_text("{}", encoding="utf-8")
+            mesh.write_text("{}", encoding="utf-8")
+            current_release = self._release(build=267, version="220543")
+            with (
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
+                patch(
+                    "ai_caddie.courses.course_reference.courseview_release_info",
+                    return_value=current_release,
+                ),
+            ):
+                unbound = geometry_coverage_for_hole(
+                    31795,
+                    2,
+                    require_current_authority=True,
+                )
+                old_release = self._release(build=266, version="220542")
+                write_authority(
+                    authority_path(mesh),
+                    build_authority(
+                        global_id=31795,
+                        local_hole=2,
+                        release=old_release,
+                        hole=old_release["holes"][0],
+                        release_source="cache",
+                    ),
+                )
+                stale = geometry_coverage_for_hole(
+                    31795,
+                    2,
+                    require_current_authority=True,
+                )
+
+        self.assertEqual(unbound["coverage"], "partial")
+        self.assertIsNone(unbound["geometryRevision"])
+        self.assertEqual(stale["coverage"], "partial")
+        self.assertIsNone(stale["geometryRevision"])
+
+    def test_no_cached_release_keeps_last_precise_map_playable_offline(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h02_hazards.json"
+            mesh = root / "gid31795_h02_meshes.json"
+            hazard.write_text("{}", encoding="utf-8")
+            mesh.write_text("{}", encoding="utf-8")
+            with (
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
+                patch(
+                    "ai_caddie.courses.course_reference.courseview_release_info",
+                    return_value=None,
+                ),
+            ):
+                evidence = geometry_coverage_for_hole(
+                    31795,
+                    2,
+                    require_current_authority=True,
+                )
+
+        self.assertEqual(evidence["coverage"], "ready")
+        self.assertRegex(evidence["geometryRevision"], r"^[0-9a-f]{16}$")
     def test_missing_geometry_returns_missing_coverage(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

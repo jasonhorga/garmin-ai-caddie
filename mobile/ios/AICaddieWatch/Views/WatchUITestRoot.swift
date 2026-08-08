@@ -392,7 +392,11 @@ public struct WatchUITestRoot: View {
     private var realCourseGeometry: WatchHoleMapGeometry? {
         guard let state = model.activeHoleState,
               let globalId = state.globalId,
-              let image = WatchHoleImageStore().image(globalId: globalId, hole: state.hole) else {
+              let image = WatchHoleImageStore().image(
+                  globalId: globalId,
+                  hole: state.hole,
+                  geometryRevision: state.geometryRevision
+              ) else {
             return nil
         }
         return WatchHoleMapGeometry.from(holeMap: state.holeMap, image: image)
@@ -816,7 +820,8 @@ public struct WatchUITestRoot: View {
             guard state.holeMap != nil,
                   let image = imageStore.image(
                       globalId: Self.realCourseGlobalId,
-                      hole: state.hole
+                      hole: state.hole,
+                      geometryRevision: state.geometryRevision
                   ) else {
                 return false
             }
@@ -945,7 +950,11 @@ public struct WatchUITestRoot: View {
             guard state.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame,
                   let holeMap = state.holeMap,
                   let globalId = state.globalId,
-                  let image = imageStore.image(globalId: globalId, hole: state.hole),
+                  let image = imageStore.image(
+                      globalId: globalId,
+                      hole: state.hole,
+                      geometryRevision: state.geometryRevision
+                  ),
                   WatchHoleMapGeometry.from(holeMap: holeMap, image: image) != nil else {
                 return state.hole
             }
@@ -1049,7 +1058,11 @@ public struct WatchUITestRoot: View {
     private var standaloneCourseGeometry: WatchHoleMapGeometry? {
         guard let state = model.activeHoleState,
               let globalId = state.globalId,
-              let image = WatchHoleImageStore().image(globalId: globalId, hole: state.hole) else {
+              let image = WatchHoleImageStore().image(
+                  globalId: globalId,
+                  hole: state.hole,
+                  geometryRevision: state.geometryRevision
+              ) else {
             return nil
         }
         return WatchHoleMapGeometry.from(holeMap: state.holeMap, image: image)

@@ -115,7 +115,9 @@ export function PrepWorkbench({
     if (validSelected === null) return
     const index = holes.findIndex((hole) => hole.hole === validSelected)
     for (const neighbour of [holes[index - 1], holes[index + 1]]) {
-      if (neighbour?.map?.overlay) prefetchTopoImage(topoImageUrl(globalId, neighbour.hole))
+      if (neighbour?.map?.overlay) {
+        prefetchTopoImage(topoImageUrl(globalId, neighbour.hole, neighbour.geometryRevision))
+      }
     }
   }, [validSelected, holes, globalId])
 

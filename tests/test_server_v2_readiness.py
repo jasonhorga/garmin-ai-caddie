@@ -572,12 +572,17 @@ class ServerV2ReadinessTests(unittest.TestCase):
     def test_readiness_mobile_package_turns_ready_when_offline_dependencies_are_ready(self) -> None:
         client = TestClient(app)
 
-        def ready_coverage(global_id: int, local_hole: int) -> dict[str, object]:
+        def ready_coverage(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
             return {
                 "schema": "ai-caddie-geometry-evidence-v1",
                 "globalId": global_id,
                 "localHole": local_hole,
                 "coverage": "ready",
+                "geometryRevision": f"{int(local_hole):016x}",
                 "hasHazards": True,
                 "hasMeshes": True,
                 "evidence": [{"label": "geometry", "ref": f"gid{global_id}_h{local_hole:02d}"}],

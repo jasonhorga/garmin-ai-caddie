@@ -9,7 +9,7 @@ final class CoursePrepTests: XCTestCase {
          "clubs":[{"name":"1W","m":200,"yd":219},{"name":"7I","m":128,"yd":140}],
          "holes":[{"hole":1,"par":5,"par_source":"played","blue_yards":523,"route_len_m":478.4,
            "route":[[100.0,1000.0,0.0],[200.0,100.0,478.4]],
-           "geometryCoverage":"ready",
+           "geometryCoverage":"ready","geometryRevision":"0123456789abcdef",
            "sourceRefs":["course:31870","geometry:31870:1"],
            "missingData":[],
            "candidateRoutes":[{"id":"stock","club":"1W","carryM":200.0,"riskScore":1.0}],
@@ -34,6 +34,7 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertEqual(hole.steps.count, 2)
         XCTAssertEqual(hole.hazards.bunkers.first, [440.0, 12.0])
         XCTAssertEqual(hole.geometryCoverage, "ready")
+        XCTAssertEqual(hole.geometryRevision, "0123456789abcdef")
         XCTAssertEqual(hole.sourceRefs, ["course:31870", "geometry:31870:1"])
         XCTAssertEqual(hole.candidateRoutes.first?.id, "stock")
         XCTAssertEqual(hole.carryTargets.first?.kind, "landing")

@@ -328,6 +328,7 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let greenInRegulation: Bool?
     public let fairwayResult: String?
     public let geometryCoverage: String?
+    public let geometryRevision: String?
     public let caddieOptions: [WatchCaddieOption]
     public let hazards: [WatchHazard]
     public let rootCaddieRecommendation: WatchRootCaddieRecommendationPayload?
@@ -437,6 +438,7 @@ public final class WatchEventBridge: NSObject {
         greenInRegulation: Bool? = nil,
         fairwayResult: String? = nil,
         geometryCoverage: String? = nil,
+        geometryRevision: String? = nil,
         caddieOptions: [WatchCaddieOption] = [],
         hazards: [WatchHazard] = []
     ) -> WatchRoundStatePayload {
@@ -503,6 +505,7 @@ public final class WatchEventBridge: NSObject {
             greenInRegulation: greenInRegulation,
             fairwayResult: fairwayResult,
             geometryCoverage: geometryCoverage,
+            geometryRevision: geometryRevision,
             caddieOptions: resolvedCaddieOptions,
             hazards: hazards,
             rootCaddieRecommendation: rootCaddieRecommendation(
@@ -742,7 +745,12 @@ public final class WatchEventBridge: NSObject {
     /// watch P0.4: push a hole's topo image to the watch via a guaranteed-delivery file transfer, keyed
     /// by {globalId, hole}. Called at round-start / hole-change so the watch has the current (+ next)
     /// hole's map cached for offline play. Best-effort — a failure just leaves the watch mapless.
-    public func pushHoleImage(globalId: Int, hole: Int, imageData: Data) {
+    public func pushHoleImage(
+        globalId: Int,
+        hole: Int,
+        imageData: Data,
+        geometryRevision: String? = nil
+    ) {
         guard WCSession.isSupported(), WCSession.default.activationState == .activated else {
             return
         }
@@ -753,14 +761,16 @@ public final class WatchEventBridge: NSObject {
                 try? FileManager.default.removeItem(at: tmp)
             }
             try imageData.write(to: tmp, options: .atomic)
-            WCSession.default.transferFile(
-                tmp,
-                metadata: [
-                    "globalId": globalId,
-                    "hole": hole,
-                    "styleVersion": SyncClient.topoStyleVersion,
-                ]
-            )
+            var metadata: [String: Any] = [
+                "globalId": globalId,
+                "hole": hole,
+                "styleVersion": SyncClient.topoStyleVersion,
+            ]
+            if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !revision.isEmpty {
+                metadata["geometryRevision"] = revision
+            }
+            WCSession.default.transferFile(tmp, metadata: metadata)
         } catch {
             // best-effort; the watch simply renders no map for this hole
         }

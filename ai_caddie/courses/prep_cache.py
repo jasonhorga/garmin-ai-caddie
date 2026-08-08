@@ -8,7 +8,8 @@ This caches the built response and serves it instantly while inputs are unchange
 moment any input changes. Invalidation is by **filesystem fingerprint** (not TTL, not manual hooks),
 mirroring ``stats_cache``:
 
-  - requested-hole geometry files (mesh + hazards) — feed route / hazards / F/M/B / map,
+  - requested-hole geometry files (mesh + hazards + release authority) — feed route / hazards /
+    F/M/B / map and decide whether those precise facts still belong to Garmin's current release,
   - the selected course's release + ``courseData`` cache — feed the lightweight map,
   - the owner's shot dir + club-bag file — feed the club ladder + your-shots scatter,
   - the per-course par record (``data/courses/<gid>.json``).
@@ -145,6 +146,7 @@ def _requested_geometry_sig(
     if requested is None:
         return (
             _matching_dir_sig(MESH_DIR, f"gid{gid}_h*_meshes.json"),
+            _matching_dir_sig(MESH_DIR, f"gid{gid}_h*_authority.json"),
             _matching_dir_sig(HAZARD_DIR, f"gid{gid}_h*_hazards.json"),
         )
     holes = sorted({int(hole) for hole in requested if int(hole) > 0})
@@ -152,6 +154,7 @@ def _requested_geometry_sig(
         (
             hole,
             _file_sig(MESH_DIR / f"gid{gid}_h{hole:02d}_meshes.json"),
+            _file_sig(MESH_DIR / f"gid{gid}_h{hole:02d}_authority.json"),
             _file_sig(HAZARD_DIR / f"gid{gid}_h{hole:02d}_hazards.json"),
         )
         for hole in holes

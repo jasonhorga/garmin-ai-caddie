@@ -26,17 +26,35 @@ public final class WatchHoleImageStore {
 
     public static func key(globalId: Int, hole: Int) -> String { "\(globalId)_\(hole)" }
 
-    private func url(globalId: Int, hole: Int) -> URL {
-        directory.appendingPathComponent("\(Self.key(globalId: globalId, hole: hole)).img")
+    private func url(globalId: Int, hole: Int, geometryRevision: String? = nil) -> URL {
+        let suffix = Self.normalizedRevision(geometryRevision).map { "_\($0)" } ?? ""
+        return directory.appendingPathComponent(
+            "\(Self.key(globalId: globalId, hole: hole))\(suffix).img"
+        )
+    }
+
+    private static func normalizedRevision(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !trimmed.isEmpty else { return nil }
+        return trimmed.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
     }
 
     /// Persist raw image bytes for a hole (called from the WatchConnectivity file receiver). Overwrites
     /// so a re-pushed hole (e.g. after a course update) replaces the stale copy.
-    public func store(data: Data, globalId: Int, hole: Int) throws {
+    public func store(
+        data: Data,
+        globalId: Int,
+        hole: Int,
+        geometryRevision: String? = nil
+    ) throws {
         guard Self.isValidImageData(data) else {
             throw WatchHoleImageStoreError.invalidImageData
         }
-        let target = url(globalId: globalId, hole: hole)
+        let target = url(
+            globalId: globalId,
+            hole: hole,
+            geometryRevision: geometryRevision
+        )
         // Data's atomic write replaces only after the new bytes have been written successfully. Do
         // not remove the old map first: a truncated transfer must leave the last good offline map.
         try data.write(to: target, options: .atomic)
@@ -44,18 +62,40 @@ public final class WatchHoleImageStore {
 
     /// Validate a received WCSession file before replacing the prior cache. Reading once is a small
     /// cost compared with losing a playable offline map to an HTML error page or truncated transfer.
-    public func store(fileURL: URL, globalId: Int, hole: Int) throws {
-        try store(data: Data(contentsOf: fileURL), globalId: globalId, hole: hole)
+    public func store(
+        fileURL: URL,
+        globalId: Int,
+        hole: Int,
+        geometryRevision: String? = nil
+    ) throws {
+        try store(
+            data: Data(contentsOf: fileURL),
+            globalId: globalId,
+            hole: hole,
+            geometryRevision: geometryRevision
+        )
     }
 
-    public func data(globalId: Int, hole: Int) -> Data? {
-        guard let data = try? Data(contentsOf: url(globalId: globalId, hole: hole)),
+    public func data(
+        globalId: Int,
+        hole: Int,
+        geometryRevision: String? = nil
+    ) -> Data? {
+        guard let data = try? Data(contentsOf: url(
+                  globalId: globalId,
+                  hole: hole,
+                  geometryRevision: geometryRevision
+              )),
               Self.isValidImageData(data) else { return nil }
         return data
     }
 
-    public func hasImage(globalId: Int, hole: Int) -> Bool {
-        data(globalId: globalId, hole: hole) != nil
+    public func hasImage(
+        globalId: Int,
+        hole: Int,
+        geometryRevision: String? = nil
+    ) -> Bool {
+        data(globalId: globalId, hole: hole, geometryRevision: geometryRevision) != nil
     }
 
     /// A non-empty response is not necessarily a map (the previous cache accepted 1–4 bytes and
@@ -89,8 +129,16 @@ public final class WatchHoleImageStore {
 
     #if canImport(UIKit)
     /// The cached hole image as a `UIImage` for `WatchHoleMapView`'s geometry; nil if not yet received.
-    public func image(globalId: Int, hole: Int) -> UIImage? {
-        data(globalId: globalId, hole: hole).flatMap(UIImage.init(data:))
+    public func image(
+        globalId: Int,
+        hole: Int,
+        geometryRevision: String? = nil
+    ) -> UIImage? {
+        data(
+            globalId: globalId,
+            hole: hole,
+            geometryRevision: geometryRevision
+        ).flatMap(UIImage.init(data:))
     }
     #endif
 }

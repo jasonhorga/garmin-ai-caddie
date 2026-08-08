@@ -308,7 +308,12 @@ public struct RoundHoleShotMapScreen: View {
     /// projected onto. nil (→ flat fallback) when the round has no course geometry or no base URL.
     private func topoURL(for shotMap: RoundHoleShotMap) -> URL? {
         guard let apiBaseURL, let gid = shotMap.globalId, let local = shotMap.localHole else { return nil }
-        return SyncClient.topoImageURL(baseURL: apiBaseURL, globalId: gid, localHole: local)
+        return SyncClient.topoImageURL(
+            baseURL: apiBaseURL,
+            globalId: gid,
+            localHole: local,
+            geometryRevision: shotMap.geometryRevision
+        )
     }
 
     @MainActor

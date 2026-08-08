@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -48,6 +49,22 @@ class EstimateTests(unittest.TestCase):
 
 
 class PersistenceTests(unittest.TestCase):
+    def test_concurrent_stale_release_refresh_is_singleflight(self) -> None:
+        old_fixture = Path(__file__).parent / "fixtures" / "courseview_release_31870.pb"
+        new_fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_path = root / "data" / "courseview" / "31936_releases.pb"
+            release_path.parent.mkdir(parents=True)
+            release_path.write_bytes(old_fixture.read_bytes())
+            os.utime(release_path, (1, 1))
+            with patch.object(cr, "load_release_pb", return_value=new_fixture.read_bytes()) as fetch:
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    rows = list(pool.map(lambda _: cr.courseview_release_info(31936, root=root), range(8)))
+
+            fetch.assert_called_once_with(31936, True)
+            self.assertTrue(all(row and row["course_id"] == 31936 for row in rows))
+
     def test_stale_release_cache_refreshes_atomically_when_online(self) -> None:
         old_fixture = Path(__file__).parent / "fixtures" / "courseview_release_31870.pb"
         new_fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"

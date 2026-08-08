@@ -259,6 +259,10 @@
             "type": "string",
             "enum": ["ready", "partial", "missing"]
           },
+          "geometryRevision": {
+            "type": ["string", "null"],
+            "pattern": "^[0-9a-f]{16}$"
+          },
           "sourceGlobalId": {
             "type": ["integer", "null"]
           },
@@ -303,6 +307,10 @@
               "geometryCoverage": {
                 "type": "string",
                 "enum": ["ready", "partial", "missing"]
+              },
+              "geometryRevision": {
+                "type": ["string", "null"],
+                "pattern": "^[0-9a-f]{16}$"
               },
               "candidateRoutes": {
                 "type": "array",

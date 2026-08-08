@@ -54,6 +54,7 @@ public enum WatchCourseTemplateBuilder {
             let localHole = hole.sourceLocalHole ?? hole.number
             let prepResponse = prepsByGlobalId[globalId]
             let prep = prepResponse?.holes.first { $0.hole == localHole }
+            let geometryRevision = prep?.geometryRevision ?? hole.geometryRevision
             let distanceM = hole.yards.map { Double($0) * 0.9144 }
             let projection = watchProjection(prep?.holeImageProjection)
             let overlay = prep.flatMap { prepOverlay($0, projection: projection) }
@@ -96,7 +97,12 @@ public enum WatchCourseTemplateBuilder {
                 resolvedImageData = nil
             }
             if let resolvedImageData {
-                images.append(WatchCourseImage(globalId: globalId, hole: hole.number, data: resolvedImageData))
+                images.append(WatchCourseImage(
+                    globalId: globalId,
+                    hole: hole.number,
+                    data: resolvedImageData,
+                    geometryRevision: geometryRevision
+                ))
             }
 
             let reportedCoverage = prep?.geometryCoverage ?? hole.geometryCoverage
@@ -136,6 +142,9 @@ public enum WatchCourseTemplateBuilder {
                 playsLikeDistanceM: deltaM.flatMap { delta in distanceM.map { $0 + delta } },
                 elevationDeltaM: deltaM,
                 geometryCoverage: effectiveCoverage,
+                geometryRevision: effectiveCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+                    ? geometryRevision
+                    : nil,
                 caddieOptions: preparedOptions,
                 // CourseView's fast package can omit hazards that precise prodgeometry later
                 // reveals.  Do not turn that provisional subset into a Watch hazard list.

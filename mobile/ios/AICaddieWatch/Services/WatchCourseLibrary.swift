@@ -267,7 +267,8 @@ public final class WatchCourseLibrary: ObservableObject {
     public func upgradeCourseWhenReady(
         _ selection: WatchCourseSelection,
         roundId: String,
-        config: WatchRoundConfig?
+        config: WatchRoundConfig?,
+        onProgress: (([WatchRoundState]) -> Void)? = nil
     ) async -> WatchPreparedCourse? {
         guard let config else { return nil }
         var delaySeconds: UInt64 = 5
@@ -287,9 +288,11 @@ public final class WatchCourseLibrary: ObservableObject {
                 // the other seventeen again after a relaunch. `cachedCourseIds` remains false until
                 // the template, map geometry and every production raster are all present.
                 try persist(download)
+                let prepared = download.template.makeRound(roundId: roundId)
+                onProgress?(prepared.holeStates)
                 if Self.preciseDownloadReady(download) {
                     errorMessage = nil
-                    return download.template.makeRound(roundId: roundId)
+                    return prepared
                 }
             } catch {
                 // The lightweight template remains playable. Retry below instead of replacing the
@@ -312,11 +315,11 @@ public final class WatchCourseLibrary: ObservableObject {
     public func upgradeCachedCourseWhenReady(
         globalId: Int,
         roundId: String,
-        config: WatchRoundConfig?
+        config: WatchRoundConfig?,
+        onProgress: (([WatchRoundState]) -> Void)? = nil
     ) async -> WatchPreparedCourse? {
         guard let config,
-              let cached = store.course(globalId: globalId),
-              !Self.preciseTemplateReady(cached, imageStore: imageStore) else {
+              let cached = store.course(globalId: globalId) else {
             return nil
         }
         let selection = WatchCourseSelection(
@@ -325,7 +328,12 @@ public final class WatchCourseLibrary: ObservableObject {
             teeBox: cached.teeBox,
             ensureGeometry: true
         )
-        return await upgradeCourseWhenReady(selection, roundId: roundId, config: config)
+        return await upgradeCourseWhenReady(
+            selection,
+            roundId: roundId,
+            config: config,
+            onProgress: onProgress
+        )
     }
 
     private func fetchCourseDownload(
@@ -402,14 +410,25 @@ public final class WatchCourseLibrary: ObservableObject {
             })
             for localHole in localHoles where readyHoles.contains(localHole) {
                 let displayHole = displayHoleByGlobalId[globalId]?[localHole] ?? localHole
-                if let cached = imageStore.data(globalId: globalId, hole: displayHole) {
+                let prepHole = prep.holes.first { $0.hole == localHole }
+                let packageHole = package.holes.first {
+                    ($0.sourceGlobalId ?? package.course.globalId) == globalId
+                        && ($0.sourceLocalHole ?? $0.number) == localHole
+                }
+                let geometryRevision = prepHole?.geometryRevision ?? packageHole?.geometryRevision
+                if let cached = imageStore.data(
+                    globalId: globalId,
+                    hole: displayHole,
+                    geometryRevision: geometryRevision
+                ) {
                     topoImages[globalId, default: [:]][localHole] = cached
                     continue
                 }
                 do {
                     let data = try await client.fetchCourseTopo(
                         globalId: globalId,
-                        localHole: localHole
+                        localHole: localHole,
+                        geometryRevision: geometryRevision
                     )
                     guard WatchHoleImageStore.isValidImageData(data) else { continue }
                     topoImages[globalId, default: [:]][localHole] = data
@@ -438,7 +457,12 @@ public final class WatchCourseLibrary: ObservableObject {
 
     private func persist(_ download: WatchCourseDownload) throws {
         for image in download.images {
-            try imageStore.store(data: image.data, globalId: image.globalId, hole: image.hole)
+            try imageStore.store(
+                data: image.data,
+                globalId: image.globalId,
+                hole: image.hole,
+                geometryRevision: image.geometryRevision
+            )
         }
         try store.save(download.template)
         if Self.preciseTemplateReady(download.template, imageStore: imageStore) {
@@ -490,7 +514,11 @@ public final class WatchCourseLibrary: ObservableObject {
             guard state.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame,
                   state.holeMap != nil,
                   let globalId = state.globalId,
-                  imageStore.hasImage(globalId: globalId, hole: state.hole) else {
+                  imageStore.hasImage(
+                      globalId: globalId,
+                      hole: state.hole,
+                      geometryRevision: state.geometryRevision
+                  ) else {
                 missing.insert(state.hole)
                 continue
             }

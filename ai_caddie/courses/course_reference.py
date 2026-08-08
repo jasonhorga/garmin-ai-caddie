@@ -11,6 +11,7 @@ UI can show provenance and a course the user later plays auto-supersedes an esti
 from __future__ import annotations
 
 import os
+import threading
 import time
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
@@ -21,6 +22,7 @@ from ai_caddie.geometry.inspect_courseview_release import inspect_valid_release,
 
 COURSE_DIR = ROOT / "data" / "courses"
 COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S = 3600.0
+_RELEASE_LOCKS = tuple(threading.Lock() for _ in range(64))
 
 PAR_SOURCES = ("played", "courseview", "estimate")
 
@@ -254,28 +256,37 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def _release_lock(global_id: int, root: Path) -> threading.Lock:
+    key = (str(root.resolve()), int(global_id))
+    return _RELEASE_LOCKS[hash(key) % len(_RELEASE_LOCKS)]
+
+
 def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> dict | None:
     """Decoded CourseView release with hourly refresh and offline stale fallback."""
     gid = int(global_id)
-    path = _courseview_dir(root) / f"{gid}_releases.pb"
-    cached_info: dict | None = None
-    stale = True
-    if path.exists():
-        try:
-            pb = path.read_bytes()
-            cached_info = inspect_valid_release(pb, expected_course_id=gid)
-            stale = time.time() - path.stat().st_mtime > COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S
-        except (OSError, ValueError):
-            stale = True
-    if allow_fetch and (stale or cached_info is None):
-        try:
-            candidate = load_release_pb(gid, True)  # live fetch (anonymous)
-            info = inspect_valid_release(candidate, expected_course_id=gid)
-        except Exception:
-            return cached_info  # offline: the last complete release remains usable
-        _atomic_write_bytes(path, candidate)
-        return info
-    return cached_info
+    with _release_lock(gid, root):
+        # Re-read inside the per-course lock: another package/topo request may just have refreshed
+        # the same release while this caller was waiting. This prevents 18 concurrent hole requests
+        # from issuing 18 Garmin fetches or sharing one temporary output path.
+        path = _courseview_dir(root) / f"{gid}_releases.pb"
+        cached_info: dict | None = None
+        stale = True
+        if path.exists():
+            try:
+                pb = path.read_bytes()
+                cached_info = inspect_valid_release(pb, expected_course_id=gid)
+                stale = time.time() - path.stat().st_mtime > COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S
+            except (OSError, ValueError):
+                stale = True
+        if allow_fetch and (stale or cached_info is None):
+            try:
+                candidate = load_release_pb(gid, True)  # live fetch (anonymous)
+                info = inspect_valid_release(candidate, expected_course_id=gid)
+            except Exception:
+                return cached_info  # offline: the last complete release remains usable
+            _atomic_write_bytes(path, candidate)
+            return info
+        return cached_info
 
 
 def courseview_release_info(

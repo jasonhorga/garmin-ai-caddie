@@ -178,7 +178,11 @@ public struct AICaddieWatchApp: App {
                   let upgraded = await courseLibrary.upgradeCachedCourseWhenReady(
                     globalId: key.globalId,
                     roundId: key.roundId,
-                    config: key.config
+                    config: key.config,
+                    onProgress: { states in
+                        guard roundModel.round?.roundId == key.roundId else { return }
+                        roundModel.applyCourseMapUpgrade(states)
+                    }
                   ),
                   roundModel.round?.roundId == key.roundId else {
                 return
@@ -247,8 +251,15 @@ public struct AICaddieWatchApp: App {
     /// The active hole uses a cached precise bitmap when present and otherwise keeps the factual
     /// CourseView vectors visible while the same course/hole upgrades in place.
     private var activeHoleGeometry: WatchHoleMapGeometry? {
-        guard let s = roundModel.activeHoleState, let hm = s.holeMap, let gid = s.globalId else { return nil }
-        let img = syncClient.holeImageStore.image(globalId: gid, hole: s.hole)
+        guard let s = roundModel.activeHoleState,
+              s.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame,
+              let hm = s.holeMap,
+              let gid = s.globalId else { return nil }
+        let img = syncClient.holeImageStore.image(
+            globalId: gid,
+            hole: s.hole,
+            geometryRevision: s.geometryRevision
+        )
         guard let geo = WatchHoleMapGeometry.from(
             holeMap: hm,
             image: img,

@@ -9,6 +9,7 @@ from unittest.mock import patch
 from ai_caddie.geometry import batch_prodgeometry_course as batch
 from ai_caddie.geometry import geometry_sync
 from ai_caddie.geometry.geometry_authority import (
+    authority_matches_release,
     authority_path,
     build_authority,
     cache_token,
@@ -134,6 +135,58 @@ class GeometryAuthorityTests(unittest.TestCase):
                 hole=second_release["holes"][0],
                 release_source="live",
                 geometry_zip_sha256="b" * 64,
+            )
+            write_authority(sidecar, second)
+            token_b = cache_token(
+                global_id=1,
+                local_hole=2,
+                mesh_file=mesh,
+                hazard_file=hazard,
+                sidecar=sidecar,
+            )
+            self.assertNotEqual(token_a, token_b)
+
+    def test_derivative_token_changes_when_release_binding_changes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mesh = root / "gid1_h02_meshes.json"
+            hazard = root / "gid1_h02_hazards.json"
+            _write_outputs(mesh, hazard, "220542")
+            first_release = _release(build=266, release_id="006-D2419-44")
+            first = build_authority(
+                global_id=1,
+                local_hole=2,
+                release=first_release,
+                hole=first_release["holes"][0],
+                release_source="cache",
+            )
+            sidecar = authority_path(mesh)
+            write_authority(sidecar, first)
+            token_a = cache_token(
+                global_id=1,
+                local_hole=2,
+                mesh_file=mesh,
+                hazard_file=hazard,
+                sidecar=sidecar,
+            )
+
+            refreshed = _release(build=267, release_id="006-D2419-45")
+            second = build_authority(
+                global_id=1,
+                local_hole=2,
+                release=refreshed,
+                hole=refreshed["holes"][0],
+                release_source="live",
+            )
+            self.assertFalse(
+                authority_matches_release(
+                    first,
+                    global_id=1,
+                    local_hole=2,
+                    mesh_file=mesh,
+                    hazard_file=hazard,
+                    release=refreshed,
+                )
             )
             write_authority(sidecar, second)
             token_b = cache_token(

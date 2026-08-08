@@ -20,6 +20,33 @@ from server_v2.main import app
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def test_live_package_does_not_trust_historical_ready_geometry(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        round_row = {
+            "globalId": 31795,
+            "holes": [{"number": 1, "par": 4, "geometryCoverage": "ready"}],
+        }
+        with patch.object(
+            mobile_live,
+            "geometry_coverage_for_hole",
+            return_value={"coverage": "partial", "geometryRevision": None},
+        ) as current_coverage:
+            holes = mobile_live._package_holes(
+                round_row,
+                {"holes": []},
+                course_key="",
+                hole_numbers=[1],
+            )
+
+        self.assertEqual(holes[0]["geometryCoverage"], "partial")
+        self.assertIsNone(holes[0]["geometryRevision"])
+        current_coverage.assert_called_once_with(
+            31795,
+            1,
+            require_current_authority=True,
+        )
+
     def test_mobile_geometry_context_keeps_only_caddie_risk_surfaces(self) -> None:
         from ai_caddie.caddie.mobile_live import _hazards_from_geometry
 
@@ -517,7 +544,11 @@ class ServerV2MobileTests(unittest.TestCase):
                 "releaseSource": "cache",
             }
 
-        def coverage_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+        def coverage_for_test(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
             ready = (int(global_id), int(local_hole)) in ensured
             return {
                 "schema": "ai-caddie-geometry-evidence-v1",
@@ -788,7 +819,11 @@ class ServerV2MobileTests(unittest.TestCase):
         client = TestClient(app)
         data = HistoryData(raw_rounds=[], rounds=[], shots=[])
 
-        def coverage_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+        def coverage_for_test(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
             return {
                 "schema": "ai-caddie-geometry-evidence-v1",
                 "globalId": global_id,

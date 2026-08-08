@@ -132,7 +132,9 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
         // base image; a wrong guess (multi-course round) just warms a nearby cached hole, never errors.
         if (data.found && data.map && data.globalId != null && data.localHole != null) {
           for (const local of [data.localHole - 1, data.localHole + 1]) {
-            if (local >= 1) prefetchTopoImage(topoImageUrl(data.globalId, local))
+            if (local >= 1) {
+              prefetchTopoImage(topoImageUrl(data.globalId, local, data.geometryRevision))
+            }
           }
         }
       })

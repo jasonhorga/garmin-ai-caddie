@@ -45,6 +45,54 @@ DECISION_LEDGER_ROOT = Path(".")
 OPEN_METEO_TRANSPORT: WeatherTransport | None = None
 
 
+def _refresh_course_release_authority(global_ids: list[int]) -> None:
+    """Refresh each physical loop's small Garmin release before package coverage is evaluated."""
+    from ai_caddie.courses.course_reference import courseview_release_info
+
+    for selected_global_id in dict.fromkeys(int(value) for value in global_ids if int(value) > 0):
+        try:
+            # Geometry files and release documents live under the canonical repository data root;
+            # MOBILE_ROOT only scopes player/event fixtures and may be redirected independently.
+            courseview_release_info(selected_global_id, allow_fetch=True)
+        except Exception:
+            # Offline/provider failure keeps the last complete release and precise map usable. A
+            # later package request retries without making course start depend on Garmin uptime.
+            pass
+
+
+def _round_release_global_ids(data: object, round_id: str) -> list[int]:
+    rows = getattr(data, "rounds", []) or []
+    requested = str(round_id)
+    row = next(
+        (
+            candidate
+            for candidate in rows
+            if requested
+            in {
+                str(candidate.get("id") or ""),
+                *(str(value) for value in (candidate.get("ids") or [])),
+            }
+        ),
+        None,
+    )
+    if not isinstance(row, dict):
+        return []
+    values = [
+        row.get("frontNineGlobalCourseId"),
+        row.get("backNineGlobalCourseId"),
+        row.get("globalId") or row.get("courseGlobalId") or row.get("courseId"),
+    ]
+    result: list[int] = []
+    for value in values:
+        try:
+            global_id = int(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if global_id > 0 and global_id not in result:
+            result.append(global_id)
+    return result
+
+
 def build_mobile_round_package_response(
     round_id: str,
     *,
@@ -54,6 +102,7 @@ def build_mobile_round_package_response(
     player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode(player_id=player_id)
+    _refresh_course_release_authority(_round_release_global_ids(data, round_id))
     return LiveRoundPackageResponse(
         **build_live_round_package(
             round_id,
@@ -83,6 +132,11 @@ def build_mobile_course_package_response(
     include_event_cursor: bool = True,
     player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
+    # Refresh every selected physical loop before historical `ready` or cached precise files are
+    # evaluated. This applies equally to played and never-played catalogue courses.
+    _refresh_course_release_authority(
+        [int(global_id), *([int(back_global_id)] if back_global_id is not None else [])]
+    )
     data, mode = load_history_data_for_mode(player_id=player_id)
     package = build_live_round_package_for_course(
         global_id,

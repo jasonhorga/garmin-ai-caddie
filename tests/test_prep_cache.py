@@ -117,6 +117,25 @@ class PrepCacheTests(unittest.TestCase):
             selected_mesh.write_text('{"changed":true}', encoding="utf-8")
             self.assertNotEqual(prep_cache._fingerprint(31795), selected_before)
 
+    def test_geometry_fingerprint_changes_when_authority_sidecar_is_bound(self) -> None:
+        """Binding legacy bytes must evict a cached partial prep even when mesh/hazard stay intact."""
+        with tempfile.TemporaryDirectory() as mesh_tmp, tempfile.TemporaryDirectory() as hazard_tmp:
+            original_mesh = prep_cache.MESH_DIR
+            original_hazard = prep_cache.HAZARD_DIR
+            prep_cache.MESH_DIR = Path(mesh_tmp)
+            prep_cache.HAZARD_DIR = Path(hazard_tmp)
+            self.addCleanup(setattr, prep_cache, "MESH_DIR", original_mesh)
+            self.addCleanup(setattr, prep_cache, "HAZARD_DIR", original_hazard)
+
+            (prep_cache.MESH_DIR / "gid31795_h01_meshes.json").write_text("{}")
+            (prep_cache.HAZARD_DIR / "gid31795_h01_hazards.json").write_text("{}")
+            before = prep_cache._fingerprint(31795, requested=[1])
+            (prep_cache.MESH_DIR / "gid31795_h01_authority.json").write_text(
+                '{"schema":"garmin-prodgeometry-authority-v1"}'
+            )
+
+            self.assertNotEqual(before, prep_cache._fingerprint(31795, requested=[1]))
+
     def test_cached_hole_fingerprint_ignores_other_holes_installed_mid_build(self) -> None:
         """A cold all-course installer must not make a hole-1 waiter rebuild for holes 2...18."""
         with tempfile.TemporaryDirectory() as mesh_tmp, tempfile.TemporaryDirectory() as hazard_tmp:

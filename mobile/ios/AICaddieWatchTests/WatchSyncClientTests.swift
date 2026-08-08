@@ -46,9 +46,15 @@ final class WatchSyncClientTests: XCTestCase {
                 "globalId": 31833,
                 "hole": 1,
                 "styleVersion": WatchBackendClient.topoStyleVersion,
+                "geometryRevision": "aaaaaaaaaaaaaaaa",
             ]
         ))
-        XCTAssertEqual(imageStore.data(globalId: 31833, hole: 1), image)
+        XCTAssertNil(imageStore.data(globalId: 31833, hole: 1))
+        XCTAssertEqual(imageStore.data(
+            globalId: 31833,
+            hole: 1,
+            geometryRevision: "aaaaaaaaaaaaaaaa"
+        ), image)
     }
 
     func testReceiveRoundSeedPublishesRealRoundForTheAppModel() throws {

@@ -249,11 +249,19 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(prepQuery.queryItems?.filter { $0.name == "holes" }.compactMap(\.value), ["1", "2", "9"])
         XCTAssertEqual(prepQuery.queryItems?.first(where: { $0.name == "render" })?.value, "false")
 
-        let topo = try client.makeCourseTopoRequest(globalId: 31669, localHole: 4)
+        let topo = try client.makeCourseTopoRequest(
+            globalId: 31669,
+            localHole: 4,
+            geometryRevision: "aaaaaaaaaaaaaaaa"
+        )
         XCTAssertEqual(topo.url?.path, "/api/v2/courses/31669/holes/4/topo.png")
         XCTAssertEqual(topo.timeoutInterval, WatchBackendClient.courseReleaseTimeoutInterval)
         let topoQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(topo.url), resolvingAgainstBaseURL: false))
         XCTAssertEqual(topoQuery.queryItems?.first(where: { $0.name == "v" })?.value, "topo-v8")
+        XCTAssertEqual(
+            topoQuery.queryItems?.first(where: { $0.name == "r" })?.value,
+            "aaaaaaaaaaaaaaaa"
+        )
         XCTAssertNil(topo.value(forHTTPHeaderField: "Authorization"))
     }
 

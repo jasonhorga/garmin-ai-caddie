@@ -603,15 +603,18 @@ def _round_hole_geometry_ref(round_row: dict[str, Any], hole: int) -> tuple[int 
     return global_id, hole
 
 
-def _geometry_coverage_for_package_hole(round_row: dict[str, Any], hole: int) -> str:
+def _geometry_evidence_for_package_hole(round_row: dict[str, Any], hole: int) -> dict[str, Any]:
     global_id, local_hole = _round_hole_geometry_ref(round_row, hole)
     if global_id is None:
-        return "missing"
+        return {"coverage": "missing", "geometryRevision": None}
     try:
-        coverage = geometry_coverage_for_hole(global_id, local_hole)
+        return geometry_coverage_for_hole(
+            global_id,
+            local_hole,
+            require_current_authority=True,
+        )
     except Exception:
-        return "missing"
-    return str(coverage.get("coverage") or "missing")
+        return {"coverage": "missing", "geometryRevision": None}
 
 
 def _geometry_ensure_source_ref(global_id: int, local_hole: int) -> str:
@@ -813,9 +816,12 @@ def _package_holes(
                         tee_longitude = longitude
             except (OSError, TypeError, ValueError, OverflowError):
                 pass
-        coverage = str(source_hole.get("geometryCoverage") or stats_hole.get("geometryCoverage") or "")
-        if not coverage or coverage == "missing":
-            coverage = _geometry_coverage_for_package_hole(round_row, number)
+        # A prior round's `ready` describes what existed when that round was ingested; it is not
+        # authority for today's Garmin release.  Always resolve the physical hole against the
+        # current cached release before advertising precise facts to a live client.
+        geometry_evidence = _geometry_evidence_for_package_hole(round_row, number)
+        coverage = str(geometry_evidence.get("coverage") or "missing")
+        geometry_revision = geometry_evidence.get("geometryRevision")
         # Per-hole source course id + local hole, so the live 2D map fetches the RIGHT course's
         # geometry per hole — incl. composite rounds where holes 10–18 live in a second loop's gid.
         holes.append({
@@ -823,6 +829,7 @@ def _package_holes(
             "par": par,
             "yards": yards,
             "geometryCoverage": coverage or "missing",
+            "geometryRevision": str(geometry_revision) if geometry_revision else None,
             "sourceGlobalId": int(source_gid) if source_gid else None,
             "sourceLocalHole": int(source_local) if source_local else number,
             "teeLatitude": tee_latitude,
@@ -1326,8 +1333,16 @@ def _geometry_seed(global_id: int, local_hole: int, fallback_coverage: str) -> t
         # expanded every fairway/rough/green mesh into GeoJSON, then immediately discarded every
         # non-hazard feature. On a real 18-hole course that made the fast start package take about
         # 25 seconds on every request. Read the authority-bound compact hazard/Tee export instead.
-        coverage = geometry_coverage_for_hole(global_id, local_hole)
-        hazard_source = _load_mobile_hazards(int(global_id), int(local_hole))
+        coverage = geometry_coverage_for_hole(
+            global_id,
+            local_hole,
+            require_current_authority=True,
+        )
+        hazard_source = (
+            _load_mobile_hazards(int(global_id), int(local_hole))
+            if coverage.get("coverage") == "ready"
+            else {}
+        )
         hazards = _hazards_from_geometry(hazard_source)
         geometry = {
             "coverage": str(coverage.get("coverage") or fallback_coverage),
@@ -2243,9 +2258,14 @@ def _geometry_only_course_template(
     hole_numbers = sorted(lightweight_holes) or list(range(1, len(cv_par or []) + 1)) or list(range(1, 19))
     for local_hole in hole_numbers:
         try:
-            coverage = geometry_coverage_for_hole(int(global_id), local_hole)
+            coverage = geometry_coverage_for_hole(
+                int(global_id),
+                local_hole,
+                require_current_authority=True,
+            )
             state = str(coverage.get("coverage") or "missing")
         except Exception:
+            coverage = {"coverage": "missing", "geometryRevision": None}
             state = "missing"
         if state != "missing":
             has_geometry_source = True
@@ -2305,6 +2325,11 @@ def _geometry_only_course_template(
             "teeLatitude": tee_latitude,
             "teeLongitude": tee_longitude,
             "geometryCoverage": state,
+            "geometryRevision": (
+                str(coverage.get("geometryRevision"))
+                if coverage.get("geometryRevision")
+                else None
+            ),
         })
     # Anchor the course on EITHER geometry OR a CourseView par table. Geometry being
     # absent (e.g. a deployment without the geometry bundle) must NOT collapse the whole

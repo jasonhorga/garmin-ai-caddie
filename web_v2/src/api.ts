@@ -97,8 +97,12 @@ function apiUrl(path: string): string {
 // server-side. Used as the <img> base layer under the hole canvases' vector overlays. Public
 // (course geometry, no auth). The query separates renderer styles; the response ETag additionally
 // binds Garmin's current geometry asset. 404s without CourseView geometry → client falls back.
-export function topoImageUrl(globalId: number, hole: number): string {
-  return apiUrl(`/api/v2/courses/${globalId}/holes/${hole}/topo.png?v=topo-v8`)
+export function topoImageUrl(globalId: number, hole: number, geometryRevision?: string | null): string {
+  const revision = geometryRevision?.trim()
+  const query = revision
+    ? `v=topo-v8&r=${encodeURIComponent(revision)}`
+    : 'v=topo-v8'
+  return apiUrl(`/api/v2/courses/${globalId}/holes/${hole}/topo.png?${query}`)
 }
 
 // Fire-and-forget: ask the server to render + cache EVERY geometry-backed hole's topo bitmap for a

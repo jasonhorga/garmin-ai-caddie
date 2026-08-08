@@ -320,6 +320,56 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertNil(store.loadCourseTopoImageURL(globalId: 31795, localHole: 1))
     }
 
+    func testCourseTopoCachePhysicallySeparatesGarminGeometryRevisions() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let png = validOnePixelPNGData()
+        let revisionA = "aaaaaaaaaaaaaaaa"
+        let revisionB = "bbbbbbbbbbbbbbbb"
+
+        XCTAssertTrue(try store.saveCourseTopoImage(
+            png,
+            globalId: 31795,
+            localHole: 1,
+            geometryRevision: revisionA
+        ))
+        XCTAssertEqual(
+            store.loadCourseTopoImage(
+                globalId: 31795,
+                localHole: 1,
+                geometryRevision: revisionA
+            ),
+            png
+        )
+        XCTAssertNil(store.loadCourseTopoImage(
+            globalId: 31795,
+            localHole: 1,
+            geometryRevision: revisionB
+        ))
+        XCTAssertNil(
+            store.loadCourseTopoImage(globalId: 31795, localHole: 1),
+            "a current revision must not silently become the legacy/unknown cache entry"
+        )
+
+        XCTAssertTrue(try store.saveCourseTopoImage(
+            png,
+            globalId: 31795,
+            localHole: 1,
+            geometryRevision: revisionB
+        ))
+        XCTAssertNotNil(store.loadCourseTopoImage(
+            globalId: 31795,
+            localHole: 1,
+            geometryRevision: revisionA
+        ))
+        XCTAssertNotNil(store.loadCourseTopoImage(
+            globalId: 31795,
+            localHole: 1,
+            geometryRevision: revisionB
+        ))
+    }
+
     func testOfflineMapCompletenessRequiresEveryPrecisePrepAndTopoImage() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -345,6 +395,25 @@ final class OfflineStoreTests: XCTestCase {
         let ready = replacingCoursePrep(in: source, geometryCoverage: "ready")
         XCTAssertTrue(ready.hasCompleteOfflineCoursePrep)
         XCTAssertTrue(store.hasCourseTopoImages(for: ready))
+
+        let revised = replacingCoursePrep(
+            in: source,
+            geometryCoverage: "ready",
+            geometryRevision: "aaaaaaaaaaaaaaaa"
+        )
+        XCTAssertFalse(
+            store.hasCourseTopoImages(for: revised),
+            "legacy pixels must not satisfy a precise prep carrying a current Garmin revision"
+        )
+        for hole in source.holes {
+            XCTAssertTrue(try store.saveCourseTopoImage(
+                validOnePixelPNGData(),
+                globalId: hole.sourceGlobalId ?? source.course.globalId,
+                localHole: hole.sourceLocalHole ?? hole.number,
+                geometryRevision: "aaaaaaaaaaaaaaaa"
+            ))
+        }
+        XCTAssertTrue(store.hasCourseTopoImages(for: revised))
 
         let missingImageStore = OfflineStore(
             directoryURL: FileManager.default.temporaryDirectory
@@ -2393,7 +2462,8 @@ final class OfflineStoreTests: XCTestCase {
 
     private func replacingCoursePrep(
         in package: LiveRoundPackage,
-        geometryCoverage: String
+        geometryCoverage: String,
+        geometryRevision: String? = nil
     ) -> LiveRoundPackage {
         let preps = package.holes.map { hole in
             CoursePrepHole(
@@ -2404,6 +2474,7 @@ final class OfflineStoreTests: XCTestCase {
                 routeLenM: 360,
                 route: [[0, 0, 0], [0, 360, 360]],
                 geometryCoverage: geometryCoverage,
+                geometryRevision: geometryRevision,
                 hazards: CoursePrepHazards(),
                 map: CoursePrepMap(
                     image: "data:image/jpeg;base64,AQID",

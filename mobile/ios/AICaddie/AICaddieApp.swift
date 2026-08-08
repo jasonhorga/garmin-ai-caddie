@@ -251,6 +251,7 @@ private enum LiveRoundFinishError: Error {
 private struct OfflineTopoDownloadResult: Sendable {
     let globalId: Int
     let localHole: Int
+    let geometryRevision: String?
     let data: Data?
     let errorDescription: String?
 }
@@ -494,7 +495,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 try offlineStore.hasRecordedEvents(roundId: active.roundId) {
                 try activatePackage(active, status: "继续进行中的球局")
                 if courseOptionsRefreshSucceeded {
-                    beginOfflineCourseDownload()
+                    beginOfflineCourseDownload(revalidatePackage: true)
                 }
                 return
             }
@@ -687,10 +688,10 @@ public final class LiveRoundAppModel: ObservableObject {
                 try offlineStore.saveRoundPackage(offlinePackage)
                 try activatePackage(offlinePackage, status: "本地球场已就绪")
                 signalFreshRoundEntry()
-                // Re-validates/publishes the retained course asynchronously.  With a complete
-                // download this performs no network fetch, while preserving the normal cache task
-                // lifecycle and its "离线地图已准备" status.
-                beginOfflineCourseDownload()
+                // Enter immediately from local facts, then verify the Garmin release in the
+                // background. Matching revisions reuse every byte; changed holes refresh only
+                // their prep/topo while a network failure leaves this playable snapshot intact.
+                beginOfflineCourseDownload(revalidatePackage: true)
                 return
             }
 
@@ -722,8 +723,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 try activatePackage(cachedPackage, status: "已下载离线")
                 if isNewRound {
                     signalFreshRoundEntry()
+                    beginOfflineCourseDownload(revalidatePackage: true)
                 } else {
-                    beginOfflineCourseDownload()
+                    beginOfflineCourseDownload(revalidatePackage: true)
                 }
             } else if let template = try offlineStore.loadCourseTemplate(
                 globalId: globalId,
@@ -738,8 +740,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 try activatePackage(offlinePackage, status: "离线球场已就绪")
                 if isNewRound {
                     signalFreshRoundEntry()
+                    beginOfflineCourseDownload(revalidatePackage: true)
                 } else {
-                    beginOfflineCourseDownload()
+                    beginOfflineCourseDownload(revalidatePackage: true)
                 }
             } else {
                 syncStatus = "暂时无法开始,稍后重试"
@@ -764,7 +767,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Keep start latency low, then make the selected course genuinely reusable without a network:
     /// retain every hole's lightweight route/hazard/F-M-B facts and its precise topo bitmap. The
     /// package identity remains the live round's; the course template and bitmap keys are static.
-    private func beginOfflineCourseDownload() {
+    private func beginOfflineCourseDownload(revalidatePackage: Bool = false) {
         guard var snapshot = package, let syncClient else { return }
         if let retained = try? offlineStore.loadCourseTemplate(
             globalId: snapshot.course.globalId,
@@ -776,7 +779,11 @@ public final class LiveRoundAppModel: ObservableObject {
         let downloadSnapshot = snapshot
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = Task { [weak self] in
-            await self?.downloadOfflineCourseAssets(for: downloadSnapshot, using: syncClient)
+            await self?.downloadOfflineCourseAssets(
+                for: downloadSnapshot,
+                using: syncClient,
+                revalidatePackage: revalidatePackage
+            )
         }
     }
 
@@ -796,6 +803,74 @@ public final class LiveRoundAppModel: ObservableObject {
     private func offlinePrepIsPrecise(_ prep: CoursePrepHole?) -> Bool {
         guard let prep, prep.resolvedMapOverlay != nil else { return false }
         return prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
+    }
+
+    private func geometryRevisionMatches(_ lhs: String?, _ rhs: String?) -> Bool {
+        guard let lhs = lhs?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              let rhs = rhs?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !lhs.isEmpty, !rhs.isEmpty else { return lhs == nil && rhs == nil }
+        return lhs == rhs
+    }
+
+    /// A downloaded course starts instantly, but online entry still asks the server for the current
+    /// Garmin release. Only precise prep whose revision matches that response is carried forward;
+    /// a partial response deliberately activates its current lightweight route until the replacement
+    /// geometry arrives. Failure returns nil and leaves every last-known-good offline byte untouched.
+    private func revalidatedCourseSnapshot(
+        _ cached: LiveRoundPackage,
+        using syncClient: SyncClient
+    ) async -> LiveRoundPackage? {
+        let frontGlobalId = cached.course.globalId
+        let backGlobalId = cached.holes
+            .filter { $0.number > 9 }
+            .compactMap { $0.sourceGlobalId }
+            .first { $0 != frontGlobalId }
+        let remote: LiveRoundPackage
+        do {
+            remote = try await syncClient.fetchCoursePackage(
+                globalId: frontGlobalId,
+                roundId: cached.roundId,
+                teeBox: cached.course.teeBox,
+                nine: backGlobalId == nil ? (cached.nine ?? "all") : "all",
+                capturedAt: Date(),
+                ensureGeometry: false,
+                backgroundGeometry: true,
+                backGlobalId: backGlobalId,
+                includeEventCursor: false
+            )
+        } catch {
+            AICaddieLog.network.info(
+                "Offline course release revalidation deferred: \(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+        guard remote.roundId == cached.roundId, !remote.holes.isEmpty else { return nil }
+
+        var prepByHole = Dictionary(
+            uniqueKeysWithValues: (remote.coursePrep?.holes ?? []).map { ($0.hole, $0) }
+        )
+        for remoteHole in remote.holes {
+            guard remoteHole.geometryCoverage == .ready,
+                  let retained = cached.coursePrep?.holes.first(where: {
+                      $0.hole == remoteHole.number
+                  }),
+                  offlinePrepIsPrecise(retained) else { continue }
+            guard geometryRevisionMatches(
+                retained.geometryRevision,
+                remoteHole.geometryRevision
+            ) else { continue }
+            if !offlinePrepIsPrecise(prepByHole[remoteHole.number]) {
+                prepByHole[remoteHole.number] = retained
+            }
+        }
+        guard !prepByHole.isEmpty else { return remote }
+        let base = remote.coursePrep
+        return remote.replacingCoursePrep(CoursePrepPackage(
+            schema: base?.schema ?? "ai-caddie-course-prep-v1",
+            globalId: base?.globalId ?? remote.course.globalId,
+            holes: prepByHole.values.sorted { $0.hole < $1.hole },
+            missingData: base?.missingData
+        ))
     }
 
     /// Persist one foreground hole as soon as its precise prep is available. The expected round ID
@@ -852,7 +927,13 @@ public final class LiveRoundAppModel: ObservableObject {
         )
         for retained in currentPrep.holes {
             let replacement = merged[retained.hole]
-            if replacement == nil || (offlinePrepIsPrecise(retained) && !offlinePrepIsPrecise(replacement)) {
+            let retainedOwnsNewerPreciseFacts = offlinePrepIsPrecise(retained)
+                && (!offlinePrepIsPrecise(replacement)
+                    || !geometryRevisionMatches(
+                        retained.geometryRevision,
+                        replacement?.geometryRevision
+                    ))
+            if replacement == nil || retainedOwnsNewerPreciseFacts {
                 merged[retained.hole] = retained
             }
         }
@@ -924,7 +1005,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// interactive nearby/search/map requests wait behind the background course download. Returning
     /// after each hole also lets the caller persist that bitmap before a process death.
     private func fetchOfflineTopoImages(
-        _ holes: [(globalId: Int, localHole: Int)],
+        _ holes: [(globalId: Int, localHole: Int, geometryRevision: String?)],
         using syncClient: SyncClient,
         maximumConcurrentRequests: Int = 1
     ) async -> [OfflineTopoDownloadResult] {
@@ -938,15 +1019,17 @@ public final class LiveRoundAppModel: ObservableObject {
             var iterator = holes.makeIterator()
             var results: [OfflineTopoDownloadResult] = []
             results.reserveCapacity(holes.count)
-            let fetch: @Sendable ((globalId: Int, localHole: Int)) async -> OfflineTopoDownloadResult = { hole in
+            let fetch: @Sendable ((globalId: Int, localHole: Int, geometryRevision: String?)) async -> OfflineTopoDownloadResult = { hole in
                 do {
                     let data = try await client.value.fetchTopoImage(
                         globalId: hole.globalId,
-                        localHole: hole.localHole
+                        localHole: hole.localHole,
+                        geometryRevision: hole.geometryRevision
                     )
                     return OfflineTopoDownloadResult(
                         globalId: hole.globalId,
                         localHole: hole.localHole,
+                        geometryRevision: hole.geometryRevision,
                         data: data,
                         errorDescription: nil
                     )
@@ -954,6 +1037,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     return OfflineTopoDownloadResult(
                         globalId: hole.globalId,
                         localHole: hole.localHole,
+                        geometryRevision: hole.geometryRevision,
                         data: nil,
                         errorDescription: String(describing: error)
                     )
@@ -976,14 +1060,32 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func downloadOfflineCourseAssets(
-        for snapshot: LiveRoundPackage,
-        using syncClient: SyncClient
+        for initialSnapshot: LiveRoundPackage,
+        using syncClient: SyncClient,
+        revalidatePackage: Bool = false
     ) async {
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             return
         }
         #endif
+        var snapshot = initialSnapshot
+        if revalidatePackage,
+           let current = await revalidatedCourseSnapshot(initialSnapshot, using: syncClient) {
+            snapshot = current
+            // Once the server has positively identified a newer release, do not let a force-quit
+            // reopen the old precise package. Network failure never enters this branch.
+            if package?.roundId == current.roundId, liveRoundState != nil {
+                do {
+                    try offlineStore.saveRoundPackage(current)
+                    package = current
+                } catch {
+                    AICaddieLog.storage.error(
+                        "Revalidated course package save failed: \(String(describing: error), privacy: .public)"
+                    )
+                }
+            }
+        }
         var prepBySource: [String: CoursePrepHole] = [:]
 
         // Preserve any facts already embedded in an older/full package before fetching only gaps.
@@ -1151,16 +1253,18 @@ public final class LiveRoundAppModel: ObservableObject {
         let topoRetryDelays: [UInt64] = [5, 10, 20]
         for attempt in 0...topoRetryDelays.count {
             guard !Task.isCancelled else { return }
-            let missingTopoHoles = snapshot.holes.compactMap { roundHole -> (globalId: Int, localHole: Int)? in
+            let missingTopoHoles = snapshot.holes.compactMap { roundHole -> (globalId: Int, localHole: Int, geometryRevision: String?)? in
                 let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
                 let localHole = roundHole.sourceLocalHole ?? roundHole.number
                 let prep = prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]
+                let revision = prep?.geometryRevision ?? roundHole.geometryRevision
                 guard prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
                       offlineStore.loadCourseTopoImageURL(
                           globalId: globalId,
-                          localHole: localHole
+                          localHole: localHole,
+                          geometryRevision: revision
                       ) == nil else { return nil }
-                return (globalId, localHole)
+                return (globalId, localHole, revision)
             }
             guard !missingTopoHoles.isEmpty else { break }
 
@@ -1183,7 +1287,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     _ = try offlineStore.saveCourseTopoImage(
                         data,
                         globalId: download.globalId,
-                        localHole: download.localHole
+                        localHole: download.localHole,
+                        geometryRevision: download.geometryRevision
                     )
                 } catch {
                     AICaddieLog.storage.error(
@@ -1195,7 +1300,8 @@ public final class LiveRoundAppModel: ObservableObject {
             let stillMissing = missingTopoHoles.contains { hole in
                 offlineStore.loadCourseTopoImageURL(
                     globalId: hole.globalId,
-                    localHole: hole.localHole
+                    localHole: hole.localHole,
+                    geometryRevision: hole.geometryRevision
                 ) == nil
             }
             guard stillMissing, attempt < topoRetryDelays.count else { break }
@@ -1268,8 +1374,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 try activatePackage(cachedPackage, status: "已下载离线")
                 if isNewRound {
                     signalFreshRoundEntry()
+                    beginOfflineCourseDownload(revalidatePackage: true)
                 } else {
-                    beginOfflineCourseDownload()
+                    beginOfflineCourseDownload(revalidatePackage: true)
                 }
             } else {
                 syncStatus = "暂时无法开始,稍后重试"

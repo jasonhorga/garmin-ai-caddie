@@ -37,7 +37,7 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasPro
   // A CourseView-only map deliberately has no fake bitmap under its factual vectors.
   const fallbackImage = map?.image ?? (overlay ? undefined : '/hole-sample.png')
   const topoSrc = hole.geometryCoverage === 'ready' && overlay && globalId != null
-    ? topoImageUrl(globalId, hole.hole)
+    ? topoImageUrl(globalId, hole.hole, hole.geometryRevision)
     : undefined
   const yourShots = hole.yourShots ?? []
   // All distance markers use overlay coordinates, so the overlay dimensions—not

@@ -318,6 +318,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let greenInRegulation: Bool?
     public let fairwayResult: String?
     public let geometryCoverage: String?
+    public let geometryRevision: String?
     // watch P0.2: green Front/Middle/Back WGS84 coords (so the watch recomputes F/M/B from its OWN GPS)
     // + the topo image's geo→px projection (so the watch places its GPS/pin/landings on /topo.png).
     public let frontGreenLat: Double?
@@ -385,6 +386,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case greenInRegulation
         case fairwayResult
         case geometryCoverage
+        case geometryRevision
         case caddieOptions
         case hazards
         case rootCaddieRecommendation
@@ -437,6 +439,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         greenInRegulation: Bool? = nil,
         fairwayResult: String? = nil,
         geometryCoverage: String? = nil,
+        geometryRevision: String? = nil,
         caddieOptions: [WatchCaddieOption] = [],
         hazards: [WatchHazard] = [],
         rootCaddieRecommendation: WatchRootCaddieRecommendation? = nil,
@@ -487,6 +490,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.greenInRegulation = greenInRegulation
         self.fairwayResult = fairwayResult
         self.geometryCoverage = geometryCoverage
+        self.geometryRevision = geometryRevision
         self.caddieOptions = caddieOptions
         self.hazards = hazards
         self.rootCaddieRecommendation = rootCaddieRecommendation
@@ -540,6 +544,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.greenInRegulation = try container.decodeIfPresent(Bool.self, forKey: .greenInRegulation)
         self.fairwayResult = try container.decodeIfPresent(String.self, forKey: .fairwayResult)
         self.geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage)
+        self.geometryRevision = try container.decodeIfPresent(String.self, forKey: .geometryRevision)
         self.caddieOptions = try container.decodeIfPresent([WatchCaddieOption].self, forKey: .caddieOptions) ?? []
         self.hazards = try container.decodeIfPresent([WatchHazard].self, forKey: .hazards) ?? []
         self.rootCaddieRecommendation = try container.decodeIfPresent(
@@ -596,6 +601,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             greenInRegulation: greenInRegulation,
             fairwayResult: fairwayResult,
             geometryCoverage: geometryCoverage,
+            geometryRevision: geometryRevision,
             caddieOptions: caddieOptions,
             hazards: hazards,
             rootCaddieRecommendation: rootCaddieRecommendation,
@@ -611,18 +617,23 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     /// precise prodgeometry map in the same persisted round.
     public func applyingCourseMapUpgrade(_ upgraded: WatchRoundState) -> WatchRoundState {
         guard upgraded.hole == hole else { return self }
+        // A background refresh is not always monotonic: Garmin may have published a new release,
+        // making the formerly precise cache partial until replacement bytes arrive. When the
+        // refresh carries coverage, it owns every geometry-derived optional exactly (including
+        // nil/empty); otherwise old map pixels, slopes or hazards could masquerade as the new map.
+        let replacesGeometryAuthority = upgraded.geometryCoverage != nil
         return WatchRoundState(
             roundId: roundId,
             hole: hole,
             par: upgraded.par,
             distanceM: distanceM,
-            teeLatitude: upgraded.teeLatitude ?? teeLatitude,
-            teeLongitude: upgraded.teeLongitude ?? teeLongitude,
+            teeLatitude: replacesGeometryAuthority ? upgraded.teeLatitude : (upgraded.teeLatitude ?? teeLatitude),
+            teeLongitude: replacesGeometryAuthority ? upgraded.teeLongitude : (upgraded.teeLongitude ?? teeLongitude),
             targetNote: targetNote,
             targetLatitude: targetLatitude,
             targetLongitude: targetLongitude,
             targetKind: targetKind,
-            suggestedClub: suggestedClub ?? upgraded.suggestedClub,
+            suggestedClub: replacesGeometryAuthority ? upgraded.suggestedClub : (suggestedClub ?? upgraded.suggestedClub),
             selectedClub: selectedClub,
             availableClubs: upgraded.availableClubs.isEmpty ? availableClubs : upgraded.availableClubs,
             shotType: shotType,
@@ -635,29 +646,30 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             expectedRemainingM: expectedRemainingM,
             evidenceSummary: evidenceSummary,
             missingDataSummary: missingDataSummary,
-            frontGreenM: upgraded.frontGreenM ?? frontGreenM,
-            centerGreenM: upgraded.centerGreenM ?? centerGreenM,
-            backGreenM: upgraded.backGreenM ?? backGreenM,
-            frontGreenLat: upgraded.frontGreenLat ?? frontGreenLat,
-            frontGreenLon: upgraded.frontGreenLon ?? frontGreenLon,
-            centerGreenLat: upgraded.centerGreenLat ?? centerGreenLat,
-            centerGreenLon: upgraded.centerGreenLon ?? centerGreenLon,
-            backGreenLat: upgraded.backGreenLat ?? backGreenLat,
-            backGreenLon: upgraded.backGreenLon ?? backGreenLon,
-            holeImageProjection: upgraded.holeImageProjection ?? holeImageProjection,
+            frontGreenM: replacesGeometryAuthority ? upgraded.frontGreenM : (upgraded.frontGreenM ?? frontGreenM),
+            centerGreenM: replacesGeometryAuthority ? upgraded.centerGreenM : (upgraded.centerGreenM ?? centerGreenM),
+            backGreenM: replacesGeometryAuthority ? upgraded.backGreenM : (upgraded.backGreenM ?? backGreenM),
+            frontGreenLat: replacesGeometryAuthority ? upgraded.frontGreenLat : (upgraded.frontGreenLat ?? frontGreenLat),
+            frontGreenLon: replacesGeometryAuthority ? upgraded.frontGreenLon : (upgraded.frontGreenLon ?? frontGreenLon),
+            centerGreenLat: replacesGeometryAuthority ? upgraded.centerGreenLat : (upgraded.centerGreenLat ?? centerGreenLat),
+            centerGreenLon: replacesGeometryAuthority ? upgraded.centerGreenLon : (upgraded.centerGreenLon ?? centerGreenLon),
+            backGreenLat: replacesGeometryAuthority ? upgraded.backGreenLat : (upgraded.backGreenLat ?? backGreenLat),
+            backGreenLon: replacesGeometryAuthority ? upgraded.backGreenLon : (upgraded.backGreenLon ?? backGreenLon),
+            holeImageProjection: replacesGeometryAuthority ? upgraded.holeImageProjection : (upgraded.holeImageProjection ?? holeImageProjection),
             globalId: upgraded.globalId ?? globalId,
-            holeMap: upgraded.holeMap ?? holeMap,
-            playsLikeDistanceM: upgraded.playsLikeDistanceM ?? playsLikeDistanceM,
-            elevationDeltaM: upgraded.elevationDeltaM ?? elevationDeltaM,
+            holeMap: replacesGeometryAuthority ? upgraded.holeMap : (upgraded.holeMap ?? holeMap),
+            playsLikeDistanceM: replacesGeometryAuthority ? upgraded.playsLikeDistanceM : (upgraded.playsLikeDistanceM ?? playsLikeDistanceM),
+            elevationDeltaM: replacesGeometryAuthority ? upgraded.elevationDeltaM : (upgraded.elevationDeltaM ?? elevationDeltaM),
             lastShotDistanceM: lastShotDistanceM,
             distanceFromLastShotM: distanceFromLastShotM,
             greenInRegulation: greenInRegulation,
             fairwayResult: fairwayResult,
             geometryCoverage: upgraded.geometryCoverage ?? geometryCoverage,
-            caddieOptions: upgraded.caddieOptions.isEmpty ? caddieOptions : upgraded.caddieOptions,
-            // A ready upgrade owns the complete hazard answer, including the honest empty set.
-            // Keeping an older partial row when precise geometry has none leaves a ghost hazard.
-            hazards: upgraded.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
+            geometryRevision: replacesGeometryAuthority ? upgraded.geometryRevision : (upgraded.geometryRevision ?? geometryRevision),
+            caddieOptions: replacesGeometryAuthority
+                ? upgraded.caddieOptions
+                : (upgraded.caddieOptions.isEmpty ? caddieOptions : upgraded.caddieOptions),
+            hazards: replacesGeometryAuthority
                 ? upgraded.hazards
                 : (upgraded.hazards.isEmpty ? hazards : upgraded.hazards),
             rootCaddieRecommendation: rootCaddieRecommendation,
@@ -738,6 +750,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             greenInRegulation: greenInRegulation,
             fairwayResult: nextFairwayResult,
             geometryCoverage: geometryCoverage,
+            geometryRevision: geometryRevision,
             caddieOptions: caddieOptions,
             hazards: hazards,
             rootCaddieRecommendation: rootCaddieRecommendation,

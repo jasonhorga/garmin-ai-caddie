@@ -325,6 +325,7 @@ public struct CoursePrepHole: Codable, Equatable {
     public let routeLenM: Double
     public let route: [[Double]]
     public let geometryCoverage: String
+    public let geometryRevision: String?
     public let sourceRefs: [String]
     public let missingData: [CoursePrepMissingData]
     public let candidateRoutes: [CoursePrepCandidateRoute]
@@ -344,7 +345,7 @@ public struct CoursePrepHole: Codable, Equatable {
     public let greenOutline: CoursePrepGreenOutline?
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, route, geometryCoverage, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline
+        case hole, par, route, geometryCoverage, geometryRevision, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline
         case parSource = "par_source"
         case blueYards = "blue_yards"
         case routeLenM = "route_len_m"
@@ -360,6 +361,7 @@ public struct CoursePrepHole: Codable, Equatable {
         routeLenM: Double,
         route: [[Double]] = [],
         geometryCoverage: String = "missing",
+        geometryRevision: String? = nil,
         sourceRefs: [String] = [],
         missingData: [CoursePrepMissingData] = [],
         candidateRoutes: [CoursePrepCandidateRoute] = [],
@@ -382,6 +384,7 @@ public struct CoursePrepHole: Codable, Equatable {
         self.routeLenM = routeLenM
         self.route = route
         self.geometryCoverage = geometryCoverage
+        self.geometryRevision = geometryRevision
         self.sourceRefs = sourceRefs
         self.missingData = missingData
         self.candidateRoutes = candidateRoutes
@@ -407,6 +410,7 @@ public struct CoursePrepHole: Codable, Equatable {
         self.routeLenM = try container.decode(Double.self, forKey: .routeLenM)
         self.route = try container.decodeIfPresent([[Double]].self, forKey: .route) ?? []
         self.geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage) ?? "missing"
+        self.geometryRevision = try container.decodeIfPresent(String.self, forKey: .geometryRevision)
         self.sourceRefs = try container.decodeIfPresent([String].self, forKey: .sourceRefs) ?? []
         self.missingData = try container.decodeIfPresent([CoursePrepMissingData].self, forKey: .missingData) ?? []
         self.candidateRoutes = try container.decodeIfPresent([CoursePrepCandidateRoute].self, forKey: .candidateRoutes) ?? []
@@ -502,6 +506,7 @@ public struct CoursePrepHole: Codable, Equatable {
             routeLenM: routeLenM,
             route: route,
             geometryCoverage: geometryCoverage,
+            geometryRevision: geometryRevision,
             sourceRefs: sourceRefs,
             missingData: missingData,
             candidateRoutes: candidateRoutes,
