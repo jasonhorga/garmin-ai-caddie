@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -19,6 +20,14 @@ from server_v2.main import app
 _HAVE_GEOMETRY = mesh_path(31795, 1).exists()
 _HAVE_CYPRESS_COAST = all(mesh_path(3881, hole).exists() for hole in (15, 16, 17))
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _test_png() -> bytes:
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGBA", (2, 2), (20, 80, 40, 255)).save(buffer, "PNG")
+    return buffer.getvalue()
 
 
 class TopoRenderModuleTests(unittest.TestCase):
@@ -130,7 +139,7 @@ class TopoRenderModuleTests(unittest.TestCase):
                 topo_render.render_hole_topo(999999, 1)
 
     def test_cache_renders_once_then_serves_from_disk(self) -> None:
-        canned = _PNG_MAGIC + b"cached-topo-bytes"
+        canned = _test_png()
         with TemporaryDirectory() as tmp, \
                 patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
                 patch.object(topo_render, "render_hole_topo", return_value=canned) as render, \
@@ -141,6 +150,22 @@ class TopoRenderModuleTests(unittest.TestCase):
         self.assertEqual(second, canned)
         render.assert_called_once()  # second hit served from the on-disk cache
         release.assert_called_once()  # cold render releases arenas; the warm read does not
+
+    def test_corrupt_nonempty_cache_is_replaced_from_current_geometry(self) -> None:
+        canned = _test_png()
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
+                patch.object(topo_render, "render_hole_topo", return_value=canned) as render, \
+                patch.object(topo_render, "_release_cold_render_working_set"):
+            path = topo_render.cache_path(31795, 1)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(_PNG_MAGIC + b"truncated-but-nonempty")
+
+            recovered = topo_render.render_hole_topo_cached(31795, 1)
+
+            self.assertEqual(recovered, canned)
+            self.assertEqual(path.read_bytes(), canned)
+        render.assert_called_once()
 
     def test_failed_cold_render_also_releases_working_set(self) -> None:
         with TemporaryDirectory() as tmp, \
@@ -156,7 +181,7 @@ class TopoRenderModuleTests(unittest.TestCase):
         release.assert_called_once()
 
     def test_concurrent_cold_requests_share_one_render(self) -> None:
-        canned = _PNG_MAGIC + b"singleflight-topo"
+        canned = _test_png()
         callers_ready = Barrier(2)
         render_started = Event()
         release_render = Event()
@@ -184,7 +209,7 @@ class TopoRenderModuleTests(unittest.TestCase):
         render.assert_called_once()
 
     def test_different_cold_holes_do_not_multiply_render_memory(self) -> None:
-        canned = _PNG_MAGIC + b"bounded-cold-topo"
+        canned = _test_png()
         callers_ready = Barrier(2)
         first_started = Event()
         overlap = Event()

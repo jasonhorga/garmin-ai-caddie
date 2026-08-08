@@ -803,8 +803,24 @@ def _read_cached_topo(path: Path) -> bytes | None:
     if not path.exists():
         return None
     try:
-        return path.read_bytes()
+        cached = path.read_bytes()
     except OSError:
+        return None
+    try:
+        # Atomic writes prevent readers from observing our own half-written file, but they cannot
+        # protect a persistent volume from truncation or corruption. Never serve arbitrary non-empty
+        # bytes as image/png forever: discard an invalid entry and let the normal singleflight path
+        # rebuild it from the current Garmin geometry authority.
+        with Image.open(io.BytesIO(cached)) as image:
+            if image.format != "PNG":
+                raise ValueError("cached topo is not PNG")
+            image.verify()
+        return cached
+    except Exception:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
         return None
 
 
