@@ -150,6 +150,38 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    func testRoundDisplayNameRetainsSingleAndCompositeLoopIdentity() {
+        let loopA = MobileCourseOption(
+            globalId: 31783,
+            name: "Tian An Holiday Sports Club ~ A",
+            holes: 9,
+            venueName: "Tian An Holiday Sports Club",
+            segmentLabel: "A",
+            segmentHoles: 9
+        )
+        let loopB = MobileCourseOption(
+            globalId: 31784,
+            name: "Tian An Holiday Sports Club ~ B",
+            holes: 9,
+            venueName: "Tian An Holiday Sports Club",
+            segmentLabel: "B",
+            segmentHoles: 9
+        )
+
+        XCTAssertEqual(
+            StartRoundView.roundDisplayName(front: loopA, back: nil),
+            "Tian An Holiday Sports Club ~ A"
+        )
+        XCTAssertEqual(
+            StartRoundView.roundDisplayName(front: loopA, back: loopB),
+            "Tian An Holiday Sports Club ~ A/B"
+        )
+        XCTAssertEqual(
+            StartRoundView.roundDisplayName(front: loopA, back: loopA),
+            "Tian An Holiday Sports Club ~ A/A"
+        )
+    }
+
     private func option(
         globalId: Int,
         name: String,

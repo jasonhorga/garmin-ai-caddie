@@ -1540,6 +1540,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('Picker("球场", selection: selectedVenueBinding)', start_view)
         self.assertIn("displayVenues", start_view)
         self.assertIn("selectedVenueName", start_view)  # venue derived from the selected segment (no desync)
+        self.assertIn(
+            "onRememberCourseDisplayName(courseGlobalId, selectedRoundDisplayName)",
+            start_view,
+        )  # resume/history must retain A/B/C or A+B, not collapse to the venue
         self.assertIn("locationProvider.latestFix", start_view)
         self.assertIn("haversineMetres(", start_view)
         # 发球台用所选球场的真实 Tee(Garmin CourseView 颜色:金/黑/蓝/白/红…),#2d。

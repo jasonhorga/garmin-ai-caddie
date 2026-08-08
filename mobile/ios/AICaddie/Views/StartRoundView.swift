@@ -222,6 +222,35 @@ public struct StartRoundView: View {
         selectedSegment.map { $0.venueName ?? baseCourseName($0.name) } ?? displayVenues.first?.venue ?? ""
     }
 
+    /// The active-round identity must retain the chosen playable segment, not just its physical
+    /// venue.  A 27-hole venue's A/B/C loops are different Garmin courses, and a resumed card that
+    /// says only the venue cannot tell the player which nine (or which 9+9 combination) is active.
+    private var selectedRoundDisplayName: String {
+        guard let front = selectedSegment else { return selectedVenueName }
+        let back = Int(backGlobalIdText).flatMap { backGlobalId in
+            courseLookupOptions.first { $0.globalId == backGlobalId }
+        }
+        return Self.roundDisplayName(front: front, back: back)
+    }
+
+    static func roundDisplayName(
+        front: MobileCourseOption,
+        back: MobileCourseOption?
+    ) -> String {
+        guard let back else { return front.name }
+        let venue = front.venueName ?? front.name.components(separatedBy: " ~ ").first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? front.name
+        let frontLabel = front.segmentLabel ?? front.name.components(separatedBy: " ~ ").dropFirst().first
+        let backLabel = back.segmentLabel ?? back.name.components(separatedBy: " ~ ").dropFirst().first
+        guard let frontLabel = frontLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let backLabel = backLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !frontLabel.isEmpty,
+              !backLabel.isEmpty else {
+            return front.name
+        }
+        return "\(venue) ~ \(frontLabel)/\(backLabel)"
+    }
+
     /// Keep "no venue selected" as a real Picker value. Falling back to the first venue here used
     /// to let SwiftUI normalise the binding by calling its setter when the first cached row arrived;
     /// that looked exactly like a user tap and pinned the cached/history course before the complete
@@ -639,7 +668,7 @@ public struct StartRoundView: View {
         VStack(spacing: 8) {
             Button {
                 if let courseGlobalId {
-                    onRememberCourseDisplayName(courseGlobalId, selectedVenueName)
+                    onRememberCourseDisplayName(courseGlobalId, selectedRoundDisplayName)
                     if let backGlobalId = Int(backGlobalIdText), backGlobalId != 0 {
                         onPrepareCompositeRound(courseGlobalId, backGlobalId, teeBox, roundId)
                     } else {
