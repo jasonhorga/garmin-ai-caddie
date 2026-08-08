@@ -107,7 +107,7 @@ public struct WatchCurrentHoleShotsView: View {
         let metres = shot.distanceToNextM ?? (shot.id == shots.last?.id ? latestShotDistanceM : nil)
         guard let metres else { return "位置已记" }
         let yards = WatchUnits.yards(metres)
-        guard let usefulYards = WatchGeoMath.usefulGolfYards(yards) else { return "距离不可用" }
+        guard let usefulYards = WatchGeoMath.usefulGolfYards(yards) else { return "—" }
         return "\(usefulYards) 码"
     }
 }

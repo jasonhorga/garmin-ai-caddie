@@ -226,7 +226,9 @@ public struct WatchHazardMapView: View {
 
     public var body: some View {
         GeometryReader { geo in
-            if upcoming.isEmpty {
+            if WatchGeoMath.isBeyondUsefulGreenRange(centerGreenYards) {
+                offCourseState
+            } else if upcoming.isEmpty {
                 emptyState
             } else {
                 hazardMap(upcoming[selectedIndex], index: selectedIndex, size: geo.size)
@@ -502,6 +504,26 @@ public struct WatchHazardMapView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var offCourseState: some View {
+        VStack(spacing: 12) {
+            Button(action: onBack) {
+                Label("障碍列表", systemImage: "chevron.backward")
+            }
+            .buttonStyle(.plain)
+            Image(systemName: "location.slash")
+                .font(.system(size: 42))
+                .foregroundStyle(.secondary)
+            Text("离本洞较远")
+                .font(.headline.weight(.bold))
+            Text("回到本洞后再显示障碍距离")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(10)
     }
 
     private static func upcomingHazards(_ hazards: [WatchHazard], after progressMetres: Double) -> [WatchHazard] {

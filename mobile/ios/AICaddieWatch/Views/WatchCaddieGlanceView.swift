@@ -53,6 +53,12 @@ public struct WatchCaddieGlanceView: View {
                     }
                     if let back = displayBackYd { greenPip("后", back) }
                 }
+                if [displayFrontYd, displayCenterYd, displayBackYd]
+                    .contains(where: WatchGeoMath.isBeyondUsefulGreenRange) {
+                    Text("离本洞较远")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
             }
             if let delta = state.elevationDeltaM, abs(delta) >= 0.5 {
                 let dy = WatchUnits.yards(delta)

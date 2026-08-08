@@ -477,7 +477,11 @@ public struct WatchHoleMapView: View {
     @ViewBuilder private func fullMapControls(_ size: CGSize) -> some View {
         VStack {
             HStack {
-                Text("中 \(WatchGeoMath.greenRangeText(centerGreen)) 码 · 到果岭")
+                Text(
+                    WatchGeoMath.isBeyondUsefulGreenRange(centerGreen)
+                        ? "离本洞较远"
+                        : "中 \(WatchGeoMath.greenRangeText(centerGreen)) 码 · 到果岭"
+                )
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)

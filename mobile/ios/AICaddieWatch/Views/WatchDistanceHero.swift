@@ -89,9 +89,15 @@ public struct WatchDistanceHero: View {
                     .foregroundStyle(AICaddieDesignTokens.par)
                     .minimumScaleFactor(0.5)
                     .lineLimit(1)
-                Text("中 · 码")
+                Text(
+                    WatchGeoMath.isBeyondUsefulGreenRange(centerYd)
+                        ? "离本洞较远"
+                        : "中 · 码"
+                )
                     .font(bigText ? .headline : .caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
             }
         }
     }

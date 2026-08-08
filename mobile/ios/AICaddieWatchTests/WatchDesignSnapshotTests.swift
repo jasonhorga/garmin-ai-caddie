@@ -882,6 +882,41 @@ final class WatchDesignSnapshotTests: XCTestCase {
             named: "watch-current-hole-shots-off-course"
         )
 
+        let glanceState = WatchRoundState(
+            roundId: "off-course", hole: 7, par: 4, distanceM: 360,
+            suggestedClub: "3W", selectedClub: nil,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        try render(
+            WatchCaddieGlanceView(
+                state: glanceState,
+                frontYd: 18_369,
+                centerYd: 18_383,
+                backYd: 18_393,
+                lastShotDistanceM: 16_800
+            )
+            .padding(8)
+            .frame(width: 176, height: 215, alignment: .top)
+            .background(Color.black),
+            named: "watch-caddie-glance-off-course"
+        )
+
+        try render(
+            WatchHoleMapView(
+                holeNumber: 7,
+                par: 4,
+                frontGreen: 18_369,
+                centerGreen: 18_383,
+                backGreen: 18_393,
+                lastShot: 18_300,
+                ringPips: [],
+                fullMap: true
+            )
+            .frame(width: 198, height: 242)
+            .background(Color.black),
+            named: "watch-hole-map-off-course"
+        )
+
         let route = [
             [435.0, 981.0, 0.0],
             [504.0, 702.0, 200.0],
