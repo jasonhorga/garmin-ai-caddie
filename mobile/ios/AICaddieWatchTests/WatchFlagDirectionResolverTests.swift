@@ -62,6 +62,24 @@ final class WatchFlagDirectionResolverTests: XCTestCase {
         )
     }
 
+    func testOffCourseDistanceFailsClosedBeforeDrawingAnOverflowingPointer() {
+        XCTAssertEqual(
+            WatchFlagDirectionResolver.resolve(
+                playerLatitude: 0,
+                playerLongitude: 0,
+                flagLatitude: 0.2,
+                flagLongitude: 0,
+                heading: WatchHeadingFix(
+                    trueDegrees: 0,
+                    accuracyDegrees: 8,
+                    capturedAt: now
+                ),
+                now: now
+            ),
+            .blocked(.tooFarFromHole)
+        )
+    }
+
     private func resolve(heading: WatchHeadingFix?) -> WatchFlagDirectionState {
         WatchFlagDirectionResolver.resolve(
             playerLatitude: 0,

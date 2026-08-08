@@ -37,6 +37,10 @@ final class WatchGeoMathTests: XCTestCase {
         XCTAssertEqual(WatchGeoMath.greenRangeText(999), "999")
         XCTAssertEqual(WatchGeoMath.greenRangeText(1_000), "—")
         XCTAssertEqual(WatchGeoMath.greenRangeText(18_383), "—")
+        XCTAssertEqual(WatchGeoMath.usefulGolfYards(0), 0)
+        XCTAssertEqual(WatchGeoMath.usefulGolfYards(999), 999)
+        XCTAssertNil(WatchGeoMath.usefulGolfYards(1_000))
+        XCTAssertNil(WatchGeoMath.usefulGolfYards(18_383))
         XCTAssertTrue(WatchGeoMath.isBeyondUsefulGreenRange(1_000))
         XCTAssertFalse(WatchGeoMath.isBeyondUsefulGreenRange(485))
         XCTAssertGreaterThan(

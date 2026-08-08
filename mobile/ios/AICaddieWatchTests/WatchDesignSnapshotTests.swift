@@ -849,6 +849,70 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchOffCourseSecondarySurfaces() throws {
+        try render(
+            WatchFlagDirectionView(state: .blocked(.tooFarFromHole))
+                .frame(width: 176, height: 215)
+                .background(Color.black),
+            named: "watch-flag-direction-off-course"
+        )
+
+        let shots = [
+            WatchRecordedShot(
+                eventId: "shot-off-course", hole: 7, number: 1, clubName: "一号木", shotType: "tee",
+                location: WatchShotLocationValue(
+                    latitude: 40.0,
+                    longitude: 116.0,
+                    horizontalAccuracyM: 4
+                )!,
+                capturedAt: "2026-08-08T00:00:00Z",
+                distanceToNextM: nil
+            ),
+        ]
+        try render(
+            WatchCurrentHoleShotsView(
+                hole: 7,
+                par: 4,
+                shots: shots,
+                latestShotDistanceM: 16_800,
+                canAddShot: true
+            )
+            .frame(width: 176, height: 215)
+            .background(Color.black),
+            named: "watch-current-hole-shots-off-course"
+        )
+
+        let route = [
+            [435.0, 981.0, 0.0],
+            [504.0, 702.0, 200.0],
+            [556.0, 562.0, 303.0],
+            [506.0, 403.0, 419.0],
+            [435.0, 279.0, 518.8],
+        ]
+        let hazards = [
+            WatchHazard(
+                kind: "bunker",
+                label: "沙坑",
+                startM: 270,
+                endM: 292,
+                frontPx: [540, 608],
+                backPx: [550, 578]
+            ),
+        ]
+        try render(
+            WatchHazardMapView(
+                geometry: WatchHoleMapSample.geometry,
+                route: route,
+                hazards: hazards,
+                centerGreenYards: 18_383
+            )
+            .frame(width: 198, height: 242)
+            .background(Color.black),
+            named: "watch-hazard-map-off-course"
+        )
+    }
+
+    @MainActor
     func testRenderWatchAlwaysOnDistance() throws {
         let view = WatchAlwaysOnDistanceView(hole: 4, par: 5, centerYd: 262)
             .frame(width: 198, height: 242)

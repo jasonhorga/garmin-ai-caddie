@@ -8,6 +8,7 @@ public enum WatchFlagDirectionBlockReason: Equatable {
     case needsCalibration
     case staleHeading
     case alreadyAtFlag
+    case tooFarFromHole
 
     var message: String {
         switch self {
@@ -17,6 +18,7 @@ public enum WatchFlagDirectionBlockReason: Equatable {
         case .needsCalibration: return "转动手腕校准"
         case .staleHeading: return "指南针数据已过期"
         case .alreadyAtFlag: return "已到旗杆"
+        case .tooFarFromHole: return "离本洞较远"
         }
     }
 }
@@ -54,6 +56,9 @@ public enum WatchFlagDirectionResolver {
             flagLongitude
         )
         guard distanceM >= 0.5 else { return .blocked(.alreadyAtFlag) }
+        guard WatchGeoMath.usefulGolfYards(WatchGeoMath.yards(distanceM)) != nil else {
+            return .blocked(.tooFarFromHole)
+        }
         guard let heading else { return .blocked(.waitingForCompass) }
         guard heading.trueDegrees.isFinite,
               (0..<360).contains(heading.trueDegrees),

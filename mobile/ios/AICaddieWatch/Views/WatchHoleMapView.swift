@@ -614,7 +614,7 @@ public struct WatchHoleMapView: View {
 
         // Distance back to your LAST SHOT, shown at YOU (Garmin shows this as you walk to your ball). In an
         // opaque pill for outdoor contrast.
-        if lastShot > 0 {
+        if let lastShot = WatchGeoMath.usefulGolfYards(lastShot), lastShot > 0 {
             let lp = CGPoint(x: player.x, y: player.y + 21)
             context.fill(Path(roundedRect: CGRect(x: lp.x - 35, y: lp.y - 9, width: 70, height: 18), cornerRadius: 9), with: .color(.black.opacity(0.66)))
             context.draw(context.resolve(Text("上一杆 \(lastShot) 码").font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: lp)

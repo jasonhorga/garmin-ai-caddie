@@ -114,13 +114,13 @@ public struct WatchHazardView: View {
         if let playerImagePoint,
            let edge = WatchHazardMapLayout.point(pixel),
            let live = WatchHazardMapLayout.distanceYards(from: playerImagePoint, to: edge, on: route) {
-            return live
+            return WatchGeoMath.usefulGolfYards(live)
         }
         if playerProgressM <= 0, let teeDistanceM {
-            return Int((teeDistanceM * 1.09361).rounded())
+            return WatchGeoMath.usefulGolfYards(Int((teeDistanceM * 1.09361).rounded()))
         }
-        return routeM.flatMap {
+        return WatchGeoMath.usefulGolfYards(routeM.flatMap {
             WatchHazardMapLayout.remainingYards(to: $0, after: playerProgressM)
-        }
+        })
     }
 }

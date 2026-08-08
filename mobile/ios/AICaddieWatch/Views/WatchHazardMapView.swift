@@ -377,7 +377,7 @@ public struct WatchHazardMapView: View {
             let yards = WatchHazardMapLayout.distanceYards(
                 from: geometry.youPx, to: imagePoint, on: route
             ) ?? WatchHazardMapLayout.remainingYards(to: metres, after: playerProgressMetres)
-            guard let yards else { continue }
+            guard let yards = WatchGeoMath.usefulGolfYards(yards) else { continue }
             let point = canvas(imagePoint)
             let markerDiameter = WatchHazardMapLayout.markerDiameter
             let markerRect = CGRect(
@@ -437,7 +437,11 @@ public struct WatchHazardMapView: View {
             VStack {
                 if centerGreenYards > 0 {
                     HStack(spacing: 0) {
-                        Text("中 \(centerGreenYards) 码 · 到果岭")
+                        Text(
+                            WatchGeoMath.isBeyondUsefulGreenRange(centerGreenYards)
+                                ? "离本洞较远"
+                                : "中 \(WatchGeoMath.greenRangeText(centerGreenYards)) 码 · 到果岭"
+                        )
                             .font(.system(size: 11, weight: .semibold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)

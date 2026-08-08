@@ -64,9 +64,14 @@ public struct WatchCaddieGlanceView: View {
                 .foregroundStyle(delta > 0 ? AICaddieDesignTokens.bogey : AICaddieDesignTokens.par)
             }
             if let fromLast = displayLastShotDistanceM {
+                let fromLastYards = WatchUnits.yards(fromLast)
                 HStack(spacing: 3) {
                     Image(systemName: "arrow.left.and.right")
-                    Text("距上一杆 \(WatchUnits.yards(fromLast)) 码")
+                    Text(
+                        WatchGeoMath.isBeyondUsefulGreenRange(fromLastYards)
+                            ? "离上一杆较远"
+                            : "距上一杆 \(WatchGeoMath.greenRangeText(fromLastYards)) 码"
+                    )
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)

@@ -358,7 +358,9 @@ public struct WatchRoundContainerView: View {
     }
 
     var distanceText: String? {
-        watchGreenYards?.center.map { "\($0) 码" }
+        guard let center = watchGreenYards?.center else { return nil }
+        if WatchGeoMath.isBeyondUsefulGreenRange(center) { return "离本洞较远" }
+        return "\(WatchGeoMath.greenRangeText(center)) 码"
     }
 
     private var activeFlagCoordinate: (latitude: Double, longitude: Double)? {

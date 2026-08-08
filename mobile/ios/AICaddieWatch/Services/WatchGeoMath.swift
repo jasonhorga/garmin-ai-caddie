@@ -50,6 +50,14 @@ public enum WatchGeoMath {
         return String(yards)
     }
 
+    /// A useful golf distance is one the compact wrist UI can display truthfully as a three-digit
+    /// measurement. Keep bad/stale GPS math available to state transitions, but never let it leak
+    /// into another distance surface such as last-shot, hazards, or PinPointer.
+    public static func usefulGolfYards(_ yards: Int?) -> Int? {
+        guard let yards, (0...maximumUsefulGreenYards).contains(yards) else { return nil }
+        return yards
+    }
+
     public static func isBeyondUsefulGreenRange(_ yards: Int?) -> Bool {
         guard let yards else { return false }
         return yards < 0 || yards > maximumUsefulGreenYards

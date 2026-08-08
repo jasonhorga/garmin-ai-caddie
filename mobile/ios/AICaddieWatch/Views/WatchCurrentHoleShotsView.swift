@@ -106,6 +106,8 @@ public struct WatchCurrentHoleShotsView: View {
     private func distanceLabel(_ shot: WatchRecordedShot) -> String {
         let metres = shot.distanceToNextM ?? (shot.id == shots.last?.id ? latestShotDistanceM : nil)
         guard let metres else { return "位置已记" }
-        return "\(WatchUnits.yards(metres)) 码"
+        let yards = WatchUnits.yards(metres)
+        guard let usefulYards = WatchGeoMath.usefulGolfYards(yards) else { return "距离不可用" }
+        return "\(usefulYards) 码"
     }
 }
