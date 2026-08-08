@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,12 +40,17 @@ def canonical_asset_path(url: object) -> str | None:
 
 
 def asset_version(path: object) -> str | None:
-    """Version suffix from ``hole02_220542.zip`` (``220542`` here)."""
+    """Embedded version from Garmin's geometry filename.
+
+    CourseView currently publishes both ``hole02_220542.zip`` and format-tagged
+    variants such as ``hole02_220542_f3.zip``.  The numeric segment is the
+    ``CourseGenVersion`` + per-hole ``Version`` identity encoded in the decoded
+    payload; the optional ``fN`` tag remains part of ``geometryAssetPath`` so two
+    distinct provider assets never collapse to one authority.
+    """
     name = Path(str(path or "")).stem
-    if "_" not in name:
-        return None
-    value = name.rsplit("_", 1)[-1]
-    return value if value.isdigit() else None
+    match = re.fullmatch(r"hole\d+_(\d+)(?:_f\d+)?", name, flags=re.IGNORECASE)
+    return match.group(1) if match else None
 
 
 def valid_geometry_zip_sha256(value: object) -> bool:
@@ -255,8 +261,17 @@ def legacy_outputs_match(
         != version
     ):
         return False
+    # The extracted directory preserves the complete provider filename stem,
+    # including optional format tags (for example ``Hole01_280661_f3``).  Match
+    # that exact identity case-insensitively instead of requiring the directory
+    # to end at the numeric version, which rejected every tagged Garmin asset
+    # after it had already downloaded and decoded successfully.
     source_name = Path(str(mesh.get("sourceDir") or "")).name
-    return source_name.endswith(f"_{version}")
+    expected_source_name = Path(str(expected.get("geometryAssetPath") or "")).stem
+    return (
+        bool(expected_source_name)
+        and source_name.casefold() == expected_source_name.casefold()
+    )
 
 
 def cache_token(

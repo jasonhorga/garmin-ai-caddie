@@ -127,13 +127,14 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
       .then((data) => {
         if (shotMapSeq.current !== seq) return
         setShotMapDone({ key, result: { data } })
-        // Prefetch the adjacent holes' topo bitmap so stepping the strip is instant. A single-course
-        // round has localHole tracking the hole number, so localHole±1 warms the neighbours' realistic
-        // base image; a wrong guess (multi-course round) just warms a nearby cached hole, never errors.
+        // Prefetch the adjacent holes' topo bitmap so stepping the strip is instant. Revisions are
+        // hole-specific: this response only proves the CURRENT hole's revision, so neighbour warm-up
+        // must use the revision-free URL. The selected neighbour will use its own revision after its
+        // shot-map response arrives. Multi-course guesses remain best-effort cache warm-ups.
         if (data.found && data.map && data.globalId != null && data.localHole != null) {
           for (const local of [data.localHole - 1, data.localHole + 1]) {
             if (local >= 1) {
-              prefetchTopoImage(topoImageUrl(data.globalId, local, data.geometryRevision))
+              prefetchTopoImage(topoImageUrl(data.globalId, local))
             }
           }
         }

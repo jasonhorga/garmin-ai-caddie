@@ -9,6 +9,7 @@ from unittest.mock import patch
 from ai_caddie.geometry import batch_prodgeometry_course as batch
 from ai_caddie.geometry import geometry_sync
 from ai_caddie.geometry.geometry_authority import (
+    asset_version,
     authority_is_bound,
     authority_matches_release,
     authority_path,
@@ -126,6 +127,46 @@ class GeometryAuthorityTests(unittest.TestCase):
         com = "https://securemaps.garmin.com/a/hole02_220542.zip?garmindlm=two"
         self.assertEqual(canonical_asset_path(cn), "/a/hole02_220542.zip")
         self.assertEqual(canonical_asset_path(cn), canonical_asset_path(com))
+
+    def test_asset_version_accepts_every_observed_garmin_format_tag(self) -> None:
+        self.assertEqual(asset_version("/a/hole02_220542.zip"), "220542")
+        self.assertEqual(asset_version("/a/hole01_280661_f1.zip"), "280661")
+        self.assertEqual(asset_version("/a/hole01_280661_f3.zip"), "280661")
+        self.assertEqual(asset_version("/a/hole01_280661_f4.zip"), "280661")
+        self.assertIsNone(asset_version("/a/hole01_f3.zip"))
+        self.assertIsNone(asset_version("/a/hole01_280661_preview.zip"))
+
+    def test_tagged_asset_binds_to_its_exact_extracted_source(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mesh = root / "gid1_h02_meshes.json"
+            hazard = root / "gid1_h02_hazards.json"
+            _write_outputs(mesh, hazard, "220542")
+            payload = json.loads(mesh.read_text(encoding="utf-8"))
+            payload["sourceDir"] = "/private/Hole02_220542_f3"
+            mesh.write_text(json.dumps(payload), encoding="utf-8")
+            release = _release()
+            release["holes"][0]["geometry_url"] = (
+                "https://securemaps.garmin.cn/a/hole02_220542_f3.zip?garmindlm=signed"
+            )
+            expected = build_authority(
+                global_id=1,
+                local_hole=2,
+                release=release,
+                hole=release["holes"][0],
+                release_source="live",
+                geometry_zip_sha256="a" * 64,
+            )
+
+            self.assertEqual(expected["geometryAssetVersion"], "220542")
+            self.assertTrue(
+                legacy_outputs_match(expected, mesh_file=mesh, hazard_file=hazard)
+            )
+            payload["sourceDir"] = "/private/Hole02_220542_f1"
+            mesh.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertFalse(
+                legacy_outputs_match(expected, mesh_file=mesh, hazard_file=hazard)
+            )
 
     def test_legacy_pair_must_prove_same_embedded_asset_version(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -1,8 +1,15 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ReviewWorkbench } from './ReviewWorkbench'
 import type { RoundCard, RoundHoleShotMapResponse, ScoreStripCell } from '../types'
+
+const apiMocks = vi.hoisted(() => ({ prefetchTopoImage: vi.fn() }))
+
+vi.mock('../api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api')>()
+  return { ...actual, prefetchTopoImage: apiMocks.prefetchTopoImage }
+})
 
 function cell(hole: number, par: number, score: number): ScoreStripCell {
   const toPar = score - par
@@ -54,6 +61,8 @@ function shotMap(hole: number): RoundHoleShotMapResponse {
 }
 
 describe('ReviewWorkbench', () => {
+  beforeEach(() => apiMocks.prefetchTopoImage.mockClear())
+
   it('renders the round selector, total and shape-coded score chips reflecting to-par', async () => {
     const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
     render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
@@ -142,6 +151,25 @@ describe('ReviewWorkbench', () => {
     await userEvent.click(screen.getByRole('button', { name: '第3洞 标准杆3 成绩5' }))
     await waitFor(() => expect(fetchShotMap).toHaveBeenCalledWith('900001', 3))
     expect(await screen.findByLabelText('第3洞落点图')).toBeInTheDocument()
+  })
+
+  it('never reuses the selected hole revision when warming adjacent topo images', async () => {
+    const currentHole = {
+      ...shotMap(2),
+      globalId: 3881,
+      localHole: 2,
+      geometryRevision: 'current-hole-only-revision',
+    }
+    render(<ReviewWorkbench rounds={[round({ scoreStrip: [cell(2, 4, 4)] })]} fetchShotMap={vi.fn(async () => currentHole)} />)
+
+    await waitFor(() => expect(apiMocks.prefetchTopoImage).toHaveBeenCalledTimes(2))
+    const urls = apiMocks.prefetchTopoImage.mock.calls.map(([url]) => String(url))
+    expect(urls).toEqual([
+      '/api/v2/courses/3881/holes/1/topo.png?v=topo-v8',
+      '/api/v2/courses/3881/holes/3/topo.png?v=topo-v8',
+    ])
+    expect(urls.join('\n')).not.toContain('current-hole-only-revision')
+    expect(urls.join('\n')).not.toContain('&r=')
   })
 
   it('shows a graceful empty state with no rounds', () => {
