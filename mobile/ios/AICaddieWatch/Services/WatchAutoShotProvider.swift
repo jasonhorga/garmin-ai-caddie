@@ -39,9 +39,10 @@ private enum WatchAutoShotProviderError: Error {
     case authorizationFailed
 }
 
-/// Thin system adapter around the pure detector. The active HealthKit workout exists only because Apple
-/// requires one for CMBatchedSensorManager; this class never starts a workout builder, reads Health data,
-/// or calls finishWorkout, so it does not save a workout to Apple Health. Motion batches stay in memory.
+/// Owns the one active golf workout session for a round. watchOS uses that session to keep wrist GPS
+/// alive when the display sleeps; AutoShot optionally attaches batched motion streams to the same
+/// session. This class never starts a workout builder, reads Health data, or calls finishWorkout, so it
+/// does not save a workout to Apple Health. Motion batches stay in memory.
 @MainActor
 public final class WatchAutoShotProvider: NSObject, ObservableObject {
     @Published public private(set) var state: WatchAutoShotRuntimeState
@@ -52,6 +53,8 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
     private let log = Logger(subsystem: "com.aicaddie.watch", category: "autoshot")
     private var detector = WatchAutoShotDetector()
     private var workoutSession: HKWorkoutSession?
+    private var roundSessionDesired = false
+    private var startingWorkoutSession = false
     private var desiredActive = false
     private var streamsActive = false
 
@@ -75,25 +78,54 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
     }
 
     public func start() async {
-        desiredActive = true
-        guard isSupported else {
-            state = .unsupported
-            return
-        }
-        guard state != .requestingAuthorization, state != .starting, state != .active else {
-            return
-        }
-        guard CMBatchedSensorManager.authorizationStatus != .denied,
-              CMBatchedSensorManager.authorizationStatus != .restricted else {
-            fail(WatchAutoShotProviderError.authorizationFailed)
+        await reconcile(roundActive: true, autoShotEnabled: true)
+    }
+
+    /// A round always owns a golf workout session so Core Location remains eligible in the
+    /// background. Motion streams are independently controlled by the player's AutoShot setting.
+    public func reconcile(roundActive: Bool, autoShotEnabled: Bool) async {
+        roundSessionDesired = roundActive
+        desiredActive = roundActive && autoShotEnabled
+        guard roundActive else {
+            stop()
             return
         }
 
-        state = .requestingAuthorization
+        if desiredActive {
+            if !isSupported
+                || CMBatchedSensorManager.authorizationStatus == .denied
+                || CMBatchedSensorManager.authorizationStatus == .restricted {
+                state = .unsupported
+                stopMotionStreams()
+            }
+        } else {
+            stopMotionStreams()
+            state = isSupported ? .off : .unsupported
+        }
+
+        if let workoutSession {
+            if workoutSession.state == .running {
+                applyRunningWorkoutState()
+            } else if desiredActive {
+                state = .starting
+            }
+            return
+        }
+        guard !startingWorkoutSession, HKHealthStore.isHealthDataAvailable() else {
+            if desiredActive, !HKHealthStore.isHealthDataAvailable() {
+                state = .unsupported
+            }
+            return
+        }
+
+        startingWorkoutSession = true
+        if desiredActive {
+            state = .requestingAuthorization
+        }
         do {
             try await requestWorkoutAuthorization()
-            guard desiredActive else {
-                state = .off
+            guard roundSessionDesired else {
+                startingWorkoutSession = false
                 return
             }
             let configuration = HKWorkoutConfiguration()
@@ -105,15 +137,19 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
             )
             session.delegate = self
             workoutSession = session
-            state = .starting
+            startingWorkoutSession = false
+            state = desiredActive ? .starting : (isSupported ? .off : .unsupported)
             session.startActivity(with: Date())
         } catch {
+            startingWorkoutSession = false
             fail(error)
         }
     }
 
     public func stop() {
+        roundSessionDesired = false
         desiredActive = false
+        startingWorkoutSession = false
         stopMotionStreams()
         let session = workoutSession
         workoutSession = nil
@@ -214,22 +250,31 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
         let session = workoutSession
         workoutSession = nil
         session?.end()
-        state = isSupported ? .failed : .unsupported
+        state = desiredActive ? (isSupported ? .failed : .unsupported) : (isSupported ? .off : .unsupported)
+    }
+
+    private func applyRunningWorkoutState() {
+        guard roundSessionDesired else {
+            stop()
+            return
+        }
+        if desiredActive, isSupported {
+            state = .active
+            startMotionStreams()
+        } else {
+            stopMotionStreams()
+            state = isSupported ? .off : .unsupported
+        }
     }
 
     private func handleWorkoutState(_ newState: HKWorkoutSessionState) {
         switch newState {
         case .running:
-            guard desiredActive else {
-                stop()
-                return
-            }
-            state = .active
-            startMotionStreams()
+            applyRunningWorkoutState()
         case .ended:
             stopMotionStreams()
             workoutSession = nil
-            state = desiredActive ? .failed : .off
+            state = desiredActive ? (isSupported ? .failed : .unsupported) : (isSupported ? .off : .unsupported)
         default:
             break
         }

@@ -15,6 +15,8 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -115,6 +117,68 @@ class StatsCacheTests(unittest.TestCase):
             ann.write_text('[{"kind": "club_correction"}]')  # a manual correction
             stats_cache.cached_build_history_stats(data, data_mode="local")
             self.assertEqual(calls["n"], 2)
+
+    def test_unplayed_course_geometry_does_not_invalidate_player_stats(self) -> None:
+        calls = {"n": 0}
+        geometry = self.tmp / "geometry"
+        geometry.mkdir()
+        unrelated = geometry / "gid222_h01_meshes.json"
+        unrelated.write_text("{}")
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[{"id": "r1", "globalId": 111}],
+            shots=[],
+        )
+        with patch.object(stats_cache, "_build_history_stats", self._counting_build(calls)), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.scorecards,)), \
+             patch.object(stats_cache, "_GEOMETRY_DIRS", (geometry,)):
+            stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
+            unrelated.write_text('{"new": true}')
+            stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
+            self.assertEqual(calls["n"], 1, "installing an unplayed course must keep stats warm")
+
+            (geometry / "gid111_h01_meshes.json").write_text("{}")
+            stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
+            self.assertEqual(calls["n"], 2, "geometry used by a historical round must invalidate")
+
+    def test_concurrent_cold_callers_share_one_stats_build(self) -> None:
+        calls = {"n": 0}
+        entered = threading.Event()
+        release = threading.Event()
+        results: list[dict] = []
+        failures: list[BaseException] = []
+
+        def blocking_build(data, **kwargs):
+            calls["n"] += 1
+            entered.set()
+            self.assertTrue(release.wait(timeout=2))
+            return {"build_number": calls["n"]}
+
+        def invoke(data: HistoryData) -> None:
+            try:
+                results.append(stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots))
+            except BaseException as exc:
+                failures.append(exc)
+
+        with patch.object(stats_cache, "_build_history_stats", blocking_build), \
+             patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.scorecards,)), \
+             patch.object(stats_cache, "_GEOMETRY_DIRS", ()):
+            data = _dummy_data()
+            first = threading.Thread(target=invoke, args=(data,))
+            second = threading.Thread(target=invoke, args=(data,))
+            first.start()
+            self.assertTrue(entered.wait(timeout=1))
+            second.start()
+            time.sleep(0.05)
+            self.assertEqual(calls["n"], 1)
+            release.set()
+            first.join(timeout=2)
+            second.join(timeout=2)
+
+        self.assertFalse(first.is_alive() or second.is_alive())
+        self.assertEqual(failures, [])
+        self.assertEqual(results, [{"build_number": 1}, {"build_number": 1}])
+        self.assertEqual(calls["n"], 1)
 
     def test_distinct_datasets_do_not_collide(self) -> None:
         # Two different in-memory datasets with the same size and the same (empty) file

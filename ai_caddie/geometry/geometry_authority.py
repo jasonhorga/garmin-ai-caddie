@@ -47,6 +47,22 @@ def asset_version(path: object) -> str | None:
     return value if value.isdigit() else None
 
 
+def valid_geometry_zip_sha256(value: object) -> bool:
+    """Whether an authority records a real canonical SHA-256, not a placeholder.
+
+    Older decoded geometry predates the ZIP digest field and some planning fixtures used an
+    all-zero value.  Neither proves which provider bytes produced the installed derivatives, so
+    neither may become current online authority.
+    """
+    digest = str(value or "")
+    return (
+        len(digest) == 64
+        and digest == digest.lower()
+        and all(character in "0123456789abcdef" for character in digest)
+        and any(character != "0" for character in digest)
+    )
+
+
 def build_authority(
     *,
     global_id: int,
@@ -103,6 +119,7 @@ def authority_is_bound(
         and value.get("geometryAssetPath")
         and value.get("geometryAssetVersion")
         == asset_version(value.get("geometryAssetPath"))
+        and valid_geometry_zip_sha256(value.get("geometryZipSha256"))
         and files_ready(mesh_file, hazard_file)
     )
 

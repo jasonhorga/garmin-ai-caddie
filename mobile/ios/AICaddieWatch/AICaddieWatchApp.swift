@@ -227,10 +227,14 @@ public struct AICaddieWatchApp: App {
     }
 
     private func reconcileAutoShot() {
-        if roundModel.round != nil, roundModel.autoShotEnabled {
-            Task { await autoShotProvider.start() }
-        } else {
-            autoShotProvider.stop()
+        let keepWorkoutActive = WatchLocationLaunchPolicy.shouldKeepRoundWorkoutSession(
+            hasActiveRound: roundModel.round != nil
+        )
+        Task {
+            await autoShotProvider.reconcile(
+                roundActive: keepWorkoutActive,
+                autoShotEnabled: keepWorkoutActive && roundModel.autoShotEnabled
+            )
         }
     }
 
@@ -316,5 +320,22 @@ public enum WatchLocationLaunchPolicy {
 #else
         return hasActiveRound || gpsPreheatEnabled
 #endif
+    }
+
+    /// A real active round keeps one golf workout session alive so wrist GPS and AutoShot can
+    /// continue after the display sleeps. Deterministic simulator launches inject GPS or render a
+    /// named screenshot and must not open Health authorization UI they cannot meaningfully test.
+    public static func shouldKeepRoundWorkoutSession(
+        hasActiveRound: Bool = true,
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+#if DEBUG
+        if arguments.contains("-uitest-screen")
+            || (environment["UITEST_GPS_LAT"] != nil && environment["UITEST_GPS_LON"] != nil) {
+            return false
+        }
+#endif
+        return hasActiveRound
     }
 }

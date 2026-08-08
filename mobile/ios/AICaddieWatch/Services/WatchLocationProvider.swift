@@ -32,7 +32,8 @@ public struct WatchHeadingFix: Equatable {
 
 /// watch P3: the watch's OWN GPS (CLLocationManager on watchOS), mirroring the phone `LocationProvider`.
 /// Lets the hole view recompute you/green distances from the wrist without the phone — the base for
-/// standalone play. Foreground here; the keep-alive HKWorkoutSession (background / always-on) is a follow-up.
+/// standalone play. The round-scoped HKWorkoutSession owned by WatchAutoShotProvider keeps these
+/// updates eligible while the display sleeps; AutoShot motion itself can remain disabled.
 /// `UITEST_GPS_LAT/LON` inject a fixed on-course fix (deterministic snapshots + no permission dialog), nil
 /// in every normal run so production behaviour is unchanged.
 public final class WatchLocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {

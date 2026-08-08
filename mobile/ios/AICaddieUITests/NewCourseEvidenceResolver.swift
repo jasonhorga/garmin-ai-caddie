@@ -39,7 +39,7 @@ enum NewCourseEvidenceResolverError: LocalizedError {
         case .malformed(let path):
             return "new-course evidence response was malformed: \(path)"
         case .noEligibleCourse:
-            return "no nearby, uninstalled 9/18-hole course has a searchable name and missing hole-1 precise geometry"
+            return "no nearby, uninstalled 9/18-hole course has a searchable name and non-ready hole-1 precise geometry"
         }
     }
 }
@@ -109,7 +109,14 @@ final class NewCourseEvidenceResolver {
                 path: "/api/v2/geometry/course/\(globalId)/coverage",
                 queryItems: [URLQueryItem(name: "holes", value: "1")]
             )
-            guard nonEmptyString(coverage["coverage"])?.lowercased() == "missing" else {
+            // A real cold course commonly has decoded meshes/hazards from an older investigation but
+            // no authority binding to today's Garmin release. The coverage endpoint correctly calls
+            // that state `partial`; it is just as valid for the precise-upgrade journey as `missing`.
+            // Because this request covers only hole 1, readyHoles == 0 proves the first hole itself is
+            // not already precise rather than inferring from an all-course aggregate.
+            let coverageState = nonEmptyString(coverage["coverage"])?.lowercased()
+            let readyHoles = integer(coverage["readyHoles"]) ?? (coverageState == "ready" ? 1 : 0)
+            guard readyHoles == 0, coverageState != "ready" else {
                 continue
             }
             guard let query = try verifiedSearchQuery(for: name, globalId: globalId) else {

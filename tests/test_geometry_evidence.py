@@ -49,6 +49,7 @@ class GeometryEvidenceTests(unittest.TestCase):
                     release=release,
                     hole=release["holes"][0],
                     release_source="cache",
+                    geometry_zip_sha256="a" * 64,
                 ),
             )
             with (
@@ -99,6 +100,7 @@ class GeometryEvidenceTests(unittest.TestCase):
                         release=old_release,
                         hole=old_release["holes"][0],
                         release_source="cache",
+                        geometry_zip_sha256="b" * 64,
                     ),
                 )
                 stale = geometry_coverage_for_hole(

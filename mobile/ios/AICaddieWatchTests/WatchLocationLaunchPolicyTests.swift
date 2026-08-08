@@ -43,4 +43,38 @@ final class WatchLocationLaunchPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testActiveRoundKeepsWorkoutSessionWithoutAutoShotDependency() {
+        XCTAssertTrue(
+            WatchLocationLaunchPolicy.shouldKeepRoundWorkoutSession(
+                hasActiveRound: true,
+                arguments: ["AI Caddie"],
+                environment: [:]
+            )
+        )
+        XCTAssertFalse(
+            WatchLocationLaunchPolicy.shouldKeepRoundWorkoutSession(
+                hasActiveRound: false,
+                arguments: ["AI Caddie"],
+                environment: [:]
+            )
+        )
+    }
+
+    func testDeterministicWatchEvidenceDoesNotOpenHealthAuthorization() {
+        XCTAssertFalse(
+            WatchLocationLaunchPolicy.shouldKeepRoundWorkoutSession(
+                hasActiveRound: true,
+                arguments: ["AI Caddie", "-uitest-screen", "hole-map"],
+                environment: [:]
+            )
+        )
+        XCTAssertFalse(
+            WatchLocationLaunchPolicy.shouldKeepRoundWorkoutSession(
+                hasActiveRound: true,
+                arguments: ["AI Caddie"],
+                environment: ["UITEST_GPS_LAT": "40", "UITEST_GPS_LON": "116"]
+            )
+        )
+    }
 }

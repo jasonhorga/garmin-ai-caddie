@@ -2537,10 +2537,114 @@ def _shift_hole_number(value: Any, offset: int) -> Any:
         return value
 
 
+def _replace_exact_runtime_refs(value: Any, replacements: dict[str, str]) -> Any:
+    """Rebind composite-round identity without touching historical/provider provenance."""
+    if isinstance(value, str):
+        return replacements.get(value, value)
+    if isinstance(value, list):
+        return [_replace_exact_runtime_refs(item, replacements) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _replace_exact_runtime_refs(item, replacements)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _merge_composite_weather(
+    front: dict[str, Any],
+    back: dict[str, Any],
+    *,
+    offset: int,
+    ref_replacements: dict[str, str],
+    round_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    merged = dict(front)
+    rebound_back = _replace_exact_runtime_refs(back, ref_replacements)
+    front_rows = list(front.get("holeCoverage") or [])
+    back_rows: list[Any] = []
+    for raw in rebound_back.get("holeCoverage") or []:
+        row = dict(raw) if isinstance(raw, dict) else raw
+        if isinstance(row, dict):
+            row["hole"] = _shift_hole_number(row.get("hole"), offset)
+        back_rows.append(row)
+    hole_coverage = [*front_rows, *back_rows]
+    ready = sum(
+        1 for row in hole_coverage
+        if isinstance(row, dict) and row.get("state") == "ready"
+    )
+    total = len(hole_coverage)
+    state = "ready" if total and ready == total else "partial" if ready else "missing"
+    merged["roundId"] = round_id
+    merged["coverage"] = {
+        "ready": ready,
+        "total": total,
+        "pct": round((ready / total) * 100.0, 1) if total else 0.0,
+    }
+    merged["holeCoverage"] = hole_coverage
+    merged["missingData"] = _dedupe_missing(
+        [
+            *list(front.get("missingData") or []),
+            *list(rebound_back.get("missingData") or []),
+        ]
+    )
+    coverage = {
+        "state": state,
+        "readyHoles": ready,
+        "totalHoles": total,
+        "pct": merged["coverage"]["pct"],
+        "holeCoverage": hole_coverage,
+        "sourceRefs": [
+            row.get("sourceRef") for row in hole_coverage
+            if isinstance(row, dict) and row.get("state") == "ready"
+        ],
+        "missingRefs": [
+            row.get("sourceRef") for row in hole_coverage
+            if isinstance(row, dict) and row.get("state") != "ready"
+        ],
+    }
+    return merged, coverage
+
+
+def _shift_composite_seed(
+    raw: Any,
+    *,
+    offset: int,
+    ref_replacements: dict[str, str],
+    round_id: str,
+    course_name: str,
+    merged_weather: dict[str, Any],
+) -> Any:
+    if not isinstance(raw, dict):
+        return raw
+    seed = _replace_exact_runtime_refs(raw, ref_replacements)
+    seed["hole"] = _shift_hole_number(raw.get("hole"), offset)
+    context = dict(seed.get("context") or {})
+    context["roundId"] = round_id
+    context["sourceRef"] = seed.get("sourceRef")
+    context["courseName"] = course_name
+    context["hole"] = seed["hole"]
+    historical = context.get("historicalHole")
+    if isinstance(historical, dict):
+        historical = dict(historical)
+        historical["hole"] = seed["hole"]
+        context["historicalHole"] = historical
+    weather = context.get("weatherSnapshot")
+    if isinstance(weather, dict):
+        weather = dict(weather)
+        if isinstance(weather.get("hole"), int):
+            weather["hole"] = _shift_hole_number(weather.get("hole"), offset)
+        weather["coverage"] = merged_weather.get("coverage")
+        weather["holeCoverage"] = merged_weather.get("holeCoverage")
+        context["weatherSnapshot"] = weather
+    seed["context"] = context
+    return seed
+
+
 def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
     """Merge two 9-hole packages into one 18-hole composite: front loop = holes 1–9, back loop =
-    holes 10–18 (back hole numbers shifted +9). Shared sections (weather / clubs / recentHistory /
-    player) come from the front package; geometry coverage + course name are combined."""
+    holes 10–18 (back hole numbers shifted +9), with one coherent runtime identity and readiness
+    view across both physical loops."""
     offset = len(front.get("holes") or [])
 
     def _shift(rows: Any, key: str) -> list[Any]:
@@ -2553,9 +2657,51 @@ def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
         return out
 
     merged = dict(front)
+    round_id = str(front.get("roundId") or back.get("roundId") or "")
+    course_name = _composite_course_name(
+        str((front.get("course") or {}).get("name") or ""),
+        str((back.get("course") or {}).get("name") or ""),
+    )
+    ref_replacements: dict[str, str] = {}
+    for seed in back.get("caddieContextSeeds") or []:
+        if not isinstance(seed, dict):
+            continue
+        old_ref = str(seed.get("sourceRef") or "")
+        shifted_hole = _shift_hole_number(seed.get("hole"), offset)
+        if old_ref and isinstance(shifted_hole, int):
+            ref_replacements[old_ref] = f"{round_id}:{shifted_hole}"
+
+    merged_weather, weather_coverage = _merge_composite_weather(
+        front.get("weatherSnapshot") or {},
+        back.get("weatherSnapshot") or {},
+        offset=offset,
+        ref_replacements=ref_replacements,
+        round_id=round_id,
+    )
     merged["holes"] = list(front.get("holes") or []) + _shift(back.get("holes"), "number")
     merged["caddieContextSeeds"] = (
-        list(front.get("caddieContextSeeds") or []) + _shift(back.get("caddieContextSeeds"), "hole")
+        [
+            _shift_composite_seed(
+                seed,
+                offset=0,
+                ref_replacements={},
+                round_id=round_id,
+                course_name=course_name,
+                merged_weather=merged_weather,
+            )
+            for seed in front.get("caddieContextSeeds") or []
+        ]
+        + [
+            _shift_composite_seed(
+                seed,
+                offset=offset,
+                ref_replacements=ref_replacements,
+                round_id=round_id,
+                course_name=course_name,
+                merged_weather=merged_weather,
+            )
+            for seed in back.get("caddieContextSeeds") or []
+        ]
     )
     front_prep = dict(front.get("coursePrep") or {})
     front_prep["holes"] = list(front_prep.get("holes") or []) + _shift((back.get("coursePrep") or {}).get("holes"), "hole")
@@ -2563,13 +2709,68 @@ def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
     merged["geometryCoverage"] = _merge_geometry_coverage(
         front.get("geometryCoverage") or {}, back.get("geometryCoverage") or {}
     )
-    course = dict(front.get("course") or {})
-    course["name"] = _composite_course_name(
-        str((front.get("course") or {}).get("name") or ""),
-        str((back.get("course") or {}).get("name") or ""),
+    merged["weatherSnapshot"] = merged_weather
+    source_coverage = dict(front.get("sourceCoverage") or {})
+    source_coverage["holeCount"] = len(merged["holes"])
+    if "preciseGeometryState" in source_coverage:
+        source_coverage["preciseGeometryState"] = merged["geometryCoverage"]["state"]
+    merged["sourceCoverage"] = source_coverage
+
+    recent_history = dict(front.get("recentHistory") or {})
+    back_recent = back.get("recentHistory") or {}
+    recent_history["holes"] = list(recent_history.get("holes") or []) + _shift(
+        back_recent.get("holes"), "number"
     )
+    merged["recentHistory"] = recent_history
+
+    course = dict(front.get("course") or {})
+    course["name"] = course_name
     merged["course"] = course
     merged["nine"] = "all"
+
+    readiness_checks = _package_readiness_checks(
+        source_coverage=source_coverage,
+        geometry_coverage=merged["geometryCoverage"],
+        weather_coverage=weather_coverage,
+        club_profiles=list(merged.get("clubProfiles") or []),
+        recent_history=recent_history,
+        caddie_context_seeds=list(merged.get("caddieContextSeeds") or []),
+        holes=list(merged.get("holes") or []),
+    )
+    merged["readinessChecks"] = readiness_checks
+    derived_labels = {"geometry", "weather", "club_profiles", "recent_history", "caddie_seeds"}
+    base_missing = [
+        row
+        for package in (front, back)
+        for row in package.get("missingData") or []
+        if isinstance(row, dict) and row.get("label") not in derived_labels
+    ]
+    merged["missingData"] = _package_readiness_missing_data(
+        _dedupe_missing(base_missing),
+        geometry_coverage=merged["geometryCoverage"],
+        weather_coverage=weather_coverage,
+        club_profiles=list(merged.get("clubProfiles") or []),
+        recent_history=recent_history,
+    )
+    caddie_check = next(
+        (row for row in readiness_checks if row.get("label") == "caddie_seeds"),
+        None,
+    )
+    if caddie_check and caddie_check.get("state") != "ready":
+        merged["missingData"] = _dedupe_missing(
+            [
+                *merged["missingData"],
+                {"label": "caddie_seeds", "reason": str(caddie_check.get("reason"))},
+            ]
+        )
+    status = dict(merged.get("offlinePackageStatus") or {})
+    status["state"] = (
+        "ready"
+        if not merged["missingData"]
+        and all(row.get("state") == "ready" for row in readiness_checks)
+        else "degraded"
+    )
+    merged["offlinePackageStatus"] = status
     return merged
 
 
@@ -2577,10 +2778,8 @@ def _filter_package_to_nine(package: dict[str, Any], nine: str) -> dict[str, Any
     """Restrict a course package to a starting nine.
 
     ``front`` keeps holes 1–9, ``back`` keeps holes 10–18; ``all`` (the default,
-    and any unrecognised value) returns the package unchanged. Filters both the
-    ``holes`` list and the ``caddieContextSeeds`` so the live screen and the
-    pre-round caddie seeds agree on which holes are in play. Standard 18-hole
-    courses only — dual-nine / composite layouts are a follow-up.
+    and any unrecognised value) returns the package unchanged. Every hole-indexed summary is
+    filtered with the playable holes so a nine-hole selection cannot advertise 18-hole readiness.
     """
     key = str(nine or "all").strip().lower()
     if key not in {"front", "back"}:
@@ -2610,6 +2809,143 @@ def _filter_package_to_nine(package: dict[str, Any], nine: str) -> dict[str, Any
             seed for seed in seeds
             if not isinstance(seed, dict) or in_range(seed.get("hole"))
         ]
+
+    prep = package.get("coursePrep")
+    if isinstance(prep, dict):
+        prep = dict(prep)
+        prep["holes"] = [
+            row for row in prep.get("holes") or []
+            if not isinstance(row, dict) or in_range(row.get("hole"))
+        ]
+        filtered["coursePrep"] = prep
+
+    recent = package.get("recentHistory")
+    if isinstance(recent, dict):
+        recent = dict(recent)
+        recent["holes"] = [
+            row for row in recent.get("holes") or []
+            if not isinstance(row, dict) or in_range(row.get("number"))
+        ]
+        filtered["recentHistory"] = recent
+
+    weather = dict(package.get("weatherSnapshot") or {})
+    weather_rows = [
+        row for row in weather.get("holeCoverage") or []
+        if not isinstance(row, dict) or in_range(row.get("hole"))
+    ]
+    weather_ready = sum(
+        1 for row in weather_rows
+        if isinstance(row, dict) and row.get("state") == "ready"
+    )
+    weather_total = len(weather_rows)
+    weather_state = (
+        "ready"
+        if weather_total and weather_ready == weather_total
+        else "partial" if weather_ready else "missing"
+    )
+    weather["coverage"] = {
+        "ready": weather_ready,
+        "total": weather_total,
+        "pct": round((weather_ready / weather_total) * 100.0, 1) if weather_total else 0.0,
+    }
+    weather["holeCoverage"] = weather_rows
+    filtered["weatherSnapshot"] = weather
+    weather_coverage = {
+        "state": weather_state,
+        "readyHoles": weather_ready,
+        "totalHoles": weather_total,
+        "pct": weather["coverage"]["pct"],
+        "holeCoverage": weather_rows,
+        "sourceRefs": [
+            row.get("sourceRef") for row in weather_rows
+            if isinstance(row, dict) and row.get("state") == "ready"
+        ],
+        "missingRefs": [
+            row.get("sourceRef") for row in weather_rows
+            if isinstance(row, dict) and row.get("state") != "ready"
+        ],
+    }
+    normalized_seeds: list[Any] = []
+    for raw in filtered.get("caddieContextSeeds") or []:
+        if not isinstance(raw, dict):
+            normalized_seeds.append(raw)
+            continue
+        seed = dict(raw)
+        context = dict(seed.get("context") or {})
+        seed_weather = context.get("weatherSnapshot")
+        if isinstance(seed_weather, dict):
+            seed_weather = dict(seed_weather)
+            seed_weather["coverage"] = weather["coverage"]
+            seed_weather["holeCoverage"] = weather_rows
+            context["weatherSnapshot"] = seed_weather
+        seed["context"] = context
+        normalized_seeds.append(seed)
+    filtered["caddieContextSeeds"] = normalized_seeds
+
+    filtered_holes = list(filtered.get("holes") or [])
+    geometry_ready = sum(
+        1 for row in filtered_holes
+        if isinstance(row, dict) and row.get("geometryCoverage") == "ready"
+    )
+    geometry_total = len(filtered_holes)
+    geometry_coverage = {
+        "state": (
+            "ready"
+            if geometry_total and geometry_ready == geometry_total
+            else "partial" if geometry_ready else "missing"
+        ),
+        "readyHoles": geometry_ready,
+        "totalHoles": geometry_total,
+    }
+    filtered["geometryCoverage"] = geometry_coverage
+    source_coverage = dict(package.get("sourceCoverage") or {})
+    source_coverage["holeCount"] = geometry_total
+    if "preciseGeometryState" in source_coverage:
+        source_coverage["preciseGeometryState"] = geometry_coverage["state"]
+    filtered["sourceCoverage"] = source_coverage
+
+    recent_history = filtered.get("recentHistory") or {}
+    readiness_checks = _package_readiness_checks(
+        source_coverage=source_coverage,
+        geometry_coverage=geometry_coverage,
+        weather_coverage=weather_coverage,
+        club_profiles=list(filtered.get("clubProfiles") or []),
+        recent_history=recent_history,
+        caddie_context_seeds=list(filtered.get("caddieContextSeeds") or []),
+        holes=filtered_holes,
+    )
+    filtered["readinessChecks"] = readiness_checks
+    derived_labels = {"geometry", "weather", "club_profiles", "recent_history", "caddie_seeds"}
+    base_missing = [
+        row for row in package.get("missingData") or []
+        if isinstance(row, dict) and row.get("label") not in derived_labels
+    ]
+    filtered["missingData"] = _package_readiness_missing_data(
+        _dedupe_missing(base_missing),
+        geometry_coverage=geometry_coverage,
+        weather_coverage=weather_coverage,
+        club_profiles=list(filtered.get("clubProfiles") or []),
+        recent_history=recent_history,
+    )
+    caddie_check = next(
+        (row for row in readiness_checks if row.get("label") == "caddie_seeds"),
+        None,
+    )
+    if caddie_check and caddie_check.get("state") != "ready":
+        filtered["missingData"] = _dedupe_missing(
+            [
+                *filtered["missingData"],
+                {"label": "caddie_seeds", "reason": str(caddie_check.get("reason"))},
+            ]
+        )
+    status = dict(filtered.get("offlinePackageStatus") or {})
+    status["state"] = (
+        "ready"
+        if not filtered["missingData"]
+        and all(row.get("state") == "ready" for row in readiness_checks)
+        else "degraded"
+    )
+    filtered["offlinePackageStatus"] = status
     return filtered
 
 

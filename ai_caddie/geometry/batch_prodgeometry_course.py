@@ -29,6 +29,7 @@ from ai_caddie.geometry.geometry_authority import (
     authority_path,
     build_authority,
     legacy_outputs_match,
+    valid_geometry_zip_sha256,
     write_authority,
 )
 from ai_caddie.geometry.inspect_courseview_release import inspect_valid_release, load_release_pb
@@ -323,7 +324,7 @@ def main() -> int:
             skip_overlay=args.skip_overlay,
             force_download=args.force_download,
         )
-        if row.get("ok"):
+        if row.get("ok") and valid_geometry_zip_sha256(row.get("geometry_zip_sha256")):
             authority = build_authority(
                 global_id=args.course_id,
                 local_hole=hole_number,
@@ -339,6 +340,9 @@ def main() -> int:
             else:
                 row["ok"] = False
                 row["error"] = "decoded prodgeometry does not match the release asset authority"
+        elif row.get("ok"):
+            row["ok"] = False
+            row["error"] = "downloaded prodgeometry is missing a real ZIP SHA256"
         summary["holes"].append(row)
         status = "ok" if row.get("ok") else "FAIL"
         mesh_count = row.get("steps", {}).get("decode", {}).get("meshCount")

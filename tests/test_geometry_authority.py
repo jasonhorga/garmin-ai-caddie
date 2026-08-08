@@ -9,6 +9,7 @@ from unittest.mock import patch
 from ai_caddie.geometry import batch_prodgeometry_course as batch
 from ai_caddie.geometry import geometry_sync
 from ai_caddie.geometry.geometry_authority import (
+    authority_is_bound,
     authority_matches_release,
     authority_path,
     build_authority,
@@ -16,6 +17,7 @@ from ai_caddie.geometry.geometry_authority import (
     canonical_asset_path,
     legacy_outputs_match,
     load_authority,
+    valid_geometry_zip_sha256,
     write_authority,
 )
 
@@ -75,6 +77,50 @@ def _write_outputs(mesh: Path, hazard: Path, version: str) -> None:
 
 
 class GeometryAuthorityTests(unittest.TestCase):
+    def test_current_authority_requires_a_real_nonzero_zip_sha256(self) -> None:
+        with TemporaryDirectory() as tmp:
+            mesh = Path(tmp) / "gid1_h02_meshes.json"
+            hazard = Path(tmp) / "gid1_h02_hazards.json"
+            _write_outputs(mesh, hazard, "220542")
+            release = _release()
+            authority = build_authority(
+                global_id=1,
+                local_hole=2,
+                release=release,
+                hole=release["holes"][0],
+                release_source="live",
+            )
+            self.assertFalse(
+                authority_is_bound(
+                    authority,
+                    global_id=1,
+                    local_hole=2,
+                    mesh_file=mesh,
+                    hazard_file=hazard,
+                )
+            )
+            authority["geometryZipSha256"] = "0" * 64
+            self.assertFalse(
+                authority_is_bound(
+                    authority,
+                    global_id=1,
+                    local_hole=2,
+                    mesh_file=mesh,
+                    hazard_file=hazard,
+                )
+            )
+            authority["geometryZipSha256"] = "a" * 64
+            self.assertTrue(valid_geometry_zip_sha256(authority["geometryZipSha256"]))
+            self.assertTrue(
+                authority_is_bound(
+                    authority,
+                    global_id=1,
+                    local_hole=2,
+                    mesh_file=mesh,
+                    hazard_file=hazard,
+                )
+            )
+
     def test_asset_identity_drops_regional_host_and_expiring_signature(self) -> None:
         cn = "https://securemaps.garmin.cn/a/hole02_220542.zip?garmindlm=one"
         com = "https://securemaps.garmin.com/a/hole02_220542.zip?garmindlm=two"
@@ -159,6 +205,7 @@ class GeometryAuthorityTests(unittest.TestCase):
                 release=first_release,
                 hole=first_release["holes"][0],
                 release_source="cache",
+                geometry_zip_sha256="a" * 64,
             )
             sidecar = authority_path(mesh)
             write_authority(sidecar, first)
@@ -177,6 +224,7 @@ class GeometryAuthorityTests(unittest.TestCase):
                 release=refreshed,
                 hole=refreshed["holes"][0],
                 release_source="live",
+                geometry_zip_sha256="a" * 64,
             )
             self.assertFalse(
                 authority_matches_release(
@@ -203,7 +251,7 @@ class GeometrySyncAuthorityTests(unittest.TestCase):
     def _paths(self, root: Path) -> tuple[Path, Path]:
         return root / "gid1_h02_meshes.json", root / "gid1_h02_hazards.json"
 
-    def test_existing_legacy_output_is_bound_without_redownload_when_version_matches(
+    def test_existing_legacy_output_is_redownloaded_to_bind_real_zip_hash(
         self,
     ) -> None:
         with TemporaryDirectory() as tmp:
@@ -216,15 +264,23 @@ class GeometrySyncAuthorityTests(unittest.TestCase):
                 patch.object(
                     geometry_sync, "_release_for_update", return_value=(release, "live")
                 ),
-                patch.object(geometry_sync, "process_hole") as process,
+                patch.object(
+                    geometry_sync,
+                    "process_hole",
+                    return_value={
+                        "ok": True,
+                        "geometry_zip_sha256": "d" * 64,
+                        "steps": {},
+                    },
+                ) as process,
             ):
-                result = geometry_sync.ensure_prodgeometry(1, 2)
+                result = geometry_sync.ensure_prodgeometry(1, 2, profile_id="player")
 
-            self.assertEqual(result["status"], "cached")
+            self.assertEqual(result["status"], "downloaded")
             self.assertEqual(result["authorityState"], "bound")
-            process.assert_not_called()
+            process.assert_called_once()
             self.assertEqual(
-                load_authority(authority_path(mesh))["geometryAssetVersion"], "220542"
+                load_authority(authority_path(mesh))["geometryZipSha256"], "d" * 64
             )
 
     def test_new_geometry_asset_rebuilds_and_rebinds_outputs(self) -> None:
@@ -280,6 +336,7 @@ class GeometrySyncAuthorityTests(unittest.TestCase):
                     release=old_release,
                     hole=old_release["holes"][0],
                     release_source="cache",
+                    geometry_zip_sha256="e" * 64,
                 ),
             )
             refreshed = _release(build=267, release_id="006-D2419-45")

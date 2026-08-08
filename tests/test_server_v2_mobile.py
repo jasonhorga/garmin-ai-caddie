@@ -1078,12 +1078,34 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual([hole["number"] for hole in front["holes"]], list(range(1, 10)))
         self.assertTrue(front["caddieContextSeeds"])
         self.assertTrue(all(seed["hole"] <= 9 for seed in front["caddieContextSeeds"]))
+        self.assertEqual(front["sourceCoverage"]["holeCount"], 9)
+        self.assertEqual(front["geometryCoverage"]["totalHoles"], 9)
+        self.assertEqual(front["weatherSnapshot"]["coverage"]["total"], 9)
+        self.assertEqual(
+            [row["number"] for row in front["recentHistory"]["holes"]],
+            list(range(1, 10)),
+        )
+        front_checks = {row["label"]: row for row in front["readinessChecks"]}
+        self.assertEqual(front_checks["geometry"]["total"], 9)
+        self.assertEqual(front_checks["weather"]["total"], 9)
+        self.assertEqual(front_checks["caddie_seeds"]["total"], 9)
 
         back = fetch("back")
         self.assertEqual(back["nine"], "back")
         self.assertEqual([hole["number"] for hole in back["holes"]], list(range(10, 19)))
         self.assertTrue(back["caddieContextSeeds"])
         self.assertTrue(all(seed["hole"] >= 10 for seed in back["caddieContextSeeds"]))
+        self.assertEqual(back["sourceCoverage"]["holeCount"], 9)
+        self.assertEqual(back["geometryCoverage"]["totalHoles"], 9)
+        self.assertEqual(back["weatherSnapshot"]["coverage"]["total"], 9)
+        self.assertEqual(
+            [row["number"] for row in back["recentHistory"]["holes"]],
+            list(range(10, 19)),
+        )
+        back_checks = {row["label"]: row for row in back["readinessChecks"]}
+        self.assertEqual(back_checks["geometry"]["total"], 9)
+        self.assertEqual(back_checks["weather"]["total"], 9)
+        self.assertEqual(back_checks["caddie_seeds"]["total"], 9)
 
         invalid = client.get(
             "/api/v2/mobile/courses/55555/package",
@@ -1225,6 +1247,32 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual([h["number"] for h in pkg["holes"]], list(range(1, 19)))
         self.assertEqual(pkg["course"]["name"], "黑骑士 ~ C/A")
+        self.assertEqual(pkg["sourceCoverage"]["holeCount"], 18)
+        self.assertEqual(
+            [seed["hole"] for seed in pkg["caddieContextSeeds"]],
+            list(range(1, 19)),
+        )
+        self.assertEqual(
+            [seed["sourceRef"] for seed in pkg["caddieContextSeeds"]],
+            [f"live-x:{hole}" for hole in range(1, 19)],
+        )
+        self.assertEqual(
+            [seed["context"]["hole"] for seed in pkg["caddieContextSeeds"]],
+            list(range(1, 19)),
+        )
+        self.assertTrue(
+            all(seed["context"]["roundId"] == "live-x" for seed in pkg["caddieContextSeeds"])
+        )
+        # This fixture deliberately has no scored hole rows, so merging must not invent history.
+        self.assertEqual(pkg["recentHistory"]["holes"], [])
+        self.assertEqual(
+            [row["hole"] for row in pkg["weatherSnapshot"]["holeCoverage"]],
+            list(range(1, 19)),
+        )
+        checks = {row["label"]: row for row in pkg["readinessChecks"]}
+        self.assertEqual(checks["geometry"]["total"], 18)
+        self.assertEqual(checks["weather"]["total"], 18)
+        self.assertEqual(checks["caddie_seeds"]["total"], 18)
 
     def test_live_course_package_builds_stats_from_unaugmented_history(self) -> None:
         # Never-played courses get a synthetic template round added to the package data so the holes

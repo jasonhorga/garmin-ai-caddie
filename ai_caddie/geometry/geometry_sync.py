@@ -20,6 +20,7 @@ from ai_caddie.geometry.geometry_authority import (
     load_authority,
     same_geometry_content,
     same_release_binding,
+    valid_geometry_zip_sha256,
     write_authority,
 )
 from ai_caddie.geometry.inspect_courseview_release import (
@@ -253,14 +254,14 @@ def ensure_prodgeometry(
             )
 
             if not force and files_exist:
+                # Matching embedded ids/version are enough to keep legacy pixels available
+                # offline, but not enough to claim current provider authority.  Only an authority
+                # with the real ZIP digest may take this fast path; legacy outputs are downloaded
+                # and verified once below to acquire that digest.
                 reusable = (
                     current_is_bound
                     and current is not None
                     and same_geometry_content(current, expected)
-                ) or legacy_outputs_match(
-                    expected,
-                    mesh_file=mesh_file,
-                    hazard_file=hazard_file,
                 )
                 if reusable:
                     if current is None or not same_release_binding(current, expected):
@@ -285,7 +286,10 @@ def ensure_prodgeometry(
                 skip_overlay=True,
                 force_download=force,
             )
-            row_ok = bool(row.get("ok"))
+            zip_sha256 = row.get("geometry_zip_sha256")
+            row_ok = bool(row.get("ok")) and valid_geometry_zip_sha256(zip_sha256)
+            if row.get("ok") and not row_ok:
+                row["error"] = "downloaded prodgeometry is missing a real ZIP SHA256"
             if row_ok:
                 expected = build_authority(
                     global_id=gid,
@@ -293,7 +297,7 @@ def ensure_prodgeometry(
                     release=release,
                     hole=hole,
                     release_source=release_source,
-                    geometry_zip_sha256=row.get("geometry_zip_sha256"),
+                    geometry_zip_sha256=zip_sha256,
                 )
                 row_ok = legacy_outputs_match(
                     expected,

@@ -30,6 +30,10 @@
     <string>用于启动高频运动传感器所需的高尔夫训练会话；AI Caddie 不会把这次训练保存到“健康”。</string>
     <key>WKApplication</key>
     <true/>
+    <key>WKBackgroundModes</key>
+    <array>
+        <string>workout-processing</string>
+    </array>
     <key>WKCompanionAppBundleIdentifier</key>
     <string>com.ai-caddie.mobile</string>
     <key>WKWatchOnly</key>
