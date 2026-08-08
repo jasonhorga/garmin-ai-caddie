@@ -11,6 +11,7 @@ from ai_caddie.caddie.mobile_live import (
     build_live_round_package_for_course,
     build_mobile_course_options,
     build_round_state,
+    first_hole_lightweight_course_prep,
     replay_event_log,
     round_events,
 )
@@ -83,29 +84,34 @@ def build_mobile_course_package_response(
     player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode(player_id=player_id)
+    package = build_live_round_package_for_course(
+        global_id,
+        round_id=round_id,
+        tee_box=tee_box,
+        data=data,
+        data_mode=mode,
+        player_id=player_id,
+        root=MOBILE_ROOT,
+        annotations_root=ANNOTATION_ROOT,
+        captured_at=captured_at,
+        weather_transport=OPEN_METEO_TRANSPORT,
+        client_id=client_id,
+        ensure_geometry=ensure_geometry,
+        nine=nine,
+        back_global_id=back_global_id,
+        # Live start must be fast: skip the heavy all-hole course_prep build (per-hole route /
+        # hazard point-in-polygon over big meshes).  One forced-lightweight first-hole seed is
+        # attached below so the live screen is factual before precise background work begins.
+        include_course_prep=False,
+        include_event_cursor=include_event_cursor,
+        ensure_lightweight=True,
+    )
+    package["coursePrep"] = first_hole_lightweight_course_prep(
+        package,
+        player_id=player_id,
+    )
     return LiveRoundPackageResponse(
-        **build_live_round_package_for_course(
-            global_id,
-            round_id=round_id,
-            tee_box=tee_box,
-            data=data,
-            data_mode=mode,
-            player_id=player_id,
-            root=MOBILE_ROOT,
-            annotations_root=ANNOTATION_ROOT,
-            captured_at=captured_at,
-            weather_transport=OPEN_METEO_TRANSPORT,
-            client_id=client_id,
-            ensure_geometry=ensure_geometry,
-            nine=nine,
-            back_global_id=back_global_id,
-            # Live start must be fast: skip the heavy all-hole course_prep build (per-hole route /
-            # hazard point-in-polygon over big meshes). The app fetches per-hole prep on demand
-            # (the 2D map + hazards), so the round opens immediately.
-            include_course_prep=False,
-            include_event_cursor=include_event_cursor,
-            ensure_lightweight=True,
-        )
+        **package
     )
 
 

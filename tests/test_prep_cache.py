@@ -117,6 +117,43 @@ class PrepCacheTests(unittest.TestCase):
             selected_mesh.write_text('{"changed":true}', encoding="utf-8")
             self.assertNotEqual(prep_cache._fingerprint(31795), selected_before)
 
+    def test_cached_hole_fingerprint_ignores_other_holes_installed_mid_build(self) -> None:
+        """A cold all-course installer must not make a hole-1 waiter rebuild for holes 2...18."""
+        with tempfile.TemporaryDirectory() as mesh_tmp, tempfile.TemporaryDirectory() as hazard_tmp:
+            original_mesh = prep_cache.MESH_DIR
+            original_hazard = prep_cache.HAZARD_DIR
+            prep_cache.MESH_DIR = Path(mesh_tmp)
+            prep_cache.HAZARD_DIR = Path(hazard_tmp)
+            self.addCleanup(setattr, prep_cache, "MESH_DIR", original_mesh)
+            self.addCleanup(setattr, prep_cache, "HAZARD_DIR", original_hazard)
+            calls = 0
+
+            def build() -> dict:
+                nonlocal calls
+                calls += 1
+                (prep_cache.MESH_DIR / "gid31795_h02_meshes.json").write_text("{}")
+                (prep_cache.HAZARD_DIR / "gid31795_h02_hazards.json").write_text("{}")
+                return {"hole": 1}
+
+            kwargs = dict(
+                global_id=31795,
+                requested=[1],
+                render=False,
+                include_shots=False,
+                player_id="me",
+                build=build,
+            )
+            first = prep_cache.cached_course_prep(**kwargs)
+            second = prep_cache.cached_course_prep(**kwargs)
+
+            self.assertIs(first, second)
+            self.assertEqual(calls, 1)
+
+            # The requested hole itself remains authoritative and must invalidate immediately.
+            (prep_cache.MESH_DIR / "gid31795_h01_meshes.json").write_text("{}")
+            prep_cache.cached_course_prep(**kwargs)
+            self.assertEqual(calls, 2)
+
     def test_singleflight_same_key_cold_cache_builds_once(self) -> None:
         # Thundering-herd guard: N concurrent first-requests for the SAME uncached key must
         # run the ~19s build exactly once; the late arrivals wait and read the cached result.

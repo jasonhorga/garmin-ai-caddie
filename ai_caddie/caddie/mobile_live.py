@@ -864,6 +864,48 @@ def _course_prep_package(global_id: int, holes: list[dict[str, Any]], *, player_
     }
 
 
+def first_hole_lightweight_course_prep(
+    package: dict[str, Any],
+    *,
+    player_id: str = OWNER_ID,
+) -> dict[str, Any] | None:
+    """Return one immediately drawable, CourseView-only seed for a live course package.
+
+    The full all-hole prep remains excluded from Start Round.  Seeding only the first playable
+    hole closes the cold-install race: background prodgeometry may start after the package response,
+    but the phone/watch already owns a factual route before any precise mesh work can contend with
+    its on-demand request.
+    """
+    holes = package.get("holes") or []
+    first = next((row for row in holes if isinstance(row, dict)), None)
+    if first is None:
+        return None
+    course = package.get("course") or {}
+    round_hole = _safe_int(first.get("number"))
+    source_global_id = _safe_int(first.get("sourceGlobalId") or course.get("globalId"))
+    source_local_hole = _safe_int(first.get("sourceLocalHole") or round_hole)
+    if not round_hole or not source_global_id or not source_local_hole:
+        return None
+    try:
+        prep = course_prep.lightweight_prep_hole(
+            source_global_id,
+            source_local_hole,
+            player_id=player_id,
+        )
+    except Exception:
+        return None
+    if not prep or not prep.get("route") or not prep.get("holeImageProjection"):
+        return None
+    seeded = dict(prep)
+    seeded["hole"] = round_hole
+    return {
+        "schema": "ai-caddie-course-prep-package-v1",
+        "globalId": int(course.get("globalId") or source_global_id),
+        "holes": [seeded],
+        "missingData": list(seeded.get("missingData") or []),
+    }
+
+
 def _dedupe_strings(values: list[Any]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []

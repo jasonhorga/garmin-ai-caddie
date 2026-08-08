@@ -1209,6 +1209,33 @@ def _lightweight_prep_hole(
     return prep.to_dict() if render else prep
 
 
+def lightweight_prep_hole(
+    global_id: int,
+    local_hole: int,
+    *,
+    ladder=None,
+    par_record=None,
+    player_id: str = OWNER_ID,
+) -> dict | None:
+    """Build the factual CourseView-only map without touching precise mesh geometry.
+
+    Mobile course packages use this for one first-hole seed.  It is deliberately separate from
+    :func:`prep_hole`: if a background prodgeometry install wins the race by a few milliseconds,
+    the first screen must still receive the small route/green/hazard drawing immediately instead
+    of entering the expensive precise mesh path before anything can be shown.
+    """
+    resolved_ladder = ladder or effective_club_ladder(player_id)
+    resolved_par = par_record or course_reference.load_course_par(int(global_id))
+    value = _lightweight_prep_hole(
+        int(global_id),
+        int(local_hole),
+        ladder=resolved_ladder,
+        par_record=resolved_par,
+        render=True,
+    )
+    return value if isinstance(value, dict) else None
+
+
 def _candidate_routes(ladder: list[tuple[str, int]], hazards: dict) -> list[dict]:
     if not ladder:
         return []

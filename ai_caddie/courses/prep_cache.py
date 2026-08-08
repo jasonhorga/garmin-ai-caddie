@@ -8,7 +8,7 @@ This caches the built response and serves it instantly while inputs are unchange
 moment any input changes. Invalidation is by **filesystem fingerprint** (not TTL, not manual hooks),
 mirroring ``stats_cache``:
 
-  - course geometry dirs (mesh + hazards) — feed route / hazards / F/M/B / map,
+  - requested-hole geometry files (mesh + hazards) — feed route / hazards / F/M/B / map,
   - the selected course's release + ``courseData`` cache — feed the lightweight map,
   - the owner's shot dir + club-bag file — feed the club ladder + your-shots scatter,
   - the per-course par record (``data/courses/<gid>.json``).
@@ -127,15 +127,48 @@ def _course_data_sig(global_id: int) -> tuple[int, str]:
     return (len(rows), digest.hexdigest())
 
 
-def _fingerprint(global_id: int, player_id: str = OWNER_ID) -> tuple:
+def _requested_geometry_sig(
+    global_id: int,
+    requested: list[int] | tuple[int, ...] | None,
+) -> tuple:
+    """Fingerprint only geometry that this prep response can read.
+
+    A cold course install writes holes one by one.  The old course-wide signature made a
+    ``holes=1`` build stale every time holes 2, 3, ... arrived, so same-key waiters could rebuild
+    the first hole repeatedly while the player stared at an empty map.  Exact file signatures keep
+    the cache honest without coupling one playing hole to unrelated background downloads.
+
+    ``requested=None`` retains the historical whole-course behaviour for diagnostics/tests that
+    call ``_fingerprint`` directly; production cache calls always pass their requested holes.
+    """
+    gid = int(global_id)
+    if requested is None:
+        return (
+            _matching_dir_sig(MESH_DIR, f"gid{gid}_h*_meshes.json"),
+            _matching_dir_sig(HAZARD_DIR, f"gid{gid}_h*_hazards.json"),
+        )
+    holes = sorted({int(hole) for hole in requested if int(hole) > 0})
+    return tuple(
+        (
+            hole,
+            _file_sig(MESH_DIR / f"gid{gid}_h{hole:02d}_meshes.json"),
+            _file_sig(HAZARD_DIR / f"gid{gid}_h{hole:02d}_hazards.json"),
+        )
+        for hole in holes
+    )
+
+
+def _fingerprint(
+    global_id: int,
+    player_id: str = OWNER_ID,
+    requested: list[int] | tuple[int, ...] | None = None,
+) -> tuple:
     gid = int(global_id)
     par_sig = _file_sig(_COURSES_DIR / f"{gid}.json")  # par record (shared)
-    mesh_sig = _matching_dir_sig(MESH_DIR, f"gid{gid}_h*_meshes.json")
-    hazard_sig = _matching_dir_sig(HAZARD_DIR, f"gid{gid}_h*_hazards.json")
+    geometry_sig = _requested_geometry_sig(gid, requested)
     if player_id == OWNER_ID:
         return (
-            mesh_sig,                                       # this course's mesh geometry
-            hazard_sig,                                     # this course's hazard intervals
+            geometry_sig,                                   # only the requested holes' geometry
             _dir_sig(SHOT_DIR),                              # club ladder (profiles) + your-shots scatter
             _dir_sig(SCORECARD_DIR),                         # your-shots scatter reads scorecards too
             _file_sig(CLUBS_BAG_FILE),                       # restrict_to_bag (real Garmin bag)
@@ -148,8 +181,7 @@ def _fingerprint(global_id: int, player_id: str = OWNER_ID) -> tuple:
     # history import) and mirrors history._player_shot_sources' member layout.
     base = DATA_DIR / "players" / player_id
     return (
-        mesh_sig,
-        hazard_sig,
+        geometry_sig,
         _dir_sig(base / "shots"),                            # their measured ladder + scatter
         _dir_sig(base / "scorecards"),                       # their scatter reads scorecards too
         _file_sig(base / "club_bag_manual.json"),            # their manual bag (selection + typed dist)
@@ -179,7 +211,7 @@ def cached_course_prep(
     its own Event); the build never runs while holding ``_lock``, so distinct keys never serialise.
     """
     key = (int(global_id), tuple(requested), bool(render), bool(include_shots), player_id)
-    fingerprint = _fingerprint(global_id, player_id)
+    fingerprint = _fingerprint(global_id, player_id, requested)
     while True:
         with _lock:
             hit = _cache.get(key)

@@ -1056,20 +1056,64 @@ class ServerV2MobileTests(unittest.TestCase):
         )
         self.assertEqual(invalid.status_code, 422)
 
-    def test_mobile_course_package_omits_course_prep_for_fast_start(self) -> None:
-        # Live start must open instantly, so the course package no longer embeds the heavy
-        # all-hole course_prep (per-hole route + hazard point-in-polygon over big meshes).
-        # The app fetches each hole's prep on demand via /api/v2/courses/{id}/prep?holes=N.
-        # Guard: prep_nine must NOT be called while building the live course package.
+    def test_mobile_course_package_seeds_only_lightweight_first_hole_for_fast_start(self) -> None:
+        # Live start must not embed the heavy all-hole course_prep.  It does retain one forced
+        # CourseView-only first-hole seed so precise background geometry can never leave an empty
+        # hero while winning the on-demand request race.
         client = TestClient(app)
 
+        seed = {
+            "schema": "ai-caddie-course-prep-package-v1",
+            "globalId": 31795,
+            "holes": [{"hole": 1, "geometryCoverage": "partial"}],
+            "missingData": [],
+        }
+
         with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}), \
-                patch("ai_caddie.courses.course_prep.prep_nine") as prep_nine:
+                patch("ai_caddie.courses.course_prep.prep_nine") as prep_nine, \
+                patch("server_v2.mobile.first_hole_lightweight_course_prep", return_value=seed) as first_seed:
             response = client.get("/api/v2/mobile/courses/31795/package", params={"round_id": "live-31795"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertIsNone(response.json()["coursePrep"])
+        self.assertEqual(response.json()["coursePrep"], seed)
         prep_nine.assert_not_called()
+        first_seed.assert_called_once()
+
+    def test_first_hole_lightweight_seed_keeps_composite_source_authority(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_prep
+
+        lightweight = {
+            "globalId": 31795,
+            "localHole": 1,
+            "hole": 1,
+            "geometryCoverage": "partial",
+            "route": [[0.0, 0.0, 0.0], [10.0, 20.0, 30.0]],
+            "holeImageProjection": {"available": True, "widthPx": 720, "heightPx": 1120, "refs": []},
+            "missingData": [{"label": "geometry", "reason": "pending"}],
+        }
+        package = {
+            "course": {"globalId": 31794},
+            "holes": [
+                {
+                    "number": 10,
+                    "sourceGlobalId": 31795,
+                    "sourceLocalHole": 1,
+                }
+            ],
+        }
+
+        with patch.object(course_prep, "lightweight_prep_hole", return_value=lightweight) as build:
+            result = mobile_live.first_hole_lightweight_course_prep(
+                package,
+                player_id="member-a",
+            )
+
+        build.assert_called_once_with(31795, 1, player_id="member-a")
+        self.assertEqual(result["globalId"], 31794)
+        self.assertEqual(result["holes"][0]["hole"], 10)
+        self.assertEqual(result["holes"][0]["globalId"], 31795)
+        self.assertEqual(result["holes"][0]["localHole"], 1)
 
     def test_mobile_course_package_caps_nine_hole_loop_to_nine_holes(self) -> None:
         # A 9-hole CourseView loop (黑骑士 C / gid 31796) whose played rounds were 18-hole combos
