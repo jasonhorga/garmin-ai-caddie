@@ -35,10 +35,12 @@ Pure rendering — no network, no AI. PIL + numpy only (no scipy / cv2).
 """
 from __future__ import annotations
 
+import gc
 import io
 import math
 import os
 import random
+import sys
 import threading
 from pathlib import Path
 
@@ -772,6 +774,31 @@ _cache_inflight: dict[Path, threading.Event] = {}
 _cold_render_slot = threading.BoundedSemaphore(1)
 
 
+def _release_cold_render_working_set() -> None:
+    """Return supersampled render arenas to Linux after a cold render.
+
+    A render briefly owns several large PIL/NumPy buffers. Python releases those objects, but
+    glibc normally retains their arenas, so a worker that pre-renders a course can remain multiple
+    gigabytes larger even though no render object is reachable. ``malloc_trim`` returns those free
+    pages to the OS. It is a best-effort Linux/glibc optimisation and must never affect rendering on
+    Darwin or another libc.
+    """
+    gc.collect()
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        import ctypes
+
+        malloc_trim = ctypes.CDLL(None).malloc_trim
+        malloc_trim.argtypes = [ctypes.c_size_t]
+        malloc_trim.restype = ctypes.c_int
+        malloc_trim(0)
+    except Exception:
+        # musl and other C libraries may not export malloc_trim. Cache correctness and the response
+        # must never depend on an optional allocator hint.
+        return
+
+
 def _read_cached_topo(path: Path) -> bytes | None:
     if not path.exists():
         return None
@@ -816,7 +843,10 @@ def render_hole_topo_cached(gid: int, hole: int) -> bytes:
 
     try:
         with _cold_render_slot:
-            png = render_hole_topo(gid, hole)  # raises on missing/broken geometry (before any write)
+            try:
+                png = render_hole_topo(gid, hole)  # raises before any cache write
+            finally:
+                _release_cold_render_working_set()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".png.tmp")

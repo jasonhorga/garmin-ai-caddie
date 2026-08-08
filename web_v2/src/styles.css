@@ -1783,6 +1783,9 @@ p {
 .round-detail-panel {
   display: grid;
   gap: 14px;
+  /* Opening a round scrolls this panel into view. Keep its heading below the
+     sticky app bar instead of letting the bar cover the first product row. */
+  scroll-margin-top: 72px;
 }
 
 .round-detail-facts {

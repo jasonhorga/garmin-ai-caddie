@@ -133,12 +133,27 @@ class TopoRenderModuleTests(unittest.TestCase):
         canned = _PNG_MAGIC + b"cached-topo-bytes"
         with TemporaryDirectory() as tmp, \
                 patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
-                patch.object(topo_render, "render_hole_topo", return_value=canned) as render:
+                patch.object(topo_render, "render_hole_topo", return_value=canned) as render, \
+                patch.object(topo_render, "_release_cold_render_working_set") as release:
             first = topo_render.render_hole_topo_cached(31795, 1)
             second = topo_render.render_hole_topo_cached(31795, 1)
         self.assertEqual(first, canned)
         self.assertEqual(second, canned)
         render.assert_called_once()  # second hit served from the on-disk cache
+        release.assert_called_once()  # cold render releases arenas; the warm read does not
+
+    def test_failed_cold_render_also_releases_working_set(self) -> None:
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
+                patch.object(
+                    topo_render,
+                    "render_hole_topo",
+                    side_effect=topo_render.TopoRenderError("broken mesh"),
+                ), \
+                patch.object(topo_render, "_release_cold_render_working_set") as release:
+            with self.assertRaises(topo_render.TopoRenderError):
+                topo_render.render_hole_topo_cached(31795, 1)
+        release.assert_called_once()
 
     def test_concurrent_cold_requests_share_one_render(self) -> None:
         canned = _PNG_MAGIC + b"singleflight-topo"

@@ -138,14 +138,18 @@ test.describe('real isolated CI player evidence', () => {
     }
     await expect(roundDetail).toContainText('Cypress Point Club')
     await expect(roundDetail.getByText('正在加载球局…')).toHaveCount(0)
-    // Keep the loaded detail heading immediately below the sticky 54 px app bar. Capturing from
-    // scrollY=0 only shows the archive list above this panel and falsely looks like a duplicate.
+    // The product scroll target owns a sticky-bar-safe scroll margin. Exercise that real behavior
+    // and compare against the rendered bar instead of baking its old 54 px height into the gate.
     await roundDetail.evaluate((node) => node.scrollIntoView({ block: 'start', behavior: 'instant' }))
-    await page.evaluate(() => window.scrollBy(0, -64))
     await expect(roundDetailHeading).toBeInViewport({ ratio: 1 })
     await expect
-      .poll(async () => Math.round((await roundDetail.boundingBox())?.y ?? -1))
-      .toBeGreaterThanOrEqual(54)
+      .poll(async () => {
+        const detailBox = await roundDetail.boundingBox()
+        const appBarBox = await page.locator('.app-topbar').boundingBox()
+        if (!detailBox || !appBarBox) return -1
+        return Math.round(detailBox.y - (appBarBox.y + appBarBox.height))
+      })
+      .toBeGreaterThanOrEqual(8)
     await captureWithoutCredentialInLocation(page, 'round-review.png', roundDetailHeading)
 
     // Leave no capability token in the final page URL when the browser context closes.

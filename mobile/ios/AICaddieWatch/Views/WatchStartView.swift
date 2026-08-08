@@ -312,7 +312,6 @@ public struct WatchStartView: View {
             Text(title)
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.primary)
-            Spacer(minLength: 0)
             if showsRefresh {
                 Button(action: onRefresh) {
                     Group {
@@ -330,6 +329,10 @@ public struct WatchStartView: View {
                 .disabled(isLoadingCourses || preparingCourseId != nil)
                 .accessibilityLabel(isLoadingCourses ? "正在更新球场" : "刷新球场")
             }
+            // This screen deliberately draws into the top safe area so its heading can share the
+            // first row with the watchOS clock. Keep the refresh control beside the heading; putting
+            // it after the spacer placed both the icon and loading spinner underneath that clock.
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 2)
     }
