@@ -16,7 +16,9 @@ class RoundEditStartLieContractTests(unittest.TestCase):
         source = COMPONENTS.read_text(encoding="utf-8")
 
         self.assertIn('Section("击球时球位")', source)
-        self.assertIn('get: { (shot.lie ?? "unknown").lowercased() }', source)
+        self.assertIn('let rawLie = (shot.lie ?? "unknown").lowercased()', source)
+        self.assertIn('self._selectedLie = State(initialValue:', source)
+        self.assertIn('get: { selectedLie }', source)
         self.assertNotIn("shot.endLie ?? shot.lie", source)
 
     def test_start_lie_picker_excludes_water_and_green(self) -> None:
