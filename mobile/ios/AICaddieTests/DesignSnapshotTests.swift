@@ -103,6 +103,27 @@ final class DesignSnapshotTests: XCTestCase {
         try render(view, named: "live-play")
     }
 
+    /// A restored round can briefly retain the previous hole's fix, or be opened miles from the
+    /// course. The rangefinder must stay a three-digit golf instrument instead of wrapping 1527 / 1553
+    /// / 1579 across two lines while the next qualified fix arrives.
+    @MainActor
+    func testRenderLiveDistanceOffCourseBoundary() throws {
+        let view = LivePlayPanel {
+            LiveDistanceReadout(
+                greenFrontYards: 1_527,
+                greenCenterYards: 1_553,
+                greenBackYards: 1_579,
+                toPinYards: nil,
+                isGreenLive: true
+            )
+        }
+        .padding(16)
+        .frame(width: 390, height: 240)
+        .background(LivePlayStyle.base)
+
+        try render(view, named: "live-distance-off-course")
+    }
+
     func testLivePlayAuxiliaryCardTokenStaysDark() {
         let color = UIColor(LivePlayStyle.auxiliaryFill)
         var red: CGFloat = 0

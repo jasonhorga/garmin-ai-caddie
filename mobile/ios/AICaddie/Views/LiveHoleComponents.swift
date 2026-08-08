@@ -432,7 +432,7 @@ struct LiveDistanceReadout: View {
                 Text("到果岭中")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(LivePlayStyle.ink60)
-                Text(greenCenterYards.map(String.init) ?? "—")
+                Text(GeoDistance.greenRangeText(greenCenterYards))
                     .font(.system(size: 66, weight: .heavy))
                     .monospacedDigit()
                     .foregroundStyle(LivePlayStyle.ink)
@@ -452,6 +452,7 @@ struct LiveDistanceReadout: View {
     }
 
     private var unitLine: String {
+        if GeoDistance.isBeyondUsefulGreenRange(greenCenterYards) { return "离本洞较远" }
         if isGreenLive { return "码 · 实时" }
         if let toPinYards { return "码 · 到旗杆 \(toPinYards)" }
         return "码"
@@ -465,10 +466,12 @@ struct LiveDistanceReadout: View {
     ) -> some View {
         VStack(spacing: 3) {
             Text(label).font(.system(size: 11, weight: .heavy)).foregroundStyle(LivePlayStyle.ink50)
-            Text(value.map(String.init) ?? "—")
+            Text(GeoDistance.greenRangeText(value))
                 .font(.system(size: 28, weight: .heavy))
                 .monospacedDigit()
                 .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
                 .accessibilityIdentifier(accessibilityIdentifier)
         }
         .frame(width: 72)

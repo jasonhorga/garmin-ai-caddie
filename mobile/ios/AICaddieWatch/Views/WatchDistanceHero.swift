@@ -83,7 +83,7 @@ public struct WatchDistanceHero: View {
     private func center(size: CGFloat) -> some View {
         if let centerYd {
             VStack(spacing: -1) {
-                Text("\(centerYd)")
+                Text(WatchGeoMath.greenRangeText(centerYd))
                     .font(.system(size: size, weight: .heavy, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(AICaddieDesignTokens.par)
@@ -98,10 +98,12 @@ public struct WatchDistanceHero: View {
 
     private func pip(_ label: String, _ yd: Int?, compact: Bool = false) -> some View {
         VStack(spacing: 0) {
-            Text(yd.map(String.init) ?? "–")
+            Text(WatchGeoMath.greenRangeText(yd))
                 .font((compact ? Font.headline : Font.title3).weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
             Text(label)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -130,7 +132,7 @@ public struct WatchAlwaysOnDistanceView: View {
                 .foregroundStyle(.white.opacity(0.42))
                 .offset(y: -1.5)
             Spacer().frame(height: 1)
-            Text(centerYd.map(String.init) ?? "—")
+            Text(WatchGeoMath.greenRangeText(centerYd))
                 .font(.system(size: 68, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.62))
@@ -138,7 +140,7 @@ public struct WatchAlwaysOnDistanceView: View {
                 .minimumScaleFactor(0.62)
                 .frame(maxWidth: .infinity)
                 .offset(y: -0.5)
-            Text(centerYd == nil ? "等待定位" : "码 · 到果岭")
+            Text(alwaysOnStatus)
                 .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.40))
                 .offset(y: 1.5)
@@ -152,5 +154,10 @@ public struct WatchAlwaysOnDistanceView: View {
         .background(Color.black)
         .ignoresSafeArea()
         .accessibilityElement(children: .combine)
+    }
+
+    private var alwaysOnStatus: String {
+        if WatchGeoMath.isBeyondUsefulGreenRange(centerYd) { return "离本洞较远" }
+        return centerYd == nil ? "等待定位" : "码 · 到果岭"
     }
 }

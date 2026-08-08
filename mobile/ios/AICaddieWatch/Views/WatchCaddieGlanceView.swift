@@ -43,9 +43,11 @@ public struct WatchCaddieGlanceView: View {
                     if let front = displayFrontYd { greenPip("前", front) }
                     if let center = displayCenterYd {
                         VStack(spacing: 0) {
-                            Text("\(center)")
+                            Text(WatchGeoMath.greenRangeText(center))
                                 .font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit()
                                 .foregroundStyle(AICaddieDesignTokens.bogey)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.55)
                             Text("中").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
@@ -117,7 +119,10 @@ public struct WatchCaddieGlanceView: View {
 
     private func greenPip(_ label: String, _ yards: Int) -> some View {
         VStack(spacing: 0) {
-            Text("\(yards)").font(.headline.weight(.semibold)).monospacedDigit()
+            Text(WatchGeoMath.greenRangeText(yards))
+                .font(.headline.weight(.semibold)).monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
     }

@@ -92,10 +92,12 @@ public struct WatchClubPromptView: View {
                         .foregroundStyle(recommendedGreen)
                     Spacer(minLength: 2)
                     if let distanceToPinYards {
-                        Text("到旗 \(distanceToPinYards)")
+                        Text("到旗 \(WatchGeoMath.greenRangeText(distanceToPinYards))")
                             .font(.system(size: 10, weight: .semibold, design: .rounded))
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                             .padding(.trailing, 46)
                     }
                 }

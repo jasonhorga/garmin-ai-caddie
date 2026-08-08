@@ -12,6 +12,11 @@ import Foundation
 /// NOTE: `StartRoundView` still carries its own identical private `haversineMetres` to avoid churning
 /// a file with a parallel in-flight change; collapsing that onto this helper is a trivial follow-up.
 enum GeoDistance {
+    /// A four- or five-digit green range means the player is not close enough to this hole for the
+    /// number to be useful. Keep the S70-style rangefinder to three digits instead of letting a stale
+    /// previous-hole fix wrap the F/M/B instrument while Core Location catches up after a transition.
+    static let maximumUsefulGreenYards = 999
+
     /// Metres between two WGS84 coordinates (haversine, mean Earth radius 6 371 000 m).
     static func haversineMetres(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
         let r = 6_371_000.0
@@ -28,5 +33,17 @@ enum GeoDistance {
         guard let lat2, let lon2 else { return nil }
         let metres = haversineMetres(lat1, lon1, lat2, lon2)
         return Int((metres * 1.09361).rounded())
+    }
+
+    /// Presentation-only policy: distance math remains lossless, but the live golf instrument does
+    /// not surface an off-course four/five-digit value as though it were an actionable range.
+    static func greenRangeText(_ yards: Int?) -> String {
+        guard let yards, (0...maximumUsefulGreenYards).contains(yards) else { return "—" }
+        return String(yards)
+    }
+
+    static func isBeyondUsefulGreenRange(_ yards: Int?) -> Bool {
+        guard let yards else { return false }
+        return yards < 0 || yards > maximumUsefulGreenYards
     }
 }

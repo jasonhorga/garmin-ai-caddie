@@ -290,7 +290,9 @@ public struct WatchHoleMapView: View {
     /// tap-to-measure needs no extra payload. nil if degenerate (no center distance / you==pin).
     private var yardsPerPx: CGFloat? {
         let span = hypot(geometry.pinPx.x - geometry.youPx.x, geometry.pinPx.y - geometry.youPx.y)
-        guard span > 1, centerGreen > 0 else { return nil }
+        guard span > 1,
+              centerGreen > 0,
+              centerGreen <= WatchGeoMath.maximumUsefulGreenYards else { return nil }
         return CGFloat(centerGreen) / span
     }
 
@@ -475,9 +477,11 @@ public struct WatchHoleMapView: View {
     @ViewBuilder private func fullMapControls(_ size: CGSize) -> some View {
         VStack {
             HStack {
-                Text("中 \(centerGreen) 码 · 到果岭")
+                Text("中 \(WatchGeoMath.greenRangeText(centerGreen)) 码 · 到果岭")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(.black.opacity(0.5)))
@@ -513,7 +517,7 @@ public struct WatchHoleMapView: View {
     private func distLine(_ label: String, _ v: Int, _ c: Color, big: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 3) {
             Text(label).font(.system(size: big ? 11 : 10)).foregroundStyle(.secondary)
-            Text("\(v)")
+            Text(WatchGeoMath.greenRangeText(v))
                 .font(.system(size: big ? 21 : 13, weight: big ? .bold : .semibold, design: big ? .rounded : .default))
                 .monospacedDigit().foregroundStyle(c).lineLimit(1).minimumScaleFactor(0.72)
         }

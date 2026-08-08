@@ -32,6 +32,19 @@ final class WatchGeoMathTests: XCTestCase {
         XCTAssertNil(WatchGeoMath.yards(from: 0, 0, toLat: nil, 0))
     }
 
+    func testGreenRangePresentationRejectsOffCourseValuesWithoutClampingMath() {
+        XCTAssertEqual(WatchGeoMath.greenRangeText(nil), "—")
+        XCTAssertEqual(WatchGeoMath.greenRangeText(999), "999")
+        XCTAssertEqual(WatchGeoMath.greenRangeText(1_000), "—")
+        XCTAssertEqual(WatchGeoMath.greenRangeText(18_383), "—")
+        XCTAssertTrue(WatchGeoMath.isBeyondUsefulGreenRange(1_000))
+        XCTAssertFalse(WatchGeoMath.isBeyondUsefulGreenRange(485))
+        XCTAssertGreaterThan(
+            WatchGeoMath.yards(from: 40, 116, toLat: 40.2, 116) ?? 0,
+            WatchGeoMath.maximumUsefulGreenYards
+        )
+    }
+
     func testInitialBearingUsesTrueNorthAndRejectsAnUndefinedDirection() {
         XCTAssertEqual(
             WatchGeoMath.initialBearingDegrees(from: 0, 0, to: 0, 1) ?? -1,

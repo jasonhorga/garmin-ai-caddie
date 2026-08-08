@@ -6,6 +6,11 @@ import Foundation
 /// no CoreLocation dependency (takes plain lat/lon). This is what lets the watch update distances from its
 /// own fix (less phone-dependence in companion mode; the base for standalone play once all holes are cached).
 public enum WatchGeoMath {
+    /// Keep the wrist rangefinder to a useful three-digit golf range. The raw geodesic result is
+    /// retained for math; only presentation suppresses an off-course or stale-hole four/five-digit
+    /// value that cannot fit the S70-style F/M/B instrument.
+    public static let maximumUsefulGreenYards = 999
+
     /// Project a WGS84 point onto /topo.png pixel space via the 3 affine reference points (relative to
     /// ref[0], a 2×2 solve — well-conditioned over a hole). nil if the refs are degenerate/collinear.
     public static func projectToTopoPx(lat: Double, lon: Double, refs: [WatchProjectionRef]) -> CGPoint? {
@@ -38,6 +43,16 @@ public enum WatchGeoMath {
     public static func yards(from lat: Double, _ lon: Double, toLat: Double?, _ toLon: Double?) -> Int? {
         guard let toLat, let toLon else { return nil }
         return yards(metres(lat, lon, toLat, toLon))
+    }
+
+    public static func greenRangeText(_ yards: Int?) -> String {
+        guard let yards, (0...maximumUsefulGreenYards).contains(yards) else { return "—" }
+        return String(yards)
+    }
+
+    public static func isBeyondUsefulGreenRange(_ yards: Int?) -> Bool {
+        guard let yards else { return false }
+        return yards < 0 || yards > maximumUsefulGreenYards
     }
 
     /// Initial great-circle bearing in degrees clockwise from true north. A same-point target has no

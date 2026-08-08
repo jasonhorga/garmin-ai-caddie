@@ -836,6 +836,19 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWatchDistanceHeroOffCourseBoundary() throws {
+        let view = WatchDistanceHero(
+            frontYd: 18_369,
+            centerYd: 18_383,
+            backYd: 18_393,
+            caddieLine: nil
+        )
+        .frame(width: 176, height: 198)
+        .background(Color.black)
+        try render(view, named: "watch-distance-hero-off-course")
+    }
+
+    @MainActor
     func testRenderWatchAlwaysOnDistance() throws {
         let view = WatchAlwaysOnDistanceView(hole: 4, par: 5, centerYd: 262)
             .frame(width: 198, height: 242)
