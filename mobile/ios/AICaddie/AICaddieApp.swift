@@ -656,8 +656,15 @@ public final class LiveRoundAppModel: ObservableObject {
             syncStatus = "无法开始这一场,请重试"
             return
         }
+        recordUITestLatency(
+            "course-start.begin globalId=\(globalId) holes=\(nine) tee=\(teeBox)"
+        )
         let preparationToken = beginRoundPreparation()
-        defer { finishRoundPreparation(preparationToken) }
+        defer {
+            recordUITestLatency("course-start.finish.begin globalId=\(globalId)")
+            finishRoundPreparation(preparationToken)
+            recordUITestLatency("course-start.finish.end globalId=\(globalId)")
+        }
         // A home package can deliberately retain the last course/round id while no round is active.
         // `liveRoundState`, not package identity, therefore decides whether Start must enter hole 1.
         // The same active round's 加打/移除九洞 keeps its identity and does not re-enter as a new one.
@@ -703,12 +710,23 @@ public final class LiveRoundAppModel: ObservableObject {
                 capturedAt: preparedAt,
                 preparationToken: preparationToken
             )
+            recordUITestLatency(
+                "course-start.fetch.end globalId=\(globalId) found=\(fetched != nil)"
+            )
             guard isCurrentRoundPreparation(preparationToken) else { return }
             if let remotePackage = fetched {
+                recordUITestLatency(
+                    "course-start.save.begin globalId=\(globalId) bytes-holes=\(remotePackage.holes.count)"
+                )
                 try offlineStore.saveRoundPackage(remotePackage)
+                recordUITestLatency("course-start.save.end globalId=\(globalId)")
+                recordUITestLatency("course-start.activate.begin globalId=\(globalId)")
                 try activatePackage(remotePackage, status: "球场已就绪")
+                recordUITestLatency("course-start.activate.end globalId=\(globalId)")
                 if isNewRound {
+                    recordUITestLatency("course-start.signal.begin globalId=\(globalId)")
                     signalFreshRoundEntry(cacheOfflineAssets: true)
+                    recordUITestLatency("course-start.signal.end globalId=\(globalId)")
                 } else {
                     // 加打另外九洞 changes the package in place but still needs the newly selected
                     // holes retained. beginRoundPreparation cancelled the superseded download above.
@@ -756,6 +774,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// After a fresh round is prepared, point the UI at its first hole so it enters the live screen.
     private func signalFreshRoundEntry(cacheOfflineAssets: Bool = false) {
         pendingLiveHole = liveRoundState?.activeHole ?? package?.holes.first?.number
+        recordUITestLatency(
+            "course-start.pending-published hole=\(pendingLiveHole ?? -1) cache=\(cacheOfflineAssets)"
+        )
         if cacheOfflineAssets {
             // This pipeline downloads every topo itself. Running the server-wide prewarmer at the
             // same time makes both jobs parse/render the same 18 holes and, on a four-core server,
@@ -779,10 +800,16 @@ public final class LiveRoundAppModel: ObservableObject {
         let downloadSnapshot = snapshot
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = Task { [weak self] in
+            self?.recordUITestLatency(
+                "offline-cache.task.begin globalId=\(downloadSnapshot.course.globalId)"
+            )
             await self?.downloadOfflineCourseAssets(
                 for: downloadSnapshot,
                 using: syncClient,
                 revalidatePackage: revalidatePackage
+            )
+            self?.recordUITestLatency(
+                "offline-cache.task.end globalId=\(downloadSnapshot.course.globalId)"
             )
         }
     }
@@ -1962,22 +1989,44 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func activatePackage(_ nextPackage: LiveRoundPackage, status: String) throws {
+        recordUITestLatency("activate.template.begin globalId=\(nextPackage.course.globalId)")
         try? offlineStore.saveCourseTemplate(nextPackage)
+        recordUITestLatency("activate.template.end globalId=\(nextPackage.course.globalId)")
+        recordUITestLatency("activate.downloaded-options.begin globalId=\(nextPackage.course.globalId)")
         refreshDownloadedCourseOptions()
+        recordUITestLatency("activate.downloaded-options.end globalId=\(nextPackage.course.globalId)")
         package = nextPackage
+        recordUITestLatency("activate.package-published globalId=\(nextPackage.course.globalId)")
+        recordUITestLatency("activate.restore.begin globalId=\(nextPackage.course.globalId)")
         let restored = try offlineStore.restoreLiveRoundState(roundId: nextPackage.roundId, package: nextPackage)
+        recordUITestLatency("activate.restore.end globalId=\(nextPackage.course.globalId)")
+        recordUITestLatency("activate.cursor-save.begin globalId=\(nextPackage.course.globalId)")
         try offlineStore.saveActiveHole(roundId: nextPackage.roundId, hole: restored.activeHole)
+        recordUITestLatency("activate.cursor-save.end globalId=\(nextPackage.course.globalId)")
         liveRoundState = restored
+        recordUITestLatency("activate.live-state-published globalId=\(nextPackage.course.globalId)")
+        recordUITestLatency("activate.pending-events.begin globalId=\(nextPackage.course.globalId)")
         pendingEventCount = try offlineStore.loadPendingEvents(roundId: nextPackage.roundId).count
+        recordUITestLatency("activate.pending-events.end globalId=\(nextPackage.course.globalId)")
         syncStatus = status
         if let watchBridge,
            let activeHole = liveRoundState?.activeHole ?? nextPackage.holes.first?.number {
+            recordUITestLatency("activate.watch-seed.begin globalId=\(nextPackage.course.globalId)")
             let seed = watchBridge.makeWatchRoundSeedPayload(
                 package: nextPackage,
                 activeHole: activeHole
             )
             watchBridge.sendRoundSeedToWatch(seed)
+            recordUITestLatency("activate.watch-seed.end globalId=\(nextPackage.course.globalId)")
         }
+    }
+
+    /// Opt-in acceptance timing only. Release/TestFlight compile this to a no-op; DEBUG writes stage
+    /// names and counts (never payloads, player data or credentials) beside the simulator screenshots.
+    private func recordUITestLatency(_ message: String) {
+        #if DEBUG
+        UITestEventLatencyTrace.record(message)
+        #endif
     }
 
     /// Activate a HOME/landing package: populate the Hub (course, last round, choices) WITHOUT

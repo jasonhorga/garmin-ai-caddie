@@ -233,6 +233,11 @@ public struct CurrentHoleView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .onAppear {
+            #if DEBUG
+            UITestEventLatencyTrace.record(
+                "live-hole.appear hole=\(hole.number) course=\(package.course.globalId)"
+            )
+            #endif
             locationProvider.requestAuthorization()
             locationProvider.startUpdatingLocation()
         }
@@ -249,11 +254,21 @@ public struct CurrentHoleView: View {
             }
         }
         .task(id: hole.number) {
+            #if DEBUG
+            UITestEventLatencyTrace.record(
+                "live-hole.load.begin hole=\(hole.number) course=\(package.course.globalId)"
+            )
+            #endif
             // One ordered bootstrap per hole: first establish the real map/F/M/B context, then make
             // exactly one initial online caddie request from that context. The prior pair of sibling
             // tasks issued a distance-free request and a replacement request concurrently, allowing
             // a cancelled stale request to flash a false "联网不可用" state over the good response.
             await loadCurrentHole()
+            #if DEBUG
+            UITestEventLatencyTrace.record(
+                "live-hole.load.end hole=\(hole.number) course=\(package.course.globalId)"
+            )
+            #endif
         }
         .onChange(of: liveRoundState) { _, newState in
             applyRestoredStateIfNeeded(newState)
