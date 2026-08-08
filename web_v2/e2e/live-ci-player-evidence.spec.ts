@@ -12,24 +12,18 @@ test.describe('real isolated CI player evidence', () => {
     filename: string,
     requiredEvidence?: Locator,
   ): Promise<void> {
-    const credentialPath = await page.evaluate(
-      () => `${window.location.pathname}${window.location.search}${window.location.hash}`,
-    )
-    await page.evaluate(() => window.history.replaceState(window.history.state, '', '/'))
-    try {
-      if (requiredEvidence) {
-        await expect(requiredEvidence, `${filename} must capture the requested product state`).toBeInViewport({ ratio: 1 })
-      }
-      await page.screenshot({
-        path: `web-live-evidence/${filename}`,
-        animations: 'disabled',
-      })
-    } finally {
-      await page.evaluate(
-        (path) => window.history.replaceState(window.history.state, '', path),
-        credentialPath,
-      )
+    if (requiredEvidence) {
+      await expect(requiredEvidence, `${filename} must capture the requested product state`).toBeInViewport({ ratio: 1 })
     }
+    // `page.screenshot` captures page pixels, not browser chrome or the address bar. Keep the
+    // capability URL intact while React is live: api.ts intentionally reads that URL when it creates
+    // each Bearer request, so replacing it with `/` around an asynchronous screenshot can race a
+    // state update and silently de-authorize the next detail fetch. The final cleanup below still
+    // removes the credential before the browser context closes.
+    await page.screenshot({
+      path: `web-live-evidence/${filename}`,
+      animations: 'disabled',
+    })
   }
 
   test('captures the Watch-created round in review, archive, and detail', async ({ page }) => {
@@ -53,6 +47,12 @@ test.describe('real isolated CI player evidence', () => {
           }),
         )
       }
+      if (/\/history\/rounds\/[^/]+$/.test(url.pathname)) {
+        console.log(
+          'LIVE_EVIDENCE_ROUND_DETAIL_RESPONSE',
+          JSON.stringify({ pathname: url.pathname.replace(/\/[^/]+$/, '/[round]'), status: response.status() }),
+        )
+      }
       if (url.pathname.endsWith('/topo.png')) {
         console.log(
           'LIVE_EVIDENCE_TOPO_RESPONSE',
@@ -71,6 +71,11 @@ test.describe('real isolated CI player evidence', () => {
         console.log(
           'LIVE_EVIDENCE_TOPO_FAILED',
           JSON.stringify({ pathname: url.pathname, error: request.failure()?.errorText ?? 'unknown' }),
+        )
+      } else if (/\/history\/rounds\/[^/]+$/.test(url.pathname)) {
+        console.log(
+          'LIVE_EVIDENCE_ROUND_DETAIL_FAILED',
+          JSON.stringify({ pathname: url.pathname.replace(/\/[^/]+$/, '/[round]'), error: request.failure()?.errorText ?? 'unknown' }),
         )
       }
     })
@@ -125,7 +130,12 @@ test.describe('real isolated CI player evidence', () => {
     // The heading also exists in the loading shell. Evidence is valid only after the protected
     // detail GET has resolved into the real scorecard, otherwise the browser can close after the
     // CORS preflight and leave a misleading "正在加载球局…" screenshot behind.
-    await expect(roundDetail.getByLabel('球局数据')).toBeVisible({ timeout: 60_000 })
+    try {
+      await expect(roundDetail.getByLabel('球局数据')).toBeVisible({ timeout: 60_000 })
+    } catch (error) {
+      await captureWithoutCredentialInLocation(page, 'round-review-load-failure.png', roundDetailHeading)
+      throw error
+    }
     await expect(roundDetail).toContainText('Cypress Point Club')
     await expect(roundDetail.getByText('正在加载球局…')).toHaveCount(0)
     // Keep the loaded detail heading immediately below the sticky 54 px app bar. Capturing from
