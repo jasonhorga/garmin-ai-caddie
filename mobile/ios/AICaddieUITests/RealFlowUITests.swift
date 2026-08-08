@@ -425,9 +425,10 @@ final class RealFlowUITests: XCTestCase {
             enteredFirstHole,
             "cold-loaded 北京丽宫 must enter its factual first hole"
         )
-        XCTAssertTrue(
-            app.staticTexts["363"].waitForExistence(timeout: 20),
-            "北京丽宫 blue Tee must retain its factual centre-green distance after entry"
+        try assertLiveGreenDistancesMatchPrep(
+            globalId: approvedJourneyCourseGlobalId,
+            hole: 1,
+            timeout: 30
         )
         let liveTopoReady = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier == %@", "topo-hole-base-ready")
@@ -506,8 +507,12 @@ final class RealFlowUITests: XCTestCase {
         )
         save("10-live-hole"); dump("10-live-hole")
         XCTAssertTrue(app.staticTexts["第 1 洞"].exists, "starting 北京丽宫 must enter its real first hole")
-        XCTAssertTrue(app.staticTexts["342"].exists, "front-green distance must render")
-        XCTAssertTrue(app.staticTexts["379"].exists, "back-green distance must render")
+        for identifier in ["live-green-front", "live-green-middle", "live-green-back"] {
+            XCTAssertTrue(
+                waitForWholeYardValue(app.staticTexts[identifier], timeout: 5),
+                "settled live-hole evidence must retain all three identified green distances"
+            )
+        }
         XCTAssertTrue(tapContaining(["展开"]), "live caddie strip must expose its full plan")
         let planHeading = app.staticTexts["球童完整方案"]
         XCTAssertTrue(
@@ -645,27 +650,11 @@ final class RealFlowUITests: XCTestCase {
         // A hole heading alone is not evidence that the new hole has loaded. The prior run captured
         // an empty reticle and blank F/M/B, then navigated away while two caddie requests raced. Hold
         // this gate until the real hole-2 prep and the final structured caddie response are visible.
-        let hole2TeeGreenYards = try XCTUnwrap(
-            fetchPrepGreenYards(globalId: approvedJourneyCourseGlobalId, hole: 2),
-            "the live backend must expose real static F/M/B facts for 北京丽宫 hole 2"
+        try assertLiveGreenDistancesMatchPrep(
+            globalId: approvedJourneyCourseGlobalId,
+            hole: 2,
+            timeout: 30
         )
-        let liveDistanceIdentifiers = ["live-green-front", "live-green-middle", "live-green-back"]
-        for (identifier, staticYards) in zip(liveDistanceIdentifiers, hole2TeeGreenYards) {
-            let distance = app.staticTexts[identifier]
-            XCTAssertTrue(
-                waitForWholeYardValue(distance, timeout: 30),
-                "the ordered next hole must settle its identified live F/M/B distance \(identifier) to whole yards"
-            )
-            let liveYards = try XCTUnwrap(Int(distance.label), "\(identifier) must expose whole yards")
-            // Static prep is measured in the decoded mesh plane; the live readout ranges between
-            // WGS84 points. They need to identify the same Tee/green, not be byte-identical metres.
-            let tolerance = max(8, Int(ceil(Double(staticYards) * 0.02)))
-            XCTAssertLessThanOrEqual(
-                abs(liveYards - staticYards),
-                tolerance,
-                "the ordered next hole must move simulated GPS to its own Tee (live \(liveYards), static \(staticYards))"
-            )
-        }
         let nextHoleCaddieLoading = app.activityIndicators["正在更新球童建议"]
         _ = nextHoleCaddieLoading.waitForExistence(timeout: 2)
         XCTAssertTrue(
@@ -860,7 +849,11 @@ final class RealFlowUITests: XCTestCase {
             app.staticTexts["第 1 洞"].waitForExistence(timeout: 90),
             "the same course must be startable again immediately after finish"
         )
-        XCTAssertTrue(app.staticTexts["363"].waitForExistence(timeout: 60))
+        try assertLiveGreenDistancesMatchPrep(
+            globalId: approvedJourneyCourseGlobalId,
+            hole: 1,
+            timeout: 60
+        )
         settle(1); save("journey-same-course-restarted"); dump("journey-same-course-restarted")
     }
 
@@ -1238,6 +1231,35 @@ final class RealFlowUITests: XCTestCase {
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    /// Compare the identified live WGS84 ranges with the Garmin mesh-plane benchmark for the same
+    /// hole. They should identify the same Tee and green, but are not expected to be byte-identical:
+    /// Beijing Ligong hole 1, for example, is 365 yd live versus 363 yd in the static prep mesh.
+    private func assertLiveGreenDistancesMatchPrep(
+        globalId: Int,
+        hole: Int,
+        timeout: TimeInterval
+    ) throws {
+        let staticYards = try XCTUnwrap(
+            fetchPrepGreenYards(globalId: globalId, hole: hole),
+            "the live backend must expose real static F/M/B facts for course \(globalId) hole \(hole)"
+        )
+        let identifiers = ["live-green-front", "live-green-middle", "live-green-back"]
+        for (identifier, benchmark) in zip(identifiers, staticYards) {
+            let distance = app.staticTexts[identifier]
+            XCTAssertTrue(
+                waitForWholeYardValue(distance, timeout: timeout),
+                "hole \(hole) must settle its identified live F/M/B distance \(identifier) to whole yards"
+            )
+            let liveYards = try XCTUnwrap(Int(distance.label), "\(identifier) must expose whole yards")
+            let tolerance = max(8, Int(ceil(Double(benchmark) * 0.02)))
+            XCTAssertLessThanOrEqual(
+                abs(liveYards - benchmark),
+                tolerance,
+                "hole \(hole) must use its own Tee/green (live \(liveYards), static \(benchmark))"
+            )
+        }
     }
 
     /// Record exactly the first GPS shot on each hole. Hole 2 selects an actual club; every other hole
