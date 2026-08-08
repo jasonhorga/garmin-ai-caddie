@@ -996,7 +996,7 @@ public final class OfflineStore {
             let prepRevision = package.coursePrep?.holes.first(where: {
                 $0.hole == hole.number
             })?.geometryRevision
-            loadCourseTopoImageURL(
+            return loadCourseTopoImageURL(
                 globalId: hole.sourceGlobalId ?? package.course.globalId,
                 localHole: hole.sourceLocalHole ?? hole.number,
                 geometryRevision: prepRevision ?? hole.geometryRevision
