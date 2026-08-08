@@ -72,6 +72,40 @@ def _distance_sq_to_route(pt, route):
     return best
 
 
+def _points_in_route_corridor(points, route, limit_sq):
+    """Filter points by the same route distance rule without per-point helper overhead.
+
+    Frame setup only needs a yes/no answer.  Precomputing each route segment and stopping at the
+    first qualifying segment preserves the exact ``<= limit_sq`` contract while avoiding hundreds
+    of thousands of short-lived ``zip``/``min``/``max`` calls on production meshes.
+    """
+    segments = []
+    for start, end in zip(route, route[1:]):
+        ax, ay = start
+        vx, vy = end[0] - ax, end[1] - ay
+        segments.append((ax, ay, vx, vy, vx * vx + vy * vy))
+
+    kept = []
+    for point in points:
+        px, py = point
+        for ax, ay, vx, vy, denom in segments:
+            if denom == 0:
+                qx, qy = ax, ay
+            else:
+                projection = ((px - ax) * vx + (py - ay) * vy) / denom
+                if projection <= 0.0:
+                    qx, qy = ax, ay
+                elif projection >= 1.0:
+                    qx, qy = ax + vx, ay + vy
+                else:
+                    qx, qy = ax + projection * vx, ay + projection * vy
+            dx, dy = px - qx, py - qy
+            if dx * dx + dy * dy <= limit_sq:
+                kept.append(point)
+                break
+    return kept
+
+
 def _setup(
     by,
     tee,
@@ -104,7 +138,7 @@ def _setup(
         # later and therefore are not visible, but historically they still stretched the canvas.
         # Keep only geometry that could survive the route clip, and include the route itself so a
         # malformed surface cannot crop a dogleg or either endpoint out of the shared projection.
-        pts = [p for p in pts if _distance_sq_to_route(p, route_pts) <= limit_sq] + route_pts
+        pts = _points_in_route_corridor(pts, route_pts, limit_sq) + route_pts
     if not pts:
         pb = by.get("PlayableBounds.drc") or by.get("Rough.drc")
         pts = [_local(p) for p in pb["positions"]] if pb else [tee, green]
@@ -208,14 +242,23 @@ def overlay_unprojector(by, route):
     return from_px
 
 
-def render_hole(global_id: int, local_hole: int, route, route_len: float, landing_m=None):
+def render_hole(
+    global_id: int,
+    local_hole: int,
+    route,
+    route_len: float,
+    landing_m=None,
+    *,
+    mesh_data=None,
+    frame=None,
+):
     """Render the hole. Returns (image_data_uri, overlay_meta).
 
     overlay_meta = {w, h, ppm, ln, route:[[px,py,cumM],...]} in display (post-downsample)
     pixel coords, so a client can map metres<->pixels and place the interactive layer.
     """
-    md, by = load_mesh(global_id, local_hole)
-    project, sc, w, h, margin = _frame(by, route)
+    md, by = mesh_data or load_mesh(global_id, local_hole)
+    project, sc, w, h, margin = frame or _frame(by, route)
     img = Image.new("RGBA", (w, h), PALETTE["bg"] + (255,))
     d = ImageDraw.Draw(img, "RGBA")
     for name in ORDER:

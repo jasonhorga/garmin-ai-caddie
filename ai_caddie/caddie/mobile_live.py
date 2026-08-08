@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 import json
@@ -42,6 +43,15 @@ COURSE_OPTION_LIMIT = 24
 OFFLINE_OPTION_STRONG_SAMPLE = 10
 OFFLINE_OPTION_SAMPLE_REF_LIMIT = 6
 MOBILE_CADDIE_RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
+
+# A cold 18-hole course performs independent network/download/Draco jobs per hole.  Running them
+# one-by-one made a real course take about 4.5 minutes, long after the lightweight package had
+# returned.  This process-wide pool overlaps at most three holes (matching the four-core homeserver)
+# while preventing simultaneous users/courses from multiplying subprocesses without bound.
+_GEOMETRY_INSTALL_POOL = ThreadPoolExecutor(
+    max_workers=3,
+    thread_name_prefix="course-geometry-install",
+)
 
 
 def _format_time(value: datetime) -> str:
@@ -721,20 +731,24 @@ def _ensure_geometry_for_package_holes(round_row: dict[str, Any], hole_numbers: 
 def _ensure_geometry_for_course(global_id: int, holes: list[int] | None = None) -> dict[str, Any]:
     from ai_caddie.geometry.geometry_sync import ensure_prodgeometry
 
-    results: list[dict[str, Any]] = []
-    for local_hole in holes or list(range(1, 19)):
+    requested_holes = [int(local_hole) for local_hole in (holes or list(range(1, 19)))]
+
+    def ensure_one(local_hole: int) -> dict[str, Any]:
         try:
             result = ensure_prodgeometry(int(global_id), int(local_hole))
         except Exception:
             result = {"status": "failed", "ok": False, "globalId": int(global_id), "localHole": int(local_hole)}
-        results.append(
-            _compact_geometry_ensure_result(
-                hole=int(local_hole),
-                global_id=int(global_id),
-                local_hole=int(local_hole),
-                result=result,
-            )
+        return _compact_geometry_ensure_result(
+            hole=int(local_hole),
+            global_id=int(global_id),
+            local_hole=int(local_hole),
+            result=result,
         )
+
+    # ``Future.result`` is consumed in request order, so the public summary remains deterministic
+    # even though the independent installs finish out of order.
+    futures = [_GEOMETRY_INSTALL_POOL.submit(ensure_one, local_hole) for local_hole in requested_holes]
+    results = [future.result() for future in futures]
     # Both loaders cache missing files. A first course download must be visible to the package
     # response and the next Tee read without requiring an app/server restart.
     from ai_caddie.caddie.analysis import load_geometry
@@ -2175,7 +2189,28 @@ def build_live_round_package(
             ]
         )
     package_state = "ready" if not package_missing_data and all(row["state"] == "ready" for row in readiness_checks) else "degraded"
-    course_global_id = int(round_row.get("globalId") or 0)
+    # Garmin's real scorecard rows do not always carry the convenience ``globalId`` field.  In
+    # particular, combined/nine-hole rounds can expose only the physical loop ids.  Every package
+    # hole already resolves that authority through ``_round_hole_geometry_ref``; keep the package's
+    # primary course id on the same authority so a historical round can continue into prep/topo.
+    course_global_id = int(
+        _safe_int(
+            round_row.get("globalId")
+            or round_row.get("courseGlobalId")
+            or round_row.get("courseId")
+            or round_row.get("frontNineGlobalCourseId")
+            or round_row.get("backNineGlobalCourseId")
+        )
+        or next(
+            (
+                source_id
+                for hole in holes
+                if (source_id := _safe_int(hole.get("sourceGlobalId"))) is not None
+                and source_id > 0
+            ),
+            0,
+        )
+    )
     course_prep_package = _course_prep_package(course_global_id, holes, player_id=player_id) if (preparation_mode == "course" and include_course_prep) else None
     return {
         "schema": "ai-caddie-live-round-package-v1",

@@ -70,7 +70,7 @@ async function fetchPreparedCourse(
 
   const data = await fetchCoursePrep(
     globalId,
-    { ...(holes.length > 0 ? { holes } : {}), includeShots: true },
+    { ...(holes.length > 0 ? { holes } : {}), render: false, includeShots: true },
     adminToken,
   )
   if (packageError && !data.holes.some((hole) => hole.geometryCoverage !== 'missing')) throw packageError
@@ -252,7 +252,7 @@ export function PrepPage({
     const holes = prepData.holes.map((hole) => hole.hole)
     const timer = window.setTimeout(() => {
       const seq = ++prepSeq.current
-      void fetchCoursePrep(globalId, { holes, includeShots: true }, adminToken)
+      void fetchCoursePrep(globalId, { holes, render: false, includeShots: true }, adminToken)
         .then((data) => {
           if (prepSeq.current !== seq) return
           setPrepDone({ key: prepKey, result: { data } })

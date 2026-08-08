@@ -20,6 +20,7 @@ vi.mock('../api', () => ({
   fetchCaddieContext: vi.fn(),
   fetchCaddieDecision: vi.fn(),
   fetchWeatherSnapshot: vi.fn(),
+  topoImageUrl: (gid: number, hole: number) => `/api/v2/courses/${gid}/holes/${hole}/topo.png`,
 }))
 
 const fetchCoursePrepMock = vi.mocked(fetchCoursePrep)
@@ -288,8 +289,7 @@ describe('LiveSandbox course pick', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '开始模拟 观澜湖·奥拉沙宝场' }))
 
-    // Default holes, no include_shots/render overrides — the sandbox needs maps.
-    expect(fetchCoursePrepMock).toHaveBeenCalledWith(31870, {}, 'admin-secret')
+    expect(fetchCoursePrepMock).toHaveBeenCalledWith(31870, { render: false }, 'admin-secret')
     // The labelled chip row is a real a11y group, not a bare labelled div.
     const chips = within(await screen.findByRole('group', { name: '选洞' }))
     expect(chips.getByRole('button', { name: '第7洞' })).toHaveAttribute('aria-current', 'true')
@@ -315,7 +315,7 @@ describe('LiveSandbox course pick', () => {
     await userEvent.type(screen.getByLabelText('搜索球场'), '观澜湖{Enter}')
     await userEvent.click(await screen.findByRole('button', { name: /观澜湖·世界杯场/ }))
 
-    expect(fetchCoursePrepMock).toHaveBeenCalledWith(99999, {}, 'admin-secret')
+    expect(fetchCoursePrepMock).toHaveBeenCalledWith(99999, { render: false }, 'admin-secret')
     expect(await screen.findByRole('heading', { name: '观澜湖·世界杯场' })).toBeInTheDocument()
   })
 
@@ -342,7 +342,7 @@ describe('LiveSandbox course pick', () => {
 
     expect(await screen.findByLabelText('选洞')).toBeInTheDocument()
     expect(fetchCoursePrepMock).toHaveBeenCalledTimes(2)
-    expect(fetchCoursePrepMock).toHaveBeenLastCalledWith(31870, {}, 'admin-secret')
+    expect(fetchCoursePrepMock).toHaveBeenLastCalledWith(31870, { render: false }, 'admin-secret')
   })
 
   it('hole chips render and switch the selected hole', async () => {

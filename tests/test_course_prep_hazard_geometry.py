@@ -132,6 +132,16 @@ class WaterCarryPrecisionTests(unittest.TestCase):
 
 
 class BunkerEdgeDistanceTests(unittest.TestCase):
+    def test_route_sample_inside_bunker_keeps_zero_filled_mesh_distance(self) -> None:
+        # The optimized implementation measures the exterior boundary instead of every internal
+        # triangulation edge.  A point inside the filled mesh must still have distance zero.
+        route = [(0.0, 0.0), (0.0, 100.0)]
+        bunker = _rect_mesh(-5.0, 38.0, 5.0, 46.0)
+
+        hazards = cp.route_hazards({"Bunker.drc": bunker}, route)
+
+        self.assertEqual(hazards["bunkers"], [[40.0, 0.0]])
+
     def test_dogleg_greenside_bunker_uses_player_near_and_far_edges(self) -> None:
         # Real regression: 黑骑士 A 场 h4 bends sharply before the green. Selecting boundary points by
         # their station along that dogleg produced `到 471 · 过 468` because the later route point was
@@ -252,6 +262,29 @@ class OutputShapeTests(unittest.TestCase):
             self.assertLess(row["frontRouteM"], row["backRouteM"])
             self.assertEqual(len(row["frontPx"]), 2)
             self.assertEqual(len(row["backPx"]), 2)
+
+
+class FrameCorridorTests(unittest.TestCase):
+    def test_bulk_corridor_filter_matches_scalar_distance_rule(self) -> None:
+        route = [(-20.0, 5.0), (0.0, 40.0), (25.0, 75.0)]
+        points = [
+            (-20.0, 5.0),
+            (-3.0, 38.0),
+            (25.0, 85.0),
+            (60.0, 40.0),
+            (-75.0, -30.0),
+        ]
+        limit_sq = 30.0 ** 2
+        expected = [
+            point
+            for point in points
+            if cp.hole_render._distance_sq_to_route(point, route) <= limit_sq
+        ]
+
+        self.assertEqual(
+            cp.hole_render._points_in_route_corridor(points, route, limit_sq),
+            expected,
+        )
 
 
 if __name__ == "__main__":

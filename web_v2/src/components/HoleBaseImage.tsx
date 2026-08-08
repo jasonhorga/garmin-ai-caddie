@@ -48,8 +48,8 @@ export function HoleBaseImage({ topoSrc, fallbackSrc, alt, className }: HoleBase
         <img
           className={topoReady ? 'hole-base-topo is-ready' : 'hole-base-topo'}
           src={topoSrc as string}
-          alt=""
-          aria-hidden="true"
+          alt={fallbackSrc ? '' : alt}
+          aria-hidden={fallbackSrc ? true : undefined}
           onLoad={() => setLoadedSrc(topoSrc ?? null)}
           onError={() => setFailedSrc(topoSrc ?? null)}
         />

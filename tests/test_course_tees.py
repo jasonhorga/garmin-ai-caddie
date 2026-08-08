@@ -26,6 +26,32 @@ def _geometry_with_tees(set_to_distance: dict[int, float]) -> dict:
 
 
 class CourseTeeOptionsTests(unittest.TestCase):
+    def test_default_path_uses_transient_tee_geometry_not_full_classification_cache(self) -> None:
+        per_hole = _geometry_with_tees({1: 300.0, 2: 280.0})
+        release_tees = [
+            {"name": "Black", "gender": "MEN", "index": 1},
+            {"name": "Blue", "gender": "MEN", "index": 2},
+        ]
+
+        with (
+            patch("ai_caddie.caddie.analysis.available_prep_holes", return_value=[1, 2]),
+            patch(
+                "ai_caddie.courses.course_reference.courseview_tees",
+                return_value=release_tees,
+            ),
+            patch(
+                "ai_caddie.caddie.analysis._load_tee_distance_geometry",
+                return_value=per_hole,
+            ) as tee_geometry,
+            patch("ai_caddie.caddie.analysis.load_geometry") as full_geometry,
+        ):
+            result = course_tee_options(41825)
+
+        self.assertEqual(tee_geometry.call_count, 2)
+        full_geometry.assert_not_called()
+        self.assertEqual(result["defaultTeeBox"], "blue")
+        self.assertEqual(result["tees"][0]["yards"], round(600.0 * 1.09361))
+
     def test_release_tee_indices_drive_names_and_distances(self) -> None:
         # Garmin's geometry ``sets`` are release tee indices, not fixed colour slots.
         # Pebble Beach is Blue=1, Gold=2, White=3, Green=4, Red=5; treating set 1 as

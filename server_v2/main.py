@@ -836,9 +836,9 @@ def course_prep_nine(
     strategy from the player's club ladder + (when render=true) a styled map image + overlay.
     Without an explicit ``holes`` filter every hole with cached geometry is served (18-hole
     single-gid courses get all 18; no geometry falls back to the front nine).
-    render=false returns facts only (lightweight). include_shots=true additionally projects
-    the player's past TEE/APPROACH end positions into overlay px (``yourShots``) on rendered
-    holes they have history for.
+    render=false omits only the legacy embedded JPEG; factual route/projection data remains usable
+    with the shared topo endpoint. include_shots=true additionally projects the player's past
+    TEE/APPROACH end positions into the same overlay pixels (``yourShots``), with or without JPEGs.
 
     The club ladder (the player's real distances) and shot scatter (their real TEE/APPROACH
     end positions) are PLAYER data, sourced per ``player_id``: the owner gets their

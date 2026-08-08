@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { fetchCaddieContext, fetchCaddieDecision, fetchCoursePrep } from '../api'
+import { fetchCaddieContext, fetchCaddieDecision, fetchCoursePrep, topoImageUrl } from '../api'
 import { fmtYd, metersFromYards } from '../units'
 import { missDirectionZh } from '../zhLabels'
 import type {
@@ -15,11 +15,12 @@ import type {
   WeatherSnapshotResponse,
 } from '../types'
 import { CourseFinder } from './CourseFinder'
+import { HoleBaseImage } from './HoleBaseImage'
 import { atCum, nearestCum } from './coursePrepPanelLogic'
 import { asNumber, asRows, asString } from './statsValues'
 
 // 决策沙盘 (spec §5.4 web scope, W3 T3+T4): pick a course (CourseFinder entry)
-// → fetch its prep payload (default holes, rendered maps) → pick a hole →
+// → fetch its prep facts (default holes, shared topo projection) → pick a hole →
 // place the ball on the hole map and read the situation (距T/到果岭) → set
 // 球位状态/风/稳博 → 要建议 runs the context+decision pair and renders ONE
 // main recommendation (advice card) with a 稳/默认/博 recompute toggle.
@@ -319,10 +320,10 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
     if (course === null) return
     const key = `${course.globalId}:${attempt}`
     const seq = ++prepSeq.current
-    // Default holes + default render (the sandbox needs the map images);
-    // include_shots stays off — the sandbox places ONE simulated ball, not the
-    // prep scatter.
-    fetchCoursePrep(course.globalId, {}, adminToken)
+    // The shared topo endpoint owns the bitmap.  Requesting an embedded JPEG for every hole made a
+    // cold sandbox rebuild the same maps before it could open; projection facts are sufficient for
+    // the draggable overlay. include_shots stays off because this surface places one simulated ball.
+    fetchCoursePrep(course.globalId, { render: false }, adminToken)
       .then((data) => {
         if (prepSeq.current !== seq) return
         setDone({ key, result: { data } })
@@ -571,7 +572,7 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
   )
 
   let holeStage: React.ReactElement | null = null
-  if (hole !== null && hole.map && overlay !== null) {
+  if (hole !== null && overlay !== null) {
     const tee = atCum(overlay.route, 0)
     const green = atCum(overlay.route, overlay.ln)
     // A typed 到果岭 past the route length has no honest map position — render
@@ -582,8 +583,18 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
       : `到果岭 ${fmtYd(manualDistanceM ?? 0)}`
     holeStage = (
       <div className="live-sandbox-hole">
-        <div className="live-sandbox-map">
-          <img src={hole.map.image} alt={`第${hole.hole}洞球道图`} />
+        <div
+          className="live-sandbox-map"
+          style={{ aspectRatio: `${overlay.w} / ${overlay.h}` }}
+        >
+          <HoleBaseImage
+            className="live-sandbox-base"
+            topoSrc={hole.geometryCoverage === 'ready'
+              ? topoImageUrl(course.globalId, hole.hole, hole.geometryRevision)
+              : undefined}
+            fallbackSrc={hole.map?.image}
+            alt={`第${hole.hole}洞球道图`}
+          />
           <svg
             ref={svgRef}
             className="live-sandbox-canvas"

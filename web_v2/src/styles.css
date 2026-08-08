@@ -7412,6 +7412,17 @@ button.round-detail-cell:hover {
   border-radius: 8px;
 }
 
+.live-sandbox-base {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+}
+
+.live-sandbox-base .hole-base-flat {
+  height: 100%;
+  object-fit: cover;
+}
+
 .live-sandbox-canvas {
   position: absolute;
   inset: 0;

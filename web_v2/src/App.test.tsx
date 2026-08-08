@@ -1493,7 +1493,7 @@ describe('App navigation', () => {
         if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
         if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
-        if (path === '/api/v2/courses/31795/prep?include_shots=true') return coursePrepPayload()
+        if (path === '/api/v2/courses/31795/prep?render=false&include_shots=true') return coursePrepPayload()
         if (path === '/api/v2/courses/31795/prep-tips') return prepTipsPayload()
         return overviewPayload()
       },
@@ -1509,7 +1509,7 @@ describe('App navigation', () => {
 
     // PrepPage header resolves the chosen globalId against course options.
     expect(await screen.findByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?include_shots=true')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?render=false&include_shots=true')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep-tips')
     expect(await screen.findByText('PAR 9 · 930 码')).toBeInTheDocument()
     // 你的战绩 joins stats.courses through the option's courseKey.
@@ -1549,7 +1549,7 @@ describe('App navigation', () => {
         if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
         if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
-        if (path === '/api/v2/courses/31795/prep?include_shots=true') return coursePrepPayload()
+        if (path === '/api/v2/courses/31795/prep?render=false&include_shots=true') return coursePrepPayload()
         if (path === '/api/v2/courses/31795/prep-tips') return prepTipsPayload()
         return overviewPayload()
       },
@@ -1567,7 +1567,7 @@ describe('App navigation', () => {
 
     // PrepPage header resolves 31795 against courseOptions → 'Black Knight B/C'
     expect(await screen.findByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?include_shots=true')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?render=false&include_shots=true')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep-tips')
   })
 
@@ -1585,7 +1585,7 @@ describe('App navigation', () => {
             matches: [{ globalId: 31870, name: '观澜湖·世界杯场', holes: 18, city: '深圳', province: '广东', ratio: 0.92 }],
           }
         }
-        if (path === '/api/v2/courses/31870/prep?include_shots=true') return coursePrepPayload()
+        if (path === '/api/v2/courses/31870/prep?render=false&include_shots=true') return coursePrepPayload()
         if (path === '/api/v2/courses/31870/prep-tips') return prepTipsPayload()
         return overviewPayload()
       },

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_caddie.history.history import OWNER_ID, HistoryData, average
-from ai_caddie.reports.reports import list_report_records
+from ai_caddie.reports.reports import iter_report_records
 
 from .data_source import load_history_data_for_mode
 from .history_overview import round_card_for_row
@@ -111,8 +111,8 @@ def build_history_rounds_response(
 def _round_ids_with_reports(player_id: str = OWNER_ID) -> set[str]:
     return {
         str(rec.get("subjectId"))
-        for rec in list_report_records(root=REPORTS_ROOT, player_id=player_id)
-        if rec.get("kind") == "round"
+        for rec in iter_report_records(root=REPORTS_ROOT, player_id=player_id)
+        if isinstance(rec, dict) and rec.get("kind") == "round"
     }
 
 

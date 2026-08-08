@@ -274,6 +274,44 @@ def _radial_boundary_points(boundary_edges, origin):
     return front, back
 
 
+def _point_inside_boundary(point, boundary_edges) -> bool:
+    """Return whether ``point`` is inside a triangulated component's exterior boundary.
+
+    The component boundary can contain an inner ring, so use the even/odd rule across every
+    exterior edge instead of assuming a single polygon loop.  Points on an edge are handled by the
+    caller's zero boundary distance and do not need a special branch here.
+    """
+    x, y = point
+    inside = False
+    for start, end in boundary_edges:
+        x1, y1 = start
+        x2, y2 = end
+        if (y1 > y) == (y2 > y):
+            continue
+        intersection_x = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+        if intersection_x > x:
+            inside = not inside
+    return inside
+
+
+def _point_component_distance(point, boundary_edges) -> float:
+    """Exact point-to-filled-component distance using only its exterior mesh edges.
+
+    Interior triangulation edges cannot be the nearest edge of a filled component.  Walking every
+    triangle made a real hole perform millions of redundant distance calculations; its much smaller
+    exterior boundary carries the same geometric answer.  An interior point has distance zero.
+    """
+    from ai_caddie.geometry.measure_prodgeometry_distances import point_segment_distance
+
+    boundary_distance = min(
+        point_segment_distance(point, start, end)
+        for start, end in boundary_edges
+    )
+    if boundary_distance <= 1e-8 or _point_inside_boundary(point, boundary_edges):
+        return 0.0
+    return boundary_distance
+
+
 def _side_water_measurements(lake, route) -> list[dict]:
     """Nearby lake components that do not cross the intended route, with true front/back edges.
 
@@ -365,6 +403,13 @@ def _bbox_gap(route_bbox, comp_bbox) -> float:
     return math.hypot(dx, dy)
 
 
+def _point_bbox_gap(point, bbox) -> float:
+    """Lower bound on a point's distance to anything inside ``bbox``."""
+    dx = max(bbox[0] - point[0], point[0] - bbox[2], 0.0)
+    dy = max(bbox[1] - point[1], point[1] - bbox[3], 0.0)
+    return math.hypot(dx, dy)
+
+
 def _project_point_to_route(point, segments):
     """Return ``(side_m, route_m, route_point)`` for the closest point on a polyline route."""
     best = None
@@ -404,7 +449,7 @@ def _bunker_measurements(bunker, route) -> list[dict]:
     """
     if not bunker:
         return []
-    from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components, point_triangle_distance
+    from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
 
     dense = _densify(route)
     if not dense:
@@ -418,14 +463,32 @@ def _bunker_measurements(bunker, route) -> list[dict]:
         if _bbox_gap(route_bbox, component["bbox"]) > BUNKER_MAX_M:
             continue  # whole component is provably out of range — skip the per-point distance work
         triangles = component["triangles"]
+        boundary_edges = _component_boundary_edges(triangles)
+        if not boundary_edges:
+            continue
         best_side = None
         best_cum = None
-        for p in dense:
-            side = min(point_triangle_distance((p[0], p[1]), tri) for tri in triangles)
-            if best_side is None or side < best_side:
-                best_side, best_cum = side, p[2]
+        best_index = None
+        candidates = sorted(
+            enumerate(dense),
+            key=lambda row: (_point_bbox_gap(row[1], component["bbox"]), row[0]),
+        )
+        for index, p in candidates:
+            lower_bound = _point_bbox_gap(p, component["bbox"])
+            if best_side is not None and lower_bound > best_side:
+                break
+            side = _point_component_distance((p[0], p[1]), boundary_edges)
+            if (
+                best_side is None
+                or side < best_side
+                or (side == best_side and (best_index is None or index < best_index))
+            ):
+                best_side, best_cum, best_index = side, p[2], index
+                if side == 0.0:
+                    # Candidates are secondarily sorted by original route order.  No later point can
+                    # beat a zero distance or the already-seen earliest zero-distance sample.
+                    break
         if best_side is not None and best_side <= BUNKER_MAX_M:
-            boundary_edges = _component_boundary_edges(triangles)
             vertices = {point for edge in boundary_edges for point in edge}
             projected = []
             for point in vertices:
@@ -468,7 +531,7 @@ def _hazard_detail(kind: str, front_route_m: float, back_route_m: float, front_p
     }
 
 
-def route_hazards(by: dict, route) -> dict:
+def route_hazards(by: dict, route, *, to_px=None) -> dict:
     """Water-carry intervals + greenside/fairway bunkers along the route (metres along route).
 
     Geometry is measured EXACTLY against the decoded meshes (same coord frame as the map/overlay).
@@ -485,7 +548,7 @@ def route_hazards(by: dict, route) -> dict:
     details: list[dict] = []
     if water or side_water_measurements or bunker_measurements:
         tee = (float(route[0][0]), float(route[0][1]))
-        to_px = hole_render.overlay_projector(by, route)
+        to_px = to_px or hole_render.overlay_projector(by, route)
         for start, end in water:
             front_point = _route_point(segments, start)
             back_point = _route_point(segments, end)
@@ -778,7 +841,7 @@ def _green_latlon(md: dict | None, front_pt, middle_pt, back_pt) -> dict:
         return {}
 
 
-def _hole_image_projection(by: dict, route, md: dict | None = None) -> dict:
+def _hole_image_projection(by: dict, route, md: dict | None = None, *, frame=None) -> dict:
     """The geo→pixel mapping for the hole's ``/topo.png``, so a CLIENT (watch/phone) can place its own
     live GPS fix + the pin + landing points onto the same rendered map. Returns 3 NON-collinear
     reference points, each as WGS84 (lat/lon) + its pixel on the map; the client fits an affine from
@@ -793,8 +856,13 @@ def _hole_image_projection(by: dict, route, md: dict | None = None) -> dict:
         return {"available": False}
     try:
         ref_lat, ref_lon = float(ref_lat), float(ref_lon)
-        to_px = hole_render.overlay_projector(by, route)
-        _project, _sc, w, h, _margin = hole_render._frame(by, route)
+        resolved_frame = frame or hole_render._frame(by, route)
+        project, _sc, w, h, _margin = resolved_frame
+
+        def to_px(point):
+            x, y = project((float(point[0]), float(point[1])))
+            return (x / hole_render.SS, y / hole_render.SS)
+
         ss = hole_render.SS
         # 3 non-collinear anchors (metres, (-mesh_x, mesh_z) frame). local→px is affine, so any 3
         # non-collinear points define it exactly; local→WGS84 via the calibrated inverse.
@@ -1262,7 +1330,7 @@ def _carry_targets(landing_m: float | None, hazards: dict) -> list[dict]:
 
 
 def _your_shots(md: dict, by: dict, route, global_id: int, local_hole: int, overlay: dict,
-                player_id: str = OWNER_ID) -> list[dict]:
+                player_id: str = OWNER_ID, *, to_px=None, shot_rows=None) -> list[dict]:
     """The player's past TEE/APPROACH end positions projected into display px.
 
     World→local uses the calibrated frame in :mod:`ai_caddie.geometry.shot_projection`; local→px reuses
@@ -1273,19 +1341,21 @@ def _your_shots(md: dict, by: dict, route, global_id: int, local_hole: int, over
     ref_lat, ref_lon = hole_meta.get("RefLat"), hole_meta.get("RefLon")
     if ref_lat is None or ref_lon is None:
         return []
-    # Owner: None -> the flat owner tree (unchanged). Member: only their own player-scoped tree,
-    # so a member's scatter is built solely from their own logged rounds (never another player's).
-    sources = None
-    if player_id != OWNER_ID:
-        from ai_caddie.history.history import _player_shot_sources
-        sources = _player_shot_sources(player_id)
-    # Owner keeps its clubs.json override; a member never applies the owner override to their shots.
-    shots = shot_projection.shots_for_hole(
-        global_id, local_hole, sources=sources, apply_overrides=(player_id == OWNER_ID)
-    )
+    shots = shot_rows
+    if shots is None:
+        # Owner: None -> the flat owner tree (unchanged). Member: only their own player-scoped tree,
+        # so a member's scatter is built solely from their own logged rounds (never another player's).
+        sources = None
+        if player_id != OWNER_ID:
+            from ai_caddie.history.history import _player_shot_sources
+            sources = _player_shot_sources(player_id)
+        # Owner keeps its clubs.json override; a member never applies the owner override to their shots.
+        shots = shot_projection.shots_for_hole(
+            global_id, local_hole, sources=sources, apply_overrides=(player_id == OWNER_ID)
+        )
     if not shots:
         return []
-    to_px = hole_render.overlay_projector(by, route)
+    to_px = to_px or hole_render.overlay_projector(by, route)
     width, height = int(overlay["w"]), int(overlay["h"])
     out: list[dict] = []
     for shot in shots[:MAX_SCATTER_SHOTS]:
@@ -1303,7 +1373,7 @@ def _your_shots(md: dict, by: dict, route, global_id: int, local_hole: int, over
 
 
 def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, render=True,
-              include_shots=False, player_id: str = OWNER_ID) -> HolePrep | dict | None:
+              include_shots=False, player_id: str = OWNER_ID, shot_rows=None) -> HolePrep | dict | None:
     """Compose exact prep, or the cached factual CourseView fallback while geometry upgrades."""
     ladder = ladder or effective_club_ladder(player_id)
     try:
@@ -1355,7 +1425,17 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
     else:
         par = course_reference.estimate_par_from_length(route_len)
         par_source = "estimate"
-    hazards = route_hazards(by, route)
+    # Framing is the most expensive projection setup because it rejects neighbouring-hole mesh
+    # vertices against the route corridor.  Hazards and the geo→pixel anchors consume the identical
+    # frame, so compute it once per precise hole instead of walking all mesh vertices three times.
+    frame = hole_render._frame(by, route)
+    frame_project, _frame_scale, _frame_width, _frame_height, _frame_margin = frame
+
+    def to_px(point):
+        x, y = frame_project((float(point[0]), float(point[1])))
+        return (x / hole_render.SS, y / hole_render.SS)
+
+    hazards = route_hazards(by, route, to_px=to_px)
     steps, cautions, landing, tee_club = _strategy(par, route_len, hazards, ladder)
     missing_data = [
         row
@@ -1382,20 +1462,43 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         playsLike=_hole_playslike(by, route),
         greenDistances=_green_distances(by, route, md),
         greenSlope=_green_slope(by, route),
-        holeImageProjection=_hole_image_projection(by, route, md),
+        holeImageProjection=_hole_image_projection(by, route, md, frame=frame),
     )
     result = prep.to_dict()
+    scatter_overlay = {
+        "w": int(_frame_width // hole_render.SS),
+        "h": int(_frame_height // hole_render.SS),
+    }
     if render:
-        image, meta = hole_render.render_hole(global_id, local_hole, route, route_len, landing_m=landing)
+        image, meta = hole_render.render_hole(
+            global_id,
+            local_hole,
+            route,
+            route_len,
+            landing_m=landing,
+            mesh_data=(md, by),
+            frame=frame,
+        )
         result["map"] = {"image": image, "overlay": meta}
-        if include_shots:
-            try:
-                scatter = _your_shots(md, by, route, global_id, local_hole, meta, player_id=player_id)
-            except Exception:
-                scatter = []  # scatter is an enhancement — never break prep over it
-            if scatter:
-                result["yourShots"] = scatter
-    return result if render else prep
+        scatter_overlay = meta
+    if include_shots:
+        try:
+            scatter = _your_shots(
+                md,
+                by,
+                route,
+                global_id,
+                local_hole,
+                scatter_overlay,
+                player_id=player_id,
+                to_px=to_px,
+                shot_rows=shot_rows,
+            )
+        except Exception:
+            scatter = []  # scatter is an enhancement — never break prep over it
+        if scatter:
+            result["yourShots"] = scatter
+    return result if render or include_shots else prep
 
 
 def _missing_hole(global_id: int, local_hole: int, par_record=None) -> dict:
@@ -1438,15 +1541,29 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
     When ``include_missing`` is true, requested holes without geometry are returned as degraded
     DTO rows instead of being skipped.
     """
+    requested_holes = [int(hole) for hole in holes]
     if ladder is None:
         ladder = effective_club_ladder(player_id)
     par_record = course_reference.load_course_par(global_id)
     if par_record is None:
         par_record = course_reference.resolve_par(global_id)
+    shots_by_hole: dict[int, list[dict]] = {}
+    if include_shots:
+        sources = None
+        if player_id != OWNER_ID:
+            from ai_caddie.history.history import _player_shot_sources
+            sources = _player_shot_sources(player_id)
+        shots_by_hole = shot_projection.shots_for_holes(
+            global_id,
+            requested_holes,
+            sources=sources,
+            apply_overrides=(player_id == OWNER_ID),
+        )
     out = []
-    for hole in holes:
+    for hole in requested_holes:
         prep = prep_hole(global_id, hole, ladder=ladder, par_record=par_record, render=render,
-                         include_shots=include_shots, player_id=player_id)
+                         include_shots=include_shots, player_id=player_id,
+                         shot_rows=shots_by_hole.get(int(hole), []) if include_shots else None)
         if prep is not None:
             out.append(prep.to_dict() if include_missing and hasattr(prep, "to_dict") else prep)
         elif include_missing:

@@ -184,6 +184,46 @@ class ServerV2MobileTests(unittest.TestCase):
         clear_cache.assert_called_once_with()
         clear_mobile_cache.assert_called_once_with()
 
+    def test_course_geometry_ensure_overlaps_bounded_jobs_and_preserves_hole_order(self) -> None:
+        from threading import Barrier, Lock
+        from time import sleep
+
+        from ai_caddie.caddie import mobile_live
+
+        first_wave = Barrier(3)
+        state_lock = Lock()
+        active = 0
+        max_active = 0
+
+        def ensure(global_id: int, local_hole: int) -> dict[str, object]:
+            nonlocal active, max_active
+            with state_lock:
+                active += 1
+                max_active = max(max_active, active)
+            if local_hole <= 3:
+                first_wave.wait(timeout=2)
+            # Finish deliberately out of order; the returned public summary must still be ordered.
+            sleep((5 - local_hole) * 0.005)
+            with state_lock:
+                active -= 1
+            return {
+                "status": "downloaded",
+                "ok": True,
+                "globalId": global_id,
+                "localHole": local_hole,
+            }
+
+        with (
+            patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", side_effect=ensure),
+            patch("ai_caddie.caddie.analysis.load_geometry.cache_clear"),
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards.cache_clear"),
+        ):
+            summary = mobile_live._ensure_geometry_for_course(31791, holes=[1, 2, 3, 4])
+
+        self.assertEqual(max_active, 3)
+        self.assertEqual([row["localHole"] for row in summary["results"]], [1, 2, 3, 4])
+        self.assertEqual(summary["state"], "ready")
+
     def test_recent_history_hole_issue_label_is_chinese_from_token(self) -> None:
         # 复盘 holes 的 repeatedIssues label 必须中文(iOS 直接展示该字符串)。
         self.assertEqual(_hole_issue_label_zh({"issue": "approach_short", "count": 2}), "攻果岭偏短")
@@ -782,6 +822,26 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["course"]["name"], "Bay Practice Nine")
         self.assertEqual(payload["course"]["globalId"], 41825)
         self.assertEqual(len(payload["holes"]), 9)
+
+    def test_mobile_round_package_uses_physical_loop_id_when_real_round_omits_global_id(self) -> None:
+        """Real Garmin rows often carry front/back loop ids without the convenience globalId."""
+        from ai_caddie.core.fixtures import fixture_history_data
+
+        data = fixture_history_data()
+        selected = next(row for row in data.rounds if str(row.get("id")) == "900003")
+        selected.pop("globalId")
+        selected["frontNineGlobalCourseId"] = 41825
+
+        with (
+            patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "fixture")),
+            patch("server_v2.mobile._refresh_course_release_authority"),
+        ):
+            response = TestClient(app).get("/api/v2/mobile/rounds/900003/package")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["course"]["globalId"], 41825)
+        self.assertEqual(payload["holes"][0]["sourceGlobalId"], 41825)
 
     def test_mobile_course_package_prepares_round_before_garmin_round_exists(self) -> None:
         client = TestClient(app)

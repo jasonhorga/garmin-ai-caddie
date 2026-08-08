@@ -382,9 +382,15 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         gy, gx = np.gradient(Hm, 1.0 / sc)
         slope = np.arctan(np.hypot(gx, gy))
         aspect = np.arctan2(-gy, gx)
+        # These full-frame float rasters are each tens of megabytes at 4x supersampling.  They are
+        # no longer needed once slope/aspect have been derived; retaining them until ``_build``
+        # returned made a single detailed hole approach the 1 GiB worker limit.
+        del Hm, gx, gy, hraw, pj, pz
         shade = np.clip(np.sin(ALT) * np.cos(slope) + np.cos(ALT) * np.sin(slope) * np.cos(AZ - aspect), 0, 1)
+        del slope, aspect
         light = 1.0 + 0.08 * (shade - 0.5)               # very subtle relief only; NO ambient-occlusion
         light = np.clip(light, 0.94, 1.07)[..., None]
+        del shade
 
     # ---- flat base fills ----
     img = Image.new("RGB", (w, h), PAL["bg"])
@@ -400,14 +406,6 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
             support_L = ImageChops.lighter(support_L, mk)
     base = np.asarray(img, dtype=np.float32)
 
-    a_rough = alpha("Rough"); a_tree = alpha("TreeArea")
-    a_fair = alpha("Fairway"); a_fringe = alpha("Fringe")
-    a_green = alpha("Green"); a_bunker = alpha("Bunker"); a_tee = alpha("Teebox")
-    a_beach = alpha("Beach")
-    a_cliff = alpha("Cliff"); a_cliff_uv = alpha("CliffUV2")
-    land_np = (np.asarray(land_L, np.float32) / 255.0)[..., None]
-    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
-
     def blend(mask, color):
         if mask is None:
             return
@@ -421,6 +419,8 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         np.copyto(base, base * (1 - m) + np.clip(base * lum, 0, 255) * m)
 
     # ---- rough: two-tone fbm mottle + fine tufts ----
+    a_rough = alpha("Rough")
+    a_tree = alpha("TreeArea")
     if a_rough is not None or a_tree is not None:
         rough_all = np.clip((a_rough if a_rough is not None else 0) +
                             (a_tree if a_tree is not None else 0), 0, 1)
@@ -430,8 +430,15 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         rc = PAL["rough_lo"] * (1 - g) + PAL["rough_hi"] * g
         rc = np.clip(rc * (1 + 0.085 * (nf - 0.5) * 2)[..., None], 0, 255)
         blend(rough_all, rc)
+        del rough_all, n, nf, g, rc
+    del a_rough, a_tree
+
+    # Coordinate rasters are shared only by the mow/checker/water passes.  Build them after the
+    # rough pass instead of retaining them beside every material alpha mask.
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
 
     # ---- fairway mow stripes (hard diagonal bands, +6% only) + fine turf grain ----
+    a_fair = alpha("Fairway")
     if a_fair is not None:
         th = math.radians(35)
         coord = xx * math.cos(th) + yy * math.sin(th)
@@ -440,9 +447,12 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         mul(a_fair, (1.0 + 0.06 * band)[..., None])
         fg = _fbm(w, h, gid * 7 + 41, octaves=4, base_cells=20, persistence=0.5)
         mul(a_fair, (1.0 + 0.035 * (fg - 0.5) * 2)[..., None])
+        del coord, band, fg
+    del a_fair
 
     # ---- green + fringe: manicured checker ----
-    for gm in (a_fringe, a_green):
+    for material in ("Fringe", "Green"):
+        gm = alpha(material)
         if gm is None:
             continue
         cell = 19.0 * SS
@@ -450,9 +460,12 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         c2 = 0.5 + 0.5 * np.sin(2 * math.pi * (xx - yy) / cell)
         checker = c1 * c2
         mul(gm, (1 + 0.13 * (checker - 0.32))[..., None])
+        del gm, c1, c2, checker
+    del xx
 
     # ---- bunker: sand grain + raked inner-edge depth shadow ----
     bmask = mask_L("Bunker")
+    a_bunker = alpha("Bunker")
     if bmask is not None and a_bunker is not None:
         grain = _fbm(w, h, gid * 7 + 53, octaves=4, base_cells=55, persistence=0.5)
         base += ((grain - 0.5) * 2 * 9.0)[..., None] * a_bunker[..., None]
@@ -463,12 +476,18 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         base -= (rim * 30.0)[..., None]
         depth = np.asarray(bmask.filter(ImageFilter.GaussianBlur(15 * SS)), np.float32) / 255.0
         base += ((depth - 0.5) * 10.0)[..., None] * a_bunker[..., None]
+        del grain, er, ring, rim, depth
+    del a_bunker, bmask
 
     # ---- decoded coast: warm beach grain + muted rock variation (never leave bg-blue holes) ----
+    a_beach = alpha("Beach")
     if a_beach is not None:
         beach_grain = _fbm(w, h, gid * 7 + 67, octaves=4, base_cells=42, persistence=0.5)
         base += ((beach_grain - 0.5) * 2 * 8.0)[..., None] * a_beach[..., None]
-    cliff_all = None
+        del beach_grain
+    del a_beach
+    a_cliff = alpha("Cliff")
+    a_cliff_uv = alpha("CliffUV2")
     if a_cliff is not None or a_cliff_uv is not None:
         cliff_all = np.clip(
             (a_cliff if a_cliff is not None else 0) +
@@ -478,13 +497,20 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         )
         rock = _fbm(w, h, gid * 7 + 71, octaves=4, base_cells=24, persistence=0.55)
         mul(cliff_all, (0.91 + 0.17 * rock)[..., None])
+        del cliff_all, rock
+    del a_cliff, a_cliff_uv
 
     # ---- hillshade over land; DAMPED on mown surfaces so the fairway/green stay evenly flat-lit ----
-    mown = np.clip((a_fair if a_fair is not None else 0) + (a_green if a_green is not None else 0)
-                   + (a_fringe if a_fringe is not None else 0) + (a_tee if a_tee is not None else 0),
-                   0, 1)[..., None]
+    mown_L = Image.new("L", (w, h), 0)
+    for material in ("Fairway", "Green", "Fringe", "Teebox"):
+        if (material_mask := mask_L(material)) is not None:
+            mown_L = ImageChops.lighter(mown_L, material_mask)
+    mown = (np.asarray(mown_L, np.float32) / 255.0)[..., None]
+    del mown_L, material_mask
     light_eff = 1.0 + (light - 1.0) * (1 - 0.92 * mown)
+    land_np = (np.asarray(land_L, np.float32) / 255.0)[..., None]
     np.copyto(base, base * (1 - land_np) + np.clip(base * light_eff, 0, 255) * land_np)
+    del light, light_eff, land_np
 
     # ---- every factual water body; the final route/terrain mask removes neighbour context ----
     water_keep = _combined_water_mask(mask_L)
@@ -494,19 +520,26 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         lk = np.asarray(water_keep, np.float32) / 255.0
         depth_src = np.asarray(water_keep.filter(ImageFilter.GaussianBlur(22 * SS)), np.float32)
         dn = np.clip(depth_src / (depth_src.max() + 1e-6) * 1.35, 0, 1) * lk
+        del depth_src
         dn3 = dn[..., None]
         wc = PAL["water_shallow"] * (1 - dn3) + PAL["water_deep"] * dn3
+        del dn3, dn
         rip = _fbm(w, h, gid * 7 + 61, octaves=4, base_cells=16, persistence=0.5)
         band = 0.5 + 0.5 * np.sin(2 * math.pi * yy / (7.0 * SS) + (rip - 0.5) * 6)
         wc = np.clip(wc * (1 + 0.05 * (rip - 0.5) * 2 + 0.03 * (band - 0.5) * 2)[..., None], 0, 255)
+        del rip, band
         lk3 = lk[..., None]
         np.copyto(base, base * (1 - lk3) + wc * lk3)
+        del lk3, lk, wc
         ring = np.asarray(ImageChops.subtract(water_keep, water_keep.filter(ImageFilter.GaussianBlur(2.4 * SS))),
                           np.float32)
         ra = np.clip(ring * 3.4 / 255.0, 0, 1)[..., None]
         np.copyto(base, base * (1 - ra) + PAL["shore"] * ra)
+        del ring, ra
+    del yy
 
     img = Image.fromarray(np.clip(base, 0, 255).astype(np.uint8))
+    del base
 
     # ---- corridor + hard clip to continuous terrain ∪ kept water (drops neighbour holes) ----
     rpx = [project(tuple(p)) for p in route]
@@ -524,12 +557,15 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     if water_keep is not None:
         visible_water = ImageChops.multiply(water_keep, corr).point(lambda v: 255 if v >= 128 else 0)
         hole_mask = ImageChops.lighter(hole_mask, visible_water)
+        del visible_water
     hole_mask = _bounded_route_envelope(hole_mask, support_L, rpx, sc)
+    del corr, ground_envelope, support_L, land_L, water_keep
     img = _clip_to_transparent_canvas(img, hole_mask)
     outline = ImageChops.difference(hole_mask, hole_mask.filter(ImageFilter.MinFilter(3)))
     stroke = Image.new("RGBA", (w, h), PAL["edge"] + (0,))
     stroke.putalpha(outline.point(lambda v: int(v * 0.55)))
     img = Image.alpha_composite(img, stroke)
+    del outline, stroke
 
     # ---- crisp material boundary strokes (clean edges; no blur) ----
     def add_stroke(name, rgb, wpx, a):
@@ -547,9 +583,13 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         _ov = add_stroke(_nm, _rgb, _wp, _a)
         if _ov is not None:
             img = Image.alpha_composite(img, _ov)
+    del _ov
 
     # ---- trees: species-differentiated canopies (treeline in rough; none on the fairway) ----
     fmask = mask_L("Fairway")
+    # Material masks other than Fairway are finished.  Releasing the supersampled PIL rasters here
+    # matters on coastal holes, where many decoded layers are present simultaneously.
+    _mcache.clear()
     fair_np = np.asarray(fmask, np.uint8) if fmask is not None else None
     hole_np = np.asarray(hole_mask, np.uint8)
     trees = md.get("foliage", {}).get("trees", [])
@@ -587,6 +627,7 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     sa = np.asarray(shp.split()[3], np.float32) * (1 - 0.92 * mown[..., 0])  # keep shadows off mown turf
     shp.putalpha(Image.fromarray(np.clip(sa, 0, 255).astype(np.uint8)))
     img = Image.alpha_composite(img, shp)
+    del sa, mown, shp
 
     # (2) canopies on a dedicated layer, composited once at the end
     canopy = Image.new("RGBA", (w, h), (0, 0, 0, 0))

@@ -216,7 +216,11 @@ describe('PrepPage workbench', () => {
       { roundId: 'web-prep-31795', backgroundGeometry: true, includeEventCursor: false },
       'admin-secret',
     )
-    expect(fetchCoursePrepMock).toHaveBeenCalledWith(31795, { holes: [1, 2], includeShots: true }, 'admin-secret')
+    expect(fetchCoursePrepMock).toHaveBeenCalledWith(
+      31795,
+      { holes: [1, 2], render: false, includeShots: true },
+      'admin-secret',
+    )
     await waitFor(() => expect(fetchPrepTipsMock).toHaveBeenCalledWith(31795, 'admin-secret'))
     expect(screen.queryByText('选择球场开始备战')).not.toBeInTheDocument()
   })

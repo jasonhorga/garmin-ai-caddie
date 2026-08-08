@@ -185,6 +185,35 @@ def _release_tee_box_key(name: Any, index: Any, used: set[str]) -> str:
     return key
 
 
+def _load_tee_distance_geometry(global_id: int, local_hole: int) -> dict[str, Any]:
+    """Load only the geometry facts required by the pre-round Tee picker.
+
+    ``load_geometry`` deliberately builds and caches every surface component for shot classification.
+    Calling it across an 18-hole course made a simple Tee-list request retain every decoded mesh and
+    triangle in the process LRU, which can exceed the production 1 GiB limit.  Tee totals need only
+    the compact hazard export's Tee rows.  Read the decoded hole transiently solely to preserve the
+    selected-green compatibility binding for older hazard exports, then release it before the next
+    hole; no mesh/component object escapes this function or enters the classification cache.
+    """
+    hazards = None
+    h_path = hazard_path(global_id, local_hole)
+    if h_path.exists():
+        try:
+            hazards = read_json(h_path)
+        except (OSError, ValueError, TypeError):
+            hazards = None
+
+    m_path = mesh_path(global_id, local_hole)
+    if hazards is not None and m_path.exists():
+        try:
+            hazards = bind_selected_green_target(hazards, read_json(m_path))
+        except (OSError, ValueError, TypeError):
+            # A damaged optional mesh must not erase factual Tee rows already present in the compact
+            # hazard export.  The normal geometry coverage path reports the damaged precise asset.
+            pass
+    return {"hazards": hazards}
+
+
 def course_tee_options(
     global_id: int,
     *,
@@ -207,7 +236,7 @@ def course_tee_options(
             except Exception:
                 return []
     resolve_holes = holes_resolver or available_prep_holes
-    resolve_geometry = geometry_loader or load_geometry
+    resolve_geometry = geometry_loader or _load_tee_distance_geometry
 
     # Sum every REAL release set's tee→target distance across holes. A geometry tee may serve
     # several release sets; each named scorecard tee remains selectable even when two share a marker.

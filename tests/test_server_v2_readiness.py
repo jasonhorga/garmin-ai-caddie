@@ -251,6 +251,10 @@ class ServerV2ReadinessTests(unittest.TestCase):
                 patch("server_v2.readiness.EXTERNAL_RELEASE_EVIDENCE", missing_external_evidence),
                 patch("server_v2.readiness.SMOKE_EVIDENCE", missing_smoke_evidence),
                 patch("server_v2.readiness.BACKUP_MANIFEST", missing_backup_manifest),
+                patch(
+                    "ai_caddie.connectors.snapshot.validate_private_snapshot_acceptance",
+                    side_effect=AssertionError("readiness must consume accepted evidence, not rescan private data"),
+                ),
             ):
                 response = client.get("/api/v2/readiness")
 
@@ -292,7 +296,10 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertFalse(checks["roadmap_completion"]["evidence"]["completionReady"])
         self.assertEqual(checks["private_snapshot_acceptance"]["state"], "degraded")
         self.assertEqual(checks["private_snapshot_acceptance"]["evidence"]["state"], "blocked")
-        self.assertIn("snapshot_manifest", checks["private_snapshot_acceptance"]["evidence"]["failureLabels"])
+        self.assertEqual(
+            checks["private_snapshot_acceptance"]["evidence"]["failureLabels"],
+            ["accepted_snapshot_evidence"],
+        )
         self.assertEqual(checks["native_mobile"]["evidence"]["nativeBuild"], "environment_blocked")
         self.assertIn("mobile/ios/project.yml", checks["native_mobile"]["evidence"]["projectManifest"])
         self.assertIn("xcodebuild test", checks["native_mobile"]["evidence"]["macosCommands"][0])

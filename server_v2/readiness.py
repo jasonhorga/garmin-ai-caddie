@@ -15,7 +15,6 @@ from ai_caddie.core.media import (
     resolve_media_content_path,
 )
 from ai_caddie.courses.course_reference import course_reference_coverage
-from ai_caddie.connectors.snapshot import validate_private_snapshot_acceptance
 
 from .history_stats import load_history_stats_response
 from .mobile import build_mobile_round_package_response
@@ -1018,20 +1017,18 @@ def build_readiness_response() -> dict[str, Any]:
                 )
             )
         else:
-            acceptance = validate_private_snapshot_acceptance()
             checks.append(
                 _check(
                     "private_snapshot_acceptance",
-                    "ready" if acceptance.get("hardGate") else "degraded",
-                    "Latest Garmin CN snapshot passes the private-data hard gate."
-                    if acceptance.get("hardGate")
-                    else "Latest Garmin CN snapshot does not yet pass the private-data hard gate.",
+                    "degraded",
+                    "Accepted private snapshot evidence is missing; run the explicit acceptance gate.",
                     {
-                        "schema": acceptance.get("schema"),
-                        "state": acceptance.get("state"),
-                        "snapshotId": acceptance.get("snapshotId"),
-                        "failureLabels": acceptance.get("failureLabels"),
-                        "checks": acceptance.get("checks"),
+                        "schema": "ai-caddie-private-snapshot-acceptance-v1",
+                        "state": "blocked",
+                        "hardGate": False,
+                        "failureLabels": ["accepted_snapshot_evidence"],
+                        "checks": [],
+                        "evidenceStamp": _public_path(PRIVATE_SNAPSHOT_ACCEPTANCE),
                         "cli": "uv run python ops/accept_private_snapshot.py",
                     },
                 )
