@@ -511,7 +511,7 @@ public struct AddShotSheet: View {
                 Section("这一杆用什么杆") {
                     Picker("球杆", selection: $club) {
                         Text("未知").tag("")
-                        ForEach(clubs, id: \.self) { Text($0).tag($0) }
+                        ForEach(clubOptions, id: \.self) { Text($0).tag($0) }
                     }
                 }
                 Section("击球时球位") {
@@ -530,6 +530,10 @@ public struct AddShotSheet: View {
             }
         }
         .presentationDetents([.medium])
+    }
+
+    private var clubOptions: [String] {
+        roundEditClubOptions(current: nil, clubs: clubs)
     }
 }
 
