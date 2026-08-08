@@ -117,6 +117,39 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertNotEqual(initial, afterMeaningfulTravel)
     }
 
+    func testSelectingASearchResultRetainsOnlyItsSiblingLoops() {
+        let selected = MobileCourseOption(
+            globalId: 31670,
+            name: "Shenzhen Mission Hills Golf Club ~ Faldo",
+            holes: 9,
+            venueName: "Shenzhen Mission Hills Golf Club",
+            segmentLabel: "Faldo",
+            segmentHoles: 9
+        )
+        let sibling = MobileCourseOption(
+            globalId: 31671,
+            name: "Shenzhen Mission Hills Golf Club ~ Ozaki",
+            holes: 9,
+            venueName: "Shenzhen Mission Hills Golf Club",
+            segmentLabel: "Ozaki",
+            segmentHoles: 9
+        )
+        let unrelated = MobileCourseOption(
+            globalId: 31874,
+            name: "Haikou Mission Hills Golf Club ~ Blackstone",
+            holes: 18,
+            venueName: "Haikou Mission Hills Golf Club"
+        )
+
+        XCTAssertEqual(
+            StartRoundView.sameVenueSearchOptions(
+                selected: selected,
+                candidates: [unrelated, sibling, selected]
+            ).map(\.globalId),
+            [31670, 31671]
+        )
+    }
+
     private func option(
         globalId: Int,
         name: String,

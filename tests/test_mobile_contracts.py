@@ -1490,7 +1490,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)", app_swift)
         # 1d: 开始记分后直接进实战屏(pendingLiveHole → Hub 路径导航到该洞),不弹回 Hub。
         self.assertIn("var pendingLiveHole: Int?", app_swift)
-        self.assertIn("signalFreshRoundEntry()", app_swift)
+        self.assertIn("signalFreshRoundEntry(", app_swift)
+        self.assertIn("func liveHoleInitialLoadDidFinish()", app_swift)
+        self.assertIn("onLiveHoleInitialLoadDidFinish: {", app_swift)
         # The selected course installer owns each factual prep/topo download. It must not launch a
         # competing whole-course server prewarm while the same holes are being fetched for offline use.
         self.assertIn("beginOfflineCourseDownload()", app_swift)
@@ -1500,6 +1502,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("enum HubRoute", round_home)
         self.assertIn("path = [.hole(hole)]", round_home)
         self.assertIn("onConsumePendingLiveHole()", round_home)
+        self.assertIn("onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish", round_home)
+        self.assertIn("onLiveHoleInitialLoadDidFinish()", current_hole)
 
         # Composite 18: front loop + a second loop (holes 10–18). Wired front→model→SyncClient→backend.
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")

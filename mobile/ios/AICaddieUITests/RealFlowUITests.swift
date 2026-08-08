@@ -743,6 +743,8 @@ final class RealFlowUITests: XCTestCase {
         var didManualPar3 = false
         var didManualPar4 = false
         var didManualPar5 = false
+        var didManualFairwayRight = false
+        var didPersistAdjustedPuttsAndPenalty = false
         for holeNumber in 2...18 {
             var par = try waitForJourneyHole(holeNumber)
 
@@ -787,6 +789,10 @@ final class RealFlowUITests: XCTestCase {
                 didManualPar5 = true
                 manual = true
                 fairwayLabel = "偏左"
+            } else if par != 3, !didManualFairwayRight {
+                didManualFairwayRight = true
+                manual = true
+                fairwayLabel = "偏右"
             } else {
                 manual = false
                 fairwayLabel = nil
@@ -795,8 +801,13 @@ final class RealFlowUITests: XCTestCase {
                 hole: holeNumber,
                 par: par,
                 manual: manual,
-                fairwayLabel: fairwayLabel
+                fairwayLabel: fairwayLabel,
+                puttsAdjustment: holeNumber == 2 ? -1 : 0,
+                penaltyAdjustment: holeNumber == 2 ? 1 : 0
             )
+            if holeNumber == 2 {
+                didPersistAdjustedPuttsAndPenalty = true
+            }
 
             if holeNumber < 18 {
                 XCTAssertTrue(
@@ -809,6 +820,11 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(didManualPar3, "the real 18-hole course must exercise Par 3's no-fairway branch")
         XCTAssertTrue(didManualPar4, "the real 18-hole course must exercise Par 4 fairway confirmation")
         XCTAssertTrue(didManualPar5, "the real 18-hole course must exercise Par 5 fairway confirmation")
+        XCTAssertTrue(didManualFairwayRight, "the real journey must save the missed-right fairway branch")
+        XCTAssertTrue(
+            didPersistAdjustedPuttsAndPenalty,
+            "the real journey must change and save putts and penalties instead of only visiting their steps"
+        )
         XCTAssertTrue(
             app.staticTexts["本场汇总"].waitForExistence(timeout: 8),
             "the ordered last hole must open the shared finish summary automatically"
@@ -816,6 +832,21 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["已完成 18/18 洞"].exists)
         XCTAssertTrue(app.buttons["保存并结束"].exists)
         XCTAssertTrue(app.buttons["继续打球"].exists)
+        XCTAssertEqual(
+            app.descendants(matching: .any)["live-finish-putts"].label,
+            "推杆 35",
+            "the adjusted putt count must survive every hole transition and the hole-10 relaunch"
+        )
+        XCTAssertEqual(
+            app.descendants(matching: .any)["live-finish-penalties"].label,
+            "罚杆 1",
+            "the non-zero penalty must survive every hole transition and the hole-10 relaunch"
+        )
+        XCTAssertEqual(
+            app.descendants(matching: .any)["live-finish-fairways"].label,
+            "球道 2/4",
+            "the earlier history edit plus hit, missed-left and missed-right must all persist"
+        )
         settle(1); save("journey-18-complete-summary"); dump("journey-18-complete-summary")
 
         app.buttons["保存并结束"].tap()
@@ -1293,7 +1324,9 @@ final class RealFlowUITests: XCTestCase {
         hole: Int,
         par: Int,
         manual: Bool,
-        fairwayLabel: String?
+        fairwayLabel: String?,
+        puttsAdjustment: Int = 0,
+        penaltyAdjustment: Int = 0
     ) throws {
         let confirm = app.buttons["确认本洞成绩"]
         XCTAssertTrue(scrollTo(confirm, maxSwipes: 18), "hole \(hole) must expose score confirmation")
@@ -1316,6 +1349,12 @@ final class RealFlowUITests: XCTestCase {
             plus.tap()
         }
         app.buttons["下一步 · 推杆"].tap()
+        XCTAssertTrue(app.staticTexts["手动确认 · 推杆"].waitForExistence(timeout: 3))
+        for _ in 0..<abs(puttsAdjustment) {
+            let button = app.buttons[puttsAdjustment < 0 ? "−" : "＋"]
+            XCTAssertTrue(button.waitForExistence(timeout: 2))
+            button.tap()
+        }
 
         if par == 3 {
             XCTAssertTrue(app.buttons["下一步 · 罚杆"].waitForExistence(timeout: 3))
@@ -1329,6 +1368,12 @@ final class RealFlowUITests: XCTestCase {
             app.buttons[fairway].tap()
         }
 
+        XCTAssertTrue(app.staticTexts["手动确认 · 罚杆"].waitForExistence(timeout: 3))
+        for _ in 0..<abs(penaltyAdjustment) {
+            let button = app.buttons[penaltyAdjustment < 0 ? "−" : "＋"]
+            XCTAssertTrue(button.waitForExistence(timeout: 2))
+            button.tap()
+        }
         let saveScore = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '保存'")).firstMatch
         XCTAssertTrue(saveScore.waitForExistence(timeout: 3), "hole \(hole) penalty step must save the score")
         saveScore.tap()

@@ -410,6 +410,10 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertEqual(selection.back?.globalId, 31670)
         XCTAssertEqual(selection.teeBox, "White")
         XCTAssertEqual(selection.holeCount, 18)
+
+        let repeated = WatchCourseSelection(front: front, back: front, teeBox: "Blue")
+        XCTAssertEqual(repeated.front.globalId, repeated.back?.globalId)
+        XCTAssertEqual(repeated.holeCount, 18)
     }
 
     @MainActor

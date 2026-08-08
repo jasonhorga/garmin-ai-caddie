@@ -38,6 +38,7 @@ public struct CurrentHoleView: View {
     private let onPrepareCompositeRound: (Int, Int, String, String) -> Void
     private let onFinishRound: () async -> Bool
     private let onAdvanceHole: (Int) -> Void
+    private let onLiveHoleInitialLoadDidFinish: () -> Void
 
     @StateObject private var locationProvider = LocationProvider()
     @State private var score: Int
@@ -90,6 +91,7 @@ public struct CurrentHoleView: View {
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onAdvanceHole: @escaping (Int) -> Void = { _ in },
+        onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
     ) {
@@ -114,6 +116,7 @@ public struct CurrentHoleView: View {
         self.onPrepareCompositeRound = onPrepareCompositeRound
         self.onFinishRound = onFinishRound
         self.onAdvanceHole = onAdvanceHole
+        self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
         self.onRetainReadyHolePrep = onRetainReadyHolePrep
         let seed = package.caddieContextSeeds.first { $0.hole == hole.number }
         let restoredHoleState = liveRoundState?.holeState(for: hole.number)
@@ -706,6 +709,12 @@ public struct CurrentHoleView: View {
             syncClub: !alreadyRecorded && !isPreciseHoleMapPending && !hasUserSelectedClub
         )
         isLoadingCaddieDecision = false
+        #if DEBUG
+        UITestEventLatencyTrace.record(
+            "live-hole.initial-load-finished hole=\(hole.number) course=\(package.course.globalId)"
+        )
+        #endif
+        onLiveHoleInitialLoadDidFinish()
 
         // The package request has already queued prodgeometry in the backend. Keep the CourseView
         // vectors usable now, then replace only this hole's map facts when the precise mesh arrives.

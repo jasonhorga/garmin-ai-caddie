@@ -128,6 +128,39 @@ public struct LiveRoundPackage: Codable, Equatable {
         )
     }
 
+    /// Keep the catalogue identity the player actually selected while retaining every package fact
+    /// (global id, Tee, release revisions, geometry and event authority) from the server. Garmin's
+    /// catalogue and package builders can expose different localized aliases for the same globalId;
+    /// letting a background refresh swap those aliases makes the course appear to change mid-round.
+    public func replacingCourseDisplayName(_ rawName: String?) -> LiveRoundPackage {
+        guard let name = rawName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty,
+              name != course.name else { return self }
+        return LiveRoundPackage(
+            schema: schema,
+            roundId: roundId,
+            dataMode: dataMode,
+            sourceCoverage: sourceCoverage,
+            missingData: missingData,
+            playerProfile: playerProfile,
+            course: Course(globalId: course.globalId, name: name, teeBox: course.teeBox),
+            holes: holes,
+            nine: nine,
+            coursePrep: coursePrep,
+            geometryCoverage: geometryCoverage,
+            readinessChecks: readinessChecks,
+            caddieContextSeeds: caddieContextSeeds,
+            weatherSnapshot: weatherSnapshot,
+            clubProfiles: clubProfiles,
+            caddieDecisionEndpoint: caddieDecisionEndpoint,
+            offlinePackageStatus: offlinePackageStatus,
+            eventCursor: eventCursor,
+            recentHistory: recentHistory,
+            cachedCaddieRules: cachedCaddieRules,
+            generatedAt: generatedAt
+        )
+    }
+
     /// Reuse immutable course/geometry/caddie facts for a brand-new offline round without reusing
     /// the old round's identity or server cursor. Hole events live in OfflineStore separately and
     /// are therefore intentionally absent from this new identity.

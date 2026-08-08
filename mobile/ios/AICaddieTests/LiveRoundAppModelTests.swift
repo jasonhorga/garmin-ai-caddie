@@ -302,7 +302,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
-    func testPrepareCourseRoundStartsDownloadedTemplateImmediatelyThenRevalidatesInBackground() async throws {
+    func testPrepareCourseRoundEntersDownloadedTemplateBeforeRevalidatingInBackground() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -361,11 +361,17 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.pendingLiveHole, template.holes.first?.number)
         XCTAssertEqual(try store.loadRoundPackage(roundId: "offline-new-round")?.roundId, "offline-new-round")
         XCTAssertTrue(try store.loadPendingEvents(roundId: "offline-new-round").isEmpty)
+        XCTAssertEqual(
+            requestLock.withLock { requestCount },
+            0,
+            "release verification must not start before SwiftUI has committed the first live hole"
+        )
+        model.liveHoleInitialLoadDidFinish()
         await model.waitForOfflineCourseDownloadForTesting()
         XCTAssertGreaterThan(
             requestLock.withLock { requestCount },
             0,
-            "a complete cache starts immediately but must still verify the current Garmin release online"
+            "the first live-hole appearance must release Garmin revision verification"
         )
     }
 
@@ -394,10 +400,11 @@ final class LiveRoundAppModelTests: XCTestCase {
             recentRounds: source.recentHistory.rounds,
             holes: revisedHoles
         )
+        let selectedDisplayName = "Nicklaus Club Beijing"
         let template = try offlineReadyPackage(
             revisedSource,
             geometryRevision: revision
-        )
+        ).replacingCourseDisplayName(selectedDisplayName)
         try store.saveCourseTemplate(template)
         for hole in template.holes {
             _ = try store.saveCourseTopoImage(
@@ -413,7 +420,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             roundId: roundId,
             recentRounds: template.recentHistory.rounds,
             holes: template.holes
-        )
+        ).replacingCourseDisplayName("北京尼克劳斯俱乐部")
         let remoteData = try JSONEncoder().encode(remote)
         let requestLock = NSLock()
         var paths: [String] = []
@@ -466,6 +473,9 @@ final class LiveRoundAppModelTests: XCTestCase {
             nine: template.nine ?? "all"
         )
         XCTAssertEqual(model.liveRoundState?.roundId, roundId)
+        XCTAssertTrue(requestLock.withLock { paths }.isEmpty)
+        model.liveHoleInitialLoadDidFinish()
+        model.liveHoleInitialLoadDidFinish()
         await model.waitForOfflineCourseDownloadForTesting()
 
         let requested = requestLock.withLock { paths }
@@ -476,6 +486,12 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertFalse(requested.contains { $0.hasSuffix("/prep") })
         XCTAssertFalse(requested.contains { $0.hasSuffix("/topo.png") })
         XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))
+        XCTAssertEqual(model.package?.course.name, selectedDisplayName)
+        XCTAssertEqual(
+            try store.loadRoundPackage(roundId: roundId)?.course.name,
+            selectedDisplayName,
+            "release revalidation must not replace the catalogue label selected by the player"
+        )
     }
 
     func testOnlineCourseStartRetainsAllHolePrepAndTopoForLaterOfflineUse() async throws {
@@ -570,6 +586,11 @@ final class LiveRoundAppModelTests: XCTestCase {
             garminSessionStore: nil,
             syncClient: client
         )
+        let selectedDisplayName = "Nicklaus Club Beijing"
+        model.rememberSelectedCourseDisplayName(
+            globalId: online.course.globalId,
+            name: selectedDisplayName
+        )
 
         await model.prepareCourseRound(
             globalId: online.course.globalId,
@@ -578,11 +599,24 @@ final class LiveRoundAppModelTests: XCTestCase {
             nine: online.nine ?? "all"
         )
 
-        let deadline = Date().addingTimeInterval(5)
-        while model.downloadedCourseOptions.isEmpty, Date() < deadline {
-            try await Task.sleep(nanoseconds: 25_000_000)
-        }
+        let beforeAppearance = requestLock.withLock { requestedURLs }
+        XCTAssertEqual(
+            beforeAppearance.filter { $0.path.contains("/api/v2/mobile/courses/") }.count,
+            1,
+            "round preparation may fetch only the selected package before entering live play"
+        )
+        XCTAssertFalse(beforeAppearance.contains { $0.path.hasSuffix("/prep") })
+        XCTAssertFalse(beforeAppearance.contains { $0.path.hasSuffix("/topo.png") })
+        model.liveHoleInitialLoadDidFinish()
+        await model.waitForOfflineCourseDownloadForTesting()
+
         XCTAssertEqual(model.downloadedCourseOptions.map(\.globalId), [online.course.globalId])
+        XCTAssertEqual(model.package?.course.name, selectedDisplayName)
+        XCTAssertEqual(
+            try store.loadRoundPackage(roundId: online.roundId)?.course.name,
+            selectedDisplayName,
+            "the selected catalogue identity must already be durable before the first relaunch"
+        )
         XCTAssertTrue(model.package?.hasCompleteOfflineCoursePrep == true)
         XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))
         XCTAssertEqual(
@@ -747,10 +781,11 @@ final class LiveRoundAppModelTests: XCTestCase {
             teeBox: online.course.teeBox,
             nine: "all"
         )
-        let deadline = Date().addingTimeInterval(5)
-        while !store.hasCourseTopoImages(for: model.package ?? online), Date() < deadline {
-            try await Task.sleep(nanoseconds: 25_000_000)
-        }
+        XCTAssertTrue(requestLock.withLock { prepCoverages }.isEmpty)
+        XCTAssertEqual(requestLock.withLock { coverageRequestCount }, 0)
+        XCTAssertTrue(requestLock.withLock { requestedTopoRevisions }.isEmpty)
+        model.liveHoleInitialLoadDidFinish()
+        await model.waitForOfflineCourseDownloadForTesting()
 
         let observations = requestLock.withLock { prepCoverages }
         XCTAssertEqual(observations.filter { $0 == "partial" }.count, holes.count)
@@ -956,6 +991,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.liveRoundState?.roundId, refreshedHome.roundId)
         XCTAssertEqual(model.pendingLiveHole, refreshedHome.holes.first?.number)
         XCTAssertTrue(try fixture.store.loadPendingEvents(roundId: refreshedHome.roundId).isEmpty)
+        model.liveHoleInitialLoadDidFinish()
         await model.waitForOfflineCourseDownloadForTesting()
     }
 
@@ -1032,6 +1068,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.pendingLiveHole, fast.holes.first?.number)
         XCTAssertFalse(model.isPreparingRound)
         XCTAssertNil(try store.loadRoundPackage(roundId: slow.roundId))
+        model.liveHoleInitialLoadDidFinish()
         await model.waitForOfflineCourseDownloadForTesting()
     }
 

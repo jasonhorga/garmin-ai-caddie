@@ -80,9 +80,9 @@ struct LiveRoundFinishSummaryView: View {
 
     private var detailMetrics: some View {
         HStack(spacing: 8) {
-            metric(value: "\(totalPutts)", label: "推杆")
-            metric(value: fairwayText, label: "球道")
-            metric(value: "\(totalPenalties)", label: "罚杆")
+            metric(value: "\(totalPutts)", label: "推杆", identifier: "live-finish-putts")
+            metric(value: fairwayText, label: "球道", identifier: "live-finish-fairways")
+            metric(value: "\(totalPenalties)", label: "罚杆", identifier: "live-finish-penalties")
         }
     }
 
@@ -147,7 +147,7 @@ struct LiveRoundFinishSummaryView: View {
         fairwaysRecorded > 0 ? "\(fairwaysHit)/\(fairwaysRecorded)" : "—"
     }
 
-    private func metric(value: String, label: String) -> some View {
+    private func metric(value: String, label: String, identifier: String) -> some View {
         VStack(spacing: 3) {
             Text(value)
                 .font(.title3.monospacedDigit().weight(.heavy))
@@ -160,5 +160,8 @@ struct LiveRoundFinishSummaryView: View {
         .padding(.vertical, 12)
         .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(LivePlayStyle.stroke10))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label) \(value)")
+        .accessibilityIdentifier(identifier)
     }
 }

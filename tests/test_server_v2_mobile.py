@@ -1334,6 +1334,70 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(checks["weather"]["total"], 18)
         self.assertEqual(checks["caddie_seeds"]["total"], 18)
 
+    def test_composite_round_can_play_the_same_nine_twice(self) -> None:
+        # A standalone 9-hole venue is still a valid 18-hole choice (A+A). Phone and Watch both
+        # send the same gid as front/back, so the server must preserve two ordered physical laps.
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_reference
+
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[
+                {
+                    "id": "rC",
+                    "course": "黑骑士 ~ C/A",
+                    "courseKey": "c",
+                    "globalId": 31796,
+                    "holesCompleted": 18,
+                    "par": 72,
+                    "holes": [],
+                    "hasShots": True,
+                }
+            ],
+            shots=[],
+        )
+
+        def missing_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1",
+                "globalId": int(global_id),
+                "localHole": local_hole,
+                "coverage": "missing",
+                "hasHazards": False,
+                "hasMeshes": False,
+                "evidence": [],
+                "missingData": [],
+            }
+
+        with (
+            patch.object(mobile_live, "geometry_coverage_for_hole", side_effect=missing_geometry),
+            patch.object(
+                mobile_live,
+                "_courseview_segment_resolver",
+                return_value=("The Players Club ~ C", 9),
+            ),
+            patch.object(course_reference, "courseview_par", return_value=[4] * 9),
+        ):
+            package = mobile_live.build_live_round_package_for_course(
+                31796,
+                round_id="live-c-twice",
+                data=data,
+                data_mode="local",
+                back_global_id=31796,
+                include_course_prep=False,
+            )
+
+        self.assertEqual(package["course"]["name"], "黑骑士 ~ C/C")
+        self.assertEqual([hole["number"] for hole in package["holes"]], list(range(1, 19)))
+        self.assertEqual(
+            [hole["sourceGlobalId"] for hole in package["holes"]],
+            [31796] * 18,
+        )
+        self.assertEqual(
+            [hole["sourceLocalHole"] for hole in package["holes"]],
+            [*range(1, 10), *range(1, 10)],
+        )
+
     def test_live_course_package_builds_stats_from_unaugmented_history(self) -> None:
         # Never-played courses get a synthetic template round added to the package data so the holes
         # resolve, but that round must NOT reach the stats build: its per-request id would change the

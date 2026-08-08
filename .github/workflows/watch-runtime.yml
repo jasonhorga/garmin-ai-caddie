@@ -357,7 +357,7 @@ jobs:
                   "watch-runtime-artifacts/${screenshot%.png}-evidence.txt"
                 if [[ "$mode" == "real-course-journey-finish-confirm" ]]; then
                   grep -qx 'stage=finish-confirmed' "$evidence_file"
-                  grep -qx 'pending_uploads_before=56' "$evidence_file"
+                  grep -qx 'pending_uploads_before=57' "$evidence_file"
                   grep -qx 'pending_uploads=0' "$evidence_file"
                   grep -qx 'persisted_round_after=absent' "$evidence_file"
                   grep -qx 'screen_after=home' "$evidence_file"

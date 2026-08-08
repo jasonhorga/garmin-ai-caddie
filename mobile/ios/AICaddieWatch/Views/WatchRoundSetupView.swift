@@ -297,27 +297,27 @@ public struct WatchRoundSetupView: View {
     }
 
     var loopChoices: [WatchRoundSetupChoicePresentation] {
-        let onePair = backOptions.count == 1
+        let repeatsOnly = backOptions.count == 1 && backOptions[0].globalId == front.globalId
         let fullChoices = backOptions.map { option in
             WatchRoundSetupChoicePresentation(
                 id: "loop:full:\(option.globalId)",
-                title: onePair ? "全 18 洞" : "\(loopName(front)) + \(loopName(option))",
-                detail: onePair ? "前九 + 后九" : "18 洞",
+                title: repeatsOnly ? "全 18 洞" : "\(loopName(front)) + \(loopName(option))",
+                detail: repeatsOnly ? "同一球场打两轮" : "18 洞",
                 isSelected: selectedPrimaryGlobalId == front.globalId
                     && selectedBackGlobalId == option.globalId
             )
         }
         let frontChoice = WatchRoundSetupChoicePresentation(
             id: "loop:front:\(front.globalId)",
-            title: onePair ? "前 9 洞" : "只打 \(loopName(front))",
-            detail: onePair ? "1–9" : "\(front.playableHoleCount) 洞",
+            title: repeatsOnly ? "只打 9 洞" : "只打 \(loopName(front))",
+            detail: repeatsOnly ? loopName(front) : "\(front.playableHoleCount) 洞",
             isSelected: selectedPrimaryGlobalId == front.globalId && selectedBackGlobalId == nil
         )
-        let backChoices = backOptions.map { option in
+        let backChoices = backOptions.filter { $0.globalId != front.globalId }.map { option in
             WatchRoundSetupChoicePresentation(
                 id: "loop:back:\(option.globalId)",
-                title: onePair ? "后 9 洞" : "只打 \(loopName(option))",
-                detail: onePair ? "10–18" : "\(option.playableHoleCount) 洞",
+                title: "只打 \(loopName(option))",
+                detail: "\(option.playableHoleCount) 洞",
                 isSelected: selectedPrimaryGlobalId == option.globalId && selectedBackGlobalId == nil
             )
         }
@@ -373,31 +373,23 @@ public struct WatchRoundSetupView: View {
 
     private var backOptions: [WatchCourseOption] {
         guard front.playableHoleCount == 9 else { return [] }
-        return courses
+        var seen = Set<Int>()
+        return ([front] + courses)
             .filter {
-                $0.globalId != front.globalId
-                    && $0.playableHoleCount == 9
+                $0.playableHoleCount == 9
                     && venueName($0) == venueName(front)
+                    && seen.insert($0.globalId).inserted
             }
             .sorted { loopName($0).localizedStandardCompare(loopName($1)) == .orderedAscending }
     }
 
     private static func hasCompatibleBackLoop(
         front: WatchCourseOption,
-        courses: [WatchCourseOption]
+        courses _: [WatchCourseOption]
     ) -> Bool {
-        guard front.playableHoleCount == 9 else { return false }
-        let venue = front.venueName
-            ?? front.name.components(separatedBy: " ~ ").first
-            ?? front.name
-        return courses.contains {
-            let candidateVenue = $0.venueName
-                ?? $0.name.components(separatedBy: " ~ ").first
-                ?? $0.name
-            return $0.globalId != front.globalId
-                && $0.playableHoleCount == 9
-                && candidateVenue == venue
-        }
+        // Every factual 9-hole course can be played twice even when the catalogue has no sibling
+        // loop row. Additional same-venue rows merely add A+B/A+C choices.
+        return front.playableHoleCount == 9
     }
 
     private var teeOptions: [WatchCourseTee] {

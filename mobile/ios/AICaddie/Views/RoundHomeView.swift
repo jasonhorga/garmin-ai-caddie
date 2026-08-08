@@ -35,6 +35,7 @@ public struct RoundHomeView: View {
     public let onPrepareRound: (String) -> Void
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
     public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
+    public let onRememberCourseDisplayName: (Int, String) -> Void
     public let onChangeNine: (String) -> Void
     public let onFinishRound: () async -> Bool
     public let onSetActiveHole: (Int) -> Void
@@ -51,6 +52,7 @@ public struct RoundHomeView: View {
     /// Set to a hole number right after a fresh round is prepared → auto-navigate into that hole.
     public let pendingLiveHole: Int?
     public let onConsumePendingLiveHole: () -> Void
+    public let onLiveHoleInitialLoadDidFinish: () -> Void
     public let onLiveAppearanceChanged: (Bool) -> Void
 
     @State private var showSettings = false
@@ -77,6 +79,7 @@ public struct RoundHomeView: View {
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
+        onRememberCourseDisplayName: @escaping (Int, String) -> Void = { _, _ in },
         onChangeNine: @escaping (String) -> Void = { _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onSetActiveHole: @escaping (Int) -> Void = { _ in },
@@ -89,6 +92,7 @@ public struct RoundHomeView: View {
         onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
         pendingLiveHole: Int? = nil,
         onConsumePendingLiveHole: @escaping () -> Void = {},
+        onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
         onLiveAppearanceChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self.package = package
@@ -111,6 +115,7 @@ public struct RoundHomeView: View {
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
+        self.onRememberCourseDisplayName = onRememberCourseDisplayName
         self.onChangeNine = onChangeNine
         self.onFinishRound = onFinishRound
         self.onSetActiveHole = onSetActiveHole
@@ -123,6 +128,7 @@ public struct RoundHomeView: View {
         self.onNearbyCourses = onNearbyCourses
         self.pendingLiveHole = pendingLiveHole
         self.onConsumePendingLiveHole = onConsumePendingLiveHole
+        self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
         self.onLiveAppearanceChanged = onLiveAppearanceChanged
         #if DEBUG
         let environment = ProcessInfo.processInfo.environment
@@ -275,6 +281,7 @@ public struct RoundHomeView: View {
                     onSetActiveHole(next)
                     path = [.hole(next)]
                 },
+                onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish,
                 onRetainReadyHolePrep: onRetainReadyHolePrep,
                 onEvent: onEvent
             )
@@ -298,6 +305,7 @@ public struct RoundHomeView: View {
             onPrepareRound: onPrepareRound,
             onPrepareCourseRound: onPrepareCourseRound,
             onPrepareCompositeRound: onPrepareCompositeRound,
+            onRememberCourseDisplayName: onRememberCourseDisplayName,
             onSaveBackendConfiguration: onSaveBackendConfiguration,
             onClearBackendConfiguration: onClearBackendConfiguration,
             onConnectGarmin: { showSettings = true },

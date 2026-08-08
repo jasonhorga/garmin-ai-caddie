@@ -76,6 +76,9 @@ public struct AICaddieApp: App {
                                 await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
                             }
                         },
+                        onRememberCourseDisplayName: { globalId, name in
+                            model.rememberSelectedCourseDisplayName(globalId: globalId, name: name)
+                        },
                         onChangeNine: { nine in
                             Task {
                                 await model.setActiveNine(nine)
@@ -124,6 +127,9 @@ public struct AICaddieApp: App {
                         onConsumePendingLiveHole: {
                             model.consumePendingLiveHole()
                         },
+                        onLiveHoleInitialLoadDidFinish: {
+                            model.liveHoleInitialLoadDidFinish()
+                        },
                         onLiveAppearanceChanged: { isLive in
                             usesDarkLiveChrome = isLive
                         }
@@ -151,6 +157,9 @@ public struct AICaddieApp: App {
                                 Task {
                                     await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
                                 }
+                            },
+                            onRememberCourseDisplayName: { globalId, name in
+                                model.rememberSelectedCourseDisplayName(globalId: globalId, name: name)
                             },
                             onSaveBackendConfiguration: { apiBaseURLText, adminTokenText in
                                 Task {
@@ -304,7 +313,14 @@ public final class LiveRoundAppModel: ObservableObject {
     private var mediaUploadClient: MediaUploadClient?
     private var isSyncingPendingEvents = false
     private var offlineCourseDownloadTask: Task<Void, Never>?
+    /// A newly prepared round must commit its first live-hole navigation before this MainActor model
+    /// starts the all-hole cache pipeline.  `false` means fill missing assets; `true` also revalidates
+    /// the package release.  Optionality distinguishes "not deferred" from the normal false mode.
+    private var deferredOfflineCourseDownloadRevalidation: Bool?
     private var roundPreparationToken: UUID?
+    /// Ephemeral selection intent. The selected name is written into the durable round/template
+    /// package before activation, so this dictionary never becomes a second persistence authority.
+    private var selectedCourseDisplayNames: [Int: String] = [:]
     private var courseOptionsRefreshSucceeded = false
     private var boundPlayerId: String?
     private let preferredRoundId: String
@@ -428,6 +444,7 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
+        deferredOfflineCourseDownloadRevalidation = nil
         roundPreparationToken = nil
         isPreparingRound = false
         offlineStore.bindAccount(
@@ -441,6 +458,7 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingLiveHole = nil
         startingNine = nil
         courseOptions = []
+        selectedCourseDisplayNames = [:]
         courseOptionsRefreshSucceeded = false
         syncStatus = "离线就绪"
         isBootstrapping = true
@@ -587,6 +605,7 @@ public final class LiveRoundAppModel: ObservableObject {
         roundPreparationToken = token
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
+        deferredOfflineCourseDownloadRevalidation = nil
         isPreparingRound = true
         return token
     }
@@ -650,6 +669,20 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
+    public func rememberSelectedCourseDisplayName(globalId: Int, name rawName: String) {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard globalId > 0, !name.isEmpty else { return }
+        selectedCourseDisplayNames[globalId] = name
+    }
+
+    private func applyingSelectedCourseDisplayName(
+        to package: LiveRoundPackage
+    ) -> LiveRoundPackage {
+        package.replacingCourseDisplayName(
+            selectedCourseDisplayNames[package.course.globalId]
+        )
+    }
+
     public func prepareCourseRound(globalId: Int, roundId: String, teeBox: String, nine: String) async {
         let requestedRoundId = roundId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedRoundId.isEmpty else {
@@ -688,17 +721,16 @@ public final class LiveRoundAppModel: ObservableObject {
                ),
                template.hasCompleteOfflineCoursePrep,
                offlineStore.hasCourseTopoImages(for: template) {
-                let offlinePackage = template.rebasedForOfflineStart(
+                let offlinePackage = applyingSelectedCourseDisplayName(to: template.rebasedForOfflineStart(
                     roundId: requestedRoundId,
                     generatedAt: preparedAt
-                )
+                ))
                 try offlineStore.saveRoundPackage(offlinePackage)
                 try activatePackage(offlinePackage, status: "本地球场已就绪")
-                signalFreshRoundEntry()
+                signalFreshRoundEntry(revalidatePackage: true)
                 // Enter immediately from local facts, then verify the Garmin release in the
                 // background. Matching revisions reuse every byte; changed holes refresh only
                 // their prep/topo while a network failure leaves this playable snapshot intact.
-                beginOfflineCourseDownload(revalidatePackage: true)
                 return
             }
 
@@ -715,6 +747,7 @@ public final class LiveRoundAppModel: ObservableObject {
             )
             guard isCurrentRoundPreparation(preparationToken) else { return }
             if let remotePackage = fetched {
+                let remotePackage = applyingSelectedCourseDisplayName(to: remotePackage)
                 recordUITestLatency(
                     "course-start.save.begin globalId=\(globalId) bytes-holes=\(remotePackage.holes.count)"
                 )
@@ -735,13 +768,13 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
+                let cachedPackage = applyingSelectedCourseDisplayName(to: cachedPackage)
                 // Persist the active-round pointer for the offline/cached start too, so a round
                 // started without network still resumes on relaunch (continue card survives quit).
                 try offlineStore.saveRoundPackage(cachedPackage)
                 try activatePackage(cachedPackage, status: "已下载离线")
                 if isNewRound {
-                    signalFreshRoundEntry()
-                    beginOfflineCourseDownload(revalidatePackage: true)
+                    signalFreshRoundEntry(revalidatePackage: true)
                 } else {
                     beginOfflineCourseDownload(revalidatePackage: true)
                 }
@@ -750,15 +783,14 @@ public final class LiveRoundAppModel: ObservableObject {
                 teeBox: teeBox,
                 nine: nine
             ) {
-                let offlinePackage = template.rebasedForOfflineStart(
+                let offlinePackage = applyingSelectedCourseDisplayName(to: template.rebasedForOfflineStart(
                     roundId: requestedRoundId,
                     generatedAt: preparedAt
-                )
+                ))
                 try offlineStore.saveRoundPackage(offlinePackage)
                 try activatePackage(offlinePackage, status: "离线球场已就绪")
                 if isNewRound {
-                    signalFreshRoundEntry()
-                    beginOfflineCourseDownload(revalidatePackage: true)
+                    signalFreshRoundEntry(revalidatePackage: true)
                 } else {
                     beginOfflineCourseDownload(revalidatePackage: true)
                 }
@@ -772,17 +804,31 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// After a fresh round is prepared, point the UI at its first hole so it enters the live screen.
-    private func signalFreshRoundEntry(cacheOfflineAssets: Bool = false) {
+    private func signalFreshRoundEntry(
+        cacheOfflineAssets: Bool = false,
+        revalidatePackage: Bool = false
+    ) {
         pendingLiveHole = liveRoundState?.activeHole ?? package?.holes.first?.number
+        deferredOfflineCourseDownloadRevalidation =
+            (cacheOfflineAssets || revalidatePackage) ? revalidatePackage : nil
         recordUITestLatency(
-            "course-start.pending-published hole=\(pendingLiveHole ?? -1) cache=\(cacheOfflineAssets)"
+            "course-start.pending-published hole=\(pendingLiveHole ?? -1) "
+                + "cache=\(cacheOfflineAssets) revalidate=\(revalidatePackage)"
         )
-        if cacheOfflineAssets {
-            // This pipeline downloads every topo itself. Running the server-wide prewarmer at the
-            // same time makes both jobs parse/render the same 18 holes and, on a four-core server,
-            // more than doubles the time before the course is actually available offline.
-            beginOfflineCourseDownload()
-        }
+    }
+
+    /// `CurrentHoleView` calls this after its initial map and caddie request have settled. The cache
+    /// pipeline deliberately starts here, rather than in `prepareCourseRound` or `onAppear`, so
+    /// all-hole prep/file work can compete with neither navigation nor the first playable facts.
+    func liveHoleInitialLoadDidFinish() {
+        guard let revalidatePackage = deferredOfflineCourseDownloadRevalidation else { return }
+        deferredOfflineCourseDownloadRevalidation = nil
+        recordUITestLatency(
+            "course-start.live-initial-load-finished-release-cache revalidate=\(revalidatePackage)"
+        )
+        // This pipeline downloads every topo itself. Running the server-wide prewarmer at the same
+        // time makes both jobs parse/render the same 18 holes and more than doubles server work.
+        beginOfflineCourseDownload(revalidatePackage: revalidatePackage)
     }
 
     /// Keep start latency low, then make the selected course genuinely reusable without a network:
@@ -790,6 +836,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// package identity remains the live round's; the course template and bitmap keys are static.
     private func beginOfflineCourseDownload(revalidatePackage: Bool = false) {
         guard var snapshot = package, let syncClient else { return }
+        // An explicit same-round refresh supersedes any one-shot fresh-entry release still pending.
+        deferredOfflineCourseDownloadRevalidation = nil
         if let retained = try? offlineStore.loadCourseTemplate(
             globalId: snapshot.course.globalId,
             teeBox: snapshot.course.teeBox,
@@ -872,11 +920,12 @@ public final class LiveRoundAppModel: ObservableObject {
             return nil
         }
         guard remote.roundId == cached.roundId, !remote.holes.isEmpty else { return nil }
+        let remoteWithStableName = remote.replacingCourseDisplayName(cached.course.name)
 
         var prepByHole = Dictionary(
-            uniqueKeysWithValues: (remote.coursePrep?.holes ?? []).map { ($0.hole, $0) }
+            uniqueKeysWithValues: (remoteWithStableName.coursePrep?.holes ?? []).map { ($0.hole, $0) }
         )
-        for remoteHole in remote.holes {
+        for remoteHole in remoteWithStableName.holes {
             guard remoteHole.geometryCoverage == .ready,
                   let retained = cached.coursePrep?.holes.first(where: {
                       $0.hole == remoteHole.number
@@ -890,11 +939,11 @@ public final class LiveRoundAppModel: ObservableObject {
                 prepByHole[remoteHole.number] = retained
             }
         }
-        guard !prepByHole.isEmpty else { return remote }
-        let base = remote.coursePrep
-        return remote.replacingCoursePrep(CoursePrepPackage(
+        guard !prepByHole.isEmpty else { return remoteWithStableName }
+        let base = remoteWithStableName.coursePrep
+        return remoteWithStableName.replacingCoursePrep(CoursePrepPackage(
             schema: base?.schema ?? "ai-caddie-course-prep-v1",
-            globalId: base?.globalId ?? remote.course.globalId,
+            globalId: base?.globalId ?? remoteWithStableName.course.globalId,
             holes: prepByHole.values.sorted { $0.hole < $1.hole },
             missingData: base?.missingData
         ))
@@ -1385,6 +1434,7 @@ public final class LiveRoundAppModel: ObservableObject {
             )
             guard isCurrentRoundPreparation(preparationToken) else { return }
             if let remotePackage = fetched {
+                let remotePackage = applyingSelectedCourseDisplayName(to: remotePackage)
                 try offlineStore.saveRoundPackage(remotePackage)
                 try activatePackage(remotePackage, status: "球场已就绪")
                 if isNewRound {
@@ -1395,13 +1445,13 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId) {
+                let cachedPackage = applyingSelectedCourseDisplayName(to: cachedPackage)
                 // Persist the active-round pointer for the offline/cached start too, so a round
                 // started without network still resumes on relaunch (continue card survives quit).
                 try offlineStore.saveRoundPackage(cachedPackage)
                 try activatePackage(cachedPackage, status: "已下载离线")
                 if isNewRound {
-                    signalFreshRoundEntry()
-                    beginOfflineCourseDownload(revalidatePackage: true)
+                    signalFreshRoundEntry(revalidatePackage: true)
                 } else {
                     beginOfflineCourseDownload(revalidatePackage: true)
                 }

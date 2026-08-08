@@ -677,6 +677,12 @@ public struct WatchUITestRoot: View {
             try? Data("covered".utf8).write(to: recommendationMarker, options: .atomic)
         } else {
             model.startManualScoreEntry()
+            let adjustedInputsMarker = realCourseMarkerURL(
+                "real-course-journey-adjusted-putts-penalty"
+            )
+            let shouldAdjustInputs = !FileManager.default.fileExists(
+                atPath: adjustedInputsMarker.path
+            )
             guard model.scoreFlowStep == .score else {
                 failRealCourseJourney("第 \(state.hole) 洞未进入手动总杆")
                 return
@@ -691,6 +697,13 @@ public struct WatchUITestRoot: View {
             guard model.scoreFlowStep == .putts else {
                 failRealCourseJourney("第 \(state.hole) 洞未按总杆进入推杆")
                 return
+            }
+            if shouldAdjustInputs {
+                model.adjustDraftPutts(-1)
+                guard model.draftPutts == 1 else {
+                    failRealCourseJourney("手动流程没有实际修改推杆数")
+                    return
+                }
             }
             model.advanceScoreEntry()
             if state.par == 3 {
@@ -709,7 +722,23 @@ public struct WatchUITestRoot: View {
                 failRealCourseJourney("第 \(state.hole) 洞没有以罚杆步骤收口")
                 return
             }
+            if shouldAdjustInputs {
+                model.adjustDraftPenalty(1)
+                guard model.draftPenalty == 1 else {
+                    failRealCourseJourney("手动流程没有实际修改罚杆数")
+                    return
+                }
+            }
             model.saveManualScore()
+            if shouldAdjustInputs {
+                guard let saved = model.allHoleStates.first(where: { $0.hole == state.hole }),
+                      saved.putts == 1,
+                      saved.penaltyCount == 1 else {
+                    failRealCourseJourney("修改后的推杆/罚杆没有持久化到真实 round")
+                    return
+                }
+                try? Data("covered".utf8).write(to: adjustedInputsMarker, options: .atomic)
+            }
         }
 
         guard model.scoredHoles == afterShot.holeStates.filter({ $0.score > 0 }).count + 1 else {
@@ -810,8 +839,8 @@ public struct WatchUITestRoot: View {
                       && $0.score > 0
                       && journeyLocationCount(hole: $0.hole, round: before) == 1
               }),
-              before.pendingEvents.count == 56 else {
-            failRealCourseJourney("结束确认前不是同一轮完整的 18 洞/56 条待同步记录")
+              before.pendingEvents.count == 57 else {
+            failRealCourseJourney("结束确认前不是同一轮完整的 18 洞/57 条待同步记录")
             return
         }
 
@@ -865,7 +894,7 @@ public struct WatchUITestRoot: View {
             "hole_count=18",
             "current_hole_shots=1",
             "mapped_holes=\(mappedHoles)",
-            "pending_uploads_before=56",
+            "pending_uploads_before=57",
             "pending_uploads=0",
             "persisted_round_after=absent",
             "screen_after=home",
@@ -979,6 +1008,9 @@ public struct WatchUITestRoot: View {
         for par in 3...5 {
             try? FileManager.default.removeItem(at: journeyRecommendationParMarker(par))
         }
+        try? FileManager.default.removeItem(
+            at: realCourseMarkerURL("real-course-journey-adjusted-putts-penalty")
+        )
     }
 
     private func removeJourneyResultMarkers() {

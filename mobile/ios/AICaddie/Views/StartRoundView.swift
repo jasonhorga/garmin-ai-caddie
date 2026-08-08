@@ -15,6 +15,8 @@ public struct StartRoundView: View {
     public let onPrepareCourseRound: (Int, String, String, String) -> Void
     /// 组合 18 洞:(front 环 globalId, back 环 globalId, teeBox, roundId)。选了第二个环时调用。
     public let onPrepareCompositeRound: (Int, Int, String, String) -> Void
+    /// Persist only the player's chosen catalogue label; package/globalId/release facts stay server-owned.
+    public let onRememberCourseDisplayName: (Int, String) -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
     /// 还没有球场时的「连接 Garmin」CTA:由 app 注入(打开 Garmin 连接流程),拉取球场后就能记分。
@@ -61,6 +63,7 @@ public struct StartRoundView: View {
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
+        onRememberCourseDisplayName: @escaping (Int, String) -> Void = { _, _ in },
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
         onConnectGarmin: @escaping () -> Void = {},
@@ -78,6 +81,7 @@ public struct StartRoundView: View {
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
+        self.onRememberCourseDisplayName = onRememberCourseDisplayName
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onConnectGarmin = onConnectGarmin
@@ -635,6 +639,7 @@ public struct StartRoundView: View {
         VStack(spacing: 8) {
             Button {
                 if let courseGlobalId {
+                    onRememberCourseDisplayName(courseGlobalId, selectedVenueName)
                     if let backGlobalId = Int(backGlobalIdText), backGlobalId != 0 {
                         onPrepareCompositeRound(courseGlobalId, backGlobalId, teeBox, roundId)
                     } else {
@@ -745,10 +750,12 @@ public struct StartRoundView: View {
         _ selected: MobileCourseSearchMatch,
         _ matches: [MobileCourseSearchMatch]
     ) {
-        _ = matches
         let isSameCourse = courseGlobalId == selected.globalId
         guard let option = resolvedOption(for: selected) else { return }
-        remoteCourseOptions = [option]
+        remoteCourseOptions = Self.sameVenueSearchOptions(
+            selected: option,
+            candidates: matches.compactMap { resolvedOption(for: $0) }
+        )
         userPickedVenue = true
         courseGlobalIdText = String(selected.globalId)
         backGlobalIdText = ""
@@ -761,6 +768,26 @@ public struct StartRoundView: View {
             teeLoadFailed = false
         }
         applySelectedCourse(globalIdText: courseGlobalIdText)
+    }
+
+    /// Selecting one catalogue row returns to the compact start form, but the sibling loops from
+    /// that same physical venue must travel with it. Otherwise a searched 9-hole course can no longer
+    /// offer A+A or A+B even though the catalogue response already supplied those choices.
+    static func sameVenueSearchOptions(
+        selected: MobileCourseOption,
+        candidates: [MobileCourseOption]
+    ) -> [MobileCourseOption] {
+        func venue(_ option: MobileCourseOption) -> String {
+            option.venueName
+                ?? option.name.components(separatedBy: " ~ ").first?
+                    .trimmingCharacters(in: .whitespaces)
+                ?? option.name
+        }
+        let selectedVenue = venue(selected)
+        var seen = Set<Int>()
+        return ([selected] + candidates).filter {
+            venue($0) == selectedVenue && seen.insert($0.globalId).inserted
+        }
     }
 
     private var locationDiscoveryKey: String {
