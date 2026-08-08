@@ -911,13 +911,20 @@ final class LiveRoundAppModelTests: XCTestCase {
         let eventsPath = "/api/v2/mobile/rounds/\(fixture.package.roundId)/events"
         let finishPath = "/api/v2/mobile/rounds/\(fixture.package.roundId)/finish"
         let homePath = "/api/v2/mobile/courses/\(fixture.package.course.globalId)/package"
+        let eventsIndex = try XCTUnwrap(paths.firstIndex(of: eventsPath))
+        let finishIndex = try XCTUnwrap(paths.firstIndex(of: finishPath))
         XCTAssertLessThan(
-            try XCTUnwrap(paths.firstIndex(of: eventsPath)),
-            try XCTUnwrap(paths.firstIndex(of: finishPath))
+            eventsIndex,
+            finishIndex
         )
-        XCTAssertLessThan(
-            try XCTUnwrap(paths.firstIndex(of: finishPath)),
-            try XCTUnwrap(paths.firstIndex(of: homePath))
+        // Bootstrap may still have a best-effort offline course refresh in flight, and that request
+        // legitimately uses the same package path before Finish. Prove that Finish itself performs a
+        // fresh home read *after* the finish transaction instead of comparing against that earlier read.
+        XCTAssertNotNil(
+            paths.indices.first { index in
+                index > finishIndex && paths[index] == homePath
+            },
+            "a successful finish must refresh the just-finished course after the finish request"
         )
         XCTAssertFalse(
             paths.contains("/api/v2/mobile/courses/\(morePlayedOtherCourseId)/package"),

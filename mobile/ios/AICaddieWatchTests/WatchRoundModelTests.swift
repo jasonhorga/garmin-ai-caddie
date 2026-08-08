@@ -234,6 +234,7 @@ final class WatchRoundModelTests: XCTestCase {
             hole: 1,
             par: 4,
             distanceM: 368,
+            selectedClub: nil,
             globalId: 3881,
             holeMap: nil,
             geometryCoverage: "partial",
