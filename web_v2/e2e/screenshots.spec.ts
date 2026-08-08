@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 
 const fullRoundPars = [4, 5, 3, 4, 4, 5, 4, 3, 4, 4, 4, 3, 5, 4, 4, 3, 5, 4]
@@ -450,22 +452,24 @@ const annotationsPayload = {
 }
 
 // 备战 walk fixtures for globalId 31795 ('Black Knight B/C' in the mobile
-// course options above). Hole 1 carries a rendered map (real, valid 1x1 JPEG so
-// the browser raises no decode errors) plus a two-dot shot scatter; holes 2/7
-// degrade without geometry. Hole 7 matches the stats.holes black_knight row so
-// 关键洞 and the 逐洞速览 chip pick up 平均+1.1.
+// course options above). Hole 1 deliberately carries a 1x1 legacy fallback
+// under the realistic Topo response plus a two-dot shot scatter. This catches
+// any regression where the fallback's intrinsic ratio, rather than the factual
+// overlay dimensions, controls the visible frame. Holes 2/7 degrade without
+// geometry. Hole 7 matches the stats.holes black_knight row so 关键洞 and the
+// 逐洞速览 chip pick up 平均+1.1.
 const tinyHoleJpeg =
   'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k='
 
 const prepHoleOneOverlay = {
   w: 360,
-  h: 360,
+  h: 563,
   ppm: 0.85,
   ln: 393,
   route: [
-    [180, 330, 0],
-    [176, 150, 212],
-    [184, 40, 393],
+    [180, 528, 0],
+    [176, 260, 212],
+    [184, 68, 393],
   ],
 }
 
@@ -500,8 +504,8 @@ const coursePrepPayload = {
       hazards: { water_carry: [[120, 180]], bunkers: [[260, 8]] },
       map: { image: tinyHoleJpeg, overlay: prepHoleOneOverlay },
       yourShots: [
-        { x: 168, y: 150, club: '1D', shotType: 'TEE', roundId: '900001' },
-        { x: 188, y: 60, club: '8I', shotType: 'APPROACH', roundId: '900002' },
+        { x: 168, y: 260, club: '1D', shotType: 'TEE', roundId: '900001' },
+        { x: 188, y: 96, club: '8I', shotType: 'APPROACH', roundId: '900002' },
       ],
     },
     {
@@ -719,6 +723,9 @@ const roundShotMapPayload = {
   roundRef: '900001',
   hole: 1,
   par: 4,
+  globalId: 31795,
+  localHole: 1,
+  geometryRevision: 'visual-fixture',
   map: {
     image: TRANSPARENT_PNG,
     overlay: { w: 300, h: 470, ppm: 1, ln: 400, route: [[150, 455, 0], [150, 72, 400]] },
@@ -963,8 +970,12 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   const prepCanvas = page.getByLabel('第1洞球道图')
   const prepCanvasBox = await prepCanvas.boundingBox()
   const prepFrameBox = await prepCanvas.locator('.prep-canvas-frame').boundingBox()
+  const prepBaseBox = await prepCanvas.locator('.prep-canvas-img').boundingBox()
   expect(prepCanvasBox).not.toBeNull()
   expect(prepFrameBox).not.toBeNull()
+  expect(prepBaseBox).not.toBeNull()
+  expect(prepBaseBox?.width).toBeCloseTo(prepFrameBox?.width ?? 0, 0)
+  expect(prepBaseBox?.height).toBeCloseTo(prepFrameBox?.height ?? 0, 0)
   expect((prepFrameBox?.y ?? 0) + (prepFrameBox?.height ?? 0)).toBeLessThanOrEqual(
     (prepCanvasBox?.y ?? 0) + (prepCanvasBox?.height ?? 0),
   )
@@ -1080,10 +1091,10 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   expect(sandboxPrepFetches.length).toBeGreaterThanOrEqual(1)
   expect(sandboxPrepFetches).toEqual(sandboxPrepFetches.map(() => null))
 
-  // Screenshot harness (not a contract test): surface stray 404s/errors as warnings,
-  // don't fail the run — every screen has already been captured above.
-  if (failedResponses.length) console.warn('failedResponses:', failedResponses)
-  if (browserErrors.length) console.warn('browserErrors:', browserErrors)
+  // A complete-looking screenshot is not valid evidence if its page emitted an
+  // unhandled response or browser error while being captured.
+  expect(failedResponses).toEqual([])
+  expect(browserErrors).toEqual([])
 })
 
 // Recorded shape of every POST /api/v2/caddie/decision body the sandbox sent.
@@ -1134,11 +1145,10 @@ const effectiveClubBagPayload = {
   ],
 }
 
-// 1x1 transparent PNG — a valid image body for the topo base stub (see the topo.png route below).
-const TOPO_PNG_STUB = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC',
-  'base64',
-)
+// Exercise an actual decoded bitmap, not a transparent success stub. A 1x1 transparent response
+// made every Topo request pass while the screenshots showed a near-black vector-only canvas, so
+// visual review could not catch cropping, object-fit, stacking, or overlay contrast regressions.
+const TOPO_PNG_STUB = readFileSync(new URL('../public/hole-sample.png', import.meta.url))
 
 async function mockApi(page: Page): Promise<MockApiRecords> {
   // Recorded ?include_shots values of every /prep request: the scatter walk is
@@ -1226,6 +1236,12 @@ async function assertNoViewportOverflow(page: Page) {
 }
 
 async function captureSmokeScreenshot(page: Page, testInfo: TestInfo, name: string) {
+  // Interactions such as selectOption/click may scroll a control into view. A
+  // full-page capture preserves sticky elements at that scroll offset, yielding
+  // a misleading rail/header that starts halfway down the image. Always audit
+  // the canonical top-of-page composition.
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await page.waitForFunction(() => window.scrollY === 0)
   const paperTheme = await page.evaluate(() => {
     const rootStyle = getComputedStyle(document.documentElement)
     const shell = document.querySelector<HTMLElement>('.app-content .app-shell')

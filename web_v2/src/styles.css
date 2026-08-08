@@ -6185,12 +6185,11 @@ button.round-detail-cell:hover {
 .prep-work {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   grid-template-areas:
     'holes holes'
     'canvas inspector';
   gap: 12px;
-  height: clamp(480px, calc(100vh - 240px), 880px);
 }
 
 .prep-work > * {
@@ -6199,7 +6198,7 @@ button.round-detail-cell:hover {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
-  overflow: auto;
+  overflow: visible;
 }
 
 .prep-holes {
@@ -6375,11 +6374,16 @@ button.round-detail-cell:hover {
 
 .prep-canvas-img {
   width: 100%;
-  height: auto;
+  height: 100%;
   display: block;
   border-radius: 14px;
   box-shadow: 0 8px 30px rgba(20, 40, 30, .12);
   background: #bfe0fb;
+}
+
+.prep-canvas-img .hole-base-flat {
+  height: 100%;
+  object-fit: cover;
 }
 
 /* Base image layer: the flat/placeholder render is always painted first (instant on hole switch),
