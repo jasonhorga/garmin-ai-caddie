@@ -47,4 +47,13 @@ final class ClubNameTests: XCTestCase {
         XCTAssertTrue(clubIsTeeOnly("一号木"))
         XCTAssertFalse(clubIsTeeOnly("五号铁"))
     }
+
+    func testRoundEditPickerShowsRawGarminClubAndKeepsItWhenBagChanged() {
+        XCTAssertEqual(roundEditClubSelection("1W"), "一号木")
+        XCTAssertEqual(roundEditClubSelection("unknown"), "")
+        XCTAssertEqual(
+            roundEditClubOptions(current: "1W", clubs: ["七号铁", "7I", "PW"]),
+            ["一号木", "七号铁", "P 杆"]
+        )
+    }
 }

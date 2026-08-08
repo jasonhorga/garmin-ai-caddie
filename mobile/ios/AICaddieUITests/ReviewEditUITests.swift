@@ -168,6 +168,18 @@ final class ReviewEditUITests: XCTestCase {
             app.windows.firstMatch.frame.maxY - 30,
             "the destructive action must remain above the iPhone Home Indicator safe area"
         )
+        let clubPicker = app.descendants(matching: .any)
+            .matching(identifier: "shot-edit-club-picker").firstMatch
+        XCTAssertTrue(
+            clubPicker.waitForExistence(timeout: 5),
+            "the edit sheet must expose the recorded club picker"
+        )
+        let recordedClub = (clubPicker.value as? String) ?? ""
+        XCTAssertFalse(
+            recordedClub.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "a Garmin raw club token must resolve to a visible picker value"
+        )
+        XCTAssertNotEqual(recordedClub, "未知", "verified club-labelled evidence must not render as unknown")
         settle(2); save("06-edit-sheet"); dump("06-edit-sheet")
         let finishEditSheet = editSheet.buttons["完成"]
         XCTAssertTrue(finishEditSheet.exists && finishEditSheet.isHittable, "the edit sheet must expose its own completion action")

@@ -19,6 +19,25 @@ public let roundEditCommonClubs: [String] = [
     "七号铁", "八号铁", "九号铁", "PW", "GW", "SW", "LW", "推杆",
 ]
 
+/// Picker state always uses the same display spelling as its rows. Garmin history may contain raw
+/// tokens such as `1W` / `7I`, while the real bag and fallback choices are Chinese display names.
+/// Keeping a raw token as the selection when no row has that tag makes SwiftUI render an empty value.
+public func roundEditClubSelection(_ raw: String?) -> String {
+    guard let raw else { return "" }
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, trimmed.lowercased() != "unknown" else { return "" }
+    return zhClubName(trimmed)
+}
+
+/// Normalise and deduplicate the choices, and retain the recorded club even when it is no longer in
+/// the player's current bag. That makes every historical shot visible and still lets the player pick
+/// a current club to replace it.
+public func roundEditClubOptions(current: String?, clubs: [String]) -> [String] {
+    var seen = Set<String>()
+    return ([roundEditClubSelection(current)] + clubs.map { roundEditClubSelection($0) })
+        .filter { !$0.isEmpty && seen.insert($0).inserted }
+}
+
 // MARK: - edit overlay (handles + drag-to-move + magnifier + tap → add/edit)
 
 #if canImport(UIKit)
@@ -377,6 +396,8 @@ public struct ShotEditSheet: View {
     let onClub: (String) -> Void
     let onLie: (String) -> Void
     let onDelete: () -> Void
+    @State private var selectedClub: String
+    @State private var selectedLie: String
     @Environment(\.dismiss) private var dismiss
 
     public init(shot: RoundShot, clubs: [String], onClub: @escaping (String) -> Void,
@@ -386,6 +407,10 @@ public struct ShotEditSheet: View {
         self.onClub = onClub
         self.onLie = onLie
         self.onDelete = onDelete
+        self._selectedClub = State(initialValue: roundEditClubSelection(shot.club))
+        let rawLie = (shot.lie ?? "unknown").lowercased()
+        let validLies = Set(roundEditLieOptions.map(\.0))
+        self._selectedLie = State(initialValue: validLies.contains(rawLie) ? rawLie : "unknown")
     }
 
     public var body: some View {
@@ -400,16 +425,24 @@ public struct ShotEditSheet: View {
                     }
                     Section("球杆") {
                         Picker("球杆", selection: Binding(
-                            get: { shot.club ?? "" },
-                            set: { if !$0.isEmpty { onClub($0) } })) {
+                            get: { selectedClub },
+                            set: {
+                                selectedClub = $0
+                                if !$0.isEmpty { onClub($0) }
+                            })) {
                             Text("未知").tag("")
-                            ForEach(clubs, id: \.self) { Text($0).tag($0) }
+                            ForEach(clubOptions, id: \.self) { Text($0).tag($0) }
                         }
+                        .accessibilityIdentifier("shot-edit-club-picker")
+                        .accessibilityValue(selectedClub.isEmpty ? "未知" : selectedClub)
                     }
                     Section("击球时球位") {
                         Picker("击球时球位", selection: Binding(
-                            get: { (shot.lie ?? "unknown").lowercased() },
-                            set: { if !$0.isEmpty { onLie($0) } })) {
+                            get: { selectedLie },
+                            set: {
+                                selectedLie = $0
+                                if !$0.isEmpty { onLie($0) }
+                            })) {
                             ForEach(roundEditLieOptions, id: \.0) { Text($0.1).tag($0.0) }
                         }
                     }
@@ -437,6 +470,10 @@ public struct ShotEditSheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
         .presentationDetents([.medium])
+    }
+
+    private var clubOptions: [String] {
+        roundEditClubOptions(current: shot.club, clubs: clubs)
     }
 
     private var shotSummary: String {
