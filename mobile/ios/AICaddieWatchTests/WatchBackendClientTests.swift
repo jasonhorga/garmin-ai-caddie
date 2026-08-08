@@ -240,7 +240,10 @@ final class WatchBackendClientTests: XCTestCase {
             lightweightQuery.queryItems?.first(where: { $0.name == "background_geometry" })?.value,
             "true"
         )
-        XCTAssertNotEqual(lightweightPackage.timeoutInterval, 900)
+        XCTAssertEqual(
+            lightweightPackage.timeoutInterval,
+            WatchBackendClient.coursePackageTimeoutInterval
+        )
 
         let prep = try client.makeCoursePrepRequest(globalId: 31669, localHoles: [1, 2, 9])
         XCTAssertEqual(prep.url?.path, "/api/v2/courses/31669/prep")

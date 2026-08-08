@@ -555,7 +555,7 @@ final class SyncClientTests: XCTestCase {
             )?.queryItems
             XCTAssertEqual(queryItems?.first { $0.name == "ensure_geometry" }?.value, "false")
             XCTAssertEqual(queryItems?.first { $0.name == "background_geometry" }?.value, "true")
-            XCTAssertNotEqual(request.timeoutInterval, 900)
+            XCTAssertEqual(request.timeoutInterval, SyncClient.coursePackageTimeoutInterval)
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,
@@ -576,6 +576,47 @@ final class SyncClientTests: XCTestCase {
             teeBox: "blue",
             backgroundGeometry: true
         )
+    }
+
+    func testFetchColdCoursePackageRetriesTransientTimeout() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
+        let responseData = try Data(contentsOf: fixtureURL)
+        var attempts = 0
+        CapturingURLProtocol.requestHandler = { request in
+            attempts += 1
+            XCTAssertEqual(request.timeoutInterval, SyncClient.coursePackageTimeoutInterval)
+            if attempts == 1 {
+                throw URLError(.timedOut)
+            }
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, responseData)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { _ in }
+        )
+
+        _ = try await client.fetchCoursePackage(
+            globalId: 10283,
+            roundId: "live-round-cold-retry",
+            teeBox: "blue",
+            backgroundGeometry: true
+        )
+
+        XCTAssertEqual(attempts, 2)
     }
 
     func testFetchHomeCoursePackageCanSkipEventCursor() async throws {

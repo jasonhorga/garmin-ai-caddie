@@ -133,6 +133,7 @@ public final class SyncClient {
     /// Bump this whenever existing rendered pixels must be invalidated on installed devices.
     public static let topoStyleVersion = "topo-v8"
     static let courseReleaseTimeoutInterval: TimeInterval = 180
+    static let coursePackageTimeoutInterval: TimeInterval = 180
     static let courseReleaseMaximumAttempts = 3
     static let nearbyDiscoveryTimeoutInterval: TimeInterval = 10
     static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
@@ -224,12 +225,15 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
-        if ensureGeometry {
-            request.timeoutInterval = 900
-        }
+        // A first start for an arbitrary Garmin course has to fetch its factual courseData map.
+        // Under concurrent all-hole downloads that cold path has exceeded URLSession's 60-second
+        // default even though the server completed and cached it moments later. Keep the precise
+        // geometry window, and give the lightweight package the same bounded cold-course window as
+        // Tee metadata. This GET is idempotent, so a transient timeout can safely retry and then hit
+        // the completed server cache.
+        request.timeoutInterval = ensureGeometry ? 900 : Self.coursePackageTimeoutInterval
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        let data = try await fetchRetriableGetData(request)
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }
 

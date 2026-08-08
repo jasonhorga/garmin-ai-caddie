@@ -78,6 +78,7 @@ public final class WatchBackendClient {
     public static let topoStyleVersion = "topo-v8"
     static let maximumCoursePrepHolesPerRequest = 3
     static let courseReleaseTimeoutInterval: TimeInterval = 180
+    static let coursePackageTimeoutInterval: TimeInterval = 180
     static let courseReleaseMaximumAttempts = 3
     static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
 
@@ -284,9 +285,10 @@ public final class WatchBackendClient {
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
-        if ensureGeometry {
-            request.timeoutInterval = 900
-        }
+        // The Watch can start a never-downloaded course without the phone. Its first package has
+        // the same factual courseData cold path as iPhone, so it must not retain URLSession's 60 s
+        // default merely because ensureGeometry is false.
+        request.timeoutInterval = ensureGeometry ? 900 : Self.coursePackageTimeoutInterval
         applyAuth(&request)
         return request
     }
