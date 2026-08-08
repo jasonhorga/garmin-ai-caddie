@@ -27,6 +27,7 @@ final class TeeSelectionUITests: XCTestCase {
     }
 
     func testCaptureTeeSelector() throws {
+        app.launchEnvironment["UITEST_COURSE_TEES_DELAY_MS"] = "1500"
         writeDiagnostics()
         launchFresh()
         save("01-home"); dump("01-home")
@@ -63,6 +64,15 @@ final class TeeSelectionUITests: XCTestCase {
             "a course from history must not become the implicit nearby selection"
         )
         palace.tap()
+        let teeLoading = app.staticTexts["正在获取发球台…"]
+        XCTAssertTrue(
+            teeLoading.waitForExistence(timeout: 1),
+            "a selected course must expose its in-flight Tee authority state"
+        )
+        XCTAssertFalse(
+            app.buttons["start-round-primary-action"].isEnabled,
+            "Start must not race an in-flight Tee request"
+        )
         let becameSelected = waitForValue("已选择", on: palace, timeout: 8)
         save("02b-start-round-selected"); dump("02b-start-round-selected")
         XCTAssertTrue(

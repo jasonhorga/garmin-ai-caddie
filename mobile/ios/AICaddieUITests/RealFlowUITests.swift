@@ -416,9 +416,18 @@ final class RealFlowUITests: XCTestCase {
         )
         XCTAssertTrue(scrollTo(ligongPrimary, maxSwipes: 20))
         ligongPrimary.tap()
+        let enteredFirstHole = app.staticTexts["第 1 洞"].waitForExistence(timeout: 90)
+        if !enteredFirstHole {
+            save("10-live-start-failed")
+            dump("10-live-start-failed")
+        }
         XCTAssertTrue(
-            app.staticTexts["363"].waitForExistence(timeout: 60),
-            "cold-loaded 北京丽宫 hole prep must expose the blue-tee center-green distance"
+            enteredFirstHole,
+            "cold-loaded 北京丽宫 must enter its factual first hole"
+        )
+        XCTAssertTrue(
+            app.staticTexts["363"].waitForExistence(timeout: 20),
+            "北京丽宫 blue Tee must retain its factual centre-green distance after entry"
         )
         let liveTopoReady = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier == %@", "topo-hole-base-ready")

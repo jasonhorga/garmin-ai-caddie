@@ -17,6 +17,19 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertNotEqual(first, "live-31793")
     }
 
+    func testStartRoundSurfacesOnlyActionablePreparationFailures() {
+        XCTAssertEqual(
+            StartRoundView.roundPreparationFailureMessage(from: "暂时无法开始,稍后重试"),
+            "暂时无法开始,稍后重试"
+        )
+        XCTAssertEqual(
+            StartRoundView.roundPreparationFailureMessage(from: "离线中,使用已保存数据"),
+            "离线中,使用已保存数据"
+        )
+        XCTAssertNil(StartRoundView.roundPreparationFailureMessage(from: "主页就绪"))
+        XCTAssertNil(StartRoundView.roundPreparationFailureMessage(from: "离线地图已准备"))
+    }
+
     func testOfflineNearbyFallbackIncludesOnlyCoordinateProvenDownloadedCourses() {
         let near = option(
             globalId: 1,

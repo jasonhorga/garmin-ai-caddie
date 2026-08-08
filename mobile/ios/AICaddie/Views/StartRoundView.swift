@@ -114,9 +114,10 @@ public struct StartRoundView: View {
 
     private var canStart: Bool {
         !isPreparing
+            && !isLoadingTees
             && !roundId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && courseGlobalId != nil
-            && (!selectedCourseRequiresRemoteTees || (!isLoadingTees && !fetchedTees.isEmpty))
+            && (!selectedCourseRequiresRemoteTees || !fetchedTees.isEmpty)
     }
 
     public var body: some View {
@@ -182,13 +183,17 @@ public struct StartRoundView: View {
             return
         }
         let requiresRemoteTees = selectedCourseRequiresRemoteTees
+        // A cached/history course may already have factual Tee names, but this request still
+        // enriches them with Garmin yardage/default authority. Do not let Start race that request:
+        // URLSession can otherwise queue the course-package behind a cold CourseView release and
+        // silently hit its 60 s timeout. A failed refresh still falls back to the known Tee list.
+        isLoadingTees = true
         if requiresRemoteTees {
-            isLoadingTees = true
             teeLoadFailed = false
             fetchedTees = []
         }
         defer {
-            if requiresRemoteTees, teeRequestToken == requestToken {
+            if teeRequestToken == requestToken {
                 isLoadingTees = false
             }
         }
@@ -405,7 +410,7 @@ public struct StartRoundView: View {
                         .disabled(teeOptions.isEmpty)
                     }
                 }
-                if selectedCourseRequiresRemoteTees, isLoadingTees {
+                if isLoadingTees {
                     ProgressView("正在获取发球台…")
                         .font(.caption)
                 } else if selectedCourseRequiresRemoteTees, teeLoadFailed {
@@ -652,8 +657,25 @@ public struct StartRoundView: View {
             .accessibilityIdentifier("start-round-primary-action")
             if isPreparing {
                 ProgressView("准备中…").font(.caption)
+            } else if let failure = Self.roundPreparationFailureMessage(from: syncStatus) {
+                Label(failure, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("start-round-preparation-error")
             }
         }
+    }
+
+    /// The shared sync label contains both normal cache states and actionable start failures. Keep
+    /// successful background/cache chatter out of the setup screen, but never turn a failed Start
+    /// into an unexplained spinner that simply disappears.
+    static func roundPreparationFailureMessage(from status: String) -> String? {
+        let normalized = status.trimmingCharacters(in: .whitespacesAndNewlines)
+        let failurePrefixes = [
+            "无法开始", "暂时无法开始", "开始失败", "未联网", "离线中",
+        ]
+        return failurePrefixes.contains(where: { normalized.hasPrefix($0) }) ? normalized : nil
     }
 
     /// Group the provider-ranked nearby rows by venue without re-sorting them by historical play count.

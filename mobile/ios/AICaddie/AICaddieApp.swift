@@ -1837,6 +1837,13 @@ public final class LiveRoundAppModel: ObservableObject {
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             return []
         }
+        // Deterministic regression seam for the exact cold-release race: while Tee authority is in
+        // flight, Start must remain disabled instead of launching a second request into the same
+        // connection queue. It is absent from Release/TestFlight.
+        if let rawDelay = ProcessInfo.processInfo.environment["UITEST_COURSE_TEES_DELAY_MS"],
+           let delayMS = UInt64(rawDelay), delayMS > 0 {
+            try? await Task.sleep(nanoseconds: delayMS * 1_000_000)
+        }
         #endif
         guard let syncClient else { return [] }
         do {

@@ -931,7 +931,11 @@ def course_nearby_endpoint(
 
 
 @app.get("/api/v2/courses/{global_id}/tees")
-def course_tees(global_id: int, ensure_release: bool = False) -> dict:
+def course_tees(
+    global_id: int,
+    background_tasks: BackgroundTasks,
+    ensure_release: bool = False,
+) -> dict:
     """The course's selectable tee boxes (colour + total yards + which is default) for the pre-round
     tee picker — the same list Garmin's 'new round' shows. Pure course knowledge (no player data,
     no source_ref), public exactly like /topo.png + /geometry/hole/{}/coverage: colour names from the
@@ -945,7 +949,16 @@ def course_tees(global_id: int, ensure_release: bool = False) -> dict:
     if ensure_release:
         from ai_caddie.courses.course_reference import courseview_tees
 
-        courseview_tees(int(global_id), allow_fetch=True)
+        # A valid cached release is already factual Tee authority. Return it immediately and refresh
+        # an hourly-stale Garmin release after the response; blocking the picker on that refresh made
+        # a known course take ~38 s and allowed the subsequent package request to time out in the
+        # client's connection queue. The genuinely cold/no-cache path still fetches synchronously so
+        # a never-seen course is not enabled with invented Tee data.
+        cached_tees = courseview_tees(int(global_id), allow_fetch=False)
+        if cached_tees:
+            background_tasks.add_task(courseview_tees, int(global_id), allow_fetch=True)
+        else:
+            courseview_tees(int(global_id), allow_fetch=True)
     options = course_tee_options(int(global_id))
     response = {
         "schema": "ai-caddie-course-tees-v1",
