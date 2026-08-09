@@ -228,20 +228,15 @@ final class ReviewEditUITests: XCTestCase {
         let baselineCount = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH %@", "共 \(reviewEvidence.shotCount) 杆")
         ).firstMatch
-        addedDraftRow.swipeLeft()
-        // With `allowsFullSwipe`, iOS may either commit the destructive action immediately or stop
-        // after revealing its button (the exact threshold varies with simulator gesture velocity).
-        // Both are native left-swipe deletion. If it has not committed, tap the revealed action;
-        // either path must end with a genuinely shorter, renumbered draft list.
-        if !baselineCount.waitForExistence(timeout: 1) {
-            let deleteAdded = app.descendants(matching: .any)
-                .matching(identifier: "shot-draft-delete-\(reviewEvidence.shotCount + 1)").firstMatch
-            XCTAssertTrue(
-                deleteAdded.waitForExistence(timeout: 5) && deleteAdded.isHittable,
-                "a partial left swipe must expose the destructive row action"
-            )
-            deleteAdded.tap()
-        }
+        // SwiftUI suppresses row swipe actions while `EditMode.active` is exposing its reorder
+        // handles. The shipping count list therefore gives every row a simultaneous, visible trash
+        // action instead of advertising an unreachable swipe gesture.
+        let deleteAdded = app.buttons["shot-draft-delete-\(reviewEvidence.shotCount + 1)"]
+        XCTAssertTrue(
+            deleteAdded.waitForExistence(timeout: 5) && deleteAdded.isHittable,
+            "the reorderable row must expose its visible destructive action"
+        )
+        deleteAdded.tap()
         XCTAssertTrue(baselineCount.waitForExistence(timeout: 5), "delete must renumber the same local list")
         settle(2); save("08-delete-draft"); dump("08-delete-draft")
 

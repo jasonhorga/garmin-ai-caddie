@@ -548,7 +548,7 @@ public struct RoundShotRow: View {
     }
 }
 
-/// 编辑态逐杆列表:长按行拖动重排，左滑删除。列表编号和地图编号共用数组顺序。
+/// 编辑态逐杆列表:拖动系统右侧手柄重排，点行内垃圾桶删除。列表编号和地图编号共用数组顺序。
 /// (唯一能长按拖动重排的容器);外层是 `ScrollView`,故 `.scrollDisabled` 让外层滚、行仍能拖。
 /// ⚠️ ImageRenderer / 窗口快照不渲 `List` 内容 → 编辑态快照里这块是空的,真机 / XCUITest 才验交互。
 public struct RoundShotReorderList: View {
@@ -562,29 +562,32 @@ public struct RoundShotReorderList: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("共 \(editModel.map.shots.count) 杆 · 拖动右侧排序 · 左滑删除")
+            Text("共 \(editModel.map.shots.count) 杆 · 拖动右侧排序 · 点垃圾桶删除")
                 .font(.caption).foregroundStyle(.secondary)
             List {
                 ForEach(Array(editModel.map.shots.enumerated()), id: \.element.id) { idx, shot in
-                    RoundShotRow(shot: shot, ppm: ppm, displayNumber: idx + 1)
-                        .accessibilityElement(children: .combine)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
-                        .listRowBackground(
-                            editModel.selectedShotId == shot.id
-                                ? LiveHoleStyle.green.opacity(0.12)
-                                : Color.clear
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture { editModel.selectedShotId = shot.id }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                editModel.delete(shotId: shot.id)
-                            } label: {
-                                Label("删除", systemImage: "trash")
-                            }
-                            .accessibilityIdentifier("shot-draft-delete-\(idx + 1)")
+                    HStack(spacing: 8) {
+                        RoundShotRow(shot: shot, ppm: ppm, displayNumber: idx + 1)
+                            .accessibilityElement(children: .combine)
+                            .contentShape(Rectangle())
+                            .onTapGesture { editModel.selectedShotId = shot.id }
+                        Button(role: .destructive) {
+                            editModel.delete(shotId: shot.id)
+                        } label: {
+                            Image(systemName: "trash")
+                                .frame(width: 28, height: 32)
                         }
-                        .accessibilityIdentifier("shot-draft-row-\(idx + 1)")
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("删除第 \(idx + 1) 杆")
+                        .accessibilityIdentifier("shot-draft-delete-\(idx + 1)")
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                    .listRowBackground(
+                        editModel.selectedShotId == shot.id
+                            ? LiveHoleStyle.green.opacity(0.12)
+                            : Color.clear
+                    )
+                    .accessibilityIdentifier("shot-draft-row-\(idx + 1)")
                 }
                 .onMove { indices, newOffset in
                     var ids = editModel.map.shots.map { $0.id }
