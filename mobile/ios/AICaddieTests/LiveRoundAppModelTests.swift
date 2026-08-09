@@ -1348,7 +1348,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertNotNil(try fixture.store.loadCurrentRoundPackage())
     }
 
-    func testWatchAbandonKeepsPhoneRoundButWatchFinishClearsMatchingPhonePointer() async throws {
+    func testWatchAbandonAndWatchFinishWithoutBackendKeepPendingPhoneRound() async throws {
         let fixture = try completedFixtureRound()
         let bridge = WatchEventBridge(offlineStore: fixture.store, autoActivate: false)
         let model = LiveRoundAppModel(
@@ -1378,9 +1378,133 @@ final class LiveRoundAppModelTests: XCTestCase {
             disposition: .finished,
             closedAt: "2026-08-09T00:01:00Z"
         ))
+        await model.waitForWatchRoundClosureReconciliationForTesting()
+
+        XCTAssertEqual(model.liveRoundState?.roundId, fixture.package.roundId)
+        XCTAssertNotNil(try fixture.store.loadCurrentRoundPackage())
+        XCTAssertEqual(
+            Set(try fixture.store.loadPendingEvents(roundId: fixture.package.roundId).map(\.eventId)),
+            Set(fixture.events.map(\.eventId))
+        )
+        XCTAssertEqual(model.finishErrorMessage, "手表已结束，本机记录仍保留")
+    }
+
+    func testWatchFinishClearsPhoneRoundImmediatelyWhenNothingIsPending() async throws {
+        let fixture = try completedFixtureRound()
+        try fixture.store.appendSyncMarker(
+            roundId: fixture.package.roundId,
+            timestamp: "2026-08-09T00:00:30Z"
+        )
+        let bridge = WatchEventBridge(offlineStore: fixture.store, autoActivate: false)
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: nil,
+            adminToken: nil,
+            watchBridge: bridge,
+            garminSessionStore: nil,
+            preferredRoundId: fixture.package.roundId,
+            syncClient: nil,
+            offlineGeometryRetryDelaysNanoseconds: [0]
+        )
+        await model.bootstrap()
+        XCTAssertEqual(model.pendingEventCount, 0)
+
+        model.handleWatchRoundClosure(WatchRoundClosurePayload(
+            roundId: fixture.package.roundId,
+            disposition: .finished,
+            closedAt: "2026-08-09T00:01:00Z"
+        ))
 
         XCTAssertNil(model.liveRoundState)
         XCTAssertNil(try fixture.store.loadCurrentRoundPackage())
+        XCTAssertFalse(try fixture.store.loadEvents().contains { $0.roundId == fixture.package.roundId })
+    }
+
+    func testWatchFinishUploadsPendingPhoneEventsBeforeClearingRound() async throws {
+        let fixture = try completedFixtureRound()
+        let packageData = try JSONEncoder().encode(fixture.package)
+        let eventUpload = expectation(description: "pending phone events receive server ACKs")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            switch url.path {
+            case "/api/v2/mobile/courses/\(fixture.package.course.globalId)/package":
+                return (
+                    HTTPURLResponse(
+                        url: url, statusCode: 200, httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    packageData
+                )
+            case "/api/v2/mobile/rounds/\(fixture.package.roundId)/events":
+                let batch = try JSONDecoder().decode(
+                    EventBatch.self,
+                    from: try CapturingURLProtocol.requestBodyData(from: request)
+                )
+                let ids = batch.events.map(\.eventId)
+                XCTAssertEqual(Set(ids), Set(fixture.events.map(\.eventId)))
+                eventUpload.fulfill()
+                return (
+                    HTTPURLResponse(
+                        url: url, statusCode: 200, httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: [
+                        "accepted": ids.count,
+                        "duplicate": false,
+                        "acceptedEventIds": ids,
+                        "duplicateEventIds": [],
+                        "serverSequence": ids.count,
+                    ])
+                )
+            default:
+                return (
+                    HTTPURLResponse(
+                        url: url, statusCode: 503, httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data("{}".utf8)
+                )
+            }
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            clientId: "ios-phone",
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: client.baseURL,
+            adminToken: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            preferredRoundId: fixture.package.roundId,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: [0]
+        )
+        await model.prepareCourseRound(
+            globalId: fixture.package.course.globalId,
+            roundId: fixture.package.roundId,
+            teeBox: fixture.package.course.teeBox,
+            nine: fixture.package.nine ?? "all"
+        )
+        XCTAssertEqual(model.pendingEventCount, fixture.events.count)
+
+        model.handleWatchRoundClosure(WatchRoundClosurePayload(
+            roundId: fixture.package.roundId,
+            disposition: .finished,
+            closedAt: "2026-08-09T00:01:00Z"
+        ))
+        await model.waitForWatchRoundClosureReconciliationForTesting()
+        await fulfillment(of: [eventUpload], timeout: 3)
+
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertNil(try fixture.store.loadCurrentRoundPackage())
+        XCTAssertFalse(try fixture.store.loadEvents().contains { $0.roundId == fixture.package.roundId })
     }
 
     func testDetachedLegacyWatchRetryIsPostedBeforeThePhoneAcknowledgesIt() async throws {
@@ -1459,6 +1583,18 @@ final class LiveRoundAppModelTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
+        let activePackage = try localFixturePackage()
+        let activeEvent = LiveRoundEvent(
+            eventId: "visible-phone-score",
+            roundId: activePackage.roundId,
+            clientId: "ios-phone",
+            timestamp: "2026-08-09T07:58:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(4)]
+        )
+        try store.saveRoundPackage(activePackage)
+        try store.appendEvent(activeEvent)
         let existing = LiveRoundEvent(
             eventId: "legacy-watch-putt",
             roundId: "closed-round",
@@ -1474,7 +1610,19 @@ final class LiveRoundAppModelTests: XCTestCase {
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
         let serverRequest = expectation(description: "detached pending tail reaches backend")
+        let packageData = try JSONEncoder().encode(activePackage)
         CapturingURLProtocol.requestHandler = { request in
+            if request.url?.path == "/api/v2/mobile/courses/\(activePackage.course.globalId)/package" {
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    packageData
+                )
+            }
             let batch = try JSONDecoder().decode(
                 EventBatch.self,
                 from: try CapturingURLProtocol.requestBodyData(from: request)
@@ -1511,6 +1659,14 @@ final class LiveRoundAppModelTests: XCTestCase {
                 retrySleep: { _ in }
             )
         )
+        await model.prepareCourseRound(
+            globalId: activePackage.course.globalId,
+            roundId: activePackage.roundId,
+            teeBox: activePackage.course.teeBox,
+            nine: activePackage.nine ?? "all"
+        )
+        XCTAssertEqual(model.liveRoundState?.roundId, activePackage.roundId)
+        XCTAssertEqual(model.pendingEventCount, 1)
         let event = WatchInputEvent(
             eventId: "legacy-watch-score",
             roundId: "closed-round",
@@ -1541,7 +1697,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
         XCTAssertEqual(
             model.pendingEventCount,
-            0,
+            1,
             "a detached legacy round must not replace the visible round's pending badge"
         )
     }

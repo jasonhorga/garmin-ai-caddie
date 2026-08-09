@@ -312,6 +312,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private var syncClient: SyncClient?
     private var mediaUploadClient: MediaUploadClient?
     private var isSyncingPendingEvents = false
+    private var watchFinishedRoundReconciliationTask: Task<Void, Never>?
     private var offlineCourseDownloadTask: Task<Void, Never>?
     /// A newly prepared round must commit its first live-hole navigation before this MainActor model
     /// starts the all-hole cache pipeline.  `false` means fill missing assets; `true` also revalidates
@@ -449,6 +450,8 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
+        watchFinishedRoundReconciliationTask?.cancel()
+        watchFinishedRoundReconciliationTask = nil
         deferredOfflineCourseDownloadRevalidation = nil
         roundPreparationToken = nil
         isPreparingRound = false
@@ -1604,8 +1607,10 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// A Watch finish already completed the idempotent backend finish transaction. Clear only a
-    /// matching active phone pointer; abandon/save-locally on the wrist never deletes phone data.
+    /// A Watch finish already completed the idempotent backend finish transaction. The phone may
+    /// still own events that the Watch saw over Bluetooth but the backend never received. Preserve
+    /// that complete local round until those events receive explicit server ACKs; abandon/save-
+    /// locally on the wrist never deletes phone data.
     public func handleWatchRoundClosure(_ closure: WatchRoundClosurePayload) {
         guard closure.disposition == .finished,
               package?.roundId == closure.roundId,
@@ -1613,12 +1618,64 @@ public final class LiveRoundAppModel: ObservableObject {
             return
         }
         do {
-            try clearFinishedRoundLocally(roundId: closure.roundId, notifyWatch: false)
+            let pending = try offlineStore.loadPendingEvents(roundId: closure.roundId)
+            pendingEventCount = pending.count
+            guard !pending.isEmpty else {
+                try clearFinishedRoundLocally(roundId: closure.roundId, notifyWatch: false)
+                return
+            }
+
+            syncStatus = "手表已结束,正在同步本机记录"
+            finishErrorMessage = "本机记录同步完成后将自动结束"
+            watchFinishedRoundReconciliationTask = Task { @MainActor [weak self] in
+                await self?.reconcileWatchFinishedRound(roundId: closure.roundId)
+            }
         } catch {
             AICaddieLog.storage.error("Watch-finished round cleanup failed: \(String(describing: error), privacy: .public)")
             finishErrorMessage = "手表已结束，本机记录仍保留"
         }
     }
+
+    private func reconcileWatchFinishedRound(roundId: String) async {
+        // A score tap may already own the uploader when the closure arrives. Let that exact batch
+        // settle, then make one normal retry so cleanup observes a stable ACK watermark.
+        while isSyncingPendingEvents {
+            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        guard !Task.isCancelled,
+              package?.roundId == roundId,
+              liveRoundState?.roundId == roundId else {
+            return
+        }
+
+        await syncPendingEvents()
+
+        guard !Task.isCancelled,
+              package?.roundId == roundId,
+              liveRoundState?.roundId == roundId else {
+            return
+        }
+        do {
+            let remaining = try offlineStore.loadPendingEvents(roundId: roundId)
+            pendingEventCount = remaining.count
+            guard remaining.isEmpty else {
+                syncStatus = "手表已结束,本机记录待同步"
+                finishErrorMessage = "手表已结束，本机记录仍保留"
+                return
+            }
+            try clearFinishedRoundLocally(roundId: roundId, notifyWatch: false)
+        } catch {
+            AICaddieLog.storage.error("Watch-finished round reconciliation failed: \(String(describing: error), privacy: .public)")
+            finishErrorMessage = "手表已结束，本机记录仍保留"
+        }
+    }
+
+    #if DEBUG
+    func waitForWatchRoundClosureReconciliationForTesting() async {
+        await watchFinishedRoundReconciliationTask?.value
+    }
+    #endif
 
     /// Explicit local discard remains distinct from Save & End. It is offline-capable and notifies
     /// the Watch only after the matching phone data has been removed.

@@ -439,9 +439,10 @@ def _build_scorecard(
             total_strokes=acc.strokes,
         )
         sc_holes.append(hole_dict)
-    # A second device may have contributed scored events that are newer than the finishing client's
-    # local projection. Never let a stale client count hide explicitly scored holes from history.
-    holes_completed = max(_as_int(meta.get("holesCompleted")) or 0, len(sc_holes))
+    # Only explicit score events complete holes. A finishing client can report a stale count in
+    # either direction, so using that projection can create a 9-hole summary backed by only 2 real
+    # hole rows. The folded score stream is the sole completion authority.
+    holes_completed = len(sc_holes)
 
     snapshot: dict[str, Any] = {
         "courseGlobalId": course_gid,
@@ -808,7 +809,7 @@ def _ingest_round_unlocked(
     materialization_meta = (
         dict(existing.get("_materializationMeta"))
         if existing is not None and isinstance(existing.get("_materializationMeta"), dict)
-        else meta
+        else dict(meta)
     )
 
     holes = _parse_events(events)
@@ -818,12 +819,10 @@ def _ingest_round_unlocked(
     scored = {n: acc for n, acc in holes.items() if acc.strokes is not None}
     if not scored:
         raise RoundIngestError("round has no scored holes")
-    if existing is not None and refresh_existing_events:
-        # Course identity comes from the first finish, but completion count must advance when the
-        # offline Watch contributes an additional scored hole after that first materialization. Never
-        # regress an explicitly completed count merely because one event is still absent locally.
-        prior_holes_completed = _as_int(materialization_meta.get("holesCompleted")) or 0
-        materialization_meta["holesCompleted"] = max(prior_holes_completed, len(scored))
+    # Course identity remains first-finish authority, while completion count always reflects the
+    # complete append-only score stream being materialized. Keeping the private metadata normalized
+    # prevents a later refresh from resurrecting a stale client projection.
+    materialization_meta["holesCompleted"] = len(scored)
 
     player_dir = _player_dir(player_id, root)
     scorecards_dir = player_dir / "scorecards"
