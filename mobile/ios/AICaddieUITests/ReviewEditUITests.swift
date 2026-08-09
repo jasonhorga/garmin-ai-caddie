@@ -109,6 +109,16 @@ final class ReviewEditUITests: XCTestCase {
             waitUntilGone(app.buttons["关闭"], timeout: 5),
             "edit mode must expose only the explicit zero-write Cancel and final Save actions"
         )
+        // Pulling the containing sheet down must not silently discard the local whole-hole draft.
+        // Start in the sheet navigation-bar lane rather than the topo/outer ScrollView gesture area.
+        let dismissStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.11))
+        let dismissEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.92))
+        dismissStart.press(forDuration: 0.15, thenDragTo: dismissEnd)
+        XCTAssertTrue(
+            app.buttons["round-edit-cancel"].waitForExistence(timeout: 5)
+                && app.buttons["round-edit-save"].exists,
+            "sheet pull-down must not become an implicit third Cancel action while editing"
+        )
         let editTopoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
         let lastBaselineRow = app.descendants(matching: .any)

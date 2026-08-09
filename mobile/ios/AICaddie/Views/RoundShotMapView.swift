@@ -440,6 +440,9 @@ public struct RoundShotMapPagerScreen: View {
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .background(HubStyle.grouped)
+        // Editing has exactly two exits: the explicit Cancel and Save actions.  A sheet pull-down
+        // must not become a third, silent way to discard the whole local draft.
+        .interactiveDismissDisabled(isLocked)
         .navigationTitle(isLocked ? "第 \(current) 洞 · 编辑中" : "第 \(current) 洞 · 落点 · 左右滑")
         .toolbar {
             if !isLocked, let onClose {
