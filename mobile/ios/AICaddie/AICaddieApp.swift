@@ -1025,10 +1025,12 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Course prep cost grows non-linearly when one request parses all 18 large meshes. Keep the
     /// first playing hole as its own highest-priority request (the live view asks for the same key,
     /// so the backend singleflight can share it), then fetch the rest in small bounded batches.
+    /// Two concurrent batches leave capacity for live map/caddie traffic on the four-core shared
+    /// service; three cold batches reproduced a 60-second timeout in the real 18-hole journey.
     private func fetchOfflinePrepBatches(
         _ requests: [OfflinePrepBatchRequest],
         using syncClient: SyncClient,
-        maximumConcurrentRequests: Int = 3
+        maximumConcurrentRequests: Int = 2
     ) async -> [OfflinePrepBatchResult] {
         guard !requests.isEmpty else { return [] }
         let client = OfflineDownloadClient(value: syncClient)

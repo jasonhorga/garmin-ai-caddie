@@ -399,9 +399,11 @@ final class TeeSelectionUITests: XCTestCase {
             save("offline-cache-01-timeout")
             dump("offline-cache-01-timeout")
         }
+        let progress = app.descendants(matching: .any)["live-hole-offline-course-progress"]
+        let progressLabel = progress.exists ? progress.label : "离线地图进度不可见"
         XCTAssertTrue(
             becameReady,
-            "the selected course must retain every drawable hole and available topo before offline acceptance"
+            "the selected course must retain every drawable hole and available topo before offline acceptance; \(progressLabel)"
         )
         save("offline-cache-01-online-ready"); dump("offline-cache-01-online-ready")
         let back = app.buttons["返回球局首页"]

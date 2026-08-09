@@ -245,6 +245,11 @@ public struct RoundHoleShotMapScreen: View {
                 AICaddieLoadingView(text: "载入落点…")
             } else {
                 ScrollView { content }
+                    // The editable topo deliberately owns long-press/drag gestures. Give the outer
+                    // vertical scroller a stable accessibility target so assistive technology and
+                    // the real UI journey can start a scroll from the controls below the map rather
+                    // than accidentally moving a numbered landing.
+                    .accessibilityIdentifier(isEditing ? "round-shot-edit-scroll" : "round-shot-read-scroll")
             }
         }
         .background(HubStyle.grouped)

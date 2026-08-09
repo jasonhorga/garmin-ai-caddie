@@ -39,15 +39,16 @@ enum NewCourseEvidenceResolverError: LocalizedError {
         case .malformed(let path):
             return "new-course evidence response was malformed: \(path)"
         case .noEligibleCourse:
-            return "no nearby, uninstalled 9/18-hole course has a searchable name and non-ready hole-1 precise geometry"
+            return "no nearby, uninstalled 9/18-hole course has a searchable provider name"
         }
     }
 }
 
 /// Chooses one real provider-catalogue course for the empty-cache journey. It is intentionally
 /// read-only: the resolver proves that the row is nearby, absent from the player's installed/options
-/// roster, searchable by name, and still missing precise hole-1 geometry. The app itself must then
-/// select the row, fetch its Tee/package, show the lightweight map, and trigger the precise upgrade.
+/// roster, and searchable by name. A non-ready hole 1 is preferred so the journey can observe the
+/// lightweight-to-precise transition, but an already-ready course is a valid fallback: repeated CI
+/// runs must not exhaust their own evidence by successfully preparing every nearby course.
 final class NewCourseEvidenceResolver {
     private let baseURL: URL
     private let adminToken: String
@@ -98,6 +99,10 @@ final class NewCourseEvidenceResolver {
 
         // This is a journey precondition, not a provider crawler. The nearest bounded set is enough
         // to find an honest empty-cache candidate without turning one UI run into a catalogue scan.
+        // Prefer a course whose first hole still needs the precise upgrade, but retain the first
+        // searchable ready course as an idempotent fallback. The product journey already accepts
+        // both honest first states and always requires a final precise topo.
+        var readyFallback: NewCourseEvidence?
         for match in matches.prefix(40) {
             guard let globalId = integer(match["globalId"]), globalId > 0,
                   !installedIds.contains(globalId),
@@ -116,20 +121,26 @@ final class NewCourseEvidenceResolver {
             // not already precise rather than inferring from an all-course aggregate.
             let coverageState = nonEmptyString(coverage["coverage"])?.lowercased()
             let readyHoles = integer(coverage["readyHoles"]) ?? (coverageState == "ready" ? 1 : 0)
-            guard readyHoles == 0, coverageState != "ready" else {
+            let needsPreciseUpgrade = readyHoles == 0 && coverageState != "ready"
+            if !needsPreciseUpgrade, readyFallback != nil {
                 continue
             }
             guard let query = try verifiedSearchQuery(for: name, globalId: globalId) else {
                 continue
             }
-            return NewCourseEvidence(
+            let evidence = NewCourseEvidence(
                 globalId: globalId,
                 name: name,
                 holes: holes,
                 searchQuery: query,
                 radiusKm: radiusKm
             )
+            if needsPreciseUpgrade {
+                return evidence
+            }
+            readyFallback = evidence
         }
+        if let readyFallback { return readyFallback }
         throw NewCourseEvidenceResolverError.noEligibleCourse
     }
 

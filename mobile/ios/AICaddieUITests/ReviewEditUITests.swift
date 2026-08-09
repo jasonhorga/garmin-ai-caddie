@@ -213,8 +213,15 @@ final class ReviewEditUITests: XCTestCase {
         let addedDraftRow = app.descendants(matching: .any)
             .matching(identifier: "shot-draft-row-\(reviewEvidence.shotCount + 1)").firstMatch
         XCTAssertTrue(addedDraftRow.waitForExistence(timeout: 5), "the added point must exist in the count list")
+        let editScroll = app.scrollViews["round-shot-edit-scroll"]
+        XCTAssertTrue(editScroll.waitForExistence(timeout: 5), "edit mode must expose its vertical review scroll")
         for _ in 0..<4 where !addedDraftRow.isHittable {
-            app.swipeUp()
+            // Start below the topo on the penalty/instruction lane. A generic app-level swipe begins
+            // in the centre of the editable map and correctly belongs to its landing gesture layer,
+            // so it cannot prove that the count list itself is reachable.
+            let start = editScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.90))
+            let end = editScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.34))
+            start.press(forDuration: 0.05, thenDragTo: end)
             settle(0.5)
         }
         XCTAssertTrue(addedDraftRow.isHittable, "the count-list row must be reachable in the review scroll")

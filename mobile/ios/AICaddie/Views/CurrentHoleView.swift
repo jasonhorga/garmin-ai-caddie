@@ -71,6 +71,28 @@ public struct CurrentHoleView: View {
 
     private static let holeRootScrollAnchor = "live-hole-root"
 
+    #if DEBUG
+    /// Failure evidence for the real offline-install journey. Kept out of Release/TestFlight and
+    /// visually hidden; the accessibility label tells CI whether it is waiting on precise facts or
+    /// bitmap durability instead of reducing the all-hole acceptance gate to a generic timeout.
+    private var offlineCourseProgressLabel: String {
+        let total = package.holes.count
+        let precise = package.coursePrep?.holes.filter { prep in
+            prep.resolvedMapOverlay != nil
+                && prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
+        }.count ?? 0
+        let topo = package.holes.filter { roundHole in
+            let prep = package.coursePrep?.holes.first { $0.hole == roundHole.number }
+            return offlineStore?.loadCourseTopoImageURL(
+                globalId: roundHole.sourceGlobalId ?? package.course.globalId,
+                localHole: roundHole.sourceLocalHole ?? roundHole.number,
+                geometryRevision: prep?.geometryRevision ?? roundHole.geometryRevision
+            ) != nil
+        }.count
+        return "离线地图进度 · 精确 \(precise)/\(total) · 图片 \(topo)/\(total)"
+    }
+    #endif
+
     public init(
         package: LiveRoundPackage,
         hole: Hole,
@@ -215,6 +237,15 @@ public struct CurrentHoleView: View {
                 }
             }
             #if DEBUG
+            if ProcessInfo.processInfo.environment["UITEST_MODE"] == "1" {
+                Text(offlineCourseProgressLabel)
+                    .font(.system(size: 1))
+                    .foregroundStyle(Color.white.opacity(0.02))
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(offlineCourseProgressLabel)
+                    .accessibilityIdentifier("live-hole-offline-course-progress")
+            }
             if package.hasCompleteOfflineCoursePrep,
                offlineStore?.hasCourseTopoImages(for: package) == true {
                 Text("离线地图已准备")

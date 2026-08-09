@@ -370,6 +370,7 @@ final class SyncClientTests: XCTestCase {
             )?.queryItems
             XCTAssertEqual(queryItems?.filter { $0.name == "holes" }.compactMap(\.value), ["1", "2", "3"])
             XCTAssertEqual(queryItems?.first { $0.name == "render" }?.value, "false")
+            XCTAssertEqual(request.timeoutInterval, 180)
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,

@@ -433,6 +433,11 @@ public final class SyncClient {
             url = components?.url ?? url
         }
         var request = URLRequest(url: url)
+        // Multi-hole lightweight prep drives both progressive 备战 and the whole-course offline
+        // installer. Three real Garmin meshes can legitimately exceed URLSession's 60-second
+        // default while the shared server is finishing cold geometry. Let the bounded request
+        // finish once instead of repeating the same expensive batch and delaying every topo.
+        request.timeoutInterval = 180
         applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
