@@ -79,6 +79,9 @@ public struct AICaddieWatchApp: App {
                     reconcileAutoShot()
                     reconcileLocationServices()
                 }
+                .onChange(of: roundModel.screen, initial: true) { _, _ in
+                    reconcileAutoShot()
+                }
                 .onChange(of: gpsPreheatEnabled, initial: true) { _, _ in
                     reconcileLocationServices()
                 }
@@ -245,7 +248,7 @@ public struct AICaddieWatchApp: App {
 
     private func reconcileAutoShot() {
         let keepWorkoutActive = WatchLocationLaunchPolicy.shouldKeepRoundWorkoutSession(
-            hasActiveRound: roundModel.round != nil
+            hasActiveRound: roundModel.round != nil && roundModel.screen != .resume
         )
         Task {
             await autoShotProvider.reconcile(

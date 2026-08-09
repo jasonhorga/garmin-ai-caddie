@@ -91,6 +91,7 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.activeHoleState?.par, 3)
         XCTAssertEqual(model.activeHoleState?.distanceM, 148)
         XCTAssertEqual(model.activeHoleState?.globalId, 31795)
+        XCTAssertEqual(model.screen, .resume)
 
         let relaunched = WatchRoundModel(
             store: WatchRoundStore(directoryURL: directory)

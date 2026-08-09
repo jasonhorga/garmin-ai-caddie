@@ -536,7 +536,8 @@ public final class WatchRoundModel: ObservableObject {
         if let round, round.roundId != seed.roundId {
             return
         }
-        let awaitingExplicitResume = screen == .resume
+        let createsPhoneRound = round == nil
+        let awaitingExplicitResume = screen == .resume || createsPhoneRound
         let existing = round?.roundId == seed.roundId ? round : nil
         let states = seed.holes
             .sorted { $0.hole < $1.hole }
@@ -586,17 +587,17 @@ public final class WatchRoundModel: ObservableObject {
     /// Merge the richer live snapshot for one hole without dropping the seeded course or other holes.
     /// Pending on-Watch edits are replayed so a stale phone snapshot cannot silently undo them.
     public func receivePhoneState(_ state: WatchRoundState) {
-        guard let round, round.roundId == state.roundId,
+        guard let current = round, current.roundId == state.roundId,
               !store.isClosed(roundId: state.roundId) else {
             return
         }
-        let merged = (round?.pendingEvents ?? []).reduce(state) { partial, event in
+        let merged = current.pendingEvents.reduce(state) { partial, event in
             partial.applying(event)
         }
         guard let persisted = try? store.upsertHoleState(merged, makeActive: false) else {
             return
         }
-        round = persisted
+        self.round = persisted
     }
 
     /// Replace the active round with a fresh set of per-hole snapshots and start at the given hole.
