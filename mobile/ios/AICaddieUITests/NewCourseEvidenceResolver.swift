@@ -103,7 +103,7 @@ final class NewCourseEvidenceResolver {
         // searchable ready course as an idempotent fallback. The product journey already accepts
         // both honest first states and always requires a final precise topo.
         var readyFallback: NewCourseEvidence?
-        for match in matches.prefix(40) {
+        for match in matches.prefix(12) {
             guard let globalId = integer(match["globalId"]), globalId > 0,
                   !installedIds.contains(globalId),
                   let holes = integer(match["holes"]), holes == 9 || holes == 18,
