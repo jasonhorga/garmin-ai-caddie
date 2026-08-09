@@ -1,157 +1,356 @@
 import Foundation
 
-/// The review-edit state machine for one hole. Holds a mutable copy of the shot map and applies each
-/// edit **optimistically** (shows instantly — the "保存永远成功" feel), then POSTs it in the background
-/// via ``SyncClient``. On post failure it keeps the local change (surfaces ``pendingError``); a later
-/// ``refetch()`` reconciles with the authoritative server view. Mirrors the backend op semantics.
+/// One-hole review editor. Every gesture changes only this in-memory draft; Cancel restores the
+/// original map and Save emits exactly one whole-hole correction event. This keeps the visible map,
+/// numbered list, order, deletions and penalty count on one source of truth without partial writes.
 @MainActor
 public final class RoundEditModel: ObservableObject {
     @Published public var map: RoundHoleShotMap
-    @Published public var isEditing: Bool = false
-    @Published public var pendingError: String?
-    /// The shot currently being dragged (drives the drag handle highlight + magnifier).
+    @Published public private(set) var isEditing = false
+    @Published public private(set) var isSaving = false
+    @Published public private(set) var hasUnsavedChanges = false
+    @Published public var saveError: String?
     @Published public var draggingShotId: String?
+    @Published public var selectedShotId: String?
 
     private let sync: SyncClient
     private let roundRef: String
+    private var originalMap: RoundHoleShotMap
+    private var routeOrigin: [Int]?
+    private var pendingSaveOp: RoundCorrectionOp?
 
     public init(map: RoundHoleShotMap, sync: SyncClient, roundRef: String) {
         self.map = map
+        self.originalMap = map
         self.sync = sync
         self.roundRef = roundRef
+        self.routeOrigin = Self.resolvedRouteOrigin(in: map)
     }
 
-    public func enterEdit() { isEditing = true }
-    public func exitEdit() { isEditing = false; draggingShotId = nil }
+    public func enterEdit() {
+        guard !isSaving else { return }
+        map = editableCopy(of: originalMap)
+        routeOrigin = Self.resolvedRouteOrigin(in: originalMap)
+        isEditing = true
+        hasUnsavedChanges = false
+        saveError = nil
+        draggingShotId = nil
+        selectedShotId = nil
+        pendingSaveOp = nil
+    }
 
-    // MARK: edits — optimistic local change first, then background POST
+    /// Discard the complete draft. No network request has occurred, so this is a real cancellation.
+    public func cancelEdit() {
+        guard !isSaving else { return }
+        map = originalMap
+        isEditing = false
+        hasUnsavedChanges = false
+        saveError = nil
+        draggingShotId = nil
+        selectedShotId = nil
+        pendingSaveOp = nil
+    }
 
-    /// Insert a shot at the tapped pixel, between the shot after `afterShotId` and its neighbour
-    /// (assume-forward). Locally drawn immediately; the real stable id arrives on refetch.
-    public func addShot(px: [Double], club: String?, lie: String?, afterShotId: String?) {
-        let idx: Int
-        if let after = afterShotId, let i = map.shots.firstIndex(where: { $0.id == after }) {
-            idx = i + 1
+    /// Compatibility name for older call sites; leaving edit mode always means discarding its draft.
+    public func exitEdit() { cancelEdit() }
+
+    // MARK: - Draft-only operations
+
+    /// Add a position to the draft immediately. It goes after the selected/explicit shot, otherwise at
+    /// the end; the numbered list can then reorder it. No modal confirmation and no server write.
+    @discardableResult
+    public func addShot(
+        px: [Double],
+        club: String? = nil,
+        lie: String? = nil,
+        afterShotId: String? = nil
+    ) -> String {
+        let end = clampedPixel(px)
+        let insertIndex: Int
+        if let afterShotId,
+           let index = map.shots.firstIndex(where: { $0.id == afterShotId }) {
+            insertIndex = index + 1
         } else {
-            idx = 0
+            insertIndex = map.shots.count
         }
-        let prevEnd = idx > 0 ? map.shots[idx - 1].end : nil
-        let endPx = [Int(px[0].rounded()), Int(px[1].rounded())]
-        let shot = RoundShot(shotId: "local-\(UUID().uuidString)", start: prevEnd ?? endPx, end: endPx,
-                             club: club, lie: lie, endLie: nil, shotType: "MANUAL", order: nil,
-                             clubSource: club != nil ? "manual" : nil,
-                             lieSource: lie != nil ? "manual" : nil, synthetic: false)
-        map.shots.insert(shot, at: idx)
-        if idx + 1 < map.shots.count {
-            map.shots[idx + 1] = withEndpoints(map.shots[idx + 1], start: endPx)
-        }
-        post(.add(px: px, club: club, lie: lie, after: afterShotId)) { await self.refetch() }
+        let previous = insertIndex > 0 ? map.shots[insertIndex - 1] : nil
+        let shotId = "draft-\(UUID().uuidString.lowercased())"
+        let shot = RoundShot(
+            shotId: shotId,
+            start: previous?.end ?? routeOrigin ?? end,
+            end: end,
+            club: normalizedOptional(club),
+            lie: normalizedOptional(lie) ?? previous?.endLie,
+            endLie: nil,
+            shotType: "MANUAL",
+            order: insertIndex + 1,
+            clubSource: normalizedOptional(club) == nil ? nil : "manual",
+            lieSource: normalizedOptional(lie) == nil ? nil : "manual",
+            synthetic: false
+        )
+        map.shots.insert(shot, at: insertIndex)
+        reconnectDraft()
+        selectedShotId = shotId
+        markChanged()
+        return shotId
     }
 
-    /// Live drag preview: reposition the landing locally on every drag frame so both connecting lines
-    /// rubber-band under the finger. **No network** — the committed POST happens once on release (`move`).
+    /// Live long-press drag preview. It remains local and is discarded with the rest of the draft.
     public func previewMove(shotId: String, px: [Double]) {
-        applyLandingMove(shotId: shotId, px: px)
+        if applyLandingMove(shotId: shotId, px: px) { markChanged() }
     }
 
-    /// Drag a landing to a new pixel (on release): same local reposition as the live preview, then POST.
+    /// Finish a long-press drag locally. Save, not finger-up, owns persistence.
     public func move(shotId: String, px: [Double]) {
-        applyLandingMove(shotId: shotId, px: px)
-        #if DEBUG
-        // Real-app screenshot tests must exercise the production drag gesture without mutating the
-        // owner's Garmin history. Requiring BOTH flags keeps this narrowly scoped to the explicit
-        // UI-test evidence run; Release builds always take the normal POST path below.
-        let environment = ProcessInfo.processInfo.environment
-        if environment["UITEST_MODE"] == "1",
-           environment["UITEST_READ_ONLY_DRAG_PREVIEW"] == "1" {
+        guard applyLandingMove(shotId: shotId, px: px) else { return }
+        selectedShotId = shotId
+        markChanged()
+    }
+
+    public func editClub(shotId: String, _ value: String?) {
+        let changed = replaceShot(shotId) { shot in
+            RoundShot(
+                shotId: shot.shotId,
+                start: shot.start,
+                end: shot.end,
+                club: normalizedOptional(value),
+                lie: shot.lie,
+                endLie: shot.endLie,
+                shotType: shot.shotType,
+                order: shot.order,
+                clubSource: "manual",
+                lieSource: shot.lieSource,
+                synthetic: shot.synthetic
+            )
+        }
+        if changed { markChanged() }
+    }
+
+    public func editLie(shotId: String, _ value: String?) {
+        let changed = replaceShot(shotId) { shot in
+            RoundShot(
+                shotId: shot.shotId,
+                start: shot.start,
+                end: shot.end,
+                club: shot.club,
+                lie: normalizedOptional(value),
+                endLie: shot.endLie,
+                shotType: shot.shotType,
+                order: shot.order,
+                clubSource: shot.clubSource,
+                lieSource: "manual",
+                synthetic: shot.synthetic
+            )
+        }
+        if changed { markChanged() }
+    }
+
+    public func delete(shotId: String) {
+        guard map.shots.contains(where: { $0.id == shotId }) else { return }
+        map.shots.removeAll { $0.id == shotId }
+        if selectedShotId == shotId { selectedShotId = nil }
+        reconnectDraft()
+        markChanged()
+    }
+
+    public func reorder(_ ids: [String]) {
+        let byId = Dictionary(uniqueKeysWithValues: map.shots.map { ($0.id, $0) })
+        guard ids.count == map.shots.count,
+              Set(ids) == Set(byId.keys) else { return }
+        guard ids != map.shots.map(\.id) else { return }
+        map.shots = ids.compactMap { byId[$0] }
+        reconnectDraft()
+        markChanged()
+    }
+
+    public func setPenalty(_ value: Int) {
+        let clamped = min(max(0, value), 100)
+        guard clamped != map.manualPenalty else { return }
+        map.manualPenalty = clamped
+        markChanged()
+    }
+
+    // MARK: - Commit / refresh
+
+    /// Persist the whole approved draft in one idempotent request. Returns true only after the server
+    /// accepted it; a failure leaves the complete draft editable and retryable.
+    public func save() async -> Bool {
+        guard isEditing, !isSaving else { return false }
+        guard hasUnsavedChanges else {
+            map = originalMap
+            isEditing = false
+            selectedShotId = nil
+            return true
+        }
+
+        isSaving = true
+        saveError = nil
+        let operation = pendingSaveOp ?? RoundCorrectionOp.replaceHoleShots(
+            hole: map.hole,
+            shots: map.shots,
+            manualPenalty: map.manualPenalty,
+            geometryRevision: map.geometryRevision
+        )
+        pendingSaveOp = operation
+        do {
+            try await sync.postRoundCorrection(roundRef: roundRef, operation)
+            if let fresh = try? await sync.fetchRoundShotMap(roundRef: roundRef, hole: map.hole) {
+                map = fresh
+                originalMap = fresh
+            } else {
+                originalMap = map
+            }
+            routeOrigin = Self.resolvedRouteOrigin(in: originalMap)
+            isSaving = false
+            isEditing = false
+            hasUnsavedChanges = false
+            draggingShotId = nil
+            selectedShotId = nil
+            pendingSaveOp = nil
+            return true
+        } catch {
+            isSaving = false
+            saveError = "没有保存成功，草稿仍在；请检查网络后重试"
+            return false
+        }
+    }
+
+    /// Refresh only outside edit mode; an async read must never overwrite an unsaved draft.
+    public func refetch() async {
+        guard !isEditing,
+              let fresh = try? await sync.fetchRoundShotMap(roundRef: roundRef, hole: map.hole) else {
             return
         }
-        #endif
-        post(.move(shotId, px: px))
+        map = fresh
+        originalMap = fresh
+        routeOrigin = Self.resolvedRouteOrigin(in: fresh)
     }
 
-    /// Move a landing point locally: set this shot's `end` **and the next shot's `start`** (the same
-    /// physical point) to the dragged pixel, so the incoming *and* outgoing lines follow the drag.
-    private func applyLandingMove(shotId: String, px: [Double]) {
-        guard let i = map.shots.firstIndex(where: { $0.id == shotId }) else { return }
-        let endPx = [Int(px[0].rounded()), Int(px[1].rounded())]
-        map.shots[i] = withEndpoints(map.shots[i], end: endPx)
-        let next = i + 1
-        if next < map.shots.count {
-            map.shots[next] = withEndpoints(map.shots[next], start: endPx)
+    // MARK: - Helpers
+
+    private func markChanged() {
+        hasUnsavedChanges = true
+        saveError = nil
+        pendingSaveOp = nil
+    }
+
+    @discardableResult
+    private func applyLandingMove(shotId: String, px: [Double]) -> Bool {
+        guard let index = map.shots.firstIndex(where: { $0.id == shotId }) else { return false }
+        let end = clampedPixel(px)
+        let shot = map.shots[index]
+        guard shot.end != end else { return false }
+        map.shots[index] = RoundShot(
+            shotId: shot.shotId,
+            start: shot.start,
+            end: end,
+            club: shot.club,
+            lie: shot.lie,
+            endLie: shot.endLie,
+            shotType: shot.shotType,
+            order: shot.order,
+            clubSource: shot.clubSource,
+            lieSource: shot.lieSource,
+            synthetic: shot.synthetic
+        )
+        reconnectDraft()
+        return true
+    }
+
+    @discardableResult
+    private func replaceShot(_ id: String, transform: (RoundShot) -> RoundShot) -> Bool {
+        guard let index = map.shots.firstIndex(where: { $0.id == id }) else { return false }
+        let replacement = transform(map.shots[index])
+        guard replacement != map.shots[index] else { return false }
+        map.shots[index] = replacement
+        return true
+    }
+
+    private func reconnectDraft() {
+        var previousEnd: [Int]?
+        for index in map.shots.indices {
+            let shot = map.shots[index]
+            let start = index == 0 ? (routeOrigin ?? shot.start) : (previousEnd ?? shot.start)
+            map.shots[index] = RoundShot(
+                shotId: shot.shotId,
+                start: start,
+                end: shot.end,
+                club: shot.club,
+                lie: shot.lie,
+                endLie: shot.endLie,
+                shotType: shot.shotType,
+                order: index + 1,
+                clubSource: shot.clubSource,
+                lieSource: shot.lieSource,
+                synthetic: shot.synthetic
+            )
+            previousEnd = shot.end
         }
     }
 
-    private func withEndpoints(_ s: RoundShot, start: [Int]? = nil, end: [Int]? = nil) -> RoundShot {
-        RoundShot(shotId: s.shotId, start: start ?? s.start, end: end ?? s.end, club: s.club, lie: s.lie,
-                  endLie: s.endLie, shotType: s.shotType, order: s.order,
-                  clubSource: s.clubSource, lieSource: s.lieSource, synthetic: s.synthetic)
-    }
-
-    public func editClub(shotId: String, _ v: String) {
-        replaceShot(shotId) { s in
-            RoundShot(shotId: s.shotId, start: s.start, end: s.end, club: v, lie: s.lie,
-                      endLie: s.endLie, shotType: s.shotType, order: s.order,
-                      clubSource: "manual", lieSource: s.lieSource, synthetic: s.synthetic)
-        }
-        post(.editClub(shotId, v))
-    }
-
-    public func editLie(shotId: String, _ v: String) {
-        replaceShot(shotId) { s in
-            RoundShot(shotId: s.shotId, start: s.start, end: s.end, club: s.club, lie: v,
-                      endLie: s.endLie, shotType: s.shotType, order: s.order,
-                      clubSource: s.clubSource, lieSource: "manual", synthetic: s.synthetic)
-        }
-        post(.editLie(shotId, v))
-    }
-
-    /// Delete a shot directly (no reason, no undo — design §8). Deleting every shot is fine: the hole
-    /// never "bricks", you can tap the map to add one back.
-    public func delete(shotId: String) {
-        map.shots.removeAll { $0.id == shotId }
-        post(.delete(shotId))
-    }
-
-    /// Reorder the landing list to the given shotId order.
-    public func reorder(_ ids: [String]) {
-        var byId: [String: RoundShot] = [:]
-        for s in map.shots { byId[s.id] = s }
-        let reordered = ids.compactMap { byId[$0] }
-        if reordered.count == map.shots.count { map.shots = reordered }
-        post(.reorder(ids))
-    }
-
-    /// Set this hole's manual penalty count (the +/− stepper).
-    public func setPenalty(_ v: Int) {
-        let clamped = max(0, v)
-        map.manualPenalty = clamped
-        post(.setPenalty(hole: map.hole, clamped))
-    }
-
-    /// Silently reconcile with the authoritative server shot map (keeps local on failure).
-    public func refetch() async {
-        if let fresh = try? await sync.fetchRoundShotMap(roundRef: roundRef, hole: map.hole) {
-            map = fresh
-        }
-    }
-
-    // MARK: helpers
-
-    private func replaceShot(_ id: String, _ transform: (RoundShot) -> RoundShot) {
-        if let i = map.shots.firstIndex(where: { $0.id == id }) {
-            map.shots[i] = transform(map.shots[i])
-        }
-    }
-
-    private func post(_ op: RoundCorrectionOp, then after: (() async -> Void)? = nil) {
-        Task {
-            do {
-                try await sync.postRoundCorrection(roundRef: roundRef, op)
-                if let after { await after() }
-            } catch {
-                pendingError = "这条改动先显示着,存的时候没成,稍后会自动对齐"
+    private func editableCopy(of source: RoundHoleShotMap) -> RoundHoleShotMap {
+        var seen = Set<String>()
+        let shots = source.shots.enumerated().map { index, shot -> RoundShot in
+            let existing = shot.shotId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stableId: String
+            if let existing, !existing.isEmpty, seen.insert(existing).inserted {
+                stableId = existing
+            } else {
+                stableId = "draft-existing-\(UUID().uuidString.lowercased())"
+                seen.insert(stableId)
             }
+            return RoundShot(
+                shotId: stableId,
+                start: shot.start,
+                end: shot.end,
+                club: shot.club,
+                lie: shot.lie,
+                endLie: shot.endLie,
+                shotType: shot.shotType,
+                order: index + 1,
+                clubSource: shot.clubSource,
+                lieSource: shot.lieSource,
+                synthetic: shot.synthetic
+            )
         }
+        return RoundHoleShotMap(
+            found: source.found,
+            hole: source.hole,
+            par: source.par,
+            globalId: source.globalId,
+            localHole: source.localHole,
+            geometryRevision: source.geometryRevision,
+            map: source.map,
+            shots: shots,
+            manualPenalty: source.manualPenalty
+        )
+    }
+
+    private func clampedPixel(_ value: [Double]) -> [Int] {
+        let x = value.indices.contains(0) && value[0].isFinite ? value[0] : 0
+        let y = value.indices.contains(1) && value[1].isFinite ? value[1] : 0
+        let roundedX = max(Int(x.rounded()), 0)
+        let roundedY = max(Int(y.rounded()), 0)
+        guard let overlay = map.map?.overlay else { return [roundedX, roundedY] }
+        let width = max(overlay.w, 1)
+        let height = max(overlay.h, 1)
+        return [
+            min(roundedX, width - 1),
+            min(roundedY, height - 1),
+        ]
+    }
+
+    private func normalizedOptional(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed.caseInsensitiveCompare("unknown") == .orderedSame
+            ? nil
+            : trimmed
+    }
+
+    private static func resolvedRouteOrigin(in map: RoundHoleShotMap) -> [Int]? {
+        if let start = map.shots.first?.start, start.count >= 2 { return start }
+        guard let first = map.map?.overlay.route.first, first.count >= 2 else { return nil }
+        return [Int(first[0].rounded()), Int(first[1].rounded())]
     }
 }

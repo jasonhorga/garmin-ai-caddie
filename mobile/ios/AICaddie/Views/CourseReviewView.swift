@@ -17,14 +17,17 @@ public struct CourseReviewView: View {
     private let client: SyncClient
     private let globalId: Int
     private let holeCount: Int
+    private let teeBox: String
     @State private var holes: [CoursePrepHole] = []
     @State private var isLoading = false
     @State private var errorText: String?
 
-    public init(client: SyncClient, globalId: Int, holeCount: Int = 9) {
+    public init(client: SyncClient, globalId: Int, holeCount: Int = 9, teeBox: String? = nil) {
         self.client = client
         self.globalId = globalId
         self.holeCount = max(1, min(holeCount, 36))
+        let trimmedTeeBox = (teeBox ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        self.teeBox = trimmedTeeBox.isEmpty ? "blue" : trimmedTeeBox
     }
 
     public var body: some View {
@@ -44,7 +47,32 @@ public struct CourseReviewView: View {
         }
         .background(HubStyle.grouped)
         .navigationTitle("赛前球场攻略")
-        .task { await load() }
+        .task(id: globalId) {
+            // Catalogue search is metadata-only. Selecting a prep course must also start the same
+            // release-bound prodgeometry installation used by Start Round; otherwise every card can
+            // remain on its factual CourseView outline forever. Keep the fast rows progressive while
+            // that server-side upgrade runs in parallel.
+            async let preciseUpgrade: Void = requestPreciseCourseMaps()
+            await load()
+            _ = await preciseUpgrade
+        }
+    }
+
+    private func requestPreciseCourseMaps() async {
+        do {
+            _ = try await client.fetchCoursePackage(
+                globalId: globalId,
+                roundId: "prep-preview-\(globalId)",
+                teeBox: teeBox,
+                nine: "all",
+                ensureGeometry: false,
+                backgroundGeometry: true,
+                includeEventCursor: false
+            )
+        } catch {
+            // The lightweight rows remain useful and each visible card exposes a precise-map retry.
+            // Never replace already-loaded prep facts with a package-kickoff error.
+        }
     }
 
     private func load() async {
@@ -80,6 +108,20 @@ public struct CourseReviewView: View {
     }
 }
 
+/// A lightweight CourseView route can resolve a perfectly drawable overlay, but it is still only a
+/// preparation state. Keeping this policy separate makes it impossible for another non-nil-overlay
+/// check to silently promote partial geometry to the accepted prep-map final state.
+enum CourseReviewMapPolicy {
+    static func hasPreciseFacts(_ hole: CoursePrepHole) -> Bool {
+        hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
+            && hole.resolvedMapOverlay != nil
+    }
+
+    static func requiresPreciseUpgrade(_ hole: CoursePrepHole) -> Bool {
+        !hasPreciseFacts(hole) && !hole.route.isEmpty
+    }
+}
+
 /// Shows the lightweight factual row immediately and requests a rendered map only after this card
 /// enters the LazyVStack viewport. A failed optional bitmap never erases distances or advice.
 private struct CourseReviewHoleCard: View {
@@ -90,11 +132,9 @@ private struct CourseReviewHoleCard: View {
     @State private var renderedHole: CoursePrepHole?
     @State private var isLoadingMap = false
     @State private var didTryMap = false
+    @State private var mapUnavailable = false
 
     private var hole: CoursePrepHole { renderedHole ?? initialHole }
-    private var canLoadMap: Bool {
-        initialHole.resolvedMapOverlay == nil && initialHole.map == nil && !initialHole.route.isEmpty
-    }
 
     var body: some View {
         HolePrepCard(
@@ -106,29 +146,64 @@ private struct CourseReviewHoleCard: View {
                 geometryRevision: hole.geometryRevision
             ),
             isLoadingMap: isLoadingMap,
-            mapUnavailable: didTryMap && renderedHole?.map == nil
+            mapUnavailable: mapUnavailable,
+            onRetryMap: retryPreciseMap,
+            requiresPreciseMap: true
         )
         .task(id: initialHole.hole) { await loadMapIfNeeded() }
     }
 
     @MainActor
     private func loadMapIfNeeded() async {
-        guard canLoadMap, !didTryMap else { return }
+        guard CourseReviewMapPolicy.requiresPreciseUpgrade(hole), !didTryMap else { return }
         didTryMap = true
         isLoadingMap = true
+        mapUnavailable = false
         defer { isLoadingMap = false }
-        do {
-            renderedHole = try await client.fetchHolePrep(
-                globalId: globalId,
-                localHole: initialHole.hole,
-                render: true
-            )
-        } catch is CancellationError {
-            // Lazy rows are cancelled when scrolled off-screen; allow a later appearance to retry.
-            didTryMap = false
-        } catch {
-            renderedHole = nil
+
+        // Prodgeometry installation is asynchronous. Probe cheap file authority first and pay for a
+        // precise prep rebuild only after this exact hole reports ready. The delays cover an ordinary
+        // cold install without repeatedly rebuilding the same partial payload.
+        for delaySeconds in [0, 2, 5, 10, 20, 30] {
+            do {
+                if delaySeconds > 0 {
+                    try await Task.sleep(nanoseconds: UInt64(delaySeconds) * 1_000_000_000)
+                }
+                guard !Task.isCancelled else { throw CancellationError() }
+
+                let coverage = try await client.fetchCourseGeometryCoverage(
+                    globalId: globalId,
+                    holes: [initialHole.hole]
+                )
+                guard coverage.holes.contains(where: {
+                    $0.localHole == initialHole.hole
+                        && $0.coverage.caseInsensitiveCompare("ready") == .orderedSame
+                }) else { continue }
+
+                guard let precise = try await client.fetchHolePrep(
+                    globalId: globalId,
+                    localHole: initialHole.hole
+                ), CourseReviewMapPolicy.hasPreciseFacts(precise) else { continue }
+                renderedHole = precise
+                return
+            } catch is CancellationError {
+                // Lazy rows are cancelled when scrolled off-screen; allow their next appearance to
+                // resume rather than permanently recording a failed attempt.
+                didTryMap = false
+                return
+            } catch {
+                // A transient coverage/prep failure consumes this bounded attempt; later attempts use
+                // the same exact geometry authority and never fall back to a different data source.
+                continue
+            }
         }
+        mapUnavailable = true
+    }
+
+    private func retryPreciseMap() {
+        didTryMap = false
+        mapUnavailable = false
+        Task { await loadMapIfNeeded() }
     }
 }
 
@@ -138,13 +213,19 @@ struct HolePrepCard: View {
     var topoURL: URL? = nil
     var isLoadingMap = false
     var mapUnavailable = false
+    var onRetryMap: (() -> Void)? = nil
+    /// Course prep must not present the affine CourseView outline as the final topo. Other preview
+    /// call sites may still opt into the lightweight drawing while precise geometry is preparing.
+    var requiresPreciseMap = false
     @State private var showsAllHazards = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
             // 服务端真实球场图 + 推荐打法(route + 推荐落点 + 球杆)叠加。
-            if hole.resolvedMapOverlay != nil {
+            if requiresPreciseMap && !CourseReviewMapPolicy.hasPreciseFacts(hole) {
+                preciseMapPlaceholder
+            } else if hole.resolvedMapOverlay != nil {
                 HoleImageMapView(hole: hole, topoURL: topoURL)
                     // Keep the AsyncImage loading/ready children in the accessibility tree while
                     // retaining this hole-specific container identifier for UI navigation.
@@ -172,6 +253,36 @@ struct HolePrepCard: View {
             }
         }
         .hubCard()
+    }
+
+    @ViewBuilder
+    private var preciseMapPlaceholder: some View {
+        VStack(spacing: 10) {
+            if isLoadingMap || !mapUnavailable {
+                ProgressView()
+                Text("精确球洞地图准备中")
+                    .font(.caption.weight(.semibold))
+                    .accessibilityIdentifier("prep-hole-map-precise-loading")
+            } else if let onRetryMap {
+                Button(action: onRetryMap) {
+                    Label("精确地图暂不可用 · 重试", systemImage: "arrow.clockwise")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("prep-hole-map-precise-retry")
+            }
+            Text("地图完成前不显示简化轮廓")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, minHeight: 220)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.secondary.opacity(0.08))
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("prep-hole-map-\(hole.hole)")
     }
 
     // MARK: 头部:洞号 + Par + 蓝T + 实打(坡度)

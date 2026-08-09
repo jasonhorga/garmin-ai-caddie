@@ -2184,7 +2184,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("holes = merged.values.sorted { $0.hole < $1.hole }", course_review)
         self.assertIn("LazyVStack(alignment: .leading, spacing: 14)", course_review)
         self.assertIn("fetchHolePrep(", course_review)
-        self.assertIn("mapUnavailable: didTryMap && renderedHole?.map == nil", course_review)
+        # Prep selection starts precise geometry installation. A drawable partial CourseView outline
+        # remains a preparation state and is hidden until ready topo authority exists.
+        self.assertIn("backgroundGeometry: true", course_review)
+        self.assertIn("CourseReviewMapPolicy.hasPreciseFacts", course_review)
+        self.assertIn("requiresPreciseMap: true", course_review)
+        self.assertIn("精确球洞地图准备中", course_review)
+        self.assertIn("地图完成前不显示简化轮廓", course_review)
+        self.assertIn("fetchCourseGeometryCoverage", course_review)
         # De-engineered: the "Par 来源：…" provenance label is hidden from the consumer course review.
         self.assertNotIn("Par 来源", course_review)
         # Course review and the full caddie plan share one measured hazard projection.  Both water
@@ -3169,15 +3176,19 @@ class MobileContractTests(unittest.TestCase):
             self.assertIn('app.buttons["关闭"]', ui_test)
             self.assertNotIn('identifier CONTAINS "落点"', ui_test)
             self.assertIn('matching(identifier: "topo-hole-base-ready")', ui_test)
-            self.assertIn('app.buttons["Reorder 2"]', ui_test)
+        self.assertIn('app.buttons["Reorder 2"]', real_flow)
+        self.assertIn('identifier: "shot-draft-row-\\(reviewEvidence.shotCount)"', review_edit)
+        self.assertIn('identifier: allowWrites ? "round-edit-save" : "round-edit-cancel"', review_edit)
         self.assertIn('matching(identifier: "home-last-round-row")', real_flow)
         self.assertIn('save("03-history-list")', real_flow)
         self.assertIn('save("03b-history-real-round")', real_flow)
-        # The modal pager's close action and its edit toggle must not both render as trailing
-        # "完成" buttons. Close is leading and explicitly named; 编辑/完成 remains trailing.
+        # The modal pager's close action remains explicit. Hole editing exposes distinct Cancel/Save
+        # identifiers rather than overloading another ambiguous "完成" action.
         self.assertIn('ToolbarItem(placement: .topBarLeading)', round_review)
         self.assertIn('Button("关闭") { shotMapHole = nil }', round_review)
         self.assertNotIn('Button("完成") { shotMapHole = nil }', round_review)
+        self.assertIn('accessibilityIdentifier("round-edit-cancel")', shot_map)
+        self.assertIn('accessibilityIdentifier("round-edit-save")', shot_map)
         # 04d is valid evidence only when the coordinate tap really opened the add-shot sheet.
         self.assertIn('app.navigationBars["补一杆"]', real_flow)
         self.assertIn('app.staticTexts["击球时球位"]', real_flow)
@@ -3732,7 +3743,7 @@ class RoundEditContractTests(unittest.TestCase):
 
     def test_correction_op_payload_covers_all_ops(self):
         op = _read_required_source(self, IOS_DIR / "Models" / "RoundCorrection.swift")
-        for token in ["addShot", "reorderShot", "editField", "setHolePenalty", "deleteShot", "position", "insertAfterShotId"]:
+        for token in ["replaceHoleShots", "shots", "manualPenalty", "geometryRevision", "clientMutationId"]:
             self.assertIn(token, op)
 
     def test_sync_client_posts_corrections(self):
@@ -3740,18 +3751,19 @@ class RoundEditContractTests(unittest.TestCase):
         self.assertIn("postRoundCorrection", sync)
         self.assertIn("/corrections", sync)
 
-    def test_edit_engine_is_optimistic(self):
+    def test_edit_engine_is_a_whole_hole_draft(self):
         engine = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
-        for token in ["addShot", "move", "editClub", "editLie", "delete", "reorder", "setPenalty", "isEditing"]:
+        for token in ["addShot", "move", "editClub", "editLie", "delete", "reorder", "setPenalty", "cancelEdit", "save()", "replaceHoleShots"]:
             self.assertIn(token, engine)
+        self.assertNotIn("private func post(", engine)
 
     def test_edit_ui_controls_present(self):
         comps = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
-        for token in ["RoundShotEditLayer", "ShotEditSheet", "AddShotSheet", "PenaltyStepper", "本洞罚杆"]:
+        for token in ["RoundShotEditLayer", "ShotEditSheet", "LongPressGesture", "RoundShotReorderList", "PenaltyStepper", "本洞罚杆"]:
             self.assertIn(token, comps)
         screen = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
-        self.assertIn("RoundEditModel", screen)
-        self.assertIn("编辑", screen)
+        for token in ["RoundEditModel", "编辑", "取消", "保存", "saveEditing"]:
+            self.assertIn(token, screen)
 
     def test_drag_to_move_and_magnifier_present(self):
         """PR2 拖动改位置 + 放大镜:手柄拖动手势 + 拖动态 + loupe 都在源码里。"""
@@ -3759,7 +3771,7 @@ class RoundEditContractTests(unittest.TestCase):
         for token in ["DragGesture", "draggingShotId", "MagnifierLoupe", "previewMove"]:
             self.assertIn(token, comps)
         model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
-        # Live drag preview updates locally without a POST (commit happens on release via move()).
+        # Live drag preview and finger-up both remain local; the screen-level Save owns persistence.
         self.assertIn("previewMove", model)
 
     def test_landing_list_manual_reorder_present(self):

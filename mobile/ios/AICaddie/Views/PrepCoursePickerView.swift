@@ -40,7 +40,8 @@ public struct PrepCoursePickerView: View {
                 CourseReviewView(
                     client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken),
                     globalId: course.globalId,
-                    holeCount: course.resolvedHoles
+                    holeCount: course.resolvedHoles,
+                    teeBox: course.teeBox
                 )
             }
         }

@@ -17,6 +17,7 @@ struct RealEvidenceRound: Equatable {
     let globalId: Int
     let localHole: Int
     let clubs: [String]
+    let shotCount: Int
     let landing: RealEvidencePoint
     let emptyMapPoint: RealEvidencePoint
 
@@ -30,6 +31,7 @@ struct RealEvidenceRound: Equatable {
             "globalId=\(globalId)",
             "localHole=\(localHole)",
             "clubs=\(clubs.joined(separator: ","))",
+            "shotCount=\(shotCount)",
             "landing=\(landing.x),\(landing.y)",
             "emptyMapPoint=\(emptyMapPoint.x),\(emptyMapPoint.y)",
         ].joined(separator: "\n")
@@ -193,6 +195,7 @@ final class RealEvidenceRoundResolver {
                     globalId: globalId,
                     localHole: localHole,
                     clubs: [pair.first.club, pair.second.club],
+                    shotCount: shots.count,
                     landing: landing,
                     emptyMapPoint: farthestEmptyPoint(from: allPoints, width: width, height: height)
                 )

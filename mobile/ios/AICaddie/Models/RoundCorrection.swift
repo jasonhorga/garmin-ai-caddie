@@ -18,8 +18,8 @@ public enum AnyCodableValue: Encodable, Equatable {
 }
 
 /// One review-edit operation, POSTed to `/api/v2/history/rounds/{ref}/corrections`
-/// (mirrors server `RoundCorrectionRequest`). Only non-nil fields go on the wire, and every op
-/// carries a fresh `clientMutationId` so retries are idempotent.
+/// (mirrors server `RoundCorrectionRequest`). New clients commit one whole-hole draft as a single
+/// `replaceHoleShots` event; the granular fields remain decodable by older builds.
 public struct RoundCorrectionOp: Encodable, Equatable {
     public let op: String
     public var shotId: String?
@@ -32,12 +32,16 @@ public struct RoundCorrectionOp: Encodable, Equatable {
     public var lie: String?
     public var insertAfterShotId: String?
     public var order: [String]?
+    public var shots: [RoundShot]?
+    public var manualPenalty: Int?
+    public var geometryRevision: String?
     public var clientMutationId: String?
 
     public init(op: String, shotId: String? = nil, hole: Int? = nil, field: String? = nil,
                 value: AnyCodableValue? = nil, reason: String? = nil, px: [Double]? = nil,
                 club: String? = nil, lie: String? = nil, insertAfterShotId: String? = nil,
-                order: [String]? = nil, clientMutationId: String? = UUID().uuidString) {
+                order: [String]? = nil, shots: [RoundShot]? = nil, manualPenalty: Int? = nil,
+                geometryRevision: String? = nil, clientMutationId: String? = UUID().uuidString) {
         self.op = op
         self.shotId = shotId
         self.hole = hole
@@ -49,11 +53,15 @@ public struct RoundCorrectionOp: Encodable, Equatable {
         self.lie = lie
         self.insertAfterShotId = insertAfterShotId
         self.order = order
+        self.shots = shots
+        self.manualPenalty = manualPenalty
+        self.geometryRevision = geometryRevision
         self.clientMutationId = clientMutationId
     }
 
     private enum CodingKeys: String, CodingKey {
-        case op, shotId, hole, field, value, reason, px, club, lie, insertAfterShotId, order, clientMutationId
+        case op, shotId, hole, field, value, reason, px, club, lie, insertAfterShotId, order
+        case shots, manualPenalty, geometryRevision, clientMutationId
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -69,6 +77,9 @@ public struct RoundCorrectionOp: Encodable, Equatable {
         try c.encodeIfPresent(lie, forKey: .lie)
         try c.encodeIfPresent(insertAfterShotId, forKey: .insertAfterShotId)
         try c.encodeIfPresent(order, forKey: .order)
+        try c.encodeIfPresent(shots, forKey: .shots)
+        try c.encodeIfPresent(manualPenalty, forKey: .manualPenalty)
+        try c.encodeIfPresent(geometryRevision, forKey: .geometryRevision)
         try c.encodeIfPresent(clientMutationId, forKey: .clientMutationId)
     }
 
@@ -90,5 +101,21 @@ public struct RoundCorrectionOp: Encodable, Equatable {
     public static func reorder(_ ids: [String]) -> Self { .init(op: "reorderShot", order: ids) }
     public static func setPenalty(hole: Int, _ v: Int) -> Self {
         .init(op: "setHolePenalty", hole: hole, value: .int(v))
+    }
+    public static func replaceHoleShots(
+        hole: Int,
+        shots: [RoundShot],
+        manualPenalty: Int,
+        geometryRevision: String?,
+        clientMutationId: String = UUID().uuidString
+    ) -> Self {
+        .init(
+            op: "replaceHoleShots",
+            hole: hole,
+            shots: shots,
+            manualPenalty: max(0, manualPenalty),
+            geometryRevision: geometryRevision,
+            clientMutationId: clientMutationId
+        )
     }
 }

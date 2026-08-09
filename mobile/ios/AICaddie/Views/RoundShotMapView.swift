@@ -227,6 +227,7 @@ public struct RoundHoleShotMapScreen: View {
     @State private var errorText: String?
     @State private var editModel: RoundEditModel?
     @State private var isEditing = false
+    @State private var isSaving = false
 
     public init(roundRef: String, hole: Int, apiBaseURL: URL? = nil, adminToken: String? = nil,
                 showsNavigationTitle: Bool = true, onEditingChange: ((Bool) -> Void)? = nil) {
@@ -250,22 +251,42 @@ public struct RoundHoleShotMapScreen: View {
         .navigationTitle(showsNavigationTitle ? "第 \(hole) 洞 · 落点" : "")
         .toolbar {
             if let sm = shotMap, sm.found, sm.map != nil, editModel != nil {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(isEditing ? "完成" : "编辑") {
-                        if isEditing {
-                            isEditing = false
-                            onEditingChange?(false)
-                            Task { await editModel?.refetch(); shotMap = editModel?.map }
-                        } else {
-                            editModel?.enterEdit()
-                            isEditing = true
-                            onEditingChange?(true)
+                if isEditing {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("取消") { cancelEditing() }
+                            .disabled(isSaving)
+                            .accessibilityIdentifier("round-edit-cancel")
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            Task { await saveEditing() }
+                        } label: {
+                            if isSaving {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .accessibilityLabel("保存中")
+                            } else {
+                                Text("保存")
+                            }
                         }
+                        .disabled(isSaving)
+                        .accessibilityIdentifier("round-edit-save")
+                    }
+                } else {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("编辑") { beginEditing() }
                     }
                 }
             }
         }
         .task(id: hole) { await load() }
+        .onDisappear {
+            guard isEditing else { return }
+            editModel?.cancelEdit()
+            isEditing = false
+            isSaving = false
+            onEditingChange?(false)
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -273,6 +294,7 @@ public struct RoundHoleShotMapScreen: View {
             Group {
                 if isEditing, let editModel {
                     RoundShotEditContent(editModel: editModel, topoURL: topoURL(for: shotMap))
+                        .allowsHitTesting(!isSaving)
                 } else {
                     VStack(spacing: 12) {
                         RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))
@@ -319,6 +341,9 @@ public struct RoundHoleShotMapScreen: View {
     @MainActor
     private func load() async {
         guard let apiBaseURL else { isLoading = false; errorText = "未配置后端地址"; return }
+        if isEditing { onEditingChange?(false) }
+        isEditing = false
+        isSaving = false
         isLoading = true
         errorText = nil
         do {
@@ -330,6 +355,35 @@ public struct RoundHoleShotMapScreen: View {
             errorText = "这一洞落点暂时取不到"
         }
         isLoading = false
+    }
+
+    @MainActor
+    private func beginEditing() {
+        guard !isSaving, let editModel else { return }
+        editModel.enterEdit()
+        isEditing = true
+        onEditingChange?(true)
+    }
+
+    @MainActor
+    private func cancelEditing() {
+        guard !isSaving, let editModel else { return }
+        editModel.cancelEdit()
+        shotMap = editModel.map
+        isEditing = false
+        onEditingChange?(false)
+    }
+
+    @MainActor
+    private func saveEditing() async {
+        guard !isSaving, let editModel else { return }
+        isSaving = true
+        let saved = await editModel.save()
+        isSaving = false
+        guard saved else { return }
+        shotMap = editModel.map
+        isEditing = false
+        onEditingChange?(false)
     }
 }
 

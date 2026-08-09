@@ -35,8 +35,9 @@ class RoundEditStartLieContractTests(unittest.TestCase):
     def test_local_manual_shot_does_not_fabricate_end_lie(self) -> None:
         source = MODEL.read_text(encoding="utf-8")
 
-        self.assertIn("club: club, lie: lie, endLie: nil", source)
-        self.assertNotIn("club: club, lie: lie, endLie: lie", source)
+        add_shot = source.split("public func addShot", 1)[1].split("public func previewMove", 1)[0]
+        self.assertIn("endLie: nil", add_shot)
+        self.assertNotIn("endLie: normalizedOptional(lie)", add_shot)
 
     def test_every_editable_start_lie_has_a_visible_label(self) -> None:
         source = SHOT_MAP.read_text(encoding="utf-8")

@@ -2,16 +2,15 @@ import XCTest
 
 /// Real running-app screenshots of the **复盘编辑** flow (PR2) from the iOS Simulator (XCUITest).
 /// Launches the ACTUAL app against the live backend (funnel) with the owner admin token, navigates
-/// 历史复盘 → a round → a hole's 落点图, taps 「编辑」, and captures each edit affordance: drag handles
-/// on every landing, the 「补一杆」 add sheet, the 「改这一杆」 edit sheet, and (optionally) a handle drag.
+/// 历史复盘 → a round → a hole's 落点图, taps 「编辑」, and captures the whole-hole draft flow:
+/// numbered landings, long-press add/move, details, count list, delete, then Cancel or final Save.
 ///
 /// Runs on-demand only (`native-mobile.yml` gates the AICaddieUITests scheme behind workflow_dispatch),
 /// same as ``RealFlowUITests``. PNGs + per-screen element-tree dumps land in the test process Documents
 /// dir; the workflow collects `*Documents/real-screenshots/*`.
 ///
-/// **Safe by default:** every step that would WRITE a correction to the owner's real history is gated
-/// behind `UITEST_ALLOW_EDIT_WRITES=1`. Routine evidence runs launch the real app in a strict Debug-only
-/// read-only drag mode: the production gesture and local rubber-band run, but its correction POST is skipped.
+/// **Safe by default:** every draft gesture is local and the journey ends with Cancel. A dedicated
+/// writable fixture may set `UITEST_ALLOW_EDIT_WRITES=1` to exercise the single final snapshot POST.
 final class ReviewEditUITests: XCTestCase {
     private let app = XCUIApplication()
 
@@ -31,9 +30,6 @@ final class ReviewEditUITests: XCTestCase {
         app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
         app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.5461531"
         app.launchEnvironment["UITEST_MODE"] = "1"
-        if !allowWrites {
-            app.launchEnvironment["UITEST_READ_ONLY_DRAG_PREVIEW"] = "1"
-        }
     }
 
     func testCaptureReviewEditFlow() throws {
@@ -111,29 +107,31 @@ final class ReviewEditUITests: XCTestCase {
         }
         let editTopoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
-        guard editTopoReady.waitForExistence(timeout: 75), app.buttons["Reorder 2"].waitForExistence(timeout: 12) else {
+        let lastBaselineRow = app.descendants(matching: .any)
+            .matching(identifier: "shot-draft-row-\(reviewEvidence.shotCount)").firstMatch
+        guard editTopoReady.waitForExistence(timeout: 75), lastBaselineRow.waitForExistence(timeout: 12) else {
             XCTFail("edit evidence requires the real topo and the two real recorded shots returned for this hole")
             return
         }
         settle(2); save("04-edit-handles"); dump("04-edit-handles")
 
-        // ---- 补一杆: tap empty topo near a verified landing → add sheet; cancel (no write) ----
-        // The globally farthest empty coordinate can be valid map space but transparent terrain
-        // outside the rendered hole. Keep this evidence point one handle-clear offset from a real
-        // landing so the persistent loupe must contain actual topo rather than an honest blank edge.
+        // ---- 连续草稿: long-press empty topo and drag to place a numbered point; no sheet/no write ----
         let addEvidencePoint = dragDestination(from: reviewEvidence.landing)
-        editTopoReady.coordinate(withNormalizedOffset: CGVector(
+        let addStart = editTopoReady.coordinate(withNormalizedOffset: CGVector(
             dx: addEvidencePoint.x,
             dy: addEvidencePoint.y
-        )).tap()
-        let addSheet = app.navigationBars["补一杆"]
-        XCTAssertTrue(addSheet.waitForExistence(timeout: 5), "05 must be the real 补一杆 sheet")
-        settle(2); save("05-add-sheet"); dump("05-add-sheet")
-        let cancelAdd = addSheet.buttons["取消"]
-        XCTAssertTrue(cancelAdd.exists && cancelAdd.isHittable, "the add sheet must expose its own cancel action")
-        cancelAdd.tap()
-        XCTAssertTrue(waitUntilGone(addSheet, timeout: 5), "cancel must dismiss the add sheet before editing a landing")
-        settle(1)
+        ))
+        let addEnd = editTopoReady.coordinate(withNormalizedOffset: CGVector(
+            dx: min(addEvidencePoint.x + 0.025, 0.95),
+            dy: max(addEvidencePoint.y - 0.025, 0.05)
+        ))
+        addStart.press(forDuration: 0.65, thenDragTo: addEnd)
+        let addedCount = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "共 \(reviewEvidence.shotCount + 1) 杆")
+        ).firstMatch
+        XCTAssertTrue(addedCount.waitForExistence(timeout: 5), "long press must append a numbered local draft")
+        XCTAssertFalse(app.navigationBars["补一杆"].exists, "adding a draft point must not interrupt with the old sheet")
+        settle(2); save("05-add-draft"); dump("05-add-draft")
 
         // ---- 改这一杆: tap selects the landing first; the explicit details button opens the sheet ----
         // A landing tap must remain available for a drag and therefore must not unexpectedly replace
@@ -187,7 +185,7 @@ final class ReviewEditUITests: XCTestCase {
         XCTAssertTrue(waitUntilGone(editSheet, timeout: 5), "sheet completion must return to the editable map")
         settle(1)
 
-        // ---- Drag a real handle. Routine runs preserve the local preview but skip the correction POST. ----
+        // ---- Long-press drag a real numbered handle. Finger-up still stays in the local draft. ----
         // Reuse the verified landing coordinate that opened 改这一杆 above. Move inward so an edge
         // landing still produces a real handle drag rather than an off-map gesture.
         let dragDestination = dragDestination(from: reviewEvidence.landing)
@@ -211,19 +209,39 @@ final class ReviewEditUITests: XCTestCase {
         )
         settle(2); save("07-drag-move"); dump("07-drag-move")
 
-        // Leave edit mode (unlocks 翻洞). 完成 is the same nav button toggled.
-        let finishMapEdit = app.buttons["完成"].firstMatch
-        XCTAssertTrue(
-            finishMapEdit.waitForExistence(timeout: 5) && finishMapEdit.isHittable,
-            "the parent edit mode must still expose 完成 after the child sheet closes"
-        )
-        finishMapEdit.tap()
+        // ---- Delete from the count list. The other draft points stay available until final action. ----
+        let addedDraftRow = app.descendants(matching: .any)
+            .matching(identifier: "shot-draft-row-\(reviewEvidence.shotCount + 1)").firstMatch
+        XCTAssertTrue(addedDraftRow.waitForExistence(timeout: 5), "the added point must exist in the count list")
+        for _ in 0..<4 where !addedDraftRow.isHittable {
+            app.swipeUp()
+            settle(0.5)
+        }
+        XCTAssertTrue(addedDraftRow.isHittable, "the count-list row must be reachable in the review scroll")
+        addedDraftRow.swipeLeft()
+        let deleteAdded = app.descendants(matching: .any)
+            .matching(identifier: "shot-draft-delete-\(reviewEvidence.shotCount + 1)").firstMatch
+        XCTAssertTrue(deleteAdded.waitForExistence(timeout: 5) && deleteAdded.isHittable)
+        deleteAdded.tap()
+        let baselineCount = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "共 \(reviewEvidence.shotCount) 杆")
+        ).firstMatch
+        XCTAssertTrue(baselineCount.waitForExistence(timeout: 5), "delete must renumber the same local list")
+        settle(2); save("08-delete-draft"); dump("08-delete-draft")
+
+        // Routine evidence must leave the owner's history untouched. A dedicated writable fixture
+        // takes the identical path through the one final Save action.
+        let finalAction = app.descendants(matching: .any).matching(
+            identifier: allowWrites ? "round-edit-save" : "round-edit-cancel"
+        ).firstMatch
+        XCTAssertTrue(finalAction.waitForExistence(timeout: 5) && finalAction.isHittable)
+        finalAction.tap()
         XCTAssertTrue(
             app.buttons["编辑"].waitForExistence(timeout: 12),
-            "08 may be captured only after the map has returned to read-only mode"
+            "09 may be captured only after Save/Cancel returns to read-only mode"
         )
-        XCTAssertFalse(app.navigationBars["补一杆"].exists, "08 must never retain a mislabeled add sheet")
-        XCTAssertFalse(app.navigationBars["改这一杆"].exists, "08 must never retain a mislabeled edit sheet")
+        XCTAssertFalse(app.navigationBars["补一杆"].exists, "09 must never retain the removed add sheet")
+        XCTAssertFalse(app.navigationBars["改这一杆"].exists, "09 must never retain the detail sheet")
         // Switching from RoundShotEditContent back to the read-only RoundShotMapView creates a new
         // AsyncImage.  The 编辑 button returns before that image has finished loading, so waiting a
         // fixed two seconds can capture the transient "球场地图加载中…" overlay as if it were I31.
@@ -234,16 +252,16 @@ final class ReviewEditUITests: XCTestCase {
         _ = readOnlyTopoLoading.waitForExistence(timeout: 5)
         XCTAssertTrue(
             waitUntilGone(readOnlyTopoLoading, timeout: 75),
-            "08 may be captured only after the read-only topo loading overlay disappears"
+            "09 may be captured only after the read-only topo loading overlay disappears"
         )
         let readOnlyTopoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
         XCTAssertTrue(
             readOnlyTopoReady.waitForExistence(timeout: 75),
-            "08 requires the real read-only topo after leaving edit mode"
+            "09 requires the real read-only topo after leaving edit mode"
         )
-        XCTAssertFalse(readOnlyTopoLoading.exists, "08 must not contain 球场地图加载中…")
-        settle(2); save("08-edit-done"); dump("08-edit-done")
+        XCTAssertFalse(readOnlyTopoLoading.exists, "09 must not contain 球场地图加载中…")
+        settle(2); save("09-edit-done"); dump("09-edit-done")
     }
 
     // MARK: - navigation helpers

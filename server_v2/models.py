@@ -476,7 +476,11 @@ class RoundHoleShotMapResponse(BaseModel):
 class RoundCorrectionRequest(BaseModel):
     """一条复盘修改事件:增/改/删一杆,或给某洞手填罚杆。见 ai_caddie/rounds/round_corrections.py。"""
 
-    op: str  # deleteShot | restoreShot | editField | setHolePenalty | addShot | reorderShot
+    # A misspelled edit field must fail loudly. The previous permissive default silently discarded
+    # legacy addShot.club/lie even though iOS sent them, making the edit look saved until refetch.
+    model_config = ConfigDict(extra="forbid")
+
+    op: str  # legacy granular ops, or replaceHoleShots for one atomic whole-hole draft save
     shotId: str | None = None
     hole: int | None = None
     field: str | None = None  # editField 时:club | lie | position
@@ -484,8 +488,16 @@ class RoundCorrectionRequest(BaseModel):
     reason: str | None = None  # deleteShot 的删因(可选;iOS 不发即无)
     clientMutationId: str | None = None  # 幂等键
     px: list[float] | None = None  # addShot:点地图的落点像素 [x, y]
+    club: str | None = None  # legacy addShot client; retained so Pydantic does not silently drop it
+    lie: str | None = None  # legacy addShot start lie
     insertAfterShotId: str | None = None  # addShot:插在这一杆之后(None=最前/空洞第一杆)
     order: list[str] | None = None  # reorderShot:该洞落点的目标顺序(按 shotId 列)
+    # replaceHoleShots:the complete user-approved draft in the current topo pixel frame. One stored
+    # event makes Cancel genuinely write nothing and Save one atomic correction instead of a partial
+    # series of add/move/delete requests.
+    shots: list[dict[str, Any]] | None = None
+    manualPenalty: int | None = None
+    geometryRevision: str | None = None
 
 
 class RoundCorrectionResponse(BaseModel):

@@ -69,6 +69,139 @@ def _par_for(row: dict[str, Any], hole: int) -> int | None:
     return None
 
 
+def _pixel_pair(value: Any, width: int, height: int) -> list[int] | None:
+    if not isinstance(value, list) or len(value) != 2:
+        return None
+    try:
+        x = int(round(float(value[0])))
+        y = int(round(float(value[1])))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return [min(max(x, 0), max(width - 1, 0)), min(max(y, 0), max(height - 1, 0))]
+
+
+def _reconnect_pixel_shots(rows: list[dict[str, Any]], tee_px: list[int] | None) -> None:
+    """Make list order and map lines one fact after any draft reorder/delete/add."""
+    previous_end: list[int] | None = None
+    for index, shot in enumerate(rows):
+        if index == 0:
+            shot["start"] = shot.get("start") or tee_px
+        elif previous_end is not None:
+            shot["start"] = list(previous_end)
+        shot["order"] = index + 1
+        previous_end = shot.get("end") if isinstance(shot.get("end"), list) else None
+
+
+def _snapshot_pixel_shots(
+    event: dict[str, Any],
+    *,
+    width: int,
+    height: int,
+    tee_px: list[int] | None,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, raw in enumerate(event.get("shots") or []):
+        if not isinstance(raw, dict):
+            continue
+        shot_id = str(raw.get("id") or "").strip()
+        if not shot_id:
+            # Validation rejects this for new writes; a defensive read fallback keeps an older/corrupt
+            # line from making the whole historical round unavailable.
+            shot_id = f"snapshot:{event.get('seq', 0)}:{index}"
+        rows.append(
+            {
+                "id": shot_id,
+                "start": _pixel_pair(raw.get("start"), width, height),
+                "end": _pixel_pair(raw.get("end"), width, height),
+                "club": clean_club_name(raw.get("club")),
+                "lie": raw.get("lie"),
+                "endLie": raw.get("endLie"),
+                "shotType": raw.get("shotType"),
+                "order": index + 1,
+                "clubSource": raw.get("clubSource"),
+                "lieSource": raw.get("lieSource"),
+                "synthetic": bool(raw.get("synthetic", False)),
+            }
+        )
+    _reconnect_pixel_shots(rows, tee_px)
+    return rows
+
+
+def _apply_post_snapshot_ops(
+    rows: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    *,
+    hole: int,
+    width: int,
+    height: int,
+    tee_px: list[int] | None,
+) -> list[dict[str, Any]]:
+    """Keep older granular clients usable after a new whole-hole snapshot has been saved."""
+    removed: dict[str, tuple[int, dict[str, Any]]] = {}
+    for event in events:
+        event_hole = _int(event.get("hole"))
+        if event_hole is not None and event_hole != hole:
+            continue
+        op = event.get("op")
+        shot_id = str(event.get("shotId") or "")
+        index = next((i for i, shot in enumerate(rows) if shot.get("id") == shot_id), None)
+
+        if op == "editField" and index is not None:
+            field = event.get("field")
+            if field == "club":
+                rows[index]["club"] = clean_club_name(event.get("value"))
+                rows[index]["clubSource"] = "manual"
+            elif field == "lie":
+                rows[index]["lie"] = event.get("value")
+                rows[index]["lieSource"] = "manual"
+            elif field == "position":
+                moved = _pixel_pair(event.get("value"), width, height)
+                if moved is not None:
+                    rows[index]["end"] = moved
+        elif op == "deleteShot" and index is not None:
+            removed[shot_id] = (index, rows.pop(index))
+        elif op == "restoreShot" and shot_id in removed:
+            old_index, restored = removed.pop(shot_id)
+            rows.insert(min(old_index, len(rows)), restored)
+        elif op == "reorderShot" and isinstance(event.get("order"), list):
+            by_id = {str(shot.get("id")): shot for shot in rows}
+            ordered = [by_id.pop(str(value)) for value in event["order"] if str(value) in by_id]
+            if ordered:
+                rows = [*ordered, *[shot for shot in rows if str(shot.get("id")) in by_id]]
+        elif op == "addShot":
+            after = str(event.get("insertAfterShotId") or "")
+            # Legacy addShot omitted hole. It is safe to infer the current hole only from a stable
+            # anchor already present here; an unanchored legacy event is ambiguous and must not leak
+            # into all 18 holes.
+            if event_hole is None and (not after or not any(shot.get("id") == after for shot in rows)):
+                continue
+            end = _pixel_pair(event.get("px"), width, height)
+            if end is None:
+                continue
+            insert_at = len(rows)
+            if after:
+                anchor = next((i for i, shot in enumerate(rows) if shot.get("id") == after), None)
+                if anchor is not None:
+                    insert_at = anchor + 1
+            new_id = shot_id or f"legacy-add:{event.get('seq', len(rows) + 1)}"
+            rows.insert(
+                insert_at,
+                {
+                    "id": new_id,
+                    "start": None,
+                    "end": end,
+                    "club": clean_club_name(event.get("club")),
+                    "lie": event.get("lie"),
+                    "endLie": None,
+                    "shotType": "MANUAL",
+                    "order": insert_at + 1,
+                    "synthetic": False,
+                },
+            )
+        _reconnect_pixel_shots(rows, tee_px)
+    return rows
+
+
 def build_round_hole_shot_map(
     data: HistoryData, round_ref: str, hole: int,
     corrections: list[dict[str, Any]] | None = None,
@@ -128,6 +261,42 @@ def build_round_hole_shot_map(
         )
         return [min(max(int(round(px)), 0), width - 1), min(max(int(round(py)), 0), height - 1)]
 
+    tee_px = [
+        int(round(overlay["route"][0][0])),
+        int(round(overlay["route"][0][1])),
+    ] if overlay.get("route") else None
+    snapshot = round_corrections.latest_hole_shot_snapshot(corr, hole)
+    if snapshot is not None:
+        snapshot_index, snapshot_event = snapshot
+        plotted = _snapshot_pixel_shots(
+            snapshot_event,
+            width=width,
+            height=height,
+            tee_px=tee_px,
+        )
+        plotted = _apply_post_snapshot_ops(
+            plotted,
+            corr[snapshot_index + 1 :],
+            hole=hole,
+            width=width,
+            height=height,
+            tee_px=tee_px,
+        )
+        return {
+            "schema": SCHEMA,
+            "found": True,
+            "roundRef": str(row.get("id")),
+            "hole": hole,
+            "par": par,
+            "globalId": int(gid) if gid is not None else None,
+            "localHole": int(local),
+            "geometryRevision": geometry_revision,
+            "map": {"image": image, "overlay": overlay},
+            "shots": plotted,
+            "manualPenalty": manual_penalty,
+            "missingData": [],
+        }
+
     round_ids = _round_ids(row)
     rmap = round_corrections.reorder_map(corr)
     shots = sorted(
@@ -143,11 +312,23 @@ def build_round_hole_shot_map(
     for e in corr:
         if e.get("op") != "addShot":
             continue
+        added_index = _added
+        _added += 1
         px = e.get("px") or []
         if len(px) != 2:
             continue
-        lat, lon = shot_projection.pixel_to_world(float(px[0]), float(px[1]), ref_lat=ref_lat, ref_lon=ref_lon, from_px=from_px)
+        event_hole = _int(e.get("hole"))
+        if event_hole is not None and event_hole != hole:
+            continue
         after = e.get("insertAfterShotId")
+        # Before whole-hole drafts, addShot carried no hole. Infer it from its stable predecessor;
+        # never replay an unscoped add into every hole.
+        if event_hole is None and (
+            not after
+            or not any(round_corrections.mint_shot_id(shot) == after for shot in shots)
+        ):
+            continue
+        lat, lon = shot_projection.pixel_to_world(float(px[0]), float(px[1]), ref_lat=ref_lat, ref_lon=ref_lon, from_px=from_px)
         idx = 0
         if after:
             for i, s in enumerate(shots):
@@ -157,7 +338,7 @@ def build_round_hole_shot_map(
         prev = shots[idx - 1] if idx > 0 else None
         start = dict(prev.get("end") or {}) if prev else {"lat": lat, "lon": lon}
         added_shot = {
-            "id": f"m{_added}", "scorecardId": str(row.get("id")), "hole": hole,
+            "id": f"m{added_index}", "scorecardId": str(row.get("id")), "hole": hole,
             "order": (prev.get("order") if prev else 0),
             "start": {**start, "lie": e.get("lie")}, "end": {"lat": lat, "lon": lon},
             "endLie": None, "clubName": e.get("club"), "type": "MANUAL", "manualAdded": True,
@@ -168,7 +349,6 @@ def build_round_hole_shot_map(
         if idx + 1 < len(shots):
             next_start = dict(shots[idx + 1].get("start") or {})
             shots[idx + 1]["start"] = {**next_start, "lat": lat, "lon": lon, "posSource": "manual"}
-        _added += 1
 
     # editField position(拖动改落点):px 反投影成世界坐标,改这一杆的 end。作用于原始杆 + 手动加的杆。
     pos_edits: dict[str, list[Any]] = {}
@@ -198,7 +378,7 @@ def build_round_hole_shot_map(
     plotted: list[dict[str, Any]] = []
     for shot in shots:
         start = (shot.get("start") or {})
-        row: dict[str, Any] = {
+        shot_row: dict[str, Any] = {
             "id": round_corrections.mint_shot_id(shot),
             "start": project(shot.get("start")),
             "end": project(shot.get("end")),
@@ -215,15 +395,14 @@ def build_round_hole_shot_map(
         # can mark an edited shot 已修正. Only emitted when the player actually changed that field
         # (apply_corrections tags it) — untouched shots stay clean, so the flag never shows on originals.
         if shot.get("clubSource") == "manual":
-            row["clubSource"] = "manual"
+            shot_row["clubSource"] = "manual"
         if shot.get("lieSource") == "manual":
-            row["lieSource"] = "manual"
-        plotted.append(row)
+            shot_row["lieSource"] = "manual"
+        plotted.append(shot_row)
 
     # Auto-complete the drive: if no recorded shot starts on the tee box, add a synthetic tee shot
     # from the tee (route[0], already the first overlay route px) to the first recorded shot's start
     # (or to the green when nothing was recorded at all).
-    tee_px = [int(round(overlay["route"][0][0])), int(round(overlay["route"][0][1]))] if overlay.get("route") else None
     green_px = [int(round(overlay["route"][-1][0])), int(round(overlay["route"][-1][1]))] if overlay.get("route") else None
     first_start_lie = str((shots[0].get("start") or {}).get("lie") or "").lower() if shots else ""
     needs_tee = tee_px is not None and (not shots or first_start_lie not in {"teebox", "tee"})

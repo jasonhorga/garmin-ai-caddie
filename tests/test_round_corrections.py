@@ -131,6 +131,26 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(rc.hole_penalty(events, 5), 1)
         self.assertEqual(rc.hole_penalty(events, 9), 0)
 
+    def test_snapshot_penalty_participates_in_latest_wins(self):
+        events = [
+            {"op": "setHolePenalty", "hole": 3, "value": 1},
+            {"op": "replaceHoleShots", "hole": 3, "manualPenalty": 4, "shots": []},
+            {"op": "replaceHoleShots", "hole": 7, "manualPenalty": 2, "shots": []},
+        ]
+
+        self.assertEqual(rc.hole_penalty(events, 3), 4)
+        self.assertEqual(rc.hole_penalty(events, 7), 2)
+
+    def test_latest_snapshot_is_selected_per_hole(self):
+        events = [
+            {"op": "replaceHoleShots", "hole": 1, "manualPenalty": 0, "shots": [], "seq": 1},
+            {"op": "replaceHoleShots", "hole": 5, "manualPenalty": 0, "shots": [], "seq": 2},
+            {"op": "replaceHoleShots", "hole": 1, "manualPenalty": 0, "shots": [], "seq": 3},
+        ]
+
+        self.assertEqual(rc.latest_hole_shot_snapshot(events, 1), (2, events[2]))
+        self.assertEqual(rc.latest_hole_shot_snapshot(events, 5), (1, events[1]))
+
 
 class ReorderTests(unittest.TestCase):
     def test_reorder_map_last_wins(self):

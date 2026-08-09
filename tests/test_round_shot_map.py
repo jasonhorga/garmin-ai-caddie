@@ -67,6 +67,7 @@ class RoundShotMapTests(unittest.TestCase):
              "start": {"lat": 40.020, "lon": 116.50, "lie": "Fairway"}, "end": {"lat": 40.030, "lon": 116.50, "lie": "Green"}, "endLie": "Green"},
         ])
         self.assertTrue(out["found"])
+        self.assertEqual(out["roundRef"], "r1", "building shot rows must not shadow the round identity")
         self.assertEqual(out["geometryRevision"], "0123456789abcdef")
         self.assertEqual(out["map"]["overlay"]["w"], 720)
         # tee shot already recorded (lie TeeBox) → no synthetic shot prepended.
