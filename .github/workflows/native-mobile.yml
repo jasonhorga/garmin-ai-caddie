@@ -17,6 +17,11 @@ on:
         type: string
         required: false
         default: ''
+      require_live_preflight:
+        description: Require the live API revision/catalogue gate before simulator capture
+        type: boolean
+        required: true
+        default: true
   pull_request:
     paths:
       - 'mobile/ios/**'
@@ -197,7 +202,7 @@ jobs:
           path: design-snapshots/
           if-no-files-found: warn
       - name: Preflight live course discovery
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.require_live_preflight
         env:
           AI_CADDIE_PREFLIGHT_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
           AI_CADDIE_PREFLIGHT_AUTH_MODE: admin

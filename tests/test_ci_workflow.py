@@ -453,6 +453,9 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("api_base_url", inputs)
         self.assertFalse(inputs["api_base_url"]["required"])
         self.assertEqual("", inputs["api_base_url"]["default"])
+        self.assertIn("require_live_preflight", inputs)
+        self.assertEqual("boolean", inputs["require_live_preflight"]["type"])
+        self.assertTrue(inputs["require_live_preflight"]["default"])
         self.assertIn("UITEST_CAPTURE_SCOPE", real_step["env"])
         self.assertIn("TEST_RUNNER_UITEST_CAPTURE_SCOPE", real_step["env"])
         self.assertIn('case "$UITEST_CAPTURE_SCOPE" in', real_step["run"])
@@ -491,6 +494,7 @@ class CIWorkflowTests(unittest.TestCase):
 
         native_preflight = native_steps["Preflight live course discovery"]
         watch_preflight = watch_steps["Preflight live course discovery"]
+        self.assertIn("inputs.require_live_preflight", native_preflight["if"])
         self.assertEqual("admin", native_preflight["env"]["AI_CADDIE_PREFLIGHT_AUTH_MODE"])
         self.assertEqual("bearer", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_AUTH_MODE"])
         self.assertIn("AI_CADDIE_ADMIN_TOKEN", native_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
