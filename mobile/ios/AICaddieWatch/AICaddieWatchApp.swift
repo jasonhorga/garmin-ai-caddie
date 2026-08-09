@@ -235,7 +235,8 @@ public struct AICaddieWatchApp: App {
 
     private var activeCourseUpgradeKey: ActiveCourseUpgradeKey? {
         guard let round = roundModel.round,
-              let globalId = round.holeStates.compactMap(\.globalId).first,
+              let globalId = round.holeStates.first(where: { $0.hole == round.activeHole })?.globalId
+                ?? round.holeStates.compactMap(\.globalId).first,
               let config = syncClient.config else {
             return nil
         }

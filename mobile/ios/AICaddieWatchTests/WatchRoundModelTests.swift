@@ -144,6 +144,19 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.courseName, "北京丽宫 · 前九")
     }
 
+    func testDelayedPhoneClosureCannotStopOrDeleteANewerWatchRound() {
+        let model = seededModel(holes: [hole(1)])
+
+        model.applyPhoneRoundClosure(WatchRoundClosure(
+            roundId: "older-round",
+            disposition: .finished,
+            closedAt: "2026-08-09T00:00:00Z"
+        ))
+
+        XCTAssertEqual(model.round?.roundId, "r1")
+        XCTAssertEqual(model.screen, .home)
+    }
+
     func testPhoneStateCannotCreateALegacyOneHoleRound() {
         let model = WatchRoundModel(store: makeStore())
 
@@ -171,9 +184,11 @@ final class WatchRoundModelTests: XCTestCase {
 
         XCTAssertEqual(model.courseName, "北京丽宫 · 前九")
         XCTAssertEqual(model.holeCount, 3)
-        XCTAssertEqual(model.activeHole, 2)
-        XCTAssertEqual(model.activeHoleState?.distanceM, 137)
-        XCTAssertEqual(model.activeHoleState?.suggestedClub, "8I")
+        XCTAssertEqual(model.activeHole, 1)
+        let updatedHole = model.round?.holeStates.first { $0.hole == 2 }
+        XCTAssertEqual(updatedHole?.distanceM, 137)
+        XCTAssertEqual(updatedHole?.suggestedClub, "8I")
+        XCTAssertEqual(updatedHole?.selectedClub, "8I")
     }
 
     func testCourseMapUpgradeKeepsRoundIdentityScoreAndDraft() {
@@ -709,9 +724,12 @@ final class WatchRoundModelTests: XCTestCase {
             persistAutoShotEnabled: { _ in }
         )
 
-        XCTAssertEqual(restored.screen, .autoShotCandidate)
+        XCTAssertEqual(restored.screen, .resume)
         XCTAssertEqual(restored.pendingAutoShotCandidate?.capturedAt, "2026-07-26T12:00:00Z")
         XCTAssertTrue(restored.round?.pendingEvents.isEmpty == true)
+
+        restored.resumeRound()
+        XCTAssertEqual(restored.screen, .autoShotCandidate)
     }
 
     func testAcceptedAutoShotAtNextTeeReusesPreviousHoleConfirmation() {
@@ -760,11 +778,13 @@ final class WatchRoundModelTests: XCTestCase {
             now: { "2026-07-26T10:01:00Z" }
         )
 
-        XCTAssertEqual(restored.screen, .clubPrompt)
+        XCTAssertEqual(restored.screen, .resume)
         XCTAssertEqual(restored.pendingManualShot?.hole, 1)
         XCTAssertEqual(restored.pendingManualShot?.shotNumber, 1)
         XCTAssertEqual(restored.pendingUploads, 0)
 
+        restored.resumeRound()
+        XCTAssertEqual(restored.screen, .clubPrompt)
         restored.completePendingManualShot(clubName: nil)
         XCTAssertNil(restored.pendingManualShot)
         XCTAssertEqual(restored.round?.pendingEvents.map(\.kind), [.location])
@@ -799,6 +819,8 @@ final class WatchRoundModelTests: XCTestCase {
             now: { "2026-07-26T11:01:00Z" }
         )
 
+        XCTAssertEqual(restored.screen, .resume)
+        restored.resumeRound()
         XCTAssertEqual(restored.screen, .scoring)
         XCTAssertEqual(restored.activeHole, 1)
         XCTAssertEqual(restored.scoringHole, 1)
