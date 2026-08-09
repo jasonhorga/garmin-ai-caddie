@@ -524,6 +524,25 @@ public final class WatchRoundModel: ObservableObject {
 
     public var pendingUploads: Int { round?.pendingEvents.count ?? 0 }
 
+    /// A freshly delivered phone round shares the safe Resume gate with a restored round, but it has
+    /// nothing the backend can finish yet. Drafts and unsynced facts count as real progress too.
+    public var hasRecordedProgress: Bool {
+        scoredHoles > 0
+            || pendingUploads > 0
+            || pendingManualShot != nil
+            || pendingAutoShotCandidate != nil
+            || round?.scoreDraft != nil
+    }
+
+    /// Save & End must have at least one fact that the backend can materialize as a round. A staged
+    /// shot or an uncommitted score draft is resumable progress, but neither is an accepted event yet.
+    public var canSaveAndEndFromResume: Bool {
+        guard let round else { return false }
+        return scoredHoles > 0 || round.pendingEvents.contains { event in
+            event.kind == .score || event.kind == .location
+        }
+    }
+
     public var courseName: String { round?.courseName ?? "" }
 
     // MARK: - seeding (from a phone-synced round or a fetched package)
@@ -1119,7 +1138,7 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     public func requestSaveAndEndFromResume() {
-        guard screen == .resume else { return }
+        guard screen == .resume, canSaveAndEndFromResume else { return }
         uploadError = nil
         screenBeforeFinishConfirmation = .resume
         screen = .finishConfirmation

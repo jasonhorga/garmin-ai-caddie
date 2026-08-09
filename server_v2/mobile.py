@@ -193,6 +193,18 @@ def append_mobile_events_response(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # If another device already finished this round, the append itself is the earliest reliable
+    # moment to refresh history. This also covers an upgraded legacy Watch queue that relays through
+    # the phone and never owns the newer standalone model's explicit finish retry.
+    try:
+        round_ingest.refresh_ingested_round_if_exists(
+            player_id,
+            round_events(round_id, root=MOBILE_ROOT, player_id=player_id),
+            idempotency_key=f"mobile-finish:{round_id}",
+            root=MOBILE_ROOT,
+        )
+    except round_ingest.RoundIngestError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return LiveRoundEventBatchResponse(**result)
 
 
@@ -209,6 +221,10 @@ def finish_mobile_round_response(
             request.meta,
             idempotency_key=f"mobile-finish:{round_id}",
             root=MOBILE_ROOT,
+            # A phone may finish before an offline Watch uploads its last facts. Repeated finish is
+            # still a no-op for the same event revision, but a larger append-only stream must refresh
+            # the existing history row in place instead of acknowledging a permanently stale round.
+            refresh_existing_events=True,
         )
     except round_ingest.RoundIngestError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

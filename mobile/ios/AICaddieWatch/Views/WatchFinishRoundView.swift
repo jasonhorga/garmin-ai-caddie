@@ -175,6 +175,8 @@ public struct WatchResumeRoundView: View {
     public let scoredHoles: Int
     public let holeCount: Int
     public let pendingUploads: Int
+    public let isFreshRound: Bool
+    public let canSaveAndEnd: Bool
     public let onResume: () -> Void
     public let onSaveAndEnd: () -> Void
     public let onAbandon: () -> Void
@@ -185,6 +187,8 @@ public struct WatchResumeRoundView: View {
         scoredHoles: Int,
         holeCount: Int,
         pendingUploads: Int,
+        isFreshRound: Bool = false,
+        canSaveAndEnd: Bool = true,
         onResume: @escaping () -> Void = {},
         onSaveAndEnd: @escaping () -> Void = {},
         onAbandon: @escaping () -> Void = {}
@@ -194,6 +198,8 @@ public struct WatchResumeRoundView: View {
         self.scoredHoles = scoredHoles
         self.holeCount = holeCount
         self.pendingUploads = pendingUploads
+        self.isFreshRound = isFreshRound
+        self.canSaveAndEnd = canSaveAndEnd
         self.onResume = onResume
         self.onSaveAndEnd = onSaveAndEnd
         self.onAbandon = onAbandon
@@ -202,7 +208,7 @@ public struct WatchResumeRoundView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 7) {
-                Text("未结束的球局")
+                Text(isFreshRound ? "球局已准备好" : "未结束的球局")
                     .font(.system(size: 16, weight: .bold))
                 Text(courseName.isEmpty ? "高尔夫球局" : courseName)
                     .font(.system(size: 12, weight: .medium))
@@ -210,7 +216,9 @@ public struct WatchResumeRoundView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .padding(.trailing, WatchFinishRoundLayout.systemTimeTrailingClearance)
-                Text("第 \(activeHole) 洞 · 已记 \(scoredHoles)/\(holeCount)")
+                Text(isFreshRound
+                    ? "从第 \(activeHole) 洞开始 · 共 \(holeCount) 洞"
+                    : "第 \(activeHole) 洞 · 已记 \(scoredHoles)/\(holeCount)")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                 if pendingUploads > 0 {
@@ -218,8 +226,14 @@ public struct WatchResumeRoundView: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(AICaddieDesignTokens.offline)
                 }
-                lifecycleButton("继续本场", tint: AICaddieDesignTokens.par, action: onResume)
-                lifecycleButton("保存并结束", tint: Color.white, action: onSaveAndEnd)
+                lifecycleButton(
+                    isFreshRound ? "开始本场" : "继续本场",
+                    tint: AICaddieDesignTokens.par,
+                    action: onResume
+                )
+                if canSaveAndEnd {
+                    lifecycleButton("保存并结束", tint: Color.white, action: onSaveAndEnd)
+                }
                 Button(role: .destructive, action: onAbandon) {
                     Text("放弃本场")
                         .font(.system(size: 13, weight: .semibold))

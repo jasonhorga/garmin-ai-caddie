@@ -330,6 +330,42 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(try store.loadEvents().map(\.eventId), ["watch-event-1"])
     }
 
+    func testDuplicateWatchRetryReentersAsyncAcceptanceBeforeAcknowledgement() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let bridge = WatchEventBridge(offlineStore: store)
+        let event = WatchInputEvent(
+            eventId: "watch-retry-1",
+            roundId: "closed-round",
+            hole: 1,
+            kind: .score,
+            value: "5",
+            createdAt: "2026-08-09T08:00:00Z"
+        )
+        let liveEvent = try bridge.mapWatchInputEvent(event)
+        try store.appendEvent(liveEvent)
+        let callback = expectation(description: "duplicate is offered to the durable acceptance path")
+        let reply = expectation(description: "watch receives duplicate acknowledgement")
+        bridge.onAcceptedLiveEvent = { retried in
+            XCTAssertEqual(retried.eventId, liveEvent.eventId)
+            callback.fulfill()
+        }
+        var replyPayload: [String: Any]?
+
+        bridge.handleWatchInputMessage(
+            ["event": try Self.jsonObject(from: event)]
+        ) { value in
+            replyPayload = value
+            reply.fulfill()
+        }
+
+        await fulfillment(of: [callback, reply], timeout: 2)
+        XCTAssertEqual(replyPayload?["accepted"] as? Bool, true)
+        XCTAssertEqual(replyPayload?["duplicateEventIds"] as? [String], [event.eventId])
+        XCTAssertEqual(try store.loadEvents().map(\.eventId), [event.eventId])
+    }
+
     func testWatchInputRejectionReportsRejectedEventIds() throws {
         let bridge = WatchEventBridge()
         let event = WatchInputEvent(

@@ -20,9 +20,15 @@ public final class WatchHoleImageStore {
     /// the renderer, while keeping repeated SwiftUI body passes off the disk/decoder path.
     private static let decodedImageCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 36
+        cache.countLimit = 4
+        cache.totalCostLimit = 24 * 1_024 * 1_024
         return cache
     }()
+
+    private static func decodedCost(_ image: UIImage, compressedData: Data) -> Int {
+        guard let cgImage = image.cgImage else { return compressedData.count }
+        return max(compressedData.count, cgImage.bytesPerRow * cgImage.height)
+    }
     #endif
 
     public init(directoryURL: URL? = nil) {
@@ -71,7 +77,11 @@ public final class WatchHoleImageStore {
         #if canImport(UIKit)
         let key = target.path as NSString
         if let image = UIImage(data: data) {
-            Self.decodedImageCache.setObject(image, forKey: key)
+            Self.decodedImageCache.setObject(
+                image,
+                forKey: key,
+                cost: Self.decodedCost(image, compressedData: data)
+            )
         } else {
             Self.decodedImageCache.removeObject(forKey: key)
         }
@@ -161,14 +171,18 @@ public final class WatchHoleImageStore {
         if let cached = Self.decodedImageCache.object(forKey: key) {
             return cached
         }
-        guard let decoded = data(
+        guard let encoded = data(
             globalId: globalId,
             hole: hole,
             geometryRevision: geometryRevision
-        ).flatMap(UIImage.init(data:)) else {
+        ), let decoded = UIImage(data: encoded) else {
             return nil
         }
-        Self.decodedImageCache.setObject(decoded, forKey: key)
+        Self.decodedImageCache.setObject(
+            decoded,
+            forKey: key,
+            cost: Self.decodedCost(decoded, compressedData: encoded)
+        )
         return decoded
     }
     #endif

@@ -147,6 +147,8 @@ public struct WatchRoundContainerView: View {
                 scoredHoles: model.scoredHoles,
                 holeCount: model.holeCount,
                 pendingUploads: model.pendingUploads,
+                isFreshRound: !model.hasRecordedProgress,
+                canSaveAndEnd: model.canSaveAndEndFromResume,
                 onResume: { model.resumeRound() },
                 onSaveAndEnd: { model.requestSaveAndEndFromResume() },
                 onAbandon: { model.requestAbandon() }

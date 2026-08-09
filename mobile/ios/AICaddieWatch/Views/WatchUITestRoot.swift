@@ -300,7 +300,7 @@ public struct WatchUITestRoot: View {
             }
         }
         .onAppear {
-            if screen == "standalone-course-seed", model.round == nil {
+            if screen == "standalone-course-seed" {
                 Task { await seedStandaloneCourse() }
             } else if screen == "standalone-course-restore" {
                 model.openHoleMap()
@@ -884,8 +884,11 @@ public struct WatchUITestRoot: View {
         }
         await model.confirmFinish()
 
+        let persistedStore = WatchRoundStore()
         guard model.round == nil,
-              WatchRoundStore().load() == nil,
+              persistedStore.load() == nil,
+              persistedStore.loadDeferredFinishes().isEmpty,
+              model.lastRoundClosure?.disposition == .finished,
               model.pendingUploads == 0,
               model.screen == .home,
               model.uploadError == nil,
@@ -909,6 +912,8 @@ public struct WatchUITestRoot: View {
             "pending_uploads_before=57",
             "pending_uploads=0",
             "persisted_round_after=absent",
+            "deferred_finishes_after=0",
+            "closure_disposition=finished",
             "screen_after=home",
             "remote_finish=success",
         ].joined(separator: "\n")

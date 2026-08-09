@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -195,6 +196,113 @@ class RoundIngestApiTests(unittest.TestCase):
         self.assertEqual(hole["putts"], 2)
         self.assertEqual(hole["penalties"], 1)
         self.assertEqual(hole["fairway"], "left")
+
+    def test_late_watch_events_refresh_the_same_finished_history_round(self) -> None:
+        round_id = "phone-finished-before-watch-1"
+
+        def score_event(
+            event_id: str,
+            client_id: str,
+            hole: int,
+            strokes: int,
+            timestamp: str,
+        ) -> dict:
+            return {
+                "schema": "ai-caddie-live-round-event-v1",
+                "eventId": event_id,
+                "roundId": round_id,
+                "clientId": client_id,
+                "timestamp": timestamp,
+                "hole": hole,
+                "kind": "score",
+                "payload": {"strokes": strokes, "fairway": "hit"},
+            }
+
+        first_meta = {
+            "courseName": "Phone course authority",
+            "courseGlobalId": 12345,
+            "holePars": [4, 4],
+            "holesCompleted": 1,
+        }
+        with mock.patch.dict("os.environ", ADMIN_ENV):
+            first_batch = self.client.post(
+                f"/api/v2/mobile/rounds/{round_id}/events",
+                json={
+                    "roundId": round_id,
+                    "events": [
+                        score_event("phone-score", "ios-phone", 1, 4, "2026-08-09T08:00:00Z")
+                    ],
+                },
+                headers={**self._auth(self.alice["token"]), "Idempotency-Key": "phone-batch"},
+            )
+            first_finish = self.client.post(
+                f"/api/v2/mobile/rounds/{round_id}/finish",
+                json={"meta": first_meta},
+                headers=self._auth(self.alice["token"]),
+            )
+            # Simulate an index written by the prior server version. Late-event refresh must recover
+            # immutable course authority from the already materialized scorecard rather than turning
+            # it into an anonymous "Manual round".
+            index_path = (
+                self.root / "data" / "players" / self.alice["id"] / "rounds_index.json"
+            )
+            index = json.loads(index_path.read_text(encoding="utf-8"))
+            legacy_entry = index["entries"][f"mobile-finish:{round_id}"]
+            legacy_entry.pop("_eventRevision", None)
+            legacy_entry.pop("_materializationMeta", None)
+            index_path.write_text(json.dumps(index), encoding="utf-8")
+            late_batch = self.client.post(
+                f"/api/v2/mobile/rounds/{round_id}/events",
+                json={
+                    "roundId": round_id,
+                    "events": [
+                        score_event("watch-score-1", "apple-watch", 1, 5, "2026-08-09T08:01:00Z"),
+                        score_event("watch-score-2", "apple-watch", 2, 4, "2026-08-09T08:02:00Z"),
+                    ],
+                },
+                headers={**self._auth(self.alice["token"]), "Idempotency-Key": "watch-batch"},
+            )
+            after_late_batch = history.load_raw_rounds(player_id=self.alice["id"])
+            refreshed_finish = self.client.post(
+                f"/api/v2/mobile/rounds/{round_id}/finish",
+                json={
+                    "meta": {
+                        **first_meta,
+                        "courseName": "Watch fallback must not replace first finish metadata",
+                    }
+                },
+                headers=self._auth(self.alice["token"]),
+            )
+            unchanged_retry = self.client.post(
+                f"/api/v2/mobile/rounds/{round_id}/finish",
+                json={"meta": first_meta},
+                headers=self._auth(self.alice["token"]),
+            )
+
+        self.assertEqual(first_batch.status_code, 200, first_batch.text)
+        self.assertEqual(late_batch.status_code, 200, late_batch.text)
+        self.assertEqual(first_finish.status_code, 201, first_finish.text)
+        self.assertEqual(refreshed_finish.status_code, 201, refreshed_finish.text)
+        self.assertEqual(unchanged_retry.status_code, 201, unchanged_retry.text)
+        self.assertEqual(refreshed_finish.json()["id"], first_finish.json()["id"])
+        self.assertTrue(refreshed_finish.json()["idempotent"])
+        self.assertTrue(unchanged_retry.json()["idempotent"])
+
+        self.assertEqual(len(after_late_batch), 1)
+        self.assertEqual(after_late_batch[0]["holesCompleted"], 2)
+        self.assertEqual(
+            {hole["number"]: hole["strokes"] for hole in after_late_batch[0]["holes"]},
+            {1: 5, 2: 4},
+        )
+
+        rounds = history.load_raw_rounds(player_id=self.alice["id"])
+        self.assertEqual(len(rounds), 1)
+        self.assertEqual(rounds[0]["course"], "Phone course authority")
+        self.assertEqual(rounds[0]["holesCompleted"], 2)
+        self.assertEqual(
+            {hole["number"]: hole["strokes"] for hole in rounds[0]["holes"]},
+            {1: 5, 2: 4},
+        )
 
 
 if __name__ == "__main__":

@@ -86,7 +86,9 @@ public struct AICaddieWatchApp: App {
                     reconcileLocationServices()
                 }
                 .onChange(of: autoShotProvider.latestSignal) { _, signal in
-                    guard signal != nil, let fix = watchLocation.latestFix else { return }
+                    // AutoShot records a durable GPS origin, so it must obey the same live-fix
+                    // contract as manual shots and F/M/B instead of accepting a cached coarse sample.
+                    guard signal != nil, let fix = qualifiedWatchFix else { return }
                     if roundModel.proposeAutoShotCandidate(
                         latitude: fix.coordinate.latitude,
                         longitude: fix.coordinate.longitude,

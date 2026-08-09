@@ -92,6 +92,10 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.activeHoleState?.distanceM, 148)
         XCTAssertEqual(model.activeHoleState?.globalId, 31795)
         XCTAssertEqual(model.screen, .resume)
+        XCTAssertFalse(model.hasRecordedProgress)
+        XCTAssertFalse(model.canSaveAndEndFromResume)
+        model.requestSaveAndEndFromResume()
+        XCTAssertEqual(model.screen, .resume, "an empty new round cannot create an unfinishable archive")
 
         let relaunched = WatchRoundModel(
             store: WatchRoundStore(directoryURL: directory)

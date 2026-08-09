@@ -417,9 +417,12 @@ jobs:
                   grep -qx 'pending_uploads_before=57' "$evidence_file"
                   grep -qx 'pending_uploads=0' "$evidence_file"
                   grep -qx 'persisted_round_after=absent' "$evidence_file"
+                  grep -qx 'deferred_finishes_after=0' "$evidence_file"
+                  grep -qx 'closure_disposition=finished' "$evidence_file"
                   grep -qx 'screen_after=home' "$evidence_file"
                   grep -qx 'remote_finish=success' "$evidence_file"
                   test ! -f "$app_container/Documents/watch-round/round.json"
+                  test ! -f "$app_container/Documents/watch-round/deferred-finishes.json"
                 fi
               fi
             else

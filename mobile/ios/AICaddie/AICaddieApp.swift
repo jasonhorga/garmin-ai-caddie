@@ -1533,7 +1533,7 @@ public final class LiveRoundAppModel: ObservableObject {
             if !pending.isEmpty {
                 try await postPendingEventsAndRequireFullAcknowledgement(
                     pending,
-                    package: package,
+                    roundId: package.roundId,
                     syncClient: syncClient
                 )
             }
@@ -1737,7 +1737,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 syncStatus = "同步中…"
                 let result = try await postPendingEventsAndRequireFullAcknowledgement(
                     events,
-                    package: package,
+                    roundId: package.roundId,
                     syncClient: syncClient
                 )
                 pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
@@ -1755,13 +1755,13 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private func postPendingEventsAndRequireFullAcknowledgement(
         _ events: [LiveRoundEvent],
-        package: LiveRoundPackage,
+        roundId: String,
         syncClient: SyncClient
     ) async throws -> SyncResult {
         let result = try await syncClient.postEventBatchWithRetry(
             events,
-            roundId: package.roundId,
-            idempotencyKey: idempotencyKey(roundId: package.roundId, events: events)
+            roundId: roundId,
+            idempotencyKey: idempotencyKey(roundId: roundId, events: events)
         )
         let expected = events.map(\.eventId)
         let acknowledged = result.acceptedEventIds + result.duplicateEventIds
@@ -1771,7 +1771,7 @@ public final class LiveRoundAppModel: ObservableObject {
             throw LiveRoundFinishError.incompleteAcknowledgement
         }
         try offlineStore.appendSyncMarker(
-            roundId: package.roundId,
+            roundId: roundId,
             timestamp: ISO8601DateFormatter().string(from: Date()),
             result: result
         )
@@ -2254,8 +2254,11 @@ public final class LiveRoundAppModel: ObservableObject {
         try offlineStore.loadPendingEvents(roundId: cachedPackage.roundId).isEmpty == false
     }
 
-    private func acceptWatchEvent(_ event: LiveRoundEvent) throws {
-        try offlineStore.appendEvent(event)
+    private func acceptWatchEvent(_ event: LiveRoundEvent) async throws {
+        let alreadyStored = try offlineStore.containsEvent(eventId: event.eventId)
+        if !alreadyStored {
+            try offlineStore.appendEvent(event)
+        }
         do {
             if let package, package.roundId == event.roundId {
                 liveRoundState = try offlineStore.restoreLiveRoundState(roundId: event.roundId, package: package)
@@ -2266,6 +2269,28 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.watch.error("Watch event status update failed: \(String(describing: error), privacy: .public)")
             syncStatus = "手表已记录,稍后刷新"
         }
+
+        if package?.roundId == event.roundId {
+            if !eventSyncSuppressedForUITests {
+                Task { await self.syncPendingEvents() }
+            }
+            return
+        }
+
+        // A pre-standalone Watch build may retry its old queue after the phone has already left this
+        // round. There is no active-package foreground hook left to flush it, so acknowledge the
+        // Watch only after the detached round's complete local pending tail reaches the backend.
+        if eventSyncSuppressedForUITests { return }
+        guard let syncClient else { throw URLError(.notConnectedToInternet) }
+        let pending = try offlineStore.loadPendingEvents(roundId: event.roundId)
+        guard !pending.isEmpty else { return }
+        _ = try await postPendingEventsAndRequireFullAcknowledgement(
+            pending,
+            roundId: event.roundId,
+            syncClient: syncClient
+        )
+        pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
+        syncStatus = "手表记录已同步"
     }
 
     private func idempotencyKey(roundId: String, events: [LiveRoundEvent]) -> String {

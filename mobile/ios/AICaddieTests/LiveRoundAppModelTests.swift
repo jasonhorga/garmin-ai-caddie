@@ -1172,6 +1172,78 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertNil(try fixture.store.loadCurrentRoundPackage())
     }
 
+    func testDetachedLegacyWatchRetryIsPostedBeforeThePhoneAcknowledgesIt() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let bridge = WatchEventBridge(offlineStore: store, autoActivate: false)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let serverRequest = expectation(description: "detached Watch event reaches backend")
+        CapturingURLProtocol.requestHandler = { request in
+            let batch = try JSONDecoder().decode(
+                EventBatch.self,
+                from: try CapturingURLProtocol.requestBodyData(from: request)
+            )
+            XCTAssertEqual(request.url?.path, "/api/v2/mobile/rounds/closed-round/events")
+            XCTAssertEqual(batch.events.map(\.eventId), ["legacy-watch-score"])
+            serverRequest.fulfill()
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                try JSONSerialization.data(withJSONObject: [
+                    "accepted": 1,
+                    "duplicate": false,
+                    "acceptedEventIds": ["legacy-watch-score"],
+                    "duplicateEventIds": [],
+                    "serverSequence": 7,
+                ])
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: nil,
+            adminToken: nil,
+            watchBridge: bridge,
+            garminSessionStore: nil,
+            syncClient: SyncClient(
+                baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+                session: session,
+                retrySleep: { _ in }
+            )
+        )
+        XCTAssertNil(model.package)
+        let event = WatchInputEvent(
+            eventId: "legacy-watch-score",
+            roundId: "closed-round",
+            hole: 1,
+            kind: .score,
+            value: "5",
+            createdAt: "2026-08-09T08:00:00Z"
+        )
+        let eventObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(event)) as? [String: Any]
+        )
+        let watchReply = expectation(description: "Watch receives backend-backed acknowledgement")
+        var replyPayload: [String: Any]?
+
+        bridge.handleWatchInputMessage(["event": eventObject]) { value in
+            replyPayload = value
+            watchReply.fulfill()
+        }
+
+        await fulfillment(of: [serverRequest, watchReply], timeout: 3)
+        XCTAssertEqual(replyPayload?["acceptedEventIds"] as? [String], [event.eventId])
+        XCTAssertTrue(try store.loadPendingEvents(roundId: event.roundId).isEmpty)
+        XCTAssertEqual(model.pendingEventCount, 0)
+    }
+
     func testResponseLostEventRetryStaysExactAfterLaterMediaUploadSuccess() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

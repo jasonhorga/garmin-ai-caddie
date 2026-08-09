@@ -861,20 +861,22 @@ public final class WatchEventBridge: NSObject {
 
         do {
             let liveEvent = try mapWatchInputEvent(event)
-            if try offlineStore.containsEvent(eventId: liveEvent.eventId) {
-                replyHandler(acknowledgementReply(eventId: event.eventId, duplicate: true))
-                return
-            }
+            let duplicate = try offlineStore.containsEvent(eventId: liveEvent.eventId)
 
             if let onAcceptedLiveEvent {
                 Task {
                     do {
                         try await onAcceptedLiveEvent(liveEvent)
-                        replyHandler(self.acknowledgementReply(eventId: event.eventId, duplicate: false))
+                        replyHandler(self.acknowledgementReply(
+                            eventId: event.eventId,
+                            duplicate: duplicate
+                        ))
                     } catch {
                         replyHandler(["accepted": false, "eventId": event.eventId])
                     }
                 }
+            } else if duplicate {
+                replyHandler(acknowledgementReply(eventId: event.eventId, duplicate: true))
             } else {
                 try offlineStore.appendEvent(liveEvent)
                 replyHandler(acknowledgementReply(eventId: event.eventId, duplicate: false))
