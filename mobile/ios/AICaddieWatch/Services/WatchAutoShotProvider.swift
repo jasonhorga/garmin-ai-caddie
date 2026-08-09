@@ -55,6 +55,9 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
     private var workoutSession: HKWorkoutSession?
     private var roundSessionDesired = false
     private var startingWorkoutSession = false
+    /// Main-actor generation for an authorization/start attempt. Ending round A and immediately
+    /// starting round B must make A's suspended authorization continuation inert when it resumes.
+    private var workoutStartGeneration: UInt = 0
     private var desiredActive = false
     private var streamsActive = false
 
@@ -118,16 +121,17 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
             return
         }
 
+        workoutStartGeneration &+= 1
+        let startGeneration = workoutStartGeneration
         startingWorkoutSession = true
         if desiredActive {
             state = .requestingAuthorization
         }
         do {
             try await requestWorkoutAuthorization()
-            guard roundSessionDesired else {
-                startingWorkoutSession = false
-                return
-            }
+            guard workoutStartGeneration == startGeneration,
+                  startingWorkoutSession,
+                  roundSessionDesired else { return }
             let configuration = HKWorkoutConfiguration()
             configuration.activityType = .golf
             configuration.locationType = .outdoor
@@ -141,12 +145,14 @@ public final class WatchAutoShotProvider: NSObject, ObservableObject {
             state = desiredActive ? .starting : (isSupported ? .off : .unsupported)
             session.startActivity(with: Date())
         } catch {
+            guard workoutStartGeneration == startGeneration else { return }
             startingWorkoutSession = false
             fail(error)
         }
     }
 
     public func stop() {
+        workoutStartGeneration &+= 1
         roundSessionDesired = false
         desiredActive = false
         startingWorkoutSession = false
