@@ -1657,7 +1657,21 @@ public final class LiveRoundAppModel: ObservableObject {
             return
         }
         do {
-            let remaining = try offlineStore.loadPendingEvents(roundId: roundId)
+            var remaining = try offlineStore.loadPendingEvents(roundId: roundId)
+            if !remaining.isEmpty {
+                // The first sync can legitimately pull Watch-authored server events after its local
+                // sync marker. One bounded second pass ACKs that imported tail; replaying those same
+                // server identities is locally idempotent even if the cursor ACK was lost. Any genuine
+                // offline/partial/newer-event failure remains on disk after this single retry.
+                pendingEventCount = remaining.count
+                await syncPendingEvents()
+                guard !Task.isCancelled,
+                      package?.roundId == roundId,
+                      liveRoundState?.roundId == roundId else {
+                    return
+                }
+                remaining = try offlineStore.loadPendingEvents(roundId: roundId)
+            }
             pendingEventCount = remaining.count
             guard remaining.isEmpty else {
                 syncStatus = "手表已结束,本机记录待同步"

@@ -1423,10 +1423,50 @@ final class LiveRoundAppModelTests: XCTestCase {
     func testWatchFinishUploadsPendingPhoneEventsBeforeClearingRound() async throws {
         let fixture = try completedFixtureRound()
         let packageData = try JSONEncoder().encode(fixture.package)
-        let eventUpload = expectation(description: "pending phone events receive server ACKs")
+        let replayedWatchEvent = LiveRoundEvent(
+            eventId: "watch-score-already-on-server",
+            roundId: fixture.package.roundId,
+            clientId: "apple-watch",
+            timestamp: "2026-08-09T00:00:45Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(5), "fairway": .string("hit")]
+        )
+        let replayWithWatchEvent = try JSONEncoder().encode(EventReplayResponse(
+            schema: "ai-caddie-mobile-event-replay-v1",
+            roundId: fixture.package.roundId,
+            clientId: "ios-phone",
+            afterSequence: 0,
+            latestServerSequence: 7,
+            nextCursor: 7,
+            eventCount: 1,
+            hasMore: false,
+            events: [EventReplayItem(
+                serverSequence: 7,
+                idempotencyKey: "watch-finished-event",
+                event: replayedWatchEvent
+            )]
+        ))
+        let emptyReplay = try JSONEncoder().encode(EventReplayResponse(
+            schema: "ai-caddie-mobile-event-replay-v1",
+            roundId: fixture.package.roundId,
+            clientId: "ios-phone",
+            afterSequence: 7,
+            latestServerSequence: 7,
+            nextCursor: 7,
+            eventCount: 0,
+            hasMore: false,
+            events: []
+        ))
+        let phoneEventUpload = expectation(description: "pending phone events receive server ACKs")
+        let watchEventReplay = expectation(description: "server-only Watch event is replayed")
+        let replayedEventUpload = expectation(description: "replayed Watch event receives duplicate ACK")
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
+        let requestLock = NSLock()
+        var replayCursorAcknowledged = false
+        var uploadedBatches: [[String]] = []
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
             switch url.path {
@@ -1444,20 +1484,65 @@ final class LiveRoundAppModelTests: XCTestCase {
                     from: try CapturingURLProtocol.requestBodyData(from: request)
                 )
                 let ids = batch.events.map(\.eventId)
-                XCTAssertEqual(Set(ids), Set(fixture.events.map(\.eventId)))
-                eventUpload.fulfill()
+                requestLock.lock()
+                uploadedBatches.append(ids)
+                requestLock.unlock()
+                let isPhoneTail = Set(ids) == Set(fixture.events.map(\.eventId))
+                if isPhoneTail {
+                    phoneEventUpload.fulfill()
+                } else {
+                    XCTAssertEqual(ids, [replayedWatchEvent.eventId])
+                    replayedEventUpload.fulfill()
+                }
                 return (
                     HTTPURLResponse(
                         url: url, statusCode: 200, httpVersion: nil,
                         headerFields: ["Content-Type": "application/json"]
                     )!,
                     try JSONSerialization.data(withJSONObject: [
-                        "accepted": ids.count,
-                        "duplicate": false,
-                        "acceptedEventIds": ids,
-                        "duplicateEventIds": [],
-                        "serverSequence": ids.count,
+                        "accepted": isPhoneTail ? ids.count : 0,
+                        "duplicate": !isPhoneTail,
+                        "acceptedEventIds": isPhoneTail ? ids : [],
+                        "duplicateEventIds": isPhoneTail ? [] : ids,
+                        "serverSequence": 7,
                     ])
+                )
+            case "/api/v2/mobile/rounds/\(fixture.package.roundId)/events/replay":
+                requestLock.lock()
+                let acknowledged = replayCursorAcknowledged
+                requestLock.unlock()
+                if !acknowledged {
+                    watchEventReplay.fulfill()
+                }
+                return (
+                    HTTPURLResponse(
+                        url: url, statusCode: 200, httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    acknowledged ? emptyReplay : replayWithWatchEvent
+                )
+            case "/api/v2/mobile/rounds/\(fixture.package.roundId)/events/ack":
+                let body = try JSONDecoder().decode(
+                    EventCursorAckRequest.self,
+                    from: try CapturingURLProtocol.requestBodyData(from: request)
+                )
+                XCTAssertEqual(body.clientId, "ios-phone")
+                XCTAssertEqual(body.serverSequence, 7)
+                requestLock.lock()
+                replayCursorAcknowledged = true
+                requestLock.unlock()
+                return (
+                    HTTPURLResponse(
+                        url: url, statusCode: 200, httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data(
+                        """
+                        {"schema":"ai-caddie-mobile-event-ack-v1",\
+                        "roundId":"\(fixture.package.roundId)","clientId":"ios-phone",\
+                        "ackedServerSequence":7,"latestServerSequence":7,"pendingEventCount":0}
+                        """.utf8
+                    )
                 )
             default:
                 return (
@@ -1500,11 +1585,20 @@ final class LiveRoundAppModelTests: XCTestCase {
             closedAt: "2026-08-09T00:01:00Z"
         ))
         await model.waitForWatchRoundClosureReconciliationForTesting()
-        await fulfillment(of: [eventUpload], timeout: 3)
+        await fulfillment(
+            of: [phoneEventUpload, watchEventReplay, replayedEventUpload],
+            timeout: 3
+        )
 
         XCTAssertNil(model.liveRoundState)
         XCTAssertNil(try fixture.store.loadCurrentRoundPackage())
         XCTAssertFalse(try fixture.store.loadEvents().contains { $0.roundId == fixture.package.roundId })
+        requestLock.lock()
+        let batches = uploadedBatches
+        requestLock.unlock()
+        XCTAssertEqual(batches.count, 2)
+        XCTAssertEqual(Set(try XCTUnwrap(batches.first)), Set(fixture.events.map(\.eventId)))
+        XCTAssertEqual(try XCTUnwrap(batches.last), [replayedWatchEvent.eventId])
     }
 
     func testDetachedLegacyWatchRetryIsPostedBeforeThePhoneAcknowledgesIt() async throws {

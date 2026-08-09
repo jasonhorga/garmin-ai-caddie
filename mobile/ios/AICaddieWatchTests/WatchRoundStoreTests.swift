@@ -74,6 +74,66 @@ final class WatchRoundStoreTests: XCTestCase {
         XCTAssertNil(loaded.scoreDraft)
     }
 
+    func testLoadsLegacyInteractionStateWithoutNewerRequiredFields() throws {
+        let (store, directory) = tempStore()
+        let location = try XCTUnwrap(WatchShotLocationValue(
+            latitude: 40.0,
+            longitude: 116.0,
+            horizontalAccuracyM: 5
+        ))
+        let pendingEvent = event("legacy-unsynced-score", kind: .score, value: "5")
+        let round = WatchRoundStore.PersistedRound(
+            roundId: "r1",
+            activeHole: 1,
+            holeStates: [holeState(hole: 1, score: 5)],
+            pendingEvents: [pendingEvent],
+            courseName: "Legacy Course",
+            pendingManualShot: WatchPendingManualShot(
+                hole: 1,
+                candidateFromHole: nil,
+                location: location,
+                capturedAt: "2026-07-25T00:00:00Z",
+                shotNumber: 2,
+                shotType: "recovery",
+                resumeHoleMap: nil
+            ),
+            scoreDraft: WatchScoreDraft(
+                hole: 1,
+                score: 5,
+                putts: 2,
+                penalty: 0,
+                fairway: .left,
+                step: .penalty,
+                advanceAfterSave: false
+            )
+        )
+        try store.save(round)
+        let fileURL = directory.appendingPathComponent("round.json")
+        var json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: fileURL)) as? [String: Any]
+        )
+        var manualShot = try XCTUnwrap(json["pendingManualShot"] as? [String: Any])
+        manualShot.removeValue(forKey: "shotNumber")
+        manualShot.removeValue(forKey: "shotType")
+        json["pendingManualShot"] = manualShot
+        var scoreDraft = try XCTUnwrap(json["scoreDraft"] as? [String: Any])
+        scoreDraft.removeValue(forKey: "advanceAfterSave")
+        json["scoreDraft"] = scoreDraft
+        try JSONSerialization.data(withJSONObject: json).write(to: fileURL, options: [.atomic])
+
+        let loaded = try XCTUnwrap(store.load())
+
+        XCTAssertEqual(loaded.roundId, round.roundId)
+        XCTAssertEqual(loaded.holeStates, round.holeStates)
+        XCTAssertEqual(loaded.pendingEvents, [pendingEvent])
+        XCTAssertEqual(loaded.pendingManualShot?.location, location)
+        XCTAssertEqual(loaded.pendingManualShot?.shotNumber, 1)
+        XCTAssertEqual(loaded.pendingManualShot?.shotType, "approach")
+        XCTAssertEqual(loaded.scoreDraft?.score, 5)
+        XCTAssertEqual(loaded.scoreDraft?.step, .penalty)
+        XCTAssertEqual(loaded.scoreDraft?.advanceAfterSave, true)
+    }
+
     func testNewRoundReplacesPreviousPersistedRound() throws {
         let (store, _) = tempStore()
         try store.upsertHoleState(holeState(roundId: "r1", hole: 1))

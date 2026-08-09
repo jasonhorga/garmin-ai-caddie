@@ -123,6 +123,56 @@ public struct WatchScoreDraft: Codable, Equatable {
     public let advanceAfterSave: Bool
 }
 
+extension WatchPendingManualShot {
+    private enum CodingKeys: String, CodingKey {
+        case hole
+        case candidateFromHole
+        case location
+        case capturedAt
+        case shotNumber
+        case shotType
+        case resumeHoleMap
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.hole = try container.decode(Int.self, forKey: .hole)
+        self.candidateFromHole = try container.decodeIfPresent(Int.self, forKey: .candidateFromHole)
+        self.location = try container.decode(WatchShotLocationValue.self, forKey: .location)
+        self.capturedAt = try container.decode(String.self, forKey: .capturedAt)
+        // Rounds written before ordered shot metadata existed still carry a valid GPS fact. Preserve
+        // it with neutral defaults rather than failing the entire persisted-round decode on update.
+        self.shotNumber = try container.decodeIfPresent(Int.self, forKey: .shotNumber) ?? 1
+        self.shotType = try container.decodeIfPresent(String.self, forKey: .shotType) ?? "approach"
+        self.resumeHoleMap = try container.decodeIfPresent(Bool.self, forKey: .resumeHoleMap)
+    }
+}
+
+extension WatchScoreDraft {
+    private enum CodingKeys: String, CodingKey {
+        case hole
+        case score
+        case putts
+        case penalty
+        case fairway
+        case step
+        case advanceAfterSave
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.hole = try container.decode(Int.self, forKey: .hole)
+        self.score = try container.decode(Int.self, forKey: .score)
+        self.putts = try container.decode(Int.self, forKey: .putts)
+        self.penalty = try container.decode(Int.self, forKey: .penalty)
+        self.fairway = try container.decodeIfPresent(WatchFairwayResult.self, forKey: .fairway)
+        self.step = try container.decode(WatchScoreFlowStep.self, forKey: .step)
+        // Older score flows always advanced after Save; retain that behaviour when the persisted key
+        // predates the explicit control instead of dropping scores, queue and round together.
+        self.advanceAfterSave = try container.decodeIfPresent(Bool.self, forKey: .advanceAfterSave) ?? true
+    }
+}
+
 public struct WatchRoundConfig: Equatable {
     public let baseURL: URL
     public let adminToken: String?
