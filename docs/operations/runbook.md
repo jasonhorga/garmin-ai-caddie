@@ -29,8 +29,11 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The container entrypoint honors `AI_CADDIE_PRIVATE_ROOT` and symlinks private
-runtime directories from that root into `/app` before starting FastAPI. Use this
+The shared API entrypoint honors `AI_CADDIE_PRIVATE_ROOT` and symlinks private
+runtime directories from that root into the application root before starting
+FastAPI. It then runs the Alembic migrations and the idempotent identity seeder;
+Render, Fly, Docker, and direct script starts therefore use the same cold-start
+path. Use this
 for NAS/Fly/VPS deployments so downloaded Garmin data and session material are
 kept on persistent storage instead of inside the image.
 
@@ -112,12 +115,30 @@ ops/backup_data.sh
 The script writes `backups/latest.json` with the snapshot filename, size, and
 SHA-256. `/api/v2/readiness` only treats backup evidence as current when that
 manifest is fresh and the referenced tarball is still present and unchanged.
+The exporter excludes `.garmin_tokens` at every directory depth and re-opens the
+finished tarball before setting `secretFree=true`.
+
+The identity store is included as well:
+
+- A file-backed SQLite identity database is copied with SQLite's online backup
+  API into `data/identity.db`, including committed WAL state.
+- A configured PostgreSQL identity database is dumped with `pg_dump` into
+  `data/identity.pg_dump`. If `pg_dump` is unavailable or the dump fails, the
+  entire backup fails instead of publishing an incomplete manifest. Run the
+  script from the API container or another trusted machine with a compatible
+  PostgreSQL client.
 
 Restore:
 
 ```bash
 uv run python ops/import_snapshot.py backups/ai-caddie-snapshot-YYYYMMDDTHHMMSSZ.tar.gz --target-root .
 ```
+
+Stop the API before replacing a live SQLite database. For PostgreSQL, import the
+tarball into a staging directory and restore the extracted custom-format dump
+into the intended empty database with `pg_restore`; use a libpq-compatible
+`postgresql://...` value in `PGDATABASE`. Restoring files alone does not modify
+an external PostgreSQL service.
 
 ## Inspect Sync Status
 

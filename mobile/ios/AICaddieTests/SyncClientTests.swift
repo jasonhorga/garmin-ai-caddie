@@ -291,6 +291,7 @@ final class SyncClientTests: XCTestCase {
     }
 
     func testNearbyCoursesRetriesATransientFailureWithoutDelayingTheFallback() async throws {
+        XCTAssertGreaterThanOrEqual(SyncClient.nearbyDiscoveryTimeoutInterval, 30)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)

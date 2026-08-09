@@ -147,8 +147,16 @@ def create_decision_audit_response(
     )
 
 
-def latest_decision_audit_response(decision_id: str) -> CaddieDecisionAuditLatestResponse:
-    record = latest_decision_audit(decision_id, root=DECISION_AUDIT_ROOT)
+def latest_decision_audit_response(
+    decision_id: str, *, player_id: str = OWNER_ID
+) -> CaddieDecisionAuditLatestResponse:
+    # Read from the same caller partition used by decision/audit writes. A guessed owner/member
+    # decision id therefore resolves to null instead of crossing evidence boundaries.
+    record = latest_decision_audit(
+        decision_id,
+        root=DECISION_AUDIT_ROOT,
+        player_id=player_id,
+    )
     return CaddieDecisionAuditLatestResponse(
         schema="ai-caddie-decision-audit-latest-v1",
         decisionId=normalize_decision_audit_id(decision_id),

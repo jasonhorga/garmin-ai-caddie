@@ -182,7 +182,7 @@ public struct WatchHazardMapView: View {
     public let geometry: WatchHoleMapGeometry
     public let route: [[Double]]
     public let hazards: [WatchHazard]
-    public let centerGreenYards: Int
+    public let centerGreenYards: Int?
     public let onBack: () -> Void
 
     @State private var crownSelection: Double
@@ -191,7 +191,7 @@ public struct WatchHazardMapView: View {
         geometry: WatchHoleMapGeometry,
         route: [[Double]],
         hazards: [WatchHazard],
-        centerGreenYards: Int,
+        centerGreenYards: Int?,
         initialHazardID: String? = nil,
         onBack: @escaping () -> Void = {}
     ) {
@@ -226,7 +226,7 @@ public struct WatchHazardMapView: View {
 
     public var body: some View {
         GeometryReader { geo in
-            if WatchGeoMath.isBeyondUsefulGreenRange(centerGreenYards) {
+            if centerGreenYards.map { WatchGeoMath.isBeyondUsefulGreenRange($0) } == true {
                 offCourseState
             } else if upcoming.isEmpty {
                 emptyState
@@ -276,16 +276,16 @@ public struct WatchHazardMapView: View {
             playerAnchorFraction: 0.66,
             playerImageY: Double(geometry.youPx.y),
             pinImageY: Double(topImageY),
-            topClearance: centerGreenYards > 0
+            topClearance: (centerGreenYards ?? 0) > 0
                 ? Double(WatchHazardMapLayout.topBoundaryClearance)
                 : WatchHoleMapViewport.flagTopClearance
         ))
 
         return ZStack {
             WatchHoleMapView(
-                frontGreen: 0,
+                frontGreen: nil,
                 centerGreen: centerGreenYards,
-                backGreen: 0,
+                backGreen: nil,
                 lastShot: 0,
                 ringPips: [],
                 showTextOverlay: false,
@@ -354,7 +354,7 @@ public struct WatchHazardMapView: View {
         let frontPoint = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
         let backPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
         let pillHeight = WatchHazardMapLayout.distancePillSize(for: "到 000").height
-        let minimumPillCenterY: CGFloat = centerGreenYards > 0
+        let minimumPillCenterY: CGFloat = (centerGreenYards ?? 0) > 0
             ? WatchHazardMapLayout.topPillLaneCenterY
             : pillHeight * 0.5 + 4
         let maximumPillCenterY = max(minimumPillCenterY, size.height - pillHeight * 0.5 - 4)
@@ -437,7 +437,7 @@ public struct WatchHazardMapView: View {
 
         return ZStack {
             VStack {
-                if centerGreenYards > 0 {
+                if let centerGreenYards, centerGreenYards > 0 {
                     HStack(spacing: 0) {
                         Text(
                             WatchGeoMath.isBeyondUsefulGreenRange(centerGreenYards)

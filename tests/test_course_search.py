@@ -8,6 +8,9 @@ FIX = Path(__file__).parent / "fixtures"
 
 
 class ParseCourseSearchTests(unittest.TestCase):
+    def setUp(self) -> None:
+        cs._clear_nearby_cache_for_tests()
+
     def test_parses_records_from_fixture(self) -> None:
         records = cs.parse_course_search((FIX / "courseview_search_zhongshan.pb").read_bytes())
         by_gid = {r["global_id"]: r for r in records}
@@ -181,19 +184,77 @@ class CourseviewSearchTests(unittest.TestCase):
             patch.object(cs, "_fetch_nearby_page", side_effect=fetch_page) as fetch,
             patch.object(cs, "parse_course_search", side_effect=lambda pb, **_: pages[int(pb)]),
         ):
-            matches = cs.courseview_nearby(
+            result = cs.courseview_nearby(
                 latitude=22.7401328,
                 longitude=114.0714097,
                 radius_km=50,
                 page_size=2,
             )
 
+        matches = result.matches
         self.assertEqual([match.global_id for match in matches], [1, 2])
         self.assertEqual(matches[0].distance_km, 0.0)
         self.assertEqual(matches[0].ratio, 0.0)
         self.assertEqual(fetch.call_count, 2)
         self.assertEqual(fetch.call_args_list[0].kwargs["page"], 1)
         self.assertEqual(fetch.call_args_list[1].kwargs["page"], 2)
+        self.assertTrue(result.complete)
+        self.assertEqual(result.pages_fetched, 2)
+
+    def test_nearby_returns_marked_partial_results_when_a_later_page_fails(self) -> None:
+        rows = [{"global_id": 1, "name": "Near", "latitude": 22.74, "longitude": 114.07}]
+
+        def fetch_page(*_args, page: int, **_kwargs) -> bytes:
+            if page == 2:
+                raise TimeoutError("provider timed out")
+            return b"page-1"
+
+        with (
+            patch.object(cs, "_fetch_nearby_page", side_effect=fetch_page) as fetch,
+            patch.object(cs, "parse_course_search", return_value=rows),
+        ):
+            result = cs.courseview_nearby(22.74, 114.07, 50, page_size=1)
+
+        self.assertEqual([match.global_id for match in result.matches], [1])
+        self.assertFalse(result.complete)
+        self.assertEqual(result.partial_reason, "provider_unavailable")
+        self.assertEqual(result.pages_fetched, 1)
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_nearby_deadline_returns_the_pages_already_received(self) -> None:
+        rows = [{"global_id": 1, "name": "Near", "latitude": 22.74, "longitude": 114.07}]
+        with (
+            patch.object(cs, "_fetch_nearby_page", return_value=b"page-1") as fetch,
+            patch.object(cs, "parse_course_search", return_value=rows),
+            patch.object(cs.time, "monotonic", side_effect=[0.0, 0.0, 13.0, 13.0]),
+        ):
+            result = cs.courseview_nearby(
+                22.74,
+                114.07,
+                50,
+                page_size=1,
+                deadline_seconds=12,
+            )
+
+        self.assertEqual([match.global_id for match in result.matches], [1])
+        self.assertFalse(result.complete)
+        self.assertEqual(result.partial_reason, "deadline")
+        self.assertEqual(result.pages_fetched, 1)
+        self.assertEqual(fetch.call_count, 1)
+
+    def test_nearby_reuses_a_fresh_coordinate_bucket_cache(self) -> None:
+        rows = [{"global_id": 1, "name": "Near", "latitude": 22.74, "longitude": 114.07}]
+        with (
+            patch.object(cs, "_fetch_nearby_page", return_value=b"page-1") as fetch,
+            patch.object(cs, "parse_course_search", return_value=rows),
+        ):
+            first = cs.courseview_nearby(22.7401, 114.0701, 50, page_size=2)
+            second = cs.courseview_nearby(22.7402, 114.0702, 50, page_size=2)
+
+        self.assertTrue(first.complete)
+        self.assertEqual(second.cache_status, "fresh")
+        self.assertEqual([match.global_id for match in second.matches], [1])
+        self.assertEqual(fetch.call_count, 1)
 
     def test_nearby_url_includes_radius_metres_and_page(self) -> None:
         with patch.object(cs, "fetch_bytes", return_value=b"ok") as fetch:
@@ -214,9 +275,9 @@ class CourseviewSearchTests(unittest.TestCase):
 
     def test_nearby_rejects_invalid_location_or_radius_without_fetch(self) -> None:
         with patch.object(cs, "_fetch_nearby_page") as fetch:
-            self.assertEqual(cs.courseview_nearby(91, 114, 50), [])
-            self.assertEqual(cs.courseview_nearby(22, 181, 50), [])
-            self.assertEqual(cs.courseview_nearby(22, 114, 0), [])
+            self.assertEqual(cs.courseview_nearby(91, 114, 50).matches, ())
+            self.assertEqual(cs.courseview_nearby(22, 181, 50).matches, ())
+            self.assertEqual(cs.courseview_nearby(22, 114, 0).matches, ())
         fetch.assert_not_called()
 
     def test_nearby_does_not_disguise_provider_failure_as_no_results(self) -> None:
@@ -309,6 +370,7 @@ class CourseSearchEndpointTests(unittest.TestCase):
         self.assertEqual(response.json()["schema"], "ai-caddie-course-nearby-v1")
         self.assertEqual(response.json()["radiusKm"], 50)
         self.assertEqual(response.json()["matches"][0]["globalId"], 31669)
+        self.assertTrue(response.json()["complete"])
         nearby.assert_called_once_with(latitude=22.7401328, longitude=114.0714097, radius_km=50)
 
     def test_nearby_endpoint_bounds_radius(self) -> None:

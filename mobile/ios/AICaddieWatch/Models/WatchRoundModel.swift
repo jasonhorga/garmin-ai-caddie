@@ -214,6 +214,8 @@ public final class WatchRoundModel: ObservableObject {
     @Published public private(set) var autoShotEnabled: Bool
     @Published public private(set) var isUploading: Bool = false
     @Published public private(set) var uploadError: String?
+    /// A newer phone round that cannot safely replace this Watch round until the player resolves it.
+    @Published public private(set) var pendingPhoneRoundCourseName: String?
     /// Terminal lifecycle event consumed by the app shell to clear the second WatchConnectivity
     /// cache, stop runtime services and retract the phone seed. It is not the persistence authority;
     /// `WatchRoundStore` writes the durable closure before publishing this value.
@@ -234,6 +236,7 @@ public final class WatchRoundModel: ObservableObject {
     private var screenBeforeFinishConfirmation: WatchRoundScreen = .finishing
     private var screenBeforeAbandon: WatchRoundScreen = .finishing
     private var isRetryingDeferredFinishes = false
+    private var pendingPhoneRoundSeed: WatchRoundSeed?
     private static let nextTeeCandidateRadiusM = 35.0
     private static let maximumCandidateAccuracyM = 12.0
 
@@ -618,10 +621,39 @@ public final class WatchRoundModel: ObservableObject {
     /// for the same round are retained; newly added holes receive a truthful blank state from the seed.
     public func applyRoundSeed(_ seed: WatchRoundSeed) {
         guard !seed.holes.isEmpty, !store.isClosed(roundId: seed.roundId) else { return }
-        // Latest-wins application context can contain an older or newer phone round. Neither is
-        // allowed to replace a real in-flight Watch round with unsynced facts.
-        if let round, round.roundId != seed.roundId {
-            return
+        if pendingPhoneRoundSeed?.roundId == seed.roundId {
+            pendingPhoneRoundSeed = nil
+            pendingPhoneRoundCourseName = nil
+        }
+        // A blank standalone round is only a stale course pointer and can yield to the phone's real
+        // round. Any score, event, draft or staged shot is user data: retain it, stop the user from
+        // accidentally recording against the wrong roundId, and expose the conflict at Resume.
+        if let current = round, current.roundId != seed.roundId {
+            if canReplaceWithPhoneSeed(current) {
+                do {
+                    let closure = try store.closeActiveRound(
+                        roundId: current.roundId,
+                        disposition: .abandoned,
+                        closedAt: now()
+                    )
+                    round = nil
+                    restoreInteractionState(from: nil)
+                    lastRoundClosure = closure
+                } catch {
+                    pendingPhoneRoundSeed = seed
+                    pendingPhoneRoundCourseName = seed.courseName
+                    screen = .resume
+                    uploadError = "旧球局无法安全关闭，请重试"
+                    return
+                }
+            } else {
+                pendingPhoneRoundSeed = seed
+                pendingPhoneRoundCourseName = seed.courseName
+                pendingManualShot = current.pendingManualShot
+                pendingAutoShotCandidate = current.pendingAutoShotCandidate
+                screen = .resume
+                return
+            }
         }
         let createsPhoneRound = round == nil
         let awaitingExplicitResume = screen == .resume || createsPhoneRound
@@ -684,6 +716,14 @@ public final class WatchRoundModel: ObservableObject {
             pendingAutoShotCandidate = persisted.pendingAutoShotCandidate
             screen = .resume
         }
+    }
+
+    private func canReplaceWithPhoneSeed(_ current: WatchRoundStore.PersistedRound) -> Bool {
+        !hasMaterializableFacts(in: current)
+            && current.pendingEvents.isEmpty
+            && current.pendingManualShot == nil
+            && current.pendingAutoShotCandidate == nil
+            && current.scoreDraft == nil
     }
 
     /// Merge the richer live snapshot for one hole without dropping the seeded course or other holes.
@@ -1404,10 +1444,16 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     private func publishLocalClosure(_ closure: WatchRoundClosure) {
+        let nextPhoneSeed = pendingPhoneRoundSeed
+        pendingPhoneRoundSeed = nil
+        pendingPhoneRoundCourseName = nil
         round = nil
         restoreInteractionState(from: nil)
         uploadError = nil
         lastRoundClosure = closure
+        if let nextPhoneSeed {
+            applyRoundSeed(nextPhoneSeed)
+        }
     }
 
     /// Retry rounds whose player already left the playing UI through Save & End. This never revives
@@ -1482,6 +1528,11 @@ public final class WatchRoundModel: ObservableObject {
                 round = nil
                 restoreInteractionState(from: nil)
                 uploadError = nil
+                if let nextPhoneSeed = pendingPhoneRoundSeed {
+                    pendingPhoneRoundSeed = nil
+                    pendingPhoneRoundCourseName = nil
+                    applyRoundSeed(nextPhoneSeed)
+                }
             }
         } catch {
             return

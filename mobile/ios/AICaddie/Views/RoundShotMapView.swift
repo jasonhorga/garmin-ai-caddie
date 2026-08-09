@@ -303,6 +303,13 @@ public struct RoundHoleShotMapScreen: View {
                 } else {
                     VStack(spacing: 12) {
                         RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))
+                        if let reason = shotMap.missingData.first?.reason {
+                            Label(reason, systemImage: "arrow.clockwise.circle")
+                                .font(.subheadline)
+                                .foregroundStyle(.orange)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .hubCard()
+                        }
                         RoundShotMapLegend()
                         shotListCard(shotMap)
                     }

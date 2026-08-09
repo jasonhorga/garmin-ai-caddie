@@ -125,6 +125,11 @@ class PlayerTokenResolutionTests(unittest.TestCase):
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/mobile/rounds/live-round-1/package"))
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/mobile/courses/31795/package"))
         self.assertTrue(players_api.is_player_scoped_route("GET", "/api/v2/caddie/context"))
+        self.assertTrue(
+            players_api.is_player_scoped_route(
+                "GET", "/api/v2/caddie/decisions/decision-1/audit/latest"
+            )
+        )
         # Evidence WRITES are now per-player partitioned (evidence_root), so they are member-scoped:
         # caddie decision + audit, annotation, report generation (all kinds), and the weather-persist
         # GET (only consulted when ?persist=true makes the gate fire). A member writes ONLY their own.

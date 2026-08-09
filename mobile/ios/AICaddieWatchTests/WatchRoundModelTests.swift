@@ -146,6 +146,46 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.round?.roundId, "r1")
         XCTAssertEqual(model.round?.pendingEvents, pending)
         XCTAssertEqual(model.courseName, "北京丽宫 · 前九")
+        XCTAssertEqual(model.pendingPhoneRoundCourseName, "Other course")
+        XCTAssertEqual(model.screen, .resume)
+    }
+
+    func testDifferentPhoneSeedReplacesAnEmptyStandaloneRound() {
+        let model = seededModel(holes: [hole(1)])
+
+        model.applyRoundSeed(WatchRoundSeed(
+            roundId: "phone-round",
+            courseName: "Phone course",
+            activeHole: 1,
+            holes: [WatchRoundSeedHole(hole: 1, par: 3, distanceM: 120)]
+        ))
+
+        XCTAssertEqual(model.round?.roundId, "phone-round")
+        XCTAssertEqual(model.courseName, "Phone course")
+        XCTAssertEqual(model.lastRoundClosure?.roundId, "r1")
+        XCTAssertEqual(model.lastRoundClosure?.disposition, .abandoned)
+        XCTAssertNil(model.pendingPhoneRoundCourseName)
+        XCTAssertEqual(model.screen, .resume)
+    }
+
+    func testAbandoningAConflictingWatchRoundActivatesThePendingPhoneRound() {
+        let model = seededModel(holes: [hole(1)])
+        model.startScoringActiveHole()
+        model.saveActiveHole()
+        model.applyRoundSeed(WatchRoundSeed(
+            roundId: "phone-round",
+            courseName: "Phone course",
+            activeHole: 1,
+            holes: [WatchRoundSeedHole(hole: 1, par: 3, distanceM: 120)]
+        ))
+
+        model.requestAbandon()
+        model.confirmAbandon()
+
+        XCTAssertEqual(model.round?.roundId, "phone-round")
+        XCTAssertEqual(model.courseName, "Phone course")
+        XCTAssertNil(model.pendingPhoneRoundCourseName)
+        XCTAssertEqual(model.screen, .resume)
     }
 
     func testMatchingPhoneSeedRefreshesFactsWithoutMovingTheWatchCursorOrScreen() {

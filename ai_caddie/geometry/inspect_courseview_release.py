@@ -77,9 +77,9 @@ def parse_fields(buf: bytes):
         yield field_no, wire_type, value, raw
 
 
-def fetch_bytes(url: str) -> bytes:
+def fetch_bytes(url: str, *, timeout: float = 30) -> bytes:
     req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urlopen(req, timeout=30) as response:
+    with urlopen(req, timeout=timeout) as response:
         return response.read()
 
 

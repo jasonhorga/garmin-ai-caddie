@@ -11,6 +11,13 @@ SUPPORTED_OUTPUT_DIRS = {
 }
 
 
+def _is_secret_path(path: PurePosixPath) -> bool:
+    return any(
+        part == ".garmin_tokens" or part == ".env" or part.startswith(".env.")
+        for part in path.parts
+    )
+
+
 def _is_supported_output_path(path: PurePosixPath) -> bool:
     if len(path.parts) < 3:
         return False
@@ -23,6 +30,8 @@ def _validate_member_name(name: str) -> None:
         raise ValueError(f"unsafe snapshot path: {name}")
     if not path.parts:
         raise ValueError("empty snapshot path")
+    if _is_secret_path(path):
+        raise ValueError(f"credential material is not accepted in snapshots: {name}")
     if path.parts[0] == "output":
         if not _is_supported_output_path(path):
             raise ValueError(f"unsupported snapshot path: {name}")
@@ -38,6 +47,8 @@ def import_snapshot(tarball: Path | str, *, target_root: Path | str = ".") -> Pa
     with tarfile.open(tarball, "r:gz") as archive:
         for member in archive.getmembers():
             _validate_member_name(member.name)
+            if not member.isfile() and not member.isdir():
+                raise ValueError(f"unsupported snapshot member type: {member.name}")
             target = (root / member.name).resolve()
             if root_resolved not in [target, *target.parents]:
                 raise ValueError(f"snapshot path escapes target root: {member.name}")

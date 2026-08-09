@@ -1137,6 +1137,82 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertNotNil(try fixture.store.loadCurrentRoundPackage())
     }
 
+    func testFinishActiveRoundPreservesWholeRoundWhenPendingMediaCannotUpload() async throws {
+        let fixture = try completedFixtureRound()
+        let attachment = try fixture.store.savePendingMedia(
+            data: Data("pending-photo".utf8),
+            eventId: "pending-photo-event",
+            roundId: fixture.package.roundId,
+            hole: 1,
+            targetId: "\(fixture.package.roundId):1",
+            assetLocalId: "pending.jpg",
+            mediaKind: "photo",
+            fileName: "pending.jpg",
+            capturedAt: "2026-08-09T00:00:00Z"
+        )
+        let mediaServer = try LoopbackHTTPServer { _, _ in
+            (503, Data("{}".utf8))
+        }
+        defer { mediaServer.stop() }
+
+        let requestLock = NSLock()
+        var requestedPaths: [String] = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            requestLock.lock()
+            requestedPaths.append(request.url?.path ?? "")
+            requestLock.unlock()
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 500,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data("{}".utf8)
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: mediaServer.baseURL,
+            adminToken: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            preferredRoundId: fixture.package.roundId,
+            syncClient: SyncClient(
+                baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+                clientId: "ios-phone",
+                session: session,
+                retrySleep: { _ in }
+            ),
+            offlineGeometryRetryDelaysNanoseconds: [0]
+        )
+
+        await model.bootstrap()
+        requestLock.lock()
+        requestedPaths.removeAll()
+        requestLock.unlock()
+
+        let didFinish = await model.finishActiveRound()
+
+        XCTAssertFalse(didFinish)
+        XCTAssertEqual(model.package?.roundId, fixture.package.roundId)
+        XCTAssertNotNil(model.liveRoundState)
+        XCTAssertNotNil(try fixture.store.loadCurrentRoundPackage())
+        XCTAssertEqual(
+            try fixture.store.loadPendingMedia(roundId: fixture.package.roundId).map(\.id),
+            [attachment.id]
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: attachment.fileURL.path))
+        requestLock.lock()
+        let paths = requestedPaths
+        requestLock.unlock()
+        XCTAssertFalse(paths.contains("/api/v2/mobile/rounds/\(fixture.package.roundId)/finish"))
+    }
+
     func testInFlightSyncCannotMarkANewerEventAsUploaded() async throws {
         let fixture = try completedFixtureRound()
         let requestStarted = expectation(description: "event upload started")

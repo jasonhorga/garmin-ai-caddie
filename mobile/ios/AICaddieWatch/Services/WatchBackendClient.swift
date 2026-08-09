@@ -80,6 +80,7 @@ public final class WatchBackendClient {
     static let courseReleaseTimeoutInterval: TimeInterval = 180
     static let coursePackageTimeoutInterval: TimeInterval = 180
     static let courseReleaseMaximumAttempts = 3
+    static let nearbyDiscoveryTimeoutInterval: TimeInterval = 30
     static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
 
     private let baseURL: URL
@@ -238,6 +239,7 @@ public final class WatchBackendClient {
         ]
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
+        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
         applyAuth(&request)
         return request
     }
@@ -383,7 +385,7 @@ public final class WatchBackendClient {
             longitude: longitude,
             radiusKm: radiusKm
         )
-        let data = try await sendForData(request)
+        let data = try await sendForData(request, retryingTransientFailures: true)
         return try decodeCourseSearch(data)
     }
 

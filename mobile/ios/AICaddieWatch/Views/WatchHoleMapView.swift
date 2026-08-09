@@ -201,9 +201,9 @@ public struct WatchHoleMapView: View {
 
     public let holeNumber: Int
     public let par: Int
-    public let frontGreen: Int
-    public let centerGreen: Int
-    public let backGreen: Int
+    public let frontGreen: Int?
+    public let centerGreen: Int?
+    public let backGreen: Int?
     /// 实打 adjustment (yards). +N ⇒ plays longer uphill. Shown when `showPlaysLike` is on.
     public let playsLikeDelta: Int
     public let lastShot: Int
@@ -241,9 +241,9 @@ public struct WatchHoleMapView: View {
     public init(
         holeNumber: Int = 4,
         par: Int = 5,
-        frontGreen: Int = 273,
-        centerGreen: Int = 287,
-        backGreen: Int = 300,
+        frontGreen: Int? = 273,
+        centerGreen: Int? = 287,
+        backGreen: Int? = 300,
         playsLikeDelta: Int = 8,
         lastShot: Int = 200,
         caddieClub: String = "3号木",
@@ -290,7 +290,8 @@ public struct WatchHoleMapView: View {
     /// tap-to-measure needs no extra payload. nil if degenerate (no center distance / you==pin).
     private var yardsPerPx: CGFloat? {
         let span = hypot(geometry.pinPx.x - geometry.youPx.x, geometry.pinPx.y - geometry.youPx.y)
-        guard span > 1,
+        guard let centerGreen,
+              span > 1,
               centerGreen > 0,
               centerGreen <= WatchGeoMath.maximumUsefulGreenYards else { return nil }
         return CGFloat(centerGreen) / span
@@ -420,7 +421,7 @@ public struct WatchHoleMapView: View {
                     // 洞·Par — tap target for 距上一杆 (a hint, not a floating map label).
                     holeIdentity
 
-                    if showTextOverlay {
+                    if showTextOverlay, let centerGreen {
                         Spacer().frame(height: 8)
 
                         if showCaddieRecommendation {
@@ -453,9 +454,13 @@ public struct WatchHoleMapView: View {
                         Text(pl ? "实打 \(arrow)\(abs(playsLikeDelta))" : "到果岭")
                             .font(.system(size: 9.5, weight: pl ? .semibold : .regular))
                             .foregroundStyle(pl ? golfYellow : Color.secondary)
-                        distLine("后", backGreen + d, backGrey, big: false)
+                        if let backGreen {
+                            distLine("后", backGreen + d, backGrey, big: false)
+                        }
                         distLine("中", centerGreen + d, pl ? golfYellow : .white, big: true)
-                        distLine("前", frontGreen + d, frontBlue, big: false)
+                        if let frontGreen {
+                            distLine("前", frontGreen + d, frontBlue, big: false)
+                        }
                     }
                 }
                 .frame(width: size.width * 0.29, alignment: .leading)
@@ -489,13 +494,14 @@ public struct WatchHoleMapView: View {
     // persistentSystemOverlays(.hidden) is only a preference on watchOS; the system can retain its
     // clock, so product chrome must not assume that area is available.
     @ViewBuilder private func fullMapControls(_ size: CGSize) -> some View {
-        VStack {
-            HStack {
-                Text(
-                    WatchGeoMath.isBeyondUsefulGreenRange(centerGreen)
-                        ? "离本洞较远"
-                        : "中 \(WatchGeoMath.greenRangeText(centerGreen)) 码 · 到果岭"
-                )
+        if let centerGreen {
+            VStack {
+                HStack {
+                    Text(
+                        WatchGeoMath.isBeyondUsefulGreenRange(centerGreen)
+                            ? "离本洞较远"
+                            : "中 \(WatchGeoMath.greenRangeText(centerGreen)) 码 · 到果岭"
+                    )
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -503,14 +509,16 @@ public struct WatchHoleMapView: View {
                     .padding(.horizontal, 9)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(.black.opacity(0.5)))
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, 8)
+                .padding(.trailing, 48)
+                .padding(.top, 12)
+                Spacer()
             }
-            .padding(.leading, 8)
-            .padding(.trailing, 48)
-            .padding(.top, 12)
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+
         // Digital-Crown zoom indicator on the right edge (crown = zoom; NO +/- tap targets). Track + a
         // brighter thumb toward the bottom = currently zoomed in — the standard watchOS crown affordance.
         HStack {
@@ -524,6 +532,7 @@ public struct WatchHoleMapView: View {
             .padding(.trailing, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+
         VStack {
             Spacer()
             Text("转表冠缩放").font(.system(size: 8.5, weight: .medium)).foregroundStyle(.white.opacity(0.6))

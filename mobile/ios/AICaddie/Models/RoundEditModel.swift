@@ -322,7 +322,8 @@ public final class RoundEditModel: ObservableObject {
             geometryRevision: source.geometryRevision,
             map: source.map,
             shots: shots,
-            manualPenalty: source.manualPenalty
+            manualPenalty: source.manualPenalty,
+            missingData: source.missingData
         )
     }
 

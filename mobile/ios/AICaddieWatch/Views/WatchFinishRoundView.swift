@@ -177,6 +177,7 @@ public struct WatchResumeRoundView: View {
     public let pendingUploads: Int
     public let isFreshRound: Bool
     public let canSaveAndEnd: Bool
+    public let pendingPhoneCourseName: String?
     public let onResume: () -> Void
     public let onSaveAndEnd: () -> Void
     public let onAbandon: () -> Void
@@ -189,6 +190,7 @@ public struct WatchResumeRoundView: View {
         pendingUploads: Int,
         isFreshRound: Bool = false,
         canSaveAndEnd: Bool = true,
+        pendingPhoneCourseName: String? = nil,
         onResume: @escaping () -> Void = {},
         onSaveAndEnd: @escaping () -> Void = {},
         onAbandon: @escaping () -> Void = {}
@@ -200,6 +202,7 @@ public struct WatchResumeRoundView: View {
         self.pendingUploads = pendingUploads
         self.isFreshRound = isFreshRound
         self.canSaveAndEnd = canSaveAndEnd
+        self.pendingPhoneCourseName = pendingPhoneCourseName
         self.onResume = onResume
         self.onSaveAndEnd = onSaveAndEnd
         self.onAbandon = onAbandon
@@ -225,6 +228,19 @@ public struct WatchResumeRoundView: View {
                     Text("\(pendingUploads) 条记录等待同步")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(AICaddieDesignTokens.offline)
+                }
+                if let pendingPhoneCourseName {
+                    Text("手机已开始另一场")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(AICaddieDesignTokens.bogey)
+                    Text(pendingPhoneCourseName)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.72)
+                    Text("保存或放弃当前局后自动切换")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(.secondary)
                 }
                 lifecycleButton(
                     isFreshRound ? "开始本场" : "继续本场",

@@ -196,6 +196,7 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(nearbyQuery.queryItems?.first(where: { $0.name == "longitude" })?.value, "114.0715")
         XCTAssertEqual(nearbyQuery.queryItems?.first(where: { $0.name == "radius_km" })?.value, "50")
         XCTAssertEqual(nearby.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
+        XCTAssertEqual(nearby.timeoutInterval, WatchBackendClient.nearbyDiscoveryTimeoutInterval)
 
         let tees = try client.makeCourseTeesRequest(globalId: 31870)
         XCTAssertEqual(tees.url?.path, "/api/v2/courses/31870/tees")
@@ -318,6 +319,43 @@ final class WatchBackendClientTests: XCTestCase {
 
         XCTAssertEqual(tees.first?.teeBox, "championship")
         XCTAssertEqual(attempts, 3)
+    }
+
+    func testNearbyCoursesHasABoundedBudgetAndRetriesTransientFailure() async throws {
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-nearby-v1","radiusKm":50,"complete":true,"matches":[]}"#.utf8
+        )
+        var attempts = 0
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            dataLoader: { request in
+                attempts += 1
+                XCTAssertEqual(
+                    request.timeoutInterval,
+                    WatchBackendClient.nearbyDiscoveryTimeoutInterval
+                )
+                if attempts == 1 {
+                    throw URLError(.networkConnectionLost)
+                }
+                let response = HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                return (payload, response)
+            },
+            retrySleep: { _ in }
+        )
+
+        let matches = try await client.nearbyCourses(
+            latitude: 22.7402,
+            longitude: 114.0715,
+            radiusKm: 50
+        )
+
+        XCTAssertTrue(matches.isEmpty)
+        XCTAssertEqual(attempts, 2)
     }
 
     func testFetchCourseTopoRetriesATimedOutColdRender() async throws {

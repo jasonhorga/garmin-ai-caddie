@@ -163,6 +163,28 @@ class RoundShotMapCorrectionsTests(unittest.TestCase):
         self.assertEqual(out["shots"][1]["start"], out["shots"][0]["end"])
         self.assertEqual(out["manualPenalty"], 2)
 
+    def test_stale_whole_hole_snapshot_falls_back_to_current_source_geometry(self):
+        corr = [{
+            "op": "replaceHoleShots",
+            "hole": 1,
+            "geometryRevision": "obsolete-release",
+            "manualPenalty": 2,
+            "shots": [
+                {"id": "stale-pixel-shot", "start": [719, 1119], "end": [719, 1119]},
+            ],
+        }]
+
+        out = self._build(corr)
+
+        self.assertNotIn("stale-pixel-shot", [shot["id"] for shot in out["shots"]])
+        self.assertEqual([shot["id"] for shot in out["shots"]], ["s:r1:201", "s:r1:202"])
+        self.assertEqual(out["geometryRevision"], "0123456789abcdef")
+        self.assertEqual(out["manualPenalty"], 2, "geometry-independent penalty remains valid")
+        self.assertEqual(
+            out["missingData"],
+            [{"label": "geometry", "reason": "球场地图已更新，这一洞的手工修正需要重做"}],
+        )
+
     def test_latest_snapshot_wins_only_for_its_hole(self):
         corr = [
             {"op": "replaceHoleShots", "hole": 1, "manualPenalty": 1,

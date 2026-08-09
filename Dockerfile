@@ -15,7 +15,7 @@ ENV PYTHONUNBUFFERED=1 \
     PORT=9000
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl nodejs libarchive-tools \
+    && apt-get install -y --no-install-recommends ca-certificates curl nodejs libarchive-tools postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock ./

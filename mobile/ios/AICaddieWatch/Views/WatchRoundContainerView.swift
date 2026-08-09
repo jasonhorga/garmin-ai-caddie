@@ -109,9 +109,21 @@ public struct WatchRoundContainerView: View {
     }
 
     // watch P3: effective F/M/B — the watch-GPS value when available, else the phone-pushed distance.
-    private func frontYd(_ s: WatchRoundState) -> Int { watchGreenYards?.front ?? WatchUnits.yards(s.frontGreenM ?? 0) }
-    private func centerYd(_ s: WatchRoundState) -> Int { watchGreenYards?.center ?? WatchUnits.yards(s.centerGreenM ?? 0) }
-    private func backYd(_ s: WatchRoundState) -> Int { watchGreenYards?.back ?? WatchUnits.yards(s.backGreenM ?? 0) }
+    static func effectiveGreenYards(live: Int?, fallbackMetres: Double?) -> Int? {
+        live ?? fallbackMetres.map(WatchUnits.yards)
+    }
+
+    private func frontYd(_ s: WatchRoundState) -> Int? {
+        Self.effectiveGreenYards(live: watchGreenYards?.front, fallbackMetres: s.frontGreenM)
+    }
+
+    private func centerYd(_ s: WatchRoundState) -> Int? {
+        Self.effectiveGreenYards(live: watchGreenYards?.center, fallbackMetres: s.centerGreenM)
+    }
+
+    private func backYd(_ s: WatchRoundState) -> Int? {
+        Self.effectiveGreenYards(live: watchGreenYards?.back, fallbackMetres: s.backGreenM)
+    }
 
     /// Prefer the Watch's live walk-off distance; retain older server/phone facts as an offline fallback.
     private func latestShotDistanceM(_ s: WatchRoundState) -> Double? {
@@ -149,6 +161,7 @@ public struct WatchRoundContainerView: View {
                 pendingUploads: model.pendingUploads,
                 isFreshRound: !model.hasRecordedProgress,
                 canSaveAndEnd: model.canSaveAndEndFromResume,
+                pendingPhoneCourseName: model.pendingPhoneRoundCourseName,
                 onResume: { model.resumeRound() },
                 onSaveAndEnd: { model.requestSaveAndEndFromResume() },
                 onAbandon: { model.requestAbandon() }
@@ -497,7 +510,7 @@ public struct WatchRoundContainerView: View {
             ringPips: model.allHoleStates.map {
                 WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
             },
-            showTextOverlay: watchGreenYards?.center != nil,
+            showTextOverlay: centerYd(s) != nil,
             // owner 2026-07-08: KEEP 实打 — only when the backend has a real mesh-elevation slope
             // (elevationDeltaM non-nil ⇒ playsLike.available), so it stays honest.
             showPlaysLike: s.elevationDeltaM != nil,

@@ -923,6 +923,41 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: logURL), beforeLog)
     }
 
+    func testDiscardRoundDeletesOnlyThatRoundsPendingMedia() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let discarded = try store.savePendingMedia(
+            data: Data("discard".utf8),
+            eventId: "discard-event",
+            roundId: "discard-round",
+            hole: 1,
+            targetId: "discard-round:1",
+            assetLocalId: "discard.jpg",
+            mediaKind: "photo",
+            fileName: "discard.jpg",
+            capturedAt: "2026-08-09T00:00:00Z"
+        )
+        let retained = try store.savePendingMedia(
+            data: Data("retain".utf8),
+            eventId: "retain-event",
+            roundId: "retain-round",
+            hole: 2,
+            targetId: "retain-round:2",
+            assetLocalId: "retain.jpg",
+            mediaKind: "photo",
+            fileName: "retain.jpg",
+            capturedAt: "2026-08-09T00:00:01Z"
+        )
+
+        try store.discardRound(roundId: "discard-round")
+
+        XCTAssertTrue(try store.loadPendingMedia(roundId: "discard-round").isEmpty)
+        XCTAssertEqual(try store.loadPendingMedia(roundId: "retain-round").map(\.id), [retained.id])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: discarded.fileURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retained.fileURL.path))
+    }
+
     func testApplyReplayEventsThrowsWhenAnyPageEventFailsToPersist() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

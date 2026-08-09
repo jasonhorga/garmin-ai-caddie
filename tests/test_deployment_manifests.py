@@ -35,12 +35,14 @@ class DeploymentManifestTests(unittest.TestCase):
         manifest = Path("render.yaml")
         self.assertTrue(manifest.exists(), "missing Render staging manifest")
         text = manifest.read_text(encoding="utf-8")
+        payload = yaml.safe_load(text)
+        service = payload["services"][0]
 
         for required in [
             "type: web",
             "runtime: python",
-            "uv sync",
-            "uv run uvicorn server_v2.main:app --host 0.0.0.0 --port $PORT",
+            "uv sync --frozen --no-dev",
+            "sh ops/start_api.sh",
             "healthCheckPath: /api/v2/health",
             "AI_CADDIE_SECURITY_PROFILE",
             "sync: false",
@@ -49,6 +51,16 @@ class DeploymentManifestTests(unittest.TestCase):
             "local_or_fixture",
         ]:
             self.assertIn(required, text)
+        self.assertEqual(service["startCommand"], "sh ops/start_api.sh")
+        self.assertEqual(service["disk"]["mountPath"], "/var/data/ai-caddie")
+        self.assertEqual(service["disk"]["sizeGB"], 5)
+        environment = {entry["key"]: entry for entry in service["envVars"]}
+        self.assertEqual(environment["AI_CADDIE_PRIVATE_ROOT"]["value"], "/var/data/ai-caddie")
+        self.assertEqual(
+            environment["AI_CADDIE_DATABASE_URL"]["fromDatabase"]["name"],
+            "ai-caddie-db",
+        )
+        self.assertEqual(payload["databases"][0]["name"], "ai-caddie-db")
         self.assertNotIn("cookie", text.lower())
         self.assertNotIn("csrf", text.lower())
 
@@ -122,7 +134,7 @@ class DeploymentManifestTests(unittest.TestCase):
         text = Path("docs/deployment/private-trial.md").read_text(encoding="utf-8")
 
         for required in [
-            "uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000",
+            "PORT=9000 sh ops/start_api.sh",
             "ops/smoke_private_trial.sh http://127.0.0.1:9000",
             "ops/backup_data.sh",
             "ops/export_snapshot.py",
@@ -233,6 +245,7 @@ class DeploymentManifestTests(unittest.TestCase):
             "uv sync --frozen --no-dev",
             "npm ci --omit=dev",
             "ops/start_api.sh",
+            "postgresql-client",
             "EXPOSE 9000",
         ]:
             self.assertIn(required, docker_text)
@@ -244,6 +257,7 @@ class DeploymentManifestTests(unittest.TestCase):
         self.assertIn("${AI_CADDIE_API_PUBLISH_HOST:-127.0.0.1}:9000:9000", compose_text)
         self.assertIn("AI_CADDIE_PRIVATE_ROOT", entrypoint_text)
         self.assertIn(".garmin_tokens", entrypoint_text)
+        self.assertIn("python -m server_v2.identity_seed", entrypoint_text)
         self.assertNotIn("JWT_WEB", docker_text + compose_text)
         self.assertNotIn("connect-csrf-token", docker_text + compose_text)
 
@@ -270,6 +284,23 @@ class DeploymentManifestTests(unittest.TestCase):
             'Path("/app/contracts/canonical/fixtures/canonical_json_v1.json")',
             'fixture["typedIds"].items()',
             'typed_id(domain, fixture["value"])',
+        ]:
+            self.assertIn(required, workflow_text)
+
+    def test_ci_guards_default_branch_and_identity_cold_start(self) -> None:
+        workflow_text = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+        for required in [
+            "push:",
+            "- main",
+            "- integration/v2",
+            'AI_CADDIE_DATABASE_URL="sqlite:///$RUNNER_TEMP/identity-cold-start.db"',
+            "uv run --frozen alembic upgrade head",
+            "uv run --frozen python -m server_v2.identity_seed",
+            'patch(\n              "server_v2.auth_api._verify"',
+            'client.post(\n                      "/api/v2/auth/apple"',
+            'payload.get("token")',
+            'payload.get("playerId")',
         ]:
             self.assertIn(required, workflow_text)
 

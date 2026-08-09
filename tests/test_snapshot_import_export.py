@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sqlite3
+import subprocess
 from tempfile import TemporaryDirectory
 import tarfile
 import unittest
+from unittest.mock import patch
 
-from ops.export_snapshot import export_snapshot
+from ops.export_snapshot import audit_snapshot, export_snapshot
 from ops.import_snapshot import import_snapshot
 
 
@@ -135,6 +138,10 @@ class SnapshotImportExportTests(unittest.TestCase):
             (source / "data" / "players" / "p_friend" / "shots" / "900.json").write_text(
                 "{}", encoding="utf-8"
             )
+            (source / "data" / "players" / "p_friend" / ".garmin_tokens").mkdir()
+            (source / "data" / "players" / "p_friend" / ".garmin_tokens" / "oauth.json").write_text(
+                '{"access_token":"must-not-leak"}', encoding="utf-8"
+            )
             (source / ".env").write_text("SECRET=1", encoding="utf-8")
             (source / "data" / "players" / "p_friend" / "secret-link.json").symlink_to(
                 source / ".env"
@@ -150,6 +157,7 @@ class SnapshotImportExportTests(unittest.TestCase):
 
             self.assertIn("data/players/p_friend/scorecards/900.json", names)
             self.assertIn("data/players/p_friend/shots/900.json", names)
+            self.assertNotIn("data/players/p_friend/.garmin_tokens/oauth.json", names)
             self.assertNotIn("data/players/p_friend/secret-link.json", names)
             self.assertEqual(
                 (target / "data" / "players" / "p_friend" / "scorecards" / "900.json").read_text(
@@ -157,6 +165,75 @@ class SnapshotImportExportTests(unittest.TestCase):
                 ),
                 "{}",
             )
+            self.assertFalse((target / "data" / "players" / "p_friend" / ".garmin_tokens").exists())
+
+    def test_export_uses_online_sqlite_backup_and_restores_identity_rows(self) -> None:
+        with TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            database = source / "data" / "identity.db"
+            database.parent.mkdir(parents=True)
+            connection = sqlite3.connect(database)
+            try:
+                connection.execute("PRAGMA journal_mode=WAL")
+                connection.execute("CREATE TABLE users (id TEXT PRIMARY KEY, display_name TEXT NOT NULL)")
+                connection.execute("INSERT INTO users VALUES ('u_owner', 'Owner')")
+                connection.commit()
+
+                tarball = Path(tmp) / "snapshot.tar.gz"
+                manifest = export_snapshot(source_root=source, output_path=tarball)
+            finally:
+                connection.close()
+
+            self.assertEqual(manifest["identityBackup"], "sqlite")
+            self.assertTrue(manifest["secretFree"])
+            self.assertEqual(audit_snapshot(tarball)["identityBackup"], "sqlite")
+
+            target = Path(tmp) / "target"
+            import_snapshot(tarball, target_root=target)
+            with sqlite3.connect(target / "data" / "identity.db") as restored:
+                row = restored.execute("SELECT id, display_name FROM users").fetchone()
+            self.assertEqual(row, ("u_owner", "Owner"))
+
+    def test_postgres_identity_dump_is_archived_without_database_url_in_argv(self) -> None:
+        with TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            tarball = Path(tmp) / "snapshot.tar.gz"
+
+            def fake_pg_dump(command, **kwargs):
+                destination = Path(command[command.index("--file") + 1])
+                destination.write_bytes(b"PGDMP")
+                self.assertNotIn("secret-password", " ".join(command))
+                self.assertEqual(
+                    kwargs["env"]["PGDATABASE"],
+                    "postgresql://user:secret-password@db.example/ai_caddie",
+                )
+                return subprocess.CompletedProcess(command, 0)
+
+            with patch("ops.export_snapshot.subprocess.run", side_effect=fake_pg_dump):
+                manifest = export_snapshot(
+                    source_root=source,
+                    output_path=tarball,
+                    database_url="postgresql+psycopg://user:secret-password@db.example/ai_caddie",
+                )
+
+            with tarfile.open(tarball, "r:gz") as archive:
+                names = archive.getnames()
+            self.assertIn("data/identity.pg_dump", names)
+            self.assertEqual(manifest["identityBackup"], "postgresql")
+
+    def test_finished_archive_audit_rejects_nested_credential_material(self) -> None:
+        with TemporaryDirectory() as tmp:
+            tarball = Path(tmp) / "bad.tar.gz"
+            payload = Path(tmp) / "oauth.json"
+            payload.write_text('{"access_token":"secret"}', encoding="utf-8")
+            with tarfile.open(tarball, "w:gz") as archive:
+                archive.add(payload, arcname="data/players/p_friend/.garmin_tokens/oauth.json")
+
+            with self.assertRaises(RuntimeError):
+                audit_snapshot(tarball)
+            with self.assertRaises(ValueError):
+                import_snapshot(tarball, target_root=Path(tmp) / "target")
 
     def test_export_includes_the_decisions_ledger(self) -> None:
         # P2: the live caddie decisions ledger (data/decisions/decisions.jsonl) was omitted from the

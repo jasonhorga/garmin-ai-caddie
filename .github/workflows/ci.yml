@@ -3,6 +3,10 @@ name: CI
 on:
   workflow_dispatch:
   pull_request:
+  push:
+    branches:
+      - main
+      - integration/v2
 
 concurrency:
   group: ai-caddie-ci-${{ github.workflow }}-${{ github.ref }}
@@ -60,6 +64,35 @@ jobs:
           AI_CADDIE_SECURITY_PROFILE: private
           AI_CADDIE_ADMIN_TOKEN: ci-admin-token
         run: |
+          # Exercise the exact production cold-start order on a genuinely absent identity DB before
+          # serving: migration -> idempotent registry seed -> Apple auth -> API process.
+          export AI_CADDIE_DATABASE_URL="sqlite:///$RUNNER_TEMP/identity-cold-start.db"
+          rm -f "$RUNNER_TEMP/identity-cold-start.db"
+          uv run --frozen alembic upgrade head
+          uv run --frozen python -m server_v2.identity_seed
+          uv run --frozen python - <<'PY'
+          from unittest.mock import patch
+
+          from fastapi.testclient import TestClient
+
+          from server_v2.apple_auth import AppleIdentity
+          from server_v2.main import app
+
+          with patch(
+              "server_v2.auth_api._verify",
+              return_value=AppleIdentity(subject="ci-cold-start-subject", email="ci@example.test"),
+          ):
+              with TestClient(app) as client:
+                  response = client.post(
+                      "/api/v2/auth/apple",
+                      json={"identityToken": "ci-stubbed-token", "displayName": "CI Member"},
+                  )
+          if response.status_code != 200:
+              raise SystemExit(f"cold-start Apple auth failed: {response.status_code} {response.text}")
+          payload = response.json()
+          if not payload.get("token") or not payload.get("playerId"):
+              raise SystemExit("cold-start Apple auth returned no scoped session/player identity")
+          PY
           uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000 > /tmp/ai-caddie-api.log 2>&1 &
           echo $! > /tmp/ai-caddie-api.pid
           for attempt in {1..30}; do

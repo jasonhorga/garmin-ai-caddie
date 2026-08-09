@@ -14,14 +14,23 @@ from __future__ import annotations
 
 import difflib
 import math
+import threading
+import time
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ai_caddie.geometry.inspect_courseview_release import BASE, fetch_bytes, parse_fields
 
 _MIN_QUERY = 2  # the endpoint requires >=3 ascii or >=2 CJK chars
 _NEARBY_PAGE_SIZE = 50
-_NEARBY_MAX_PAGES = 100  # provider-loop safety valve; 5,000 rows is already far beyond 200 km use
+_SEARCH_MAX_PAGES = 100
+_NEARBY_MAX_PAGES = 8  # 400 rows is already far beyond a truthful 200 km nearby result
+_NEARBY_DEADLINE_SECONDS = 12.0
+_NEARBY_PAGE_TIMEOUT_SECONDS = 8.0
+_NEARBY_CACHE_TTL_SECONDS = 300.0
+_NEARBY_PARTIAL_CACHE_TTL_SECONDS = 30.0
+_NEARBY_STALE_TTL_SECONDS = 3_600.0
+_NEARBY_CACHE_MAX_ENTRIES = 128
 
 
 @dataclass
@@ -35,6 +44,25 @@ class CourseMatch:
     latitude: float | None = None
     longitude: float | None = None
     distance_km: float | None = None
+
+
+@dataclass(frozen=True)
+class NearbyCourseResult:
+    matches: tuple[CourseMatch, ...]
+    complete: bool
+    pages_fetched: int
+    partial_reason: str | None = None
+    cache_status: str = "miss"
+
+
+@dataclass(frozen=True)
+class _NearbyCacheEntry:
+    result: NearbyCourseResult
+    cached_at: float
+
+
+_NEARBY_CACHE: dict[tuple[float, float, int, int], _NearbyCacheEntry] = {}
+_NEARBY_CACHE_LOCK = threading.Lock()
 
 
 def _garmin_coordinate(raw: int, *, latitude: bool, bits: int = 23) -> float | None:
@@ -140,6 +168,7 @@ def _fetch_nearby_page(
     *,
     page: int,
     page_size: int = _NEARBY_PAGE_SIZE,
+    timeout_seconds: float = _NEARBY_PAGE_TIMEOUT_SECONDS,
 ) -> bytes:
     """Fetch one page from Garmin's provider-wide radius route (radius is metres in the path)."""
     lat_sc = _semicircle_32(latitude)
@@ -149,7 +178,7 @@ def _fetch_nearby_page(
         f"{BASE}/Boundaries/{lon_sc},{lat_sc},{radius_m},32/Courses"
         f"?pageSize={int(page_size)}&page={int(page)}&languageCode=zh-CN"
     )
-    return fetch_bytes(url)
+    return fetch_bytes(url, timeout=timeout_seconds)
 
 
 def _location_blob(rec: dict) -> str:
@@ -173,6 +202,68 @@ def _valid_location(latitude: float, longitude: float) -> bool:
     )
 
 
+def _nearby_cache_key(
+    latitude: float,
+    longitude: float,
+    radius_km: int,
+    page_size: int,
+) -> tuple[float, float, int, int]:
+    # A ~110 m coordinate bucket absorbs ordinary GPS jitter without mixing venues.
+    return (round(latitude, 3), round(longitude, 3), radius_km, page_size)
+
+
+def _cached_nearby_result(
+    key: tuple[float, float, int, int],
+    *,
+    now: float,
+    allow_stale: bool,
+) -> NearbyCourseResult | None:
+    with _NEARBY_CACHE_LOCK:
+        entry = _NEARBY_CACHE.get(key)
+    if entry is None:
+        return None
+    age = now - entry.cached_at
+    fresh_ttl = (
+        _NEARBY_CACHE_TTL_SECONDS
+        if entry.result.complete
+        else _NEARBY_PARTIAL_CACHE_TTL_SECONDS
+    )
+    if age <= fresh_ttl:
+        return replace(entry.result, cache_status="fresh")
+    if allow_stale and age <= _NEARBY_STALE_TTL_SECONDS and entry.result.matches:
+        return replace(
+            entry.result,
+            complete=False,
+            partial_reason="provider_unavailable",
+            cache_status="stale",
+        )
+    return None
+
+
+def _store_nearby_result(
+    key: tuple[float, float, int, int],
+    result: NearbyCourseResult,
+    *,
+    now: float,
+) -> None:
+    with _NEARBY_CACHE_LOCK:
+        expired = [
+            cached_key
+            for cached_key, entry in _NEARBY_CACHE.items()
+            if now - entry.cached_at > _NEARBY_STALE_TTL_SECONDS
+        ]
+        for cached_key in expired:
+            _NEARBY_CACHE.pop(cached_key, None)
+        while len(_NEARBY_CACHE) >= _NEARBY_CACHE_MAX_ENTRIES:
+            _NEARBY_CACHE.pop(next(iter(_NEARBY_CACHE)))
+        _NEARBY_CACHE[key] = _NearbyCacheEntry(result=result, cached_at=now)
+
+
+def _clear_nearby_cache_for_tests() -> None:
+    with _NEARBY_CACHE_LOCK:
+        _NEARBY_CACHE.clear()
+
+
 def courseview_nearby(
     latitude: float,
     longitude: float,
@@ -180,8 +271,9 @@ def courseview_nearby(
     *,
     page_size: int = _NEARBY_PAGE_SIZE,
     allow_fetch: bool = True,
-) -> list[CourseMatch]:
-    """List every CourseView catalogue row in a radius and sort by computed Haversine distance.
+    deadline_seconds: float = _NEARBY_DEADLINE_SECONDS,
+) -> NearbyCourseResult:
+    """List CourseView rows in a radius under a bounded provider scan and sort by distance.
 
     Garmin's nearby route is distinct from name search: the path contains radius in metres and is
     paginated. Metadata is deduplicated by factual ``globalId``; no course assets are downloaded.
@@ -191,29 +283,69 @@ def courseview_nearby(
         lon = float(longitude)
         radius = int(radius_km)
         size = int(page_size)
+        deadline_budget = float(deadline_seconds)
     except (TypeError, ValueError, OverflowError):
-        return []
-    if not allow_fetch or not _valid_location(lat, lon) or not 1 <= radius <= 200:
-        return []
-    if not 1 <= size <= _NEARBY_PAGE_SIZE:
-        return []
+        return NearbyCourseResult((), complete=False, pages_fetched=0, partial_reason="invalid_request")
+    if not _valid_location(lat, lon) or not 1 <= radius <= 200:
+        return NearbyCourseResult((), complete=False, pages_fetched=0, partial_reason="invalid_request")
+    if not 1 <= size <= _NEARBY_PAGE_SIZE or not math.isfinite(deadline_budget) or deadline_budget <= 0:
+        return NearbyCourseResult((), complete=False, pages_fetched=0, partial_reason="invalid_request")
+
+    cache_key = _nearby_cache_key(lat, lon, radius, size)
+    now = time.monotonic()
+    cached = _cached_nearby_result(cache_key, now=now, allow_stale=False)
+    if cached is not None:
+        return cached
+    if not allow_fetch:
+        return NearbyCourseResult((), complete=False, pages_fetched=0, partial_reason="fetch_disabled")
 
     records: dict[int, dict] = {}
     previous_page_ids: tuple[int, ...] | None = None
+    pages_fetched = 0
+    complete = False
+    partial_reason: str | None = None
+    deadline_at = now + deadline_budget
     for page in range(1, _NEARBY_MAX_PAGES + 1):
-        # Do not turn a provider/network failure into a truthful-looking empty/partial catalogue.
-        # The API maps this to 502 so the client can show retry/search instead of "no nearby course".
-        pb = _fetch_nearby_page(lat, lon, radius, page=page, page_size=size)
+        remaining = deadline_at - time.monotonic()
+        if remaining <= 0:
+            partial_reason = "deadline"
+            break
+        try:
+            pb = _fetch_nearby_page(
+                lat,
+                lon,
+                radius,
+                page=page,
+                page_size=size,
+                timeout_seconds=max(0.1, min(_NEARBY_PAGE_TIMEOUT_SECONDS, remaining)),
+            )
+        except Exception:
+            if not records:
+                stale = _cached_nearby_result(
+                    cache_key,
+                    now=time.monotonic(),
+                    allow_stale=True,
+                )
+                if stale is not None:
+                    return stale
+                raise
+            partial_reason = "provider_unavailable"
+            break
+        pages_fetched += 1
         rows = parse_course_search(pb, coordinate_bits=31)
         page_ids = tuple(int(row["global_id"]) for row in rows)
         # Stop if a provider/cache ignores page and repeats the same full page.
         if page_ids and page_ids == previous_page_ids:
+            partial_reason = "provider_repeated_page"
             break
         previous_page_ids = page_ids
         for row in rows:
             records.setdefault(int(row["global_id"]), row)
         if len(rows) < size:
+            complete = True
             break
+    else:
+        partial_reason = "page_limit"
 
     matches: list[CourseMatch] = []
     for rec in records.values():
@@ -238,7 +370,14 @@ def courseview_nearby(
         match.distance_km if match.distance_km is not None else math.inf,
         match.name.lower(),
     ))
-    return matches
+    result = NearbyCourseResult(
+        matches=tuple(matches),
+        complete=complete,
+        pages_fetched=pages_fetched,
+        partial_reason=None if complete else (partial_reason or "page_limit"),
+    )
+    _store_nearby_result(cache_key, result, now=time.monotonic())
+    return result
 
 
 def courseview_search(
@@ -270,7 +409,7 @@ def courseview_search(
     )
     records: dict[int, dict] = {}
     previous_page_ids: tuple[int, ...] | None = None
-    for page in range(1, _NEARBY_MAX_PAGES + 1):
+    for page in range(1, _SEARCH_MAX_PAGES + 1):
         # A provider/network failure is not a truthful "no matches" result. Let the API map the
         # exception to 502 so iOS can show its existing retryable network state, matching nearby
         # discovery instead of telling the player to change a perfectly valid course name.

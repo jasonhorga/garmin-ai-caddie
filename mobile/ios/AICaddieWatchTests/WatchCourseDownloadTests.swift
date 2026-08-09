@@ -2,6 +2,15 @@ import XCTest
 @testable import AICaddieWatch
 
 final class WatchCourseDownloadTests: XCTestCase {
+    func testPreciseMapUpgradeUsesBoundedRetrySchedule() {
+        XCTAssertEqual(WatchCourseLibrary.preciseUpgradeMaximumAttempts, 6)
+        XCTAssertEqual(WatchCourseLibrary.preciseUpgradeRetryDelaysSeconds, [5, 10, 20, 40, 60])
+        XCTAssertEqual(
+            WatchCourseLibrary.preciseUpgradeRetryDelaysSeconds.count,
+            WatchCourseLibrary.preciseUpgradeMaximumAttempts - 1
+        )
+    }
+
     private let client = WatchBackendClient(baseURL: URL(string: "https://caddie.example")!)
 
     private func validTopoData() throws -> Data {

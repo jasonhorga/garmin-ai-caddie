@@ -1090,8 +1090,9 @@ public final class OfflineStore {
     }
 
     /// Forget a round entirely (discard/cancel): clear the active-package pointer + its
-    /// cached package, and drop its events from the log so a discarded round never
-    /// resurfaces on relaunch or syncs to the backend.
+    /// cached package, events and queued media so a discarded round never resurfaces on relaunch or
+    /// syncs to the backend. Save & End callers must prove media is uploaded before invoking this;
+    /// explicit Abandon intentionally deletes the round's local attachments too.
     public func discardRound(roundId: String) throws {
         try withEventLogLock {
             let authority = try openEventLogDirectoryAuthority(createIfMissing: false)
@@ -1121,6 +1122,13 @@ public final class OfflineStore {
         if let progress = try? loadLiveRoundProgress(), progress.roundId == roundId {
             try? FileManager.default.removeItem(at: liveProgressURL)
         }
+        let mediaIds = Set(try loadPendingMedia(roundId: roundId).map(\.id))
+        try removePendingMedia(ids: mediaIds)
+        let mediaDirectory = pendingMediaDirectoryURL.appendingPathComponent(
+            safePathComponent(roundId),
+            isDirectory: true
+        )
+        try? FileManager.default.removeItem(at: mediaDirectory)
         AICaddieLog.storage.debug("Discarded round \(roundId, privacy: .public)")
     }
 

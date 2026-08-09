@@ -5,6 +5,9 @@ import Foundation
 /// that has completed package + prep download is advertised as cached and can start with no config.
 @MainActor
 public final class WatchCourseLibrary: ObservableObject {
+    static let preciseUpgradeMaximumAttempts = 6
+    static let preciseUpgradeRetryDelaysSeconds: [UInt64] = [5, 10, 20, 40, 60]
+
     @Published public private(set) var courses: [WatchCourseOption]
     /// Provider-wide rows around the Watch's current fix. This is the only list shown by the
     /// new-round picker; `courses` remains lookup/cache metadata and is never presented as history.
@@ -262,8 +265,9 @@ public final class WatchCourseLibrary: ObservableObject {
     }
 
     /// Continue the already-queued precise download without holding up play. The caller applies the
-    /// returned map facts to the same round id; failures and service cooldowns retry at a bounded
-    /// cadence while the task remains alive, and a later app entry can resume from the partial cache.
+    /// returned map facts to the same round id. Failures and service cooldowns retry six times with
+    /// bounded backoff; exhaustion stops the task so it cannot drain the Watch indefinitely. A later
+    /// app entry starts a fresh bounded attempt from the persisted partial cache.
     public func upgradeCourseWhenReady(
         _ selection: WatchCourseSelection,
         roundId: String,
@@ -271,10 +275,10 @@ public final class WatchCourseLibrary: ObservableObject {
         onProgress: (([WatchRoundState]) -> Void)? = nil
     ) async -> WatchPreparedCourse? {
         guard let config else { return nil }
-        var delaySeconds: UInt64 = 5
         var shouldQueueGeometry = true
 
-        while !Task.isCancelled {
+        for attempt in 0..<Self.preciseUpgradeMaximumAttempts {
+            guard !Task.isCancelled else { return nil }
             do {
                 let download = try await fetchCourseDownload(
                     selection,
@@ -295,17 +299,20 @@ public final class WatchCourseLibrary: ObservableObject {
                     return prepared
                 }
             } catch {
-                // The lightweight template remains playable. Retry below instead of replacing the
-                // screen with a transient network error during an active round.
+                // The lightweight template remains playable. Retry below without replacing the
+                // active-round screen with a transient network error.
             }
 
+            guard attempt < Self.preciseUpgradeRetryDelaysSeconds.count else { break }
             do {
-                try await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+                try await Task.sleep(
+                    nanoseconds: Self.preciseUpgradeRetryDelaysSeconds[attempt] * 1_000_000_000
+                )
             } catch {
                 return nil
             }
-            delaySeconds = min(delaySeconds * 2, 60)
         }
+        diagnosticErrorMessage = "地图后台补齐已暂停；下次进入本局时自动重试"
         return nil
     }
 

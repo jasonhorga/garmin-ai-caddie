@@ -268,6 +268,8 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             or path == "/api/v2/annotations"
             or path.startswith("/api/v2/annotations/target/")
             or path == "/api/v2/caddie/context"
+            # Decision-audit READS use the same evidence_root(player_id) partition as both writes.
+            or (path.startswith("/api/v2/caddie/decisions/") and path.endswith("/audit/latest"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
             or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/reconciliation"))

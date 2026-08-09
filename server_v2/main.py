@@ -951,16 +951,34 @@ def course_nearby_endpoint(
 ) -> dict:
     """List provider-wide Garmin catalogue rows around a coordinate; metadata only."""
     try:
-        matches = course_search.courseview_nearby(
+        nearby_result = course_search.courseview_nearby(
             latitude=latitude,
             longitude=longitude,
             radius_km=radius_km,
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Garmin course catalogue unavailable") from exc
+    # Keep accepting a plain list from test/adaptor callers while the production
+    # implementation carries explicit completeness/cache metadata.
+    if isinstance(nearby_result, course_search.NearbyCourseResult):
+        matches = nearby_result.matches
+        complete = nearby_result.complete
+        partial_reason = nearby_result.partial_reason
+        pages_fetched = nearby_result.pages_fetched
+        cache_status = nearby_result.cache_status
+    else:
+        matches = nearby_result
+        complete = True
+        partial_reason = None
+        pages_fetched = 0
+        cache_status = "adapter"
     return {
         "schema": "ai-caddie-course-nearby-v1",
         "radiusKm": radius_km,
+        "complete": complete,
+        "partialReason": partial_reason,
+        "pagesFetched": pages_fetched,
+        "cacheStatus": cache_status,
         "matches": [_course_match_payload(match) for match in matches],
     }
 
@@ -1077,12 +1095,11 @@ def caddie_decision_audit(
 
 @app.get("/api/v2/caddie/decisions/{decision_id}/audit/latest", response_model=CaddieDecisionAuditLatestResponse)
 def caddie_decision_audit_latest(
-    http_request: Request,
     decision_id: str,
+    player_id: str = Depends(current_player_id),
 ) -> CaddieDecisionAuditLatestResponse:
-    # Admin-only read of the owner's stored audit; an OWNER session authorizes it, a member is 403.
-    enforce_admin_or_owner(http_request)
-    return latest_decision_audit_response(decision_id)
+    # Member-scoped read: exactly mirrors the partition used by the decision and audit POSTs.
+    return latest_decision_audit_response(decision_id, player_id=player_id)
 
 
 @app.get("/api/v2/annotations", response_model=AnnotationListResponse)

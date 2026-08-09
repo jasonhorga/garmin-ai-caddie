@@ -4,7 +4,7 @@ The recommended trial path is staged and reversible.
 
 ## Staging First
 
-Use a Render-style API service and a Vercel-style web frontend for early testing. Keep Garmin session material and AI provider keys in the platform secret manager. Do not upload private raw data unless the deployment is locked down and intentionally configured for it.
+Use a Render-style API service and a Vercel-style web frontend for early testing. Keep Garmin session material and AI provider keys in the platform secret manager. Do not upload private raw data unless the deployment is locked down and intentionally configured for it. The Render blueprint provisions both a persistent private-data disk and a managed identity database; its start command uses the same migration-and-seed entrypoint as Docker and Fly.
 
 Machine-readable starting points are committed:
 
@@ -47,7 +47,7 @@ AI_CADDIE_SECURITY_PROFILE=private \
 AI_CADDIE_ADMIN_TOKEN=replace-with-random-admin-token \
 AI_CADDIE_DATA_MODE=local_or_fixture \
 AI_CADDIE_PRIVATE_ROOT=/var/lib/ai-caddie \
-uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000
+PORT=9000 sh ops/start_api.sh
 ```
 
 In another shell, run the protected-route smoke:
@@ -70,6 +70,13 @@ ops/backup_data.sh
 uv run python ops/export_snapshot.py --source-root . --output data/backups/private-snapshot.tar.gz
 uv run python ops/import_snapshot.py data/backups/private-snapshot.tar.gz --target-root /tmp/ai-caddie-restore-check
 ```
+
+Snapshots exclude `.garmin_tokens` even when a member has its own nested token
+directory. They include the identity database: SQLite is captured online as
+`data/identity.db`; PostgreSQL is captured as `data/identity.pg_dump` and makes
+the command fail if `pg_dump` cannot produce a complete dump. A PostgreSQL dump
+must be restored explicitly with `pg_restore`; extracting the tarball does not
+change a managed database.
 
 ## Container Staging
 

@@ -18,6 +18,9 @@ public struct RoundHoleShotMap: Codable, Equatable {
     public var shots: [RoundShot]
     /// Per-hole manually-entered penalty strokes (backend `manualPenalty`; `var` for the +/− stepper).
     public var manualPenalty: Int
+    /// Honest degradation notes, including a stale whole-hole pixel edit after Garmin updates the
+    /// course geometry. The raw shots remain visible and the player is prompted to redo that edit.
+    public let missingData: [RoundShotMapMissing]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -30,11 +33,13 @@ public struct RoundHoleShotMap: Codable, Equatable {
         map = try? c.decodeIfPresent(CoursePrepMap.self, forKey: .map)
         shots = (try? c.decodeIfPresent([RoundShot].self, forKey: .shots)) ?? []
         manualPenalty = (try? c.decodeIfPresent(Int.self, forKey: .manualPenalty)) ?? 0
+        missingData = (try? c.decodeIfPresent([RoundShotMapMissing].self, forKey: .missingData)) ?? []
     }
 
     public init(found: Bool, hole: Int, par: Int? = nil, globalId: Int? = nil, localHole: Int? = nil,
                 geometryRevision: String? = nil,
-                map: CoursePrepMap? = nil, shots: [RoundShot] = [], manualPenalty: Int = 0) {
+                map: CoursePrepMap? = nil, shots: [RoundShot] = [], manualPenalty: Int = 0,
+                missingData: [RoundShotMapMissing] = []) {
         self.found = found
         self.hole = hole
         self.par = par
@@ -44,10 +49,22 @@ public struct RoundHoleShotMap: Codable, Equatable {
         self.map = map
         self.shots = shots
         self.manualPenalty = manualPenalty
+        self.missingData = missingData
     }
 
     private enum CodingKeys: String, CodingKey {
-        case found, hole, par, globalId, localHole, geometryRevision, map, shots, manualPenalty
+        case found, hole, par, globalId, localHole, geometryRevision, map, shots, manualPenalty, missingData
+    }
+}
+
+public struct RoundShotMapMissing: Codable, Equatable, Identifiable {
+    public var id: String { label + ":" + (reason ?? "") }
+    public let label: String
+    public let reason: String?
+
+    public init(label: String, reason: String? = nil) {
+        self.label = label
+        self.reason = reason
     }
 }
 

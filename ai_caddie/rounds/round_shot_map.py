@@ -268,34 +268,45 @@ def build_round_hole_shot_map(
     snapshot = round_corrections.latest_hole_shot_snapshot(corr, hole)
     if snapshot is not None:
         snapshot_index, snapshot_event = snapshot
-        plotted = _snapshot_pixel_shots(
-            snapshot_event,
-            width=width,
-            height=height,
-            tee_px=tee_px,
+        raw_snapshot_revision = snapshot_event.get("geometryRevision")
+        snapshot_revision = (
+            str(raw_snapshot_revision).strip()
+            if raw_snapshot_revision is not None and str(raw_snapshot_revision).strip()
+            else None
         )
-        plotted = _apply_post_snapshot_ops(
-            plotted,
-            corr[snapshot_index + 1 :],
-            hole=hole,
-            width=width,
-            height=height,
-            tee_px=tee_px,
-        )
-        return {
-            "schema": SCHEMA,
-            "found": True,
-            "roundRef": str(row.get("id")),
-            "hole": hole,
-            "par": par,
-            "globalId": int(gid) if gid is not None else None,
-            "localHole": int(local),
-            "geometryRevision": geometry_revision,
-            "map": {"image": image, "overlay": overlay},
-            "shots": plotted,
-            "manualPenalty": manual_penalty,
-            "missingData": [],
-        }
+        # Whole-hole edits are pixel snapshots. They are authoritative only in the exact geometry
+        # frame in which the user approved them. Legacy snapshots carried no revision, so retain
+        # their historical behaviour; a known mismatch must fall back to freshly projected source
+        # shots instead of clamping old pixels into a new Garmin release.
+        if snapshot_revision is None or snapshot_revision == geometry_revision:
+            plotted = _snapshot_pixel_shots(
+                snapshot_event,
+                width=width,
+                height=height,
+                tee_px=tee_px,
+            )
+            plotted = _apply_post_snapshot_ops(
+                plotted,
+                corr[snapshot_index + 1 :],
+                hole=hole,
+                width=width,
+                height=height,
+                tee_px=tee_px,
+            )
+            return {
+                "schema": SCHEMA,
+                "found": True,
+                "roundRef": str(row.get("id")),
+                "hole": hole,
+                "par": par,
+                "globalId": int(gid) if gid is not None else None,
+                "localHole": int(local),
+                "geometryRevision": geometry_revision,
+                "map": {"image": image, "overlay": overlay},
+                "shots": plotted,
+                "manualPenalty": manual_penalty,
+                "missingData": [],
+            }
 
     round_ids = _round_ids(row)
     rmap = round_corrections.reorder_map(corr)
@@ -434,5 +445,9 @@ def build_round_hole_shot_map(
         "map": {"image": image, "overlay": overlay},
         "shots": plotted,
         "manualPenalty": manual_penalty,
-        "missingData": [],
+        "missingData": (
+            [{"label": "geometry", "reason": "球场地图已更新，这一洞的手工修正需要重做"}]
+            if snapshot is not None
+            else []
+        ),
     }

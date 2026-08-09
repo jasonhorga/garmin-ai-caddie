@@ -135,7 +135,7 @@ public final class SyncClient {
     static let courseReleaseTimeoutInterval: TimeInterval = 180
     static let coursePackageTimeoutInterval: TimeInterval = 180
     static let courseReleaseMaximumAttempts = 3
-    static let nearbyDiscoveryTimeoutInterval: TimeInterval = 10
+    static let nearbyDiscoveryTimeoutInterval: TimeInterval = 30
     static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
 
     /// The configured API base (e.g. `https://caddie…ts.net`). Public so views can build the
@@ -300,10 +300,9 @@ public final class SyncClient {
         ]
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
-        // Nearby discovery is the time-sensitive entry to a round. A short-lived Funnel/DNS failure
-        // previously dropped straight to "读取失败" even though the same request worked moments
-        // later through manual search. Bound each attempt so the fallback remains responsive, then
-        // retry the idempotent GET using the same transient-only policy as course metadata.
+        // The backend bounds its Garmin pagination to 12 s and can return an explicitly marked
+        // partial/cache result. Leave enough transport budget for that response plus Funnel/DNS
+        // latency, then retry the idempotent GET using the transient-only metadata policy.
         request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
         applyAuth(to: &request)
         let data = try await fetchRetriableGetData(request)

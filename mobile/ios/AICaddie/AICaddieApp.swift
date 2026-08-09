@@ -255,6 +255,7 @@ public struct AICaddieApp: App {
 
 private enum LiveRoundFinishError: Error {
     case incompleteAcknowledgement
+    case pendingMedia
 }
 
 private struct OfflineTopoDownloadResult: Sendable {
@@ -1532,6 +1533,11 @@ public final class LiveRoundAppModel: ObservableObject {
         }
 
         do {
+            _ = try await syncPendingMedia(roundId: package.roundId)
+            guard try offlineStore.loadPendingMedia(roundId: package.roundId).isEmpty else {
+                throw LiveRoundFinishError.pendingMedia
+            }
+
             let pending = try offlineStore.loadPendingEvents(roundId: package.roundId)
             if !pending.isEmpty {
                 try await postPendingEventsAndRequireFullAcknowledgement(
@@ -1540,7 +1546,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     syncClient: syncClient
                 )
             }
-            guard try offlineStore.loadPendingEvents(roundId: package.roundId).isEmpty else {
+            guard try offlineStore.loadPendingEvents(roundId: package.roundId).isEmpty,
+                  try offlineStore.loadPendingMedia(roundId: package.roundId).isEmpty else {
                 throw LiveRoundFinishError.incompleteAcknowledgement
             }
 
@@ -1586,6 +1593,9 @@ public final class LiveRoundAppModel: ObservableObject {
         roundId: String,
         notifyWatch: Bool = true
     ) throws {
+        guard try offlineStore.loadPendingMedia(roundId: roundId).isEmpty else {
+            throw LiveRoundFinishError.pendingMedia
+        }
         let homePackage = package
         try offlineStore.discardRound(roundId: roundId)
         if let homePackage {
@@ -1619,8 +1629,9 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         do {
             let pending = try offlineStore.loadPendingEvents(roundId: closure.roundId)
+            let pendingMedia = try offlineStore.loadPendingMedia(roundId: closure.roundId)
             pendingEventCount = pending.count
-            guard !pending.isEmpty else {
+            guard !pending.isEmpty || !pendingMedia.isEmpty else {
                 try clearFinishedRoundLocally(roundId: closure.roundId, notifyWatch: false)
                 return
             }
@@ -1658,11 +1669,12 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         do {
             var remaining = try offlineStore.loadPendingEvents(roundId: roundId)
-            if !remaining.isEmpty {
+            var remainingMedia = try offlineStore.loadPendingMedia(roundId: roundId)
+            if !remaining.isEmpty || !remainingMedia.isEmpty {
                 // The first sync can legitimately pull Watch-authored server events after its local
                 // sync marker. One bounded second pass ACKs that imported tail; replaying those same
                 // server identities is locally idempotent even if the cursor ACK was lost. Any genuine
-                // offline/partial/newer-event failure remains on disk after this single retry.
+                // offline/partial/newer-event or media failure remains on disk after this single retry.
                 pendingEventCount = remaining.count
                 await syncPendingEvents()
                 guard !Task.isCancelled,
@@ -1671,9 +1683,10 @@ public final class LiveRoundAppModel: ObservableObject {
                     return
                 }
                 remaining = try offlineStore.loadPendingEvents(roundId: roundId)
+                remainingMedia = try offlineStore.loadPendingMedia(roundId: roundId)
             }
             pendingEventCount = remaining.count
-            guard remaining.isEmpty else {
+            guard remaining.isEmpty, remainingMedia.isEmpty else {
                 syncStatus = "手表已结束,本机记录待同步"
                 finishErrorMessage = "手表已结束，本机记录仍保留"
                 return
@@ -1776,9 +1789,11 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Auto-sync hook for app foreground (scenePhase .active): flush anything still pending.
     public func syncOnForeground() {
-        guard !eventSyncSuppressedForUITests, package != nil, pendingEventCount > 0 else {
-            return
-        }
+        guard !eventSyncSuppressedForUITests, let package else { return }
+        let mayHavePendingMedia = (try? offlineStore.loadPendingMedia(
+            roundId: package.roundId
+        ).isEmpty) != true
+        guard pendingEventCount > 0 || mayHavePendingMedia else { return }
         Task { await self.syncPendingEvents() }
     }
 

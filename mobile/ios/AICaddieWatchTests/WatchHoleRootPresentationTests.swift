@@ -56,4 +56,16 @@ final class WatchHoleRootPresentationTests: XCTestCase {
             .scoreOnly
         )
     }
+
+    func testMissingGreenEdgeDistanceStaysUnknownInsteadOfBecomingZero() {
+        XCTAssertNil(WatchRoundContainerView.effectiveGreenYards(live: nil, fallbackMetres: nil))
+        XCTAssertEqual(
+            WatchRoundContainerView.effectiveGreenYards(live: nil, fallbackMetres: 100),
+            109
+        )
+        XCTAssertEqual(
+            WatchRoundContainerView.effectiveGreenYards(live: 123, fallbackMetres: nil),
+            123
+        )
+    }
 }
