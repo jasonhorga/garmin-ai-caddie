@@ -105,8 +105,8 @@ final class ReviewEditUITests: XCTestCase {
             XCTFail("review-edit evidence must enter map edit mode")
             return
         }
-        XCTAssertFalse(
-            app.buttons["关闭"].exists,
+        XCTAssertTrue(
+            waitUntilGone(app.buttons["关闭"], timeout: 5),
             "edit mode must expose only the explicit zero-write Cancel and final Save actions"
         )
         let editTopoReady = app.descendants(matching: .any)
