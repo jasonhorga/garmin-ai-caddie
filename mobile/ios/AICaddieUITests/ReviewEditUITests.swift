@@ -3,7 +3,7 @@ import XCTest
 /// Real running-app screenshots of the **复盘编辑** flow (PR2) from the iOS Simulator (XCUITest).
 /// Launches the ACTUAL app against the live backend (funnel) with the owner admin token, navigates
 /// 历史复盘 → a round → a hole's 落点图, taps 「编辑」, and captures the whole-hole draft flow:
-/// numbered landings, long-press add/move, details, count-list delete/reorder, then Cancel or final Save.
+/// numbered landings, tap-to-add, long-press move, details, count-list delete/reorder, then Cancel or final Save.
 ///
 /// Runs on-demand only (`native-mobile.yml` gates the AICaddieUITests scheme behind workflow_dispatch),
 /// same as ``RealFlowUITests``. PNGs + per-screen element-tree dumps land in the test process Documents
@@ -119,21 +119,17 @@ final class ReviewEditUITests: XCTestCase {
         }
         settle(2); save("04-edit-handles"); dump("04-edit-handles")
 
-        // ---- 连续草稿: long-press empty topo and drag to place a numbered point; no sheet/no write ----
-        let addEvidencePoint = dragDestination(from: reviewEvidence.landing)
-        let addStart = editTopoReady.coordinate(withNormalizedOffset: CGVector(
-            dx: addEvidencePoint.x,
-            dy: addEvidencePoint.y
-        ))
-        let addEnd = editTopoReady.coordinate(withNormalizedOffset: CGVector(
-            dx: min(addEvidencePoint.x + 0.025, 0.95),
-            dy: max(addEvidencePoint.y - 0.025, 0.05)
-        ))
-        addStart.press(forDuration: 0.65, thenDragTo: addEnd)
+        // ---- 连续草稿: tap verified empty topo once to append a numbered point; no sheet/no write ----
+        // The resolver computes the point farthest from every real landing in this exact map, so this
+        // proves tap-to-add rather than accidentally selecting an existing numbered handle.
+        editTopoReady.coordinate(withNormalizedOffset: CGVector(
+            dx: reviewEvidence.emptyMapPoint.x,
+            dy: reviewEvidence.emptyMapPoint.y
+        )).tap()
         let addedCount = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH %@", "共 \(reviewEvidence.shotCount + 1) 杆")
         ).firstMatch
-        XCTAssertTrue(addedCount.waitForExistence(timeout: 5), "long press must append a numbered local draft")
+        XCTAssertTrue(addedCount.waitForExistence(timeout: 5), "one empty-map tap must append a numbered local draft")
         XCTAssertFalse(app.navigationBars["补一杆"].exists, "adding a draft point must not interrupt with the old sheet")
         settle(2); save("05-add-draft"); dump("05-add-draft")
 

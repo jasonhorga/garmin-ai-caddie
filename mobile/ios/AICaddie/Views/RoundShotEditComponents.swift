@@ -38,12 +38,13 @@ public func roundEditClubOptions(current: String?, clubs: [String]) -> [String] 
         .filter { !$0.isEmpty && seen.insert($0).inserted }
 }
 
-// MARK: - edit overlay (numbered handles + long-press add/move + magnifier)
+// MARK: - edit overlay (tap-to-add + long-press move + numbered handles + magnifier)
 
 #if canImport(UIKit)
-/// The edit affordance layer, overlaid on the read-only shot map when editing. A short tap only
-/// selects. A deliberate long press on empty ground creates a numbered draft shot; a long press on a
-/// number moves it. Finger-up never writes the server — the parent Save action owns persistence.
+/// The edit affordance layer, overlaid on the read-only shot map when editing. A short tap on empty
+/// ground immediately adds one numbered point to the local whole-hole draft; a short tap on a number
+/// selects it for details. A deliberate long press on an existing number moves it. Finger-up never
+/// writes the server — the parent Save action owns persistence.
 /// Pixel↔view conversion uses the fitted map size from GeometryReader (same projection as the canvas).
 public struct RoundShotEditLayer: View {
     @ObservedObject var editModel: RoundEditModel
@@ -57,7 +58,7 @@ public struct RoundShotEditLayer: View {
     @State private var editingShot: RoundShot?
     /// Current finger location (view coords) during a drag — drives the magnifier + the committed px.
     @State private var dragLocation: CGPoint?
-    /// The shot whose numbered handle this long-press gesture owns. Empty-space presses create it.
+    /// The existing shot whose numbered handle this long-press gesture owns.
     @State private var grabbedShotId: String?
     @State private var gestureActive = false
 
@@ -188,18 +189,11 @@ public struct RoundShotEditLayer: View {
                 guard case .second(true, let drag?) = value else { return }
                 if !gestureActive {
                     gestureActive = true
-                    let id: String
-                    if let hit = nearestHit(to: drag.startLocation, sx: sx, sy: sy) {
-                        id = hit.id
-                    } else {
-                        id = editModel.addShot(
-                            px: clampedPixel(drag.startLocation, sx: sx, sy: sy),
-                            afterShotId: editModel.selectedShotId
-                        )
-                        #if canImport(UIKit)
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        #endif
+                    guard let hit = nearestHit(to: drag.startLocation, sx: sx, sy: sy) else {
+                        grabbedShotId = nil
+                        return
                     }
+                    let id = hit.id
                     grabbedShotId = id
                     editModel.selectedShotId = id
                     editModel.draggingShotId = id
@@ -227,11 +221,16 @@ public struct RoundShotEditLayer: View {
         SpatialTapGesture()
             .onEnded { value in
                 guard !gestureActive else { return }
-                editModel.selectedShotId = nearestHit(
-                    to: value.location,
-                    sx: sx,
-                    sy: sy
-                )?.id
+                if let hit = nearestHit(to: value.location, sx: sx, sy: sy) {
+                    editModel.selectedShotId = hit.id
+                } else {
+                    let id = editModel.addShot(
+                        px: clampedPixel(value.location, sx: sx, sy: sy),
+                        afterShotId: editModel.selectedShotId
+                    )
+                    editModel.selectedShotId = id
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                }
             }
     }
 
@@ -496,7 +495,7 @@ public struct RoundShotEditContent: View {
             RoundShotMapView(shotMap: editModel.map, topoURL: topoURL, editModel: editModel)
             PenaltyStepper(value: editModel.map.manualPenalty) { editModel.setPenalty($0) }
                 .hubCard()
-            Text("长按空白添加 · 长按编号拖动 · 点编号看详情")
+            Text("点空白添加 · 长按编号拖动 · 点编号看详情")
                 .font(.caption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)
