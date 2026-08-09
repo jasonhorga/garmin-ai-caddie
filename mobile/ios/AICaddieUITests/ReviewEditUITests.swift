@@ -225,14 +225,23 @@ final class ReviewEditUITests: XCTestCase {
             settle(0.5)
         }
         XCTAssertTrue(addedDraftRow.isHittable, "the count-list row must be reachable in the review scroll")
-        addedDraftRow.swipeLeft()
-        let deleteAdded = app.descendants(matching: .any)
-            .matching(identifier: "shot-draft-delete-\(reviewEvidence.shotCount + 1)").firstMatch
-        XCTAssertTrue(deleteAdded.waitForExistence(timeout: 5) && deleteAdded.isHittable)
-        deleteAdded.tap()
         let baselineCount = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH %@", "共 \(reviewEvidence.shotCount) 杆")
         ).firstMatch
+        addedDraftRow.swipeLeft()
+        // With `allowsFullSwipe`, iOS may either commit the destructive action immediately or stop
+        // after revealing its button (the exact threshold varies with simulator gesture velocity).
+        // Both are native left-swipe deletion. If it has not committed, tap the revealed action;
+        // either path must end with a genuinely shorter, renumbered draft list.
+        if !baselineCount.waitForExistence(timeout: 1) {
+            let deleteAdded = app.descendants(matching: .any)
+                .matching(identifier: "shot-draft-delete-\(reviewEvidence.shotCount + 1)").firstMatch
+            XCTAssertTrue(
+                deleteAdded.waitForExistence(timeout: 5) && deleteAdded.isHittable,
+                "a partial left swipe must expose the destructive row action"
+            )
+            deleteAdded.tap()
+        }
         XCTAssertTrue(baselineCount.waitForExistence(timeout: 5), "delete must renumber the same local list")
         settle(2); save("08-delete-draft"); dump("08-delete-draft")
 
