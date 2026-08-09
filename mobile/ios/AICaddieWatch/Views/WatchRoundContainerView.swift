@@ -564,7 +564,7 @@ public struct WatchRoundContainerView: View {
             }
         case .map:
             currentHoleInstrument {
-                if holeMapBigText {
+                if holeMapBigText, watchGreenYards?.center != nil {
                     distanceHero(s, big: true)
                         .contentShape(Rectangle())
                         .onTapGesture { holeMapBigText = false }

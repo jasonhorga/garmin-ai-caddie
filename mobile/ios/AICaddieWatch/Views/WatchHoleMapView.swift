@@ -367,9 +367,9 @@ public struct WatchHoleMapView: View {
                 Canvas { context, size in
                     drawMap(&context, size: size)
                 }
-                if showTextOverlay {
-                    overlay(geo.size)
-                }
+                // Hole identity and vector-map upgrade status remain truthful even before F/M/B
+                // coordinates arrive. Distance-dependent controls stay gated inside `overlay`.
+                overlay(geo.size)
             }
             .contentShape(Rectangle())
             // 拖旗: drag the flag; 选点测距: tap to measure. The container exclusively owns
@@ -408,47 +408,55 @@ public struct WatchHoleMapView: View {
         return ZStack(alignment: .topLeading) {
             Color.clear
             if fullMap {
-                fullMapControls(size)
+                if showTextOverlay {
+                    fullMapControls(size)
+                } else {
+                    holeIdentity
+                        .padding(.leading, size.width * 0.07)
+                        .padding(.top, size.height * 0.09)
+                }
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     // 洞·Par — tap target for 距上一杆 (a hint, not a floating map label).
-                    Text("第\(holeNumber)洞 · P\(par)")
-                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
-                    Spacer().frame(height: 8)
+                    holeIdentity
 
-                    if showCaddieRecommendation {
-                        // Current-shot recommendation only; the map itself never draws a whole-hole route.
-                        Button(action: onOpenCaddie) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(WatchClubDisplay.compactMapName(caddieClub))
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.68)
-                                Text(caddieNote)
-                                    .font(.system(size: 9.5, weight: .medium))
-                                    .foregroundStyle(caddieGreen)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.62)
-                            }
-                            .padding(.horizontal, 8).padding(.vertical, 5)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(caddieGreen.opacity(0.16)))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("球童建议 \(caddieClub) \(caddieNote)")
-                        Spacer().frame(height: 14)
-                    } else {
+                    if showTextOverlay {
                         Spacer().frame(height: 8)
-                    }
 
-                    // Distance block — TOGGLE. 中 = to the (draggable) pin. 实打 flips values + shows ↑/↓.
-                    Text(pl ? "实打 \(arrow)\(abs(playsLikeDelta))" : "到果岭")
-                        .font(.system(size: 9.5, weight: pl ? .semibold : .regular))
-                        .foregroundStyle(pl ? golfYellow : Color.secondary)
-                    distLine("后", backGreen + d, backGrey, big: false)
-                    distLine("中", centerGreen + d, pl ? golfYellow : .white, big: true)
-                    distLine("前", frontGreen + d, frontBlue, big: false)
+                        if showCaddieRecommendation {
+                            // Current-shot recommendation only; the map itself never draws a whole-hole route.
+                            Button(action: onOpenCaddie) {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(WatchClubDisplay.compactMapName(caddieClub))
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.68)
+                                    Text(caddieNote)
+                                        .font(.system(size: 9.5, weight: .medium))
+                                        .foregroundStyle(caddieGreen)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.62)
+                                }
+                                .padding(.horizontal, 8).padding(.vertical, 5)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(caddieGreen.opacity(0.16)))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("球童建议 \(caddieClub) \(caddieNote)")
+                            Spacer().frame(height: 14)
+                        } else {
+                            Spacer().frame(height: 8)
+                        }
+
+                        // Distance block — TOGGLE. 中 = to the (draggable) pin. 实打 flips values + shows ↑/↓.
+                        Text(pl ? "实打 \(arrow)\(abs(playsLikeDelta))" : "到果岭")
+                            .font(.system(size: 9.5, weight: pl ? .semibold : .regular))
+                            .foregroundStyle(pl ? golfYellow : Color.secondary)
+                        distLine("后", backGreen + d, backGrey, big: false)
+                        distLine("中", centerGreen + d, pl ? golfYellow : .white, big: true)
+                        distLine("前", frontGreen + d, frontBlue, big: false)
+                    }
                 }
                 .frame(width: size.width * 0.29, alignment: .leading)
                 .padding(.leading, size.width * 0.07)   // HIG safe-area margin — not jammed against the edge
@@ -469,6 +477,12 @@ public struct WatchHoleMapView: View {
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    private var holeIdentity: some View {
+        Text("第\(holeNumber)洞 · P\(par)")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.white)
     }
 
     // Zoomed full-map state: keep the map full-bleed, but leave the top-right lane to watchOS.

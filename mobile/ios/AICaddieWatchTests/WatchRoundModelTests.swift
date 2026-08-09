@@ -144,6 +144,27 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.courseName, "北京丽宫 · 前九")
     }
 
+    func testMatchingPhoneSeedRefreshesFactsWithoutMovingTheWatchCursorOrScreen() {
+        let model = seededModel(holes: [hole(1), hole(2)])
+        model.selectHole(2)
+        model.openMenu()
+
+        model.applyRoundSeed(WatchRoundSeed(
+            roundId: "r1",
+            courseName: "北京丽宫 · 后九",
+            activeHole: 1,
+            holes: [
+                WatchRoundSeedHole(hole: 1, par: 4, distanceM: 350, globalId: 31795),
+                WatchRoundSeedHole(hole: 2, par: 4, distanceM: 365, globalId: 31795),
+            ]
+        ))
+
+        XCTAssertEqual(model.activeHole, 2)
+        XCTAssertEqual(model.screen, .menu)
+        XCTAssertEqual(model.courseName, "北京丽宫 · 后九")
+        XCTAssertEqual(model.round?.holeStates.first { $0.hole == 2 }?.globalId, 31795)
+    }
+
     func testDelayedPhoneClosureCannotStopOrDeleteANewerWatchRound() {
         let model = seededModel(holes: [hole(1)])
 
@@ -1171,6 +1192,28 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .finishing)
     }
 
+    func testCancelSaveAndEndFromResumeReturnsToResumeWithDraftIntact() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("resume-finish-cancel-\(UUID().uuidString)", isDirectory: true)
+        let first = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
+        first.seedRound([hole(1)])
+        first.startScoringActiveHole()
+        first.adjustDraftScore(1)
+
+        let restored = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
+        XCTAssertEqual(restored.screen, .resume)
+
+        restored.requestSaveAndEndFromResume()
+        XCTAssertEqual(restored.screen, .finishConfirmation)
+        restored.cancelFinishConfirmation()
+
+        XCTAssertEqual(restored.screen, .resume)
+        XCTAssertEqual(restored.round?.scoreDraft?.score, 5)
+        restored.resumeRound()
+        XCTAssertEqual(restored.screen, .scoring)
+        XCTAssertEqual(restored.draftScore, 5)
+    }
+
     func testFinishCannotUploadUntilConfirmationScreenIsAccepted() async {
         var finishCalls = 0
         let model = seededModel(
@@ -1373,6 +1416,32 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertTrue(store.loadDeferredFinishes().isEmpty)
         XCTAssertEqual(finishCalls, 1)
         XCTAssertEqual(model.lastRoundClosure?.disposition, .finished)
+    }
+
+    func testPhoneFinishPreservesDeferredWatchEventsButPhoneAbandonDiscardsThem() async {
+        let store = makeStore()
+        let model = WatchRoundModel(store: store)
+        model.seedRound([hole(1)])
+        model.startScoringActiveHole()
+        model.saveActiveHole()
+        model.requestFinish()
+        model.requestFinishConfirmation()
+        await model.confirmFinish()
+        XCTAssertEqual(store.loadDeferredFinishes().count, 1)
+
+        model.applyPhoneRoundClosure(WatchRoundClosure(
+            roundId: "r1",
+            disposition: .finished,
+            closedAt: "2026-08-09T01:00:00Z"
+        ))
+        XCTAssertEqual(store.loadDeferredFinishes().count, 1)
+
+        model.applyPhoneRoundClosure(WatchRoundClosure(
+            roundId: "r1",
+            disposition: .abandoned,
+            closedAt: "2026-08-09T01:01:00Z"
+        ))
+        XCTAssertTrue(store.loadDeferredFinishes().isEmpty)
     }
 
     // MARK: practice round

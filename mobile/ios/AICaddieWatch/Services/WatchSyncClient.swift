@@ -508,6 +508,11 @@ extension WatchSyncClient: WCSessionDelegate {
         error: Error?
     ) {
         publishPhoneReachable(session.isReachable)
+        if activationState == .activated {
+            // `receivedApplicationContext` is only authoritative after activation. Re-read it here
+            // so config/seed delivered while the app was dead cannot be missed by the eager init read.
+            applyApplicationContext(session.receivedApplicationContext)
+        }
         if activationState == .activated, session.isReachable {
             do {
                 try flushQueue()

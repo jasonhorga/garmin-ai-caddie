@@ -181,6 +181,7 @@ public final class WatchRoundModel: ObservableObject {
     private let uploaderOverride: (([WatchInputEvent], String) async throws -> [String])?
     private let finisherOverride: ((String, WatchRoundFinishMetadata) async throws -> Void)?
     private var advanceAfterScoring = true
+    private var screenBeforeFinishConfirmation: WatchRoundScreen = .finishing
     private var screenBeforeAbandon: WatchRoundScreen = .finishing
     private var isRetryingDeferredFinishes = false
     private static let nextTeeCandidateRadiusM = 35.0
@@ -562,7 +563,9 @@ public final class WatchRoundModel: ObservableObject {
                 return seeded
             }
         let holeNumbers = Set(states.map(\.hole))
-        let activeHole = holeNumbers.contains(seed.activeHole) ? seed.activeHole : states[0].hole
+        let retainedActiveHole = existing?.activeHole
+        let activeHole = retainedActiveHole.flatMap { holeNumbers.contains($0) ? $0 : nil }
+            ?? (holeNumbers.contains(seed.activeHole) ? seed.activeHole : states[0].hole)
         let persisted = WatchRoundStore.PersistedRound(
             roundId: seed.roundId,
             activeHole: activeHole,
@@ -579,8 +582,6 @@ public final class WatchRoundModel: ObservableObject {
             pendingManualShot = persisted.pendingManualShot
             pendingAutoShotCandidate = persisted.pendingAutoShotCandidate
             screen = .resume
-        } else {
-            restoreInteractionState(from: persisted)
         }
     }
 
@@ -1120,6 +1121,7 @@ public final class WatchRoundModel: ObservableObject {
     public func requestSaveAndEndFromResume() {
         guard screen == .resume else { return }
         uploadError = nil
+        screenBeforeFinishConfirmation = .resume
         screen = .finishConfirmation
     }
 
@@ -1130,13 +1132,14 @@ public final class WatchRoundModel: ObservableObject {
     public func requestFinishConfirmation() {
         guard screen == .finishing else { return }
         uploadError = nil
+        screenBeforeFinishConfirmation = .finishing
         screen = .finishConfirmation
     }
 
     public func cancelFinishConfirmation() {
         guard screen == .finishConfirmation else { return }
         uploadError = nil
-        screen = .finishing
+        screen = screenBeforeFinishConfirmation
     }
 
     public func requestAbandon() {
@@ -1282,7 +1285,9 @@ public final class WatchRoundModel: ObservableObject {
                 disposition: closure.disposition,
                 closedAt: closure.closedAt
             )
-            try? store.removeDeferredFinish(roundId: closure.roundId)
+            if closure.disposition == .abandoned {
+                try? store.removeDeferredFinish(roundId: closure.roundId)
+            }
             if closesVisibleRound {
                 round = nil
                 restoreInteractionState(from: nil)
