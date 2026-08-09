@@ -3189,9 +3189,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn('Button("完成") { shotMapHole = nil }', round_review)
         self.assertIn('accessibilityIdentifier("round-edit-cancel")', shot_map)
         self.assertIn('accessibilityIdentifier("round-edit-save")', shot_map)
-        # 04d is valid evidence only when the coordinate tap really opened the add-shot sheet.
-        self.assertIn('app.navigationBars["补一杆"]', real_flow)
-        self.assertIn('app.staticTexts["击球时球位"]', real_flow)
+        # The broad journey exits the whole-hole draft through the real Cancel control. The focused
+        # journey owns add/move/delete/reorder and proves the removed per-shot add sheet stays gone.
+        self.assertIn('identifier: "round-edit-cancel"', real_flow)
+        self.assertIn('app.navigationBars["补一杆"].exists', real_flow)
+        self.assertIn('lastReorder.press(forDuration: 0.7, thenDragTo: upperReorder)', review_edit)
+        self.assertNotIn('app.staticTexts["击球时球位"]', real_flow)
 
     def test_native_visual_tokens_share_garmin_pro_score_semantics(self) -> None:
         ios_tokens = _read_required_source(self, IOS_DIR / "Design" / "AICaddieDesignTokens.swift")

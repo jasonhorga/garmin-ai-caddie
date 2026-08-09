@@ -563,11 +563,12 @@ public struct RoundShotReorderList: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("共 \(editModel.map.shots.count) 杆 · 长按排序 · 左滑删除")
+            Text("共 \(editModel.map.shots.count) 杆 · 拖动右侧排序 · 左滑删除")
                 .font(.caption).foregroundStyle(.secondary)
             List {
                 ForEach(Array(editModel.map.shots.enumerated()), id: \.element.id) { idx, shot in
                     RoundShotRow(shot: shot, ppm: ppm, displayNumber: idx + 1)
+                        .accessibilityElement(children: .combine)
                         .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
                         .listRowBackground(
                             editModel.selectedShotId == shot.id

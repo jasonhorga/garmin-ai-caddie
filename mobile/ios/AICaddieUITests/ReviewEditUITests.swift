@@ -3,7 +3,7 @@ import XCTest
 /// Real running-app screenshots of the **复盘编辑** flow (PR2) from the iOS Simulator (XCUITest).
 /// Launches the ACTUAL app against the live backend (funnel) with the owner admin token, navigates
 /// 历史复盘 → a round → a hole's 落点图, taps 「编辑」, and captures the whole-hole draft flow:
-/// numbered landings, long-press add/move, details, count list, delete, then Cancel or final Save.
+/// numbered landings, long-press add/move, details, count-list delete/reorder, then Cancel or final Save.
 ///
 /// Runs on-demand only (`native-mobile.yml` gates the AICaddieUITests scheme behind workflow_dispatch),
 /// same as ``RealFlowUITests``. PNGs + per-screen element-tree dumps land in the test process Documents
@@ -229,6 +229,36 @@ final class ReviewEditUITests: XCTestCase {
         XCTAssertTrue(baselineCount.waitForExistence(timeout: 5), "delete must renumber the same local list")
         settle(2); save("08-delete-draft"); dump("08-delete-draft")
 
+        // ---- Reorder the same count list through SwiftUI's real trailing drag controls. ----
+        // Model tests already prove the resulting payload order; this gesture gate proves the
+        // shipping nested List actually lets a finger move a row instead of merely drawing handles.
+        let upperIndex = max(1, reviewEvidence.shotCount - 1)
+        let upperDraftRow = app.descendants(matching: .any)
+            .matching(identifier: "shot-draft-row-\(upperIndex)").firstMatch
+        let lastDraftRow = app.descendants(matching: .any)
+            .matching(identifier: "shot-draft-row-\(reviewEvidence.shotCount)").firstMatch
+        let upperReorder = app.buttons["Reorder \(upperIndex)"]
+        let lastReorder = app.buttons["Reorder \(reviewEvidence.shotCount)"]
+        XCTAssertTrue(upperDraftRow.waitForExistence(timeout: 5) && lastDraftRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(upperReorder.waitForExistence(timeout: 5) && lastReorder.waitForExistence(timeout: 5))
+        XCTAssertTrue(upperReorder.isHittable && lastReorder.isHittable)
+        let upperLabelBeforeReorder = upperDraftRow.label
+        let lastLabelBeforeReorder = lastDraftRow.label
+        lastReorder.press(forDuration: 0.7, thenDragTo: upperReorder)
+        settle(2)
+        XCTAssertNotEqual(
+            upperDraftRow.label,
+            upperLabelBeforeReorder,
+            "dragging the last reorder control upward must change the preceding visible shot"
+        )
+        XCTAssertNotEqual(
+            lastDraftRow.label,
+            lastLabelBeforeReorder,
+            "the list must renumber the displaced row after a real reorder gesture"
+        )
+        XCTAssertTrue(baselineCount.exists, "reordering must retain every draft point")
+        save("09-reorder-draft"); dump("09-reorder-draft")
+
         // Routine evidence must leave the owner's history untouched. A dedicated writable fixture
         // takes the identical path through the one final Save action.
         let finalAction = app.descendants(matching: .any).matching(
@@ -238,10 +268,10 @@ final class ReviewEditUITests: XCTestCase {
         finalAction.tap()
         XCTAssertTrue(
             app.buttons["编辑"].waitForExistence(timeout: 12),
-            "09 may be captured only after Save/Cancel returns to read-only mode"
+            "10 may be captured only after Save/Cancel returns to read-only mode"
         )
-        XCTAssertFalse(app.navigationBars["补一杆"].exists, "09 must never retain the removed add sheet")
-        XCTAssertFalse(app.navigationBars["改这一杆"].exists, "09 must never retain the detail sheet")
+        XCTAssertFalse(app.navigationBars["补一杆"].exists, "10 must never retain the removed add sheet")
+        XCTAssertFalse(app.navigationBars["改这一杆"].exists, "10 must never retain the detail sheet")
         // Switching from RoundShotEditContent back to the read-only RoundShotMapView creates a new
         // AsyncImage.  The 编辑 button returns before that image has finished loading, so waiting a
         // fixed two seconds can capture the transient "球场地图加载中…" overlay as if it were I31.
@@ -252,16 +282,16 @@ final class ReviewEditUITests: XCTestCase {
         _ = readOnlyTopoLoading.waitForExistence(timeout: 5)
         XCTAssertTrue(
             waitUntilGone(readOnlyTopoLoading, timeout: 75),
-            "09 may be captured only after the read-only topo loading overlay disappears"
+            "10 may be captured only after the read-only topo loading overlay disappears"
         )
         let readOnlyTopoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
         XCTAssertTrue(
             readOnlyTopoReady.waitForExistence(timeout: 75),
-            "09 requires the real read-only topo after leaving edit mode"
+            "10 requires the real read-only topo after leaving edit mode"
         )
-        XCTAssertFalse(readOnlyTopoLoading.exists, "09 must not contain 球场地图加载中…")
-        settle(2); save("09-edit-done"); dump("09-edit-done")
+        XCTAssertFalse(readOnlyTopoLoading.exists, "10 must not contain 球场地图加载中…")
+        settle(2); save("10-edit-done"); dump("10-edit-done")
     }
 
     // MARK: - navigation helpers

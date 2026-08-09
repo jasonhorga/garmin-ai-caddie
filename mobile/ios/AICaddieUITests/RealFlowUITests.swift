@@ -191,23 +191,22 @@ final class RealFlowUITests: XCTestCase {
                         XCTAssertTrue(loadedEditMap, "edit evidence requires the real topo and the two real recorded shots returned for this hole")
                         if loadedEditMap {
                             settle(2); save("04c-edit-mode"); dump("04c-edit-mode")
-                            // Tap an empty part of the map. 04d is acceptable evidence only when this
-                            // actually opens the add-shot sheet, never when the tap missed or hit a handle.
-                            editTopoReady.coordinate(withNormalizedOffset: CGVector(
-                                dx: reviewEvidence.emptyMapPoint.x,
-                                dy: reviewEvidence.emptyMapPoint.y
-                            )).tap()
-                            let addShotSheet = app.navigationBars["补一杆"]
-                            let openedAddShotSheet = addShotSheet.waitForExistence(timeout: 5)
-                            XCTAssertTrue(openedAddShotSheet, "04d must show the add-shot sheet titled 补一杆")
-                            let liePicker = app.staticTexts["击球时球位"]
-                            let exposedLiePicker = openedAddShotSheet && liePicker.waitForExistence(timeout: 3)
-                            XCTAssertTrue(exposedLiePicker, "04d must expose the shot-origin lie picker")
-                            if exposedLiePicker {
-                                settle(2); save("04d-edit-sheet"); dump("04d-edit-sheet")
-                            } else {
-                                save("04d-edit-sheet-missing"); dump("04d-edit-sheet-missing")
-                            }
+                            // The dedicated ReviewEditUITests journey exercises continuous add,
+                            // move, delete and reorder. This broad journey only verifies that the
+                            // old tap-to-write modal is gone and Cancel exits with zero mutation.
+                            XCTAssertFalse(
+                                app.navigationBars["补一杆"].exists,
+                                "whole-hole draft editing must not retain the old per-shot add modal"
+                            )
+                            let cancelDraft = app.descendants(matching: .any)
+                                .matching(identifier: "round-edit-cancel").firstMatch
+                            XCTAssertTrue(cancelDraft.waitForExistence(timeout: 5) && cancelDraft.isHittable)
+                            cancelDraft.tap()
+                            XCTAssertTrue(
+                                app.buttons["编辑"].waitForExistence(timeout: 12),
+                                "Cancel must restore the read-only shot map"
+                            )
+                            settle(2); save("04d-edit-cancelled"); dump("04d-edit-cancelled")
                         }
                     }
                 }
