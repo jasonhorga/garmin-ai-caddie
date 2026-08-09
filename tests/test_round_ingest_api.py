@@ -199,6 +199,46 @@ class RoundIngestApiTests(unittest.TestCase):
         self.assertEqual(hole["penalties"], 1)
         self.assertEqual(hole["fairway"], "left")
 
+    def test_location_only_finish_is_rejected_without_a_fabricated_history_round(self) -> None:
+        round_id = "watch-location-only"
+        location = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "watch-tee-origin",
+            "roundId": round_id,
+            "clientId": "apple-watch",
+            "timestamp": "2026-08-09T08:00:00Z",
+            "hole": 1,
+            "kind": "location",
+            "payload": {"latitude": 40.0455, "longitude": 116.5462},
+        }
+
+        with mock.patch.dict("os.environ", ADMIN_ENV):
+            posted = self.client.post(
+                f"/api/v2/mobile/rounds/{round_id}/events",
+                json={"roundId": round_id, "events": [location]},
+                headers={**self._auth(self.alice["token"]), "Idempotency-Key": "location-only-batch"},
+            )
+            finished = self.client.post(
+                f"/api/v2/mobile/rounds/{round_id}/finish",
+                json={
+                    "meta": {
+                        "courseName": "Location only",
+                        "courseGlobalId": 12345,
+                        "holePars": [4],
+                        "holesCompleted": 0,
+                    }
+                },
+                headers=self._auth(self.alice["token"]),
+            )
+
+        self.assertEqual(posted.status_code, 200, posted.text)
+        self.assertEqual(finished.status_code, 400, finished.text)
+        self.assertIn("no scored holes", finished.text)
+        self.assertEqual(history.load_raw_rounds(player_id=self.alice["id"]), [])
+        player_dir = self.root / "data" / "players" / self.alice["id"]
+        self.assertEqual(list((player_dir / "scorecards").glob("*.json")), [])
+        self.assertEqual(list((player_dir / "shots").glob("*.json")), [])
+
     def test_late_watch_events_refresh_the_same_finished_history_round(self) -> None:
         round_id = "phone-finished-before-watch-1"
 

@@ -229,11 +229,16 @@ public final class WatchRoundModel: ObservableObject {
 
     // MARK: - derived state (drives the views)
 
-    public var activeHole: Int { round?.activeHole ?? 0 }
+    public var activeHole: Int {
+        guard let round else { return 0 }
+        return round.holeStates.first { $0.hole == round.activeHole }?.hole
+            ?? round.holeStates.first?.hole
+            ?? round.activeHole
+    }
 
     public var activeHoleState: WatchRoundState? {
         guard let round else { return nil }
-        return round.holeStates.first { $0.hole == round.activeHole }
+        return round.holeStates.first { $0.hole == round.activeHole } ?? round.holeStates.first
     }
 
     public var scoringHoleState: WatchRoundState? {
@@ -541,9 +546,18 @@ public final class WatchRoundModel: ObservableObject {
         guard round.pendingManualShot == nil, round.pendingAutoShotCandidate == nil else {
             return false
         }
-        return round.scoreDraft != nil || scoredHoles > 0 || round.pendingEvents.contains { event in
-            event.kind == .score || event.kind == .location
+        return hasMaterializableFacts(in: round)
+    }
+
+    private func hasMaterializableFacts(in round: WatchRoundStore.PersistedRound) -> Bool {
+        if round.holeStates.contains(where: { $0.score > 0 }) {
+            return true
         }
+        if round.pendingEvents.contains(where: { $0.kind == .score }) {
+            return true
+        }
+        guard let draft = round.scoreDraft, draft.score > 0 else { return false }
+        return round.holeStates.contains { $0.hole == draft.hole }
     }
 
     public var courseName: String { round?.courseName ?? "" }
@@ -588,18 +602,29 @@ public final class WatchRoundModel: ObservableObject {
         let retainedActiveHole = existing?.activeHole
         let activeHole = retainedActiveHole.flatMap { holeNumbers.contains($0) ? $0 : nil }
             ?? (holeNumbers.contains(seed.activeHole) ? seed.activeHole : states[0].hole)
+        let retainedScoreDraft = existing?.scoreDraft.flatMap { draft in
+            holeNumbers.contains(draft.hole) ? draft : nil
+        }
+        let retainedManualShot = existing?.pendingManualShot.flatMap { shot in
+            guard holeNumbers.contains(shot.hole) else { return nil }
+            guard let candidateFromHole = shot.candidateFromHole else { return shot }
+            return holeNumbers.contains(candidateFromHole) ? shot : nil
+        }
         let persisted = WatchRoundStore.PersistedRound(
             roundId: seed.roundId,
             activeHole: activeHole,
             holeStates: states,
             pendingEvents: existing?.pendingEvents ?? [],
             courseName: seed.courseName,
-            pendingManualShot: existing?.pendingManualShot,
+            pendingManualShot: retainedManualShot,
             pendingAutoShotCandidate: existing?.pendingAutoShotCandidate,
-            scoreDraft: existing?.scoreDraft
+            scoreDraft: retainedScoreDraft
         )
         try? store.save(persisted)
         round = persisted
+        if let scoringHole, !holeNumbers.contains(scoringHole) {
+            restoreInteractionState(from: persisted)
+        }
         if awaitingExplicitResume {
             pendingManualShot = persisted.pendingManualShot
             pendingAutoShotCandidate = persisted.pendingAutoShotCandidate
@@ -1153,6 +1178,10 @@ public final class WatchRoundModel: ObservableObject {
 
     public func requestFinishConfirmation() {
         guard screen == .finishing else { return }
+        guard let round, hasMaterializableFacts(in: round) else {
+            requestAbandon()
+            return
+        }
         uploadError = nil
         screenBeforeFinishConfirmation = .finishing
         screen = .finishConfirmation
@@ -1205,6 +1234,11 @@ public final class WatchRoundModel: ObservableObject {
         defer { isUploading = false }
         do {
             current = try materializeScoreDraftForFinish(current)
+            guard hasMaterializableFacts(in: current) else {
+                screenBeforeAbandon = screenBeforeFinishConfirmation
+                screen = .abandonConfirmation
+                return
+            }
             var readyToFinish = current
             let pending = current.pendingEvents
             if !pending.isEmpty {
@@ -1325,10 +1359,15 @@ public final class WatchRoundModel: ObservableObject {
     /// Retry rounds whose player already left the playing UI through Save & End. This never revives
     /// the round UI; failures retain the archive for the next config/reachability opportunity.
     public func retryDeferredFinishes() async {
-        guard canFinish, !isRetryingDeferredFinishes else { return }
+        guard !isRetryingDeferredFinishes else { return }
         isRetryingDeferredFinishes = true
         defer { isRetryingDeferredFinishes = false }
         for deferred in store.loadDeferredFinishes() {
+            guard hasMaterializableFacts(in: deferred.round) else {
+                try? store.removeDeferredFinish(roundId: deferred.round.roundId)
+                continue
+            }
+            guard canFinish else { continue }
             do {
                 var ready = deferred.round
                 if !ready.pendingEvents.isEmpty {

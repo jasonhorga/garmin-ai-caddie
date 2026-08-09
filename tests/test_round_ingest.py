@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -227,6 +228,98 @@ class RoundIngestCoreTests(unittest.TestCase):
     def test_empty_events_rejected(self) -> None:
         with self.assertRaises(round_ingest.RoundIngestError):
             round_ingest.ingest_round("p_friend", [], _meta(), idempotency_key="x", root=self.root)
+
+    def test_location_only_round_is_rejected_without_history_files(self) -> None:
+        events = [
+            {
+                "eventId": "tee-origin-only",
+                "hole": 1,
+                "kind": "location",
+                "payload": {"latitude": 47.7334, "longitude": 138.8915},
+            }
+        ]
+
+        with self.assertRaisesRegex(round_ingest.RoundIngestError, "no scored holes"):
+            round_ingest.ingest_round(
+                "p_friend", events, _meta(), idempotency_key="location-only", root=self.root
+            )
+
+        player_dir = self._player_dir("p_friend")
+        self.assertEqual(list((player_dir / "scorecards").glob("*.json")), [])
+        self.assertEqual(list((player_dir / "shots").glob("*.json")), [])
+        self.assertEqual(history.load_raw_rounds(player_id="p_friend"), [])
+
+    def test_unscored_hole_keeps_gps_shot_without_fabricating_a_score(self) -> None:
+        events = [
+            {"eventId": "score-1", "hole": 1, "kind": "score", "payload": {"strokes": 4}},
+            {
+                "eventId": "tee-origin-2",
+                "hole": 2,
+                "kind": "location",
+                "payload": {"latitude": 47.7400, "longitude": 138.9000},
+            },
+        ]
+
+        result = round_ingest.ingest_round(
+            "p_friend", events, _meta(), idempotency_key="mixed-score-shot", root=self.root
+        )
+
+        rounds = history.load_raw_rounds(player_id="p_friend")
+        self.assertEqual(result["holesCompleted"], 1)
+        self.assertEqual(result["strokes"], 4)
+        self.assertEqual(
+            {hole["number"]: hole["strokes"] for hole in rounds[0]["holes"]},
+            {1: 4},
+        )
+        shots = history.load_shot_history(player_id="p_friend")
+        self.assertEqual([(shot["hole"], shot["order"]) for shot in shots], [(2, 1)])
+
+    def test_final_index_failure_retry_reuses_reserved_round_id(self) -> None:
+        original_save_index = round_ingest._save_index
+        save_calls = 0
+
+        def fail_final_index(index, player_id, root):
+            nonlocal save_calls
+            save_calls += 1
+            if save_calls == 2:
+                raise OSError("simulated final index failure")
+            return original_save_index(index, player_id, root)
+
+        with mock.patch.object(round_ingest, "_save_index", side_effect=fail_final_index):
+            with self.assertRaisesRegex(OSError, "final index failure"):
+                round_ingest.ingest_round(
+                    "p_friend", _events(), _meta(), idempotency_key="reserved-retry", root=self.root
+                )
+
+        player_dir = self._player_dir("p_friend")
+        reserved_index = json.loads((player_dir / "rounds_index.json").read_text(encoding="utf-8"))
+        reserved_id = reserved_index["entries"]["reserved-retry"]["_allocatedId"]
+        self.assertEqual(
+            [path.stem for path in (player_dir / "scorecards").glob("*.json")],
+            [str(reserved_id)],
+        )
+
+        retried = round_ingest.ingest_round(
+            "p_friend", _events(), _meta(), idempotency_key="reserved-retry", root=self.root
+        )
+
+        self.assertEqual(retried["id"], reserved_id)
+        self.assertEqual(len(list((player_dir / "scorecards").glob("*.json"))), 1)
+        self.assertEqual(len(history.load_raw_rounds(player_id="p_friend")), 1)
+
+    def test_corrupt_summary_fails_before_writing_materialized_files(self) -> None:
+        player_dir = self._player_dir("p_friend")
+        player_dir.mkdir(parents=True, exist_ok=True)
+        (player_dir / "summary.json").write_text("{truncated", encoding="utf-8")
+
+        with self.assertRaisesRegex(round_ingest.RoundIngestError, "summary is corrupt"):
+            round_ingest.ingest_round(
+                "p_friend", _events(), _meta(), idempotency_key="bad-summary", root=self.root
+            )
+
+        self.assertEqual(list((player_dir / "scorecards").glob("*.json")), [])
+        self.assertEqual(list((player_dir / "shots").glob("*.json")), [])
+        self.assertFalse((player_dir / "rounds_index.json").exists())
 
 
 if __name__ == "__main__":

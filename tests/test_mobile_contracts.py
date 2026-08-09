@@ -2301,7 +2301,7 @@ class MobileContractTests(unittest.TestCase):
         # round-12 P3.4: phone hands the watch its backend config for standalone sync.
         self.assertIn("watchBridge?.sendConfigToWatch", app_swift)
         self.assertIn("try await self.acceptWatchEvent(event)", app_swift)
-        self.assertIn("private func acceptWatchEvent(_ event: LiveRoundEvent) throws", app_swift)
+        self.assertIn("private func acceptWatchEvent(_ event: LiveRoundEvent) async throws", app_swift)
         self.assertIn("try offlineStore.appendEvent(event)", app_swift)
         self.assertIn('syncStatus = "手表已记录"', app_swift)
         self.assertIn("watchBridge: model.watchBridge", app_swift)

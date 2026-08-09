@@ -1770,6 +1770,14 @@ public final class LiveRoundAppModel: ObservableObject {
               acknowledged.count == expected.count else {
             throw LiveRoundFinishError.incompleteAcknowledgement
         }
+        // `await` above releases the MainActor. A score recorded while this request is in flight is
+        // appended after the uploaded snapshot; writing a positional sync marker behind that new
+        // event would silently mark it as uploaded. Advance the watermark only while the exact tail
+        // acknowledged by this response is still the complete pending tail.
+        let stillPending = try offlineStore.loadPendingEvents(roundId: roundId).map(\.eventId)
+        guard stillPending == expected else {
+            throw LiveRoundFinishError.incompleteAcknowledgement
+        }
         try offlineStore.appendSyncMarker(
             roundId: roundId,
             timestamp: ISO8601DateFormatter().string(from: Date()),
@@ -2262,8 +2270,8 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             if let package, package.roundId == event.roundId {
                 liveRoundState = try offlineStore.restoreLiveRoundState(roundId: event.roundId, package: package)
+                pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
             }
-            pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
             syncStatus = "手表已记录"
         } catch {
             AICaddieLog.watch.error("Watch event status update failed: \(String(describing: error), privacy: .public)")
@@ -2289,7 +2297,9 @@ public final class LiveRoundAppModel: ObservableObject {
             roundId: event.roundId,
             syncClient: syncClient
         )
-        pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
+        if package?.roundId == event.roundId {
+            pendingEventCount = try offlineStore.loadPendingEvents(roundId: event.roundId).count
+        }
         syncStatus = "手表记录已同步"
     }
 

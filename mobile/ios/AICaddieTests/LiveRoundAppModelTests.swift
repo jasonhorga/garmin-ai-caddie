@@ -1137,6 +1137,96 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertNotNil(try fixture.store.loadCurrentRoundPackage())
     }
 
+    func testInFlightSyncCannotMarkANewerEventAsUploaded() async throws {
+        let fixture = try completedFixtureRound()
+        let requestStarted = expectation(description: "event upload started")
+        let releaseResponse = DispatchSemaphore(value: 0)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("/events") {
+                let batch = try JSONDecoder().decode(
+                    EventBatch.self,
+                    from: try capturedRequestBodyData(from: request)
+                )
+                requestStarted.fulfill()
+                guard releaseResponse.wait(timeout: .now() + 5) == .success else {
+                    throw URLError(.timedOut)
+                }
+                let ids = batch.events.map(\.eventId)
+                return (
+                    HTTPURLResponse(
+                        url: try XCTUnwrap(request.url), statusCode: 200,
+                        httpVersion: nil, headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: [
+                        "accepted": ids.count,
+                        "duplicate": false,
+                        "acceptedEventIds": ids,
+                        "duplicateEventIds": [],
+                        "serverSequence": ids.count,
+                    ])
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url), statusCode: 500,
+                    httpVersion: nil, headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data("{}".utf8)
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: nil,
+            adminToken: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            preferredRoundId: fixture.package.roundId,
+            syncClient: SyncClient(
+                baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+                clientId: "ios-phone",
+                session: session,
+                retrySleep: { _ in }
+            ),
+            offlineGeometryRetryDelaysNanoseconds: [0]
+        )
+
+        await model.bootstrap()
+        let syncTask = Task { await model.syncPendingEvents() }
+        await fulfillment(of: [requestStarted], timeout: 3)
+
+        let laterEvent = LiveRoundEvent(
+            eventId: "score-recorded-during-upload",
+            roundId: fixture.package.roundId,
+            clientId: "ios-phone",
+            timestamp: "2026-08-09T09:00:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(6), "fairway": .string("right")]
+        )
+        model.handleEvent(laterEvent)
+        // Let handleEvent's opportunistic second sync observe the active transaction and no-op before
+        // the first response is released. The assertion below then isolates the watermark decision.
+        await Task.yield()
+        await Task.yield()
+        releaseResponse.signal()
+        await syncTask.value
+
+        XCTAssertEqual(
+            try fixture.store.loadPendingEvents(roundId: fixture.package.roundId).map(\.eventId),
+            fixture.events.map(\.eventId) + [laterEvent.eventId]
+        )
+        XCTAssertFalse(
+            try fixture.store.loadEvents().contains {
+                $0.roundId == fixture.package.roundId && $0.kind == .syncMarker
+            }
+        )
+    }
+
     func testWatchAbandonKeepsPhoneRoundButWatchFinishClearsMatchingPhonePointer() async throws {
         let fixture = try completedFixtureRound()
         let bridge = WatchEventBridge(offlineStore: fixture.store, autoActivate: false)
@@ -1328,7 +1418,11 @@ final class LiveRoundAppModelTests: XCTestCase {
             try store.loadPendingEvents(roundId: event.roundId).map(\.eventId),
             [existing.eventId, event.eventId]
         )
-        XCTAssertEqual(model.pendingEventCount, 2)
+        XCTAssertEqual(
+            model.pendingEventCount,
+            0,
+            "a detached legacy round must not replace the visible round's pending badge"
+        )
     }
 
     func testResponseLostEventRetryStaysExactAfterLaterMediaUploadSuccess() async throws {

@@ -163,6 +163,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
 
     private let queueURL: URL
     private let stateURL: URL
+    private let queueFileLock = NSLock()
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     /// watch P0.4: local cache of per-hole topo images the phone pushes via WatchConnectivity file
@@ -249,8 +250,10 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             }
         }
         if discardQueuedEvents {
-            let remaining = try loadQueuedEvents().filter { $0.roundId != roundId }
-            try writeQueuedEvents(remaining)
+            try withQueueFileLock {
+                let remaining = try loadQueuedEventsUnlocked().filter { $0.roundId != roundId }
+                try writeQueuedEventsUnlocked(remaining)
+            }
             refreshQueuedEventCount()
         }
     }
@@ -283,17 +286,27 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     }
 
     public func queueInputEvent(_ event: WatchInputEvent) throws {
-        var events = try loadQueuedEvents()
-        guard !events.contains(where: { $0.eventId == event.eventId }) else {
-            return
+        let appended = try withQueueFileLock {
+            var events = try loadQueuedEventsUnlocked()
+            guard !events.contains(where: { $0.eventId == event.eventId }) else {
+                return false
+            }
+            events.append(event)
+            try writeQueuedEventsUnlocked(events)
+            return true
         }
-        events.append(event)
-        try writeQueuedEvents(events)
+        guard appended else { return }
         refreshQueuedEventCount()
         applyQuickInputToCurrentState(event)
     }
 
     public func loadQueuedEvents() throws -> [WatchInputEvent] {
+        try withQueueFileLock {
+            try loadQueuedEventsUnlocked()
+        }
+    }
+
+    private func loadQueuedEventsUnlocked() throws -> [WatchInputEvent] {
         guard FileManager.default.fileExists(atPath: queueURL.path) else {
             return []
         }
@@ -335,14 +348,16 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         guard !eventIds.isEmpty else {
             return
         }
-        let remaining = try loadQueuedEvents().filter { event in
-            !eventIds.contains(event.eventId)
+        try withQueueFileLock {
+            let remaining = try loadQueuedEventsUnlocked().filter { event in
+                !eventIds.contains(event.eventId)
+            }
+            try writeQueuedEventsUnlocked(remaining)
         }
-        try writeQueuedEvents(remaining)
         refreshQueuedEventCount()
     }
 
-    private func writeQueuedEvents(_ events: [WatchInputEvent]) throws {
+    private func writeQueuedEventsUnlocked(_ events: [WatchInputEvent]) throws {
         try FileManager.default.createDirectory(at: queueURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard !events.isEmpty else {
             if FileManager.default.fileExists(atPath: queueURL.path) {
@@ -351,6 +366,12 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             return
         }
         try encoder.encode(events).write(to: queueURL, options: [.atomic])
+    }
+
+    private func withQueueFileLock<T>(_ operation: () throws -> T) rethrows -> T {
+        queueFileLock.lock()
+        defer { queueFileLock.unlock() }
+        return try operation()
     }
 
     public func flushQueue() throws {

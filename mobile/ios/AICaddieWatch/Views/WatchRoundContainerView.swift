@@ -157,7 +157,7 @@ public struct WatchRoundContainerView: View {
             if let state = model.activeHoleState {
                 currentHoleRoot(state)
             } else {
-                Color.black
+                Color.black.onAppear { model.openMenu() }
             }
         case .autoShotCandidate:
             if model.pendingAutoShotCandidate != nil {

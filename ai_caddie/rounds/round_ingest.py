@@ -692,21 +692,30 @@ def _now_iso() -> str:
 # ---------------------------------------------------------------------------
 # summary.json (per player)
 # ---------------------------------------------------------------------------
-def _update_summary(player_id: str, root: Path | str | None, scorecard_raw: dict[str, Any]) -> None:
+def _load_summary(player_id: str, root: Path | str | None) -> dict[str, Any]:
     path = _player_dir(player_id, root) / "summary.json"
     summary: dict[str, Any] = {"pageNumber": 1, "rowsPerPage": 10000, "totalRows": 0,
                                "scorecardSummaries": []}
-    if path.exists():
-        try:
-            existing = read_json(path)
-            if isinstance(existing, dict) and isinstance(existing.get("scorecardSummaries"), list):
-                summary = existing
-            else:
-                raise RoundIngestError("round summary is corrupt")
-        except RoundIngestError:
-            raise
-        except Exception as exc:
-            raise RoundIngestError("round summary is corrupt") from exc
+    if not path.exists():
+        return summary
+    try:
+        existing = read_json(path)
+        if isinstance(existing, dict) and isinstance(existing.get("scorecardSummaries"), list):
+            return existing
+        raise RoundIngestError("round summary is corrupt")
+    except RoundIngestError:
+        raise
+    except Exception as exc:
+        raise RoundIngestError("round summary is corrupt") from exc
+
+
+def _update_summary(
+    player_id: str,
+    root: Path | str | None,
+    scorecard_raw: dict[str, Any],
+    summary: dict[str, Any],
+) -> None:
+    path = _player_dir(player_id, root) / "summary.json"
 
     sc = scorecard_raw["scorecardDetails"][0]["scorecard"]
     snap = scorecard_raw["courseSnapshots"][0]
@@ -768,14 +777,21 @@ def _ingest_round_unlocked(
     index = _load_index(player_id, root)
     existing = index["entries"].get(idempotency_key)
     revision = _event_revision(events)
-    if existing is not None and not refresh_existing_events:
+    existing_round_id = _as_int(existing.get("id")) if isinstance(existing, dict) else None
+    existing_reservation_id = (
+        _as_int(existing.get("_allocatedId")) if isinstance(existing, dict) else None
+    )
+    existing_is_complete = existing_round_id is not None
+    if existing is not None and not existing_is_complete and existing_reservation_id is None:
+        raise RoundIngestError("round ingest index is corrupt")
+    if existing_is_complete and not refresh_existing_events:
         return {
             **_public_index_entry(existing),
             "playerId": player_id,
             "source": "manual",
             "idempotent": True,
         }
-    if existing is not None and existing.get("_eventRevision") == revision:
+    if existing_is_complete and existing.get("_eventRevision") == revision:
         return {
             **_public_index_entry(existing),
             "playerId": player_id,
@@ -794,9 +810,12 @@ def _ingest_round_unlocked(
     )
 
     holes = _parse_events(events)
-    scored = {n: acc for n, acc in holes.items() if acc.strokes is not None or acc.shots}
+    # GPS shot origins are valuable review facts, but they are not a score. Only an explicit score
+    # confirmation may make a hole count toward history/stats; otherwise one tee location could be
+    # fabricated into a one-stroke completed hole.
+    scored = {n: acc for n, acc in holes.items() if acc.strokes is not None}
     if not scored:
-        raise RoundIngestError("round has no scored holes or shots")
+        raise RoundIngestError("round has no scored holes")
     if existing is not None and refresh_existing_events:
         # Course identity comes from the first finish, but completion count must advance when the
         # offline Watch contributes an additional scored hole after that first materialization. Never
@@ -810,25 +829,36 @@ def _ingest_round_unlocked(
     scorecards_dir.mkdir(parents=True, exist_ok=True)
     shots_dir.mkdir(parents=True, exist_ok=True)
 
-    round_id = (
-        int(existing["id"])
-        if existing is not None and refresh_existing_events
-        else _allocate_round_id(idempotency_key, scorecards_dir)
-    )
+    # Validate the shared summary before writing any scorecard/shot file. A corrupt summary must
+    # fail closed without leaving a new history file that a retry could mistake for an ID collision.
+    summary_file = _load_summary(player_id, root)
 
-    # Derive per-hole totals: explicit score event wins; otherwise count shots + putts + penalties.
-    total_strokes = 0
-    for acc in scored.values():
-        if acc.strokes is None:
-            acc.strokes = len(acc.shots) + acc.putts + acc.penalties
-        total_strokes += acc.strokes
+    if existing_round_id is not None:
+        round_id = existing_round_id
+    elif existing_reservation_id is not None:
+        round_id = existing_reservation_id
+    else:
+        round_id = _allocate_round_id(idempotency_key, scorecards_dir)
+        # Reserve the deterministic ID durably before any materialized file is written. If the
+        # process stops between scorecard/shot/summary and the final index update, the same request
+        # rewrites this ID instead of probing to a duplicate `+1` history round.
+        index["entries"][idempotency_key] = {
+            "_allocatedId": round_id,
+            "_materializationMeta": materialization_meta,
+            "_materializationState": "reserved",
+        }
+        _save_index(index, player_id, root)
+
+    total_strokes = sum(acc.strokes for acc in scored.values() if acc.strokes is not None)
 
     hole_pars = _hole_pars_string(
         materialization_meta,
         _as_int(materialization_meta.get("courseGlobalId")),
         root,
     )
-    shots_file, longest = _build_shots_file(round_id, scored)
+    # Keep GPS shots from unconfirmed holes in the shots authority when at least one hole has a real
+    # score. They remain reviewable without appearing as completed holes in scorecards or stats.
+    shots_file, longest = _build_shots_file(round_id, holes)
     scorecard_raw = _build_scorecard(
         round_id=round_id, holes=scored, meta=materialization_meta, hole_pars=hole_pars,
         total_strokes=total_strokes, longest=longest,
@@ -836,7 +866,7 @@ def _ingest_round_unlocked(
 
     _atomic_write_json(scorecards_dir / f"{round_id}.json", scorecard_raw)
     _atomic_write_json(shots_dir / f"{round_id}.json", shots_file)
-    _update_summary(player_id, root, scorecard_raw)
+    _update_summary(player_id, root, scorecard_raw, summary_file)
 
     sc = scorecard_raw["scorecardDetails"][0]["scorecard"]
     summary = {

@@ -204,6 +204,41 @@ final class WatchSyncClientTests: XCTestCase {
         XCTAssertEqual(try client.loadQueuedEvents(), [event])
     }
 
+    func testConcurrentLegacyQueueAppendsDoNotLoseEvents() throws {
+        let queueURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("queued_events.json")
+        let client = WatchSyncClient(queueURL: queueURL)
+        let events = (0..<32).map { index in
+            WatchInputEvent(
+                eventId: "event-\(index)",
+                roundId: "round-1",
+                hole: 1,
+                kind: .score,
+                value: "4",
+                createdAt: "2026-08-09T08:00:00Z"
+            )
+        }
+        let errorLock = NSLock()
+        var failures: [Error] = []
+
+        DispatchQueue.concurrentPerform(iterations: events.count) { index in
+            do {
+                try client.queueInputEvent(events[index])
+            } catch {
+                errorLock.lock()
+                failures.append(error)
+                errorLock.unlock()
+            }
+        }
+
+        XCTAssertTrue(failures.isEmpty)
+        XCTAssertEqual(
+            Set(try client.loadQueuedEvents().map(\.eventId)),
+            Set(events.map(\.eventId))
+        )
+    }
+
     func testAcknowledgedQueueRemovalKeepsUnconfirmedEvents() throws {
         let queueURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
