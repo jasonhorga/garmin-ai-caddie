@@ -178,6 +178,34 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .home)
     }
 
+    func testPhoneFinishArchivesPendingEventsFromTheVisibleWatchRound() throws {
+        let store = makeStore()
+        let model = WatchRoundModel(
+            store: store,
+            makeEventId: sequentialIds(),
+            now: { "2026-08-09T00:00:00Z" }
+        )
+        model.seedRound([hole(1)])
+        model.startScoringActiveHole()
+        model.saveActiveHole()
+        let pending = try XCTUnwrap(model.round?.pendingEvents)
+        XCTAssertFalse(pending.isEmpty)
+
+        model.applyPhoneRoundClosure(WatchRoundClosure(
+            roundId: "r1",
+            disposition: .finished,
+            closedAt: "2026-08-09T01:00:00Z"
+        ))
+
+        XCTAssertNil(model.round)
+        XCTAssertEqual(model.screen, .home)
+        let deferred = try XCTUnwrap(store.loadDeferredFinishes().first)
+        XCTAssertEqual(deferred.round.roundId, "r1")
+        XCTAssertEqual(deferred.round.pendingEvents, pending)
+        XCTAssertEqual(store.closure(roundId: "r1")?.disposition, .savedLocally)
+        XCTAssertNil(model.lastRoundClosure, "phone closures must not echo back to the phone")
+    }
+
     func testPhoneStateCannotCreateALegacyOneHoleRound() {
         let model = WatchRoundModel(store: makeStore())
 

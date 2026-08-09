@@ -1279,12 +1279,22 @@ public final class WatchRoundModel: ObservableObject {
     public func applyPhoneRoundClosure(_ closure: WatchRoundClosure) {
         guard closure.disposition != .savedLocally else { return }
         do {
-            let closesVisibleRound = round?.roundId == closure.roundId
-            _ = try store.closeActiveRound(
-                roundId: closure.roundId,
-                disposition: closure.disposition,
-                closedAt: closure.closedAt
-            )
+            let visibleRound = round?.roundId == closure.roundId ? round : nil
+            let closesVisibleRound = visibleRound != nil
+            if closure.disposition == .finished,
+               let visibleRound,
+               !visibleRound.pendingEvents.isEmpty {
+                // Phone Finish cannot prove that wrist-authored facts reached the backend: the
+                // standalone Watch queue is uploaded only by this model. Leave the playing UI, but
+                // archive those exact event IDs for the existing idempotent deferred retry path.
+                _ = try store.deferFinish(visibleRound, savedAt: closure.closedAt)
+            } else {
+                _ = try store.closeActiveRound(
+                    roundId: closure.roundId,
+                    disposition: closure.disposition,
+                    closedAt: closure.closedAt
+                )
+            }
             if closure.disposition == .abandoned {
                 try? store.removeDeferredFinish(roundId: closure.roundId)
             }

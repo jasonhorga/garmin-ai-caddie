@@ -14,6 +14,16 @@ public enum WatchHoleImageStoreError: Error, Equatable {
 /// prevents an installed app from silently reusing pixels produced by an older renderer.
 public final class WatchHoleImageStore {
     private let directory: URL
+    #if canImport(UIKit)
+    /// Course downloads and WatchConnectivity intentionally own separate store facades over the
+    /// same on-disk directory. A process-wide cache lets either writer replace the object seen by
+    /// the renderer, while keeping repeated SwiftUI body passes off the disk/decoder path.
+    private static let decodedImageCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 36
+        return cache
+    }()
+    #endif
 
     public init(directoryURL: URL? = nil) {
         let base = directoryURL
@@ -58,6 +68,14 @@ public final class WatchHoleImageStore {
         // Data's atomic write replaces only after the new bytes have been written successfully. Do
         // not remove the old map first: a truncated transfer must leave the last good offline map.
         try data.write(to: target, options: .atomic)
+        #if canImport(UIKit)
+        let key = target.path as NSString
+        if let image = UIImage(data: data) {
+            Self.decodedImageCache.setObject(image, forKey: key)
+        } else {
+            Self.decodedImageCache.removeObject(forKey: key)
+        }
+        #endif
     }
 
     /// Validate a received WCSession file before replacing the prior cache. Reading once is a small
@@ -134,11 +152,24 @@ public final class WatchHoleImageStore {
         hole: Int,
         geometryRevision: String? = nil
     ) -> UIImage? {
-        data(
+        let target = url(
             globalId: globalId,
             hole: hole,
             geometryRevision: geometryRevision
-        ).flatMap(UIImage.init(data:))
+        )
+        let key = target.path as NSString
+        if let cached = Self.decodedImageCache.object(forKey: key) {
+            return cached
+        }
+        guard let decoded = data(
+            globalId: globalId,
+            hole: hole,
+            geometryRevision: geometryRevision
+        ).flatMap(UIImage.init(data:)) else {
+            return nil
+        }
+        Self.decodedImageCache.setObject(decoded, forKey: key)
+        return decoded
     }
     #endif
 }

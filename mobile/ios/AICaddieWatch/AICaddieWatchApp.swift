@@ -302,12 +302,7 @@ public struct AICaddieWatchApp: App {
     /// existing live-caddie accuracy gate; until then the Hole Root stays on the frozen 搜星 state.
     private var qualifiedWatchFix: WatchLocationFix? {
         guard let fix = watchLocation.latestFix,
-              fix.coordinate.latitude.isFinite,
-              (-90...90).contains(fix.coordinate.latitude),
-              fix.coordinate.longitude.isFinite,
-              (-180...180).contains(fix.coordinate.longitude),
-              fix.horizontalAccuracyM.isFinite,
-              (0...15).contains(fix.horizontalAccuracyM) else {
+              WatchLocationProvider.isLiveRangefinderFix(fix) else {
             return nil
         }
         return fix

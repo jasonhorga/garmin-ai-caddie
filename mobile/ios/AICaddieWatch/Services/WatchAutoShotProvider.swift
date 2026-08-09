@@ -288,13 +288,19 @@ extension WatchAutoShotProvider: HKWorkoutSessionDelegate {
         from fromState: HKWorkoutSessionState,
         date: Date
     ) {
-        Task { @MainActor [weak self] in self?.handleWorkoutState(toState) }
+        Task { @MainActor [weak self] in
+            guard let self, self.workoutSession === workoutSession else { return }
+            self.handleWorkoutState(toState)
+        }
     }
 
     nonisolated public func workoutSession(
         _ workoutSession: HKWorkoutSession,
         didFailWithError error: Error
     ) {
-        Task { @MainActor [weak self] in self?.fail(error) }
+        Task { @MainActor [weak self] in
+            guard let self, self.workoutSession === workoutSession else { return }
+            self.fail(error)
+        }
     }
 }

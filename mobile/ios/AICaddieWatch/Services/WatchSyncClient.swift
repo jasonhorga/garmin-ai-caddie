@@ -222,7 +222,10 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     public func receiveRoundClosure(_ closure: WatchRoundClosure) {
         try? forgetRound(
             roundId: closure.roundId,
-            discardQueuedEvents: closure.disposition != .savedLocally
+            // A phone Finish does not prove that an unreachable legacy WatchConnectivity event was
+            // accepted. Only explicit Abandon is destructive; the model's backend retry clears the
+            // normal standalone queue after acknowledgement.
+            discardQueuedEvents: closure.disposition == .abandoned
         )
         publishStateUpdate { client in
             client.phoneRoundClosure = closure

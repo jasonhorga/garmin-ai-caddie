@@ -22,6 +22,15 @@ public final class WatchCourseStore {
         loadCourses().first { $0.option.globalId == globalId }
     }
 
+    /// A composite 18-hole cache is stored under its front option, while active holes 10–18 carry
+    /// the back option's Garmin globalId. Map recovery must resolve either authority without changing
+    /// the stricter front-selection lookup used when a player starts a course.
+    public func compositeCourse(containingGlobalId globalId: Int) -> WatchCourseTemplate? {
+        loadCourses().first {
+            $0.option.globalId == globalId || $0.backOption?.globalId == globalId
+        }
+    }
+
     public func save(_ course: WatchCourseTemplate) throws {
         var courses = loadCourses()
         if let index = courses.firstIndex(where: { $0.option.globalId == course.option.globalId }) {

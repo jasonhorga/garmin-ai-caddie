@@ -382,6 +382,50 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertNotEqual(first.roundId, second.roundId)
     }
 
+    func testCompositeCourseResolvesItsBackNineGlobalIdWithoutWeakeningFrontLookup() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("watch-composite-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WatchCourseStore(directoryURL: directory)
+        let front = WatchCourseOption(
+            globalId: 31669,
+            name: "北京黑骑士 ~ A",
+            holes: 9,
+            teeBox: "Blue"
+        )
+        let back = WatchCourseOption(
+            globalId: 31670,
+            name: "北京黑骑士 ~ B",
+            holes: 9,
+            teeBox: "Blue"
+        )
+        let template = WatchCourseTemplate(
+            option: front,
+            backOption: back,
+            courseName: "北京黑骑士 · A + B",
+            teeBox: "Blue",
+            holeStates: [
+                WatchRoundState(
+                    roundId: "download-only", hole: 1, par: 4, distanceM: 369.4,
+                    selectedClub: nil, globalId: 31669,
+                    score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+                ),
+                WatchRoundState(
+                    roundId: "download-only", hole: 10, par: 4, distanceM: 350,
+                    selectedClub: nil, globalId: 31670,
+                    score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+                ),
+            ],
+            cachedAt: "2026-08-09T00:00:00Z"
+        )
+        try store.save(template)
+
+        XCTAssertEqual(store.course(globalId: front.globalId), template)
+        XCTAssertNil(store.course(globalId: back.globalId))
+        XCTAssertEqual(store.compositeCourse(containingGlobalId: front.globalId), template)
+        XCTAssertEqual(store.compositeCourse(containingGlobalId: back.globalId), template)
+    }
+
     func testRoundSetupSelectionKeepsExplicitTeeAndBackLoop() {
         let front = WatchCourseOption(
             globalId: 31669,

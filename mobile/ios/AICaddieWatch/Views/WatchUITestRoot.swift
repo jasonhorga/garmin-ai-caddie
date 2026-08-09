@@ -1144,7 +1144,7 @@ public struct WatchUITestRoot: View {
         }
         .onAppear {
             if screen == "milestone-seed" {
-                model.applyRoundSeed(Self.milestoneSeed)
+                replaceFixtureRound(with: Self.milestoneSeed)
             }
         }
     }
@@ -1169,7 +1169,7 @@ public struct WatchUITestRoot: View {
             case "interaction-club-seed":
                 seedInteractionClubPrompt()
             case "interaction-score-seed":
-                model.applyRoundSeed(Self.interactionScoreSeed)
+                replaceFixtureRound(with: Self.interactionScoreSeed)
                 model.beginManualShot(
                     latitude: 40.001,
                     longitude: 116.0,
@@ -1179,12 +1179,12 @@ public struct WatchUITestRoot: View {
             case "interaction-current-hole-shots":
                 seedInteractionCurrentHoleShots()
             case "interaction-gps-acquiring":
-                model.applyRoundSeed(Self.interactionGPSAcquiringSeed)
+                replaceFixtureRound(with: Self.interactionGPSAcquiringSeed)
                 model.backToHome()
             case "interaction-club-stats":
                 seedInteractionClubStats()
             case "interaction-settings":
-                model.applyRoundSeed(Self.interactionGPSAcquiringSeed)
+                replaceFixtureRound(with: Self.interactionGPSAcquiringSeed)
                 model.openSettings()
             case "interaction-flag-direction":
                 seedInteractionFlagDirection()
@@ -1301,7 +1301,7 @@ public struct WatchUITestRoot: View {
     /// list view directly. The eastward points are spaced at roughly 245 yd, 152 yd and 42 yd so the
     /// rendered facts remain easy to compare with the approved design while still being calculated.
     private func seedInteractionCurrentHoleShots() {
-        model.applyRoundSeed(Self.interactionCurrentHoleShotsSeed)
+        replaceFixtureRound(with: Self.interactionCurrentHoleShotsSeed)
         if model.recordedShotCount == 0 {
             let shots: [(longitude: Double, club: String?, capturedAt: String)] = [
                 (116.00000, "一号木", "2026-07-26T08:00:00Z"),
@@ -1319,6 +1319,29 @@ public struct WatchUITestRoot: View {
             }
         }
         model.openCurrentHoleShots()
+    }
+
+    /// Every named DEBUG fixture is an explicit new-round authority. Runtime capture intentionally
+    /// reuses one simulator install, so the production phone-seed guard must not turn a later fixture
+    /// into a silent no-op merely because an earlier fixture left a different round on disk.
+    private func replaceFixtureRound(with seed: WatchRoundSeed) {
+        let states = seed.holes.map { hole in
+            WatchRoundState(
+                roundId: seed.roundId,
+                hole: hole.hole,
+                par: hole.par,
+                distanceM: hole.distanceM,
+                teeLatitude: hole.teeLatitude,
+                teeLongitude: hole.teeLongitude,
+                selectedClub: nil,
+                globalId: hole.globalId,
+                score: 0,
+                putts: 0,
+                penaltyCount: 0,
+                caddieConfidence: "offline"
+            )
+        }
+        model.seedRound(states, activeHole: seed.activeHole, courseName: seed.courseName)
     }
 
     private static let milestoneSeed = WatchRoundSeed(

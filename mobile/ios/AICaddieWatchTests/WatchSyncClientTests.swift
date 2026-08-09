@@ -141,6 +141,49 @@ final class WatchSyncClientTests: XCTestCase {
         XCTAssertEqual(client.phoneRoundClosure, closure)
     }
 
+    func testPhoneFinishPreservesLegacyQueueUntilExplicitAbandon() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let client = WatchSyncClient(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            stateURL: directory.appendingPathComponent("current_state.json")
+        )
+        let wristEvent = WatchInputEvent(
+            eventId: "wrist-event",
+            roundId: "done-round",
+            hole: 1,
+            kind: .score,
+            value: "4",
+            createdAt: "2026-08-09T00:00:00Z"
+        )
+        let newerEvent = WatchInputEvent(
+            eventId: "newer-event",
+            roundId: "new-round",
+            hole: 1,
+            kind: .score,
+            value: "5",
+            createdAt: "2026-08-09T00:01:00Z"
+        )
+        try client.queueInputEvent(wristEvent)
+        try client.queueInputEvent(newerEvent)
+
+        client.receiveRoundClosure(WatchRoundClosure(
+            roundId: "done-round",
+            disposition: .finished,
+            closedAt: "2026-08-09T00:02:00Z"
+        ))
+
+        XCTAssertEqual(try client.loadQueuedEvents(), [wristEvent, newerEvent])
+
+        client.receiveRoundClosure(WatchRoundClosure(
+            roundId: "done-round",
+            disposition: .abandoned,
+            closedAt: "2026-08-09T00:03:00Z"
+        ))
+
+        XCTAssertEqual(try client.loadQueuedEvents(), [newerEvent])
+    }
+
     func testQueueInputEventSerializesPendingEvents() throws {
         let queueURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

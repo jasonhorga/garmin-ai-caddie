@@ -37,6 +37,8 @@ public struct WatchHeadingFix: Equatable {
 /// `UITEST_GPS_LAT/LON` inject a fixed on-course fix (deterministic snapshots + no permission dialog), nil
 /// in every normal run so production behaviour is unchanged.
 public final class WatchLocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
+    public static let maximumLiveRangefinderAgeSeconds: TimeInterval = 15
+
     private let manager: CLLocationManager
     private let formatter = ISO8601DateFormatter()
     private let log = Logger(subsystem: "com.aicaddie.watch", category: "location")
@@ -121,6 +123,26 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
         wantsLocationUpdates = false
         manager.stopUpdatingLocation()
         manager.stopUpdatingHeading()
+    }
+
+    /// Hole-root F/M/B is a live rangefinder, not a generic cached-location consumer. Keep the
+    /// provider's longer Core Location acceptance window for continuity, but never label an old fix
+    /// as the player's current distance.
+    public static func isLiveRangefinderFix(
+        _ fix: WatchLocationFix,
+        now: Date = Date()
+    ) -> Bool {
+        guard fix.coordinate.latitude.isFinite,
+              (-90...90).contains(fix.coordinate.latitude),
+              fix.coordinate.longitude.isFinite,
+              (-180...180).contains(fix.coordinate.longitude),
+              fix.horizontalAccuracyM.isFinite,
+              (0...15).contains(fix.horizontalAccuracyM),
+              let capturedAt = ISO8601DateFormatter().date(from: fix.capturedAt) else {
+            return false
+        }
+        let age = now.timeIntervalSince(capturedAt)
+        return age >= 0 && age <= maximumLiveRangefinderAgeSeconds
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {

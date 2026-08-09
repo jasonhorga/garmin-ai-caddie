@@ -140,6 +140,36 @@ final class WatchHoleImageStoreTests: XCTestCase {
         )
     }
 
+    #if canImport(UIKit)
+    func testRepeatedImageReadsReuseTheDecodedObject() throws {
+        let (writer, directory) = tempStore()
+        let data = try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
+        try writer.store(data: data, globalId: 42, hole: 3)
+        let reader = WatchHoleImageStore(directoryURL: directory)
+
+        let first = try XCTUnwrap(reader.image(globalId: 42, hole: 3))
+        let second = try XCTUnwrap(reader.image(globalId: 42, hole: 3))
+
+        XCTAssertTrue(first === second)
+    }
+
+    func testWriterFacadeInvalidatesTheRendererFacadeCache() throws {
+        let (writer, directory) = tempStore()
+        let jpeg = try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
+        let png = try XCTUnwrap(Data(base64Encoded: Self.onePixelPNGBase64))
+        try writer.store(data: jpeg, globalId: 42, hole: 3)
+        let renderer = WatchHoleImageStore(directoryURL: directory)
+        let before = try XCTUnwrap(renderer.image(globalId: 42, hole: 3))
+
+        try writer.store(data: png, globalId: 42, hole: 3)
+        let after = try XCTUnwrap(renderer.image(globalId: 42, hole: 3))
+
+        XCTAssertFalse(before === after)
+        XCTAssertEqual(after.size.width, 1)
+        XCTAssertEqual(after.size.height, 1)
+    }
+    #endif
+
     func testKeyIsGidUnderscoreHole() {
         XCTAssertEqual(WatchHoleImageStore.key(globalId: 31833, hole: 5), "31833_5")
     }

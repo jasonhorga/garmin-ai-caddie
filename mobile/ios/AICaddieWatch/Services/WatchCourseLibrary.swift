@@ -319,7 +319,7 @@ public final class WatchCourseLibrary: ObservableObject {
         onProgress: (([WatchRoundState]) -> Void)? = nil
     ) async -> WatchPreparedCourse? {
         guard let config,
-              let cached = store.course(globalId: globalId) else {
+              let cached = store.compositeCourse(containingGlobalId: globalId) else {
             return nil
         }
         let selection = WatchCourseSelection(

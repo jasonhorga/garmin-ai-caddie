@@ -41,6 +41,36 @@ final class WatchLocationProviderTests: XCTestCase {
         XCTAssertNil(provider.latestFix)
     }
 
+    func testLiveRangefinderFixRequiresFreshAccuratePresentTimeGPS() {
+        XCTAssertTrue(WatchLocationProvider.isLiveRangefinderFix(fix(age: 0), now: now))
+        XCTAssertTrue(WatchLocationProvider.isLiveRangefinderFix(fix(age: 15), now: now))
+        XCTAssertFalse(WatchLocationProvider.isLiveRangefinderFix(fix(age: 16), now: now))
+        XCTAssertFalse(WatchLocationProvider.isLiveRangefinderFix(fix(age: -1), now: now))
+        XCTAssertFalse(WatchLocationProvider.isLiveRangefinderFix(fix(accuracy: 15.1), now: now))
+        XCTAssertFalse(WatchLocationProvider.isLiveRangefinderFix(fix(latitude: 91), now: now))
+        XCTAssertFalse(WatchLocationProvider.isLiveRangefinderFix(
+            WatchLocationFix(
+                coordinate: CLLocationCoordinate2D(latitude: 40, longitude: 116),
+                horizontalAccuracyM: 5,
+                capturedAt: "not-a-date"
+            ),
+            now: now
+        ))
+    }
+
+    private func fix(
+        latitude: Double = 40,
+        longitude: Double = 116,
+        accuracy: Double = 5,
+        age: TimeInterval = 0
+    ) -> WatchLocationFix {
+        WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+            horizontalAccuracyM: accuracy,
+            capturedAt: ISO8601DateFormatter().string(from: now.addingTimeInterval(-age))
+        )
+    }
+
     private func location(
         latitude: Double = 40,
         longitude: Double = 116,
