@@ -1623,6 +1623,49 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(finishCalls, 0)
     }
 
+    func testPhoneFinishUploadsLocationOnlyWatchQueueBeforeCleanup() async throws {
+        let store = makeStore()
+        var uploadedEventIds: [String] = []
+        var finishCalls = 0
+        let model = WatchRoundModel(
+            store: store,
+            makeEventId: sequentialIds(),
+            uploader: { events, _ in
+                uploadedEventIds = events.map(\.eventId)
+                return uploadedEventIds
+            },
+            finisher: { _, _ in finishCalls += 1 }
+        )
+        model.seedRound([hole(1)])
+        model.beginManualShot(
+            latitude: 40.0,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-08-09T08:00:00Z"
+        )
+        model.completePendingManualShot(clubName: nil)
+        let locationEventId = try XCTUnwrap(
+            model.round?.pendingEvents.first { $0.kind == .location }?.eventId
+        )
+
+        model.applyPhoneRoundClosure(WatchRoundClosure(
+            roundId: "r1",
+            disposition: .finished,
+            closedAt: "2026-08-09T08:01:00Z"
+        ))
+        XCTAssertNil(model.round)
+        XCTAssertEqual(
+            store.loadDeferredFinishes().first?.round.pendingEvents.map(\.eventId),
+            [locationEventId]
+        )
+
+        await model.retryDeferredFinishes()
+
+        XCTAssertEqual(uploadedEventIds, [locationEventId])
+        XCTAssertTrue(store.loadDeferredFinishes().isEmpty)
+        XCTAssertEqual(finishCalls, 0)
+    }
+
     func testRetryRetainsLegacyLocationOnlyDeferredFinishUntilAcknowledged() async throws {
         let store = makeStore()
         let location = WatchInputEvent(
