@@ -59,7 +59,10 @@ public struct AICaddieWatchApp: App {
                     guard let closure else { return }
                     try? syncClient.forgetRound(
                         roundId: closure.roundId,
-                        discardQueuedEvents: closure.disposition != .savedLocally
+                        // Standalone Finish proves only the standalone event store reached the
+                        // backend. A pre-upgrade WCSession relay tail remains durable until it is
+                        // uploaded; only explicit Abandon is destructive across both stores.
+                        discardQueuedEvents: closure.disposition == .abandoned
                     )
                     syncClient.sendRoundClosureToPhone(closure)
                     if roundModel.round == nil {

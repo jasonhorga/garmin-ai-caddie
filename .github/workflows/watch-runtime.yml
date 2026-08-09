@@ -260,6 +260,7 @@ jobs:
           capture_ultra finish-actions ultra-49mm-finish-actions.png
           capture_ultra finish-confirmation ultra-49mm-finish-confirmation.png
           capture_ultra resume-round ultra-49mm-resume-round.png
+          capture_ultra resume-round-fresh ultra-49mm-resume-round-fresh.png
           capture_ultra abandon-confirmation ultra-49mm-abandon-confirmation.png
           xcrun simctl shutdown "$ULTRA_DEVICE"
 

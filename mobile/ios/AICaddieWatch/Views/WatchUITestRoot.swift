@@ -194,6 +194,16 @@ public struct WatchUITestRoot: View {
                 holeCount: 18,
                 pendingUploads: 12
             )
+        case "resume-round-fresh":
+            WatchResumeRoundView(
+                courseName: "北京丽宫 · 前九",
+                activeHole: 1,
+                scoredHoles: 0,
+                holeCount: 9,
+                pendingUploads: 0,
+                isFreshRound: true,
+                canSaveAndEnd: false
+            )
         case "abandon-confirmation":
             WatchAbandonConfirmationView(pendingUploads: 12)
         case "compact-holemap-long-copy":

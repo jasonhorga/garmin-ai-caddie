@@ -17,12 +17,16 @@ returns the already-stored round instead of writing a duplicate.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import math
+import os
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from ai_caddie.history import history as _history
 from ai_caddie.core.data import deg_to_semicircle, read_json, wgs84_to_local
@@ -56,6 +60,18 @@ def _player_dir(player_id: str, root: Path | str | None) -> Path:
 
 def _index_path(player_id: str, root: Path | str | None) -> Path:
     return _player_dir(player_id, root) / "rounds_index.json"
+
+
+@contextmanager
+def _player_ingest_lock(player_id: str, root: Path | str | None) -> Iterator[None]:
+    directory = _player_dir(player_id, root)
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / "rounds_index.lock").open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 # ---------------------------------------------------------------------------
@@ -100,15 +116,42 @@ def _load_index(player_id: str, root: Path | str | None) -> dict[str, Any]:
         data = read_json(path)
         if isinstance(data, dict) and isinstance(data.get("entries"), dict):
             return data
-    except Exception:
-        pass
-    return {"schema": _INDEX_SCHEMA, "entries": {}}
+    except Exception as exc:
+        raise RoundIngestError("round ingest index is corrupt") from exc
+    raise RoundIngestError("round ingest index is corrupt")
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except BaseException:
+        try:
+            temporary_path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def _save_index(index: dict[str, Any], player_id: str, root: Path | str | None) -> None:
     path = _index_path(player_id, root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _atomic_write_json(path, index)
 
 
 def _legacy_materialization_meta(
@@ -658,8 +701,12 @@ def _update_summary(player_id: str, root: Path | str | None, scorecard_raw: dict
             existing = read_json(path)
             if isinstance(existing, dict) and isinstance(existing.get("scorecardSummaries"), list):
                 summary = existing
-        except Exception:
-            pass
+            else:
+                raise RoundIngestError("round summary is corrupt")
+        except RoundIngestError:
+            raise
+        except Exception as exc:
+            raise RoundIngestError("round summary is corrupt") from exc
 
     sc = scorecard_raw["scorecardDetails"][0]["scorecard"]
     snap = scorecard_raw["courseSnapshots"][0]
@@ -682,8 +729,7 @@ def _update_summary(player_id: str, root: Path | str | None, scorecard_raw: dict
     rows.append(entry)
     summary["scorecardSummaries"] = rows
     summary["totalRows"] = len(rows)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _atomic_write_json(path, summary)
 
 
 def _invalidate_cache() -> None:
@@ -698,7 +744,7 @@ def _invalidate_cache() -> None:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-def ingest_round(
+def _ingest_round_unlocked(
     player_id: str,
     events: list[dict],
     meta: dict | None = None,
@@ -788,12 +834,8 @@ def ingest_round(
         total_strokes=total_strokes, longest=longest,
     )
 
-    (scorecards_dir / f"{round_id}.json").write_text(
-        json.dumps(scorecard_raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    (shots_dir / f"{round_id}.json").write_text(
-        json.dumps(shots_file, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    _atomic_write_json(scorecards_dir / f"{round_id}.json", scorecard_raw)
+    _atomic_write_json(shots_dir / f"{round_id}.json", shots_file)
     _update_summary(player_id, root, scorecard_raw)
 
     sc = scorecard_raw["scorecardDetails"][0]["scorecard"]
@@ -819,31 +861,54 @@ def ingest_round(
     return {**summary, "idempotent": False}
 
 
-def refresh_ingested_round_if_exists(
+def ingest_round(
     player_id: str,
     events: list[dict],
+    meta: dict | None = None,
     *,
+    idempotency_key: str,
+    root: Path | str | None = None,
+    refresh_existing_events: bool = False,
+) -> dict[str, Any]:
+    """Serialize every materialization that writes one player's shared index and summary."""
+    with _player_ingest_lock(player_id, root):
+        return _ingest_round_unlocked(
+            player_id,
+            events,
+            meta,
+            idempotency_key=idempotency_key,
+            root=root,
+            refresh_existing_events=refresh_existing_events,
+        )
+
+
+def refresh_ingested_round_if_exists(
+    player_id: str,
+    *,
+    load_events: Callable[[], list[dict]],
     idempotency_key: str,
     root: Path | str | None = None,
 ) -> dict[str, Any] | None:
     """Refresh an already-finished live round after a late append; never creates a new round."""
-    existing = _load_index(player_id, root)["entries"].get(idempotency_key)
-    if existing is None:
-        return None
-    meta = (
-        dict(existing["_materializationMeta"])
-        if isinstance(existing.get("_materializationMeta"), dict)
-        else _legacy_materialization_meta(player_id, existing, root)
-    )
-    # A damaged legacy materialization must not turn a successfully appended event into a 422 or
-    # replace the history row with guessed course identity. The next explicit Finish can repair it.
-    if meta is None:
-        return None
-    return ingest_round(
-        player_id,
-        events,
-        meta,
-        idempotency_key=idempotency_key,
-        root=root,
-        refresh_existing_events=True,
-    )
+    with _player_ingest_lock(player_id, root):
+        existing = _load_index(player_id, root)["entries"].get(idempotency_key)
+        if existing is None:
+            return None
+        meta = (
+            dict(existing["_materializationMeta"])
+            if isinstance(existing.get("_materializationMeta"), dict)
+            else _legacy_materialization_meta(player_id, existing, root)
+        )
+        # A damaged legacy materialization must not turn a successfully appended event into a 422 or
+        # replace the history row with guessed course identity. The next explicit Finish can repair it.
+        if meta is None:
+            return None
+        events = load_events()
+        return _ingest_round_unlocked(
+            player_id,
+            events,
+            meta,
+            idempotency_key=idempotency_key,
+            root=root,
+            refresh_existing_events=True,
+        )

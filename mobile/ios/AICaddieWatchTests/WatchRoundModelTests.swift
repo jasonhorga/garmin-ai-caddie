@@ -835,6 +835,9 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(restored.pendingManualShot?.hole, 1)
         XCTAssertEqual(restored.pendingManualShot?.shotNumber, 1)
         XCTAssertEqual(restored.pendingUploads, 0)
+        XCTAssertFalse(restored.canSaveAndEndFromResume)
+        restored.requestSaveAndEndFromResume()
+        XCTAssertEqual(restored.screen, .resume)
 
         restored.resumeRound()
         XCTAssertEqual(restored.screen, .clubPrompt)
@@ -873,6 +876,7 @@ final class WatchRoundModelTests: XCTestCase {
         )
 
         XCTAssertEqual(restored.screen, .resume)
+        XCTAssertFalse(restored.canSaveAndEndFromResume)
         restored.resumeRound()
         XCTAssertEqual(restored.screen, .scoring)
         XCTAssertEqual(restored.activeHole, 1)
@@ -1246,6 +1250,38 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(restored.draftScore, 5)
     }
 
+    func testConfirmSaveAndEndMaterializesRestoredDraftBeforeFinishing() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("resume-finish-draft-\(UUID().uuidString)", isDirectory: true)
+        let first = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
+        first.seedRound([hole(1)])
+        first.startScoringActiveHole()
+        first.adjustDraftScore(1)
+
+        var uploaded: [WatchInputEvent] = []
+        var finishMetadata: WatchRoundFinishMetadata?
+        let restored = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory),
+            makeEventId: sequentialIds(),
+            now: { "2026-08-09T08:00:00Z" },
+            uploader: { events, _ in
+                uploaded = events
+                return events.map(\.eventId)
+            },
+            finisher: { _, metadata in finishMetadata = metadata }
+        )
+
+        restored.requestSaveAndEndFromResume()
+        XCTAssertEqual(restored.screen, .finishConfirmation)
+        await restored.confirmFinish()
+
+        XCTAssertEqual(uploaded.map(\.kind), [.score, .putt])
+        XCTAssertEqual(uploaded.first?.value, "5")
+        XCTAssertEqual(finishMetadata?.holesCompleted, 1)
+        XCTAssertNil(restored.round)
+        XCTAssertEqual(restored.lastRoundClosure?.disposition, .finished)
+    }
+
     func testFinishCannotUploadUntilConfirmationScreenIsAccepted() async {
         var finishCalls = 0
         let model = seededModel(
@@ -1367,14 +1403,19 @@ final class WatchRoundModelTests: XCTestCase {
     }
 
     func testConfirmFinishKeepsEventsMissingFromUploaderAcknowledgement() async {
-        let model = seededModel(
-            holes: [hole(1, par: 4)],
+        let store = makeStore()
+        let model = WatchRoundModel(
+            store: store,
+            makeEventId: sequentialIds(),
+            now: { "2026-08-09T08:00:00Z" },
             uploader: { events, _ in [events[0].eventId] }
         )
+        model.seedRound([hole(1, par: 4)], courseName: "北京丽宫 · 前九")
         model.startScoringActiveHole()
         model.adjustDraftScore(1)
         model.saveActiveHole()
         XCTAssertEqual(model.pendingUploads, 2)
+        let missingEventId = model.round?.pendingEvents.last?.eventId
         model.requestFinish()
         model.requestFinishConfirmation()
 
@@ -1384,6 +1425,10 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .home)
         XCTAssertEqual(model.lastRoundClosure?.disposition, .savedLocally)
         XCTAssertNil(model.uploadError)
+        XCTAssertEqual(
+            store.loadDeferredFinishes().first?.round.pendingEvents.map(\.eventId),
+            missingEventId.map { [$0] }
+        )
     }
 
     func testAbandonWorksOfflineAndTombstoneRejectsTheOldSeed() {

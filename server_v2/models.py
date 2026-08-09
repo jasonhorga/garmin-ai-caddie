@@ -191,6 +191,8 @@ def _validate_live_event_payload(kind: str, payload: dict[str, Any]) -> None:
                 f"{kind} payload field {field} must be one of {', '.join(sorted(allowed_values))}"
             )
     media_type = payload.get("mediaType")
+    if kind == "club" and not str(payload.get("clubName") or "").strip():
+        raise ValueError("club payload field clubName must be non-empty")
     if kind in {"photo", "video"} and media_type != kind:
         raise ValueError(f"{kind} payload mediaType must be {kind}")
     count_constraints = {

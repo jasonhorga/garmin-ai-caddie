@@ -195,6 +195,23 @@ class RoundIngestCoreTests(unittest.TestCase):
         self.assertEqual(len(list(scorecards_dir.glob("*.json"))), 1)
         self.assertEqual(len(history.load_raw_rounds(player_id="p_friend")), 1)
 
+    def test_corrupt_ingest_index_fails_closed_without_allocating_a_duplicate(self) -> None:
+        first = round_ingest.ingest_round(
+            "p_friend", _events(), _meta(), idempotency_key="rnd-corrupt", root=self.root
+        )
+        player_dir = self._player_dir("p_friend")
+        (player_dir / "rounds_index.json").write_text("{truncated", encoding="utf-8")
+
+        with self.assertRaisesRegex(round_ingest.RoundIngestError, "index is corrupt"):
+            round_ingest.ingest_round(
+                "p_friend", _events(), _meta(), idempotency_key="rnd-corrupt", root=self.root
+            )
+
+        self.assertEqual(
+            [path.name for path in (player_dir / "scorecards").glob("*.json")],
+            [f"{first['id']}.json"],
+        )
+
     def test_owner_manual_round_lands_under_players_me(self) -> None:
         summary = round_ingest.ingest_round(
             "me", _events(), _meta(), idempotency_key="owner-1", root=self.root

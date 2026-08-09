@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -12,6 +13,7 @@ from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import players
 from server_v2 import mobile
 from server_v2.main import app
+from server_v2.models import LiveRoundEventBatchRequest, MobileRoundFinishRequest
 
 ADMIN_ENV = {"AI_CADDIE_ADMIN_TOKEN": "admin-secret"}
 ADMIN_HEADER = {"X-AI-Caddie-Admin-Token": "admin-secret"}
@@ -302,6 +304,175 @@ class RoundIngestApiTests(unittest.TestCase):
         self.assertEqual(
             {hole["number"]: hole["strokes"] for hole in rounds[0]["holes"]},
             {1: 5, 2: 4},
+        )
+
+    def test_concurrent_finish_snapshot_cannot_commit_after_a_late_append(self) -> None:
+        round_id = "finish-append-race-1"
+
+        def score_event(event_id: str, hole: int, strokes: int) -> dict:
+            return {
+                "schema": "ai-caddie-live-round-event-v1",
+                "eventId": event_id,
+                "roundId": round_id,
+                "clientId": "apple-watch" if hole == 2 else "ios-phone",
+                "timestamp": f"2026-08-09T08:0{hole}:00Z",
+                "hole": hole,
+                "kind": "score",
+                "payload": {"strokes": strokes, "fairway": "hit"},
+            }
+
+        mobile.append_mobile_events_response(
+            round_id,
+            LiveRoundEventBatchRequest(
+                roundId=round_id,
+                events=[score_event("phone-score", 1, 4)],
+            ),
+            idempotency_key="initial-batch",
+            player_id=self.alice["id"],
+        )
+
+        original_ingest = mobile.round_ingest.ingest_round
+        original_append = mobile.append_event_batch
+        finish_has_snapshot = threading.Event()
+        release_finish = threading.Event()
+        late_thread_started = threading.Event()
+        late_reached_append = threading.Event()
+        first_ingest = True
+        guard = threading.Lock()
+        failures: list[BaseException] = []
+
+        def blocked_first_ingest(*args, **kwargs):
+            nonlocal first_ingest
+            with guard:
+                should_block = first_ingest
+                first_ingest = False
+            if should_block:
+                finish_has_snapshot.set()
+                if not release_finish.wait(timeout=5):
+                    raise AssertionError("finish release timed out")
+            return original_ingest(*args, **kwargs)
+
+        def observed_append(*args, **kwargs):
+            late_reached_append.set()
+            return original_append(*args, **kwargs)
+
+        def run_finish() -> None:
+            try:
+                mobile.finish_mobile_round_response(
+                    round_id,
+                    MobileRoundFinishRequest(meta={
+                        "courseName": "Race-safe course",
+                        "courseGlobalId": 12345,
+                        "holePars": [4, 4],
+                        "holesCompleted": 1,
+                    }),
+                    player_id=self.alice["id"],
+                )
+            except BaseException as exc:  # pragma: no cover - asserted on the parent thread
+                failures.append(exc)
+
+        def run_late_append() -> None:
+            late_thread_started.set()
+            try:
+                mobile.append_mobile_events_response(
+                    round_id,
+                    LiveRoundEventBatchRequest(
+                        roundId=round_id,
+                        events=[score_event("late-watch-score", 2, 5)],
+                    ),
+                    idempotency_key="late-batch",
+                    player_id=self.alice["id"],
+                )
+            except BaseException as exc:  # pragma: no cover - asserted on the parent thread
+                failures.append(exc)
+
+        with mock.patch.object(mobile.round_ingest, "ingest_round", side_effect=blocked_first_ingest), \
+             mock.patch.object(mobile, "append_event_batch", side_effect=observed_append):
+            finish_thread = threading.Thread(target=run_finish)
+            finish_thread.start()
+            self.assertTrue(finish_has_snapshot.wait(timeout=5))
+            late_thread = threading.Thread(target=run_late_append)
+            late_thread.start()
+            self.assertTrue(late_thread_started.wait(timeout=5))
+            crossed_snapshot = late_reached_append.wait(timeout=1)
+            release_finish.set()
+            finish_thread.join(timeout=5)
+            late_thread.join(timeout=5)
+
+        self.assertFalse(
+            crossed_snapshot,
+            "late append crossed the finish materialization snapshot",
+        )
+        self.assertFalse(finish_thread.is_alive())
+        self.assertFalse(late_thread.is_alive())
+        self.assertEqual(failures, [])
+        rounds = history.load_raw_rounds(player_id=self.alice["id"])
+        self.assertEqual(len(rounds), 1)
+        self.assertEqual(
+            {hole["number"]: hole["strokes"] for hole in rounds[0]["holes"]},
+            {1: 4, 2: 5},
+        )
+
+    def test_unfinished_append_does_not_scan_history_materialization_events(self) -> None:
+        round_id = "unfinished-no-materialization-scan"
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "score-1",
+            "roundId": round_id,
+            "clientId": "ios-phone",
+            "timestamp": "2026-08-09T08:00:00Z",
+            "hole": 1,
+            "kind": "score",
+            "payload": {"strokes": 4, "fairway": "hit"},
+        }
+
+        with mock.patch.object(
+            mobile,
+            "round_events",
+            side_effect=AssertionError("unfinished append must not scan the event partition"),
+        ):
+            response = mobile.append_mobile_events_response(
+                round_id,
+                LiveRoundEventBatchRequest(roundId=round_id, events=[event]),
+                idempotency_key="unfinished-batch",
+                player_id=self.alice["id"],
+            )
+
+        self.assertEqual(response.acceptedEventIds, ["score-1"])
+
+    def test_post_commit_refresh_failure_does_not_reject_the_accepted_event(self) -> None:
+        round_id = "post-commit-refresh-failure"
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "score-1",
+            "roundId": round_id,
+            "clientId": "ios-phone",
+            "timestamp": "2026-08-09T08:00:00Z",
+            "hole": 1,
+            "kind": "score",
+            "payload": {"strokes": 4, "fairway": "hit"},
+        }
+
+        with mock.patch.object(
+            mobile.round_ingest,
+            "refresh_ingested_round_if_exists",
+            side_effect=OSError("simulated derived-view write failure"),
+        ), self.assertLogs("server_v2.mobile", level="ERROR"):
+            response = mobile.append_mobile_events_response(
+                round_id,
+                LiveRoundEventBatchRequest(roundId=round_id, events=[event]),
+                idempotency_key="post-commit-batch",
+                player_id=self.alice["id"],
+            )
+
+        self.assertEqual(response.acceptedEventIds, ["score-1"])
+        self.assertEqual(
+            [row["eventId"] for row in mobile.round_events(
+                round_id,
+                root=self.root,
+                player_id=self.alice["id"],
+            )],
+            ["score-1"],
         )
 
 

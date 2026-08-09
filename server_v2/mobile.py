@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
+import logging
 from pathlib import Path
+from typing import Iterator
 
 from fastapi import HTTPException
 
@@ -43,6 +47,26 @@ ANNOTATION_ROOT = Path(".")
 DECISION_AUDIT_ROOT = Path(".")
 DECISION_LEDGER_ROOT = Path(".")
 OPEN_METEO_TRANSPORT: WeatherTransport | None = None
+logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _mobile_materialization_lock(player_id: str) -> Iterator[None]:
+    """Serialize a player's event snapshots and shared history index across workers."""
+    directory = (
+        Path(MOBILE_ROOT)
+        / "data"
+        / "players"
+        / player_id
+        / "mobile_events"
+    )
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / "materialization.lock").open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _refresh_course_release_authority(global_ids: list[int]) -> None:
@@ -183,28 +207,35 @@ def append_mobile_events_response(
 ) -> LiveRoundEventBatchResponse:
     if request.roundId != round_id:
         raise HTTPException(status_code=422, detail="roundId does not match path")
-    try:
-        result = append_event_batch(
-            round_id,
-            [event.model_dump(by_alias=True) for event in request.events],
-            idempotency_key=idempotency_key,
-            root=MOBILE_ROOT,
-            player_id=player_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    # If another device already finished this round, the append itself is the earliest reliable
-    # moment to refresh history. This also covers an upgraded legacy Watch queue that relays through
-    # the phone and never owns the newer standalone model's explicit finish retry.
-    try:
-        round_ingest.refresh_ingested_round_if_exists(
-            player_id,
-            round_events(round_id, root=MOBILE_ROOT, player_id=player_id),
-            idempotency_key=f"mobile-finish:{round_id}",
-            root=MOBILE_ROOT,
-        )
-    except round_ingest.RoundIngestError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with _mobile_materialization_lock(player_id):
+        try:
+            result = append_event_batch(
+                round_id,
+                [event.model_dump(by_alias=True) for event in request.events],
+                idempotency_key=idempotency_key,
+                root=MOBILE_ROOT,
+                player_id=player_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # If another device already finished this round, the append itself is the earliest reliable
+        # moment to refresh history. This also covers an upgraded legacy Watch queue that relays
+        # through the phone and never owns the newer standalone model's explicit finish retry.
+        try:
+            round_ingest.refresh_ingested_round_if_exists(
+                player_id,
+                load_events=lambda: round_events(
+                    round_id,
+                    root=MOBILE_ROOT,
+                    player_id=player_id,
+                ),
+                idempotency_key=f"mobile-finish:{round_id}",
+                root=MOBILE_ROOT,
+            )
+        except Exception:
+            # append_event_batch already committed and fsynced. Never lie to the client that its
+            # accepted event failed merely because the derived history view needs a later retry.
+            logger.exception("late-event history refresh failed for round %s", round_id)
     return LiveRoundEventBatchResponse(**result)
 
 
@@ -214,20 +245,21 @@ def finish_mobile_round_response(
     *,
     player_id: str = OWNER_ID,
 ) -> RoundIngestResponse:
-    try:
-        summary = round_ingest.ingest_round(
-            player_id,
-            round_events(round_id, root=MOBILE_ROOT, player_id=player_id),
-            request.meta,
-            idempotency_key=f"mobile-finish:{round_id}",
-            root=MOBILE_ROOT,
-            # A phone may finish before an offline Watch uploads its last facts. Repeated finish is
-            # still a no-op for the same event revision, but a larger append-only stream must refresh
-            # the existing history row in place instead of acknowledging a permanently stale round.
-            refresh_existing_events=True,
-        )
-    except round_ingest.RoundIngestError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    with _mobile_materialization_lock(player_id):
+        try:
+            summary = round_ingest.ingest_round(
+                player_id,
+                round_events(round_id, root=MOBILE_ROOT, player_id=player_id),
+                request.meta,
+                idempotency_key=f"mobile-finish:{round_id}",
+                root=MOBILE_ROOT,
+                # A phone may finish before an offline Watch uploads its last facts. Repeated finish
+                # is still a no-op for the same event revision, but a larger append-only stream must
+                # refresh the existing history row instead of acknowledging a permanently stale one.
+                refresh_existing_events=True,
+            )
+        except round_ingest.RoundIngestError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     return RoundIngestResponse(**summary)
 
 

@@ -2420,6 +2420,7 @@ class ServerV2MobileTests(unittest.TestCase):
     def test_mobile_event_batch_rejects_schema_invalid_optional_payload_values_without_writing(self) -> None:
         client = TestClient(app)
         invalid_events = [
+            ("club-empty-name", "club", {"clubName": "   "}),
             ("club-actual-shot", "club", {"clubName": "8I", "actualShot": "not-an-object"}),
             ("club-shot-type", "club", {"clubName": "8I", "shotType": "punch"}),
             ("club-strategy-mode", "club", {"clubName": "8I", "strategyMode": "reckless"}),

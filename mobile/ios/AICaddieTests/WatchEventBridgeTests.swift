@@ -20,14 +20,12 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(seed.holes.first?.distanceM), 374.904, accuracy: 0.001)
     }
 
-    func testWatchRoundClosureRetractsSeedAndPublishesTypedDisposition() throws {
+    func testWatchRoundClosurePublishesTypedDisposition() throws {
         let bridge = WatchEventBridge()
-        let package = try fixturePackage()
-        bridge.sendRoundSeedToWatch(bridge.makeWatchRoundSeedPayload(package: package, activeHole: 1))
         var received: WatchRoundClosurePayload?
         bridge.onRoundClosure = { received = $0 }
         let closure = WatchRoundClosurePayload(
-            roundId: package.roundId,
+            roundId: "watch-closure-round",
             disposition: .abandoned,
             closedAt: "2026-08-09T00:00:00Z"
         )

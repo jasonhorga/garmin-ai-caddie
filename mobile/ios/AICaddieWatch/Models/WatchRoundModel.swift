@@ -535,10 +535,13 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     /// Save & End must have at least one fact that the backend can materialize as a round. A staged
-    /// shot or an uncommitted score draft is resumable progress, but neither is an accepted event yet.
+    /// shot must be resolved first; a score draft is safe because confirmFinish materializes it.
     public var canSaveAndEndFromResume: Bool {
         guard let round else { return false }
-        return scoredHoles > 0 || round.pendingEvents.contains { event in
+        guard round.pendingManualShot == nil, round.pendingAutoShotCandidate == nil else {
+            return false
+        }
+        return round.scoreDraft != nil || scoredHoles > 0 || round.pendingEvents.contains { event in
             event.kind == .score || event.kind == .location
         }
     }
@@ -1196,11 +1199,12 @@ public final class WatchRoundModel: ObservableObject {
     /// archived for retry while the player is still allowed to leave the playing UI.
     public func confirmFinish() async {
         guard screen == .finishConfirmation else { return }
-        guard let current = round else { return }
+        guard var current = round else { return }
         isUploading = true
         uploadError = nil
         defer { isUploading = false }
         do {
+            current = try materializeScoreDraftForFinish(current)
             var readyToFinish = current
             let pending = current.pendingEvents
             if !pending.isEmpty {
@@ -1241,6 +1245,66 @@ public final class WatchRoundModel: ObservableObject {
                 uploadError = "本地保存失败，本场已完整保留"
             }
         }
+    }
+
+    /// A restored draft is durable user intent but is not yet part of the upload queue. Convert its
+    /// changed fields and the resulting hole snapshot in one atomic store write before finishing.
+    private func materializeScoreDraftForFinish(
+        _ current: WatchRoundStore.PersistedRound
+    ) throws -> WatchRoundStore.PersistedRound {
+        guard let draft = current.scoreDraft,
+              current.pendingManualShot == nil,
+              current.pendingAutoShotCandidate == nil,
+              let holeIndex = current.holeStates.firstIndex(where: { $0.hole == draft.hole }) else {
+            return current
+        }
+        let hole = current.holeStates[holeIndex]
+        let selectedFairway = hole.par == 3 ? nil : draft.fairway?.rawValue
+        let createdAt = now()
+        var events: [WatchInputEvent] = []
+
+        if draft.score != hole.score || selectedFairway != hole.fairwayResult?.uppercased() {
+            events.append(WatchInputEvent(
+                eventId: makeEventId(),
+                roundId: current.roundId,
+                hole: draft.hole,
+                kind: .score,
+                value: String(draft.score),
+                createdAt: createdAt,
+                fairwayResult: selectedFairway
+            ))
+        }
+        if draft.putts != hole.putts {
+            events.append(WatchInputEvent(
+                eventId: makeEventId(),
+                roundId: current.roundId,
+                hole: draft.hole,
+                kind: .putt,
+                value: String(draft.putts),
+                createdAt: createdAt
+            ))
+        }
+        if draft.penalty != hole.penaltyCount {
+            events.append(WatchInputEvent(
+                eventId: makeEventId(),
+                roundId: current.roundId,
+                hole: draft.hole,
+                kind: .penalty,
+                value: String(draft.penalty),
+                createdAt: createdAt
+            ))
+        }
+
+        var updated = current
+        for event in events {
+            updated.holeStates[holeIndex] = updated.holeStates[holeIndex].applying(event)
+            updated.pendingEvents.append(event)
+        }
+        updated.scoreDraft = nil
+        try store.save(updated)
+        round = updated
+        scoringHole = nil
+        return updated
     }
 
     private var canUpload: Bool { uploaderOverride != nil || config != nil }
