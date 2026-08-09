@@ -54,7 +54,11 @@ class CIWorkflowTests(unittest.TestCase):
 
         self.assertIn("workflow_dispatch", triggers)
         self.assertIn("pull_request", triggers)
-        self.assertNotIn("push", triggers)
+        self.assertEqual(
+            triggers["push"]["branches"],
+            ["main", "integration/v2"],
+            "push CI must protect integration branches without duplicating feature-branch PR runs",
+        )
 
     def test_canonical_authority_check_propagates_git_diff_failures(self) -> None:
         workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))

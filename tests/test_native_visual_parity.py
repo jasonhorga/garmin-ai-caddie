@@ -63,7 +63,8 @@ class NativeVisualParityTests(unittest.TestCase):
     def test_watch_finish_actions_use_the_approved_ten_point_side_inset(self) -> None:
         source = (WATCH_VIEWS / "WatchFinishRoundView.swift").read_text(encoding="utf-8")
 
-        self.assertEqual(source.count(".padding(.horizontal, 10)"), 2)
+        # Resume, finish, abandon-confirmation and save-locally confirmation share this inset.
+        self.assertEqual(source.count(".padding(.horizontal, 10)"), 4)
         self.assertNotIn(".padding(.horizontal, 25)", source)
 
     def test_watch_approved_canvas_is_claimed_by_each_affected_surface(self) -> None:
