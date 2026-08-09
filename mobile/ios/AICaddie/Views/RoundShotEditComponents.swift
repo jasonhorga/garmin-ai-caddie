@@ -569,6 +569,7 @@ public struct RoundShotReorderList: View {
                     HStack(spacing: 8) {
                         RoundShotRow(shot: shot, ppm: ppm, displayNumber: idx + 1)
                             .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("shot-draft-row-\(idx + 1)")
                             .contentShape(Rectangle())
                             .onTapGesture { editModel.selectedShotId = shot.id }
                         Button(role: .destructive) {
@@ -587,7 +588,6 @@ public struct RoundShotReorderList: View {
                             ? LiveHoleStyle.green.opacity(0.12)
                             : Color.clear
                     )
-                    .accessibilityIdentifier("shot-draft-row-\(idx + 1)")
                 }
                 .onMove { indices, newOffset in
                     var ids = editModel.map.shots.map { $0.id }
