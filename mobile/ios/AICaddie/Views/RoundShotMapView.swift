@@ -398,15 +398,24 @@ public struct RoundShotMapPagerScreen: View {
     public let holes: [Int]
     public let apiBaseURL: URL?
     public let adminToken: String?
+    public let onClose: (() -> Void)?
     @State private var current: Int
     /// Holes currently in edit mode. Non-empty ⇒ 翻洞 is locked (设计 §1:改的模式锁切洞)。
     @State private var editingHoles: Set<Int> = []
 
-    public init(roundRef: String, holes: [Int], startHole: Int, apiBaseURL: URL? = nil, adminToken: String? = nil) {
+    public init(
+        roundRef: String,
+        holes: [Int],
+        startHole: Int,
+        apiBaseURL: URL? = nil,
+        adminToken: String? = nil,
+        onClose: (() -> Void)? = nil
+    ) {
         self.roundRef = roundRef
         self.holes = holes
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.onClose = onClose
         _current = State(initialValue: holes.contains(startHole) ? startHole : (holes.first ?? startHole))
     }
 
@@ -432,5 +441,12 @@ public struct RoundShotMapPagerScreen: View {
         .tabViewStyle(.page(indexDisplayMode: .never))
         .background(HubStyle.grouped)
         .navigationTitle(isLocked ? "第 \(current) 洞 · 编辑中" : "第 \(current) 洞 · 落点 · 左右滑")
+        .toolbar {
+            if !isLocked, let onClose {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("关闭", action: onClose)
+                }
+            }
+        }
     }
 }

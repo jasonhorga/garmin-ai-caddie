@@ -44,13 +44,9 @@ public struct RoundReviewView: View {
             NavigationStack {
                 RoundShotMapPagerScreen(
                     roundRef: roundRef, holes: roundHoles, startHole: item.hole,
-                    apiBaseURL: apiBaseURL, adminToken: adminToken
+                    apiBaseURL: apiBaseURL, adminToken: adminToken,
+                    onClose: { shotMapHole = nil }
                 )
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("关闭") { shotMapHole = nil }
-                    }
-                }
             }
         }
     }
