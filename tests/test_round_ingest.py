@@ -95,6 +95,20 @@ class RoundIngestCoreTests(unittest.TestCase):
         self.assertEqual(first_hole["fairway"], "left")
         self.assertEqual(second_hole["penalties"], 1)
 
+    def test_holes_completed_cannot_be_smaller_than_explicitly_scored_holes(self) -> None:
+        stale_meta = {**_meta(), "holesCompleted": 1}
+
+        result = round_ingest.ingest_round(
+            "p_friend",
+            _events(),
+            stale_meta,
+            idempotency_key="stale-completion-count",
+            root=self.root,
+        )
+
+        self.assertEqual(result["holesCompleted"], 2)
+        self.assertEqual(history.load_raw_rounds(player_id="p_friend")[0]["holesCompleted"], 2)
+
     def test_shots_are_consumable_by_load_shot_history(self) -> None:
         round_ingest.ingest_round(
             "p_friend", _events(), _meta(), idempotency_key="rnd-1", root=self.root

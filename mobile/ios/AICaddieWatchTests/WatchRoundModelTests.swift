@@ -188,6 +188,30 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .home)
     }
 
+    func testPhoneReseedDropsVisibleManualShotForAHoleThatNoLongerExists() {
+        let model = seededModel(holes: [hole(1), hole(2)])
+        model.beginManualShot(
+            latitude: 40.0,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-08-09T08:00:00Z"
+        )
+        XCTAssertEqual(model.pendingManualShot?.hole, 1)
+        XCTAssertEqual(model.screen, .clubPrompt)
+
+        model.applyRoundSeed(WatchRoundSeed(
+            roundId: "r1",
+            courseName: "Back nine",
+            activeHole: 2,
+            holes: [WatchRoundSeedHole(hole: 2, par: 4, distanceM: 350)]
+        ))
+
+        XCTAssertNil(model.round?.pendingManualShot)
+        XCTAssertNil(model.pendingManualShot)
+        XCTAssertEqual(model.activeHole, 2)
+        XCTAssertEqual(model.screen, .home)
+    }
+
     func testInvalidPersistedActiveHoleFallsBackToFirstRealHole() throws {
         let store = makeStore()
         try store.save(WatchRoundStore.PersistedRound(
@@ -1564,7 +1588,7 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.lastRoundClosure?.disposition, .finished)
     }
 
-    func testRetryDropsLegacyLocationOnlyDeferredFinishWithoutCallingBackend() async throws {
+    func testRetryUploadsLegacyLocationOnlyDeferredFinishBeforeRemovingIt() async throws {
         let store = makeStore()
         let location = WatchInputEvent(
             eventId: "legacy-location-only",
@@ -1581,17 +1605,53 @@ final class WatchRoundModelTests: XCTestCase {
             pendingEvents: [location]
         )
         _ = try store.deferFinish(legacy, savedAt: "2026-08-09T08:01:00Z")
+        var uploadedEventIds: [String] = []
         var finishCalls = 0
         let model = WatchRoundModel(
             store: store,
-            uploader: { events, _ in events.map(\.eventId) },
+            uploader: { events, _ in
+                uploadedEventIds = events.map(\.eventId)
+                return uploadedEventIds
+            },
             finisher: { _, _ in finishCalls += 1 }
         )
 
         await model.retryDeferredFinishes()
 
+        XCTAssertEqual(uploadedEventIds, [location.eventId])
         XCTAssertTrue(store.loadDeferredFinishes().isEmpty)
         XCTAssertEqual(finishCalls, 0)
+    }
+
+    func testRetryRetainsLegacyLocationOnlyDeferredFinishUntilAcknowledged() async throws {
+        let store = makeStore()
+        let location = WatchInputEvent(
+            eventId: "legacy-location-only",
+            roundId: "r1",
+            hole: 1,
+            kind: .location,
+            value: "40.0,116.0,5.0",
+            createdAt: "2026-08-09T08:00:00Z"
+        )
+        let legacy = WatchRoundStore.PersistedRound(
+            roundId: "r1",
+            activeHole: 1,
+            holeStates: [hole(1)],
+            pendingEvents: [location]
+        )
+        _ = try store.deferFinish(legacy, savedAt: "2026-08-09T08:01:00Z")
+        let model = WatchRoundModel(
+            store: store,
+            uploader: { _, _ in [] },
+            finisher: { _, _ in XCTFail("location-only archive must not call Finish") }
+        )
+
+        await model.retryDeferredFinishes()
+
+        XCTAssertEqual(
+            store.loadDeferredFinishes().first?.round.pendingEvents.map(\.eventId),
+            [location.eventId]
+        )
     }
 
     func testPhoneFinishPreservesDeferredWatchEventsButPhoneAbandonDiscardsThem() async {

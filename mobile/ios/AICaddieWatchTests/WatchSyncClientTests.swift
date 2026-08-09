@@ -117,6 +117,34 @@ final class WatchSyncClientTests: XCTestCase {
         XCTAssertEqual(try client.loadQueuedEvents().map(\.eventId), ["new-event"])
     }
 
+    func testForgetRoundFromDelegateQueueSynchronizesPublishedIdentity() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let client = WatchSyncClient(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            stateURL: directory.appendingPathComponent("current_state.json")
+        )
+        client.receiveState(WatchRoundState(
+            roundId: "old-round", hole: 1, par: 4, distanceM: 350,
+            selectedClub: nil, score: 0, putts: 0, penaltyCount: 0,
+            caddieConfidence: "offline"
+        ))
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global().async {
+                do {
+                    try client.forgetRound(roundId: "old-round", discardQueuedEvents: false)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+
+        XCTAssertNil(client.currentState)
+        XCTAssertNil(try client.loadPersistedState())
+    }
+
     func testPhoneRoundClosureClearsMatchingLegacyStateAndPublishesDisposition() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

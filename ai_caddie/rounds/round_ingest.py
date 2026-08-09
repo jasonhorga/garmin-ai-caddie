@@ -439,7 +439,9 @@ def _build_scorecard(
             total_strokes=acc.strokes,
         )
         sc_holes.append(hole_dict)
-    holes_completed = _as_int(meta.get("holesCompleted")) or len(sc_holes)
+    # A second device may have contributed scored events that are newer than the finishing client's
+    # local projection. Never let a stale client count hide explicitly scored holes from history.
+    holes_completed = max(_as_int(meta.get("holesCompleted")) or 0, len(sc_holes))
 
     snapshot: dict[str, Any] = {
         "courseGlobalId": course_gid,

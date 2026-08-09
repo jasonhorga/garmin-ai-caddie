@@ -1558,6 +1558,11 @@ public final class LiveRoundAppModel: ObservableObject {
             // A failed refresh is non-fatal: the completed round is already durable server-side and
             // the cached home remains available until the normal next bootstrap refresh.
             let refreshedHome = await fetchHomePackage(preferredCourse: package.course)
+            // Both Finish and the home refresh suspend the MainActor. A Watch event can arrive after
+            // the upload watermark was proven empty; never delete that newly appended local fact.
+            guard try offlineStore.loadPendingEvents(roundId: package.roundId).isEmpty else {
+                throw LiveRoundFinishError.incompleteAcknowledgement
+            }
             try clearFinishedRoundLocally(roundId: package.roundId)
             if let refreshedHome {
                 try activateHomePackage(refreshedHome, status: "本场已保存")

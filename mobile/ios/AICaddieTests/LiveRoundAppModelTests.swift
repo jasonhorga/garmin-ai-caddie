@@ -1227,6 +1227,127 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
+    func testFinishCannotClearAnEventArrivingDuringHomeRefresh() async throws {
+        let fixture = try completedFixtureRound()
+        let refreshedHome = package(
+            fixture.package,
+            roundId: "home-\(fixture.package.course.globalId)",
+            recentRounds: []
+        )
+        let activePackageBody = try JSONEncoder().encode(fixture.package)
+        let refreshedHomeBody = try JSONEncoder().encode(refreshedHome)
+        let homeRefreshStarted = expectation(description: "post-finish home refresh started")
+        let releaseHomeRefresh = DispatchSemaphore(value: 0)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            switch url.path {
+            case "/api/v2/mobile/rounds/\(fixture.package.roundId)/events":
+                let batch = try JSONDecoder().decode(
+                    EventBatch.self,
+                    from: try capturedRequestBodyData(from: request)
+                )
+                let ids = batch.events.map(\.eventId)
+                return (
+                    HTTPURLResponse(
+                        url: url, statusCode: 200, httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    try JSONSerialization.data(withJSONObject: [
+                        "accepted": ids.count,
+                        "duplicate": false,
+                        "acceptedEventIds": ids,
+                        "duplicateEventIds": [],
+                        "serverSequence": ids.count,
+                    ])
+                )
+            case "/api/v2/mobile/rounds/\(fixture.package.roundId)/finish":
+                return (
+                    HTTPURLResponse(
+                        url: url, statusCode: 201, httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data("{}".utf8)
+                )
+            case "/api/v2/mobile/courses/\(fixture.package.course.globalId)/package":
+                let roundId = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .first { $0.name == "round_id" }?.value
+                if roundId == refreshedHome.roundId {
+                    homeRefreshStarted.fulfill()
+                    guard releaseHomeRefresh.wait(timeout: .now() + 5) == .success else {
+                        throw URLError(.timedOut)
+                    }
+                    return (
+                        HTTPURLResponse(
+                            url: url, statusCode: 200, httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        refreshedHomeBody
+                    )
+                }
+                return (
+                    HTTPURLResponse(
+                        url: url, statusCode: 200, httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    activePackageBody
+                )
+            default:
+                return (
+                    HTTPURLResponse(
+                        url: url, statusCode: 500, httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    Data("{}".utf8)
+                )
+            }
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: nil,
+            adminToken: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            preferredRoundId: fixture.package.roundId,
+            syncClient: SyncClient(
+                baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+                clientId: "ios-phone",
+                session: session,
+                retrySleep: { _ in }
+            ),
+            offlineGeometryRetryDelaysNanoseconds: [0]
+        )
+
+        await model.bootstrap()
+        let finishTask = Task { await model.finishActiveRound() }
+        await fulfillment(of: [homeRefreshStarted], timeout: 3)
+
+        let laterEvent = LiveRoundEvent(
+            eventId: "watch-score-after-finish-ack",
+            roundId: fixture.package.roundId,
+            clientId: "apple-watch",
+            timestamp: "2026-08-09T09:05:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(6), "fairway": .string("right")]
+        )
+        model.handleEvent(laterEvent)
+        releaseHomeRefresh.signal()
+
+        let didFinish = await finishTask.value
+        XCTAssertFalse(didFinish)
+        XCTAssertEqual(model.package?.roundId, fixture.package.roundId)
+        XCTAssertNotNil(model.liveRoundState)
+        XCTAssertEqual(
+            try fixture.store.loadPendingEvents(roundId: fixture.package.roundId).map(\.eventId),
+            [laterEvent.eventId]
+        )
+        XCTAssertNotNil(try fixture.store.loadCurrentRoundPackage())
+    }
+
     func testWatchAbandonKeepsPhoneRoundButWatchFinishClearsMatchingPhonePointer() async throws {
         let fixture = try completedFixtureRound()
         let bridge = WatchEventBridge(offlineStore: fixture.store, autoActivate: false)

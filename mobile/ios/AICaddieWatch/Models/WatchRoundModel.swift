@@ -622,7 +622,11 @@ public final class WatchRoundModel: ObservableObject {
         )
         try? store.save(persisted)
         round = persisted
-        if let scoringHole, !holeNumbers.contains(scoringHole) {
+        let removedCurrentInteraction =
+            (existing?.scoreDraft != nil && retainedScoreDraft == nil)
+            || (existing?.pendingManualShot != nil && retainedManualShot == nil)
+        if removedCurrentInteraction
+            || scoringHole.map({ !holeNumbers.contains($0) }) == true {
             restoreInteractionState(from: persisted)
         }
         if awaitingExplicitResume {
@@ -1363,11 +1367,6 @@ public final class WatchRoundModel: ObservableObject {
         isRetryingDeferredFinishes = true
         defer { isRetryingDeferredFinishes = false }
         for deferred in store.loadDeferredFinishes() {
-            guard hasMaterializableFacts(in: deferred.round) else {
-                try? store.removeDeferredFinish(roundId: deferred.round.roundId)
-                continue
-            }
-            guard canFinish else { continue }
             do {
                 var ready = deferred.round
                 if !ready.pendingEvents.isEmpty {
@@ -1382,6 +1381,15 @@ public final class WatchRoundModel: ObservableObject {
                     ready = updated.round
                     guard ready.pendingEvents.isEmpty else { continue }
                 }
+                // Older builds allowed a location-only Save & End. Preserve that real GPS fact by
+                // waiting for an explicit upload acknowledgement, then retire the invalid archive
+                // without asking the backend to fabricate a scored round. A truly empty archive can
+                // still be removed immediately.
+                guard hasMaterializableFacts(in: ready) else {
+                    try store.removeDeferredFinish(roundId: ready.roundId)
+                    continue
+                }
+                guard canFinish else { continue }
                 try await finishRemotely(ready)
                 let closure = try store.closeActiveRound(
                     roundId: ready.roundId,

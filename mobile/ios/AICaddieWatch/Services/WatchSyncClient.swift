@@ -236,17 +236,10 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     /// Clear only facts belonging to the terminal round. A newer in-flight state and its queue must
     /// survive a delayed completion message from either device.
     public func forgetRound(roundId: String, discardQueuedEvents: Bool) throws {
-        if currentState?.roundId == roundId {
-            publishStateUpdate { client in
-                client.currentState = nil
-            }
+        let removePersistedState = clearPublishedRoundIdentitySynchronously(roundId: roundId)
+        if removePersistedState {
             if FileManager.default.fileExists(atPath: stateURL.path) {
                 try FileManager.default.removeItem(at: stateURL)
-            }
-        }
-        if roundSeed?.roundId == roundId {
-            publishStateUpdate { client in
-                client.roundSeed = nil
             }
         }
         if discardQueuedEvents {
@@ -460,6 +453,29 @@ public final class WatchSyncClient: NSObject, ObservableObject {
                 update(self)
             }
         }
+    }
+
+    /// Terminal identity checks must observe and mutate `@Published` state on the same executor.
+    /// Unlike ordinary UI notifications this operation is synchronous because its caller immediately
+    /// decides whether the matching persisted state file may be removed.
+    private func clearPublishedRoundIdentitySynchronously(roundId: String) -> Bool {
+        if Thread.isMainThread {
+            return clearPublishedRoundIdentity(roundId: roundId)
+        }
+        return DispatchQueue.main.sync {
+            clearPublishedRoundIdentity(roundId: roundId)
+        }
+    }
+
+    private func clearPublishedRoundIdentity(roundId: String) -> Bool {
+        let removePersistedState = currentState?.roundId == roundId
+        if removePersistedState {
+            currentState = nil
+        }
+        if roundSeed?.roundId == roundId {
+            roundSeed = nil
+        }
+        return removePersistedState
     }
 
     private func receiveStatePayload(_ state: [String: Any]) {
