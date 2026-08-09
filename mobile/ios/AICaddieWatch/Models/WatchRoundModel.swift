@@ -605,7 +605,7 @@ public final class WatchRoundModel: ObservableObject {
         let retainedScoreDraft = existing?.scoreDraft.flatMap { draft in
             holeNumbers.contains(draft.hole) ? draft : nil
         }
-        let retainedManualShot = existing?.pendingManualShot.flatMap { shot in
+        let retainedManualShot = existing?.pendingManualShot.flatMap { shot -> WatchPendingManualShot? in
             guard holeNumbers.contains(shot.hole) else { return nil }
             guard let candidateFromHole = shot.candidateFromHole else { return shot }
             return holeNumbers.contains(candidateFromHole) ? shot : nil
