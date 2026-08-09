@@ -93,4 +93,49 @@ final class WatchRoundStoreTests: XCTestCase {
         XCTAssertEqual(round.activeHole, 2)                       // last upsert is active
         XCTAssertEqual(round.holeStates.map(\.hole), [2, 5])      // kept sorted by hole
     }
+
+    func testPhoneStateCanRefreshAHoleWithoutMovingTheWatchCursor() throws {
+        let (store, _) = tempStore()
+        try store.upsertHoleState(holeState(hole: 1))
+        try store.upsertHoleState(holeState(hole: 2))
+
+        let round = try store.upsertHoleState(holeState(hole: 1, score: 4), makeActive: false)
+
+        XCTAssertEqual(round.activeHole, 2)
+        XCTAssertEqual(round.holeStates.first { $0.hole == 1 }?.score, 4)
+    }
+
+    func testClosedRoundCannotBeResurrectedByItsStaleRoundFile() throws {
+        let (store, directory) = tempStore()
+        try store.upsertHoleState(holeState(hole: 1))
+
+        let closure = try store.closeActiveRound(
+            roundId: "r1",
+            disposition: .abandoned,
+            closedAt: "2026-08-09T00:00:00Z"
+        )
+
+        XCTAssertNil(store.load())
+        XCTAssertEqual(store.closure(roundId: "r1"), closure)
+        let relaunched = WatchRoundStore(directoryURL: directory)
+        XCTAssertTrue(relaunched.isClosed(roundId: "r1"))
+        XCTAssertNil(relaunched.load())
+    }
+
+    func testDeferredFinishRetainsUnresolvedEventsButLeavesNoActiveRound() throws {
+        let (store, directory) = tempStore()
+        try store.upsertHoleState(holeState(hole: 1))
+        try store.record(event("e1"))
+        let active = try XCTUnwrap(store.load())
+
+        let closure = try store.deferFinish(active, savedAt: "2026-08-09T00:00:00Z")
+
+        XCTAssertEqual(closure.disposition, .savedLocally)
+        XCTAssertNil(store.load())
+        XCTAssertEqual(store.loadDeferredFinishes().first?.round.pendingEvents.map(\.eventId), ["e1"])
+
+        let relaunched = WatchRoundStore(directoryURL: directory)
+        XCTAssertNil(relaunched.load())
+        XCTAssertEqual(relaunched.loadDeferredFinishes().first?.round.roundId, "r1")
+    }
 }

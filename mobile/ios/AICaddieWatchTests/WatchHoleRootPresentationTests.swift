@@ -24,6 +24,17 @@ final class WatchHoleRootPresentationTests: XCTestCase {
         )
     }
 
+    func testVectorGeometryRemainsVisibleWhileGreenDistancesUpgrade() {
+        XCTAssertEqual(
+            WatchHoleRootPresentation.resolve(
+                hasQualifiedWristFix: true,
+                hasGeometry: true,
+                hasLiveCenterDistance: false
+            ),
+            .map
+        )
+    }
+
     func testDistanceFactsProvideTheRootWhenGeometryIsUnavailable() {
         XCTAssertEqual(
             WatchHoleRootPresentation.resolve(

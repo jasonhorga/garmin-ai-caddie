@@ -23,6 +23,7 @@ public struct WatchMenuView: View {
     public let onSettings: () -> Void
     public let onFlagDirection: () -> Void
     public let onFinish: () -> Void
+    public let onAbandon: () -> Void
     public let onClose: () -> Void
 
     public init(
@@ -46,6 +47,7 @@ public struct WatchMenuView: View {
         onSettings: @escaping () -> Void = {},
         onFlagDirection: @escaping () -> Void = {},
         onFinish: @escaping () -> Void = {},
+        onAbandon: @escaping () -> Void = {},
         onClose: @escaping () -> Void = {}
     ) {
         self.hasCaddie = hasCaddie
@@ -68,6 +70,7 @@ public struct WatchMenuView: View {
         self.onSettings = onSettings
         self.onFlagDirection = onFlagDirection
         self.onFinish = onFinish
+        self.onAbandon = onAbandon
         self.onClose = onClose
     }
 
@@ -81,6 +84,7 @@ public struct WatchMenuView: View {
                 menuRow("选洞", action: onHoleSelect)
                 menuRow("结束本场", role: .destructive, action: onFinish)
                 menuRow("继续打球", action: onClose)
+                menuRow("放弃本场", role: .destructive, action: onAbandon)
 
                 Text("本洞")
                     .font(.caption2.weight(.semibold))

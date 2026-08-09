@@ -385,6 +385,11 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             try await self.acceptWatchEvent(event)
         }
+        watchBridge?.onRoundClosure = { [weak self] closure in
+            Task { @MainActor in
+                self?.handleWatchRoundClosure(closure)
+            }
+        }
         watchBridge?.activateSession()
         syncConfigToWatch()
         observeSessionForWatch()
@@ -1569,7 +1574,10 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    private func clearFinishedRoundLocally(roundId: String) throws {
+    private func clearFinishedRoundLocally(
+        roundId: String,
+        notifyWatch: Bool = true
+    ) throws {
         let homePackage = package
         try offlineStore.discardRound(roundId: roundId)
         if let homePackage {
@@ -1581,6 +1589,56 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingEventCount = 0
         finishErrorMessage = nil
         syncStatus = "本场已保存"
+        if notifyWatch {
+            watchBridge?.sendRoundClosureToWatch(
+                roundId: roundId,
+                disposition: .finished
+            )
+        } else {
+            watchBridge?.clearRoundSeed(roundId: roundId)
+        }
+    }
+
+    /// A Watch finish already completed the idempotent backend finish transaction. Clear only a
+    /// matching active phone pointer; abandon/save-locally on the wrist never deletes phone data.
+    public func handleWatchRoundClosure(_ closure: WatchRoundClosurePayload) {
+        guard closure.disposition == .finished,
+              package?.roundId == closure.roundId,
+              liveRoundState?.roundId == closure.roundId else {
+            return
+        }
+        do {
+            try clearFinishedRoundLocally(roundId: closure.roundId, notifyWatch: false)
+        } catch {
+            AICaddieLog.storage.error("Watch-finished round cleanup failed: \(String(describing: error), privacy: .public)")
+            finishErrorMessage = "手表已结束，本机记录仍保留"
+        }
+    }
+
+    /// Explicit local discard remains distinct from Save & End. It is offline-capable and notifies
+    /// the Watch only after the matching phone data has been removed.
+    public func discardActiveRound() {
+        guard let package, liveRoundState?.roundId == package.roundId else { return }
+        do {
+            try offlineStore.discardRound(roundId: package.roundId)
+            watchBridge?.sendRoundClosureToWatch(
+                roundId: package.roundId,
+                disposition: .abandoned
+            )
+            if let home = try offlineStore.loadHomePackage() {
+                try activateHomePackage(home, status: "本场已放弃")
+            } else {
+                self.package = nil
+                liveRoundState = nil
+                startingNine = nil
+                pendingEventCount = 0
+                finishErrorMessage = nil
+                syncStatus = "本场已放弃"
+            }
+        } catch {
+            AICaddieLog.storage.error("Round discard failed: \(String(describing: error), privacy: .public)")
+            finishErrorMessage = "本地记录无法删除，请重试"
+        }
     }
 
     public func setActiveHole(_ hole: Int) {

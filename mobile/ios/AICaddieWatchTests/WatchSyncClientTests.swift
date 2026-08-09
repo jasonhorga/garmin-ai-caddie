@@ -74,6 +74,73 @@ final class WatchSyncClientTests: XCTestCase {
         XCTAssertEqual(client.roundSeed, seed)
     }
 
+    func testConfigOnlyApplicationContextRetractsAnOldRoundSeed() {
+        let client = WatchSyncClient(queueURL: tempQueueURL())
+        client.receiveRoundSeed(WatchRoundSeed(
+            roundId: "old-round",
+            courseName: "Old course",
+            activeHole: 1,
+            holes: [WatchRoundSeedHole(hole: 1, par: 4, distanceM: 350)]
+        ))
+
+        client.applyApplicationContext([
+            "config": ["apiBaseURL": "https://caddie.example.com"],
+        ])
+
+        XCTAssertNil(client.roundSeed)
+    }
+
+    func testForgetRoundClearsOnlyMatchingStateAndQueuedEvents() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let queueURL = directory.appendingPathComponent("queued_events.json")
+        let stateURL = directory.appendingPathComponent("current_state.json")
+        let client = WatchSyncClient(queueURL: queueURL, stateURL: stateURL)
+        client.receiveState(WatchRoundState(
+            roundId: "old-round", hole: 1, par: 4, distanceM: 350,
+            selectedClub: nil, score: 0, putts: 0, penaltyCount: 0,
+            caddieConfidence: "offline"
+        ))
+        try client.queueInputEvent(WatchInputEvent(
+            eventId: "old-event", roundId: "old-round", hole: 1,
+            kind: .score, value: "4", createdAt: "2026-08-09T00:00:00Z"
+        ))
+        try client.queueInputEvent(WatchInputEvent(
+            eventId: "new-event", roundId: "new-round", hole: 1,
+            kind: .score, value: "4", createdAt: "2026-08-09T00:01:00Z"
+        ))
+
+        try client.forgetRound(roundId: "old-round", discardQueuedEvents: true)
+
+        XCTAssertNil(client.currentState)
+        XCTAssertNil(try client.loadPersistedState())
+        XCTAssertEqual(try client.loadQueuedEvents().map(\.eventId), ["new-event"])
+    }
+
+    func testPhoneRoundClosureClearsMatchingLegacyStateAndPublishesDisposition() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let client = WatchSyncClient(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            stateURL: directory.appendingPathComponent("current_state.json")
+        )
+        client.receiveState(WatchRoundState(
+            roundId: "done-round", hole: 1, par: 4, distanceM: 350,
+            selectedClub: nil, score: 4, putts: 2, penaltyCount: 0,
+            caddieConfidence: "offline"
+        ))
+        let closure = WatchRoundClosure(
+            roundId: "done-round",
+            disposition: .finished,
+            closedAt: "2026-08-09T00:00:00Z"
+        )
+
+        client.receiveRoundClosure(closure)
+
+        XCTAssertNil(client.currentState)
+        XCTAssertEqual(client.phoneRoundClosure, closure)
+    }
+
     func testQueueInputEventSerializesPendingEvents() throws {
         let queueURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

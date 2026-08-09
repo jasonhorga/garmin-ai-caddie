@@ -206,6 +206,63 @@ jobs:
           capture_compact compact-home compact-41mm-home-long-course.png
           xcrun simctl shutdown "$COMPACT_DEVICE"
 
+      - name: Capture Apple Watch Ultra 49mm lifecycle boundaries
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
+          BID=com.ai-caddie.mobile.watchkitapp
+          test -d "$APP"
+
+          ULTRA_DEVICE=$(xcrun simctl list devices available -j | jq -r \
+            --arg runtime "$WATCH_RUNTIME" '
+              [.devices[$runtime][]?
+                | select(.isAvailable == true)
+                | select(.name == "Apple Watch Ultra 2 (49mm)"
+                    or .name == "Apple Watch Ultra (49mm)")
+                | .udid]
+              | first // empty')
+          if [[ -z "$ULTRA_DEVICE" ]]; then
+            ULTRA_TYPE=$(xcrun simctl list devicetypes -j | jq -er '
+              [.devicetypes[]
+                | select(.name == "Apple Watch Ultra 2 (49mm)"
+                    or .name == "Apple Watch Ultra (49mm)")]
+              | first
+              | .identifier')
+            ULTRA_DEVICE=$(xcrun simctl create \
+              "AI Caddie Ultra 49mm" "$ULTRA_TYPE" "$WATCH_RUNTIME")
+          fi
+
+          xcrun simctl boot "$ULTRA_DEVICE" 2>/dev/null || true
+          xcrun simctl bootstatus "$ULTRA_DEVICE" -b
+          xcrun simctl uninstall "$ULTRA_DEVICE" "$BID" 2>/dev/null || true
+          xcrun simctl install "$ULTRA_DEVICE" "$APP"
+          mkdir -p watch-runtime-artifacts
+
+          capture_ultra() {
+            local mode="$1"
+            local screenshot="$2"
+            xcrun simctl launch "$ULTRA_DEVICE" "$BID" -uitest-screen "$mode" \
+              | tee "watch-runtime-artifacts/launch-$mode-ultra-49mm.txt"
+            sleep 3
+            xcrun simctl io "$ULTRA_DEVICE" screenshot \
+              "watch-runtime-artifacts/$screenshot"
+            test "$(sips -g pixelWidth "watch-runtime-artifacts/$screenshot" \
+              | awk '/pixelWidth/{print $2}')" = "410"
+            test "$(sips -g pixelHeight "watch-runtime-artifacts/$screenshot" \
+              | awk '/pixelHeight/{print $2}')" = "502"
+            xcrun simctl terminate "$ULTRA_DEVICE" "$BID"
+          }
+
+          capture_ultra score-recommendation ultra-49mm-score-recommendation.png
+          capture_ultra score-penalty ultra-49mm-score-penalty.png
+          capture_ultra gps-acquiring ultra-49mm-gps-acquiring.png
+          capture_ultra compact-holemap-long-copy ultra-49mm-holemap.png
+          capture_ultra finish-actions ultra-49mm-finish-actions.png
+          capture_ultra finish-confirmation ultra-49mm-finish-confirmation.png
+          capture_ultra resume-round ultra-49mm-resume-round.png
+          capture_ultra abandon-confirmation ultra-49mm-abandon-confirmation.png
+          xcrun simctl shutdown "$ULTRA_DEVICE"
+
       - name: Preflight live course discovery
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.runtime_scope != 'setup-visual'
         env:

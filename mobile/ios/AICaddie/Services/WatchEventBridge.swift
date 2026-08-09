@@ -222,19 +222,22 @@ public struct WatchRoundSeedHolePayload: Codable, Equatable {
     public let distanceM: Double?
     public let teeLatitude: Double?
     public let teeLongitude: Double?
+    public let globalId: Int?
 
     public init(
         hole: Int,
         par: Int,
         distanceM: Double?,
         teeLatitude: Double? = nil,
-        teeLongitude: Double? = nil
+        teeLongitude: Double? = nil,
+        globalId: Int? = nil
     ) {
         self.hole = hole
         self.par = par
         self.distanceM = distanceM
         self.teeLatitude = teeLatitude
         self.teeLongitude = teeLongitude
+        self.globalId = globalId
     }
 }
 
@@ -255,6 +258,31 @@ public struct WatchRoundSeedPayload: Codable, Equatable {
         self.courseName = courseName
         self.activeHole = activeHole
         self.holes = holes
+    }
+}
+
+public enum WatchRoundDispositionPayload: String, Codable, Equatable {
+    case finished
+    case savedLocally
+    case abandoned
+}
+
+public struct WatchRoundClosurePayload: Codable, Equatable {
+    public let schema: String
+    public let roundId: String
+    public let disposition: WatchRoundDispositionPayload
+    public let closedAt: String
+
+    public init(
+        schema: String = "ai-caddie-watch-round-closure-v1",
+        roundId: String,
+        disposition: WatchRoundDispositionPayload,
+        closedAt: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        self.schema = schema
+        self.roundId = roundId
+        self.disposition = disposition
+        self.closedAt = closedAt
     }
 }
 
@@ -345,6 +373,7 @@ public enum WatchEventBridgeError: Error {
 
 public final class WatchEventBridge: NSObject {
     public var onAcceptedLiveEvent: ((LiveRoundEvent) async throws -> Void)?
+    public var onRoundClosure: ((WatchRoundClosurePayload) -> Void)?
 
     private let offlineStore: OfflineStore
     private let encoder = JSONEncoder()
@@ -537,7 +566,8 @@ public final class WatchEventBridge: NSObject {
                         par: hole.par,
                         distanceM: hole.yards.map { Double($0) * 0.9144 },
                         teeLatitude: tee?.latitude,
-                        teeLongitude: tee?.longitude
+                        teeLongitude: tee?.longitude,
+                        globalId: hole.sourceGlobalId ?? package.course.globalId
                     )
                 }
         )
@@ -684,6 +714,42 @@ public final class WatchEventBridge: NSObject {
         pushPendingApplicationContext()
     }
 
+    /// Retract only the matching seed. Publishing the remaining config-only context is essential:
+    /// WatchConnectivity application context is latest-wins, so omitting an update would leave the
+    /// previous seed stored by the system indefinitely.
+    public func clearRoundSeed(roundId: String) {
+        let lastSentSeed = pendingRoundSeed
+            ?? (WCSession.isSupported()
+                ? WCSession.default.applicationContext["roundSeed"] as? [String: Any]
+                : nil)
+        if let lastSentSeed,
+           lastSentSeed["roundId"] as? String != roundId {
+            return
+        }
+        pendingRoundSeed = nil
+        pushPendingApplicationContext()
+    }
+
+    public func sendRoundClosureToWatch(
+        roundId: String,
+        disposition: WatchRoundDispositionPayload,
+        closedAt: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        clearRoundSeed(roundId: roundId)
+        let closure = WatchRoundClosurePayload(
+            roundId: roundId,
+            disposition: disposition,
+            closedAt: closedAt
+        )
+        guard WCSession.isSupported(),
+              WCSession.default.activationState == .activated,
+              let data = try? encoder.encode(closure),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        WCSession.default.transferUserInfo(["roundClosure": object])
+    }
+
     /// round-12 P3.4 (Watch standalone): hand the watch what it needs to reach the backend on its own
     /// (base URL + auth), so a standalone round can sync without the phone relaying each event. Sent via
     /// application context — latest-wins and delivered even when the watch isn't reachable now.
@@ -736,10 +802,17 @@ public final class WatchEventBridge: NSObject {
         if let pendingRoundSeed {
             context["roundSeed"] = pendingRoundSeed
         }
-        guard !context.isEmpty else {
+        try? WCSession.default.updateApplicationContext(context)
+    }
+
+    public func handleWatchRoundClosure(_ object: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let closure = try? decoder.decode(WatchRoundClosurePayload.self, from: data) else {
             return
         }
-        try? WCSession.default.updateApplicationContext(context)
+        clearRoundSeed(roundId: closure.roundId)
+        onRoundClosure?(closure)
     }
 
     /// watch P0.4: push a hole's topo image to the watch via a guaranteed-delivery file transfer, keyed
@@ -1343,5 +1416,11 @@ extension WatchEventBridge: WCSessionDelegate {
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
         handleWatchInputMessage(message, replyHandler: replyHandler)
+    }
+
+    public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        if let closure = userInfo["roundClosure"] as? [String: Any] {
+            handleWatchRoundClosure(closure)
+        }
     }
 }

@@ -31,6 +31,9 @@ public struct AICaddieWatchApp: App {
                 // Keep the standalone round able to sync: adopt the backend config the phone delivers.
                 .onChange(of: syncClient.config, initial: true) { _, newConfig in
                     roundModel.config = newConfig
+                    if newConfig != nil {
+                        Task { await roundModel.retryDeferredFinishes() }
+                    }
                 }
                 .onChange(of: syncClient.roundSeed, initial: true) { _, seed in
                     if let seed {
@@ -42,8 +45,35 @@ public struct AICaddieWatchApp: App {
                         roundModel.receivePhoneState(state)
                     }
                 }
+                .onChange(of: syncClient.phoneRoundClosure, initial: true) { _, closure in
+                    if let closure {
+                        let closesActiveRound = roundModel.round?.roundId == closure.roundId
+                        roundModel.applyPhoneRoundClosure(closure)
+                        if closesActiveRound {
+                            autoShotProvider.stop()
+                            reconcileLocationServices()
+                        }
+                    }
+                }
+                .onChange(of: roundModel.lastRoundClosure) { _, closure in
+                    guard let closure else { return }
+                    try? syncClient.forgetRound(
+                        roundId: closure.roundId,
+                        discardQueuedEvents: closure.disposition != .savedLocally
+                    )
+                    syncClient.sendRoundClosureToPhone(closure)
+                    if roundModel.round == nil {
+                        autoShotProvider.stop()
+                        reconcileLocationServices()
+                    }
+                }
                 .onChange(of: roundModel.autoShotEnabled, initial: true) { _, _ in
                     reconcileAutoShot()
+                }
+                .onChange(of: syncClient.phoneReachable) { _, reachable in
+                    if reachable {
+                        Task { await roundModel.retryDeferredFinishes() }
+                    }
                 }
                 .onChange(of: roundModel.round?.roundId, initial: true) { _, _ in
                     reconcileAutoShot()
@@ -65,6 +95,7 @@ public struct AICaddieWatchApp: App {
                 }
                 .onAppear {
                     reconcileLocationServices()
+                    Task { await roundModel.retryDeferredFinishes() }
                 }
         }
     }
@@ -100,16 +131,6 @@ public struct AICaddieWatchApp: App {
                     watchHeading: watchLocation.latestHeading,
                     autoShotSupported: autoShotProvider.isSupported,
                     autoShotStatus: autoShotProvider.state.menuDetail
-                )
-            } else if let state = syncClient.currentState {
-                // phone-coordinated companion glance (legacy single-hole push).
-                WatchHoleView(
-                    state: state,
-                    clubs: state.availableClubNames,
-                    queuedEventCount: syncClient.queuedEventCount,
-                    phoneReachable: syncClient.phoneReachable,
-                    lastPhoneAcceptedAt: syncClient.lastPhoneAcceptedAt,
-                    onEvent: sendQuickInputEvent
                 )
             } else {
                 WatchStartView(
@@ -194,7 +215,7 @@ public struct AICaddieWatchApp: App {
     private var nearbyCourseDiscoveryKey: NearbyCourseDiscoveryKey? {
         // Nearby discovery belongs only to the start surface. Letting the 11-metre location bucket
         // keep firing through an active round wastes Watch battery and backend work.
-        guard roundModel.round == nil, syncClient.currentState == nil else { return nil }
+        guard roundModel.round == nil else { return nil }
         guard let coordinate = watchLocation.latestFix?.coordinate else {
             return NearbyCourseDiscoveryKey(
                 config: syncClient.config,
@@ -211,7 +232,7 @@ public struct AICaddieWatchApp: App {
 
     private var activeCourseUpgradeKey: ActiveCourseUpgradeKey? {
         guard let round = roundModel.round,
-              let globalId = round.holeStates.first?.globalId,
+              let globalId = round.holeStates.compactMap(\.globalId).first,
               let config = syncClient.config else {
             return nil
         }
@@ -220,10 +241,6 @@ public struct AICaddieWatchApp: App {
             globalId: globalId,
             config: config
         )
-    }
-
-    private func sendQuickInputEvent(_ event: WatchInputEvent) {
-        try? syncClient.sendQuickInputEvent(event)
     }
 
     private func reconcileAutoShot() {
@@ -255,15 +272,14 @@ public struct AICaddieWatchApp: App {
     /// The active hole uses a cached precise bitmap when present and otherwise keeps the factual
     /// CourseView vectors visible while the same course/hole upgrades in place.
     private var activeHoleGeometry: WatchHoleMapGeometry? {
-        guard let s = roundModel.activeHoleState,
-              s.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame,
-              let hm = s.holeMap,
-              let gid = s.globalId else { return nil }
-        let img = syncClient.holeImageStore.image(
-            globalId: gid,
-            hole: s.hole,
-            geometryRevision: s.geometryRevision
-        )
+        guard let s = roundModel.activeHoleState, let hm = s.holeMap else { return nil }
+        let img = s.globalId.flatMap { gid in
+            syncClient.holeImageStore.image(
+                globalId: gid,
+                hole: s.hole,
+                geometryRevision: s.geometryRevision
+            )
+        }
         guard let geo = WatchHoleMapGeometry.from(
             holeMap: hm,
             image: img,

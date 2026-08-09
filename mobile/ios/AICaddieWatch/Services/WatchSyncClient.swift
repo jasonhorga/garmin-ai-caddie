@@ -153,6 +153,7 @@ public struct WatchSyncAcknowledgement: Equatable {
 public final class WatchSyncClient: NSObject, ObservableObject {
     @Published public private(set) var currentState: WatchRoundState?
     @Published public private(set) var roundSeed: WatchRoundSeed?
+    @Published public private(set) var phoneRoundClosure: WatchRoundClosure?
     @Published public private(set) var queuedEventCount = 0
     @Published public private(set) var phoneReachable = false
     @Published public private(set) var lastPhoneAcceptedAt: String?
@@ -216,6 +217,51 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         publishStateUpdate { client in
             client.roundSeed = seed
         }
+    }
+
+    public func receiveRoundClosure(_ closure: WatchRoundClosure) {
+        try? forgetRound(
+            roundId: closure.roundId,
+            discardQueuedEvents: closure.disposition != .savedLocally
+        )
+        publishStateUpdate { client in
+            client.phoneRoundClosure = closure
+        }
+    }
+
+    /// Clear only facts belonging to the terminal round. A newer in-flight state and its queue must
+    /// survive a delayed completion message from either device.
+    public func forgetRound(roundId: String, discardQueuedEvents: Bool) throws {
+        if currentState?.roundId == roundId {
+            publishStateUpdate { client in
+                client.currentState = nil
+            }
+            if FileManager.default.fileExists(atPath: stateURL.path) {
+                try FileManager.default.removeItem(at: stateURL)
+            }
+        }
+        if roundSeed?.roundId == roundId {
+            publishStateUpdate { client in
+                client.roundSeed = nil
+            }
+        }
+        if discardQueuedEvents {
+            let remaining = try loadQueuedEvents().filter { $0.roundId != roundId }
+            try writeQueuedEvents(remaining)
+            refreshQueuedEventCount()
+        }
+    }
+
+    /// `transferUserInfo` provides background delivery when the phone is currently unreachable.
+    /// The local tombstone remains the safety authority if WatchConnectivity is unavailable.
+    public func sendRoundClosureToPhone(_ closure: WatchRoundClosure) {
+        guard WCSession.isSupported(),
+              WCSession.default.activationState == .activated,
+              let data = try? encoder.encode(closure),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        WCSession.default.transferUserInfo(["roundClosure": object])
     }
 
     private func applyingQueuedEdits(to state: WatchRoundState) -> WatchRoundState {
@@ -412,6 +458,15 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         receiveRoundSeed(decoded)
     }
 
+    private func receiveRoundClosurePayload(_ closure: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(closure),
+              let data = try? JSONSerialization.data(withJSONObject: closure),
+              let decoded = try? decoder.decode(WatchRoundClosure.self, from: data) else {
+            return
+        }
+        receiveRoundClosure(decoded)
+    }
+
     /// round-12 P3.4 (Watch standalone): parse the backend config the phone delivers in its application
     /// context. Exposed (not just used inside the delegate) so it can be unit-tested without WCSession.
     public func applyApplicationContext(_ context: [String: Any]) {
@@ -436,6 +491,12 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         }
         if let seed = context["roundSeed"] as? [String: Any] {
             receiveRoundSeedPayload(seed)
+        } else {
+            // Application context is a complete latest-wins snapshot. A config-only context is an
+            // explicit seed retraction, not "no update".
+            publishStateUpdate { client in
+                client.roundSeed = nil
+            }
         }
     }
 }
@@ -474,6 +535,9 @@ extension WatchSyncClient: WCSessionDelegate {
         if let seed = message["roundSeed"] as? [String: Any] {
             receiveRoundSeedPayload(seed)
         }
+        if let closure = message["roundClosure"] as? [String: Any] {
+            receiveRoundClosurePayload(closure)
+        }
     }
 
     public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
@@ -482,6 +546,9 @@ extension WatchSyncClient: WCSessionDelegate {
         }
         if let seed = userInfo["roundSeed"] as? [String: Any] {
             receiveRoundSeedPayload(seed)
+        }
+        if let closure = userInfo["roundClosure"] as? [String: Any] {
+            receiveRoundClosurePayload(closure)
         }
     }
 

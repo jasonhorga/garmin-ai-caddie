@@ -14,7 +14,9 @@ public enum WatchHoleRootPresentation: Equatable {
         hasLiveCenterDistance: Bool
     ) -> Self {
         guard hasQualifiedWristFix else { return .acquiringGPS }
-        if hasGeometry, hasLiveCenterDistance { return .map }
+        // Geometry is useful on its own. A vector-only CourseView hole must not disappear merely
+        // because F/M/B coordinates are still upgrading; the map renders without a distance overlay.
+        if hasGeometry { return .map }
         if hasLiveCenterDistance { return .distances }
         return .scoreOnly
     }
@@ -138,6 +140,17 @@ public struct WatchRoundContainerView: View {
     @ViewBuilder
     private var activeScreen: some View {
         switch model.screen {
+        case .resume:
+            WatchResumeRoundView(
+                courseName: model.courseName,
+                activeHole: model.activeHole,
+                scoredHoles: model.scoredHoles,
+                holeCount: model.holeCount,
+                pendingUploads: model.pendingUploads,
+                onResume: { model.resumeRound() },
+                onSaveAndEnd: { model.requestSaveAndEndFromResume() },
+                onAbandon: { model.requestAbandon() }
+            )
         case .home:
             if let state = model.activeHoleState {
                 currentHoleRoot(state)
@@ -186,6 +199,7 @@ public struct WatchRoundContainerView: View {
                 onSettings: { model.openSettings() },
                 onFlagDirection: { model.openFlagDirection() },
                 onFinish: { model.requestFinish() },
+                onAbandon: { model.requestAbandon() },
                 onClose: { model.backToHome() }
             )
         case .caddie:
@@ -342,7 +356,8 @@ public struct WatchRoundContainerView: View {
                 girSummary: model.girSummary,
                 pendingUploads: model.pendingUploads,
                 onConfirmFinish: { model.requestFinishConfirmation() },
-                onKeepPlaying: { model.keepPlaying() }
+                onKeepPlaying: { model.keepPlaying() },
+                onAbandon: { model.requestAbandon() }
             )
         case .finishConfirmation:
             WatchFinishConfirmationView(
@@ -353,6 +368,13 @@ public struct WatchRoundContainerView: View {
                 uploadError: model.uploadError,
                 onConfirm: { Task { await model.confirmFinish() } },
                 onCancel: { model.cancelFinishConfirmation() }
+            )
+        case .abandonConfirmation:
+            WatchAbandonConfirmationView(
+                pendingUploads: model.pendingUploads,
+                errorMessage: model.uploadError,
+                onConfirm: { model.confirmAbandon() },
+                onCancel: { model.cancelAbandon() }
             )
         }
     }
@@ -473,7 +495,7 @@ public struct WatchRoundContainerView: View {
             ringPips: model.allHoleStates.map {
                 WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)
             },
-            showTextOverlay: true,
+            showTextOverlay: watchGreenYards?.center != nil,
             // owner 2026-07-08: KEEP 实打 — only when the backend has a real mesh-elevation slope
             // (elevationDeltaM non-nil ⇒ playsLike.available), so it stays honest.
             showPlaysLike: s.elevationDeltaM != nil,

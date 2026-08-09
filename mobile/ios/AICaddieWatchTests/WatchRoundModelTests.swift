@@ -77,9 +77,9 @@ final class WatchRoundModelTests: XCTestCase {
             courseName: "北京丽宫",
             activeHole: 2,
             holes: [
-                WatchRoundSeedHole(hole: 1, par: 4, distanceM: 365),
-                WatchRoundSeedHole(hole: 2, par: 3, distanceM: 148),
-                WatchRoundSeedHole(hole: 3, par: 5, distanceM: 472),
+                WatchRoundSeedHole(hole: 1, par: 4, distanceM: 365, globalId: 31795),
+                WatchRoundSeedHole(hole: 2, par: 3, distanceM: 148, globalId: 31795),
+                WatchRoundSeedHole(hole: 3, par: 5, distanceM: 472, globalId: 31795),
             ]
         )
 
@@ -90,6 +90,7 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.activeHole, 2)
         XCTAssertEqual(model.activeHoleState?.par, 3)
         XCTAssertEqual(model.activeHoleState?.distanceM, 148)
+        XCTAssertEqual(model.activeHoleState?.globalId, 31795)
 
         let relaunched = WatchRoundModel(
             store: WatchRoundStore(directoryURL: directory)
@@ -97,6 +98,57 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(relaunched.courseName, "北京丽宫")
         XCTAssertEqual(relaunched.holeCount, 3)
         XCTAssertEqual(relaunched.activeHole, 2)
+        XCTAssertEqual(relaunched.screen, .resume)
+    }
+
+    func testRestoredScoreDraftWaitsAtResumeGateUntilPlayerContinues() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("resume-round-\(UUID().uuidString)", isDirectory: true)
+        let first = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
+        first.seedRound([hole(1)])
+        first.startScoringActiveHole()
+        first.adjustDraftScore(1)
+
+        let relaunched = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
+
+        XCTAssertEqual(relaunched.screen, .resume)
+        XCTAssertEqual(relaunched.round?.scoreDraft?.score, 5)
+        relaunched.applyRoundSeed(WatchRoundSeed(
+            roundId: "r1",
+            courseName: "北京丽宫",
+            activeHole: 1,
+            holes: [WatchRoundSeedHole(hole: 1, par: 4, distanceM: 350)]
+        ))
+        XCTAssertEqual(relaunched.screen, .resume)
+        relaunched.resumeRound()
+        XCTAssertEqual(relaunched.screen, .scoring)
+        XCTAssertEqual(relaunched.draftScore, 5)
+    }
+
+    func testDifferentPhoneSeedCannotOverwriteAnActiveWatchRound() {
+        let model = seededModel(holes: [hole(1)])
+        model.startScoringActiveHole()
+        model.saveActiveHole()
+        let pending = model.round?.pendingEvents
+
+        model.applyRoundSeed(WatchRoundSeed(
+            roundId: "stale-or-new-phone-round",
+            courseName: "Other course",
+            activeHole: 1,
+            holes: [WatchRoundSeedHole(hole: 1, par: 3, distanceM: 120)]
+        ))
+
+        XCTAssertEqual(model.round?.roundId, "r1")
+        XCTAssertEqual(model.round?.pendingEvents, pending)
+        XCTAssertEqual(model.courseName, "北京丽宫 · 前九")
+    }
+
+    func testPhoneStateCannotCreateALegacyOneHoleRound() {
+        let model = WatchRoundModel(store: makeStore())
+
+        model.receivePhoneState(hole(1))
+
+        XCTAssertNil(model.round)
     }
 
     func testReceivePhoneStateUpdatesOneHoleWithoutDroppingTheRound() {
@@ -1179,7 +1231,7 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertFalse(model.isUploading)
     }
 
-    func testConfirmFinishKeepsRoundAndSetsErrorOnUploadFailure() async {
+    func testConfirmFinishNetworkFailureSavesForLaterAndLeavesRoundUI() async {
         struct Boom: Error {}
         let model = seededModel(
             holes: [hole(1, par: 4)],
@@ -1191,13 +1243,15 @@ final class WatchRoundModelTests: XCTestCase {
         model.requestFinish()
         model.requestFinishConfirmation()
         await model.confirmFinish()
-        XCTAssertNotNil(model.round)                    // round retained (offline-safe)
-        XCTAssertEqual(model.pendingUploads, pendingBefore)
-        XCTAssertNotNil(model.uploadError)
+        XCTAssertNil(model.round)
+        XCTAssertEqual(model.lastRoundClosure?.disposition, .savedLocally)
+        XCTAssertEqual(model.lastRoundClosure?.roundId, "r1")
+        XCTAssertEqual(pendingBefore, 2)
+        XCTAssertNil(model.uploadError)
         XCTAssertFalse(model.isUploading)
     }
 
-    func testConfirmFinishWithoutConfigKeepsPendingRoundForLaterSync() async {
+    func testConfirmFinishWithoutConfigArchivesRoundAndReturnsHome() async {
         let model = seededModel(holes: [hole(1, par: 4)])
         model.startScoringActiveHole()
         model.saveActiveHole()
@@ -1207,10 +1261,11 @@ final class WatchRoundModelTests: XCTestCase {
 
         await model.confirmFinish()
 
-        XCTAssertNotNil(model.round)
-        XCTAssertEqual(model.pendingUploads, pendingBefore)
-        XCTAssertEqual(model.screen, .finishConfirmation)
-        XCTAssertNotNil(model.uploadError)
+        XCTAssertNil(model.round)
+        XCTAssertEqual(pendingBefore, 2)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertEqual(model.lastRoundClosure?.disposition, .savedLocally)
+        XCTAssertNil(model.uploadError)
     }
 
     func testConfirmFinishKeepsEventsMissingFromUploaderAcknowledgement() async {
@@ -1227,10 +1282,74 @@ final class WatchRoundModelTests: XCTestCase {
 
         await model.confirmFinish()
 
-        XCTAssertNotNil(model.round)
-        XCTAssertEqual(model.round?.pendingEvents.map(\.eventId), ["evt-2"])
-        XCTAssertEqual(model.screen, .finishConfirmation)
-        XCTAssertNotNil(model.uploadError)
+        XCTAssertNil(model.round)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertEqual(model.lastRoundClosure?.disposition, .savedLocally)
+        XCTAssertNil(model.uploadError)
+    }
+
+    func testAbandonWorksOfflineAndTombstoneRejectsTheOldSeed() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("abandon-round-\(UUID().uuidString)", isDirectory: true)
+        let store = WatchRoundStore(directoryURL: directory)
+        let model = WatchRoundModel(store: store)
+        let seed = WatchRoundSeed(
+            roundId: "ghost-round",
+            courseName: "Old course",
+            activeHole: 1,
+            holes: [WatchRoundSeedHole(hole: 1, par: 4, distanceM: 350)]
+        )
+        model.applyRoundSeed(seed)
+
+        model.requestAbandon()
+        model.confirmAbandon()
+
+        XCTAssertNil(model.round)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertEqual(model.lastRoundClosure?.disposition, .abandoned)
+        XCTAssertTrue(store.isClosed(roundId: "ghost-round"))
+
+        model.applyRoundSeed(seed)
+        XCTAssertNil(model.round)
+        let relaunched = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
+        XCTAssertNil(relaunched.round)
+    }
+
+    func testDeferredFinishRetriesWithoutRevivingRoundUI() async throws {
+        struct Offline: Error {}
+        let store = makeStore()
+        var online = false
+        var finishCalls = 0
+        let model = WatchRoundModel(
+            store: store,
+            makeEventId: sequentialIds(),
+            now: { "2026-08-09T00:00:00Z" },
+            uploader: { events, _ in
+                guard online else { throw Offline() }
+                return events.map(\.eventId)
+            },
+            finisher: { _, _ in
+                guard online else { throw Offline() }
+                finishCalls += 1
+            }
+        )
+        model.seedRound([hole(1)])
+        model.startScoringActiveHole()
+        model.saveActiveHole()
+        model.requestFinish()
+        model.requestFinishConfirmation()
+
+        await model.confirmFinish()
+        XCTAssertNil(model.round)
+        XCTAssertEqual(store.loadDeferredFinishes().count, 1)
+
+        online = true
+        await model.retryDeferredFinishes()
+
+        XCTAssertNil(model.round)
+        XCTAssertTrue(store.loadDeferredFinishes().isEmpty)
+        XCTAssertEqual(finishCalls, 1)
+        XCTAssertEqual(model.lastRoundClosure?.disposition, .finished)
     }
 
     // MARK: practice round

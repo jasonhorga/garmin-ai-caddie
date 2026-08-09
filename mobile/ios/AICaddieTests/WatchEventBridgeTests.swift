@@ -16,7 +16,26 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(seed.activeHole, 1)
         XCTAssertEqual(seed.holes.map(\.hole), [1])
         XCTAssertEqual(seed.holes.map(\.par), [4])
+        XCTAssertEqual(seed.holes.map(\.globalId), [31795])
         XCTAssertEqual(try XCTUnwrap(seed.holes.first?.distanceM), 374.904, accuracy: 0.001)
+    }
+
+    func testWatchRoundClosureRetractsSeedAndPublishesTypedDisposition() throws {
+        let bridge = WatchEventBridge()
+        let package = try fixturePackage()
+        bridge.sendRoundSeedToWatch(bridge.makeWatchRoundSeedPayload(package: package, activeHole: 1))
+        var received: WatchRoundClosurePayload?
+        bridge.onRoundClosure = { received = $0 }
+        let closure = WatchRoundClosurePayload(
+            roundId: package.roundId,
+            disposition: .abandoned,
+            closedAt: "2026-08-09T00:00:00Z"
+        )
+        let object = try XCTUnwrap(try Self.jsonObject(from: closure) as? [String: Any])
+
+        bridge.handleWatchRoundClosure(object)
+
+        XCTAssertEqual(received, closure)
     }
 
     func testWatchRoundSeedIncludesTeeCoordinateFromRealMapProjection() throws {

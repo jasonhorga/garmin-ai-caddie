@@ -179,19 +179,24 @@ public struct WatchRoundSeedHole: Codable, Equatable {
     public let distanceM: Double?
     public let teeLatitude: Double?
     public let teeLongitude: Double?
+    /// Optional for seeds written by older phone builds. It lets the Watch immediately resolve its
+    /// downloaded course and upgrade from the compact seed to real hole geometry.
+    public let globalId: Int?
 
     public init(
         hole: Int,
         par: Int,
         distanceM: Double?,
         teeLatitude: Double? = nil,
-        teeLongitude: Double? = nil
+        teeLongitude: Double? = nil,
+        globalId: Int? = nil
     ) {
         self.hole = hole
         self.par = par
         self.distanceM = distanceM
         self.teeLatitude = teeLatitude
         self.teeLongitude = teeLongitude
+        self.globalId = globalId
     }
 }
 

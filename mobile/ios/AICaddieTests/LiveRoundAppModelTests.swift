@@ -1137,6 +1137,41 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertNotNil(try fixture.store.loadCurrentRoundPackage())
     }
 
+    func testWatchAbandonKeepsPhoneRoundButWatchFinishClearsMatchingPhonePointer() async throws {
+        let fixture = try completedFixtureRound()
+        let bridge = WatchEventBridge(offlineStore: fixture.store, autoActivate: false)
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: nil,
+            adminToken: nil,
+            watchBridge: bridge,
+            garminSessionStore: nil,
+            preferredRoundId: fixture.package.roundId,
+            syncClient: nil,
+            offlineGeometryRetryDelaysNanoseconds: [0]
+        )
+        await model.bootstrap()
+        XCTAssertEqual(model.liveRoundState?.roundId, fixture.package.roundId)
+
+        model.handleWatchRoundClosure(WatchRoundClosurePayload(
+            roundId: fixture.package.roundId,
+            disposition: .abandoned,
+            closedAt: "2026-08-09T00:00:00Z"
+        ))
+
+        XCTAssertEqual(model.liveRoundState?.roundId, fixture.package.roundId)
+        XCTAssertNotNil(try fixture.store.loadCurrentRoundPackage())
+
+        model.handleWatchRoundClosure(WatchRoundClosurePayload(
+            roundId: fixture.package.roundId,
+            disposition: .finished,
+            closedAt: "2026-08-09T00:01:00Z"
+        ))
+
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertNil(try fixture.store.loadCurrentRoundPackage())
+    }
+
     func testResponseLostEventRetryStaysExactAfterLaterMediaUploadSuccess() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

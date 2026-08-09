@@ -3184,8 +3184,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('save("03b-history-real-round")', real_flow)
         # The modal pager's close action remains explicit. Hole editing exposes distinct Cancel/Save
         # identifiers rather than overloading another ambiguous "完成" action.
-        self.assertIn('ToolbarItem(placement: .topBarLeading)', round_review)
-        self.assertIn('Button("关闭") { shotMapHole = nil }', round_review)
+        self.assertIn('ToolbarItem(placement: .topBarLeading)', shot_map)
+        self.assertIn('Button("关闭", action: onClose)', shot_map)
         self.assertNotIn('Button("完成") { shotMapHole = nil }', round_review)
         self.assertIn('accessibilityIdentifier("round-edit-cancel")', shot_map)
         self.assertIn('accessibilityIdentifier("round-edit-save")', shot_map)
@@ -3681,13 +3681,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("@StateObject private var syncClient", watch_app)
         self.assertIn("WatchSyncClient", watch_app)
         self.assertIn("syncClient.currentState", watch_app)
-        self.assertIn("queuedEventCount: syncClient.queuedEventCount", watch_app)
-        self.assertIn("phoneReachable: syncClient.phoneReachable", watch_app)
-        self.assertIn("lastPhoneAcceptedAt: syncClient.lastPhoneAcceptedAt", watch_app)
-        self.assertIn("WatchHoleView", watch_app)
-        self.assertIn("clubs: state.availableClubNames", watch_app)
+        self.assertIn("roundModel.receivePhoneState(state)", watch_app)
+        # A stale persisted single-hole state may enrich a matching real round, but it must never
+        # become a second root UI after Finish/Abandon. That legacy glance had no lifecycle escape and
+        # was one of the round-resurrection paths seen after an update install.
+        self.assertNotIn("queuedEventCount: syncClient.queuedEventCount", watch_app)
+        self.assertNotIn("WatchHoleView(", watch_app)
+        self.assertNotIn("clubs: state.availableClubNames", watch_app)
         self.assertNotIn("defaultClubs", watch_app)
-        self.assertIn("sendQuickInputEvent", watch_app)
         # round-12 P3.3: standalone round entry alongside the companion glance.
         self.assertIn("WatchRoundModel", watch_app)
         self.assertIn("WatchRoundContainerView", watch_app)

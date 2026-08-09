@@ -10,12 +10,14 @@ import Foundation
 /// deterministic under unit test without a network or a real clock.
 
 public enum WatchRoundScreen: Equatable {
+    case resume
     case home
     case autoShotCandidate
     case clubPrompt
     case scoring
     case finishing
     case finishConfirmation
+    case abandonConfirmation
     case scorecard   // round-13: 计分卡逐洞列表
     case currentHoleShots // 当前洞已记录的 GPS 击球事实与手动补杆入口
     case holeSelect  // round-13: 选洞
@@ -162,6 +164,10 @@ public final class WatchRoundModel: ObservableObject {
     @Published public private(set) var autoShotEnabled: Bool
     @Published public private(set) var isUploading: Bool = false
     @Published public private(set) var uploadError: String?
+    /// Terminal lifecycle event consumed by the app shell to clear the second WatchConnectivity
+    /// cache, stop runtime services and retract the phone seed. It is not the persistence authority;
+    /// `WatchRoundStore` writes the durable closure before publishing this value.
+    @Published public private(set) var lastRoundClosure: WatchRoundClosure? = nil
 
     /// Backend connection info delivered from the phone (round-12 P3.4, WCSession). When nil the watch
     /// can still score offline; uploads just fail and events stay queued.
@@ -175,6 +181,8 @@ public final class WatchRoundModel: ObservableObject {
     private let uploaderOverride: (([WatchInputEvent], String) async throws -> [String])?
     private let finisherOverride: ((String, WatchRoundFinishMetadata) async throws -> Void)?
     private var advanceAfterScoring = true
+    private var screenBeforeAbandon: WatchRoundScreen = .finishing
+    private var isRetryingDeferredFinishes = false
     private static let nextTeeCandidateRadiusM = 35.0
     private static let maximumCandidateAccuracyM = 12.0
 
@@ -202,7 +210,15 @@ public final class WatchRoundModel: ObservableObject {
         self.finisherOverride = finisher
         let persisted = store.load()
         self.round = persisted
-        restoreInteractionState(from: persisted)
+        if persisted == nil {
+            restoreInteractionState(from: nil)
+        } else {
+            // A restored or update-migrated round never throws the player directly into an old score
+            // draft. The draft remains intact and is restored only after explicit Resume.
+            pendingManualShot = persisted?.pendingManualShot
+            pendingAutoShotCandidate = persisted?.pendingAutoShotCandidate
+            screen = .resume
+        }
     }
 
     /// Default standalone model backed by the on-watch document store (for `@StateObject` in the app).
@@ -514,25 +530,35 @@ public final class WatchRoundModel: ObservableObject {
     /// Start (or refresh) the real phone-selected round. Existing snapshots and unsynced Watch edits
     /// for the same round are retained; newly added holes receive a truthful blank state from the seed.
     public func applyRoundSeed(_ seed: WatchRoundSeed) {
-        guard !seed.holes.isEmpty else { return }
+        guard !seed.holes.isEmpty, !store.isClosed(roundId: seed.roundId) else { return }
+        // Latest-wins application context can contain an older or newer phone round. Neither is
+        // allowed to replace a real in-flight Watch round with unsynced facts.
+        if let round, round.roundId != seed.roundId {
+            return
+        }
+        let awaitingExplicitResume = screen == .resume
         let existing = round?.roundId == seed.roundId ? round : nil
         let states = seed.holes
             .sorted { $0.hole < $1.hole }
             .map { hole in
-                existing?.holeStates.first { $0.hole == hole.hole }
-                    ?? WatchRoundState(
-                        roundId: seed.roundId,
-                        hole: hole.hole,
-                        par: hole.par,
-                        distanceM: hole.distanceM,
-                        teeLatitude: hole.teeLatitude,
-                        teeLongitude: hole.teeLongitude,
-                        selectedClub: nil,
-                        score: 0,
-                        putts: 0,
-                        penaltyCount: 0,
-                        caddieConfidence: "offline"
-                    )
+                let seeded = WatchRoundState(
+                    roundId: seed.roundId,
+                    hole: hole.hole,
+                    par: hole.par,
+                    distanceM: hole.distanceM,
+                    teeLatitude: hole.teeLatitude,
+                    teeLongitude: hole.teeLongitude,
+                    selectedClub: nil,
+                    globalId: hole.globalId,
+                    score: 0,
+                    putts: 0,
+                    penaltyCount: 0,
+                    caddieConfidence: "offline"
+                )
+                if let retained = existing?.holeStates.first(where: { $0.hole == hole.hole }) {
+                    return retained.applyingCourseMapUpgrade(seeded)
+                }
+                return seeded
             }
         let holeNumbers = Set(states.map(\.hole))
         let activeHole = holeNumbers.contains(seed.activeHole) ? seed.activeHole : states[0].hole
@@ -548,19 +574,26 @@ public final class WatchRoundModel: ObservableObject {
         )
         try? store.save(persisted)
         round = persisted
-        restoreInteractionState(from: persisted)
+        if awaitingExplicitResume {
+            pendingManualShot = persisted.pendingManualShot
+            pendingAutoShotCandidate = persisted.pendingAutoShotCandidate
+            screen = .resume
+        } else {
+            restoreInteractionState(from: persisted)
+        }
     }
 
     /// Merge the richer live snapshot for one hole without dropping the seeded course or other holes.
     /// Pending on-Watch edits are replayed so a stale phone snapshot cannot silently undo them.
     public func receivePhoneState(_ state: WatchRoundState) {
-        if let round, round.roundId != state.roundId {
+        guard let round, round.roundId == state.roundId,
+              !store.isClosed(roundId: state.roundId) else {
             return
         }
         let merged = (round?.pendingEvents ?? []).reduce(state) { partial, event in
             partial.applying(event)
         }
-        guard let persisted = try? store.upsertHoleState(merged) else {
+        guard let persisted = try? store.upsertHoleState(merged, makeActive: false) else {
             return
         }
         round = persisted
@@ -598,7 +631,18 @@ public final class WatchRoundModel: ObservableObject {
     public func refreshFromStore() {
         let persisted = store.load()
         round = persisted
-        restoreInteractionState(from: persisted)
+        if persisted == nil {
+            restoreInteractionState(from: nil)
+        } else {
+            pendingManualShot = persisted?.pendingManualShot
+            pendingAutoShotCandidate = persisted?.pendingAutoShotCandidate
+            screen = .resume
+        }
+    }
+
+    public func resumeRound() {
+        guard screen == .resume, let round else { return }
+        restoreInteractionState(from: round)
     }
 
     private func restoreInteractionState(from persisted: WatchRoundStore.PersistedRound?) {
@@ -1072,6 +1116,12 @@ public final class WatchRoundModel: ObservableObject {
         screen = .finishing
     }
 
+    public func requestSaveAndEndFromResume() {
+        guard screen == .resume else { return }
+        uploadError = nil
+        screen = .finishConfirmation
+    }
+
     public func keepPlaying() {
         screen = .home
     }
@@ -1088,9 +1138,39 @@ public final class WatchRoundModel: ObservableObject {
         screen = .finishing
     }
 
-    /// Finish the round only after every queued event is explicitly acknowledged. Without backend
-    /// config, on upload failure, or after a partial acknowledgement, the round and unresolved events
-    /// stay on disk for a later retry.
+    public func requestAbandon() {
+        guard round != nil, screen != .abandonConfirmation else { return }
+        screenBeforeAbandon = screen
+        uploadError = nil
+        screen = .abandonConfirmation
+    }
+
+    public func cancelAbandon() {
+        guard screen == .abandonConfirmation else { return }
+        uploadError = nil
+        screen = screenBeforeAbandon
+    }
+
+    /// Abandon is intentionally independent of network, phone reachability and authentication. The
+    /// Watch closure is local-only; the app shell tells the phone to retract its seed but never deletes
+    /// the phone's copy of the round.
+    public func confirmAbandon() {
+        guard screen == .abandonConfirmation, let current = round else { return }
+        do {
+            let closure = try store.closeActiveRound(
+                roundId: current.roundId,
+                disposition: .abandoned,
+                closedAt: now()
+            )
+            publishLocalClosure(closure)
+        } catch {
+            uploadError = "本地记录无法删除，请重试"
+        }
+    }
+
+    /// Finish remotely only after every queued event is explicitly acknowledged. Without backend
+    /// config, on upload failure, or after a partial acknowledgement, the exact unresolved round is
+    /// archived for retry while the player is still allowed to leave the playing UI.
     public func confirmFinish() async {
         guard screen == .finishConfirmation else { return }
         guard let current = round else { return }
@@ -1102,39 +1182,114 @@ public final class WatchRoundModel: ObservableObject {
             let pending = current.pendingEvents
             if !pending.isEmpty {
                 guard canUpload else {
-                    uploadError = "尚未连接，已离线保存"
+                    try saveForLater(current)
                     return
                 }
                 let posted = try await upload(pending, roundId: current.roundId)
                 guard let updated = try store.markPosted(eventIds: posted) else {
-                    uploadError = "本场状态不可用，未清除记录"
+                    try saveForLater(current)
                     return
                 }
                 round = updated
                 guard updated.pendingEvents.isEmpty else {
-                    uploadError = "部分记录尚未确认，已离线保存"
+                    try saveForLater(updated)
                     return
                 }
                 readyToFinish = updated
             }
             guard canFinish else {
-                uploadError = "尚未连接，已离线保存"
+                try saveForLater(readyToFinish)
                 return
             }
             try await finishRemotely(readyToFinish)
-            finishLocally()
+            let closure = try store.closeActiveRound(
+                roundId: readyToFinish.roundId,
+                disposition: .finished,
+                closedAt: now()
+            )
+            publishLocalClosure(closure)
         } catch {
-            uploadError = "上传失败,已离线保存"
+            // Save & End must remain an exit even in Airplane Mode, with an expired phone token or
+            // after a response is lost. The retry archive keeps the exact unresolved IDs and finish
+            // metadata; backend event/finish endpoints are idempotent.
+            do {
+                try saveForLater(store.load() ?? current)
+            } catch {
+                uploadError = "本地保存失败，本场已完整保留"
+            }
         }
     }
 
     private var canUpload: Bool { uploaderOverride != nil || config != nil }
     private var canFinish: Bool { finisherOverride != nil || config != nil }
 
-    private func finishLocally() {
-        store.clear()
+    private func saveForLater(_ current: WatchRoundStore.PersistedRound) throws {
+        let closure = try store.deferFinish(current, savedAt: now())
+        publishLocalClosure(closure)
+    }
+
+    private func publishLocalClosure(_ closure: WatchRoundClosure) {
         round = nil
         restoreInteractionState(from: nil)
+        uploadError = nil
+        lastRoundClosure = closure
+    }
+
+    /// Retry rounds whose player already left the playing UI through Save & End. This never revives
+    /// the round UI; failures retain the archive for the next config/reachability opportunity.
+    public func retryDeferredFinishes() async {
+        guard canFinish, !isRetryingDeferredFinishes else { return }
+        isRetryingDeferredFinishes = true
+        defer { isRetryingDeferredFinishes = false }
+        for deferred in store.loadDeferredFinishes() {
+            do {
+                var ready = deferred.round
+                if !ready.pendingEvents.isEmpty {
+                    guard canUpload else { continue }
+                    let posted = try await upload(ready.pendingEvents, roundId: ready.roundId)
+                    guard let updated = try store.markDeferredEventsPosted(
+                        roundId: ready.roundId,
+                        eventIds: posted
+                    ) else {
+                        continue
+                    }
+                    ready = updated.round
+                    guard ready.pendingEvents.isEmpty else { continue }
+                }
+                try await finishRemotely(ready)
+                let closure = try store.closeActiveRound(
+                    roundId: ready.roundId,
+                    disposition: .finished,
+                    closedAt: now()
+                )
+                try store.removeDeferredFinish(roundId: ready.roundId)
+                lastRoundClosure = closure
+            } catch {
+                continue
+            }
+        }
+    }
+
+    /// A phone-side Finish/Discard is authoritative only for the matching round. It records the same
+    /// tombstone but deliberately does not publish `lastRoundClosure`, avoiding a connectivity echo.
+    public func applyPhoneRoundClosure(_ closure: WatchRoundClosure) {
+        guard closure.disposition != .savedLocally else { return }
+        do {
+            let closesVisibleRound = round?.roundId == closure.roundId
+            _ = try store.closeActiveRound(
+                roundId: closure.roundId,
+                disposition: closure.disposition,
+                closedAt: closure.closedAt
+            )
+            try? store.removeDeferredFinish(roundId: closure.roundId)
+            if closesVisibleRound {
+                round = nil
+                restoreInteractionState(from: nil)
+                uploadError = nil
+            }
+        } catch {
+            return
+        }
     }
 
     private func upload(_ events: [WatchInputEvent], roundId: String) async throws -> [String] {

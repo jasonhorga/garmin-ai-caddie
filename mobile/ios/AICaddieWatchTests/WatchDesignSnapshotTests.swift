@@ -400,7 +400,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
 
         XCTAssertEqual(view.titleText, "结束本场?")
-        XCTAssertEqual(view.summaryText, "9 洞 · +5 · 保存并上传")
+        XCTAssertEqual(view.summaryText, "9 洞 · +5 · 保存并结束")
         XCTAssertEqual(view.cancelLabel, "返回")
         XCTAssertEqual(view.confirmLabel, "确认")
     }

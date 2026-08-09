@@ -169,6 +169,8 @@ public struct WatchUITestRoot: View {
             )
         case "autoshot-candidate":
             WatchAutoShotCandidateView()
+        case "gps-acquiring":
+            WatchGPSAcquiringView()
         case "finish", "finish-actions":
             WatchFinishRoundView(
                 courseName: "北京丽宫 · 前九", holesPlayed: 9, holeCount: 9,
@@ -184,6 +186,16 @@ public struct WatchUITestRoot: View {
                 toPar: 5,
                 pendingUploads: 2
             )
+        case "resume-round":
+            WatchResumeRoundView(
+                courseName: "北京黑骑士国际高尔夫俱乐部 · C 场",
+                activeHole: 7,
+                scoredHoles: 6,
+                holeCount: 18,
+                pendingUploads: 12
+            )
+        case "abandon-confirmation":
+            WatchAbandonConfirmationView(pendingUploads: 12)
         case "compact-holemap-long-copy":
             WatchHoleMapView(
                 holeNumber: 18,
