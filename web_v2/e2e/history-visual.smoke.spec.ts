@@ -1150,8 +1150,18 @@ async function assertNoViewportOverflow(page: Page) {
 }
 
 async function captureSmokeScreenshot(page: Page, testInfo: TestInfo, name: string) {
-  await page.evaluate(() => window.scrollTo(0, 0))
-  await page.waitForFunction(() => window.scrollY === 0)
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    document.documentElement.style.scrollBehavior = 'auto'
+    document.body.style.scrollBehavior = 'auto'
+    if (document.scrollingElement) document.scrollingElement.scrollTop = 0
+    window.scrollTo(0, 0)
+  })
+  await page.waitForFunction(
+    () => Math.abs(document.scrollingElement?.scrollTop ?? window.scrollY) <= 1,
+    undefined,
+    { timeout: 5_000 },
+  )
   await page.screenshot({
     path: testInfo.outputPath(`${name}.png`),
     fullPage: true,

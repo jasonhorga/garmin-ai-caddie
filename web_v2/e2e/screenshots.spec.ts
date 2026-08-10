@@ -1240,8 +1240,18 @@ async function captureSmokeScreenshot(page: Page, testInfo: TestInfo, name: stri
   // full-page capture preserves sticky elements at that scroll offset, yielding
   // a misleading rail/header that starts halfway down the image. Always audit
   // the canonical top-of-page composition.
-  await page.evaluate(() => window.scrollTo(0, 0))
-  await page.waitForFunction(() => window.scrollY === 0)
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    document.documentElement.style.scrollBehavior = 'auto'
+    document.body.style.scrollBehavior = 'auto'
+    if (document.scrollingElement) document.scrollingElement.scrollTop = 0
+    window.scrollTo(0, 0)
+  })
+  await page.waitForFunction(
+    () => Math.abs(document.scrollingElement?.scrollTop ?? window.scrollY) <= 1,
+    undefined,
+    { timeout: 5_000 },
+  )
   const paperTheme = await page.evaluate(() => {
     const rootStyle = getComputedStyle(document.documentElement)
     const shell = document.querySelector<HTMLElement>('.app-content .app-shell')
