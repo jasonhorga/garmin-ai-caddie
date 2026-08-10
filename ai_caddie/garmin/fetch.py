@@ -159,6 +159,27 @@ def _local_complete(path: Path) -> bool:
         return False
 
 
+def _shot_cache_is_final(path: Path) -> bool:
+    """Keep a cache only when Garmin supplied shots or explicitly reported no data.
+
+    A successful response can temporarily contain pin rows but no shot rows. Treating mere file
+    existence as final froze that partial response forever, even if Garmin populated AutoShot later.
+    Corrupt and pin-only files are therefore retried on the next ordinary sync.
+    """
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("_no_data") is True:
+        return True
+    return any(
+        isinstance(hole, dict) and bool(hole.get("shots"))
+        for hole in (payload.get("holeShots") or [])
+    )
+
+
 def _store_scorecard(out: Path, detail: dict, i: int, total: int, sid: Any) -> None:
     """A round lives in our data ONLY once it's finished. If Garmin still marks it in-progress we DROP
     any copy we hold (scorecard + shots): an actively-played round re-appears when it's done; an
@@ -269,7 +290,7 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
         # Shots only for FINISHED rounds we've stored — an in-progress round's shots would freeze too.
         if with_shots and out.exists() and _local_complete(out):
             shot_out = SHOT_DIR / f"{sid}.json"
-            if shot_out.exists():
+            if shot_out.exists() and _shot_cache_is_final(shot_out):
                 continue
             try:
                 r = s.get(

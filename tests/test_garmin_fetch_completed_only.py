@@ -11,6 +11,7 @@ from ai_caddie.garmin.fetch import (
     _detail_complete,
     _reconcile_abandoned,
     _scorecard_complete,
+    _shot_cache_is_final,
     _store_scorecard,
 )
 
@@ -66,6 +67,24 @@ class StoreScorecardTests(unittest.TestCase):
             _store_scorecard(out, self._detail(False), 1, 1, 555)
             self.assertTrue(out.exists())
             self.assertFalse(json.loads(out.read_text())["scorecardDetails"][0]["scorecard"]["inProgress"])
+
+
+class ShotCacheTests(unittest.TestCase):
+    def test_cache_is_final_only_for_real_shots_or_explicit_no_data(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "shots.json"
+
+            path.write_text(json.dumps({"holeShots": [{"holeNumber": 1, "pin": {"lat": 1}}]}))
+            self.assertFalse(_shot_cache_is_final(path), "pin-only response must be retried")
+
+            path.write_text(json.dumps({"holeShots": [{"holeNumber": 1, "shots": [{"id": 1}]}]}))
+            self.assertTrue(_shot_cache_is_final(path))
+
+            path.write_text(json.dumps({"_no_data": True, "status": 400}))
+            self.assertTrue(_shot_cache_is_final(path))
+
+            path.write_text("not-json")
+            self.assertFalse(_shot_cache_is_final(path), "a corrupt cache must heal on the next sync")
 
 
 class ReconcileAbandonedTests(unittest.TestCase):
