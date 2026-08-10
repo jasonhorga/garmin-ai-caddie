@@ -385,7 +385,10 @@ def build_round_hole_shot_map(
             int(gid),
             int(local),
             require_current_authority=True,
-            refresh_release=True,
+            # History review is a read path. Never make opening a played hole wait on a Garmin
+            # release request; use the cached release binding and fall back to the last complete
+            # local frame below. Course selection/download owns remote release refreshes.
+            refresh_release=False,
         )
         geometry_evidence = current_geometry
         if current_geometry.get("coverage") != "ready":

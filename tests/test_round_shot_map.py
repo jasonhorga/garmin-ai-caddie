@@ -77,6 +77,21 @@ class RoundShotMapTests(unittest.TestCase):
         self.assertEqual(out["shots"][1]["club"], "七号铁")
         self.assertEqual(out["shots"][0]["start"], [0, 300])  # (40.0-40)*1e4=0 ; (116.5-116)*600=300
 
+    def test_history_read_never_refreshes_remote_geometry_release(self) -> None:
+        mocks = _geometry_mocks()
+        started = [mocker.start() for mocker in mocks]
+        try:
+            rsm.build_round_hole_shot_map(_data([]), "r1", 1)
+            started[0].assert_called_once_with(
+                31794,
+                1,
+                require_current_authority=True,
+                refresh_release=False,
+            )
+        finally:
+            for mocker in mocks:
+                mocker.stop()
+
     def test_synthesizes_tee_shot_when_drive_unrecorded(self) -> None:
         # First recorded shot starts on the Fairway → the drive off the tee was not recorded.
         out = self._build([

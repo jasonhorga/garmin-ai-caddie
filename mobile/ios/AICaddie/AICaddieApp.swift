@@ -645,6 +645,14 @@ public final class LiveRoundAppModel: ObservableObject {
         guard roundPreparationToken == token else { return }
         roundPreparationToken = nil
         isPreparingRound = false
+        // Live-course assets keep priority after a successful start: a fresh round has a deferred
+        // installer, and a same-round nine change already owns `offlineCourseDownloadTask`. If the
+        // start failed (or `prepareRound` did not create an installer), release the prep-library
+        // queue here instead of leaving its durable jobs paused until the next app foreground.
+        if deferredOfflineCourseDownloadRevalidation == nil,
+           offlineCourseDownloadTask == nil {
+            startPrepCourseDownloadQueueIfNeeded()
+        }
     }
 
     public func prepareRound(roundId: String) async {
@@ -1175,7 +1183,8 @@ public final class LiveRoundAppModel: ObservableObject {
         for initialSnapshot: LiveRoundPackage,
         using syncClient: SyncClient,
         revalidatePackage: Bool = false,
-        prepDownloadID: String? = nil
+        prepDownloadID: String? = nil,
+        prepDownloadGeneration: UUID? = nil
     ) async {
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
@@ -1295,7 +1304,10 @@ public final class LiveRoundAppModel: ObservableObject {
                         geometryRevision: download.geometryRevision
                     )
                     if let prepDownloadID {
-                        updatePrepCourseDownload(id: prepDownloadID) { state in
+                        updatePrepCourseDownload(
+                            id: prepDownloadID,
+                            generation: prepDownloadGeneration
+                        ) { state in
                             state.phase = preparedHoleCount() == snapshot.holes.count
                                 ? .downloading
                                 : .preparing
@@ -1389,7 +1401,10 @@ public final class LiveRoundAppModel: ObservableObject {
                         "Incremental prep facts save failed: \(String(describing: error), privacy: .public)"
                     )
                 }
-                updatePrepCourseDownload(id: prepDownloadID) { state in
+                updatePrepCourseDownload(
+                    id: prepDownloadID,
+                    generation: prepDownloadGeneration
+                ) { state in
                     state.phase = .preparing
                     state.preparedHoles = preparedHoleCount()
                     state.downloadedHoles = downloadedHoleCount()
@@ -1468,7 +1483,10 @@ public final class LiveRoundAppModel: ObservableObject {
         }
 
         if let prepDownloadID {
-            updatePrepCourseDownload(id: prepDownloadID) { state in
+            updatePrepCourseDownload(
+                id: prepDownloadID,
+                generation: prepDownloadGeneration
+            ) { state in
                 state.phase = .downloading
                 state.preparedHoles = preparedHoleCount()
                 state.downloadedHoles = downloadedHoleCount()
@@ -1517,7 +1535,10 @@ public final class LiveRoundAppModel: ObservableObject {
                         geometryRevision: download.geometryRevision
                     )
                     if let prepDownloadID {
-                        updatePrepCourseDownload(id: prepDownloadID) { state in
+                        updatePrepCourseDownload(
+                            id: prepDownloadID,
+                            generation: prepDownloadGeneration
+                        ) { state in
                             state.phase = .downloading
                             state.preparedHoles = preparedHoleCount()
                             state.downloadedHoles = downloadedHoleCount()
@@ -1556,7 +1577,8 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             refreshDownloadedCourseOptions()
             if durableEnriched.hasCompleteOfflineCoursePrep,
-               offlineStore.hasCourseTopoImages(for: durableEnriched) {
+               offlineStore.hasCourseTopoImages(for: durableEnriched),
+               prepDownloadID == nil {
                 syncStatus = "离线地图已准备"
             }
         } catch {
@@ -2302,8 +2324,10 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private func updatePrepCourseDownload(
         id: String,
+        generation: UUID? = nil,
         _ update: (inout PrepCourseDownloadRecord) -> Void
     ) {
+        if let generation, prepCourseDownloadGeneration != generation { return }
         guard let index = prepCourseDownloads.firstIndex(where: { $0.id == id }) else { return }
         update(&prepCourseDownloads[index])
         prepCourseDownloads[index].updatedAt = Date()
@@ -2419,7 +2443,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 .sorted(by: { $0.updatedAt > $1.updatedAt })
                 .first {
             activePrepCourseDownloadID = next.id
-            await runPrepCourseDownload(id: next.id)
+            await runPrepCourseDownload(id: next.id, generation: generation)
             guard prepCourseDownloadGeneration == generation else { return }
             activePrepCourseDownloadID = nil
         }
@@ -2428,10 +2452,11 @@ public final class LiveRoundAppModel: ObservableObject {
         prepCourseDownloadTask = nil
     }
 
-    private func runPrepCourseDownload(id: String) async {
-        guard let syncClient,
+    private func runPrepCourseDownload(id: String, generation: UUID) async {
+        guard prepCourseDownloadGeneration == generation,
+              let syncClient,
               let record = prepCourseDownloads.first(where: { $0.id == id }) else { return }
-        updatePrepCourseDownload(id: id) { state in
+        updatePrepCourseDownload(id: id, generation: generation) { state in
             state.phase = .preparing
             state.errorText = nil
         }
@@ -2445,44 +2470,47 @@ public final class LiveRoundAppModel: ObservableObject {
                 backgroundGeometry: true,
                 includeEventCursor: false
             ).replacingCourseDisplayName(record.course.name)
-            guard !Task.isCancelled else { throw CancellationError() }
+            guard !Task.isCancelled,
+                  prepCourseDownloadGeneration == generation else { throw CancellationError() }
             try offlineStore.saveCourseTemplate(fetched)
-            updatePrepCourseDownload(id: id) { state in
+            updatePrepCourseDownload(id: id, generation: generation) { state in
                 state.totalHoles = max(1, fetched.holes.count)
             }
             await downloadOfflineCourseAssets(
                 for: fetched,
                 using: syncClient,
-                prepDownloadID: id
+                prepDownloadID: id,
+                prepDownloadGeneration: generation
             )
-            guard !Task.isCancelled else { throw CancellationError() }
+            guard !Task.isCancelled,
+                  prepCourseDownloadGeneration == generation else { throw CancellationError() }
             if let current = prepCourseDownloads.first(where: { $0.id == id }),
                readyPrepTemplate(for: current) != nil {
-                updatePrepCourseDownload(id: id) { state in
+                updatePrepCourseDownload(id: id, generation: generation) { state in
                     state.phase = .ready
                     state.preparedHoles = state.totalHoles
                     state.downloadedHoles = state.totalHoles
                     state.errorText = nil
                 }
             } else {
-                updatePrepCourseDownload(id: id) { state in
+                updatePrepCourseDownload(id: id, generation: generation) { state in
                     state.phase = .failed
                     state.errorText = "精确地图仍在准备，点下载可继续"
                 }
             }
         } catch is CancellationError {
-            updatePrepCourseDownload(id: id) { state in
+            updatePrepCourseDownload(id: id, generation: generation) { state in
                 state.phase = .queued
                 state.errorText = nil
             }
         } catch {
             if Task.isCancelled {
-                updatePrepCourseDownload(id: id) { state in
+                updatePrepCourseDownload(id: id, generation: generation) { state in
                     state.phase = .queued
                     state.errorText = nil
                 }
             } else {
-                updatePrepCourseDownload(id: id) { state in
+                updatePrepCourseDownload(id: id, generation: generation) { state in
                     state.phase = .failed
                     state.errorText = "下载中断，点下载继续"
                 }

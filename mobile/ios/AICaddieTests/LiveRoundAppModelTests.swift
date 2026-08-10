@@ -190,7 +190,7 @@ private func capturedRequestBodyData(from request: URLRequest) throws -> Data {
 
 @MainActor
 final class LiveRoundAppModelTests: XCTestCase {
-    func testPersistedPrepDownloadResumesAndSameCourseReattachesWithoutRestarting() async throws {
+    func testPersistedPrepDownloadResumesAfterFailedRoundStartAndReattachesWithoutRestarting() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -270,7 +270,15 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
 
         XCTAssertEqual(model.prepCourseDownloads.first?.phase, .queued)
-        model.syncOnForeground()
+        // Starting a live round temporarily pauses prep work. A failed start has no live installer
+        // to take priority, so the durable prep queue must resume immediately instead of waiting for
+        // another foreground transition.
+        await model.prepareCourseRound(
+            globalId: 999_999,
+            roundId: "unavailable-live-round",
+            teeBox: "blue",
+            nine: "all"
+        )
         await model.waitForPrepCourseDownloadForTesting()
 
         let finished = try XCTUnwrap(model.prepCourseDownloads.first)
