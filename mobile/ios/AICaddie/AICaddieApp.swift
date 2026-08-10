@@ -622,16 +622,15 @@ public final class LiveRoundAppModel: ObservableObject {
         await refreshCourseOptions()
     }
 
-    /// Start owns the preparation generation.  A previous course's long package request may finish
-    /// after the player has chosen another course; it must neither replace the new selection nor turn
-    /// off the new request's spinner.  Its separate offline map download is cancelled immediately so
-    /// server/network capacity follows the latest explicit choice.
+    /// Start owns the live-round preparation generation. A previous live course's long package
+    /// request may finish after the player has chosen another course; it must neither replace the new
+    /// selection nor turn off the new request's spinner. The durable prep-library queue is independent
+    /// and continues in the background when the player leaves prep or starts a round.
     private func beginRoundPreparation() -> UUID {
         let token = UUID()
         roundPreparationToken = token
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
-        pausePrepCourseDownload()
         deferredOfflineCourseDownloadRevalidation = nil
         isPreparingRound = true
         return token

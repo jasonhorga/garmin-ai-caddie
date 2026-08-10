@@ -1485,6 +1485,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let fetched = await fetchRemoteCoursePackage(", app_swift)
         self.assertIn("offlineStore.loadRoundPackage(roundId:", app_swift)
         self.assertIn("try activatePackage", app_swift)
+        begin_round_preparation = app_swift.split(
+            "private func beginRoundPreparation() -> UUID {", 1
+        )[1].split("private func isCurrentRoundPreparation", 1)[0]
+        self.assertNotIn(
+            "pausePrepCourseDownload()",
+            begin_round_preparation,
+            "starting live play must not pause the independent durable prep download",
+        )
         self.assertIn("StartRoundView(", app_swift)
         self.assertIn("await model.prepareRound(roundId: roundId)", app_swift)
         self.assertIn("await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)", app_swift)
@@ -2191,13 +2199,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("holes = merged.values.sorted { $0.hole < $1.hole }", course_review)
         self.assertIn("LazyVStack(alignment: .leading, spacing: 14)", course_review)
         self.assertIn("fetchHolePrep(", course_review)
-        # Prep selection starts precise geometry installation. A drawable partial CourseView outline
-        # remains a preparation state and is hidden until ready topo authority exists.
+        # Prep selection starts precise geometry installation, but the factual CourseView outline is
+        # useful immediately and remains visible while the card upgrades to precise topo in place.
         self.assertIn("backgroundGeometry: true", course_review)
         self.assertIn("CourseReviewMapPolicy.hasPreciseFacts", course_review)
-        self.assertIn("requiresPreciseMap: true", course_review)
-        self.assertIn("精确球洞地图准备中", course_review)
-        self.assertIn("地图完成前不显示简化轮廓", course_review)
+        self.assertNotIn("requiresPreciseMap", course_review)
+        self.assertIn("简化地图 · 精确地图准备中", course_review)
+        self.assertIn("简化地图 · 精确地图暂不可用 · 重试", course_review)
+        self.assertNotIn("地图完成前不显示简化轮廓", course_review)
         self.assertIn("fetchCourseGeometryCoverage", course_review)
         # De-engineered: the "Par 来源：…" provenance label is hidden from the consumer course review.
         self.assertNotIn("Par 来源", course_review)

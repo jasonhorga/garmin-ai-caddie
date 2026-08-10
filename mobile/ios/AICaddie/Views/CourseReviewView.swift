@@ -211,8 +211,7 @@ private struct CourseReviewHoleCard: View {
             topoURL: topoURL,
             isLoadingMap: isLoadingMap || (managedDownload && !managedDownloadFailed),
             mapUnavailable: mapUnavailable || managedDownloadFailed,
-            onRetryMap: retryPreciseMap,
-            requiresPreciseMap: true
+            onRetryMap: retryPreciseMap
         )
         .task(id: initialHole.hole) {
             guard !managedDownload else { return }
@@ -297,23 +296,20 @@ struct HolePrepCard: View {
     var isLoadingMap = false
     var mapUnavailable = false
     var onRetryMap: (() -> Void)? = nil
-    /// Course prep must not present the affine CourseView outline as the final topo. Other preview
-    /// call sites may still opt into the lightweight drawing while precise geometry is preparing.
-    var requiresPreciseMap = false
     @State private var showsAllHazards = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            // 服务端真实球场图 + 推荐打法(route + 推荐落点 + 球杆)叠加。
-            if requiresPreciseMap && !CourseReviewMapPolicy.hasPreciseFacts(hole) {
-                preciseMapPlaceholder
-            } else if hole.resolvedMapOverlay != nil {
+            // CourseView facts are useful immediately. Keep that lightweight map visible while the
+            // optional precise topo is prepared, then upgrade the same card in place when ready.
+            if hole.resolvedMapOverlay != nil {
                 HoleImageMapView(hole: hole, topoURL: topoURL)
                     // Keep the AsyncImage loading/ready children in the accessibility tree while
                     // retaining this hole-specific container identifier for UI navigation.
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("prep-hole-map-\(hole.hole)")
+                preciseMapStatus
             } else if isLoadingMap {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -339,33 +335,26 @@ struct HolePrepCard: View {
     }
 
     @ViewBuilder
-    private var preciseMapPlaceholder: some View {
-        VStack(spacing: 10) {
-            if isLoadingMap || !mapUnavailable {
-                ProgressView()
-                Text("精确球洞地图准备中")
-                    .font(.caption.weight(.semibold))
-                    .accessibilityIdentifier("prep-hole-map-precise-loading")
-            } else if let onRetryMap {
-                Button(action: onRetryMap) {
-                    Label("精确地图暂不可用 · 重试", systemImage: "arrow.clockwise")
+    private var preciseMapStatus: some View {
+        if !CourseReviewMapPolicy.hasPreciseFacts(hole) {
+            HStack(spacing: 7) {
+                if mapUnavailable, let onRetryMap {
+                    Button(action: onRetryMap) {
+                        Label("简化地图 · 精确地图暂不可用 · 重试", systemImage: "arrow.clockwise")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("prep-hole-map-precise-retry")
+                } else {
+                    if isLoadingMap { ProgressView().controlSize(.small) }
+                    Text("简化地图 · 精确地图准备中")
                         .font(.caption.weight(.semibold))
+                        .accessibilityIdentifier("prep-hole-map-precise-loading")
                 }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("prep-hole-map-precise-retry")
+                Spacer()
             }
-            Text("地图完成前不显示简化轮廓")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            .foregroundStyle(.secondary)
         }
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, minHeight: 220)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.secondary.opacity(0.08))
-        )
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("prep-hole-map-\(hole.hole)")
     }
 
     // MARK: 头部:洞号 + Par + 蓝T + 实打(坡度)
