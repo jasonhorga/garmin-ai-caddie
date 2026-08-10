@@ -90,7 +90,6 @@ def _source_shots_for_hole(
 ) -> list[dict[str, Any]]:
     """Select source shots before map preparation, keeping GPS independent from geometry."""
     round_ids = _round_ids(row)
-    reorder = round_corrections.reorder_map(corrections)
     selected: list[dict[str, Any]] = []
     for source in data.shots:
         source_id = str(source.get("scorecardId") or source.get("roundId") or "")
@@ -101,13 +100,8 @@ def _source_shots_for_hole(
         shot["localHole"] = shot.get("localHole") or _int(shot.get("hole"))
         shot["hole"] = display_hole
         selected.append(shot)
-    selected.sort(
-        key=lambda shot: reorder.get(
-            round_corrections.mint_shot_id(shot),
-            10_000 + (_int(shot.get("order")) or 0),
-        )
-    )
-    return round_corrections.apply_corrections(selected, corrections)
+    selected.sort(key=lambda shot: _int(shot.get("order")) or 0)
+    return round_corrections.apply_corrections(selected, corrections, hole=hole)
 
 
 def _unprojected_shot_rows(shots: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -116,25 +110,28 @@ def _unprojected_shot_rows(shots: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for shot in shots:
         start = shot.get("start") if isinstance(shot.get("start"), dict) else {}
         end = shot.get("end") if isinstance(shot.get("end"), dict) else {}
-        rows.append(
-            {
-                "id": round_corrections.mint_shot_id(shot),
-                "start": None,
-                "end": None,
-                "club": clean_club_name(shot.get("clubName")),
-                "lie": start.get("lie"),
-                "endLie": shot.get("endLie"),
-                "shotType": shot.get("type"),
-                "order": _int(shot.get("order")),
-                "synthetic": False,
-                "gpsAvailable": all(
-                    value is not None
-                    for value in (
-                        start.get("lat"), start.get("lon"), end.get("lat"), end.get("lon")
-                    )
-                ),
-            }
-        )
+        row = {
+            "id": round_corrections.mint_shot_id(shot),
+            "start": None,
+            "end": None,
+            "club": clean_club_name(shot.get("clubName")),
+            "lie": start.get("lie"),
+            "endLie": shot.get("endLie"),
+            "shotType": shot.get("type"),
+            "order": _int(shot.get("_displayOrder")) or _int(shot.get("order")),
+            "synthetic": False,
+            "gpsAvailable": all(
+                value is not None
+                for value in (
+                    start.get("lat"), start.get("lon"), end.get("lat"), end.get("lon")
+                )
+            ),
+        }
+        if shot.get("clubSource") == "manual":
+            row["clubSource"] = "manual"
+        if shot.get("lieSource") == "manual":
+            row["lieSource"] = "manual"
+        rows.append(row)
     return rows
 
 
@@ -504,9 +501,20 @@ def build_round_hole_shot_map(
         int(round(overlay["route"][0][0])),
         int(round(overlay["route"][0][1])),
     ] if overlay.get("route") else None
-    snapshot = round_corrections.latest_hole_shot_snapshot(corr, hole)
-    if snapshot is not None:
-        snapshot_index, snapshot_event = snapshot
+    snapshot = round_corrections.latest_hole_snapshot(corr, hole)
+    fact_snapshot = round_corrections.latest_hole_fact_snapshot(corr, hole)
+    post_fact_corrections = (
+        corr[fact_snapshot[0] + 1 :]
+        if fact_snapshot is not None
+        else corr
+    )
+    pixel_snapshot = (
+        snapshot
+        if snapshot is not None and snapshot[1].get("op") == "replaceHoleShots"
+        else None
+    )
+    if pixel_snapshot is not None:
+        snapshot_index, snapshot_event = pixel_snapshot
         raw_snapshot_revision = snapshot_event.get("geometryRevision")
         snapshot_revision = (
             str(raw_snapshot_revision).strip()
@@ -553,7 +561,7 @@ def build_round_hole_shot_map(
     # addShot(点地图加杆):px 反投影成世界坐标,造一杆合成落点插进顺序;shotmap 按序画线自动连前后。
     # 空洞(shots 为空)也能加 → 永不变砖。
     _added = 0
-    for e in corr:
+    for e in post_fact_corrections:
         if uses_lightweight_frame:
             continue
         if e.get("op") != "addShot":
@@ -598,7 +606,7 @@ def build_round_hole_shot_map(
 
     # editField position(拖动改落点):px 反投影成世界坐标,改这一杆的 end。作用于原始杆 + 手动加的杆。
     pos_edits: dict[str, list[Any]] = {}
-    for e in corr:
+    for e in post_fact_corrections:
         if uses_lightweight_frame:
             continue
         if e.get("op") == "editField" and e.get("field") == "position" and e.get("shotId"):
@@ -636,7 +644,7 @@ def build_round_hole_shot_map(
             "lie": start.get("lie"),
             "endLie": shot.get("endLie"),
             "shotType": shot.get("type"),
-            "order": _int(shot.get("order")),
+            "order": _int(shot.get("_displayOrder")) or _int(shot.get("order")),
             "synthetic": False,
             "gpsAvailable": all(
                 value is not None
@@ -662,7 +670,13 @@ def build_round_hole_shot_map(
     # (or to the green when nothing was recorded at all).
     green_px = [int(round(overlay["route"][-1][0])), int(round(overlay["route"][-1][1]))] if overlay.get("route") else None
     first_start_lie = str((shots[0].get("start") or {}).get("lie") or "").lower() if shots else ""
-    needs_tee = tee_px is not None and (not shots or first_start_lie not in {"teebox", "tee"})
+    # A fact snapshot is the player's explicit count/list. Never add an inferred stroke back after
+    # the player deliberately deleted or reordered that list.
+    needs_tee = (
+        fact_snapshot is None
+        and tee_px is not None
+        and (not shots or first_start_lie not in {"teebox", "tee"})
+    )
     if needs_tee:
         target = plotted[0]["start"] if plotted and plotted[0]["start"] else green_px
         plotted.insert(0, {
@@ -681,7 +695,7 @@ def build_round_hole_shot_map(
     skipped_pixel_edits = uses_lightweight_frame and any(
         event.get("op") in {"replaceHoleShots", "addShot"}
         or (event.get("op") == "editField" and event.get("field") == "position")
-        for event in corr
+        for event in post_fact_corrections
         if _int(event.get("hole")) in {None, hole}
     )
     if skipped_pixel_edits:
@@ -691,7 +705,7 @@ def build_round_hole_shot_map(
                 "reason": "精确地图恢复前，之前按精确底图保存的位置修正暂不套用",
             }
         )
-    elif snapshot is not None:
+    elif pixel_snapshot is not None:
         missing_data.append(
             {
                 "label": "geometry",

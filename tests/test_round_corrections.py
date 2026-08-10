@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest import mock
 
@@ -120,6 +121,50 @@ class ApplyTests(unittest.TestCase):
         rc.apply_corrections(shots, [{"op": "editField", "shotId": "s:100:1", "field": "club", "value": "9I"}])
         self.assertEqual(shots[0]["clubName"], "7I")  # 原始未被改动
 
+    def test_fact_snapshot_reorders_edits_deletes_without_touching_source_gps(self):
+        shots = [
+            _shot(native=1, order=1, lat=1.0, lon=2.0, club="1W"),
+            _shot(native=2, order=2, lat=3.0, lon=4.0, club="7I"),
+            _shot(native=3, order=3, lat=5.0, lon=6.0, club="PW"),
+        ]
+        original = deepcopy(shots)
+        events = [{
+            "op": "replaceHoleFacts",
+            "hole": 1,
+            "manualPenalty": 2,
+            "shots": [
+                {"id": "s:100:2", "club": "九号铁", "lie": "bunker",
+                 "clubSource": "manual", "lieSource": "manual"},
+                {"id": "s:100:1", "club": "1W", "lie": "fairway"},
+            ],
+        }]
+
+        out = rc.apply_corrections(shots, events, hole=1)
+
+        self.assertEqual([rc.mint_shot_id(shot) for shot in out], ["s:100:2", "s:100:1"])
+        self.assertEqual([shot["_displayOrder"] for shot in out], [1, 2])
+        self.assertEqual(out[0]["clubName"], "九号铁")
+        self.assertEqual(out[0]["start"]["lie"], "bunker")
+        self.assertEqual(out[0]["clubSource"], "manual")
+        self.assertEqual(out[0]["lieSource"], "manual")
+        self.assertEqual(out[0]["start"]["lat"], original[1]["start"]["lat"])
+        self.assertEqual(out[0]["start"]["lon"], original[1]["start"]["lon"])
+        self.assertEqual(out[0]["end"], original[1]["end"])
+        self.assertEqual(shots, original, "correction application must not mutate Garmin source rows")
+
+    def test_fully_orphaned_fact_snapshot_keeps_current_source_visible(self):
+        shots = [_shot(native=1, order=1), _shot(native=2, order=2)]
+        events = [{
+            "op": "replaceHoleFacts",
+            "hole": 1,
+            "manualPenalty": 0,
+            "shots": [{"id": "h:old-resync-id", "club": "7I", "lie": "fairway"}],
+        }]
+
+        out = rc.apply_corrections(shots, events, hole=1)
+
+        self.assertEqual([rc.mint_shot_id(shot) for shot in out], ["s:100:1", "s:100:2"])
+
     def test_hole_penalty_latest_wins_default_zero(self):
         self.assertEqual(rc.hole_penalty([], 3), 0)
         events = [
@@ -140,6 +185,15 @@ class ApplyTests(unittest.TestCase):
 
         self.assertEqual(rc.hole_penalty(events, 3), 4)
         self.assertEqual(rc.hole_penalty(events, 7), 2)
+
+    def test_fact_snapshot_penalty_participates_in_latest_wins(self):
+        events = [
+            {"op": "replaceHoleShots", "hole": 3, "manualPenalty": 1, "shots": []},
+            {"op": "replaceHoleFacts", "hole": 3, "manualPenalty": 4, "shots": []},
+        ]
+
+        self.assertEqual(rc.hole_penalty(events, 3), 4)
+        self.assertEqual(rc.latest_hole_snapshot(events, 3), (1, events[1]))
 
     def test_latest_snapshot_is_selected_per_hole(self):
         events = [

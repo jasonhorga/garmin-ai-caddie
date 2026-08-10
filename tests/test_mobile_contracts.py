@@ -2968,10 +2968,11 @@ class MobileContractTests(unittest.TestCase):
         # projected onto (front/back-nine aware); degrades to the flat render with no network / no geo.
         self.assertIn("let globalId: Int?", shot_map_model)
         self.assertIn("let localHole: Int?", shot_map_model)
-        # Real GPS shots remain visible when a topo bitmap is unavailable.  CourseData fallback
-        # frames deliberately disable pixel editing and never request a prodgeometry topo URL.
+        # Real GPS shots remain visible when a topo bitmap is unavailable. CourseData/mapless states
+        # use fact-only editing, while only the precise editor can move pixels or request a topo URL.
         self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)", shot_map_view)
-        self.assertIn("!sm.usesCourseDataFrame", shot_map_view)
+        self.assertIn("editModel.canEditPositions", shot_map_view)
+        self.assertIn("RoundShotFactEditContent(editModel: editModel)", shot_map_view)
         self.assertIn("shotMap.usesCourseDataFrame", shot_map_view)
         self.assertIn("RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))", shot_map_view)
         self.assertIn("geometryRevision: shotMap.geometryRevision", shot_map_view)
@@ -3767,7 +3768,7 @@ class RoundEditContractTests(unittest.TestCase):
 
     def test_correction_op_payload_covers_all_ops(self):
         op = _read_required_source(self, IOS_DIR / "Models" / "RoundCorrection.swift")
-        for token in ["replaceHoleShots", "shots", "manualPenalty", "geometryRevision", "clientMutationId"]:
+        for token in ["replaceHoleShots", "replaceHoleFacts", "RoundShotFact", "shots", "manualPenalty", "geometryRevision", "clientMutationId"]:
             self.assertIn(token, op)
 
     def test_sync_client_posts_corrections(self):
@@ -3777,7 +3778,7 @@ class RoundEditContractTests(unittest.TestCase):
 
     def test_edit_engine_is_a_whole_hole_draft(self):
         engine = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
-        for token in ["addShot", "move", "editClub", "editLie", "delete", "reorder", "setPenalty", "cancelEdit", "save()", "replaceHoleShots"]:
+        for token in ["addShot", "move", "editClub", "editLie", "delete", "reorder", "setPenalty", "cancelEdit", "save()", "replaceHoleShots", "replaceHoleFacts", "canEditPositions"]:
             self.assertIn(token, engine)
         self.assertNotIn("private func post(", engine)
 

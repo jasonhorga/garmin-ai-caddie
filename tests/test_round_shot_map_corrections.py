@@ -203,6 +203,34 @@ class RoundShotMapCorrectionsTests(unittest.TestCase):
         self.assertEqual([shot["id"] for shot in hole_five["shots"]], ["hole-5-shot"])
         self.assertEqual(hole_five["manualPenalty"], 3)
 
+    def test_newer_fact_snapshot_overrides_old_pixel_snapshot_and_keeps_source_positions(self):
+        baseline = self._build([])
+        baseline_by_id = {shot["id"]: shot for shot in baseline["shots"]}
+        corr = [
+            {"op": "replaceHoleShots", "hole": 1, "manualPenalty": 1,
+             "geometryRevision": "0123456789abcdef",
+             "shots": [{"id": "old-pixel", "start": [1, 2], "end": [3, 4]}]},
+            {"op": "editField", "shotId": "s:r1:202", "field": "position", "value": [700, 700]},
+            {"op": "addShot", "hole": 1, "px": [600, 600], "club": "旧手工杆"},
+            {"op": "replaceHoleFacts", "hole": 1, "manualPenalty": 2,
+             "shots": [
+                 {"id": "s:r1:202", "club": "九号铁", "lie": "bunker",
+                  "clubSource": "manual", "lieSource": "manual"},
+                 {"id": "s:r1:201", "club": "一号木", "lie": "teebox"},
+             ]},
+        ]
+
+        out = self._build(corr)
+
+        self.assertEqual([shot["id"] for shot in out["shots"]], ["s:r1:202", "s:r1:201"])
+        self.assertNotIn("old-pixel", [shot["id"] for shot in out["shots"]])
+        self.assertEqual(out["shots"][0]["start"], baseline_by_id["s:r1:202"]["start"])
+        self.assertEqual(out["shots"][0]["end"], baseline_by_id["s:r1:202"]["end"])
+        self.assertEqual(out["shots"][0]["club"], "九号铁")
+        self.assertEqual(out["shots"][0]["lie"], "bunker")
+        self.assertEqual(out["manualPenalty"], 2)
+        self.assertFalse(any(item.get("label") == "geometry" for item in out["missingData"]))
+
     def test_post_snapshot_granular_event_for_another_hole_cannot_pollute_it(self):
         corr = [
             {"op": "replaceHoleShots", "hole": 1, "manualPenalty": 0,

@@ -132,6 +132,51 @@ final class RoundEditModelTests: XCTestCase {
         await fulfillment(of: [posts], timeout: 2)
     }
 
+    func testMaplessSaveUsesFactSnapshotAndNeverEncodesPixels() async throws {
+        let posted = expectation(description: "one mapless fact snapshot POST")
+        var savedPayload: [String: Any] = [:]
+        let model = makeModel(includeMap: false, geometryRevision: nil) { request in
+            if request.httpMethod == "POST" {
+                let body = try CapturingURLProtocol.requestBodyData(from: request)
+                savedPayload = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: Any]
+                )
+                posted.fulfill()
+                return Self.response(request, status: 201, body: #"{"stored":{}}"#)
+            }
+            return Self.response(request, status: 503)
+        }
+
+        XCTAssertFalse(model.canEditPositions)
+        model.enterEdit()
+        model.move(shotId: "shot-1", px: [99, 99])
+        XCTAssertFalse(model.hasUnsavedChanges, "mapless mode must reject position edits")
+        model.reorder(["shot-2", "shot-1"])
+        model.editClub(shotId: "shot-2", "九号铁")
+        model.editLie(shotId: "shot-2", "bunker")
+        model.delete(shotId: "shot-1")
+        model.setPenalty(2)
+
+        let saved = await model.save()
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(savedPayload["op"] as? String, "replaceHoleFacts")
+        XCTAssertEqual(savedPayload["hole"] as? Int, 4)
+        XCTAssertEqual(savedPayload["manualPenalty"] as? Int, 2)
+        XCTAssertNil(savedPayload["geometryRevision"])
+        let facts = try XCTUnwrap(savedPayload["shots"] as? [[String: Any]])
+        XCTAssertEqual(facts.compactMap { $0["id"] as? String }, ["shot-2"])
+        XCTAssertEqual(facts.first?["club"] as? String, "九号铁")
+        XCTAssertEqual(facts.first?["lie"] as? String, "bunker")
+        for fact in facts {
+            XCTAssertNil(fact["start"])
+            XCTAssertNil(fact["end"])
+            XCTAssertNil(fact["order"])
+            XCTAssertNil(fact["geometryRevision"])
+        }
+        await fulfillment(of: [posted], timeout: 2)
+    }
+
     func testEmptyHoleCanAddSeveralNumberedShotsBeforeOneSave() async throws {
         let posted = expectation(description: "empty-hole snapshot")
         var payloadShots: [[String: Any]] = []
@@ -161,12 +206,14 @@ final class RoundEditModelTests: XCTestCase {
 
     private func makeModel(
         shots: [RoundShot]? = nil,
+        includeMap: Bool = true,
+        geometryRevision: String? = "geometry-r1",
         handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
     ) -> RoundEditModel {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         CapturingURLProtocol.requestHandler = handler
-        let map = CoursePrepMap(
+        let courseMap = CoursePrepMap(
             image: "data:image/png;base64,AA==",
             overlay: CoursePrepOverlay(
                 w: 100,
@@ -203,8 +250,8 @@ final class RoundEditModelTests: XCTestCase {
                 par: 4,
                 globalId: 3881,
                 localHole: 4,
-                geometryRevision: "geometry-r1",
-                map: map,
+                geometryRevision: geometryRevision,
+                map: includeMap ? courseMap : nil,
                 shots: shots ?? defaultShots
             ),
             sync: SyncClient(

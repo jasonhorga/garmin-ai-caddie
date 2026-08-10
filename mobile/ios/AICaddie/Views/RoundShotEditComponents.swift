@@ -387,17 +387,20 @@ public struct ShotEditSheet: View {
     let onClub: (String?) -> Void
     let onLie: (String?) -> Void
     let onDelete: () -> Void
+    let showsMapContext: Bool
     @State private var selectedClub: String
     @State private var selectedLie: String
     @Environment(\.dismiss) private var dismiss
 
     public init(shot: RoundShot, clubs: [String], onClub: @escaping (String?) -> Void,
-                onLie: @escaping (String?) -> Void, onDelete: @escaping () -> Void) {
+                onLie: @escaping (String?) -> Void, onDelete: @escaping () -> Void,
+                showsMapContext: Bool = true) {
         self.shot = shot
         self.clubs = clubs
         self.onClub = onClub
         self.onLie = onLie
         self.onDelete = onDelete
+        self.showsMapContext = showsMapContext
         self._selectedClub = State(initialValue: roundEditClubSelection(shot.club))
         let rawLie = (shot.lie ?? "unknown").lowercased()
         let validLies = Set(roundEditLieOptions.map(\.0))
@@ -408,11 +411,19 @@ public struct ShotEditSheet: View {
         NavigationStack {
             VStack(spacing: 0) {
                 Form {
-                    Section {
-                        Label(shotSummary, systemImage: "scope")
-                            .font(.subheadline.weight(.semibold))
-                            .accessibilityLabel("地图位置，\(shotSummary)")
-                            .accessibilityHint("上方放大镜持续显示当前落点")
+                    if showsMapContext {
+                        Section {
+                            Label(shotSummary, systemImage: "scope")
+                                .font(.subheadline.weight(.semibold))
+                                .accessibilityLabel("地图位置，\(shotSummary)")
+                                .accessibilityHint("上方放大镜持续显示当前落点")
+                        }
+                    } else {
+                        Section {
+                            Label("原始位置保持不变", systemImage: "location.fill")
+                                .font(.subheadline.weight(.semibold))
+                            Text(shotSummary).font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     Section("球杆") {
                         Picker("球杆", selection: Binding(
@@ -510,6 +521,55 @@ public struct RoundShotEditContent: View {
     }
 }
 
+/// Fact-only fallback while precise topo is unavailable. The player can still fix the counted list,
+/// club, start lie and penalty, but there is deliberately no add/move gesture without an authority
+/// pixel frame. Save persists only stable ids + facts, leaving every source GPS coordinate untouched.
+public struct RoundShotFactEditContent: View {
+    @ObservedObject var editModel: RoundEditModel
+    @State private var editingShot: RoundShot?
+
+    public init(editModel: RoundEditModel) {
+        self.editModel = editModel
+    }
+
+    public var body: some View {
+        VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("精确地图准备中", systemImage: "location.fill")
+                    .font(.subheadline.weight(.semibold))
+                Text("已有 GPS 原样保留；现在可改球杆、击球时球位、顺序、删除和罚杆，位置稍后在精确地图上调整。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .hubCard()
+            PenaltyStepper(value: editModel.map.manualPenalty) { editModel.setPenalty($0) }
+                .hubCard()
+            RoundShotReorderList(
+                editModel: editModel,
+                ppm: nil,
+                onEdit: { shot in editingShot = shot }
+            )
+            if let err = editModel.saveError {
+                Text(err).font(.caption2).foregroundStyle(.orange).multilineTextAlignment(.center)
+            }
+        }
+        .sheet(item: $editingShot) { shot in
+            ShotEditSheet(
+                shot: shot,
+                clubs: roundEditCommonClubs,
+                onClub: { editModel.editClub(shotId: shot.id, $0) },
+                onLie: { editModel.editLie(shotId: shot.id, $0) },
+                onDelete: {
+                    editModel.delete(shotId: shot.id)
+                    editModel.selectedShotId = nil
+                },
+                showsMapContext: false
+            )
+        }
+    }
+}
+
 // MARK: - 逐杆 row (shared) + editable reorder list (设计 §6)
 
 /// One row of the 逐杆 list: order # + club (or 自动补 / —) + distance(码) + 起始球位 → 落点球位.
@@ -554,15 +614,17 @@ public struct RoundShotRow: View {
 public struct RoundShotReorderList: View {
     @ObservedObject var editModel: RoundEditModel
     let ppm: Double?
+    let onEdit: ((RoundShot) -> Void)?
 
-    public init(editModel: RoundEditModel, ppm: Double?) {
+    public init(editModel: RoundEditModel, ppm: Double?, onEdit: ((RoundShot) -> Void)? = nil) {
         self.editModel = editModel
         self.ppm = ppm
+        self.onEdit = onEdit
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("共 \(editModel.map.shots.count) 杆 · 拖动右侧排序 · 点垃圾桶删除")
+            Text("共 \(editModel.map.shots.count) 杆 · 点一杆修改 · 拖动排序 · 垃圾桶删除")
                 .font(.caption).foregroundStyle(.secondary)
             List {
                 ForEach(Array(editModel.map.shots.enumerated()), id: \.element.id) { idx, shot in
@@ -571,7 +633,10 @@ public struct RoundShotReorderList: View {
                             .accessibilityElement(children: .combine)
                             .accessibilityIdentifier("shot-draft-row-\(idx + 1)")
                             .contentShape(Rectangle())
-                            .onTapGesture { editModel.selectedShotId = shot.id }
+                            .onTapGesture {
+                                editModel.selectedShotId = shot.id
+                                onEdit?(shot)
+                            }
                         Button(role: .destructive) {
                             editModel.delete(shotId: shot.id)
                         } label: {

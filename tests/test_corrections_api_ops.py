@@ -75,6 +75,43 @@ class CorrectionsApiOpsTests(unittest.TestCase):
 
         self.assertEqual(r.status_code, 400)
 
+    def test_replace_hole_facts_accepts_only_geometry_independent_fields(self):
+        c = TestClient(app)
+        r = c.post(
+            "/api/v2/history/rounds/42/corrections",
+            json={
+                "op": "replaceHoleFacts",
+                "hole": 4,
+                "manualPenalty": 1,
+                "clientMutationId": "fact-save-1",
+                "shots": [
+                    {"id": "s:42:2", "club": "七号铁", "lie": "fairway"},
+                    {"id": "s:42:1", "club": None, "lie": "teebox", "clubSource": "manual"},
+                ],
+            },
+        )
+
+        self.assertEqual(r.status_code, 201)
+        stored = r.json()["stored"]
+        self.assertEqual(stored["op"], "replaceHoleFacts")
+        self.assertEqual([shot["id"] for shot in stored["shots"]], ["s:42:2", "s:42:1"])
+        self.assertNotIn("geometryRevision", stored)
+        self.assertFalse(any("start" in shot or "end" in shot for shot in stored["shots"]))
+
+    def test_replace_hole_facts_rejects_pixel_fields(self):
+        c = TestClient(app)
+        r = c.post(
+            "/api/v2/history/rounds/42/corrections",
+            json={
+                "op": "replaceHoleFacts",
+                "hole": 4,
+                "manualPenalty": 0,
+                "shots": [{"id": "s:42:1", "club": "七号铁", "start": [1, 2]}],
+            },
+        )
+
+        self.assertEqual(r.status_code, 400)
+
     def test_reorder_op_accepted(self):
         c = TestClient(app)
         r = c.post("/api/v2/history/rounds/42/corrections", json={"op": "reorderShot", "order": ["s:42:2", "s:42:1"]})

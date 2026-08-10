@@ -255,8 +255,7 @@ public struct RoundHoleShotMapScreen: View {
         .background(HubStyle.grouped)
         .navigationTitle(showsNavigationTitle ? "第 \(hole) 洞 · 落点" : "")
         .toolbar {
-            if let sm = shotMap, sm.found, !sm.usesCourseDataFrame,
-               sm.geometryRevision != nil, sm.map?.image != nil, editModel != nil {
+            if let sm = shotMap, sm.found, editModel != nil {
                 if isEditing {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button("取消") { cancelEditing() }
@@ -296,25 +295,28 @@ public struct RoundHoleShotMapScreen: View {
     }
 
     @ViewBuilder private var content: some View {
-        if let shotMap, shotMap.found, shotMap.map != nil {
+        if isEditing, let editModel {
             Group {
-                if isEditing, let editModel {
-                    RoundShotEditContent(editModel: editModel, topoURL: topoURL(for: shotMap))
-                        .allowsHitTesting(!isSaving)
+                if editModel.canEditPositions {
+                    RoundShotEditContent(editModel: editModel, topoURL: topoURL(for: editModel.map))
                 } else {
-                    VStack(spacing: 12) {
-                        RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))
-                        if let reason = shotMap.missingData.first?.reason {
-                            Label(reason, systemImage: "arrow.clockwise.circle")
-                                .font(.subheadline)
-                                .foregroundStyle(.orange)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .hubCard()
-                        }
-                        RoundShotMapLegend()
-                        shotListCard(shotMap)
-                    }
+                    RoundShotFactEditContent(editModel: editModel)
                 }
+            }
+            .allowsHitTesting(!isSaving)
+            .padding(14)
+        } else if let shotMap, shotMap.found, shotMap.map != nil {
+            VStack(spacing: 12) {
+                RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))
+                if let reason = shotMap.missingData.first?.reason {
+                    Label(reason, systemImage: "arrow.clockwise.circle")
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .hubCard()
+                }
+                RoundShotMapLegend()
+                shotListCard(shotMap)
             }
             .padding(14)
         } else if let shotMap, shotMap.found, !shotMap.shots.isEmpty {
@@ -387,9 +389,7 @@ public struct RoundHoleShotMapScreen: View {
             let sync = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
             let m = try await sync.fetchRoundShotMap(roundRef: roundRef, hole: hole)
             shotMap = m
-            editModel = m.usesCourseDataFrame || m.geometryRevision == nil || m.map?.image == nil
-                ? nil
-                : RoundEditModel(map: m, sync: sync, roundRef: roundRef)
+            editModel = m.found ? RoundEditModel(map: m, sync: sync, roundRef: roundRef) : nil
         } catch {
             errorText = "这一洞落点暂时取不到"
         }

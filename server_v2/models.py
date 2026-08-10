@@ -485,7 +485,7 @@ class RoundCorrectionRequest(BaseModel):
     # legacy addShot.club/lie even though iOS sent them, making the edit look saved until refetch.
     model_config = ConfigDict(extra="forbid")
 
-    op: str  # legacy granular ops, or replaceHoleShots for one atomic whole-hole draft save
+    op: str  # legacy granular ops, replaceHoleShots (pixel), or replaceHoleFacts (GPS-preserving)
     shotId: str | None = None
     hole: int | None = None
     field: str | None = None  # editField 时:club | lie | position
@@ -497,9 +497,8 @@ class RoundCorrectionRequest(BaseModel):
     lie: str | None = None  # legacy addShot start lie
     insertAfterShotId: str | None = None  # addShot:插在这一杆之后(None=最前/空洞第一杆)
     order: list[str] | None = None  # reorderShot:该洞落点的目标顺序(按 shotId 列)
-    # replaceHoleShots:the complete user-approved draft in the current topo pixel frame. One stored
-    # event makes Cancel genuinely write nothing and Save one atomic correction instead of a partial
-    # series of add/move/delete requests.
+    # Whole-hole snapshot. replaceHoleShots stores the approved precise pixel draft;
+    # replaceHoleFacts stores only ordered stable ids + club/lie while preserving source WGS84.
     shots: list[dict[str, Any]] | None = None
     manualPenalty: int | None = None
     geometryRevision: str | None = None

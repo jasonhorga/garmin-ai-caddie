@@ -12,6 +12,11 @@ public final class RoundEditModel: ObservableObject {
     @Published public var saveError: String?
     @Published public var draggingShotId: String?
     @Published public var selectedShotId: String?
+    /// Only a current prodgeometry bitmap owns an authoritative pixel frame. Every other state edits
+    /// ordered shot facts only and must preserve the source GPS endpoints.
+    public var canEditPositions: Bool {
+        !map.usesCourseDataFrame && map.geometryRevision != nil && map.map?.image != nil
+    }
 
     private let sync: SyncClient
     private let roundRef: String
@@ -65,6 +70,7 @@ public final class RoundEditModel: ObservableObject {
         lie: String? = nil,
         afterShotId: String? = nil
     ) -> String {
+        guard canEditPositions else { return "" }
         let end = clampedPixel(px)
         let insertIndex: Int
         if let afterShotId,
@@ -97,11 +103,13 @@ public final class RoundEditModel: ObservableObject {
 
     /// Live long-press drag preview. It remains local and is discarded with the rest of the draft.
     public func previewMove(shotId: String, px: [Double]) {
+        guard canEditPositions else { return }
         if applyLandingMove(shotId: shotId, px: px) { markChanged() }
     }
 
     /// Finish a long-press drag locally. Save, not finger-up, owns persistence.
     public func move(shotId: String, px: [Double]) {
+        guard canEditPositions else { return }
         guard applyLandingMove(shotId: shotId, px: px) else { return }
         selectedShotId = shotId
         markChanged()
@@ -187,11 +195,19 @@ public final class RoundEditModel: ObservableObject {
 
         isSaving = true
         saveError = nil
-        let operation = pendingSaveOp ?? RoundCorrectionOp.replaceHoleShots(
-            hole: map.hole,
-            shots: map.shots,
-            manualPenalty: map.manualPenalty,
-            geometryRevision: map.geometryRevision
+        let operation = pendingSaveOp ?? (
+            canEditPositions
+                ? RoundCorrectionOp.replaceHoleShots(
+                    hole: map.hole,
+                    shots: map.shots,
+                    manualPenalty: map.manualPenalty,
+                    geometryRevision: map.geometryRevision
+                )
+                : RoundCorrectionOp.replaceHoleFacts(
+                    hole: map.hole,
+                    shots: map.shots,
+                    manualPenalty: map.manualPenalty
+                )
         )
         pendingSaveOp = operation
         do {
@@ -273,7 +289,9 @@ public final class RoundEditModel: ObservableObject {
         var previousEnd: [Int]?
         for index in map.shots.indices {
             let shot = map.shots[index]
-            let start = index == 0 ? (routeOrigin ?? shot.start) : (previousEnd ?? shot.start)
+            let start = canEditPositions
+                ? (index == 0 ? (routeOrigin ?? shot.start) : (previousEnd ?? shot.start))
+                : shot.start
             map.shots[index] = RoundShot(
                 shotId: shot.shotId,
                 start: start,
@@ -288,13 +306,22 @@ public final class RoundEditModel: ObservableObject {
                 synthetic: shot.synthetic,
                 gpsAvailable: shot.gpsAvailable
             )
-            previousEnd = shot.end
+            previousEnd = canEditPositions ? shot.end : nil
         }
     }
 
     private func editableCopy(of source: RoundHoleShotMap) -> RoundHoleShotMap {
         var seen = Set<String>()
-        let shots = source.shots.enumerated().map { index, shot -> RoundShot in
+        let candidates = canEditPositions
+            ? source.shots
+            : source.shots.filter { shot in
+                guard !shot.synthetic,
+                      let id = shot.shotId?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                    return false
+                }
+                return !id.isEmpty
+            }
+        let shots = candidates.enumerated().map { index, shot -> RoundShot in
             let existing = shot.shotId?.trimmingCharacters(in: .whitespacesAndNewlines)
             let stableId: String
             if let existing, !existing.isEmpty, seen.insert(existing).inserted {
