@@ -44,12 +44,12 @@ OFFLINE_OPTION_STRONG_SAMPLE = 10
 OFFLINE_OPTION_SAMPLE_REF_LIMIT = 6
 MOBILE_CADDIE_RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
 
-# A cold 18-hole course performs independent network/download/Draco jobs per hole.  Running them
-# one-by-one made a real course take about 4.5 minutes, long after the lightweight package had
-# returned.  This process-wide pool overlaps at most three holes (matching the four-core homeserver)
-# while preventing simultaneous users/courses from multiplying subprocesses without bound.
+# A cold 18-hole course performs independent network/download/Draco jobs per hole.  Keep a little
+# overlap so the precise upgrade completes in the background, but leave half of a four-core shared
+# homeserver available for the API, database, and other users.  This process-wide pool also prevents
+# simultaneous users/courses from multiplying the CPU-heavy Node/Python children without bound.
 _GEOMETRY_INSTALL_POOL = ThreadPoolExecutor(
-    max_workers=3,
+    max_workers=2,
     thread_name_prefix="course-geometry-install",
 )
 

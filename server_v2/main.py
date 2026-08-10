@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import hmac
+import logging
 import os
 import threading
 from typing import Annotated, Literal
@@ -176,6 +177,8 @@ async def _lifespan(_app: FastAPI):
 app = FastAPI(title="AI Caddie v2", version="0.1.0", lifespan=_lifespan)
 app.include_router(admin_router)
 app.include_router(auth_router)
+
+logger = logging.getLogger(__name__)
 
 
 def cors_allowed_origins() -> list[str]:
@@ -1194,6 +1197,12 @@ def mobile_course_options(player_id: str = Depends(current_player_id)) -> Mobile
     return build_mobile_course_options_response(player_id=player_id)
 
 
+_GEOMETRY_UPGRADE_LOCK = threading.Lock()
+_GEOMETRY_UPGRADE_RUNNING: set[int] = set()
+_GEOMETRY_UPGRADE_PENDING: dict[int, set[int]] = {}
+_GEOMETRY_UPGRADE_INFLIGHT: dict[int, set[int]] = {}
+
+
 @app.get("/api/v2/mobile/courses/{global_id}/package", response_model=LiveRoundPackageResponse)
 def mobile_course_package(
     global_id: int,
@@ -1244,16 +1253,51 @@ def _upgrade_course_geometry(requested: dict[int, list[int]]) -> None:
     Mobile installers fetch the selected topo PNGs themselves (iOS concurrently, Watch in bounded
     batches) and Web explicitly calls ``/topo/prewarm``. Rendering the entire course again here made
     geometry decoding and the client's real download compete for the same four server cores.
+
+    Multiple package reads commonly overlap while a course is being installed.  Coalesce those
+    requests by source GID and ignore holes already in flight; the per-hole geometry locks remain the
+    final write-safety boundary, while this process-level single-flight avoids duplicate queue work.
     """
     from ai_caddie.caddie.mobile_live import _ensure_geometry_for_course
 
-    for global_id, holes in sorted(requested.items()):
+    owned: list[int] = []
+    with _GEOMETRY_UPGRADE_LOCK:
+        for raw_global_id, raw_holes in requested.items():
+            global_id = int(raw_global_id)
+            inflight = _GEOMETRY_UPGRADE_INFLIGHT.get(global_id, set())
+            holes = {int(hole) for hole in raw_holes if int(hole) > 0} - inflight
+            if holes:
+                _GEOMETRY_UPGRADE_PENDING.setdefault(global_id, set()).update(holes)
+            if global_id not in _GEOMETRY_UPGRADE_RUNNING and _GEOMETRY_UPGRADE_PENDING.get(global_id):
+                _GEOMETRY_UPGRADE_RUNNING.add(global_id)
+                owned.append(global_id)
+
+    for global_id in sorted(owned):
         try:
-            _ensure_geometry_for_course(int(global_id), holes=[int(hole) for hole in holes])
-        except Exception:
-            # The active lightweight package remains valid; a later request may retry the
-            # precise upgrade without changing the course or round identity.
-            continue
+            while True:
+                with _GEOMETRY_UPGRADE_LOCK:
+                    # Keep the completed batch marked in-flight until this same critical section
+                    # checks for follow-up work. A duplicate arriving in that small hand-off window
+                    # is therefore still coalesced instead of causing one final cached re-run.
+                    _GEOMETRY_UPGRADE_INFLIGHT.pop(global_id, None)
+                    holes = sorted(_GEOMETRY_UPGRADE_PENDING.pop(global_id, set()))
+                    if not holes:
+                        _GEOMETRY_UPGRADE_RUNNING.discard(global_id)
+                        break
+                    _GEOMETRY_UPGRADE_INFLIGHT[global_id] = set(holes)
+                logger.info("course geometry upgrade started gid=%s holes=%s", global_id, holes)
+                try:
+                    _ensure_geometry_for_course(global_id, holes=holes)
+                except Exception:
+                    # The active lightweight package remains valid; a later request may retry the
+                    # precise upgrade without changing the course or round identity.
+                    logger.exception("course geometry upgrade failed gid=%s holes=%s", global_id, holes)
+                logger.info("course geometry upgrade finished gid=%s holes=%s", global_id, holes)
+        finally:
+            # Do not leave a permanently owned GID if the worker is cancelled during shutdown.
+            with _GEOMETRY_UPGRADE_LOCK:
+                _GEOMETRY_UPGRADE_INFLIGHT.pop(global_id, None)
+                _GEOMETRY_UPGRADE_RUNNING.discard(global_id)
 
 
 @app.post("/api/v2/mobile/rounds/{round_id}/events", response_model=LiveRoundEventBatchResponse)

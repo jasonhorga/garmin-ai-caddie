@@ -190,7 +190,7 @@ class ServerV2MobileTests(unittest.TestCase):
 
         from ai_caddie.caddie import mobile_live
 
-        first_wave = Barrier(3)
+        first_wave = Barrier(2)
         state_lock = Lock()
         active = 0
         max_active = 0
@@ -200,7 +200,7 @@ class ServerV2MobileTests(unittest.TestCase):
             with state_lock:
                 active += 1
                 max_active = max(max_active, active)
-            if local_hole <= 3:
+            if local_hole <= 2:
                 first_wave.wait(timeout=2)
             # Finish deliberately out of order; the returned public summary must still be ordered.
             sleep((5 - local_hole) * 0.005)
@@ -220,7 +220,7 @@ class ServerV2MobileTests(unittest.TestCase):
         ):
             summary = mobile_live._ensure_geometry_for_course(31791, holes=[1, 2, 3, 4])
 
-        self.assertEqual(max_active, 3)
+        self.assertEqual(max_active, 2)
         self.assertEqual([row["localHole"] for row in summary["results"]], [1, 2, 3, 4])
         self.assertEqual(summary["state"], "ready")
 
@@ -569,6 +569,35 @@ class ServerV2MobileTests(unittest.TestCase):
             [call(31796, holes=[1, 2]), call(31797, holes=[4])],
         )
         prewarm_topo.assert_not_called()
+
+    def test_background_geometry_upgrade_singleflights_duplicate_course_requests(self) -> None:
+        from threading import Event, Thread
+
+        from server_v2 import main as server_main
+
+        started = Event()
+        release = Event()
+
+        def ensure_geometry(_global_id: int, *, holes: list[int]) -> None:
+            started.set()
+            self.assertTrue(release.wait(timeout=5))
+
+        with patch(
+            "ai_caddie.caddie.mobile_live._ensure_geometry_for_course",
+            side_effect=ensure_geometry,
+        ) as ensure:
+            owner = Thread(
+                target=server_main._upgrade_course_geometry,
+                args=({19901: [1, 2, 3]},),
+            )
+            owner.start()
+            self.assertTrue(started.wait(timeout=5))
+            server_main._upgrade_course_geometry({19901: [1, 2, 3]})
+            release.set()
+            owner.join(timeout=5)
+
+        self.assertFalse(owner.is_alive())
+        ensure.assert_called_once_with(19901, holes=[1, 2, 3])
 
     def test_mobile_round_package_can_prefetch_geometry_for_offline_readiness(self) -> None:
         client = TestClient(app)
