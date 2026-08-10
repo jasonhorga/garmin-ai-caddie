@@ -908,12 +908,15 @@ public final class OfflineStore {
     /// actual immutable topo assets remain in the existing revision-keyed shared cache.
     public func savePrepCourseDownloads(_ records: [PrepCourseDownloadRecord]) throws {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        let retained = Array(
-            Dictionary(grouping: records, by: \.id)
-                .compactMap { $0.value.max(by: { $0.updatedAt < $1.updatedAt }) }
-                .sorted { $0.updatedAt > $1.updatedAt }
-                .prefix(12)
-        )
+        let newestByID = Dictionary(grouping: records, by: \.id)
+            .compactMap { $0.value.max(by: { $0.updatedAt < $1.updatedAt }) }
+            .sorted { $0.updatedAt > $1.updatedAt }
+        // The visible recent list stays bounded, but an unfinished explicit download intent must
+        // never disappear merely because the player selected many courses before it completed.
+        // Ready assets remain on disk even after their convenience row falls out of this 12-item LRU.
+        let unfinished = newestByID.filter { $0.phase != .ready }
+        let recentReady = Array(newestByID.filter { $0.phase == .ready }.prefix(12))
+        let retained = (unfinished + recentReady).sorted { $0.updatedAt > $1.updatedAt }
         try encoder.encode(retained).write(to: prepCourseDownloadsURL, options: [.atomic])
     }
 

@@ -95,6 +95,48 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(restored.course.name, "Resume Course")
     }
 
+    func testPrepCourseDownloadLRUNeverEvictsUnfinishedIntent() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let ready = (1...13).map { index in
+            PrepCourseDownloadRecord(
+                course: MobileCourseOption(
+                    globalId: 800_000 + index,
+                    name: "Ready \(index)",
+                    holes: 18,
+                    teeBox: "blue"
+                ),
+                phase: .ready,
+                preparedHoles: 18,
+                downloadedHoles: 18,
+                totalHoles: 18,
+                updatedAt: Date(timeIntervalSince1970: Double(index))
+            )
+        }
+        let unfinished = PrepCourseDownloadRecord(
+            course: MobileCourseOption(
+                globalId: 899_999,
+                name: "Still Downloading",
+                holes: 18,
+                teeBox: "blue"
+            ),
+            phase: .failed,
+            preparedHoles: 3,
+            downloadedHoles: 2,
+            totalHoles: 18,
+            updatedAt: Date(timeIntervalSince1970: 0),
+            errorText: "retry"
+        )
+
+        try store.savePrepCourseDownloads(ready + [unfinished])
+        let retained = try store.loadPrepCourseDownloads()
+
+        XCTAssertEqual(retained.filter { $0.phase == .ready }.count, 12)
+        XCTAssertTrue(retained.contains { $0.id == unfinished.id })
+        XCTAssertFalse(retained.contains { $0.course.globalId == 800_001 })
+    }
+
     func testAccountScopesNeverReuseAnotherPlayersPackageEventsOrTemplate() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
