@@ -181,6 +181,7 @@ final class WatchBackendClientTests: XCTestCase {
             "观澜湖"
         )
         XCTAssertEqual(search.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
+        XCTAssertEqual(search.timeoutInterval, WatchBackendClient.nearbyDiscoveryTimeoutInterval)
 
         let nearby = try client.makeNearbyCoursesRequest(
             latitude: 22.7402,
@@ -274,13 +275,48 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(WatchBackendClient.courseReleaseRetryDelayNanoseconds(afterAttempt: 1), 500_000_000)
         XCTAssertEqual(WatchBackendClient.courseReleaseRetryDelayNanoseconds(afterAttempt: 2), 1_000_000_000)
         XCTAssertTrue(WatchBackendClient.isTransientCourseReleaseError(URLError(.timedOut)))
+        XCTAssertTrue(WatchBackendClient.isTransientCourseReleaseError(URLError(.secureConnectionFailed)))
         XCTAssertTrue(WatchBackendClient.isTransientCourseReleaseError(
             WatchBackendClientError.http(status: 503, body: "cooldown")
         ))
         XCTAssertFalse(WatchBackendClient.isTransientCourseReleaseError(URLError(.cancelled)))
+        XCTAssertFalse(WatchBackendClient.isTransientCourseReleaseError(URLError(.serverCertificateUntrusted)))
         XCTAssertFalse(WatchBackendClient.isTransientCourseReleaseError(
             WatchBackendClientError.http(status: 401, body: nil)
         ))
+    }
+
+    func testCourseSearchRetriesTransientTLSHandshake() async throws {
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-search-v1","query":"北京丽宫","matches":[{"globalId":31793,"name":"北京丽宫体育公园高尔夫俱乐部","holes":18,"city":"北京","province":"北京","ratio":1.0}]}"#.utf8
+        )
+        var attempts = 0
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            dataLoader: { request in
+                attempts += 1
+                XCTAssertEqual(
+                    request.timeoutInterval,
+                    WatchBackendClient.nearbyDiscoveryTimeoutInterval
+                )
+                if attempts == 1 {
+                    throw URLError(.secureConnectionFailed)
+                }
+                let response = HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                return (payload, response)
+            },
+            retrySleep: { _ in }
+        )
+
+        let matches = try await client.searchCourses(name: "北京丽宫")
+
+        XCTAssertEqual(matches.map(\.globalId), [31793])
+        XCTAssertEqual(attempts, 2)
     }
 
     func testFetchCourseTeesRetriesTransientHTTPAndTransportFailures() async throws {

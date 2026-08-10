@@ -269,9 +269,13 @@ public final class SyncClient {
         }
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
+        // Catalogue search is a small, idempotent metadata read. Give Funnel/DNS/TLS a bounded
+        // budget and use the same transient-only retry policy as nearby discovery. In particular,
+        // a one-off TLS transport handshake failure may retry; certificate validation failures may
+        // not (see `isTransientCourseReleaseError`).
+        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        let data = try await fetchRetriableGetData(request)
         return try decoder.decode(MobileCourseSearchResponse.self, from: data).matches
     }
 
@@ -697,7 +701,7 @@ public final class SyncClient {
         guard let urlError = error as? URLError else { return false }
         switch urlError.code {
         case .timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost,
-             .dnsLookupFailed, .notConnectedToInternet:
+             .dnsLookupFailed, .notConnectedToInternet, .secureConnectionFailed:
             return true
         default:
             return false

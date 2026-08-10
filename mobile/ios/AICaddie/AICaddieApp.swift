@@ -1336,6 +1336,21 @@ public final class LiveRoundAppModel: ObservableObject {
         var geometryReadyKeys = Set(prepBySource.compactMap { key, prep in
             offlinePrepIsPrecise(prep) ? key : nil
         })
+        // A lightweight package deliberately embeds the first hole as a fast partial seed even
+        // when that hole's Garmin geometry is already installed. The authoritative per-hole
+        // revision on `snapshot.holes` is the stronger readiness fact. Promote those keys before
+        // building prep batches so the first playing hole is upgraded first instead of waiting
+        // behind topo downloads for holes 2...18.
+        for roundHole in snapshot.holes {
+            guard roundHole.geometryCoverage == .ready,
+                  let revision = roundHole.geometryRevision?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !revision.isEmpty else { continue }
+            geometryReadyKeys.insert(offlinePrepKey(
+                globalId: roundHole.sourceGlobalId ?? snapshot.course.globalId,
+                localHole: roundHole.sourceLocalHole ?? roundHole.number
+            ))
+        }
         let retryDelays = offlineGeometryRetryDelaysNanoseconds
         for attempt in 0...retryDelays.count {
             var batchRequests: [OfflinePrepBatchRequest] = []

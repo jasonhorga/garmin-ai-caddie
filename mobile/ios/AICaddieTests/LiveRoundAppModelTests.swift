@@ -307,6 +307,146 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
+    func testPrepDownloadUpgradesRevisionReadyFirstHoleBeforeLaterTopoAssets() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let revision = "eeeeeeeeeeeeeeee"
+        let holes = (1...3).map { number in
+            Hole(
+                number: number,
+                par: number == 2 ? 3 : 4,
+                yards: 330 + number * 10,
+                geometryCoverage: .ready,
+                geometryRevision: revision,
+                sourceGlobalId: source.course.globalId,
+                sourceLocalHole: number
+            )
+        }
+        let base = package(
+            source,
+            roundId: "prep-first-hole-priority",
+            recentRounds: [],
+            holes: holes
+        ).replacingCoursePrep(nil)
+        let partialSeed = try JSONDecoder().decode(
+            CoursePrepResponse.self,
+            from: offlinePrepResponseData(
+                for: base,
+                localHoles: [1],
+                geometryCoverage: "partial"
+            )
+        ).holes[0]
+        let online = base.replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: base.course.globalId,
+            holes: [partialSeed],
+            missingData: [CoursePrepMissingData(
+                label: "geometry_authority",
+                reason: "lightweight first-hole seed"
+            )]
+        ))
+        let packageData = try JSONEncoder().encode(online)
+        let png = minimalPNGData()
+        let requestLock = NSLock()
+        var prepBatches: [[Int]] = []
+        var topoOrder: [Int] = []
+        var coverageRequestCount = 0
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let body: Data
+            let contentType: String
+            switch url.path {
+            case "/api/v2/mobile/courses/\(online.course.globalId)/package":
+                body = packageData
+                contentType = "application/json"
+            case "/api/v2/courses/\(online.course.globalId)/prep":
+                let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .filter { $0.name == "holes" }
+                    .compactMap { $0.value.flatMap(Int.init) } ?? []
+                requestLock.withLock { prepBatches.append(requested) }
+                body = try self.offlinePrepResponseData(
+                    for: online,
+                    localHoles: requested,
+                    geometryRevision: revision
+                )
+                contentType = "application/json"
+            case let path where path.contains("/geometry/course/"):
+                requestLock.withLock { coverageRequestCount += 1 }
+                body = Data(
+                    """
+                    {"schema":"ai-caddie-course-geometry-coverage-v1",\
+                    "globalId":\(online.course.globalId),"coverage":"ready",\
+                    "readyHoles":3,"partialHoles":0,"totalHoles":3,"holes":[\
+                    {"globalId":\(online.course.globalId),"localHole":1,"coverage":"ready"},\
+                    {"globalId":\(online.course.globalId),"localHole":2,"coverage":"ready"},\
+                    {"globalId":\(online.course.globalId),"localHole":3,"coverage":"ready"}]}
+                    """.utf8
+                )
+                contentType = "application/json"
+            case let path where path.hasSuffix("/topo.png"):
+                let components = url.pathComponents
+                let holesIndex = try XCTUnwrap(components.firstIndex(of: "holes"))
+                let localHole = try XCTUnwrap(Int(components[holesIndex + 1]))
+                requestLock.withLock { topoOrder.append(localHole) }
+                body = png
+                contentType = "image/png"
+            default:
+                throw URLError(.unsupportedURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": contentType]
+                )!,
+                body
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://prep-priority.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: [0]
+        )
+        let course = MobileCourseOption(
+            globalId: online.course.globalId,
+            name: online.course.name,
+            holes: online.holes.count,
+            teeBox: online.course.teeBox
+        )
+
+        model.downloadPrepCourse(course)
+        await model.waitForPrepCourseDownloadForTesting()
+
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready)
+        XCTAssertTrue(requestLock.withLock { prepBatches }.contains([1]))
+        XCTAssertEqual(
+            requestLock.withLock { topoOrder }.first,
+            1,
+            "the visible first hole must not wait behind topo downloads for later holes"
+        )
+        XCTAssertEqual(
+            requestLock.withLock { coverageRequestCount },
+            0,
+            "a package-bound geometry revision is already sufficient authority for precise prep"
+        )
+    }
+
     func testReadyForegroundPrepIsDurablePreservesOtherHolesAndRenumbersCompositeBackNine() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -214,6 +214,7 @@ public final class WatchBackendClient {
         components.queryItems = [URLQueryItem(name: "name", value: name)]
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
+        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
         applyAuth(&request)
         return request
     }
@@ -371,7 +372,7 @@ public final class WatchBackendClient {
 
     public func searchCourses(name: String) async throws -> [WatchCourseSearchMatch] {
         let request = try makeCourseSearchRequest(name: name)
-        let data = try await sendForData(request)
+        let data = try await sendForData(request, retryingTransientFailures: true)
         return try decodeCourseSearch(data)
     }
 
@@ -610,7 +611,7 @@ public final class WatchBackendClient {
         guard let urlError = error as? URLError else { return false }
         switch urlError.code {
         case .timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost,
-             .dnsLookupFailed, .notConnectedToInternet:
+             .dnsLookupFailed, .notConnectedToInternet, .secureConnectionFailed:
             return true
         default:
             return false

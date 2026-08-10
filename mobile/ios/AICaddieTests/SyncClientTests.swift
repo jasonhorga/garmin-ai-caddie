@@ -247,6 +247,43 @@ final class SyncClientTests: XCTestCase {
         XCTAssertNil(matches[1].courseOption)
     }
 
+    func testSearchCoursesRetriesTransientTLSHandshakeWithoutRelaxingCertificateErrors() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-search-v1","query":"北京丽宫","matches":[{"globalId":31793,"name":"北京丽宫体育公园高尔夫俱乐部","holes":18,"city":"北京","province":"北京","ratio":1.0,"latitude":40.0455,"longitude":116.5462,"distanceKm":null}]}"#.utf8
+        )
+        var attempts = 0
+        CapturingURLProtocol.requestHandler = { request in
+            attempts += 1
+            XCTAssertEqual(request.timeoutInterval, SyncClient.nearbyDiscoveryTimeoutInterval)
+            if attempts == 1 {
+                throw URLError(.secureConnectionFailed)
+            }
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { _ in }
+        )
+
+        let matches = try await client.searchCourses(name: "北京丽宫")
+
+        XCTAssertEqual(matches.map(\.globalId), [31793])
+        XCTAssertEqual(attempts, 2)
+        XCTAssertTrue(SyncClient.isTransientCourseReleaseError(URLError(.secureConnectionFailed)))
+        XCTAssertFalse(SyncClient.isTransientCourseReleaseError(URLError(.serverCertificateUntrusted)))
+    }
+
     func testNearbyCoursesUsesProviderWideRadiusEndpoint() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
