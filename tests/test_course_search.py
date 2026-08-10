@@ -52,6 +52,11 @@ class ParseCourseSearchTests(unittest.TestCase):
 
 
 class CourseviewSearchTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Nearby results intentionally share a process cache in production. Tests use synthetic
+        # monotonic clocks and page responses, so each case needs a clean cache authority.
+        cs._clear_nearby_cache_for_tests()
+
     def _fixture(self) -> bytes:
         return (FIX / "courseview_search_zhongshan.pb").read_bytes()
 
