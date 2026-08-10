@@ -15,9 +15,12 @@ public struct MobileCourseSearchView: View {
     public let mode: MobileCourseSearchMode
     public let dismissAfterSelection: Bool
     public let installedGlobalIds: Set<Int>
+    public let retainedDownloads: [PrepCourseDownloadRecord]
     public let onSearch: (String) async throws -> [MobileCourseSearchMatch]
     public let onNearby: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     public let onSelect: (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
+    public let onOpenRetainedDownload: (PrepCourseDownloadRecord) -> Void
+    public let onRetryRetainedDownload: (String) -> Void
 
     private enum SearchKind: Equatable {
         case nearby
@@ -45,17 +48,23 @@ public struct MobileCourseSearchView: View {
         mode: MobileCourseSearchMode = .nearbyAndName,
         dismissAfterSelection: Bool = true,
         installedGlobalIds: Set<Int> = [],
+        retainedDownloads: [PrepCourseDownloadRecord] = [],
         onSearch: @escaping (String) async throws -> [MobileCourseSearchMatch],
         onNearby: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
-        onSelect: @escaping (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
+        onSelect: @escaping (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void,
+        onOpenRetainedDownload: @escaping (PrepCourseDownloadRecord) -> Void = { _ in },
+        onRetryRetainedDownload: @escaping (String) -> Void = { _ in }
     ) {
         self.locationProvider = locationProvider
         self.mode = mode
         self.dismissAfterSelection = dismissAfterSelection
         self.installedGlobalIds = installedGlobalIds
+        self.retainedDownloads = retainedDownloads
         self.onSearch = onSearch
         self.onNearby = onNearby
         self.onSelect = onSelect
+        self.onOpenRetainedDownload = onOpenRetainedDownload
+        self.onRetryRetainedDownload = onRetryRetainedDownload
     }
 
     public var body: some View {
@@ -135,6 +144,18 @@ public struct MobileCourseSearchView: View {
                 }
             }
 
+            if mode == .nameOnly, !retainedDownloads.isEmpty {
+                Section {
+                    ForEach(retainedDownloads) { download in
+                        retainedDownloadRow(download)
+                    }
+                } header: {
+                    Text("最近选择")
+                } footer: {
+                    Text("离开详情不会中断；每完成一洞就保存在本机，下次从缺少的洞继续。")
+                }
+            }
+
             if didSearch, matches.isEmpty, errorText == nil {
                 Section {
                     ContentUnavailableView(
@@ -151,6 +172,9 @@ public struct MobileCourseSearchView: View {
                 Section(lastSearch == .nearby ? "附近结果" : "搜索结果") {
                     ForEach(matches) { match in
                         let isInstalled = installedGlobalIds.contains(match.globalId)
+                        let download = retainedDownloads.first {
+                            $0.course.globalId == match.globalId
+                        }
                         Button {
                             guard match.courseOption != nil else { return }
                             onSelect(match, matches)
@@ -172,7 +196,10 @@ public struct MobileCourseSearchView: View {
                                 Spacer(minLength: 4)
                                 if match.courseOption != nil {
                                     VStack(alignment: .trailing, spacing: 4) {
-                                        Text(isInstalled ? "已准备" : "选择后下载")
+                                        Text(searchResultStatus(
+                                            isInstalled: isInstalled,
+                                            download: download
+                                        ))
                                             .font(.caption2.weight(.semibold))
                                             .foregroundStyle(isInstalled ? .secondary : LiveHoleStyle.green)
                                         Image(systemName: "chevron.right")
@@ -199,6 +226,87 @@ public struct MobileCourseSearchView: View {
                     Button("取消") { dismiss() }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func retainedDownloadRow(_ download: PrepCourseDownloadRecord) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                onOpenRetainedDownload(download)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: download.phase == .ready ? "checkmark.circle.fill" : "flag.fill")
+                        .foregroundStyle(download.phase == .ready ? .secondary : LiveHoleStyle.green)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(download.course.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text(downloadStatus(download))
+                            .font(.caption)
+                            .foregroundStyle(download.phase == .failed ? .orange : .secondary)
+                        if download.phase == .downloading || download.phase == .preparing {
+                            ProgressView(value: download.phase == .preparing
+                                ? Double(download.preparedHoles) / Double(max(download.totalHoles, 1))
+                                : download.progressFraction)
+                                .tint(LiveHoleStyle.green)
+                        }
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 4)
+            if download.phase == .failed {
+                Button {
+                    onRetryRetainedDownload(download.id)
+                } label: {
+                    Label("下载", systemImage: "arrow.down.circle")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("prep-download-retry-\(download.course.globalId)")
+            } else if download.isActive {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("下载中")
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .accessibilityIdentifier("prep-download-row-\(download.course.globalId)")
+    }
+
+    private func downloadStatus(_ download: PrepCourseDownloadRecord) -> String {
+        switch download.phase {
+        case .queued:
+            return "等待下载"
+        case .preparing:
+            return "准备精确地图 \(download.preparedHoles)/\(download.totalHoles) 洞"
+        case .downloading:
+            return "已保存 \(download.downloadedHoles)/\(download.totalHoles) 洞"
+        case .ready:
+            return "已完整下载到本机"
+        case .failed:
+            return download.errorText ?? "下载中断，可继续"
+        }
+    }
+
+    private func searchResultStatus(
+        isInstalled: Bool,
+        download: PrepCourseDownloadRecord?
+    ) -> String {
+        if isInstalled || download?.phase == .ready { return "已准备" }
+        guard let download else { return "选择后下载" }
+        switch download.phase {
+        case .queued: return "等待下载"
+        case .preparing: return "准备中 \(download.preparedHoles)/\(download.totalHoles)"
+        case .downloading: return "下载中 \(download.downloadedHoles)/\(download.totalHoles)"
+        case .ready: return "已准备"
+        case .failed: return "可继续下载"
         }
     }
 

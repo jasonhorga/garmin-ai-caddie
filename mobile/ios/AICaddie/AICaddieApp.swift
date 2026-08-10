@@ -56,6 +56,7 @@ public struct AICaddieApp: App {
                         liveRoundState: model.liveRoundState,
                         courseOptions: model.courseOptions,
                         downloadedCourseOptions: model.downloadedCourseOptions,
+                        prepCourseDownloads: model.prepCourseDownloads,
                         startingNine: model.startingNine,
                         isPreparingRound: model.isPreparingRound,
                         isFinishingRound: model.isFinishingRound,
@@ -122,6 +123,12 @@ public struct AICaddieApp: App {
                                 longitude: longitude,
                                 radiusKm: radiusKm
                             )
+                        },
+                        onDownloadPrepCourse: { course in
+                            model.downloadPrepCourse(course)
+                        },
+                        onRetryPrepCourseDownload: { id in
+                            model.retryPrepCourseDownload(id: id)
                         },
                         pendingLiveHole: model.pendingLiveHole,
                         onConsumePendingLiveHole: {
@@ -304,6 +311,7 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var liveRoundState: LiveRoundStateSnapshot?
     @Published public private(set) var courseOptions: [MobileCourseOption] = []
     @Published public private(set) var downloadedCourseOptions: [MobileCourseOption] = []
+    @Published public private(set) var prepCourseDownloads: [PrepCourseDownloadRecord] = []
     /// 本局的起始九洞(用于「移除另外 9 洞」撤销目标);随新 roundId 重置。
     @Published public private(set) var startingNine: String?
     public let watchBridge: WatchEventBridge?
@@ -315,6 +323,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private var isSyncingPendingEvents = false
     private var watchFinishedRoundReconciliationTask: Task<Void, Never>?
     private var offlineCourseDownloadTask: Task<Void, Never>?
+    private var prepCourseDownloadTask: Task<Void, Never>?
+    private var prepCourseDownloadGeneration: UUID?
+    private var activePrepCourseDownloadID: String?
     /// A newly prepared round must commit its first live-hole navigation before this MainActor model
     /// starts the all-hole cache pipeline.  `false` means fill missing assets; `true` also revalidates
     /// the package release.  Optionality distinguishes "not deferred" from the normal false mode.
@@ -396,6 +407,7 @@ public final class LiveRoundAppModel: ObservableObject {
         syncConfigToWatch()
         observeSessionForWatch()
         refreshDownloadedCourseOptions()
+        restorePrepCourseDownloadsFromDisk()
     }
 
     /// round-12 P3.4 (Watch standalone): hand the watch this phone's backend config so a standalone
@@ -451,6 +463,7 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
+        pausePrepCourseDownload()
         watchFinishedRoundReconciliationTask?.cancel()
         watchFinishedRoundReconciliationTask = nil
         deferredOfflineCourseDownloadRevalidation = nil
@@ -472,11 +485,15 @@ public final class LiveRoundAppModel: ObservableObject {
         syncStatus = "离线就绪"
         isBootstrapping = true
         refreshDownloadedCourseOptions()
+        restorePrepCourseDownloadsFromDisk()
         syncConfigToWatch()
     }
 
     public func bootstrap() async {
-        defer { isBootstrapping = false }
+        defer {
+            isBootstrapping = false
+            resumePrepCourseDownloads(retryFailed: true)
+        }
         #if DEBUG
         // A deterministic, backend-free two-hole round for the phone scoring XCUITest. Force it
         // before cache bootstrap so another UI test's real-course cache cannot change what failure
@@ -614,6 +631,7 @@ public final class LiveRoundAppModel: ObservableObject {
         roundPreparationToken = token
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
+        pausePrepCourseDownload()
         deferredOfflineCourseDownloadRevalidation = nil
         isPreparingRound = true
         return token
@@ -868,6 +886,7 @@ public final class LiveRoundAppModel: ObservableObject {
             self?.recordUITestLatency(
                 "offline-cache.task.end globalId=\(downloadSnapshot.course.globalId)"
             )
+            self?.startPrepCourseDownloadQueueIfNeeded()
         }
     }
 
@@ -877,6 +896,12 @@ public final class LiveRoundAppModel: ObservableObject {
     /// the next test's process-wide URLProtocol handler.
     func waitForOfflineCourseDownloadForTesting() async {
         await offlineCourseDownloadTask?.value
+    }
+
+    /// Test-only synchronization point for the app-owned prep queue. Production views never await
+    /// this task: they observe `prepCourseDownloads`, so navigation cannot become its owner.
+    func waitForPrepCourseDownloadForTesting() async {
+        await prepCourseDownloadTask?.value
     }
     #endif
 
@@ -1149,7 +1174,8 @@ public final class LiveRoundAppModel: ObservableObject {
     private func downloadOfflineCourseAssets(
         for initialSnapshot: LiveRoundPackage,
         using syncClient: SyncClient,
-        revalidatePackage: Bool = false
+        revalidatePackage: Bool = false,
+        prepDownloadID: String? = nil
     ) async {
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
@@ -1183,6 +1209,107 @@ public final class LiveRoundAppModel: ObservableObject {
             let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
             let localHole = roundHole.sourceLocalHole ?? roundHole.number
             prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)] = existing
+        }
+
+        func assembledSnapshot() -> LiveRoundPackage {
+            let mapped = snapshot.holes.compactMap { roundHole -> CoursePrepHole? in
+                let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
+                let localHole = roundHole.sourceLocalHole ?? roundHole.number
+                return prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]?
+                    .renumbered(to: roundHole.number)
+            }
+            return snapshot.replacingCoursePrep(CoursePrepPackage(
+                schema: "ai-caddie-course-prep-v1",
+                globalId: snapshot.course.globalId,
+                holes: mapped,
+                missingData: mapped.count == snapshot.holes.count
+                    ? nil
+                    : [CoursePrepMissingData(
+                        label: "offline_course_prep",
+                        reason: "\(mapped.count)/\(snapshot.holes.count) hole maps retained"
+                    )]
+            ))
+        }
+
+        func preparedHoleCount() -> Int {
+            snapshot.holes.reduce(into: 0) { count, roundHole in
+                let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
+                let localHole = roundHole.sourceLocalHole ?? roundHole.number
+                if offlinePrepIsPrecise(prepBySource[
+                    offlinePrepKey(globalId: globalId, localHole: localHole)
+                ]) {
+                    count += 1
+                }
+            }
+        }
+
+        func downloadedHoleCount() -> Int {
+            snapshot.holes.reduce(into: 0) { count, roundHole in
+                let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
+                let localHole = roundHole.sourceLocalHole ?? roundHole.number
+                let prep = prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]
+                guard offlinePrepIsPrecise(prep),
+                      offlineStore.loadCourseTopoImageURL(
+                          globalId: globalId,
+                          localHole: localHole,
+                          geometryRevision: prep?.geometryRevision ?? roundHole.geometryRevision
+                      ) != nil else { return }
+                count += 1
+            }
+        }
+
+        /// Geometry installation and topo rendering are independent stages. Download every hole
+        /// whose precise facts have just become available instead of waiting for the slowest of all
+        /// 18 holes. Each successful bitmap is revision-keyed and atomically durable, so a later
+        /// retry or app relaunch skips it.
+        func downloadNewlyReadyTopoHoles() async {
+            let ready = snapshot.holes.compactMap { roundHole -> (globalId: Int, localHole: Int, geometryRevision: String?)? in
+                let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
+                let localHole = roundHole.sourceLocalHole ?? roundHole.number
+                let prep = prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]
+                let revision = prep?.geometryRevision ?? roundHole.geometryRevision
+                guard offlinePrepIsPrecise(prep),
+                      offlineStore.loadCourseTopoImageURL(
+                          globalId: globalId,
+                          localHole: localHole,
+                          geometryRevision: revision
+                      ) == nil else { return nil }
+                return (globalId, localHole, revision)
+            }
+            for hole in ready {
+                guard !Task.isCancelled else { return }
+                let downloads = await fetchOfflineTopoImages([hole], using: syncClient)
+                guard !Task.isCancelled, let download = downloads.first else { return }
+                guard let data = download.data else {
+                    let errorDescription = download.errorDescription ?? "unknown error"
+                    AICaddieLog.network.info(
+                        "Incremental topo deferred for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(errorDescription, privacy: .public)"
+                    )
+                    continue
+                }
+                do {
+                    _ = try offlineStore.saveCourseTopoImage(
+                        data,
+                        globalId: download.globalId,
+                        localHole: download.localHole,
+                        geometryRevision: download.geometryRevision
+                    )
+                    if let prepDownloadID {
+                        updatePrepCourseDownload(id: prepDownloadID) { state in
+                            state.phase = preparedHoleCount() == snapshot.holes.count
+                                ? .downloading
+                                : .preparing
+                            state.preparedHoles = preparedHoleCount()
+                            state.downloadedHoles = downloadedHoleCount()
+                            state.totalHoles = max(1, snapshot.holes.count)
+                        }
+                    }
+                } catch {
+                    AICaddieLog.storage.error(
+                        "Incremental topo save failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(String(describing: error), privacy: .public)"
+                    )
+                }
+            }
         }
 
         let groups = Dictionary(grouping: snapshot.holes) { hole in
@@ -1254,6 +1381,25 @@ public final class LiveRoundAppModel: ObservableObject {
                     }
                 }
             }
+            if let prepDownloadID {
+                do {
+                    try offlineStore.saveCourseTemplate(assembledSnapshot())
+                } catch {
+                    AICaddieLog.storage.error(
+                        "Incremental prep facts save failed: \(String(describing: error), privacy: .public)"
+                    )
+                }
+                updatePrepCourseDownload(id: prepDownloadID) { state in
+                    state.phase = .preparing
+                    state.preparedHoles = preparedHoleCount()
+                    state.downloadedHoles = downloadedHoleCount()
+                    state.totalHoles = max(1, snapshot.holes.count)
+                }
+            }
+            // Do not hold the first finished holes hostage to the slowest geometry install. This
+            // is the key latency fix for cold courses: cards become locally usable one by one.
+            await downloadNewlyReadyTopoHoles()
+            guard !Task.isCancelled else { return }
             let unresolvedByGlobalId = orderedGlobalIds.reduce(
                 into: [Int: [Int]]()
             ) { unresolved, globalId in
@@ -1300,24 +1446,8 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
 
-        let mappedPrep = snapshot.holes.compactMap { roundHole -> CoursePrepHole? in
-            let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
-            let localHole = roundHole.sourceLocalHole ?? roundHole.number
-            return prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]?
-                .renumbered(to: roundHole.number)
-        }
         guard !Task.isCancelled else { return }
-        let enriched = snapshot.replacingCoursePrep(CoursePrepPackage(
-            schema: "ai-caddie-course-prep-v1",
-            globalId: snapshot.course.globalId,
-            holes: mappedPrep,
-            missingData: mappedPrep.count == snapshot.holes.count
-                ? nil
-                : [CoursePrepMissingData(
-                    label: "offline_course_prep",
-                    reason: "\(mappedPrep.count)/\(snapshot.holes.count) hole maps retained"
-                )]
-        ))
+        let enriched = assembledSnapshot()
 
         // Course facts and topo bitmaps have independent durability. Persist the precise per-hole
         // facts before starting the potentially long bitmap pass; otherwise a force-quit after the
@@ -1335,6 +1465,15 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.storage.error(
                 "Offline course facts save failed: \(String(describing: error), privacy: .public)"
             )
+        }
+
+        if let prepDownloadID {
+            updatePrepCourseDownload(id: prepDownloadID) { state in
+                state.phase = .downloading
+                state.preparedHoles = preparedHoleCount()
+                state.downloadedHoles = downloadedHoleCount()
+                state.totalHoles = max(1, snapshot.holes.count)
+            }
         }
 
         let topoRetryDelays: [UInt64] = [5, 10, 20]
@@ -1377,6 +1516,14 @@ public final class LiveRoundAppModel: ObservableObject {
                         localHole: download.localHole,
                         geometryRevision: download.geometryRevision
                     )
+                    if let prepDownloadID {
+                        updatePrepCourseDownload(id: prepDownloadID) { state in
+                            state.phase = .downloading
+                            state.preparedHoles = preparedHoleCount()
+                            state.downloadedHoles = downloadedHoleCount()
+                            state.totalHoles = max(1, snapshot.holes.count)
+                        }
+                    }
                 } catch {
                     AICaddieLog.storage.error(
                         "Offline topo cache save failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(String(describing: error), privacy: .public)"
@@ -1789,6 +1936,7 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Auto-sync hook for app foreground (scenePhase .active): flush anything still pending.
     public func syncOnForeground() {
+        resumePrepCourseDownloads(retryFailed: true)
         guard !eventSyncSuppressedForUITests, let package else { return }
         let mayHavePendingMedia = (try? offlineStore.loadPendingMedia(
             roundId: package.roundId
@@ -1961,6 +2109,7 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func applyBackendConfiguration(apiBaseURL: URL?, adminToken: String?, preserveInjectedSyncClient: Bool = false) {
+        pausePrepCourseDownload()
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         if !preserveInjectedSyncClient {
@@ -1968,6 +2117,7 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         self.mediaUploadClient = apiBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: adminToken) }
         syncConfigToWatch()
+        startPrepCourseDownloadQueueIfNeeded()
     }
 
     private static func defaultAPIBaseURL(includePersisted: Bool = true) -> URL? {
@@ -2125,8 +2275,227 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
+    // MARK: - Prep course library / resumable downloads
+
+    private func restorePrepCourseDownloadsFromDisk() {
+        let restored = (try? offlineStore.loadPrepCourseDownloads()) ?? []
+        prepCourseDownloads = restored.map { record in
+            guard record.isActive else { return record }
+            var resumable = record
+            resumable.phase = .queued
+            resumable.errorText = nil
+            return resumable
+        }
+        persistPrepCourseDownloads()
+    }
+
+    private func persistPrepCourseDownloads() {
+        prepCourseDownloads.sort { $0.updatedAt > $1.updatedAt }
+        do {
+            try offlineStore.savePrepCourseDownloads(prepCourseDownloads)
+        } catch {
+            AICaddieLog.storage.error(
+                "Prep course download state save failed: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
+    private func updatePrepCourseDownload(
+        id: String,
+        _ update: (inout PrepCourseDownloadRecord) -> Void
+    ) {
+        guard let index = prepCourseDownloads.firstIndex(where: { $0.id == id }) else { return }
+        update(&prepCourseDownloads[index])
+        prepCourseDownloads[index].updatedAt = Date()
+        persistPrepCourseDownloads()
+    }
+
+    private func readyPrepTemplate(for record: PrepCourseDownloadRecord) -> LiveRoundPackage? {
+        guard let template = try? offlineStore.loadCourseTemplate(
+            globalId: record.course.globalId,
+            teeBox: record.teeBox,
+            nine: record.nine
+        ), template.hasCompleteOfflineCoursePrep,
+              offlineStore.hasCourseTopoImages(for: template) else { return nil }
+        return template
+    }
+
+    /// Selecting a catalogue result creates/reattaches to one app-owned job before navigation.
+    /// Reopening the same course never replaces a running task or discards its per-hole progress.
+    public func downloadPrepCourse(_ course: MobileCourseOption) {
+        let teeBox = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTee = teeBox?.isEmpty == false ? teeBox! : "blue"
+        let id = PrepCourseDownloadRecord.key(
+            globalId: course.globalId,
+            teeBox: resolvedTee,
+            nine: "all"
+        )
+        if let existing = prepCourseDownloads.first(where: { $0.id == id }) {
+            if readyPrepTemplate(for: existing) != nil {
+                updatePrepCourseDownload(id: id) { record in
+                    record.phase = .ready
+                    record.preparedHoles = record.totalHoles
+                    record.downloadedHoles = record.totalHoles
+                    record.errorText = nil
+                }
+                return
+            }
+            if existing.id == activePrepCourseDownloadID {
+                return
+            }
+            if existing.phase == .queued {
+                startPrepCourseDownloadQueueIfNeeded()
+                return
+            }
+            updatePrepCourseDownload(id: id) { record in
+                record.phase = .queued
+                record.errorText = nil
+            }
+        } else {
+            prepCourseDownloads.append(PrepCourseDownloadRecord(
+                course: course,
+                teeBox: resolvedTee,
+                totalHoles: course.resolvedHoles
+            ))
+            persistPrepCourseDownloads()
+        }
+        startPrepCourseDownloadQueueIfNeeded()
+    }
+
+    public func retryPrepCourseDownload(id: String) {
+        updatePrepCourseDownload(id: id) { record in
+            record.phase = .queued
+            record.errorText = nil
+        }
+        startPrepCourseDownloadQueueIfNeeded()
+    }
+
+    private func resumePrepCourseDownloads(retryFailed: Bool) {
+        guard syncClient != nil else { return }
+        var changed = false
+        for index in prepCourseDownloads.indices {
+            if prepCourseDownloads[index].id == activePrepCourseDownloadID,
+               prepCourseDownloadTask != nil {
+                continue
+            }
+            let phase = prepCourseDownloads[index].phase
+            if phase == .preparing || phase == .downloading || (retryFailed && phase == .failed) {
+                prepCourseDownloads[index].phase = .queued
+                prepCourseDownloads[index].errorText = nil
+                changed = true
+            }
+        }
+        if changed { persistPrepCourseDownloads() }
+        startPrepCourseDownloadQueueIfNeeded()
+    }
+
+    private func pausePrepCourseDownload() {
+        prepCourseDownloadTask?.cancel()
+        prepCourseDownloadTask = nil
+        prepCourseDownloadGeneration = nil
+        if let id = activePrepCourseDownloadID {
+            updatePrepCourseDownload(id: id) { record in
+                record.phase = .queued
+                record.errorText = nil
+            }
+        }
+        activePrepCourseDownloadID = nil
+    }
+
+    private func startPrepCourseDownloadQueueIfNeeded() {
+        guard prepCourseDownloadTask == nil, syncClient != nil,
+              prepCourseDownloads.contains(where: { $0.phase == .queued }) else { return }
+        let generation = UUID()
+        prepCourseDownloadGeneration = generation
+        prepCourseDownloadTask = Task { [weak self] in
+            await self?.processPrepCourseDownloadQueue(generation: generation)
+        }
+    }
+
+    private func processPrepCourseDownloadQueue(generation: UUID) async {
+        while !Task.isCancelled, prepCourseDownloadGeneration == generation,
+              let next = prepCourseDownloads
+                .filter({ $0.phase == .queued })
+                .sorted(by: { $0.updatedAt > $1.updatedAt })
+                .first {
+            activePrepCourseDownloadID = next.id
+            await runPrepCourseDownload(id: next.id)
+            guard prepCourseDownloadGeneration == generation else { return }
+            activePrepCourseDownloadID = nil
+        }
+        guard prepCourseDownloadGeneration == generation else { return }
+        prepCourseDownloadGeneration = nil
+        prepCourseDownloadTask = nil
+    }
+
+    private func runPrepCourseDownload(id: String) async {
+        guard let syncClient,
+              let record = prepCourseDownloads.first(where: { $0.id == id }) else { return }
+        updatePrepCourseDownload(id: id) { state in
+            state.phase = .preparing
+            state.errorText = nil
+        }
+        do {
+            let fetched = try await syncClient.fetchCoursePackage(
+                globalId: record.course.globalId,
+                roundId: "prep-library-\(record.course.globalId)",
+                teeBox: record.teeBox,
+                nine: record.nine,
+                ensureGeometry: false,
+                backgroundGeometry: true,
+                includeEventCursor: false
+            ).replacingCourseDisplayName(record.course.name)
+            guard !Task.isCancelled else { throw CancellationError() }
+            try offlineStore.saveCourseTemplate(fetched)
+            updatePrepCourseDownload(id: id) { state in
+                state.totalHoles = max(1, fetched.holes.count)
+            }
+            await downloadOfflineCourseAssets(
+                for: fetched,
+                using: syncClient,
+                prepDownloadID: id
+            )
+            guard !Task.isCancelled else { throw CancellationError() }
+            if let current = prepCourseDownloads.first(where: { $0.id == id }),
+               readyPrepTemplate(for: current) != nil {
+                updatePrepCourseDownload(id: id) { state in
+                    state.phase = .ready
+                    state.preparedHoles = state.totalHoles
+                    state.downloadedHoles = state.totalHoles
+                    state.errorText = nil
+                }
+            } else {
+                updatePrepCourseDownload(id: id) { state in
+                    state.phase = .failed
+                    state.errorText = "精确地图仍在准备，点下载可继续"
+                }
+            }
+        } catch is CancellationError {
+            updatePrepCourseDownload(id: id) { state in
+                state.phase = .queued
+                state.errorText = nil
+            }
+        } catch {
+            if Task.isCancelled {
+                updatePrepCourseDownload(id: id) { state in
+                    state.phase = .queued
+                    state.errorText = nil
+                }
+            } else {
+                updatePrepCourseDownload(id: id) { state in
+                    state.phase = .failed
+                    state.errorText = "下载中断，点下载继续"
+                }
+                AICaddieLog.network.error(
+                    "Prep course download failed for \(record.course.globalId, privacy: .public): \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+    }
+
     /// Search the provider-wide catalogue without installing anything. The picker keeps these rows
-    /// ephemeral until the player chooses one and starts the existing selected-course download.
+    /// ephemeral until the player explicitly selects one; only that selected course enters the
+    /// durable prep library above.
     public func searchCourses(
         name: String,
         latitude: Double? = nil,

@@ -2152,7 +2152,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("dismissAfterSelection: false", prep_picker)
         self.assertIn("if mode == .nearbyAndName", course_search)
         self.assertIn('mode == .nameOnly ? "搜索备战球场" : "找球场"', course_search)
-        self.assertIn("installedGlobalIds: Set(downloadedCourseOptions.map(\\.globalId))", prep_picker)
+        # “已准备” is derived from both the ordinary downloaded-course library and a durable prep
+        # job whose on-disk template/topos have reached ready.  The retained rows must also be wired
+        # into the search screen so leaving the detail page does not erase the selected course.
+        self.assertIn("installedGlobalIds: Set(", prep_picker)
+        self.assertIn("downloadedCourseOptions.map(\\.globalId)", prep_picker)
+        self.assertIn("downloads.filter { $0.phase == .ready }", prep_picker)
+        self.assertIn("retainedDownloads: downloads", prep_picker)
+        self.assertIn("onDownload(course)", prep_picker)
         self.assertIn("onNearby: { _, _, _ in [] }", prep_picker)
         self.assertNotIn("requestAuthorization()", prep_picker)
         self.assertNotIn("startUpdatingLocation()", prep_picker)
@@ -2952,7 +2959,11 @@ class MobileContractTests(unittest.TestCase):
         # projected onto (front/back-nine aware); degrades to the flat render with no network / no geo.
         self.assertIn("let globalId: Int?", shot_map_model)
         self.assertIn("let localHole: Int?", shot_map_model)
-        self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: image)", shot_map_view)
+        # Real GPS shots remain visible when a topo bitmap is unavailable.  CourseData fallback
+        # frames deliberately disable pixel editing and never request a prodgeometry topo URL.
+        self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)", shot_map_view)
+        self.assertIn("!sm.usesCourseDataFrame", shot_map_view)
+        self.assertIn("shotMap.usesCourseDataFrame", shot_map_view)
         self.assertIn("RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))", shot_map_view)
         self.assertIn("geometryRevision: shotMap.geometryRevision", shot_map_view)
         # round-9 B: color legend + 横滑翻洞 (TabView .page over the round's holes) + unknown lie → 「—」.

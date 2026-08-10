@@ -69,6 +69,7 @@ class RoundShotMapTests(unittest.TestCase):
         self.assertTrue(out["found"])
         self.assertEqual(out["roundRef"], "r1", "building shot rows must not shadow the round identity")
         self.assertEqual(out["geometryRevision"], "0123456789abcdef")
+        self.assertEqual(out["mapKind"], "prodgeometry")
         self.assertEqual(out["map"]["overlay"]["w"], 720)
         # tee shot already recorded (lie TeeBox) → no synthetic shot prepended.
         self.assertEqual([s["synthetic"] for s in out["shots"]], [False, False])
@@ -135,6 +136,213 @@ class RoundShotMapTests(unittest.TestCase):
         self.assertIsNone(out["map"])
         self.assertTrue(any(r["label"] == "geometry" for r in out["missingData"]))
         load_mesh.assert_not_called()
+
+    def test_stale_release_authority_keeps_real_gps_on_last_playable_geometry(self) -> None:
+        mocks = _geometry_mocks()[1:]
+        for mocker in mocks:
+            mocker.start()
+        try:
+            with patch.object(
+                rsm,
+                "geometry_coverage_for_hole",
+                side_effect=[
+                    {"coverage": "partial", "geometryRevision": None},
+                    {"coverage": "ready", "geometryRevision": "last-good-revision"},
+                ],
+            ):
+                out = rsm.build_round_hole_shot_map(
+                    _data(
+                        [
+                            {
+                                "scorecardId": "r1",
+                                "hole": 1,
+                                "order": 1,
+                                "clubName": "一号木",
+                                "type": "TEE",
+                                "start": {"lat": 40.0, "lon": 116.5, "lie": "TeeBox"},
+                                "end": {"lat": 40.02, "lon": 116.5},
+                                "endLie": "Fairway",
+                            }
+                        ]
+                    ),
+                    "r1",
+                    1,
+                )
+        finally:
+            for mocker in mocks:
+                mocker.stop()
+
+        self.assertEqual(out["geometryRevision"], "last-good-revision")
+        self.assertIsNotNone(out["map"])
+        self.assertEqual(len(out["shots"]), 1)
+        self.assertTrue(out["shots"][0]["gpsAvailable"])
+        self.assertEqual(out["missingData"][0]["label"], "geometry_authority")
+
+    def test_courseview_frame_projects_gps_while_precise_geometry_is_missing(self) -> None:
+        lightweight = {
+            "route_len_m": 240.0,
+            "route": [[0.0, 0.0, 0.0], [0.0, 240.0, 240.0]],
+            "holeImageProjection": {
+                "available": True,
+                "widthPx": 360,
+                "heightPx": 560,
+                "refs": [
+                    {"lat": 40.0, "lon": 116.0, "px": 180.0, "py": 520.0},
+                    {"lat": 40.0, "lon": 116.001, "px": 300.0, "py": 520.0},
+                    {"lat": 40.001, "lon": 116.0, "px": 180.0, "py": 400.0},
+                ],
+            },
+        }
+        source = {
+            "scorecardId": "r1",
+            "hole": 1,
+            "order": 1,
+            "clubName": "7I",
+            "type": "APPROACH",
+            "start": {"lat": 40.0002, "lon": 116.0, "lie": "Fairway"},
+            "end": {"lat": 40.0008, "lon": 116.0},
+            "endLie": "Green",
+        }
+        with patch.object(
+            rsm,
+            "geometry_coverage_for_hole",
+            return_value={"coverage": "missing", "geometryRevision": None},
+        ), patch.object(
+            rsm.course_prep,
+            "lightweight_prep_hole",
+            return_value=lightweight,
+        ), patch.object(rsm.hole_render, "load_mesh") as load_mesh:
+            out = rsm.build_round_hole_shot_map(_data([source]), "r1", 1)
+
+        load_mesh.assert_not_called()
+        self.assertIsNotNone(out["map"])
+        self.assertIsNone(out["map"]["image"])
+        self.assertEqual(out["mapKind"], "courseData")
+        self.assertEqual(out["map"]["overlay"]["w"], 360)
+        factual = next(shot for shot in out["shots"] if not shot["synthetic"])
+        self.assertIsNotNone(factual["end"])
+        self.assertTrue(factual["gpsAvailable"])
+        self.assertIn("CourseView", out["missingData"][0]["reason"])
+
+    def test_courseview_frame_never_replays_precise_pixel_snapshot(self) -> None:
+        lightweight = {
+            "route_len_m": 240.0,
+            "route": [[0.0, 0.0, 0.0], [0.0, 240.0, 240.0]],
+            "holeImageProjection": {
+                "available": True,
+                "widthPx": 360,
+                "heightPx": 560,
+                "refs": [
+                    {"lat": 40.0, "lon": 116.0, "px": 180.0, "py": 520.0},
+                    {"lat": 40.0, "lon": 116.001, "px": 300.0, "py": 520.0},
+                    {"lat": 40.001, "lon": 116.0, "px": 180.0, "py": 400.0},
+                ],
+            },
+        }
+        source = {
+            "id": 77,
+            "scorecardId": "r1",
+            "hole": 1,
+            "order": 1,
+            "clubName": "7I",
+            "type": "APPROACH",
+            "start": {"lat": 40.0002, "lon": 116.0, "lie": "Fairway"},
+            "end": {"lat": 40.0008, "lon": 116.0},
+            "endLie": "Green",
+        }
+        corrections = [
+            {"op": "editField", "shotId": "s:r1:77", "field": "club", "value": "8I"},
+            {"op": "editField", "hole": 1, "shotId": "s:r1:77", "field": "position", "value": [5, 5]},
+            {
+                "op": "replaceHoleShots",
+                "hole": 1,
+                "geometryRevision": "precise-frame-r1",
+                "manualPenalty": 2,
+                "shots": [{"id": "pixel-only", "start": [5, 5], "end": [6, 6]}],
+            },
+        ]
+        with patch.object(
+            rsm,
+            "geometry_coverage_for_hole",
+            return_value={"coverage": "missing", "geometryRevision": None},
+        ), patch.object(
+            rsm.course_prep,
+            "lightweight_prep_hole",
+            return_value=lightweight,
+        ):
+            out = rsm.build_round_hole_shot_map(
+                _data([source]), "r1", 1, corrections=corrections
+            )
+
+        self.assertEqual(out["mapKind"], "courseData")
+        factual = next(shot for shot in out["shots"] if not shot["synthetic"])
+        self.assertEqual(factual["id"], "s:r1:77")
+        self.assertEqual(factual["club"], "8I", "frame-independent edits still apply")
+        self.assertNotEqual(factual["end"], [5, 5])
+        self.assertEqual(out["manualPenalty"], 2)
+        self.assertTrue(any(row["label"] == "position_edits" for row in out["missingData"]))
+
+    def test_no_map_frame_returns_gps_rows_instead_of_erasing_them(self) -> None:
+        source = {
+            "scorecardId": "r1",
+            "hole": 1,
+            "order": 1,
+            "clubName": "7I",
+            "start": {"lat": 40.0, "lon": 116.0, "lie": "Fairway"},
+            "end": {"lat": 40.001, "lon": 116.0},
+            "endLie": "Green",
+        }
+        with patch.object(
+            rsm,
+            "geometry_coverage_for_hole",
+            return_value={"coverage": "missing", "geometryRevision": None},
+        ), patch.object(rsm.course_prep, "lightweight_prep_hole", return_value=None):
+            out = rsm.build_round_hole_shot_map(_data([source]), "r1", 1)
+
+        self.assertIsNone(out["map"])
+        self.assertEqual(len(out["shots"]), 1)
+        self.assertTrue(out["shots"][0]["gpsAvailable"])
+        self.assertIn("1 杆 GPS", out["missingData"][0]["reason"])
+
+    def test_merged_back_nine_selects_second_scorecard_hole_one(self) -> None:
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[
+                {
+                    "id": "merged_r1_r2",
+                    "ids": ["r1", "r2"],
+                    "merged": True,
+                    "frontNineGlobalCourseId": 31794,
+                    "backNineGlobalCourseId": 31794,
+                    "holePars": "4" * 18,
+                    "holes": [{"number": number, "par": 4} for number in range(1, 19)],
+                }
+            ],
+            shots=[
+                {
+                    "scorecardId": "r2",
+                    "hole": 1,
+                    "order": 1,
+                    "clubName": "一号木",
+                    "type": "TEE",
+                    "start": {"lat": 40.0, "lon": 116.5, "lie": "TeeBox"},
+                    "end": {"lat": 40.02, "lon": 116.5},
+                    "endLie": "Fairway",
+                }
+            ],
+        )
+        mocks = _geometry_mocks()
+        for mocker in mocks:
+            mocker.start()
+        try:
+            out = rsm.build_round_hole_shot_map(data, "merged_r1_r2", 10)
+        finally:
+            for mocker in mocks:
+                mocker.stop()
+
+        self.assertEqual(out["hole"], 10)
+        self.assertEqual(out["localHole"], 1)
+        self.assertEqual(len(out["shots"]), 1)
 
     def test_map_image_is_cached_topo_png_not_legacy_render(self):
         # 底图必须来自缓存 topo(PNG data URI),不是旧的 JPEG 现渲(render_hole)。

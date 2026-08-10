@@ -204,6 +204,7 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(merged[0]["strokes"], 91)
         self.assertEqual(merged[0]["holesCompleted"], 18)
         self.assertEqual(merged[0]["holes"][9]["number"], 10)
+        self.assertEqual(merged[0]["backNineGlobalCourseId"], 101)
 
     def test_pin_only_shot_file_is_not_marked_ready(self) -> None:
         from ai_caddie.history import history as history_module

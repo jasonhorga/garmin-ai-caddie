@@ -366,6 +366,14 @@ def merge_same_day_halves(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 **front,
                 "id": f"merged_{front['id']}_{back['id']}",
                 "ids": [front["id"], back["id"]],
+                # The second scorecard is a different physical CourseView loop.  Inheriting the
+                # front row's empty/first-loop value made every displayed hole 10...18 ask for the
+                # wrong geometry even though the back-nine scorecard already carried the authority.
+                "backNineGlobalCourseId": (
+                    back.get("frontNineGlobalCourseId")
+                    or back.get("globalId")
+                    or back.get("courseId")
+                ),
                 "strokes": sum_field("strokes"),
                 "holesCompleted": 18,
                 "course": f"{canon} ~ {front['course'].rsplit('~', 1)[-1].strip()}+{back['course'].rsplit('~', 1)[-1].strip()}",

@@ -18,21 +18,35 @@ public struct CourseReviewView: View {
     private let globalId: Int
     private let holeCount: Int
     private let teeBox: String
+    private let offlineStore: OfflineStore?
+    private let download: PrepCourseDownloadRecord?
     @State private var holes: [CoursePrepHole] = []
     @State private var isLoading = false
     @State private var errorText: String?
 
-    public init(client: SyncClient, globalId: Int, holeCount: Int = 9, teeBox: String? = nil) {
+    public init(
+        client: SyncClient,
+        globalId: Int,
+        holeCount: Int = 9,
+        teeBox: String? = nil,
+        offlineStore: OfflineStore? = nil,
+        download: PrepCourseDownloadRecord? = nil
+    ) {
         self.client = client
         self.globalId = globalId
         self.holeCount = max(1, min(holeCount, 36))
         let trimmedTeeBox = (teeBox ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         self.teeBox = trimmedTeeBox.isEmpty ? "blue" : trimmedTeeBox
+        self.offlineStore = offlineStore
+        self.download = download
     }
 
     public var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 14) {
+                if let download {
+                    downloadBanner(download)
+                }
                 if isLoading {
                     ProgressView("加载中…")
                 }
@@ -40,22 +54,74 @@ public struct CourseReviewView: View {
                     Text("加载失败：\(errorText)").foregroundColor(.red).font(.callout)
                 }
                 ForEach(holes, id: \.hole) { hole in
-                    CourseReviewHoleCard(client: client, globalId: globalId, initialHole: hole)
+                    CourseReviewHoleCard(
+                        client: client,
+                        globalId: globalId,
+                        initialHole: hole,
+                        offlineStore: offlineStore,
+                        managedDownload: download != nil,
+                        managedDownloadFailed: download?.phase == .failed
+                    )
                 }
             }
             .padding()
         }
         .background(HubStyle.grouped)
         .navigationTitle("赛前球场攻略")
-        .task(id: globalId) {
-            // Catalogue search is metadata-only. Selecting a prep course must also start the same
-            // release-bound prodgeometry installation used by Start Round; otherwise every card can
-            // remain on its factual CourseView outline forever. Keep the fast rows progressive while
-            // that server-side upgrade runs in parallel.
+        .task(id: download?.updatedAt) {
+            loadCachedFacts()
+            guard download == nil else { return }
+            // Compatibility for standalone previews. The real prep picker queues an app-owned,
+            // durable download before navigation, so leaving this view never owns/cancels that job.
             async let preciseUpgrade: Void = requestPreciseCourseMaps()
             await load()
             _ = await preciseUpgrade
         }
+    }
+
+    @ViewBuilder
+    private func downloadBanner(_ download: PrepCourseDownloadRecord) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text(downloadStatus(download))
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if download.isActive { ProgressView().controlSize(.small) }
+            }
+            if download.phase == .preparing || download.phase == .downloading {
+                let value = download.phase == .preparing
+                    ? Double(download.preparedHoles) / Double(max(download.totalHoles, 1))
+                    : download.progressFraction
+                ProgressView(value: value)
+                    .tint(LiveHoleStyle.green)
+            }
+            Text("可以返回备战首页；下载会继续，每完成一洞就保存在本机。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .hubCard()
+    }
+
+    private func downloadStatus(_ download: PrepCourseDownloadRecord) -> String {
+        switch download.phase {
+        case .queued: return "等待下载"
+        case .preparing: return "准备精确地图 \(download.preparedHoles)/\(download.totalHoles) 洞"
+        case .downloading: return "保存到本机 \(download.downloadedHoles)/\(download.totalHoles) 洞"
+        case .ready: return "球场已完整保存在本机"
+        case .failed: return download.errorText ?? "下载中断，返回上一页可继续"
+        }
+    }
+
+    private func loadCachedFacts() {
+        guard let offlineStore,
+              let template = try? offlineStore.loadCourseTemplate(
+                  globalId: globalId,
+                  teeBox: teeBox,
+                  nine: "all"
+              ), let prep = template.coursePrep else { return }
+        holes = prep.holes.sorted { $0.hole < $1.hole }
+        isLoading = false
+        errorText = nil
     }
 
     private func requestPreciseCourseMaps() async {
@@ -128,6 +194,9 @@ private struct CourseReviewHoleCard: View {
     let client: SyncClient
     let globalId: Int
     let initialHole: CoursePrepHole
+    let offlineStore: OfflineStore?
+    let managedDownload: Bool
+    let managedDownloadFailed: Bool
 
     @State private var renderedHole: CoursePrepHole?
     @State private var isLoadingMap = false
@@ -139,18 +208,32 @@ private struct CourseReviewHoleCard: View {
     var body: some View {
         HolePrepCard(
             hole: hole,
-            topoURL: SyncClient.topoImageURL(
-                baseURL: client.baseURL,
-                globalId: globalId,
-                localHole: initialHole.hole,
-                geometryRevision: hole.geometryRevision
-            ),
-            isLoadingMap: isLoadingMap,
-            mapUnavailable: mapUnavailable,
+            topoURL: topoURL,
+            isLoadingMap: isLoadingMap || (managedDownload && !managedDownloadFailed),
+            mapUnavailable: mapUnavailable || managedDownloadFailed,
             onRetryMap: retryPreciseMap,
             requiresPreciseMap: true
         )
-        .task(id: initialHole.hole) { await loadMapIfNeeded() }
+        .task(id: initialHole.hole) {
+            guard !managedDownload else { return }
+            await loadMapIfNeeded()
+        }
+    }
+
+    private var topoURL: URL? {
+        if let local = offlineStore?.loadCourseTopoImageURL(
+            globalId: globalId,
+            localHole: initialHole.hole,
+            geometryRevision: hole.geometryRevision
+        ) {
+            return local
+        }
+        return SyncClient.topoImageURL(
+            baseURL: client.baseURL,
+            globalId: globalId,
+            localHole: initialHole.hole,
+            geometryRevision: hole.geometryRevision
+        )
     }
 
     @MainActor

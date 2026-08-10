@@ -5,8 +5,12 @@ import SwiftUI
 public struct PrepCoursePickerView: View {
     public let courseOptions: [MobileCourseOption]
     public let downloadedCourseOptions: [MobileCourseOption]
+    public let downloads: [PrepCourseDownloadRecord]
     public let apiBaseURL: URL?
     public let adminToken: String?
+    public let offlineStore: OfflineStore?
+    public let onDownload: (MobileCourseOption) -> Void
+    public let onRetryDownload: (String) -> Void
 
     /// `MobileCourseSearchView` owns the shared catalogue-search UI. In `.nameOnly` mode this
     /// provider is never started and Core Location permission is never requested.
@@ -16,13 +20,21 @@ public struct PrepCoursePickerView: View {
     public init(
         courseOptions: [MobileCourseOption],
         downloadedCourseOptions: [MobileCourseOption] = [],
+        downloads: [PrepCourseDownloadRecord] = [],
         apiBaseURL: URL?,
-        adminToken: String?
+        adminToken: String?,
+        offlineStore: OfflineStore? = nil,
+        onDownload: @escaping (MobileCourseOption) -> Void = { _ in },
+        onRetryDownload: @escaping (String) -> Void = { _ in }
     ) {
         self.courseOptions = courseOptions
         self.downloadedCourseOptions = downloadedCourseOptions
+        self.downloads = downloads
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.offlineStore = offlineStore
+        self.onDownload = onDownload
+        self.onRetryDownload = onRetryDownload
     }
 
     public var body: some View {
@@ -30,10 +42,16 @@ public struct PrepCoursePickerView: View {
             locationProvider: locationProvider,
             mode: .nameOnly,
             dismissAfterSelection: false,
-            installedGlobalIds: Set(downloadedCourseOptions.map(\.globalId)),
+            installedGlobalIds: Set(
+                downloadedCourseOptions.map(\.globalId)
+                    + downloads.filter { $0.phase == .ready }.map { $0.course.globalId }
+            ),
+            retainedDownloads: downloads,
             onSearch: searchCourses,
             onNearby: { _, _, _ in [] },
-            onSelect: selectSearchResult
+            onSelect: selectSearchResult,
+            onOpenRetainedDownload: openRetainedDownload,
+            onRetryRetainedDownload: onRetryDownload
         )
         .navigationDestination(isPresented: selectedCoursePresented) {
             if let course = selectedCourse, let apiBaseURL {
@@ -41,7 +59,9 @@ public struct PrepCoursePickerView: View {
                     client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken),
                     globalId: course.globalId,
                     holeCount: course.resolvedHoles,
-                    teeBox: course.teeBox
+                    teeBox: course.teeBox,
+                    offlineStore: offlineStore,
+                    download: downloads.first(where: { $0.course.globalId == course.globalId })
                 )
             }
         }
@@ -68,7 +88,16 @@ public struct PrepCoursePickerView: View {
         _ matches: [MobileCourseSearchMatch]
     ) {
         _ = matches
-        selectedCourse = resolvedOption(for: selected)
+        guard let course = resolvedOption(for: selected) else { return }
+        onDownload(course)
+        selectedCourse = course
+    }
+
+    private func openRetainedDownload(_ download: PrepCourseDownloadRecord) {
+        if download.phase == .failed {
+            onRetryDownload(download.id)
+        }
+        selectedCourse = download.course
     }
 
     private func resolvedOption(for match: MobileCourseSearchMatch) -> MobileCourseOption? {

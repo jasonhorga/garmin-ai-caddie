@@ -468,6 +468,9 @@ class RoundHoleShotMapResponse(BaseModel):
     globalId: int | None = None
     localHole: int | None = None
     geometryRevision: str | None = None
+    # Pixel-space corrections are valid only in prodgeometry. courseData is a factual Garmin
+    # affine fallback used read-only while the precise bundle is unavailable.
+    mapKind: Literal["prodgeometry", "courseData"] | None = None
     map: dict[str, Any] | None = None
     shots: list[dict[str, Any]] = Field(default_factory=list)
     # 这一洞手填的罚杆数(复盘修改层,默认 0)。洞分 = 记录到的杆数 + 这个数。

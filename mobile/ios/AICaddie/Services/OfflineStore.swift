@@ -563,6 +563,7 @@ public final class OfflineStore {
     private var currentPackageURL: URL
     private var homePackageURL: URL
     private var liveProgressURL: URL
+    private var prepCourseDownloadsURL: URL
     private var pendingMediaDirectoryURL: URL
     private var pendingMediaIndexURL: URL
     private let encoder: JSONEncoder
@@ -650,6 +651,7 @@ public final class OfflineStore {
         self.currentPackageURL = resolvedDirectory.appendingPathComponent("current_package.json")
         self.homePackageURL = resolvedDirectory.appendingPathComponent("home_package.json")
         self.liveProgressURL = resolvedDirectory.appendingPathComponent("live_progress.json")
+        self.prepCourseDownloadsURL = resolvedDirectory.appendingPathComponent("prep_course_downloads.json")
         self.pendingMediaDirectoryURL = resolvedDirectory.appendingPathComponent(
             "pending_media",
             isDirectory: true
@@ -707,6 +709,7 @@ public final class OfflineStore {
         currentPackageURL = directory.appendingPathComponent("current_package.json")
         homePackageURL = directory.appendingPathComponent("home_package.json")
         liveProgressURL = directory.appendingPathComponent("live_progress.json")
+        prepCourseDownloadsURL = directory.appendingPathComponent("prep_course_downloads.json")
         pendingMediaDirectoryURL = directory.appendingPathComponent(
             "pending_media",
             isDirectory: true
@@ -723,6 +726,7 @@ public final class OfflineStore {
             "current_package.json",
             "home_package.json",
             "live_progress.json",
+            "prep_course_downloads.json",
             "pending_media",
             "pending_media.jsonl",
         ]
@@ -898,6 +902,30 @@ public final class OfflineStore {
                 return lhs.generatedAt > rhs.generatedAt
             }
             .first
+    }
+
+    /// Account-scoped prep library / resumable job list. The selected course metadata is tiny; the
+    /// actual immutable topo assets remain in the existing revision-keyed shared cache.
+    public func savePrepCourseDownloads(_ records: [PrepCourseDownloadRecord]) throws {
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let retained = Array(
+            Dictionary(grouping: records, by: \.id)
+                .compactMap { $0.value.max(by: { $0.updatedAt < $1.updatedAt }) }
+                .sorted { $0.updatedAt > $1.updatedAt }
+                .prefix(12)
+        )
+        try encoder.encode(retained).write(to: prepCourseDownloadsURL, options: [.atomic])
+    }
+
+    public func loadPrepCourseDownloads() throws -> [PrepCourseDownloadRecord] {
+        guard FileManager.default.fileExists(atPath: prepCourseDownloadsURL.path) else { return [] }
+        let records = try decoder.decode(
+            [PrepCourseDownloadRecord].self,
+            from: Data(contentsOf: prepCourseDownloadsURL)
+        )
+        return records
+            .filter { $0.course.globalId > 0 && $0.totalHoles > 0 }
+            .sorted { $0.updatedAt > $1.updatedAt }
     }
 
     /// Persist a validated topo bitmap independently from the round identity. CourseView globalId +

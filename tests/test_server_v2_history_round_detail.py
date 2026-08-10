@@ -116,6 +116,44 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual(payload["holeDetails"][1]["globalId"], 222222)
         self.assertEqual(payload["holeDetails"][1]["localHole"], 1)
 
+    def test_merged_local_scorecards_remap_member_shots_to_display_holes(self) -> None:
+        merged_id = "merged_710001_710002"
+        row = {
+            "id": merged_id,
+            "ids": [710001, 710002],
+            "merged": True,
+            "date": "2026-05-26",
+            "course": "Two Loop Course",
+            "courseKey": "two_loop",
+            "courseId": 111111,
+            "frontNineGlobalCourseId": 111111,
+            "backNineGlobalCourseId": 222222,
+            "holesCompleted": 18,
+            "strokes": 80,
+            "par": 72,
+            "holePars": "4" * 18,
+            "holes": [
+                {"number": number, "strokes": 4, "par": 4, "putts": 2}
+                for number in range(1, 19)
+            ],
+            "hasShots": True,
+        }
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[row],
+            shots=[
+                {"scorecardId": 710001, "hole": 1, "order": 1, "clubName": "1W"},
+                {"scorecardId": 710002, "hole": 1, "order": 1, "clubName": "3W"},
+            ],
+        )
+
+        payload = build_history_round_detail(data, merged_id)
+
+        self.assertEqual(len(payload["scorecard"][0]["shotRefs"]), 1)
+        self.assertEqual(len(payload["scorecard"][9]["shotRefs"]), 1)
+        self.assertTrue(payload["scorecard"][0]["shotRefs"][0].startswith(f"{merged_id}:1:"))
+        self.assertTrue(payload["scorecard"][9]["shotRefs"][0].startswith(f"{merged_id}:10:"))
+
     def test_round_detail_renders_full_18_for_a_9_of_18_round(self) -> None:
         # round-12 bug: playing 9 holes on an 18-hole course (real hole numbers spanning both nines)
         # must render the FULL 18-hole card (played holes filled, the rest blank) — NOT collapse to a

@@ -64,11 +64,53 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
     }
 
+    func testPrepCourseDownloadIntentPersistsForRelaunchResume() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let course = MobileCourseOption(
+            globalId: 778899,
+            name: "Resume Course",
+            holes: 18,
+            teeBox: "white"
+        )
+        let record = PrepCourseDownloadRecord(
+            course: course,
+            teeBox: "white",
+            phase: .downloading,
+            preparedHoles: 11,
+            downloadedHoles: 7,
+            totalHoles: 18,
+            errorText: nil
+        )
+
+        try store.savePrepCourseDownloads([record])
+        let reopened = OfflineStore(directoryURL: directory)
+        let restored = try XCTUnwrap(reopened.loadPrepCourseDownloads().first)
+
+        XCTAssertEqual(restored.id, "778899:white:all")
+        XCTAssertEqual(restored.phase, .downloading)
+        XCTAssertEqual(restored.preparedHoles, 11)
+        XCTAssertEqual(restored.downloadedHoles, 7)
+        XCTAssertEqual(restored.course.name, "Resume Course")
+    }
+
     func testAccountScopesNeverReuseAnotherPlayersPackageEventsOrTemplate() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
         let package = try localFixturePackage()
+        let prepDownload = PrepCourseDownloadRecord(
+            course: MobileCourseOption(
+                globalId: package.course.globalId,
+                name: package.course.name,
+                holes: package.holes.count,
+                teeBox: package.course.teeBox
+            ),
+            phase: .downloading,
+            preparedHoles: 1,
+            totalHoles: package.holes.count
+        )
         let accountAEvent = LiveRoundEvent(
             eventId: "account-a-score",
             roundId: package.roundId,
@@ -83,6 +125,7 @@ final class OfflineStoreTests: XCTestCase {
         try store.saveRoundPackage(package)
         try store.saveHomePackage(package)
         try store.appendEvent(accountAEvent)
+        try store.savePrepCourseDownloads([prepDownload])
         XCTAssertTrue(try store.saveCourseTopoImage(
             png,
             globalId: package.course.globalId,
@@ -92,6 +135,7 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
         XCTAssertEqual(try store.loadEvents(), [accountAEvent])
         XCTAssertFalse(try store.loadCourseTemplates().isEmpty)
+        XCTAssertEqual(try store.loadPrepCourseDownloads(), [prepDownload])
 
         // A new family member gets a clean personal scope, but can reuse factual map pixels.
         store.bindAccount(playerId: "player-b", migrateLegacyData: false)
@@ -99,6 +143,7 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertNil(try store.loadHomePackage())
         XCTAssertTrue(try store.loadEvents().isEmpty)
         XCTAssertTrue(try store.loadCourseTemplates().isEmpty)
+        XCTAssertTrue(try store.loadPrepCourseDownloads().isEmpty)
         XCTAssertEqual(
             store.loadCourseTopoImage(globalId: package.course.globalId, localHole: 1),
             png
@@ -119,6 +164,7 @@ final class OfflineStoreTests: XCTestCase {
         store.bindAccount(playerId: "player-a", migrateLegacyData: false)
         XCTAssertEqual(try store.loadEvents(), [accountAEvent])
         XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
+        XCTAssertEqual(try store.loadPrepCourseDownloads(), [prepDownload])
     }
 
     func testCourseTemplateSurvivesRoundDiscardAndRebasesWithoutOldIdentityOrCursor() throws {
@@ -165,6 +211,12 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(seed.sourceRef, expectedSeedRef)
         XCTAssertEqual(seed.context["roundId"], .string("offline-new-round"))
         XCTAssertEqual(seed.context["sourceRef"], .string(expectedSeedRef))
+        XCTAssertEqual(rebased.weatherSnapshot, .offlineRefreshPending)
+        XCTAssertNotEqual(
+            seed.context["weatherSnapshot"],
+            oldSeed.context["weatherSnapshot"],
+            "prep-day weather must never be presented as live weather in a later round"
+        )
         XCTAssertFalse(seed.offlineOptions.isEmpty)
         XCTAssertTrue(seed.offlineOptions.allSatisfy { option in
             option.sourceRefs.contains(expectedSeedRef)

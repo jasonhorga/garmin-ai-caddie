@@ -166,7 +166,7 @@ public struct LiveRoundPackage: Codable, Equatable {
     /// are therefore intentionally absent from this new identity.
     public func rebasedForOfflineStart(roundId: String, generatedAt: Date = Date()) -> LiveRoundPackage {
         let rebasedSeeds = caddieContextSeeds.map {
-            $0.rebasedForOfflineStart(roundId: roundId)
+            $0.rebasedForOfflineStart(roundId: roundId, discardDynamicWeather: true)
         }
         var rebasedSeedRefs: [String: String] = [:]
         for (oldSeed, newSeed) in zip(caddieContextSeeds, rebasedSeeds) {
@@ -204,7 +204,10 @@ public struct LiveRoundPackage: Codable, Equatable {
                 )
             },
             caddieContextSeeds: rebasedSeeds,
-            weatherSnapshot: weatherSnapshot,
+            // A course template can live for weeks. Its map, clubs and historical evidence remain
+            // reusable, but its weather does not. Online revalidation supplies a fresh snapshot;
+            // an offline start stays honest and makes no wind adjustment from prep-day conditions.
+            weatherSnapshot: .offlineRefreshPending,
             clubProfiles: clubProfiles,
             caddieDecisionEndpoint: caddieDecisionEndpoint,
             offlinePackageStatus: offlinePackageStatus,
@@ -402,13 +405,30 @@ public struct CaddieContextSeed: Codable, Equatable, Identifiable {
     /// A cached seed contains both reusable golf evidence and identity that belongs to the round
     /// which originally downloaded it. Rebind only that runtime identity. Historical shot samples
     /// remain untouched so the recommendation keeps its real provenance.
-    public func rebasedForOfflineStart(roundId: String) -> CaddieContextSeed {
+    public func rebasedForOfflineStart(
+        roundId: String,
+        discardDynamicWeather: Bool = false
+    ) -> CaddieContextSeed {
         let nextSourceRef = "\(roundId):\(hole)"
         var nextContext = context.mapValues {
             $0.replacingExactString(sourceRef, with: nextSourceRef)
         }
         nextContext["roundId"] = .string(roundId)
         nextContext["sourceRef"] = .string(nextSourceRef)
+        if discardDynamicWeather {
+            nextContext["weatherSnapshot"] = .object([
+                "schema": .string("ai-caddie-weather-snapshot-v1"),
+                "state": .string("missing"),
+                "source": .string("missing"),
+                "confidence": .string("low"),
+                "missingData": .array([
+                    .object([
+                        "label": .string("weather_values"),
+                        "reason": .string("course template weather is stale; refresh required"),
+                    ])
+                ]),
+            ])
+        }
 
         return CaddieContextSeed(
             hole: hole,
@@ -534,11 +554,27 @@ public struct WeatherSnapshot: Codable, Equatable {
     public let source: String
     public let confidence: String
     public let missingData: [WeatherMissingData]
+
+    public static let offlineRefreshPending = WeatherSnapshot(
+        schema: "ai-caddie-weather-snapshot-v1",
+        state: "missing",
+        source: "missing",
+        confidence: "low",
+        missingData: [WeatherMissingData(
+            label: "weather_values",
+            reason: "course template weather is stale; refresh required"
+        )]
+    )
 }
 
 public struct WeatherMissingData: Codable, Equatable {
     public let label: String
     public let reason: String
+
+    public init(label: String, reason: String) {
+        self.label = label
+        self.reason = reason
+    }
 }
 
 public struct ClubProfile: Codable, Equatable, Identifiable {

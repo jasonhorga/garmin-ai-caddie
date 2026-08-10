@@ -25,16 +25,16 @@ public struct RoundShotMapView: View {
 
     public var body: some View {
         #if canImport(UIKit)
-        if let image = decodedImage, let overlay = shotMap.map?.overlay, overlay.w > 0, overlay.h > 0 {
+        if let overlay = shotMap.map?.overlay, overlay.w > 0, overlay.h > 0 {
             ZStack {
-                TopoHoleBaseImage(topoURL: topoURL, fallback: image)
+                TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)
                 Canvas { context, size in
                     draw(&context, size: size, overlay: overlay)
                 }
             }
             .aspectRatio(CGFloat(overlay.w) / CGFloat(overlay.h), contentMode: .fit)
             .overlay {
-                if let editModel {
+                if let editModel, let image = decodedImage {
                     RoundShotEditLayer(editModel: editModel, overlay: overlay, clubs: editClubs,
                                        baseImage: image, topoURL: topoURL)
                 }
@@ -255,7 +255,8 @@ public struct RoundHoleShotMapScreen: View {
         .background(HubStyle.grouped)
         .navigationTitle(showsNavigationTitle ? "第 \(hole) 洞 · 落点" : "")
         .toolbar {
-            if let sm = shotMap, sm.found, sm.map != nil, editModel != nil {
+            if let sm = shotMap, sm.found, !sm.usesCourseDataFrame,
+               sm.geometryRevision != nil, sm.map?.image != nil, editModel != nil {
                 if isEditing {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button("取消") { cancelEditing() }
@@ -316,10 +317,30 @@ public struct RoundHoleShotMapScreen: View {
                 }
             }
             .padding(14)
+        } else if let shotMap, shotMap.found, !shotMap.shots.isEmpty {
+            VStack(spacing: 12) {
+                Label(
+                    shotMap.missingData.first?.reason
+                        ?? "已找到逐杆 GPS，球场地图素材正在准备",
+                    systemImage: "location.fill"
+                )
+                .font(.subheadline)
+                .foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .hubCard()
+                shotListCard(shotMap)
+            }
+            .padding(14)
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "scope").font(.title).foregroundStyle(.secondary)
-                Text(errorText ?? "这一洞暂无落点数据").font(.subheadline).foregroundStyle(.secondary)
+                Text(
+                    errorText
+                        ?? shotMap?.missingData.first?.reason
+                        ?? "这一洞暂无落点数据"
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 40).hubCard()
         }
@@ -341,7 +362,11 @@ public struct RoundHoleShotMapScreen: View {
     /// Topo base-image URL for this hole's render — the physical (gid, localHole) the shot map was
     /// projected onto. nil (→ flat fallback) when the round has no course geometry or no base URL.
     private func topoURL(for shotMap: RoundHoleShotMap) -> URL? {
-        guard let apiBaseURL, let gid = shotMap.globalId, let local = shotMap.localHole else { return nil }
+        guard let apiBaseURL,
+              let gid = shotMap.globalId,
+              let local = shotMap.localHole,
+              shotMap.geometryRevision != nil,
+              !shotMap.usesCourseDataFrame else { return nil }
         return SyncClient.topoImageURL(
             baseURL: apiBaseURL,
             globalId: gid,
@@ -362,7 +387,9 @@ public struct RoundHoleShotMapScreen: View {
             let sync = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
             let m = try await sync.fetchRoundShotMap(roundRef: roundRef, hole: hole)
             shotMap = m
-            editModel = RoundEditModel(map: m, sync: sync, roundRef: roundRef)
+            editModel = m.usesCourseDataFrame || m.geometryRevision == nil || m.map?.image == nil
+                ? nil
+                : RoundEditModel(map: m, sync: sync, roundRef: roundRef)
         } catch {
             errorText = "这一洞落点暂时取不到"
         }

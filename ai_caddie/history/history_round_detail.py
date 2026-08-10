@@ -28,7 +28,7 @@ def build_history_round_detail(
         return _missing_round_detail(ref)
 
     canonical_ref = _round_id(round_row)
-    shots = _shots_for_round(data, canonical_ref)
+    shots = _shots_for_round(data, round_row)
     shots_by_hole = _shots_by_hole(shots)
     scorecard = _scorecard(round_row, shots_by_hole)
     hole_details = _hole_details(round_row, shots_by_hole)
@@ -122,12 +122,40 @@ def _round_aliases(data: HistoryData) -> dict[str, dict[str, Any]]:
     return aliases
 
 
-def _shots_for_round(data: HistoryData, round_ref: str) -> list[tuple[int, dict[str, Any]]]:
-    return [
-        (index, shot)
-        for index, shot in enumerate(data.shots)
-        if _shot_round_id(shot) == round_ref
-    ]
+def _shots_for_round(
+    data: HistoryData,
+    round_row: dict[str, Any],
+) -> list[tuple[int, dict[str, Any]]]:
+    """Return one display-round view without mutating the normalized source shots.
+
+    Local Garmin history keeps the two member scorecard IDs (and each member's physical hole
+    1...9).  A merged 18-hole scorecard renumbers only the second scorecard to display holes
+    10...18.  The old exact-ID lookup therefore returned zero rows for the merged ID.  Preserve the
+    raw ``scorecardId``/``localHole`` as provenance while assigning the canonical round identity and
+    display hole on copies consumed by this detail response.
+    """
+    canonical_ref = _round_id(round_row)
+    source_ids = [str(value) for value in (round_row.get("ids") or [canonical_ref])]
+    # Some ordinary rounds carry only alternate aliases in `ids`; source shots still use the
+    # canonical row id. A merged row, by contrast, carries the two physical member scorecard ids.
+    member_set = {canonical_ref, *source_ids}
+    back_id = source_ids[1] if round_row.get("merged") and len(source_ids) >= 2 else None
+    selected: list[tuple[int, dict[str, Any]]] = []
+    for index, shot in enumerate(data.shots):
+        source_id = str(shot.get("scorecardId") or shot.get("roundId") or "")
+        if source_id not in member_set:
+            continue
+        row = dict(shot)
+        try:
+            source_hole = int(row.get("hole") or 0)
+        except (TypeError, ValueError):
+            source_hole = 0
+        row["roundId"] = canonical_ref
+        if source_hole > 0:
+            row["localHole"] = row.get("localHole") or source_hole
+            row["hole"] = source_hole + (9 if source_id == back_id else 0)
+        selected.append((index, row))
+    return selected
 
 
 def _shots_by_hole(shots: list[tuple[int, dict[str, Any]]]) -> dict[int, list[tuple[int, dict[str, Any]]]]:

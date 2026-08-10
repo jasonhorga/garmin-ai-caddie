@@ -190,6 +190,116 @@ private func capturedRequestBodyData(from request: URLRequest) throws -> Data {
 
 @MainActor
 final class LiveRoundAppModelTests: XCTestCase {
+    func testPersistedPrepDownloadResumesAndSameCourseReattachesWithoutRestarting() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let course = MobileCourseOption(
+            globalId: source.course.globalId,
+            name: source.course.name,
+            holes: source.holes.count,
+            teeBox: source.course.teeBox
+        )
+        try store.savePrepCourseDownloads([
+            PrepCourseDownloadRecord(
+                course: course,
+                phase: .downloading,
+                preparedHoles: 0,
+                downloadedHoles: 0,
+                totalHoles: source.holes.count
+            ),
+        ])
+
+        let packageData = try JSONEncoder().encode(source)
+        let prepData = try offlinePrepResponseData(
+            for: source,
+            geometryRevision: "dddddddddddddddd"
+        )
+        let png = minimalPNGData()
+        let requestLock = NSLock()
+        var packageRequestCount = 0
+        var prepRequestCount = 0
+        var topoRequestCount = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let responseData: Data
+            let contentType: String
+            switch url.path {
+            case "/api/v2/mobile/courses/\(source.course.globalId)/package":
+                requestLock.withLock { packageRequestCount += 1 }
+                responseData = packageData
+                contentType = "application/json"
+            case "/api/v2/courses/\(source.course.globalId)/prep":
+                requestLock.withLock { prepRequestCount += 1 }
+                responseData = prepData
+                contentType = "application/json"
+            case "/api/v2/courses/\(source.course.globalId)/holes/1/topo.png":
+                requestLock.withLock { topoRequestCount += 1 }
+                responseData = png
+                contentType = "image/png"
+            default:
+                throw URLError(.unsupportedURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": contentType]
+                )!,
+                responseData
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://prep-resume.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .queued)
+        model.syncOnForeground()
+        await model.waitForPrepCourseDownloadForTesting()
+
+        let finished = try XCTUnwrap(model.prepCourseDownloads.first)
+        XCTAssertEqual(finished.phase, .ready)
+        XCTAssertEqual(finished.preparedHoles, 1)
+        XCTAssertEqual(finished.downloadedHoles, 1)
+        XCTAssertEqual(try store.loadPrepCourseDownloads().first?.phase, .ready)
+        let template = try XCTUnwrap(store.loadCourseTemplate(
+            globalId: course.globalId,
+            teeBox: source.course.teeBox,
+            nine: "all"
+        ))
+        XCTAssertTrue(template.hasCompleteOfflineCoursePrep)
+        XCTAssertTrue(store.hasCourseTopoImages(for: template))
+        XCTAssertEqual(requestLock.withLock { packageRequestCount }, 1)
+        XCTAssertEqual(requestLock.withLock { prepRequestCount }, 1)
+        XCTAssertEqual(requestLock.withLock { topoRequestCount }, 1)
+
+        model.downloadPrepCourse(course)
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertEqual(requestLock.withLock { packageRequestCount }, 1)
+        XCTAssertEqual(requestLock.withLock { prepRequestCount }, 1)
+        XCTAssertEqual(
+            requestLock.withLock { topoRequestCount },
+            1,
+            "opening an already-ready retained course must adopt disk state, not restart downloads"
+        )
+    }
+
     func testReadyForegroundPrepIsDurablePreservesOtherHolesAndRenumbersCompositeBackNine() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

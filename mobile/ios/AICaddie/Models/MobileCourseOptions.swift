@@ -201,3 +201,68 @@ public struct MobileCourseOption: Codable, Equatable, Identifiable {
         self.tees = tees
     }
 }
+
+public enum PrepCourseDownloadPhase: String, Codable, Equatable {
+    case queued
+    case preparing
+    case downloading
+    case ready
+    case failed
+}
+
+/// Durable library row for one explicitly selected prep course. Search results remain metadata-only;
+/// only a course the player opens/downloads is retained here and installed into OfflineStore.
+public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
+    public let id: String
+    public let course: MobileCourseOption
+    public let teeBox: String
+    public let nine: String
+    public var phase: PrepCourseDownloadPhase
+    public var preparedHoles: Int
+    public var downloadedHoles: Int
+    public var totalHoles: Int
+    public var updatedAt: Date
+    public var errorText: String?
+
+    public init(
+        course: MobileCourseOption,
+        teeBox: String? = nil,
+        nine: String = "all",
+        phase: PrepCourseDownloadPhase = .queued,
+        preparedHoles: Int = 0,
+        downloadedHoles: Int = 0,
+        totalHoles: Int? = nil,
+        updatedAt: Date = Date(),
+        errorText: String? = nil
+    ) {
+        let rawTee = (teeBox ?? course.teeBox ?? "blue")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTee = rawTee.isEmpty ? "blue" : rawTee
+        let resolvedNine = nine.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        self.id = Self.key(globalId: course.globalId, teeBox: resolvedTee, nine: resolvedNine)
+        self.course = course
+        self.teeBox = resolvedTee
+        self.nine = resolvedNine.isEmpty ? "all" : resolvedNine
+        self.phase = phase
+        self.preparedHoles = max(0, preparedHoles)
+        self.downloadedHoles = max(0, downloadedHoles)
+        self.totalHoles = max(1, totalHoles ?? course.resolvedHoles)
+        self.updatedAt = updatedAt
+        self.errorText = errorText
+    }
+
+    public static func key(globalId: Int, teeBox: String, nine: String = "all") -> String {
+        let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let selection = nine.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return "\(globalId):\(tee.isEmpty ? "blue" : tee):\(selection.isEmpty ? "all" : selection)"
+    }
+
+    public var isActive: Bool {
+        phase == .queued || phase == .preparing || phase == .downloading
+    }
+
+    public var progressFraction: Double {
+        guard totalHoles > 0 else { return 0 }
+        return min(max(Double(downloadedHoles) / Double(totalHoles), 0), 1)
+    }
+}

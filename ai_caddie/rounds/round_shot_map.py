@@ -16,6 +16,7 @@ so the client can render them faded/dashed and 复盘 stays honest about what is
 from __future__ import annotations
 
 import base64
+import math
 from typing import Any
 
 from ai_caddie.core.data import clean_club_name
@@ -67,6 +68,162 @@ def _par_for(row: dict[str, Any], hole: int) -> int | None:
         if isinstance(entry, dict) and _int(entry.get("number")) == hole:
             return _int(entry.get("par"))
     return None
+
+
+def _display_hole_for_shot(row: dict[str, Any], shot: dict[str, Any]) -> int | None:
+    """Map a member scorecard's physical hole to the merged round's display hole."""
+    source_hole = _int(shot.get("hole"))
+    if source_hole is None:
+        return None
+    ids = [str(value) for value in (row.get("ids") or [row.get("id")])]
+    source_id = str(shot.get("scorecardId") or shot.get("roundId") or "")
+    if row.get("merged") and len(ids) >= 2 and source_id == ids[1]:
+        return source_hole + 9
+    return source_hole
+
+
+def _source_shots_for_hole(
+    data: HistoryData,
+    row: dict[str, Any],
+    hole: int,
+    corrections: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Select source shots before map preparation, keeping GPS independent from geometry."""
+    round_ids = _round_ids(row)
+    reorder = round_corrections.reorder_map(corrections)
+    selected: list[dict[str, Any]] = []
+    for source in data.shots:
+        source_id = str(source.get("scorecardId") or source.get("roundId") or "")
+        display_hole = _display_hole_for_shot(row, source)
+        if source_id not in round_ids or display_hole != hole:
+            continue
+        shot = dict(source)
+        shot["localHole"] = shot.get("localHole") or _int(shot.get("hole"))
+        shot["hole"] = display_hole
+        selected.append(shot)
+    selected.sort(
+        key=lambda shot: reorder.get(
+            round_corrections.mint_shot_id(shot),
+            10_000 + (_int(shot.get("order")) or 0),
+        )
+    )
+    return round_corrections.apply_corrections(selected, corrections)
+
+
+def _unprojected_shot_rows(shots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Retain honest per-shot facts when no factual map frame is available yet."""
+    rows: list[dict[str, Any]] = []
+    for shot in shots:
+        start = shot.get("start") if isinstance(shot.get("start"), dict) else {}
+        end = shot.get("end") if isinstance(shot.get("end"), dict) else {}
+        rows.append(
+            {
+                "id": round_corrections.mint_shot_id(shot),
+                "start": None,
+                "end": None,
+                "club": clean_club_name(shot.get("clubName")),
+                "lie": start.get("lie"),
+                "endLie": shot.get("endLie"),
+                "shotType": shot.get("type"),
+                "order": _int(shot.get("order")),
+                "synthetic": False,
+                "gpsAvailable": all(
+                    value is not None
+                    for value in (
+                        start.get("lat"), start.get("lon"), end.get("lat"), end.get("lon")
+                    )
+                ),
+            }
+        )
+    return rows
+
+
+def _lightweight_map_frame(
+    global_id: int,
+    local_hole: int,
+) -> tuple[dict[str, Any], Any, Any] | None:
+    """Build a factual CourseView-only overlay and WGS84 affine projection.
+
+    This is not a fabricated hole outline: it uses Garmin CourseView's cached route and the exact
+    three geo/pixel anchors already shipped to phone and watch while prodgeometry is preparing.
+    """
+    try:
+        prep = course_prep.lightweight_prep_hole(int(global_id), int(local_hole))
+        route = prep.get("route") if isinstance(prep, dict) else None
+        projection = prep.get("holeImageProjection") if isinstance(prep, dict) else None
+        refs = projection.get("refs") if isinstance(projection, dict) else None
+        width = int(projection.get("widthPx") or 0) if isinstance(projection, dict) else 0
+        height = int(projection.get("heightPx") or 0) if isinstance(projection, dict) else 0
+        if not isinstance(route, list) or len(route) < 2 or not isinstance(refs, list) or len(refs) < 3:
+            return None
+        origin, x_ref, y_ref = refs[:3]
+        x_basis = (
+            (float(x_ref["px"]) - float(origin["px"])) / 120.0,
+            (float(x_ref["py"]) - float(origin["py"])) / 120.0,
+        )
+        y_basis = (
+            (float(y_ref["px"]) - float(origin["px"])) / 120.0,
+            (float(y_ref["py"]) - float(origin["py"])) / 120.0,
+        )
+        pixels = []
+        for item in route:
+            if not isinstance(item, list) or len(item) < 2:
+                return None
+            local_x, local_y = float(item[0]), float(item[1])
+            pixels.append(
+                [
+                    float(origin["px"]) + local_x * x_basis[0] + local_y * y_basis[0],
+                    float(origin["py"]) + local_x * x_basis[1] + local_y * y_basis[1],
+                    float(item[2]) if len(item) >= 3 else 0.0,
+                ]
+            )
+        ppm = (math.hypot(*x_basis) + math.hypot(*y_basis)) / 2.0
+        if width <= 0 or height <= 0 or ppm <= 0:
+            return None
+        overlay = {
+            "w": width,
+            "h": height,
+            "ppm": ppm,
+            "ln": float(prep.get("route_len_m") or pixels[-1][2]),
+            "route": pixels,
+        }
+
+        def project(location: dict[str, Any] | None) -> list[int] | None:
+            if not location or location.get("lat") is None or location.get("lon") is None:
+                return None
+            a = float(x_ref["lon"]) - float(origin["lon"])
+            b = float(y_ref["lon"]) - float(origin["lon"])
+            c = float(x_ref["lat"]) - float(origin["lat"])
+            d = float(y_ref["lat"]) - float(origin["lat"])
+            determinant = a * d - b * c
+            if abs(determinant) <= 1e-12:
+                return None
+            dlon = float(location["lon"]) - float(origin["lon"])
+            dlat = float(location["lat"]) - float(origin["lat"])
+            s = (dlon * d - b * dlat) / determinant
+            t = (a * dlat - dlon * c) / determinant
+            px = float(origin["px"]) + s * (float(x_ref["px"]) - float(origin["px"])) + t * (float(y_ref["px"]) - float(origin["px"]))
+            py = float(origin["py"]) + s * (float(x_ref["py"]) - float(origin["py"])) + t * (float(y_ref["py"]) - float(origin["py"]))
+            return [min(max(int(round(px)), 0), width - 1), min(max(int(round(py)), 0), height - 1)]
+
+        def unproject(px: float, py: float) -> tuple[float, float]:
+            a = float(x_ref["px"]) - float(origin["px"])
+            b = float(y_ref["px"]) - float(origin["px"])
+            c = float(x_ref["py"]) - float(origin["py"])
+            d = float(y_ref["py"]) - float(origin["py"])
+            determinant = a * d - b * c
+            if abs(determinant) <= 1e-12:
+                raise ValueError("degenerate lightweight projection")
+            dx, dy = float(px) - float(origin["px"]), float(py) - float(origin["py"])
+            s = (dx * d - b * dy) / determinant
+            t = (a * dy - dx * c) / determinant
+            latitude = float(origin["lat"]) + s * (float(x_ref["lat"]) - float(origin["lat"])) + t * (float(y_ref["lat"]) - float(origin["lat"]))
+            longitude = float(origin["lon"]) + s * (float(x_ref["lon"]) - float(origin["lon"])) + t * (float(y_ref["lon"]) - float(origin["lon"]))
+            return latitude, longitude
+
+        return overlay, project, unproject
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
 
 
 def _pixel_pair(value: Any, width: int, height: int) -> list[int] | None:
@@ -216,16 +373,39 @@ def build_round_hole_shot_map(
     par = _par_for(row, hole)
     corr = corrections or []
     manual_penalty = round_corrections.hole_penalty(corr, hole)
+    shots = _source_shots_for_hole(data, row, hole, corr)
     geometry_revision: str | None = None
+    map_kind: str | None = None
+    missing_data: list[dict[str, Any]] = []
+    uses_lightweight_frame = False
+    project: Any
+    unproject: Any
     try:
-        geometry_evidence = geometry_coverage_for_hole(
+        current_geometry = geometry_coverage_for_hole(
             int(gid),
             int(local),
             require_current_authority=True,
             refresh_release=True,
         )
-        if geometry_evidence.get("coverage") != "ready":
-            raise ValueError("current geometry authority is not ready")
+        geometry_evidence = current_geometry
+        if current_geometry.get("coverage") != "ready":
+            # A Garmin release change invalidates a pixel snapshot, but it must not erase source GPS.
+            # Existing mesh/hazard files remain a valid geographic projection for WGS84 source shots;
+            # use them as a visibly stale base until the selected course download installs the update.
+            geometry_evidence = geometry_coverage_for_hole(
+                int(gid),
+                int(local),
+                require_current_authority=False,
+                refresh_release=False,
+            )
+            if geometry_evidence.get("coverage") != "ready":
+                raise ValueError("no complete local geometry")
+            missing_data.append(
+                {
+                    "label": "geometry_authority",
+                    "reason": "球场地图正在更新；当前显示上次可用地图，GPS 落点不受影响",
+                }
+            )
         geometry_revision = (
             str(geometry_evidence.get("geometryRevision"))
             if geometry_evidence.get("geometryRevision")
@@ -246,20 +426,76 @@ def build_round_hole_shot_map(
         ref_lat = float((md.get("hole") or {})["RefLat"])
         ref_lon = float((md.get("hole") or {})["RefLon"])
         to_px = hole_render.overlay_projector(by, route)
+        width, height = int(overlay["w"]), int(overlay["h"])
+
+        def project_precise(loc: dict[str, Any] | None) -> list[int] | None:
+            if not loc or loc.get("lat") is None or loc.get("lon") is None:
+                return None
+            px, py = shot_projection.project_world_to_pixel(
+                float(loc["lat"]),
+                float(loc["lon"]),
+                ref_lat=ref_lat,
+                ref_lon=ref_lon,
+                to_px=to_px,
+            )
+            return [
+                min(max(int(round(px)), 0), width - 1),
+                min(max(int(round(py)), 0), height - 1),
+            ]
+
+        from_px = hole_render.overlay_unprojector(by, route)
+
+        def unproject_precise(px: float, py: float) -> tuple[float, float]:
+            return shot_projection.pixel_to_world(
+                float(px),
+                float(py),
+                ref_lat=ref_lat,
+                ref_lon=ref_lon,
+                from_px=from_px,
+            )
+
+        project = project_precise
+        unproject = unproject_precise
+        map_kind = "prodgeometry"
     except Exception:
-        return {"schema": SCHEMA, "found": True, "roundRef": str(row.get("id")), "hole": hole, "par": par,
-                "map": None, "shots": [], "manualPenalty": manual_penalty,
-                "missingData": [{"label": "geometry", "reason": "这一洞暂无球场几何,画不了落点图"}]}
-
-    width, height = int(overlay["w"]), int(overlay["h"])
-
-    def project(loc: dict[str, Any] | None) -> list[int] | None:
-        if not loc or loc.get("lat") is None or loc.get("lon") is None:
-            return None
-        px, py = shot_projection.project_world_to_pixel(
-            float(loc["lat"]), float(loc["lon"]), ref_lat=ref_lat, ref_lon=ref_lon, to_px=to_px
+        lightweight = (
+            _lightweight_map_frame(int(gid), int(local))
+            if gid is not None and local is not None
+            else None
         )
-        return [min(max(int(round(px)), 0), width - 1), min(max(int(round(py)), 0), height - 1)]
+        if lightweight is None:
+            available = _unprojected_shot_rows(shots)
+            reason = (
+                f"已保留 {sum(1 for shot in available if shot.get('gpsAvailable'))} 杆 GPS；"
+                "球场地图素材正在准备"
+                if available
+                else "这一洞没有可显示的逐杆 GPS"
+            )
+            return {
+                "schema": SCHEMA,
+                "found": True,
+                "roundRef": str(row.get("id")),
+                "hole": hole,
+                "par": par,
+                "globalId": int(gid) if gid is not None else None,
+                "localHole": int(local) if local is not None else None,
+                "mapKind": None,
+                "map": None,
+                "shots": available,
+                "manualPenalty": manual_penalty,
+                "missingData": [{"label": "geometry", "reason": reason}],
+            }
+        overlay, project, unproject = lightweight
+        width, height = int(overlay["w"]), int(overlay["h"])
+        image = None
+        uses_lightweight_frame = True
+        map_kind = "courseData"
+        missing_data.append(
+            {
+                "label": "geometry",
+                "reason": "精确球场底图准备中；当前按 Garmin CourseView 路线显示真实 GPS 落点",
+            }
+        )
 
     tee_px = [
         int(round(overlay["route"][0][0])),
@@ -278,7 +514,9 @@ def build_round_hole_shot_map(
         # frame in which the user approved them. Legacy snapshots carried no revision, so retain
         # their historical behaviour; a known mismatch must fall back to freshly projected source
         # shots instead of clamping old pixels into a new Garmin release.
-        if snapshot_revision is None or snapshot_revision == geometry_revision:
+        if not uses_lightweight_frame and (
+            snapshot_revision is None or snapshot_revision == geometry_revision
+        ):
             plotted = _snapshot_pixel_shots(
                 snapshot_event,
                 width=width,
@@ -302,25 +540,19 @@ def build_round_hole_shot_map(
                 "globalId": int(gid) if gid is not None else None,
                 "localHole": int(local),
                 "geometryRevision": geometry_revision,
+                "mapKind": map_kind,
                 "map": {"image": image, "overlay": overlay},
                 "shots": plotted,
                 "manualPenalty": manual_penalty,
-                "missingData": [],
+                "missingData": missing_data,
             }
-
-    round_ids = _round_ids(row)
-    rmap = round_corrections.reorder_map(corr)
-    shots = sorted(
-        (s for s in data.shots if str(s.get("scorecardId")) in round_ids and _int(s.get("hole")) == hole),
-        key=lambda s: rmap.get(round_corrections.mint_shot_id(s), 10_000 + (_int(s.get("order")) or 0)),
-    )
-    shots = round_corrections.apply_corrections(shots, corr)
 
     # addShot(点地图加杆):px 反投影成世界坐标,造一杆合成落点插进顺序;shotmap 按序画线自动连前后。
     # 空洞(shots 为空)也能加 → 永不变砖。
-    from_px = hole_render.overlay_unprojector(by, route)
     _added = 0
     for e in corr:
+        if uses_lightweight_frame:
+            continue
         if e.get("op") != "addShot":
             continue
         added_index = _added
@@ -339,7 +571,7 @@ def build_round_hole_shot_map(
             or not any(round_corrections.mint_shot_id(shot) == after for shot in shots)
         ):
             continue
-        lat, lon = shot_projection.pixel_to_world(float(px[0]), float(px[1]), ref_lat=ref_lat, ref_lon=ref_lon, from_px=from_px)
+        lat, lon = unproject(float(px[0]), float(px[1]))
         idx = 0
         if after:
             for i, s in enumerate(shots):
@@ -364,6 +596,8 @@ def build_round_hole_shot_map(
     # editField position(拖动改落点):px 反投影成世界坐标,改这一杆的 end。作用于原始杆 + 手动加的杆。
     pos_edits: dict[str, list[Any]] = {}
     for e in corr:
+        if uses_lightweight_frame:
+            continue
         if e.get("op") == "editField" and e.get("field") == "position" and e.get("shotId"):
             v = e.get("value") or []
             if len(v) == 2:
@@ -372,7 +606,7 @@ def build_round_hole_shot_map(
         for index, s in enumerate(shots):
             v = pos_edits.get(round_corrections.mint_shot_id(s))
             if v:
-                lat, lon = shot_projection.pixel_to_world(float(v[0]), float(v[1]), ref_lat=ref_lat, ref_lon=ref_lon, from_px=from_px)
+                lat, lon = unproject(float(v[0]), float(v[1]))
                 s["end"] = {**(s.get("end") or {}), "lat": lat, "lon": lon, "posSource": "manual"}
                 # A landing and the following shot's origin are the same point. Previously the iOS
                 # preview updated both but this rebuilt server response updated only `end`, so the
@@ -401,6 +635,15 @@ def build_round_hole_shot_map(
             "shotType": shot.get("type"),
             "order": _int(shot.get("order")),
             "synthetic": False,
+            "gpsAvailable": all(
+                value is not None
+                for value in (
+                    start.get("lat"),
+                    start.get("lon"),
+                    (shot.get("end") or {}).get("lat"),
+                    (shot.get("end") or {}).get("lon"),
+                )
+            ),
         }
         # Provenance from the 复盘 correction layer: surface a per-field "manual" override so the client
         # can mark an edited shot 已修正. Only emitted when the player actually changed that field
@@ -429,7 +672,29 @@ def build_round_hole_shot_map(
             "shotType": "TEE",
             "order": 0,
             "synthetic": True,
+            "gpsAvailable": False,
         })
+
+    skipped_pixel_edits = uses_lightweight_frame and any(
+        event.get("op") in {"replaceHoleShots", "addShot"}
+        or (event.get("op") == "editField" and event.get("field") == "position")
+        for event in corr
+        if _int(event.get("hole")) in {None, hole}
+    )
+    if skipped_pixel_edits:
+        missing_data.append(
+            {
+                "label": "position_edits",
+                "reason": "精确地图恢复前，之前按精确底图保存的位置修正暂不套用",
+            }
+        )
+    elif snapshot is not None:
+        missing_data.append(
+            {
+                "label": "geometry",
+                "reason": "球场地图已更新，这一洞的手工修正需要重做",
+            }
+        )
 
     return {
         "schema": SCHEMA,
@@ -437,17 +702,14 @@ def build_round_hole_shot_map(
         "roundRef": str(row.get("id")),
         "hole": hole,
         "par": par,
-        # The physical (gid, localHole) the render came from (front/back-nine aware) — lets the client
-        # fetch the realistic topo base bitmap for this exact hole. Only set when geometry rendered.
+        # Physical (gid, localHole) is retained for precise and CourseView-only frames. The client
+        # requests a topo bitmap only when geometryRevision is present.
         "globalId": int(gid) if gid is not None else None,
         "localHole": int(local),
         "geometryRevision": geometry_revision,
+        "mapKind": map_kind,
         "map": {"image": image, "overlay": overlay},
         "shots": plotted,
         "manualPenalty": manual_penalty,
-        "missingData": (
-            [{"label": "geometry", "reason": "球场地图已更新，这一洞的手工修正需要重做"}]
-            if snapshot is not None
-            else []
-        ),
+        "missingData": missing_data,
     }

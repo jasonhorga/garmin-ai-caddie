@@ -57,7 +57,10 @@ public struct CoursePrepOverlay: Codable, Equatable {
 }
 
 public struct CoursePrepMap: Codable, Equatable {
-    public let image: String // data:image/jpeg;base64,...
+    /// Precise geometry carries an embedded raster fallback. CourseView-only history can still
+    /// provide an exact affine overlay before that bitmap exists, so the image is independently
+    /// optional instead of making the whole map decode as nil.
+    public let image: String? // data:image/png;base64,... when available
     public let overlay: CoursePrepOverlay
 }
 

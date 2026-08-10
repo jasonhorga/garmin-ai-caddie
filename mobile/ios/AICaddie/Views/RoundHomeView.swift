@@ -27,6 +27,7 @@ public struct RoundHomeView: View {
     public let liveRoundState: LiveRoundStateSnapshot?
     public let courseOptions: [MobileCourseOption]
     public let downloadedCourseOptions: [MobileCourseOption]
+    public let prepCourseDownloads: [PrepCourseDownloadRecord]
     public let startingNine: String?
     public let isPreparingRound: Bool
     public let isFinishingRound: Bool
@@ -49,6 +50,8 @@ public struct RoundHomeView: View {
     public let onSearchCourses: (String, Double?, Double?) async throws -> [MobileCourseSearchMatch]
     /// Garmin 全库坐标发现；StartRoundView 只保留本次结果。
     public let onNearbyCourses: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
+    public let onDownloadPrepCourse: (MobileCourseOption) -> Void
+    public let onRetryPrepCourseDownload: (String) -> Void
     /// Set to a hole number right after a fresh round is prepared → auto-navigate into that hole.
     public let pendingLiveHole: Int?
     public let onConsumePendingLiveHole: () -> Void
@@ -71,6 +74,7 @@ public struct RoundHomeView: View {
         liveRoundState: LiveRoundStateSnapshot? = nil,
         courseOptions: [MobileCourseOption] = [],
         downloadedCourseOptions: [MobileCourseOption] = [],
+        prepCourseDownloads: [PrepCourseDownloadRecord] = [],
         startingNine: String? = nil,
         isPreparingRound: Bool = false,
         isFinishingRound: Bool = false,
@@ -90,6 +94,8 @@ public struct RoundHomeView: View {
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
         onSearchCourses: @escaping (String, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
         onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
+        onDownloadPrepCourse: @escaping (MobileCourseOption) -> Void = { _ in },
+        onRetryPrepCourseDownload: @escaping (String) -> Void = { _ in },
         pendingLiveHole: Int? = nil,
         onConsumePendingLiveHole: @escaping () -> Void = {},
         onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
@@ -107,6 +113,7 @@ public struct RoundHomeView: View {
         self.liveRoundState = liveRoundState
         self.courseOptions = courseOptions
         self.downloadedCourseOptions = downloadedCourseOptions
+        self.prepCourseDownloads = prepCourseDownloads
         self.startingNine = startingNine
         self.isPreparingRound = isPreparingRound
         self.isFinishingRound = isFinishingRound
@@ -126,6 +133,8 @@ public struct RoundHomeView: View {
         self.onLoadCourseTees = onLoadCourseTees
         self.onSearchCourses = onSearchCourses
         self.onNearbyCourses = onNearbyCourses
+        self.onDownloadPrepCourse = onDownloadPrepCourse
+        self.onRetryPrepCourseDownload = onRetryPrepCourseDownload
         self.pendingLiveHole = pendingLiveHole
         self.onConsumePendingLiveHole = onConsumePendingLiveHole
         self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
@@ -363,8 +372,12 @@ public struct RoundHomeView: View {
                     PrepCoursePickerView(
                         courseOptions: courseOptions,
                         downloadedCourseOptions: downloadedCourseOptions,
+                        downloads: prepCourseDownloads,
                         apiBaseURL: apiBaseURL,
-                        adminToken: adminToken
+                        adminToken: adminToken,
+                        offlineStore: offlineStore,
+                        onDownload: onDownloadPrepCourse,
+                        onRetryDownload: onRetryPrepCourseDownload
                     )
                 } label: {
                     HubTile(icon: "scope", title: "备战", subtitle: "搜索 · 球童试算")

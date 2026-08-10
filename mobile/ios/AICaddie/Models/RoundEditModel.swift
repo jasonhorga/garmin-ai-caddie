@@ -120,7 +120,8 @@ public final class RoundEditModel: ObservableObject {
                 order: shot.order,
                 clubSource: "manual",
                 lieSource: shot.lieSource,
-                synthetic: shot.synthetic
+                synthetic: shot.synthetic,
+                gpsAvailable: shot.gpsAvailable
             )
         }
         if changed { markChanged() }
@@ -139,7 +140,8 @@ public final class RoundEditModel: ObservableObject {
                 order: shot.order,
                 clubSource: shot.clubSource,
                 lieSource: "manual",
-                synthetic: shot.synthetic
+                synthetic: shot.synthetic,
+                gpsAvailable: shot.gpsAvailable
             )
         }
         if changed { markChanged() }
@@ -251,7 +253,8 @@ public final class RoundEditModel: ObservableObject {
             order: shot.order,
             clubSource: shot.clubSource,
             lieSource: shot.lieSource,
-            synthetic: shot.synthetic
+            synthetic: shot.synthetic,
+            gpsAvailable: shot.gpsAvailable
         )
         reconnectDraft()
         return true
@@ -282,7 +285,8 @@ public final class RoundEditModel: ObservableObject {
                 order: index + 1,
                 clubSource: shot.clubSource,
                 lieSource: shot.lieSource,
-                synthetic: shot.synthetic
+                synthetic: shot.synthetic,
+                gpsAvailable: shot.gpsAvailable
             )
             previousEnd = shot.end
         }
@@ -310,7 +314,8 @@ public final class RoundEditModel: ObservableObject {
                 order: index + 1,
                 clubSource: shot.clubSource,
                 lieSource: shot.lieSource,
-                synthetic: shot.synthetic
+                synthetic: shot.synthetic,
+                gpsAvailable: shot.gpsAvailable
             )
         }
         return RoundHoleShotMap(
@@ -320,6 +325,7 @@ public final class RoundEditModel: ObservableObject {
             globalId: source.globalId,
             localHole: source.localHole,
             geometryRevision: source.geometryRevision,
+            mapKind: source.mapKind,
             map: source.map,
             shots: shots,
             manualPenalty: source.manualPenalty,
