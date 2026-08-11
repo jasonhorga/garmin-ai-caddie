@@ -39,6 +39,24 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertTrue(options.allSatisfy { ($0.plan ?? []).allSatisfy { ($0.carryM ?? 0) > 0 } })
     }
 
+    func testPreparedLongParFiveNeverRepeatsDriverAfterTeeShot() throws {
+        let options = WatchCourseTemplateBuilder.preparedCaddieOptions(
+            clubs: [
+                WatchClubOption(clubName: "1W", medianM: 220, source: "course-prep"),
+                WatchClubOption(clubName: "3W", medianM: 190, source: "course-prep"),
+                WatchClubOption(clubName: "5I", medianM: 160, source: "course-prep"),
+                WatchClubOption(clubName: "8I", medianM: 125, source: "course-prep"),
+            ],
+            suggestedClub: "1W",
+            routeDistanceM: 520,
+            landingM: 220
+        )
+
+        let recommended = try XCTUnwrap(options.first { $0.optionId == "stock" })
+        XCTAssertEqual(recommended.plan?.first?.clubName, "1W")
+        XCTAssertFalse((recommended.plan ?? []).dropFirst().contains { $0.clubName == "1W" })
+    }
+
     func testNearbyRankingPlacesNearestKnownCourseFirstAndUnknownLast() {
         let farther = WatchCourseOption(
             globalId: 2,

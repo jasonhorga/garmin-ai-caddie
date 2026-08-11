@@ -258,17 +258,28 @@ public enum WatchCourseTemplateBuilder {
         var remaining = routeDistanceM
         var selected = first
         var plan: [WatchCaddiePlanStep] = []
+        // Driver is a Tee-shot choice, never a follow-up recommendation. Without this separate
+        // tail bag a long Par 5 could independently reconstruct 1W → 1W on Watch even though the
+        // server and iPhone had already excluded that impossible route.
+        let followUpClubs = clubs.filter { !isDriver($0.clubName) }
 
         while remaining > 25, plan.count < 3, let carry = selected.medianM {
             plan.append(WatchCaddiePlanStep(clubName: selected.clubName, carryM: carry))
             remaining -= carry
-            guard remaining > 25 else { break }
+            guard remaining > 25, !followUpClubs.isEmpty else { break }
             let target = remaining * completionBias
-            selected = clubs.min {
+            selected = followUpClubs.min {
                 abs(($0.medianM ?? 0) - target) < abs(($1.medianM ?? 0) - target)
             } ?? selected
         }
         return plan
+    }
+
+    private static func isDriver(_ raw: String) -> Bool {
+        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+        return ["driver", "d", "dr", "1d", "1w", "一号木", "一号木杆"].contains(key)
     }
 
     private static func preparedTargetNote(
