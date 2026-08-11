@@ -27,7 +27,7 @@ public struct WatchCaddieOptionsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(options) { option in
+                ForEach(orderedOptions) { option in
                     optionRow(option)
                 }
             }
@@ -44,6 +44,30 @@ public struct WatchCaddieOptionsView: View {
                 }
         )
         .accessibilityAction(named: Text("返回球洞")) { onBack?() }
+    }
+
+    /// Companion payloads can arrive in the backend's legacy safe/stock/attack order. Keep the
+    /// selected recommendation first on the small screen, then order alternatives low-to-high risk.
+    private var orderedOptions: [WatchCaddieOption] {
+        let selectedId = recommendedId ?? "stock"
+        return options.enumerated().sorted { lhs, rhs in
+            let lhsRecommended = lhs.element.optionId == selectedId
+            let rhsRecommended = rhs.element.optionId == selectedId
+            if lhsRecommended != rhsRecommended { return lhsRecommended }
+            let lhsRank = strategyRank(lhs.element.optionId)
+            let rhsRank = strategyRank(rhs.element.optionId)
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
+    }
+
+    private func strategyRank(_ optionId: String) -> Int {
+        switch strategyKey(optionId) {
+        case "protect_score": return 0
+        case "stock": return 1
+        case "attack": return 2
+        default: return 3
+        }
     }
 
     private func optionRow(_ option: WatchCaddieOption) -> some View {

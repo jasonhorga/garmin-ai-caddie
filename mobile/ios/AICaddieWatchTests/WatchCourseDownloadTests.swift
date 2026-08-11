@@ -32,9 +32,9 @@ final class WatchCourseDownloadTests: XCTestCase {
             landingM: 220
         )
 
-        XCTAssertEqual(options.map(\.optionId), ["safe", "stock", "attack"])
-        XCTAssertEqual(options.map(\.label), ["稳妥", "标准", "进攻"])
-        XCTAssertEqual(options[1].plan?.first?.clubName, "1W")
+        XCTAssertEqual(options.map(\.optionId), ["stock", "safe", "attack"])
+        XCTAssertEqual(options.map(\.label), ["推荐", "保守", "进攻"])
+        XCTAssertEqual(options[0].plan?.first?.clubName, "1W")
         XCTAssertTrue(options.allSatisfy { !($0.plan ?? []).isEmpty })
         XCTAssertTrue(options.allSatisfy { ($0.plan ?? []).allSatisfy { ($0.carryM ?? 0) > 0 } })
     }

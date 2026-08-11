@@ -224,8 +224,10 @@ public enum WatchCourseTemplateBuilder {
         let safeIndex = min(stockIndex + 1, usable.index(before: usable.endIndex))
         let attackIndex = max(stockIndex - 1, usable.startIndex)
         let variants: [(id: String, label: String, first: WatchClubOption, bias: Double)] = [
-            ("safe", "稳妥", usable[safeIndex], 0.84),
-            ("stock", "标准", usable[stockIndex], 0.92),
+            // Match iPhone: lead with the selected recommendation, then compare the lower-risk
+            // alternative before the aggressive route.
+            ("stock", "推荐", usable[stockIndex], 0.92),
+            ("safe", "保守", usable[safeIndex], 0.84),
             ("attack", "进攻", usable[attackIndex], 1.05),
         ]
 

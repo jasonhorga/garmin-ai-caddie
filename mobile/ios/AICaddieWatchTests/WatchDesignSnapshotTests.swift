@@ -107,8 +107,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
             suggestedClub: "3号木", selectedClub: nil,
             offlineOptionId: "stock",
             caddieOptions: [
-                WatchCaddieOption(optionId: "safe", label: "稳妥", clubName: "9号铁", carryM: 128, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 172), WatchCaddiePlanStep(clubName: "9I", carryM: 128)], confidence: "high"),
-                WatchCaddieOption(optionId: "stock", label: "标准", clubName: "8号铁", carryM: 142, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "8I", carryM: 142)], confidence: "high"),
+                WatchCaddieOption(optionId: "stock", label: "推荐", clubName: "8号铁", carryM: 142, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "8I", carryM: 142)], confidence: "high"),
+                WatchCaddieOption(optionId: "safe", label: "保守", clubName: "9号铁", carryM: 128, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 172), WatchCaddiePlanStep(clubName: "9I", carryM: 128)], confidence: "high"),
                 WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "7号铁", carryM: 156, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "PW", carryM: 118)], confidence: "medium"),
             ],
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "high"
@@ -135,15 +135,15 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let view = WatchHazardView(
             hazards: [
                 WatchHazard(
-                    kind: "bunker", label: "沙坑 1", startM: 116, endM: 132,
+                    kind: "bunker", label: "右侧球道沙坑", startM: 116, endM: 132,
                     frontDistanceM: 120, backDistanceM: 136
                 ),
                 WatchHazard(
-                    kind: "bunker", label: "沙坑 2", startM: 160, endM: 178,
+                    kind: "bunker", label: "右侧果岭沙坑", startM: 160, endM: 178,
                     frontDistanceM: 165, backDistanceM: 183
                 ),
                 WatchHazard(
-                    kind: "water", label: "水域", startM: 210, endM: 235,
+                    kind: "water", label: "前方水障碍", startM: 210, endM: 235,
                     frontDistanceM: 210, backDistanceM: 235
                 ),
             ]
