@@ -90,9 +90,17 @@ final class RealFlowUITests: XCTestCase {
 
         // ---- Section 2: history list → a round review → shot-map → review-edit (merged #276) ----
         launchFresh()
-        let enteredHistory = tapContaining(["历史复盘", "逐场逐洞"])
+        let historyNavigation = app.navigationBars["历史复盘"]
+        var enteredHistory = tapContaining(["历史复盘", "逐场逐洞"])
+        if enteredHistory, !historyNavigation.waitForExistence(timeout: 8) {
+            // The live home can publish a background package refresh between XCUITest resolving
+            // the NavigationLink and synthesising its tap. In that race the old element accepts
+            // the event but the replacement link never navigates. Confirm the destination rather
+            // than treating a dispatched tap as success, then retry the visible production link.
+            enteredHistory = tapContaining(["历史复盘", "逐场逐洞"])
+        }
         XCTAssertTrue(
-            enteredHistory,
+            enteredHistory && historyNavigation.waitForExistence(timeout: 8),
             "the real home must expose and open 历史复盘; this section may never be silently skipped"
         )
         if enteredHistory {
