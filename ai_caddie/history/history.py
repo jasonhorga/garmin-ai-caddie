@@ -179,8 +179,47 @@ def _hole_pars(raw: dict[str, Any]) -> str:
     return str(pars or "")
 
 
-def _played_holes(holes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [dict(hole) for hole in holes if hole.get("strokes") is not None]
+def normalize_scorecard_hole(
+    hole: dict[str, Any], *, number: int, par: int | None = None
+) -> dict[str, Any]:
+    """Translate Garmin's real per-hole fields into the canonical history vocabulary.
+
+    Garmin calls the tee result ``fairwayShotOutcome`` (HIT/LEFT/RIGHT), while every history/stat
+    consumer reads ``fairway``. GIR is not stored per hole, but when the hole contains an actual
+    putt count it is exactly derivable from strokes-to-green: ``strokes - putts <= par - 2``.
+    Absence remains ``None``; an unrecorded putt/GIR round must never become a fabricated 0%.
+    """
+
+    row = dict(hole)
+    row["number"] = number
+    if row.get("par") is None and par is not None:
+        row["par"] = par
+
+    if row.get("fairway") is None:
+        outcome = str(row.get("fairwayShotOutcome") or "").strip().lower()
+        if outcome in {"hit", "left", "right", "miss"}:
+            row["fairway"] = outcome
+
+    if row.get("gir") is None and "putts" in row:
+        strokes = _int_or_none(row.get("strokes"))
+        putts = _int_or_none(row.get("putts"))
+        resolved_par = _int_or_none(row.get("par"))
+        if strokes is not None and putts is not None and resolved_par is not None:
+            row["gir"] = strokes - putts <= resolved_par - 2
+    return row
+
+
+def _played_holes(holes: list[dict[str, Any]], hole_pars: str = "") -> list[dict[str, Any]]:
+    played: list[dict[str, Any]] = []
+    for index, hole in enumerate(holes, start=1):
+        if hole.get("strokes") is None:
+            continue
+        number = _int_or_none(hole.get("number")) or index
+        par = None
+        if 1 <= number <= len(hole_pars):
+            par = _int_or_none(hole_pars[number - 1])
+        played.append(normalize_scorecard_hole(hole, number=number, par=par))
+    return played
 
 
 def _played_par(raw: dict[str, Any], holes: list[dict[str, Any]]) -> int | None:
@@ -246,7 +285,8 @@ def _scorecard_to_round(
         shot_status = "no_data"
     else:
         shot_status = "missing"
-    holes = _played_holes(sc.get("holes", []) or [])
+    hole_pars = _hole_pars(raw)
+    holes = _played_holes(sc.get("holes", []) or [], hole_pars)
     return {
         "id": sid,
         "ids": [sid],
@@ -265,13 +305,14 @@ def _scorecard_to_round(
         "city": snap.get("city"),
         "country": snap.get("country"),
         "par": _played_par(raw, holes),
-        "holePars": _hole_pars(raw),
+        "holePars": hole_pars,
         "holes": holes,
         "fh": stats.get("fairwaysHit"),
         "fl": stats.get("fairwaysLeft"),
         "fr": stats.get("fairwaysRight"),
         "frec": stats.get("fairwaysRecorded"),
         "gir": stats.get("greensInRegulation"),
+        "grec": stats.get("greensRecorded"),
         "putts": stats.get("putts"),
         "ub": stats.get("holesUnderPar"),
         "pa": stats.get("holesPar"),
@@ -385,6 +426,7 @@ def merge_same_day_halves(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "fr": sum_field("fr"),
                 "frec": sum_field("frec"),
                 "gir": sum_field("gir"),
+                "grec": sum_field("grec"),
                 "putts": sum_field("putts"),
                 "ub": sum_field("ub"),
                 "pa": sum_field("pa"),
@@ -555,6 +597,7 @@ def _round_public(row: dict[str, Any], include_holes: bool = False) -> dict[str,
         "fairwaysHit": row.get("fh"),
         "fairwaysRecorded": row.get("frec"),
         "greensInRegulation": row.get("gir"),
+        "greensRecorded": row.get("grec"),
         "hasShots": row.get("hasShots"),
         "shotStatus": row.get("shotStatus"),
         "merged": row.get("merged", False),

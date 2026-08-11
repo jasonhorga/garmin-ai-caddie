@@ -312,6 +312,7 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertEqual(history.shots[0]["club"], "8I")
         self.assertEqual(history.shots[0]["distance"], 142)
         self.assertEqual(history.shots[0]["surface"], "green")
+        self.assertTrue(history.rounds[0]["holes"][0]["gir"])
 
     def test_durable_snapshot_merges_same_day_nine_hole_halves_like_local_history(self) -> None:
         with TemporaryDirectory() as tmp:

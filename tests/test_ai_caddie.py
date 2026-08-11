@@ -58,6 +58,65 @@ class GarminRoundTests(unittest.TestCase):
         self.assertEqual(back.global_id, 31794)
         self.assertEqual(back.local_hole, 1)
 
+    def test_real_garmin_fairway_and_derived_gir_are_normalized(self) -> None:
+        from ai_caddie.history import history as history_module
+
+        raw = {
+            "scorecardDetails": [
+                {
+                    "scorecard": {
+                        "id": 321,
+                        "formattedStartTime": "2026-08-10",
+                        "strokes": 22,
+                        "holesCompleted": 5,
+                        "courseGlobalId": 31795,
+                        "holes": [
+                            {"number": 1, "strokes": 4, "putts": 2, "fairwayShotOutcome": "HIT"},
+                            {"number": 2, "strokes": 4, "putts": 2},
+                            {"number": 3, "strokes": 5, "putts": 2, "fairwayShotOutcome": "LEFT"},
+                            {"number": 4, "strokes": 5, "putts": 2, "fairwayShotOutcome": "RIGHT"},
+                            # No putt field means Garmin did not record GIR; it must remain unknown.
+                            {"number": 5, "strokes": 4, "fairwayShotOutcome": "HIT"},
+                        ],
+                    },
+                    "scorecardStats": {
+                        "round": {
+                            "fairwaysHit": 2,
+                            "fairwaysRecorded": 4,
+                            "greensInRegulation": 2,
+                            "greensRecorded": 4,
+                            "putts": 8,
+                        }
+                    },
+                    "statsComparison": {},
+                }
+            ],
+            "courseSnapshots": [{"name": "Garmin Links", "holePars": "43544"}],
+        }
+
+        with TemporaryDirectory() as tmp, patch.object(history_module, "SHOT_DIR", Path(tmp)), patch.object(
+            history_module, "load_shot_file", return_value=None
+        ):
+            row = history_module._scorecard_to_round(raw)
+
+        self.assertEqual([hole.get("fairway") for hole in row["holes"]], ["hit", None, "left", "right", "hit"])
+        self.assertEqual([hole.get("gir") for hole in row["holes"]], [True, False, True, False, None])
+        self.assertEqual(row["gir"], 2)
+        self.assertEqual(row["grec"], 4)
+
+        from ai_caddie.history.history import HistoryData
+        from ai_caddie.history.history_stats import build_history_stats
+
+        stats = build_history_stats(
+            HistoryData(raw_rounds=[row], rounds=[row], shots=[]),
+            data_mode="fixture",
+        )
+        phases = {item["phase"]: item for item in stats["scoring"]["phaseStats"]}
+        self.assertEqual(phases["Tee"]["fairwaysRecorded"], 4)
+        self.assertEqual(phases["Tee"]["fairwaysHit"], 2)
+        self.assertEqual(phases["Approach"]["girRecorded"], 4)
+        self.assertEqual(phases["Approach"]["gir"], 2)
+
 
 class GeometrySyncTests(unittest.TestCase):
     def test_ensure_prodgeometry_returns_cached_without_network(self) -> None:

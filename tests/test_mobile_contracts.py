@@ -1961,7 +1961,9 @@ class MobileContractTests(unittest.TestCase):
         # there's no gid/geometry or the request fails, and marks an in-flight image explicitly.
         topo_base = _read_required_source(self, IOS_DIR / "Views" / "TopoHoleBaseImage.swift")
         self.assertIn("struct TopoHoleBaseImage", topo_base)
-        self.assertIn("AsyncImage(url: topoURL)", topo_base)
+        self.assertIn("final class TopoHoleImageStore", topo_base)
+        self.assertIn("NSCache<NSURL, UIImage>", topo_base)
+        self.assertIn("cachePolicy: .returnCacheDataElseLoad", topo_base)
         self.assertIn("Image(uiImage: fallback)", topo_base)  # graceful fallback, never a blank box
         self.assertIn(
             "public static func topoImageURL(",
@@ -2012,14 +2014,12 @@ class MobileContractTests(unittest.TestCase):
     def test_ios_topo_map_distinguishes_loading_ready_and_failure(self) -> None:
         topo_base = _read_required_source(self, IOS_DIR / "Views" / "TopoHoleBaseImage.swift")
 
-        self.assertIn("case .empty:", topo_base)
         self.assertIn('ProgressView("球场地图加载中…")', topo_base)
         self.assertIn('.accessibilityIdentifier("topo-hole-base-loading")', topo_base)
         self.assertIn('.accessibilityElement(children: .ignore)', topo_base)
         self.assertIn('.accessibilityIdentifier("topo-hole-base-ready")', topo_base)
-        self.assertIn("case .failure:", topo_base)
-        ready_branch = topo_base.split("case .success", 1)[1].split("case .failure", 1)[0]
-        self.assertNotIn("fallbackImage", ready_branch)
+        self.assertIn("imageStore.failedURL == topoURL", topo_base)
+        self.assertIn("if let image = imageStore.image", topo_base)
         self.assertIn("fallbackImage", topo_base)
 
     def test_ios_club_naming_and_lie_filter(self) -> None:
@@ -2181,6 +2181,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken)", prep_picker)
         self.assertIn("globalId: course.globalId", prep_picker)
         self.assertIn("holeCount: course.resolvedHoles", prep_picker)
+        self.assertIn("download: selectedDownload(for: course)", prep_picker)
+        self.assertIn("PrepCourseDownloadRecord.key", prep_picker)
+        self.assertIn("phase: .queued", prep_picker)
 
     def test_ios_course_review_product_copy_and_route_yardage_contract(self) -> None:
         course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
@@ -2940,7 +2943,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("round.toPar", recent_review)
         self.assertIn("aiCaddieShortDate(round.date)", recent_review)  # clean date, not raw ISO
         self.assertIn("package.recentHistory.course", recent_review)
-        self.assertIn("package.recentHistory.holes", recent_review)
+        self.assertNotIn("package.recentHistory.holes", recent_review)
+        self.assertNotIn('Text("球洞规律")', recent_review)
         # 单场复盘: tap a recent round → fetch /history/rounds/{ref} → hole-by-hole scorecard.
         # Fixes "复盘点进去没数据": the round detail renders the scorecard + graceful missing-data.
         round_review = _read_required_source(self, IOS_DIR / "Views" / "RoundReviewView.swift")
@@ -2954,6 +2958,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchRoundDetail(roundRef:", round_review)
         self.assertIn("detail.scorecard", round_review)
         self.assertIn("detail.missingData", round_review)  # graceful, never blank
+        self.assertIn("func scorecardGrid(", round_review)
+        self.assertIn("func nineGrid(", round_review)
+        self.assertIn("func metricGrid(", round_review)
+        self.assertIn("func phaseGrid(", round_review)
+        self.assertNotIn("func scorecardCard(", round_review)
         self.assertIn("NavigationLink {", recent_review)
         self.assertIn("RoundReviewView(", recent_review)
         self.assertIn("roundRef: round.roundId", recent_review)
@@ -2988,6 +2997,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func shotLieLabel(", shot_map_view)
         self.assertIn(".tabViewStyle(.page", shot_map_view)
         self.assertIn("RoundShotMapPagerScreen(", round_review)
+        self.assertIn("MagnificationGesture()", shot_map_view)
+        self.assertIn("final class RoundShotMapRepository", shot_map_view)
+        self.assertIn("await mapRepository.prefetch(holes", shot_map_view)
+        self.assertIn("await shotMapRepository.prefetch(roundHoles)", round_review)
         # 数据统计(历史宏观,与复盘分开): consume the compact /history/stats/mobile endpoint.
         stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
         mobile_stats_model = _read_required_source(self, IOS_DIR / "Models" / "MobileStats.swift")

@@ -15,6 +15,7 @@ from ai_caddie.history.history import (
     course_key,
     merge_same_day_halves,
     millionths_to_deg,
+    normalize_scorecard_hole,
 )
 
 from .base import ConnectorState, SnapshotManifest
@@ -155,14 +156,15 @@ def _played_holes(scorecard: dict[str, Any], hole_pars: str) -> list[dict[str, A
         par = hole.get("par")
         if not isinstance(par, int):
             par = _par_from_hole_pars(hole_pars, number)
+        normalized = normalize_scorecard_hole(hole, number=number, par=par)
         holes.append(
             {
                 "number": number,
-                "strokes": hole.get("strokes"),
-                "par": par,
-                "putts": hole.get("putts"),
-                "gir": hole.get("gir"),
-                "fairway": hole.get("fairway"),
+                "strokes": normalized.get("strokes"),
+                "par": normalized.get("par"),
+                "putts": normalized.get("putts"),
+                "gir": normalized.get("gir"),
+                "fairway": normalized.get("fairway"),
             }
         )
     return holes
@@ -250,6 +252,7 @@ def _normalize_scorecard(
         "fr": stats.get("fairwaysRight"),
         "frec": stats.get("fairwaysRecorded"),
         "gir": stats.get("greensInRegulation"),
+        "grec": stats.get("greensRecorded"),
         "putts": stats.get("putts"),
         "ub": stats.get("holesUnderPar"),
         "pa": stats.get("holesPar"),

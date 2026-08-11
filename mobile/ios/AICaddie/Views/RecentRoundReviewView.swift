@@ -43,7 +43,6 @@ struct RecentReviewContent: View {
         VStack(spacing: 12) {
             courseFormCard
             recentRoundsCard
-            holePatternsCard
         }
         .padding(14)
     }
@@ -51,7 +50,7 @@ struct RecentReviewContent: View {
     private var courseFormCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("球场近况").font(.caption).foregroundStyle(.secondary)
-            // Base course name (黑骑士), not the "~ A" nine combo — 场次/球洞规律 span the whole course.
+            // Base course name (黑骑士), not the "~ A" nine combo — course form spans all loops.
             Text(courseHistory.courseName ?? package.course.name).font(.title3.weight(.bold))
             HStack(spacing: 10) {
                 stat("场次", "\(courseHistory.roundCount)")
@@ -96,20 +95,6 @@ struct RecentReviewContent: View {
         .hubCard()
     }
 
-    private var holePatternsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("球洞规律").font(.caption).foregroundStyle(.secondary)
-            if package.recentHistory.holes.isEmpty {
-                Text("暂无球洞规律").font(.subheadline).foregroundStyle(.secondary)
-            } else {
-                ForEach(package.recentHistory.holes) { hole in
-                    holeRow(hole)
-                }
-            }
-        }
-        .hubCard()
-    }
-
     private func roundRow(_ round: RecentRoundSummary) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
@@ -141,28 +126,6 @@ struct RecentReviewContent: View {
         // hit shape so centre/blank-area taps open the round instead of being swallowed by ScrollView.
         .contentShape(Rectangle())
         .overlay(alignment: .bottom) { Divider() }
-    }
-
-    private func holeRow(_ hole: HoleRecentHistory) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("第 \(hole.number) 洞").font(.subheadline.weight(.semibold))
-                Spacer()
-                if let averageToPar = hole.averageToPar {
-                    Text(String(format: "均 %+.1f", averageToPar)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                }
-                Text("\(hole.sampleCount) 次").font(.caption2).foregroundStyle(.secondary)
-            }
-            if !hole.repeatedIssues.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(hole.repeatedIssues, id: \.label) { issue in
-                        HoleChip(text: "\(zhIssueLabel(issue.label)) ×\(issue.count)", warn: true)
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
-        }
-        .padding(.vertical, 4)
     }
 
     private func stat(_ title: String, _ value: String) -> some View {

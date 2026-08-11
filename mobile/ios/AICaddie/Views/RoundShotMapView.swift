@@ -26,21 +26,45 @@ public struct RoundShotMapView: View {
     public var body: some View {
         #if canImport(UIKit)
         if let overlay = shotMap.map?.overlay, overlay.w > 0, overlay.h > 0 {
-            ZStack {
-                TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)
-                Canvas { context, size in
-                    draw(&context, size: size, overlay: overlay)
+            let ratio = CGFloat(overlay.w) / CGFloat(overlay.h)
+            if let editModel {
+                ZStack {
+                    TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)
+                    Canvas { context, size in
+                        draw(&context, size: size, overlay: overlay)
+                    }
                 }
-            }
-            .aspectRatio(CGFloat(overlay.w) / CGFloat(overlay.h), contentMode: .fit)
-            .overlay {
-                if let editModel, let image = decodedImage {
-                    RoundShotEditLayer(editModel: editModel, overlay: overlay, clubs: editClubs,
-                                       baseImage: image, topoURL: topoURL)
+                .aspectRatio(ratio, contentMode: .fit)
+                .overlay {
+                    if let image = decodedImage {
+                        RoundShotEditLayer(editModel: editModel, overlay: overlay, clubs: editClubs,
+                                           baseImage: image, topoURL: topoURL)
+                    }
                 }
+                .overlay(alignment: .topLeading) { holeTag }
+                .mapSurface()
+            } else {
+                ZoomableRoundMapViewport(aspectRatio: ratio) {
+                    ZStack {
+                        TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)
+                        Canvas { context, size in
+                            draw(&context, size: size, overlay: overlay)
+                        }
+                    }
+                }
+                .overlay(alignment: .topLeading) { holeTag }
+                .overlay(alignment: .bottomTrailing) {
+                    Label("双指缩放", systemImage: "plus.magnifyingglass")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 5)
+                        .padding(.horizontal, 8)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .padding(9)
+                        .allowsHitTesting(false)
+                }
+                .mapSurface()
             }
-            .overlay(alignment: .topLeading) { holeTag }
-            .mapSurface()
         }
         #endif
     }
@@ -81,7 +105,100 @@ public struct RoundShotMapView: View {
     }
 }
 
-/// Shared shot-path rendering (caddie route + amber actual path + tee ring + landing dots + club
+#if canImport(UIKit)
+/// Pinch/pan/double-tap viewport used only by the read-only history map. Edit mode keeps the
+/// unscaled coordinate plane so its landing-point drag gestures remain pixel-authoritative.
+private struct ZoomableRoundMapViewport<Content: View>: View {
+    let aspectRatio: CGFloat
+    let content: Content
+
+    @State private var scale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @GestureState private var pinchScale: CGFloat = 1
+    @GestureState private var dragOffset: CGSize = .zero
+
+    private var displayedScale: CGFloat {
+        min(max(scale * pinchScale, 1), 4)
+    }
+
+    init(aspectRatio: CGFloat, @ViewBuilder content: () -> Content) {
+        self.aspectRatio = aspectRatio
+        self.content = content()
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            let proposedOffset = CGSize(
+                width: offset.width + dragOffset.width,
+                height: offset.height + dragOffset.height
+            )
+            content
+                .frame(width: size.width, height: size.height)
+                .scaleEffect(displayedScale)
+                .offset(clamped(proposedOffset, in: size, scale: displayedScale))
+                .contentShape(Rectangle())
+                .gesture(magnifyGesture(in: size))
+                .simultaneousGesture(panGesture(in: size))
+                .onTapGesture(count: 2) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if scale > 1.05 {
+                            scale = 1
+                            offset = .zero
+                        } else {
+                            scale = 2.5
+                            offset = .zero
+                        }
+                    }
+                }
+                .accessibilityHint("双指缩放，放大后拖动；双击可快速放大或还原")
+        }
+        .aspectRatio(aspectRatio, contentMode: .fit)
+        .clipped()
+    }
+
+    private func magnifyGesture(in size: CGSize) -> some Gesture {
+        MagnificationGesture()
+            .updating($pinchScale) { value, state, _ in state = value }
+            .onEnded { value in
+                scale = min(max(scale * value, 1), 4)
+                if scale <= 1.01 {
+                    scale = 1
+                    offset = .zero
+                } else {
+                    offset = clamped(offset, in: size, scale: scale)
+                }
+            }
+    }
+
+    private func panGesture(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 8)
+            .updating($dragOffset) { value, state, _ in
+                if displayedScale > 1.01 { state = value.translation }
+            }
+            .onEnded { value in
+                guard scale > 1.01 else { return }
+                let proposed = CGSize(
+                    width: offset.width + value.translation.width,
+                    height: offset.height + value.translation.height
+                )
+                offset = clamped(proposed, in: size, scale: scale)
+            }
+    }
+
+    private func clamped(_ value: CGSize, in size: CGSize, scale: CGFloat) -> CGSize {
+        guard scale > 1 else { return .zero }
+        let maxX = size.width * (scale - 1) / 2
+        let maxY = size.height * (scale - 1) / 2
+        return CGSize(
+            width: min(max(value.width, -maxX), maxX),
+            height: min(max(value.height, -maxY), maxY)
+        )
+    }
+}
+#endif
+
+/// Shared shot-path rendering (amber actual path + tee ring + landing dots + club
 /// labels), factored out of ``RoundShotMapView`` so the drag magnifier (``MagnifierLoupe``) draws the
 /// exact same picture — magnified — over the exact same projection.
 func drawRoundShotPath(_ context: inout GraphicsContext, size: CGSize, overlay: CoursePrepOverlay, shots: [RoundShot]) {
@@ -91,21 +208,6 @@ func drawRoundShotPath(_ context: inout GraphicsContext, size: CGSize, overlay: 
         guard let p, p.count >= 2 else { return nil }
         return CGPoint(x: CGFloat(p[0]) * sx, y: CGFloat(p[1]) * sy)
     }
-    func routePoint(_ p: [Double]) -> CGPoint { CGPoint(x: CGFloat(p[0]) * sx, y: CGFloat(p[1]) * sy) }
-
-    // Caddie-recommended route — a white dashed line, drawn FIRST so the actual (yellow) shot path
-    // sits over it. Lets the player compare "what the caddie suggested" vs "what I actually did".
-    let route = overlay.route.filter { $0.count >= 2 }
-    if route.count >= 2 {
-        var rp = Path()
-        rp.move(to: routePoint(route[0]))
-        for pt in route.dropFirst() { rp.addLine(to: routePoint(pt)) }
-        context.stroke(rp, with: .color(.black.opacity(0.22)),
-                       style: StrokeStyle(lineWidth: 3.4, lineCap: .round, lineJoin: .round))
-        context.stroke(rp, with: .color(.white.opacity(0.75)),
-                       style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round, dash: [5, 5]))
-    }
-
     // Actual shot path: each shot start→end, in order, in AMBER (#ffb300). A dark halo keeps it
     // legible over green/sand/water; synthetic (auto-filled) shots are dashed + faded.
     let amber = Color(red: 1.0, green: 0.70, blue: 0.0)
@@ -210,6 +312,130 @@ public struct RoundShotMapLegend: View {
     }
 }
 
+/// Screen-level cache for one historical round. A `TabView` is free to unload off-screen pages;
+/// keeping maps and in-flight work here makes that an implementation detail instead of another
+/// server request. The pager fetches the current hole first, then the remaining holes four at a
+/// time, and warms each corresponding topo bitmap through `TopoHoleImageStore`.
+@MainActor
+final class RoundShotMapRepository: ObservableObject {
+    private enum LoadResult {
+        case success(RoundHoleShotMap)
+        case failure
+    }
+
+    @Published private var maps: [Int: RoundHoleShotMap] = [:]
+    @Published private var loadingHoles: Set<Int> = []
+    @Published private var errors: [Int: String] = [:]
+
+    private let roundRef: String
+    private let client: SyncClient?
+    private var inFlight: [Int: Task<LoadResult, Never>] = [:]
+
+    init(roundRef: String, apiBaseURL: URL?, adminToken: String?) {
+        self.roundRef = roundRef
+        self.client = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken) }
+    }
+
+    func map(for hole: Int) -> RoundHoleShotMap? { maps[hole] }
+
+    func isLoading(_ hole: Int) -> Bool {
+        maps[hole] == nil && errors[hole] == nil
+    }
+
+    func error(for hole: Int) -> String? { errors[hole] }
+
+    func store(_ map: RoundHoleShotMap, for hole: Int) {
+        maps[hole] = map
+        errors[hole] = nil
+        prefetchTopo(for: map)
+    }
+
+    func load(_ hole: Int) async {
+        guard maps[hole] == nil else { return }
+        guard let client else {
+            errors[hole] = "未配置后端地址"
+            return
+        }
+
+        let task: Task<LoadResult, Never>
+        if let existing = inFlight[hole] {
+            task = existing
+        } else {
+            errors[hole] = nil
+            loadingHoles.insert(hole)
+            task = Task { [roundRef] in
+                do {
+                    return .success(try await client.fetchRoundShotMap(roundRef: roundRef, hole: hole))
+                } catch {
+                    return .failure
+                }
+            }
+            inFlight[hole] = task
+        }
+
+        let result = await task.value
+        inFlight[hole] = nil
+        loadingHoles.remove(hole)
+        switch result {
+        case .success(let map):
+            maps[hole] = map
+            errors[hole] = nil
+            prefetchTopo(for: map)
+        case .failure:
+            if maps[hole] == nil { errors[hole] = "这一洞落点暂时取不到" }
+        }
+    }
+
+    /// Current/start hole first, then neighbours, then the rest. Four concurrent API calls keep the
+    /// 18-hole warm-up fast without creating the request storm that previously slowed every page.
+    func prefetch(_ holes: [Int], startingAt startHole: Int? = nil) async {
+        var seen: Set<Int> = []
+        let valid = holes.filter { $0 > 0 && seen.insert($0).inserted }
+        let ordered: [Int]
+        if let startHole, let startIndex = valid.firstIndex(of: startHole) {
+            let neighbours = [startHole, valid[safe: startIndex - 1], valid[safe: startIndex + 1]].compactMap { $0 }
+            let priority = neighbours.filter { seenValue in valid.contains(seenValue) }
+            ordered = priority + valid.filter { !priority.contains($0) }
+        } else {
+            ordered = valid
+        }
+
+        for index in stride(from: 0, to: ordered.count, by: 4) {
+            guard !Task.isCancelled else { return }
+            let batch = Array(ordered[index..<min(index + 4, ordered.count)])
+            await withTaskGroup(of: Void.self) { group in
+                for hole in batch {
+                    group.addTask { await self.load(hole) }
+                }
+            }
+        }
+    }
+
+    private func prefetchTopo(for map: RoundHoleShotMap) {
+        #if canImport(UIKit)
+        guard let client,
+              let globalId = map.globalId,
+              let localHole = map.localHole,
+              map.geometryRevision != nil,
+              !map.usesCourseDataFrame else { return }
+        TopoHoleImageStore.prefetch(
+            SyncClient.topoImageURL(
+                baseURL: client.baseURL,
+                globalId: globalId,
+                localHole: localHole,
+                geometryRevision: map.geometryRevision
+            )
+        )
+        #endif
+    }
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
+
 /// 点开复盘某一洞 → 取该洞落点图并展示(图 + 逐杆列表)。无几何/无数据时优雅兜底。
 public struct RoundHoleShotMapScreen: View {
     public let roundRef: String
@@ -222,9 +448,7 @@ public struct RoundHoleShotMapScreen: View {
     /// (设计 §1:改的模式锁切洞,免误触换洞)。nil for a standalone screen.
     public let onEditingChange: ((Bool) -> Void)?
 
-    @State private var shotMap: RoundHoleShotMap?
-    @State private var isLoading = true
-    @State private var errorText: String?
+    @StateObject private var mapRepository: RoundShotMapRepository
     @State private var editModel: RoundEditModel?
     @State private var isEditing = false
     @State private var isSaving = false
@@ -237,7 +461,30 @@ public struct RoundHoleShotMapScreen: View {
         self.adminToken = adminToken
         self.showsNavigationTitle = showsNavigationTitle
         self.onEditingChange = onEditingChange
+        _mapRepository = StateObject(
+            wrappedValue: RoundShotMapRepository(
+                roundRef: roundRef,
+                apiBaseURL: apiBaseURL,
+                adminToken: adminToken
+            )
+        )
     }
+
+    init(roundRef: String, hole: Int, apiBaseURL: URL?, adminToken: String?,
+         showsNavigationTitle: Bool, onEditingChange: ((Bool) -> Void)?,
+         mapRepository: RoundShotMapRepository) {
+        self.roundRef = roundRef
+        self.hole = hole
+        self.apiBaseURL = apiBaseURL
+        self.adminToken = adminToken
+        self.showsNavigationTitle = showsNavigationTitle
+        self.onEditingChange = onEditingChange
+        _mapRepository = StateObject(wrappedValue: mapRepository)
+    }
+
+    private var shotMap: RoundHoleShotMap? { mapRepository.map(for: hole) }
+    private var isLoading: Bool { mapRepository.isLoading(hole) }
+    private var errorText: String? { mapRepository.error(for: hole) }
 
     public var body: some View {
         Group {
@@ -379,21 +626,21 @@ public struct RoundHoleShotMapScreen: View {
 
     @MainActor
     private func load() async {
-        guard let apiBaseURL else { isLoading = false; errorText = "未配置后端地址"; return }
         if isEditing { onEditingChange?(false) }
         isEditing = false
         isSaving = false
-        isLoading = true
-        errorText = nil
-        do {
-            let sync = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
-            let m = try await sync.fetchRoundShotMap(roundRef: roundRef, hole: hole)
-            shotMap = m
-            editModel = m.found ? RoundEditModel(map: m, sync: sync, roundRef: roundRef) : nil
-        } catch {
-            errorText = "这一洞落点暂时取不到"
+        await mapRepository.load(hole)
+        guard let apiBaseURL, let map = mapRepository.map(for: hole) else {
+            editModel = nil
+            return
         }
-        isLoading = false
+        editModel = map.found
+            ? RoundEditModel(
+                map: map,
+                sync: SyncClient(baseURL: apiBaseURL, adminToken: adminToken),
+                roundRef: roundRef
+            )
+            : nil
     }
 
     @MainActor
@@ -408,7 +655,7 @@ public struct RoundHoleShotMapScreen: View {
     private func cancelEditing() {
         guard !isSaving, let editModel else { return }
         editModel.cancelEdit()
-        shotMap = editModel.map
+        mapRepository.store(editModel.map, for: hole)
         isEditing = false
         onEditingChange?(false)
     }
@@ -420,7 +667,7 @@ public struct RoundHoleShotMapScreen: View {
         let saved = await editModel.save()
         isSaving = false
         guard saved else { return }
-        shotMap = editModel.map
+        mapRepository.store(editModel.map, for: hole)
         isEditing = false
         onEditingChange?(false)
     }
@@ -433,6 +680,7 @@ public struct RoundShotMapPagerScreen: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
     public let onClose: (() -> Void)?
+    @StateObject private var mapRepository: RoundShotMapRepository
     @State private var current: Int
     /// Holes currently in edit mode. Non-empty ⇒ 翻洞 is locked (设计 §1:改的模式锁切洞)。
     @State private var editingHoles: Set<Int> = []
@@ -450,6 +698,31 @@ public struct RoundShotMapPagerScreen: View {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         self.onClose = onClose
+        _mapRepository = StateObject(
+            wrappedValue: RoundShotMapRepository(
+                roundRef: roundRef,
+                apiBaseURL: apiBaseURL,
+                adminToken: adminToken
+            )
+        )
+        _current = State(initialValue: holes.contains(startHole) ? startHole : (holes.first ?? startHole))
+    }
+
+    init(
+        roundRef: String,
+        holes: [Int],
+        startHole: Int,
+        apiBaseURL: URL?,
+        adminToken: String?,
+        onClose: (() -> Void)?,
+        mapRepository: RoundShotMapRepository
+    ) {
+        self.roundRef = roundRef
+        self.holes = holes
+        self.apiBaseURL = apiBaseURL
+        self.adminToken = adminToken
+        self.onClose = onClose
+        _mapRepository = StateObject(wrappedValue: mapRepository)
         _current = State(initialValue: holes.contains(startHole) ? startHole : (holes.first ?? startHole))
     }
 
@@ -467,7 +740,8 @@ public struct RoundShotMapPagerScreen: View {
                     apiBaseURL: apiBaseURL, adminToken: adminToken, showsNavigationTitle: false,
                     onEditingChange: { editing in
                         if editing { editingHoles.insert(hole) } else { editingHoles.remove(hole) }
-                    }
+                    },
+                    mapRepository: mapRepository
                 )
                 .tag(hole)
             }
@@ -478,6 +752,20 @@ public struct RoundShotMapPagerScreen: View {
         // must not become a third, silent way to discard the whole local draft.
         .interactiveDismissDisabled(isLocked)
         .navigationTitle(isLocked ? "第 \(current) 洞 · 编辑中" : "第 \(current) 洞 · 落点 · 左右滑")
+        .task(id: roundRef) {
+            await mapRepository.prefetch(holes, startingAt: current)
+        }
+        .onChange(of: current) { _, newHole in
+            Task {
+                let index = holes.firstIndex(of: newHole)
+                let nearby = [
+                    newHole,
+                    index.flatMap { holes[safe: $0 - 1] },
+                    index.flatMap { holes[safe: $0 + 1] },
+                ].compactMap { $0 }
+                await mapRepository.prefetch(nearby, startingAt: newHole)
+            }
+        }
         .toolbar {
             if !isLocked, let onClose {
                 ToolbarItem(placement: .topBarLeading) {

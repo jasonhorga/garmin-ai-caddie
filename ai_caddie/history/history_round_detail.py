@@ -59,6 +59,7 @@ def build_history_round_detail(
             "fr",
             "frec",
             "gir",
+            "grec",
             "merged",
             "provenance",
         ],
@@ -420,14 +421,23 @@ def _phase_summary(
     # no per-hole fairway/gir/putt cells (the common case for synced rounds), fall back to the round
     # aggregates (fh/frec/gir/putts) instead of rendering 0/0. GIR denominator = holes played.
     has_round_fairways = not fairways and row.get("frec") is not None
-    has_round_gir = not gir_recorded and row.get("gir") is not None
+    round_gir_recorded = _int_value(row.get("grec"))
+    # New snapshots preserve Garmin's real denominator. Older normalized fixtures omitted it, so
+    # retain their historical holes-completed fallback only when the field itself is absent.
+    if round_gir_recorded is None and row.get("gir") is not None:
+        round_gir_recorded = holes_completed
+    has_round_gir = (
+        not gir_recorded
+        and row.get("gir") is not None
+        and (round_gir_recorded or 0) > 0
+    )
     has_round_putts = not putt_cells and row.get("putts") is not None
     if has_round_fairways:
         fairways_hit = int(row.get("fh") or 0)
         fairways_recorded = int(row.get("frec") or 0)
     if has_round_gir:
         gir_hit = int(row.get("gir") or 0)
-        gir_total = holes_completed
+        gir_total = int(round_gir_recorded or 0)
     if has_round_putts:
         putts_total = int(row.get("putts") or 0)
 

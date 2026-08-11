@@ -236,6 +236,19 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual(phases["Putting"]["metrics"]["totalPutts"], 17)
         self.assertIn("GIR", phases["Approach"]["primary"])
 
+    def test_zero_greens_recorded_does_not_fabricate_zero_percent_gir(self) -> None:
+        round_row = {
+            "id": "800002", "date": "2026-06-02", "course": "No Putt Tracking", "courseKey": "c_y",
+            "holesCompleted": 9, "strokes": 46, "par": 36, "holePars": "434444445",
+            "gir": 0, "grec": 0,
+            "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],
+        }
+        data = HistoryData(raw_rounds=[round_row], rounds=[round_row], shots=[])
+        phases = {row["phase"]: row for row in build_history_round_detail(data, "800002")["phaseSummary"]}
+
+        self.assertEqual(phases["Approach"]["metrics"]["girRecorded"], 0)
+        self.assertNotIn("GIR", phases["Approach"]["primary"])
+
     def test_round_detail_accepts_round_alias_and_attaches_round_annotations(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

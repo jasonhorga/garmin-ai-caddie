@@ -69,7 +69,11 @@ public struct PrepCoursePickerView: View {
                     holeCount: course.resolvedHoles,
                     teeBox: course.teeBox,
                     offlineStore: offlineStore,
-                    download: downloads.first(where: { $0.course.globalId == course.globalId })
+                    // `onDownload` updates the app-owned queue on the next published render. The
+                    // destination must nevertheless enter managed-download mode on its FIRST frame;
+                    // otherwise it briefly starts the standalone network loader, that task is then
+                    // cancelled when the queue row arrives, and the player sees a false “加载失败”.
+                    download: selectedDownload(for: course)
                 )
             }
         }
@@ -125,6 +129,22 @@ public struct PrepCoursePickerView: View {
             onRetryDownload(download.id)
         }
         selectedCourse = download.course
+    }
+
+    /// Resolve the durable row when it has propagated, or use an equivalent queued snapshot for
+    /// the short interval between selection and the app model's publication. Both have the same
+    /// stable key, so the destination never changes loading ownership during navigation.
+    private func selectedDownload(for course: MobileCourseOption) -> PrepCourseDownloadRecord {
+        let tee = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTee = tee?.isEmpty == false ? tee! : "blue"
+        let id = PrepCourseDownloadRecord.key(globalId: course.globalId, teeBox: resolvedTee)
+        return downloads.first(where: { $0.id == id })
+            ?? PrepCourseDownloadRecord(
+                course: course,
+                teeBox: resolvedTee,
+                phase: .queued,
+                totalHoles: course.resolvedHoles
+            )
     }
 
     private func resolvedOption(for match: MobileCourseSearchMatch) -> MobileCourseOption? {
