@@ -139,7 +139,12 @@ private struct ZoomableRoundMapViewport<Content: View>: View {
                 .offset(clamped(proposedOffset, in: size, scale: displayedScale))
                 .contentShape(Rectangle())
                 .gesture(magnifyGesture(in: size))
-                .simultaneousGesture(panGesture(in: size))
+                // At 1× the pager owns horizontal drags (change hole). Once zoomed, the map owns
+                // them with higher priority so panning never accidentally jumps to another hole.
+                .highPriorityGesture(
+                    panGesture(in: size),
+                    including: displayedScale > 1.01 ? .all : .none
+                )
                 .onTapGesture(count: 2) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         if scale > 1.05 {

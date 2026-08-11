@@ -3000,6 +3000,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn(".tabViewStyle(.page", shot_map_view)
         self.assertIn("RoundShotMapPagerScreen(", round_review)
         self.assertIn("MagnificationGesture()", shot_map_view)
+        self.assertIn("displayedScale > 1.01 ? .all : .none", shot_map_view)
         self.assertIn("final class RoundShotMapRepository", shot_map_view)
         self.assertIn("await mapRepository.prefetch(holes", shot_map_view)
         self.assertIn("await shotMapRepository.prefetch(roundHoles)", round_review)
