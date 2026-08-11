@@ -420,6 +420,11 @@ public struct StartRoundView: View {
                         Text("发球台").font(.subheadline).foregroundStyle(.secondary)
                         Spacer()
                         Menu {
+                            // Keep the non-mutating exit above the provider's Tee list. Large real
+                            // courses can expose enough Tee boxes for a bottom action to fall outside
+                            // the menu's initial accessible viewport on iPhone.
+                            Button("取消", role: .cancel) {}
+                            Divider()
                             ForEach(teeOptions, id: \.self) { tee in
                                 Button {
                                     teeBox = tee
@@ -431,8 +436,6 @@ public struct StartRoundView: View {
                                     }
                                 }
                             }
-                            Divider()
-                            Button("取消", role: .cancel) {}
                         } label: {
                             HStack(spacing: 4) {
                                 Text(teeBox.isEmpty ? "默认" : teeMenuLabel(teeBox))

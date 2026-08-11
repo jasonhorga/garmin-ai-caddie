@@ -541,7 +541,7 @@ final class RealFlowUITests: XCTestCase {
             120,
             "the complete caddie plan heading must start in the first-glance band, not below a duplicated distance panel"
         )
-        for label in ["稳妥打法", "标准打法", "进攻打法"] {
+        for label in ["推荐打法", "保守打法", "进攻打法"] {
             XCTAssertTrue(
                 app.staticTexts[label].waitForExistence(timeout: 5),
                 "a Par 4 tee decision must expose all three complete club-to-club strategy chains: \(label)"
@@ -558,7 +558,7 @@ final class RealFlowUITests: XCTestCase {
             )
         }
         XCTAssertTrue(
-            scrollTo(app.staticTexts["标准打法"], maxSwipes: 12),
+            scrollTo(app.staticTexts["推荐打法"], maxSwipes: 12),
             "the selected full-hole club chain must be visible in the simulator evidence"
         )
         settle(1); save("11-caddie-plan"); dump("11-caddie-plan")
@@ -568,7 +568,7 @@ final class RealFlowUITests: XCTestCase {
         avoidZones.tap()
         let avoidZonesHeading = app.staticTexts["避开区"]
         XCTAssertTrue(scrollTo(avoidZonesHeading, maxSwipes: 8), "expanded avoid zones must be visible")
-        for label in ["稳妥打法", "标准打法", "进攻打法"] {
+        for label in ["推荐打法", "保守打法", "进攻打法"] {
             XCTAssertEqual(
                 app.staticTexts.matching(NSPredicate(format: "label == %@", label)).count,
                 1,
