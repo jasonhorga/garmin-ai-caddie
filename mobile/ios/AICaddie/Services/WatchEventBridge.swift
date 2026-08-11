@@ -37,7 +37,7 @@ public struct WatchHazard: Codable, Equatable, Identifiable {
     public var id: String { "\(kind)-\(label)" }
 
     public let kind: String     // "bunker" | "water"
-    public let label: String    // 中文,如「沙坑 1」「水域」
+    public let label: String    // 中文,如「右侧球道沙坑」「前方水障碍」
     public let startM: Double?
     public let endM: Double?
     public let sideM: Double?

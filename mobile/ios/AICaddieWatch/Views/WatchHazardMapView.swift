@@ -470,6 +470,7 @@ public struct WatchHazardMapView: View {
                         .foregroundStyle(.white.opacity(0.62))
                 }
                 .lineLimit(1)
+                .minimumScaleFactor(0.75)
                 .shadow(color: .black, radius: 2)
             }
             .padding(.top, 5)

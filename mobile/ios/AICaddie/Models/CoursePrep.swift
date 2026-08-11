@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieDomain
 
 /// Pre-round course-prep DTO from `GET /api/v2/courses/{globalId}/prep`.
 /// Mirrors the engine's `course_prep` output (par + route + hazards + strategy + styled map).
@@ -309,79 +310,21 @@ enum CoursePrepHazardNaming {
         detail: CoursePrepHazardDetail,
         route: [[Double]]?
     ) -> String {
-        let side = lateralLabel(detail: detail, route: route)
-        if kind == "water" {
-            return side == "前方" ? "前方水障碍" : "\(side)水障碍"
-        }
-        let totalM: Double?
-        if let last = route?.last, last.count >= 3 {
-            totalM = last[2]
-        } else {
-            totalM = nil
-        }
-        let area = totalM.map { $0 - detail.frontRouteM <= 55 ? "果岭" : "球道" } ?? ""
-        return side == "前方" ? "\(area)沙坑" : "\(side)\(area)沙坑"
+        HazardDisplayNaming.label(
+            kind: kind,
+            frontRouteM: detail.frontRouteM,
+            frontPx: detail.frontPx,
+            sideM: detail.sideM,
+            route: route
+        )
     }
 
-    private static func lateralLabel(
-        detail: CoursePrepHazardDetail,
+    static func legacyLabel(
+        kind: String,
+        interval: [Double],
         route: [[Double]]?
     ) -> String {
-        guard let route, route.count >= 2, detail.frontPx.count >= 2 else { return "前方" }
-        let segments = zip(route, route.dropFirst()).filter { segment in
-            segment.0.count >= 2 && segment.1.count >= 2
-        }
-        guard !segments.isEmpty else { return "前方" }
-        let selected: ([Double], [Double])?
-        if let stationSegment = segments.first(where: { segment in
-            guard segment.0.count >= 3, segment.1.count >= 3 else { return false }
-            let low = min(segment.0[2], segment.1[2]) - 1
-            let high = max(segment.0[2], segment.1[2]) + 1
-            return low...high ~= detail.frontRouteM
-        }) {
-            selected = stationSegment
-        } else {
-            selected = segments.min { lhs, rhs in
-                routeSegmentDistanceSquared(point: detail.frontPx, segment: lhs)
-                    < routeSegmentDistanceSquared(point: detail.frontPx, segment: rhs)
-            }
-        }
-        guard let selected else { return "前方" }
-        let first = selected.0
-        let second = selected.1
-        let dx = second[0] - first[0]
-        let dy = second[1] - first[1]
-        let length = hypot(dx, dy)
-        guard length > 0 else { return "前方" }
-        let cross = dx * (detail.frontPx[1] - first[1])
-            - dy * (detail.frontPx[0] - first[0])
-        let lateralPixels = cross / length
-        if abs(lateralPixels) < 7 || (detail.sideM ?? .greatestFiniteMagnitude) < 4 {
-            return "前方"
-        }
-        // UIKit's y axis points down, so the usual Cartesian cross-product sign is reversed.
-        return lateralPixels < 0 ? "左侧" : "右侧"
-    }
-
-    private static func routeSegmentDistanceSquared(
-        point: [Double],
-        segment: ([Double], [Double])
-    ) -> Double {
-        let first = segment.0
-        let second = segment.1
-        let dx = second[0] - first[0]
-        let dy = second[1] - first[1]
-        let lengthSquared = dx * dx + dy * dy
-        guard lengthSquared > 0 else {
-            let px = point[0] - first[0]
-            let py = point[1] - first[1]
-            return px * px + py * py
-        }
-        let rawT = ((point[0] - first[0]) * dx + (point[1] - first[1]) * dy) / lengthSquared
-        let t = min(1, max(0, rawT))
-        let px = point[0] - (first[0] + t * dx)
-        let py = point[1] - (first[1] + t * dy)
-        return px * px + py * py
+        HazardDisplayNaming.legacyLabel(kind: kind, interval: interval, route: route)
     }
 }
 

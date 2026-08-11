@@ -83,10 +83,10 @@ def fetch_clubs(s: requests.Session) -> dict:
     (`/club/types`), merge them into a resolved roster, and save to ``data/club_bag.json``.
 
     Each club carries the Garmin ``clubTypeId``, the player's custom name (when they renamed it,
-    e.g. "Pw"/"50"), the clubType's standard English name + loft, and retired/deleted flags. The
-    display name is resolved to Chinese on the client (iOS owns the catalog), so this stays
-    language-neutral. Both endpoints require the cookie session (else 401) — refreshes once on auth
-    failure, mirroring ``fetch_summary``.
+    e.g. "Pw"/"50"), the clubType's standard English name + loft, any non-zero Garmin normal/advice
+    distance fields, and retired/deleted flags. The display name is resolved to Chinese on the client
+    (iOS owns the catalog), so this stays language-neutral. Both endpoints require the cookie session
+    (else 401) — refreshes once on auth failure, mirroring ``fetch_summary``.
     """
     DATA_DIR.mkdir(exist_ok=True)
     print("[..] fetching club bag + clubType dictionary")
@@ -119,6 +119,8 @@ def fetch_clubs(s: requests.Session) -> dict:
                 "typeName": club_type.get("name"),
                 "loftAngle": club_type.get("loftAngle"),
                 "shaftLength": club.get("shaftLength") or club_type.get("shaftLength"),
+                "averageDistance": club.get("averageDistance"),
+                "adviceDistance": club.get("adviceDistance"),
                 "retired": bool(club.get("retired")),
                 "deleted": bool(club.get("deleted")),
             }

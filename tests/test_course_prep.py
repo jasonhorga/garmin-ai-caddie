@@ -158,6 +158,24 @@ class PureLogicTests(unittest.TestCase):
 
         self.assertEqual(ladder, [("三号木杆", 174), ("7I", 128)])
 
+    def test_club_ladder_prefers_nonzero_garmin_advice_distance(self) -> None:
+        profiles = {
+            "3W": {"median": 171.0, "sampleSize": 40},
+            "3H": {"median": 159.0, "sampleSize": 30},
+        }
+        synced = {
+            "clubs": [
+                {"clubTypeId": 2, "adviceDistance": 188, "averageDistance": 181},
+                {"clubTypeId": 6, "adviceDistance": 0, "averageDistance": 0},
+            ]
+        }
+        with patch("ai_caddie.courses.course_prep.build_club_profiles", return_value=profiles), \
+                patch("ai_caddie.courses.course_prep.load_club_bag", return_value=synced), \
+                patch.object(cp.club_bag_service, "restrict_to_bag", side_effect=lambda rows, _name: rows):
+            ladder = cp.club_ladder()
+
+        self.assertEqual(ladder, [("3W", 188), ("3H", 159)])
+
     def test_prep_hole_marks_out_of_range_par_record_as_estimate(self) -> None:
         md = {"hole": {
             "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],

@@ -439,7 +439,7 @@ class EffectiveClubOut(BaseModel):
     customName: str | None = None
     clubTypeId: int | None = None
     distanceM: int | None = None
-    distanceSource: str | None = None  # "manual" | "default" | None
+    distanceSource: str | None = None  # "manual" | "default" | "garmin_advice" | "garmin_average" | None
 
 
 class EffectiveClubBagResponse(BaseModel):

@@ -1274,6 +1274,44 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
 
+        func retainPrepBatchResults(_ results: [OfflinePrepBatchResult]) {
+            for result in results {
+                if let errorDescription = result.errorDescription {
+                    let holeList = result.request.localHoles.map(String.init).joined(separator: ",")
+                    AICaddieLog.network.error(
+                        "Offline course facts download failed for \(result.request.globalId, privacy: .public)/\(holeList, privacy: .public): \(errorDescription, privacy: .public)"
+                    )
+                }
+                for prep in result.holes {
+                    let key = offlinePrepKey(
+                        globalId: result.request.globalId,
+                        localHole: prep.hole
+                    )
+                    prepBySource[key] = prep
+                }
+            }
+        }
+
+        func persistPrepBatchProgress() {
+            guard let prepDownloadID else { return }
+            do {
+                try offlineStore.saveCourseTemplate(assembledSnapshot())
+            } catch {
+                AICaddieLog.storage.error(
+                    "Incremental prep facts save failed: \(String(describing: error), privacy: .public)"
+                )
+            }
+            updatePrepCourseDownload(
+                id: prepDownloadID,
+                generation: prepDownloadGeneration
+            ) { state in
+                state.phase = .preparing
+                state.preparedHoles = preparedHoleCount()
+                state.downloadedHoles = downloadedHoleCount()
+                state.totalHoles = max(1, snapshot.holes.count)
+            }
+        }
+
         /// Geometry installation and topo rendering are independent stages. Download every hole
         /// whose precise facts have just become available instead of waiting for the slowest of all
         /// 18 holes. Each successful bitmap is revision-keyed and atomically durable, so a later
@@ -1408,44 +1446,41 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
             }
 
+            // Fetch the first playing hole to completion before starting the throughput batches.
+            // Merely putting its singleton at the front of one task group still made it wait for
+            // every other group result before the UI could persist and draw it.
+            if let priorityRequest = batchRequests.first {
+                let priorityResults = await fetchOfflinePrepBatches(
+                    [priorityRequest],
+                    using: syncClient,
+                    maximumConcurrentRequests: 1
+                )
+                guard !Task.isCancelled else { return }
+                retainPrepBatchResults(priorityResults)
+                for prep in priorityResults.flatMap(\.holes) where offlinePrepIsPrecise(prep) {
+                    geometryReadyKeys.insert(offlinePrepKey(
+                        globalId: priorityRequest.globalId,
+                        localHole: prep.hole
+                    ))
+                }
+                persistPrepBatchProgress()
+                await downloadNewlyReadyTopoHoles()
+                guard !Task.isCancelled else { return }
+                batchRequests.removeFirst()
+            }
+
             let batchResults = await fetchOfflinePrepBatches(batchRequests, using: syncClient)
             guard !Task.isCancelled else { return }
+            retainPrepBatchResults(batchResults)
             for result in batchResults {
-                if let errorDescription = result.errorDescription {
-                    let holeList = result.request.localHoles.map(String.init).joined(separator: ",")
-                    AICaddieLog.network.error(
-                        "Offline course facts download failed for \(result.request.globalId, privacy: .public)/\(holeList, privacy: .public): \(errorDescription, privacy: .public)"
-                    )
-                }
-                for prep in result.holes {
-                    let key = offlinePrepKey(
+                for prep in result.holes where offlinePrepIsPrecise(prep) {
+                    geometryReadyKeys.insert(offlinePrepKey(
                         globalId: result.request.globalId,
                         localHole: prep.hole
-                    )
-                    prepBySource[key] = prep
-                    if offlinePrepIsPrecise(prep) {
-                        geometryReadyKeys.insert(key)
-                    }
+                    ))
                 }
             }
-            if let prepDownloadID {
-                do {
-                    try offlineStore.saveCourseTemplate(assembledSnapshot())
-                } catch {
-                    AICaddieLog.storage.error(
-                        "Incremental prep facts save failed: \(String(describing: error), privacy: .public)"
-                    )
-                }
-                updatePrepCourseDownload(
-                    id: prepDownloadID,
-                    generation: prepDownloadGeneration
-                ) { state in
-                    state.phase = .preparing
-                    state.preparedHoles = preparedHoleCount()
-                    state.downloadedHoles = downloadedHoleCount()
-                    state.totalHoles = max(1, snapshot.holes.count)
-                }
-            }
+            persistPrepBatchProgress()
             // Do not hold the first finished holes hostage to the slowest geometry install. This
             // is the key latency fix for cold courses: cards become locally usable one by one.
             await downloadNewlyReadyTopoHoles()

@@ -31,6 +31,21 @@ _CLUBTYPE_CANON: dict[int, str] = {
     19: "pw", 20: "gw", 21: "sw", 22: "lw", 23: "putter",
 }
 
+
+def garmin_distance_m(club: dict[str, Any]) -> tuple[int, str] | None:
+    """Return Garmin's own usable normal distance, preferring advice over average.
+
+    Historical `/club/player` payloads often contain zero for both fields; zero/non-numeric/outlier
+    values are absence, never a reason to replace the player's AutoShot-derived model.
+    """
+    for key, source in (("adviceDistance", "garmin_advice"), ("averageDistance", "garmin_average")):
+        value = club.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if 5 <= float(value) <= 350:
+            return round(float(value)), source
+    return None
+
 _CN_NUM = {"一": "1", "二": "2", "三": "3", "四": "4", "五": "5", "六": "6", "七": "7", "八": "8", "九": "9"}
 
 
@@ -213,6 +228,8 @@ def build_club_bag_response(*, player_id: str = "me", owner_id: str = "me") -> d
                 "customName": club.get("customName"),
                 "typeName": club.get("typeName"),
                 "loftAngle": club.get("loftAngle"),
+                "averageDistance": club.get("averageDistance"),
+                "adviceDistance": club.get("adviceDistance"),
                 "retired": bool(club.get("retired")),
                 "deleted": bool(club.get("deleted")),
             }

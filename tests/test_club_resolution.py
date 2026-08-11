@@ -44,10 +44,20 @@ class ClubNameFromDetailsTests(unittest.TestCase):
         # The mismatch case the owner hit: a shot's clubId matches a bag record that has only a
         # clubTypeId (no name) → resolve via the shared club/types table to a REAL label, not
         # the old "ClubType 11" string.
-        sd = {"clubDetails": [{"id": 999, "clubTypeId": 11, "name": None}]}
+        sd = {"clubDetails": [{"id": 999, "clubTypeId": 16, "name": None}]}
         self.assertEqual(data.club_name_from_details(999, sd, apply_overrides=False), "7I")
         # And it cleans to a real name (never a placeholder).
         self.assertEqual(data.clean_club_name(data.club_name_from_details(999, sd, apply_overrides=False)), "7I")
+
+    def test_club_type_ids_match_the_live_garmin_1_through_23_dictionary(self) -> None:
+        cases = {1: "Driver", 2: "3W", 6: "3H", 14: "5I", 18: "9I", 19: "PW", 23: "Putter"}
+        for type_id, expected in cases.items():
+            with self.subTest(type_id=type_id):
+                details = {"clubDetails": [{"id": type_id, "clubTypeId": type_id, "name": None}]}
+                self.assertEqual(
+                    data.club_name_from_details(type_id, details, apply_overrides=False),
+                    expected,
+                )
 
     def test_unmappable_club_falls_back_to_id_then_cleans_to_none(self) -> None:
         sd = {"clubDetails": [{"id": 42684999, "clubTypeId": 99, "name": None}]}  # clubTypeId not in table

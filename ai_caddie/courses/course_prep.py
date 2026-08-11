@@ -18,7 +18,7 @@ from dataclasses import asdict, dataclass, field
 from ai_caddie.courses import course_reference, courseview_core
 from ai_caddie.geometry import elevation, hole_render, shot_projection
 from ai_caddie.core.data import build_club_profiles, read_json
-from ai_caddie.core.data import OWNER_ID, load_manual_club_bag
+from ai_caddie.core.data import OWNER_ID, load_club_bag, load_manual_club_bag
 from ai_caddie.core.data import available_prep_holes as available_prep_holes  # re-export: prep's hole-list default
 from ai_caddie.caddie import club_bag as club_bag_service, club_catalog
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
@@ -617,6 +617,28 @@ def club_ladder(path=None) -> list[tuple[str, int]]:
         previous = by_token.get(token)
         if previous is None or (candidate[2], candidate[1]) > (previous[2], previous[1]):
             by_token[token] = candidate
+
+    # Garmin occasionally publishes a non-zero normal/advice distance on the bag record. Preserve
+    # and prefer that first-party value when present; today's owner data has zeros, so the normal
+    # path remains the canonicalized AutoShot history above.
+    synced_bag = (load_club_bag() or {}) if path is None else {}
+    for club in synced_bag.get("clubs") or []:
+        if not isinstance(club, dict) or club.get("retired") or club.get("deleted"):
+            continue
+        token = (
+            club_bag_service.canonical_club_name(club.get("customName"))
+            or club_bag_service._CLUBTYPE_CANON.get(club.get("clubTypeId"))
+        )
+        garmin_distance = club_bag_service.garmin_distance_m(club)
+        if not token or token == "putter" or garmin_distance is None:
+            continue
+        previous = by_token.get(token)
+        display_name = (
+            previous[0]
+            if previous is not None
+            else str(club.get("customName") or club.get("typeName") or token)
+        )
+        by_token[token] = (display_name, garmin_distance[0], previous[2] if previous else 0)
 
     if not by_token:
         for name, distance in DEFAULT_LADDER.items():

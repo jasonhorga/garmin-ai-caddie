@@ -1029,15 +1029,18 @@ public struct CurrentHoleView: View {
               holePrep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
             return []
         }
+        let route = holePrep.resolvedMapOverlay?.route
         var out: [WatchHazard] = []
         let bunkerDetails = holePrep.hazards.details
             .filter { $0.kind == "bunker" }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !bunkerDetails.isEmpty {
-            for (index, detail) in bunkerDetails.enumerated() {
+            for detail in bunkerDetails {
                 out.append(WatchHazard(
                     kind: "bunker",
-                    label: bunkerDetails.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
+                    label: CoursePrepHazardNaming.label(
+                        kind: "bunker", detail: detail, route: route
+                    ),
                     startM: detail.frontRouteM,
                     endM: detail.backRouteM,
                     frontDistanceM: detail.frontM,
@@ -1048,10 +1051,12 @@ public struct CurrentHoleView: View {
             }
         } else {
             let bunkers = holePrep.hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-            for (index, interval) in bunkers.enumerated() {
+            for interval in bunkers {
                 out.append(WatchHazard(
                     kind: "bunker",
-                    label: bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
+                    label: CoursePrepHazardNaming.legacyLabel(
+                        kind: "bunker", interval: interval, route: route
+                    ),
                     startM: interval.first,
                     sideM: interval.count >= 2 ? interval[1] : nil
                 ))
@@ -1061,10 +1066,12 @@ public struct CurrentHoleView: View {
             .filter { $0.kind == "water" }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !waterDetails.isEmpty {
-            for (index, detail) in waterDetails.enumerated() {
+            for detail in waterDetails {
                 out.append(WatchHazard(
                     kind: "water",
-                    label: waterDetails.count > 1 ? "水域 \(index + 1)" : "水域",
+                    label: CoursePrepHazardNaming.label(
+                        kind: "water", detail: detail, route: route
+                    ),
                     startM: detail.frontRouteM,
                     endM: detail.backRouteM,
                     frontDistanceM: detail.frontM,
@@ -1075,10 +1082,12 @@ public struct CurrentHoleView: View {
             }
         } else {
             let water = holePrep.hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-            for (index, interval) in water.enumerated() {
+            for interval in water {
                 out.append(WatchHazard(
                     kind: "water",
-                    label: water.count > 1 ? "水域 \(index + 1)" : "水域",
+                    label: CoursePrepHazardNaming.legacyLabel(
+                        kind: "water", interval: interval, route: route
+                    ),
                     startM: interval.first,
                     endM: interval.count >= 2 ? interval[1] : nil
                 ))

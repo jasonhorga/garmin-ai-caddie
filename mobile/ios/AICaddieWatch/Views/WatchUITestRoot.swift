@@ -1644,11 +1644,11 @@ public struct WatchUITestRoot: View {
 
     static let demoHazards: [WatchHazard] = [
         WatchHazard(
-            kind: "bunker", label: "沙坑 1", startM: 116, endM: 132,
+            kind: "bunker", label: "右侧球道沙坑", startM: 116, endM: 132,
             frontDistanceM: 120, backDistanceM: 136
         ),
         WatchHazard(
-            kind: "bunker", label: "沙坑 2", startM: 160, endM: 178,
+            kind: "bunker", label: "右侧果岭沙坑", startM: 160, endM: 178,
             frontDistanceM: 165, backDistanceM: 183
         ),
         WatchHazard(

@@ -18,7 +18,8 @@ from ai_caddie.core import data
 
 # A subset of the owner's real bag (/club/player) — note custom names + a 2nd type-18 club.
 BAG_PAYLOAD = [
-    {"id": 42684923, "clubTypeId": 1, "shaftLength": 45.5, "retired": False, "deleted": False},
+    {"id": 42684923, "clubTypeId": 1, "shaftLength": 45.5, "averageDistance": 201,
+     "adviceDistance": 208, "retired": False, "deleted": False},
     {"id": 42684934, "clubTypeId": 18, "shaftLength": 35.5, "retired": False, "deleted": False},
     {"id": 42684975, "name": "Pw", "clubTypeId": 18, "shaftLength": 45.5, "retired": False, "deleted": False},
     {"id": 42684936, "name": "50", "clubTypeId": 20, "shaftLength": 35.5, "retired": False, "deleted": False},
@@ -85,6 +86,8 @@ class FetchClubsTests(unittest.TestCase):
         self.assertEqual(by_id[42684923]["typeName"], "Driver")
         self.assertEqual(by_id[42684923]["loftAngle"], 10.5)
         self.assertIsNone(by_id[42684923]["customName"])
+        self.assertEqual(by_id[42684923]["averageDistance"], 201)
+        self.assertEqual(by_id[42684923]["adviceDistance"], 208)
         # Custom-named club keeps the user's name AND the underlying type.
         self.assertEqual(by_id[42684975]["customName"], "Pw")
         self.assertEqual(by_id[42684975]["clubTypeId"], 18)
@@ -248,6 +251,17 @@ class CanonicalClubNameTests(unittest.TestCase):
         self.assertIsNone(club_bag.canonical_club_name(""))
         self.assertIsNone(club_bag.canonical_club_name(None))
         self.assertIsNone(club_bag.canonical_club_name("banana"))
+
+    def test_garmin_distance_prefers_advice_and_rejects_zero(self) -> None:
+        self.assertEqual(
+            club_bag.garmin_distance_m({"adviceDistance": 188, "averageDistance": 181}),
+            (188, "garmin_advice"),
+        )
+        self.assertEqual(
+            club_bag.garmin_distance_m({"adviceDistance": 0, "averageDistance": 181}),
+            (181, "garmin_average"),
+        )
+        self.assertIsNone(club_bag.garmin_distance_m({"adviceDistance": 0, "averageDistance": 0}))
 
 
 # The owner's real bag (in-use) + one retired club to prove it's excluded.

@@ -191,11 +191,16 @@ def load_manual_club_bag(player_id: str = OWNER_ID) -> dict[str, Any] | None:
 # resolving a shot's club by clubTypeId (round shot-map, prep scatter, history, reports) agrees.
 # history.club_label re-exports this. The owner's real bag is a per-clubId override (clubs.json) on top,
 # because Garmin's clubTypeId assignment on the owner's clubs does NOT match the generic labels here.
+# Garmin Golf `/club/types` values. This is the same authoritative 1...23 scheme used by the
+# synced bag and both native clients. The former guessed 1...18 table shifted hybrids/irons and
+# mislabeled real 5I...9I AutoShot history as PW...Putter, corrupting every derived club distance.
 CLUB_TYPE_NAME: dict[int, str] = {
     0: "Unknown",
-    1: "Driver", 2: "3W", 3: "5W", 4: "7W", 5: "Hybrid", 6: "2I/Hybrid",
-    7: "3I", 8: "4I", 9: "5I", 10: "6I", 11: "7I", 12: "8I", 13: "9I",
-    14: "PW", 15: "GW", 16: "SW", 17: "LW", 18: "Putter",
+    1: "Driver", 2: "3W", 3: "5W",
+    4: "1H", 5: "2H", 6: "3H", 7: "4H", 8: "5H", 9: "6H",
+    10: "1I", 11: "2I", 12: "3I", 13: "4I", 14: "5I", 15: "6I",
+    16: "7I", 17: "8I", 18: "9I",
+    19: "PW", 20: "GW", 21: "SW", 22: "LW", 23: "Putter",
 }
 
 # Placeholder club values that carry NO real signal — "Unknown", the old "ClubType 7" leak, "?" or

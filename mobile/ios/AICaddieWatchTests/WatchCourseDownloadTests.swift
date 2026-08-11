@@ -152,7 +152,7 @@ final class WatchCourseDownloadTests: XCTestCase {
             [500, 400, 200],
             [600, 100, 400],
         ])
-        XCTAssertEqual(hole.hazards.map(\.label), ["沙坑", "水域"])
+        XCTAssertEqual(hole.hazards.map(\.label), ["球道沙坑", "前方水障碍"])
         let bunker = try XCTUnwrap(hole.hazards.first)
         XCTAssertEqual(bunker.startM, 170)
         XCTAssertEqual(bunker.endM, 190)

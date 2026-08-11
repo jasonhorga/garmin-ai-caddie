@@ -1240,17 +1240,31 @@ def mobile_course_package(
     )
     if background_geometry and not ensure_geometry:
         requested: dict[int, set[int]] = {}
+        ready: dict[int, set[int]] = {}
         for hole in package.holes:
-            if str(hole.get("geometryCoverage") or "missing") == "ready":
-                continue
             source_global_id = int(hole.get("sourceGlobalId") or package.course.get("globalId") or global_id)
             source_local_hole = int(hole.get("sourceLocalHole") or hole.get("number") or 0)
             if source_global_id > 0 and source_local_hole > 0:
-                requested.setdefault(source_global_id, set()).add(source_local_hole)
+                target = (
+                    ready
+                    if str(hole.get("geometryCoverage") or "missing") == "ready"
+                    else requested
+                )
+                target.setdefault(source_global_id, set()).add(source_local_hole)
         if requested:
             background_tasks.add_task(
                 _upgrade_course_geometry,
                 {gid: sorted(holes) for gid, holes in requested.items()},
+            )
+        # Ready geometry can still have a cold bitmap cache. Warm that work on the server after the
+        # lightweight package returns, so iOS suspension does not halt the expensive render stage.
+        # Missing geometry goes first because it has no client-side fallback to a precise map;
+        # concurrent phone requests for ready holes join the renderer's per-hole singleflight.
+        for source_global_id, holes in sorted(ready.items()):
+            background_tasks.add_task(
+                _prewarm_course_topo,
+                source_global_id,
+                sorted(holes),
             )
     return package
 

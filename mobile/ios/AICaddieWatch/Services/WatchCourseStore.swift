@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieDomain
 
 public final class WatchCourseStore {
     private let fileURL: URL
@@ -158,7 +159,7 @@ public enum WatchCourseTemplateBuilder {
                 // CourseView's fast package can omit hazards that precise prodgeometry later
                 // reveals.  Do not turn that provisional subset into a Watch hazard list.
                 hazards: effectiveCoverage?.caseInsensitiveCompare("ready") == .orderedSame
-                    ? watchHazards(prep?.hazards)
+                    ? watchHazards(prep?.hazards, route: overlay?.route)
                     : [],
                 score: 0,
                 putts: 0,
@@ -426,17 +427,26 @@ public enum WatchCourseTemplateBuilder {
         return [last[0], last[1]]
     }
 
-    private static func watchHazards(_ value: WatchCoursePrepHazards?) -> [WatchHazard] {
+    private static func watchHazards(
+        _ value: WatchCoursePrepHazards?,
+        route: [[Double]]?
+    ) -> [WatchHazard] {
         guard let value else { return [] }
         var result: [WatchHazard] = []
         let bunkerDetails = value.details
             .filter { $0.kind == "bunker" }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !bunkerDetails.isEmpty {
-            for (index, detail) in bunkerDetails.enumerated() {
+            for detail in bunkerDetails {
                 result.append(WatchHazard(
                     kind: "bunker",
-                    label: bunkerDetails.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
+                    label: HazardDisplayNaming.label(
+                        kind: "bunker",
+                        frontRouteM: detail.frontRouteM,
+                        frontPx: detail.frontPx,
+                        sideM: detail.sideM,
+                        route: route
+                    ),
                     startM: detail.frontRouteM,
                     endM: detail.backRouteM,
                     frontDistanceM: detail.frontM,
@@ -447,10 +457,12 @@ public enum WatchCourseTemplateBuilder {
             }
         } else {
             let bunkers = value.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-            for (index, interval) in bunkers.enumerated() {
+            for interval in bunkers {
                 result.append(WatchHazard(
                     kind: "bunker",
-                    label: bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
+                    label: HazardDisplayNaming.legacyLabel(
+                        kind: "bunker", interval: interval, route: route
+                    ),
                     startM: interval.first,
                     sideM: interval.count >= 2 ? interval[1] : nil
                 ))
@@ -460,10 +472,16 @@ public enum WatchCourseTemplateBuilder {
             .filter { $0.kind == "water" }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !waterDetails.isEmpty {
-            for (index, detail) in waterDetails.enumerated() {
+            for detail in waterDetails {
                 result.append(WatchHazard(
                     kind: "water",
-                    label: waterDetails.count > 1 ? "水域 \(index + 1)" : "水域",
+                    label: HazardDisplayNaming.label(
+                        kind: "water",
+                        frontRouteM: detail.frontRouteM,
+                        frontPx: detail.frontPx,
+                        sideM: detail.sideM,
+                        route: route
+                    ),
                     startM: detail.frontRouteM,
                     endM: detail.backRouteM,
                     frontDistanceM: detail.frontM,
@@ -474,10 +492,12 @@ public enum WatchCourseTemplateBuilder {
             }
         } else {
             let water = value.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-            for (index, interval) in water.enumerated() {
+            for interval in water {
                 result.append(WatchHazard(
                     kind: "water",
-                    label: water.count > 1 ? "水域 \(index + 1)" : "水域",
+                    label: HazardDisplayNaming.legacyLabel(
+                        kind: "water", interval: interval, route: route
+                    ),
                     startM: interval.first,
                     endM: interval.count >= 2 ? interval[1] : nil
                 ))

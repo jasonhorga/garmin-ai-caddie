@@ -436,6 +436,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready)
         XCTAssertTrue(requestLock.withLock { prepBatches }.contains([1]))
         XCTAssertEqual(
+            requestLock.withLock { prepBatches }.first,
+            [1],
+            "the first visible hole facts must finish before later prep batches start"
+        )
+        XCTAssertEqual(
             requestLock.withLock { topoOrder }.first,
             1,
             "the visible first hole must not wait behind topo downloads for later holes"

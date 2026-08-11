@@ -61,6 +61,8 @@ public struct WatchHazardView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(hazard.label)
                     .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 if let detail = carryText(hazard) {
                     Text(detail)
                         .font(.caption2)

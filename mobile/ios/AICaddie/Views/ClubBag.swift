@@ -68,9 +68,9 @@ public enum ClubCatalog {
 }
 
 /// Garmin clubType enum (the `value` from `/club/types`) → the app's Chinese catalog name.
-/// AUTHORITATIVE scheme: Driver=1 … Putter=23. (Do NOT confuse with the backend's older guessed
-/// `CLUB_TYPE_NAME` table, which had Putter=18.) The player's custom degree names (50/54/58) are
-/// handled separately via `zhClubName(customName)`, so this only covers the standard fallbacks.
+/// AUTHORITATIVE scheme: Driver=1 … Putter=23. The backend's `CLUB_TYPE_NAME` and club catalog use
+/// this same table. The player's custom degree names (50/54/58) are handled separately via
+/// `zhClubName(customName)`, so this only covers the standard fallbacks.
 public let garminClubTypeZh: [Int: String] = [
     1: "一号木", 2: "三号木", 3: "五号木",
     4: "一号小鸡腿", 5: "二号小鸡腿", 6: "三号小鸡腿", 7: "四号小鸡腿", 8: "五号小鸡腿", 9: "六号小鸡腿",

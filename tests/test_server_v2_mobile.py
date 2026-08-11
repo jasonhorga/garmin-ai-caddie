@@ -549,9 +549,11 @@ class ServerV2MobileTests(unittest.TestCase):
             )
 
         self.assertIs(actual, package)
-        self.assertEqual(len(tasks.tasks), 1)
+        self.assertEqual(len(tasks.tasks), 2)
         self.assertIs(tasks.tasks[0].func, server_main._upgrade_course_geometry)
         self.assertEqual(tasks.tasks[0].args, ({31796: [1], 31797: [1]},))
+        self.assertIs(tasks.tasks[1].func, server_main._prewarm_course_topo)
+        self.assertEqual(tasks.tasks[1].args, (31796, [2]))
 
     def test_background_geometry_upgrade_prewarms_topo_for_background_resume(self) -> None:
         from server_v2 import main as server_main

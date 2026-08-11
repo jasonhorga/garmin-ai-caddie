@@ -2,7 +2,7 @@ import SwiftUI
 import XCTest
 @testable import AICaddie
 
-/// round-10 反馈的纯逻辑回归:避开区沙坑编号/排序、issue 中文映射、策略语义着色。
+/// round-10 反馈的纯逻辑回归:避开区语义命名/排序、issue 中文映射、策略语义着色。
 final class RoundTenUITests: XCTestCase {
     func testStrategyLabelsDistinguishRecommendationConservativeAndAttack() {
         XCTAssertEqual(zhCaddieRouteLabel("stock"), "推荐")
@@ -16,7 +16,7 @@ final class RoundTenUITests: XCTestCase {
         )
 
         XCTAssertEqual(try XCTUnwrap(hazards.first { $0.label == "沙坑" }).icon, "bunker")
-        XCTAssertEqual(try XCTUnwrap(hazards.first { $0.label == "水域" }).icon, "water")
+        XCTAssertEqual(try XCTUnwrap(hazards.first { $0.label == "前方水障碍" }).icon, "water")
     }
 
     func testUncalibratedExpectedStrokesStayOutOfPlayerFacingCopy() {
@@ -30,7 +30,7 @@ final class RoundTenUITests: XCTestCase {
         XCTAssertNil(option.scoreImpactText)
     }
 
-    func testHazardsNumberAndSortMultipleBunkersNearToFar() throws {
+    func testHazardsNameAndSortMultipleBunkersNearToFar() throws {
         let hazards = CaddiePlanHazard.from(
             CoursePrepHazards(
                 waterCarry: [[175, 195]],
