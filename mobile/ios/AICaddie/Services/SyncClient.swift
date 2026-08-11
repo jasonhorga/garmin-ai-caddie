@@ -388,10 +388,17 @@ public final class SyncClient {
     private struct ManualBagBody: Encodable { let clubs: [ManualClubInput] }
 
     /// Per-hole 复盘 shot map (`GET /api/v2/history/rounds/{ref}/holes/{hole}/shotmap`): this round's
-    /// actual shots projected onto the hole's 2D render. Fetched on demand when a hole is opened.
+    /// actual shots projected onto the hole's 2D render. The round screen prefetches all holes, so
+    /// omit the duplicate embedded topo; its revision-bound PNG is fetched once through URLCache.
     public func fetchRoundShotMap(roundRef: String, hole: Int) async throws -> RoundHoleShotMap {
         let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
-        var request = URLRequest(url: endpointURL("/api/v2/history/rounds/\(encoded)/holes/\(hole)/shotmap"))
+        let endpoint = endpointURL("/api/v2/history/rounds/\(encoded)/holes/\(hole)/shotmap")
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "includeImage", value: "false")]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
         applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)

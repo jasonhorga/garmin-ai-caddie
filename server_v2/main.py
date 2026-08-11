@@ -533,11 +533,19 @@ def history_round_detail(
 
 @app.get("/api/v2/history/rounds/{round_ref}/holes/{hole}/shotmap", response_model=RoundHoleShotMapResponse)
 def round_hole_shot_map(
-    round_ref: str, hole: int, player_id: str = Depends(current_player_id)
+    round_ref: str,
+    hole: int,
+    include_image: bool = Query(default=True, alias="includeImage"),
+    player_id: str = Depends(current_player_id),
 ) -> RoundHoleShotMapResponse:
-    # 复盘 per-hole shot map: this round's actual shots on the 2D render. Rendered on demand per
-    # hole (one supersampled JPEG), not all 18 eagerly.
-    return load_round_hole_shot_map_response(round_ref, hole, player_id=player_id)
+    # 复盘 per-hole shot map: actual shots + projection overlay. Native prefetches all 18 without
+    # embedding the PNG; the revision-bound /topo.png endpoint owns bitmap transfer and caching.
+    return load_round_hole_shot_map_response(
+        round_ref,
+        hole,
+        player_id=player_id,
+        include_image=include_image,
+    )
 
 
 @app.post(

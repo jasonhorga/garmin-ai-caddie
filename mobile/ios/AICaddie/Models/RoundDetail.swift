@@ -107,6 +107,18 @@ public struct RoundDetailPhase: Codable, Equatable, Identifiable {
     public let phase: String
     public let state: String?
     public let primary: String?
+    public let metrics: RoundDetailPhaseMetrics?
+}
+
+/// Typed subset of phase metrics used by the compact round header. Older Garmin rounds often have
+/// only round-level aggregates, so these are the honest fallback when per-hole cells are absent.
+public struct RoundDetailPhaseMetrics: Codable, Equatable {
+    public let fairwaysHit: Int?
+    public let fairwaysRecorded: Int?
+    public let gir: Int?
+    public let girRecorded: Int?
+    public let totalPutts: Int?
+    public let totalPenalties: Int?
 }
 
 public struct RoundDetailMissing: Codable, Equatable, Identifiable {

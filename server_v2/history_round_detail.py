@@ -22,8 +22,20 @@ def load_history_round_detail_response(
 
 
 def load_round_hole_shot_map_response(
-    round_ref: str, hole: int, *, player_id: str = OWNER_ID
+    round_ref: str,
+    hole: int,
+    *,
+    player_id: str = OWNER_ID,
+    include_image: bool = True,
 ) -> RoundHoleShotMapResponse:
     data, _mode = load_history_data_for_mode(player_id=player_id)
     corrections = round_corrections.load_correction_events(player_id, round_ref)
-    return RoundHoleShotMapResponse(**build_round_hole_shot_map(data, round_ref, hole, corrections=corrections))
+    return RoundHoleShotMapResponse(
+        **build_round_hole_shot_map(
+            data,
+            round_ref,
+            hole,
+            corrections=corrections,
+            include_image=include_image,
+        )
+    )

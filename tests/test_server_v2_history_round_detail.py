@@ -284,6 +284,27 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertNotIn("schema_", payload)
         self.assertEqual(payload["roundRef"], "700001")
 
+    def test_shot_map_endpoint_can_omit_embedded_topo_for_native_prefetch(self) -> None:
+        result = {
+            "schema": "ai-caddie-round-hole-shotmap-v1",
+            "found": False,
+            "roundRef": "700001",
+            "hole": 1,
+            "map": None,
+            "shots": [],
+            "missingData": [],
+        }
+        with patch(
+            "server_v2.main.load_round_hole_shot_map_response",
+            return_value=result,
+        ) as loader:
+            response = TestClient(app).get(
+                "/api/v2/history/rounds/700001/holes/1/shotmap?includeImage=false"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(loader.call_args.kwargs["include_image"])
+
 
 if __name__ == "__main__":
     unittest.main()

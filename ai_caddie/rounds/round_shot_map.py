@@ -359,6 +359,8 @@ def _apply_post_snapshot_ops(
 def build_round_hole_shot_map(
     data: HistoryData, round_ref: str, hole: int,
     corrections: list[dict[str, Any]] | None = None,
+    *,
+    include_image: bool = True,
 ) -> dict[str, Any]:
     hole = _int(hole) or 0
     row = _match_round(data, round_ref)
@@ -416,13 +418,16 @@ def build_round_hole_shot_map(
         if not route or not route_len:
             raise ValueError("no route")
         overlay = hole_render.render_hole_overlay(int(gid), int(local), route, route_len)
-        # 底图取缓存好的 topo(命中即秒回;跳过 render_hole 的 ~0.48s 像素渲染)。三端都读这张缓存,
-        # 谁都不在"你看的时候"现画。topo 不可用则底图留空(overlay+shots 仍可看),守"不造假"。
-        try:
-            _topo_png = topo_render.render_hole_topo_cached(int(gid), int(local))
-            image = "data:image/png;base64," + base64.b64encode(_topo_png).decode()
-        except Exception:
-            image = None
+        # Legacy/web callers may still ask for an embedded fallback. Native round browsing uses the
+        # revision-bound /topo.png authority instead: embedding the same PNG in each shot-map JSON
+        # and then downloading it again doubled an 18-hole transfer and defeated URL caching.
+        image = None
+        if include_image:
+            try:
+                _topo_png = topo_render.render_hole_topo_cached(int(gid), int(local))
+                image = "data:image/png;base64," + base64.b64encode(_topo_png).decode()
+            except Exception:
+                image = None
         ref_lat = float((md.get("hole") or {})["RefLat"])
         ref_lon = float((md.get("hole") or {})["RefLon"])
         to_px = hole_render.overlay_projector(by, route)

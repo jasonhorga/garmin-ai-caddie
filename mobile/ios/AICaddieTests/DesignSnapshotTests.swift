@@ -476,11 +476,11 @@ final class DesignSnapshotTests: XCTestCase {
             named: "prep-hole"
         )
 
-        // 单场复盘: hole-by-hole scorecard + score strip + phase summary + graceful missing-data,
+        // 单场复盘: compact KPIs + tappable score grid + graceful missing-data,
         // rendered from a round-detail fixture (mirrors /api/v2/history/rounds/{ref}).
         let roundJSON = """
         {"roundRef":"r1","found":true,"title":"Fixture Links",\
-        "round":{"courseName":"Fixture Links","date":"2026-05-20","score":81,"par":72,"toPar":9,"holesCompleted":9,"confidence":"high"},\
+        "round":{"courseName":"Fixture Links","date":"2026-05-20","score":22,"par":20,"toPar":2,"holesCompleted":5,"confidence":"high"},\
         "scorecard":[\
         {"hole":1,"par":4,"score":5,"toPar":1,"className":"bogey","putts":2,"penalties":1,"status":"complete"},\
         {"hole":2,"par":3,"score":3,"toPar":0,"className":"par","putts":2,"penalties":0,"gir":true,"status":"complete"},\
@@ -488,11 +488,11 @@ final class DesignSnapshotTests: XCTestCase {
         {"hole":4,"par":4,"score":6,"toPar":2,"className":"double","putts":3,"penalties":0,"fairway":"left","status":"complete"},\
         {"hole":5,"par":4,"score":4,"toPar":0,"className":"par","putts":2,"penalties":0,"status":"complete"}],\
         "phaseSummary":[\
-        {"phase":"Tee","state":"ready","primary":"5/9 球道命中"},\
-        {"phase":"Approach","state":"ready","primary":"3/9 标准杆上果岭(GIR)"},\
-        {"phase":"Short Game","state":"ready","primary":"2 次短杆"},\
-        {"phase":"Putting","state":"ready","primary":"31 推"},\
-        {"phase":"Penalty / Damage","state":"ready","primary":"1 罚杆"}],\
+        {"phase":"Tee","state":"ready","primary":"0/1 球道命中","metrics":{"fairwaysHit":0,"fairwaysRecorded":1}},\
+        {"phase":"Approach","state":"ready","primary":"1/1 标准杆上果岭(GIR)","metrics":{"gir":1,"girRecorded":1}},\
+        {"phase":"Short Game","state":"ready","primary":"2 次短杆","metrics":{"shots":2}},\
+        {"phase":"Putting","state":"ready","primary":"10 推","metrics":{"totalPutts":10}},\
+        {"phase":"Penalty / Damage","state":"ready","primary":"1 罚杆","metrics":{"totalPenalties":1}}],\
         "missingData":[{"label":"shot rows","state":"missing","reason":"no normalized Garmin shot rows for this round"}]}
         """
         let roundDetail = try JSONDecoder().decode(RoundDetail.self, from: Data(roundJSON.utf8))

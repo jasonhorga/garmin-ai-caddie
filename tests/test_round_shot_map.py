@@ -368,6 +368,24 @@ class RoundShotMapTests(unittest.TestCase):
         ])
         self.assertTrue(out["map"]["image"].startswith("data:image/png;base64,"))
 
+    def test_native_payload_can_omit_duplicate_embedded_topo(self):
+        mocks = _geometry_mocks()
+        started = [mocker.start() for mocker in mocks]
+        try:
+            out = rsm.build_round_hole_shot_map(
+                _data([]),
+                "r1",
+                1,
+                include_image=False,
+            )
+        finally:
+            for mocker in mocks:
+                mocker.stop()
+
+        self.assertIsNotNone(out["map"])
+        self.assertIsNone(out["map"]["image"])
+        started[4].assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

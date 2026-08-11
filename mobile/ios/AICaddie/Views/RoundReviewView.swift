@@ -122,11 +122,6 @@ struct RoundReviewContent: View {
                 if !detail.scorecard.isEmpty {
                     scorecardGrid(detail.scorecard)
                 }
-                let usefulPhases = detail.phaseSummary.filter { $0.state != "missing" }
-                if !usefulPhases.isEmpty {
-                    HubSectionLabel("各环节").padding(.top, 6)
-                    phaseGrid(usefulPhases)
-                }
                 if !detail.missingData.isEmpty {
                     missingCard(detail.missingData)
                 }
@@ -218,8 +213,8 @@ struct RoundReviewContent: View {
 
     // MARK: decision-first metrics
 
-    /// Every metric is derived from recorded per-hole facts. Missing Garmin coverage removes a tile
-    /// instead of presenting a misleading 0%; the ingestion fix supplies FW/GIR where Garmin did.
+    /// Prefer recorded per-hole facts; older rounds fall back to Garmin's round-level phase totals.
+    /// Missing coverage removes a tile instead of presenting a misleading 0%.
     private func reviewMetrics(_ detail: RoundDetail) -> [ReviewMetric] {
         let holes = detail.scorecard
         var metrics: [ReviewMetric] = []
@@ -232,11 +227,27 @@ struct RoundReviewContent: View {
                 id: "fairway", title: "球道命中", value: "\(percent(fairwayHit, fairwayHoles.count))%",
                 detail: "\(fairwayHit)/\(fairwayHoles.count)", icon: "arrow.up.to.line.compact"
             ))
+        } else if let tee = phaseMetrics("tee", in: detail),
+                  let hit = tee.fairwaysHit,
+                  let recorded = tee.fairwaysRecorded,
+                  recorded > 0 {
+            metrics.append(ReviewMetric(
+                id: "fairway", title: "球道命中", value: "\(percent(hit, recorded))%",
+                detail: "\(hit)/\(recorded)", icon: "arrow.up.to.line.compact"
+            ))
         }
         if !girHoles.isEmpty {
             metrics.append(ReviewMetric(
                 id: "gir", title: "GIR", value: "\(percent(girHit, girHoles.count))%",
                 detail: "\(girHit)/\(girHoles.count)", icon: "flag.fill"
+            ))
+        } else if let approach = phaseMetrics("approach", in: detail),
+                  let hit = approach.gir,
+                  let recorded = approach.girRecorded,
+                  recorded > 0 {
+            metrics.append(ReviewMetric(
+                id: "gir", title: "GIR", value: "\(percent(hit, recorded))%",
+                detail: "\(hit)/\(recorded)", icon: "flag.fill"
             ))
         }
         let puttHoles = holes.compactMap(\.putts)
@@ -247,6 +258,11 @@ struct RoundReviewContent: View {
                 detail: String(format: "%.1f/洞", Double(total) / Double(puttHoles.count)),
                 icon: "circle.circle"
             ))
+        } else if let total = phaseMetrics("putting", in: detail)?.totalPutts {
+            metrics.append(ReviewMetric(
+                id: "putts", title: "推杆", value: "\(total)", detail: nil,
+                icon: "circle.circle"
+            ))
         }
         let penaltyHoles = holes.compactMap(\.penalties)
         if !penaltyHoles.isEmpty {
@@ -255,8 +271,18 @@ struct RoundReviewContent: View {
                 id: "penalties", title: "罚杆", value: "\(total)",
                 detail: total == 0 ? "无罚杆" : nil, icon: "exclamationmark.triangle.fill", bad: total > 0
             ))
+        } else if let total = phaseMetrics("penalty / damage", in: detail)?.totalPenalties {
+            metrics.append(ReviewMetric(
+                id: "penalties", title: "罚杆", value: "\(total)",
+                detail: total == 0 ? "无罚杆" : nil,
+                icon: "exclamationmark.triangle.fill", bad: total > 0
+            ))
         }
         return metrics
+    }
+
+    private func phaseMetrics(_ phase: String, in detail: RoundDetail) -> RoundDetailPhaseMetrics? {
+        detail.phaseSummary.first { $0.phase.lowercased() == phase }?.metrics
     }
 
     private func metricGrid(_ metrics: [ReviewMetric]) -> some View {
@@ -367,41 +393,6 @@ struct RoundReviewContent: View {
         return parts.joined(separator: "，")
     }
 
-    // MARK: phase summary tiles
-
-    private func phaseGrid(_ phases: [RoundDetailPhase]) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
-            ForEach(phases) { phase in
-                VStack(alignment: .leading, spacing: 7) {
-                    Label(zhPhase(phase.phase), systemImage: phaseIcon(phase.phase))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(phase.primary ?? "—")
-                        .font(.subheadline.monospacedDigit().weight(.bold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.85)
-                }
-                .padding(13)
-                .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
-                .background(Color.white)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .shadow(color: Color.black.opacity(0.04), radius: 3, y: 1)
-            }
-        }
-    }
-
-    private func phaseIcon(_ phase: String) -> String {
-        switch phase.lowercased() {
-        case "tee": return "arrow.up.to.line.compact"
-        case "approach": return "flag.fill"
-        case "short game": return "scope"
-        case "putting": return "circle.circle"
-        case "penalty / damage": return "exclamationmark.triangle.fill"
-        default: return "chart.bar.fill"
-        }
-    }
-
     // MARK: missing-data (graceful, never blank)
 
     private func missingCard(_ rows: [RoundDetailMissing]) -> some View {
@@ -445,17 +436,6 @@ struct RoundReviewContent: View {
         case "right": return "偏右"
         case "miss", "false", "0": return "球道✗"
         default: return value
-        }
-    }
-
-    private func zhPhase(_ phase: String) -> String {
-        switch phase.lowercased() {
-        case "tee": return "开球"
-        case "approach": return "攻果岭"
-        case "short game": return "短杆"
-        case "putting": return "推杆"
-        case "penalty / damage": return "失误/罚杆"
-        default: return phase
         }
     }
 
