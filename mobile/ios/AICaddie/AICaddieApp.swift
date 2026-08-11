@@ -1341,13 +1341,14 @@ public final class LiveRoundAppModel: ObservableObject {
                 return (globalId, localHole, revision)
             }
             // Keep the card the player opens first ahead of throughput work. Starting holes 1 and
-            // 2 concurrently made the second request win the scheduler occasionally, so the first
-            // visible map could still wait behind a later cold render. Fetch one priority bitmap,
-            // persist it, then use the bounded two-hole window for the rest of the course.
+            // 2 concurrently made the second request win the scheduler occasionally, so a wholly
+            // cold course gets one priority bitmap first. Once any map is durable, later incremental
+            // passes use the bounded two-hole window immediately instead of serialising a new hole.
+            let needsPriorityLane = downloadedHoleCount() == 0
             var readyIndex = 0
             while readyIndex < ready.count {
                 guard !Task.isCancelled else { return }
-                let window = readyIndex == 0 ? 1 : 2
+                let window = readyIndex == 0 && needsPriorityLane ? 1 : 2
                 let end = min(readyIndex + window, ready.count)
                 let downloads = await fetchOfflineTopoImages(
                     Array(ready[readyIndex..<end]),
@@ -1595,12 +1596,13 @@ public final class LiveRoundAppModel: ObservableObject {
             // Persist each hole as soon as it arrives. The previous all-course task group returned
             // only after every cold render completed, so killing the app on hole 1 discarded even a
             // successfully downloaded first bitmap and four renders could starve foreground APIs.
-            // As above, the first still-missing map owns the foreground lane; only later maps share
-            // the two-request throughput window.
+            // As above, the first still-missing map owns the foreground lane only while this course
+            // has no durable topo yet; a resumed/partially complete course starts at two-wide.
+            let needsPriorityLane = downloadedHoleCount() == 0
             var missingIndex = 0
             while missingIndex < missingTopoHoles.count {
                 guard !Task.isCancelled else { return }
-                let window = missingIndex == 0 ? 1 : 2
+                let window = missingIndex == 0 && needsPriorityLane ? 1 : 2
                 let end = min(missingIndex + window, missingTopoHoles.count)
                 let downloads = await fetchOfflineTopoImages(
                     Array(missingTopoHoles[missingIndex..<end]),
