@@ -243,13 +243,16 @@ final class RealFlowUITests: XCTestCase {
         launchFresh()
         XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]), "home must expose pre-round prep")
         XCTAssertTrue(
-            app.navigationBars["搜索备战球场"].waitForExistence(timeout: 12),
-            "pre-round entry must navigate directly to catalogue search"
+            app.navigationBars["备战球场"].waitForExistence(timeout: 12),
+            "pre-round entry must navigate directly to the prep course picker"
         )
-        XCTAssertFalse(
-            app.buttons["course-catalog-nearby-action"].exists,
-            "pre-round planning must not expose the on-course GPS nearby action"
+        XCTAssertTrue(
+            app.buttons["course-catalog-nearby-action"].waitForExistence(timeout: 5),
+            "pre-round planning must offer the explicit nearby-course action"
         )
+        XCTAssertTrue(app.textFields["course-catalog-city-field"].exists)
+        XCTAssertTrue(app.textFields["course-catalog-keyword-field"].exists)
+        XCTAssertTrue(app.buttons["course-catalog-search-action"].exists)
         save("06-prep-course-search"); dump("06-prep-course-search")
 
         // Search for the same 北京丽宫 course used by the approved live journey. Selecting the

@@ -1292,10 +1292,15 @@ public final class LiveRoundAppModel: ObservableObject {
                       ) == nil else { return nil }
                 return (globalId, localHole, revision)
             }
+            // Keep the card the player opens first ahead of throughput work. Starting holes 1 and
+            // 2 concurrently made the second request win the scheduler occasionally, so the first
+            // visible map could still wait behind a later cold render. Fetch one priority bitmap,
+            // persist it, then use the bounded two-hole window for the rest of the course.
             var readyIndex = 0
             while readyIndex < ready.count {
                 guard !Task.isCancelled else { return }
-                let end = min(readyIndex + 2, ready.count)
+                let window = readyIndex == 0 ? 1 : 2
+                let end = min(readyIndex + window, ready.count)
                 let downloads = await fetchOfflineTopoImages(
                     Array(ready[readyIndex..<end]),
                     using: syncClient
@@ -1545,10 +1550,13 @@ public final class LiveRoundAppModel: ObservableObject {
             // Persist each hole as soon as it arrives. The previous all-course task group returned
             // only after every cold render completed, so killing the app on hole 1 discarded even a
             // successfully downloaded first bitmap and four renders could starve foreground APIs.
+            // As above, the first still-missing map owns the foreground lane; only later maps share
+            // the two-request throughput window.
             var missingIndex = 0
             while missingIndex < missingTopoHoles.count {
                 guard !Task.isCancelled else { return }
-                let end = min(missingIndex + 2, missingTopoHoles.count)
+                let window = missingIndex == 0 ? 1 : 2
+                let end = min(missingIndex + window, missingTopoHoles.count)
                 let downloads = await fetchOfflineTopoImages(
                     Array(missingTopoHoles[missingIndex..<end]),
                     using: syncClient
