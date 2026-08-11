@@ -22,7 +22,11 @@ from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components  #
 
 import json
 
-SS = 2  # supersample factor
+# The final bitmap is still 1060 px high and is displayed below native size on every supported
+# iPhone/Watch. Rendering that frame at 2x first multiplied the rich-topo working set and made a
+# cold Half Moon Bay hole take 11–27 seconds. Native-size rendering keeps the same projection and
+# output dimensions while reducing a measured cold render to roughly 2.5 seconds.
+SS = 1  # supersample factor
 # Fill-the-frame framing (design-system §九, ported from the locked prototype `make_frame`; the
 # funnel /render-final.png reference is 678x1060). The hole fills the HEIGHT; the canvas WIDTH
 # shrinks to the hole (never below FRAME_MIN_ASPECT portrait, hole centred, sky padding on the

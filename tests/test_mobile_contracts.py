@@ -2148,18 +2148,21 @@ class MobileContractTests(unittest.TestCase):
         prep_picker = _read_required_source(self, IOS_DIR / "Views" / "PrepCoursePickerView.swift")
         course_search = _read_required_source(self, IOS_DIR / "Views" / "MobileCourseSearchView.swift")
 
-        # 备战者已经知道目的地：入口直接名称/城市搜索，选中后进攻略；不能复用现场
-        # “开始一场”的 GPS 附近列表，也不能把历史球场重新列出来。
+        # 备战支持明确的城市/名称搜索，也按本轮真机反馈提供附近球场；选中后进攻略。
         self.assertIn('title: "备战"', round_home)
         self.assertIn('subtitle: "搜索 · 球童试算"', round_home)
         self.assertIn("PrepCoursePickerView(", round_home)
         self.assertIn("downloadedCourseOptions: downloadedCourseOptions", round_home)
         self.assertIn("struct PrepCoursePickerView", prep_picker)
         self.assertIn("MobileCourseSearchView(", prep_picker)
-        self.assertIn("mode: .nameOnly", prep_picker)
+        self.assertIn("mode: .nearbyAndName", prep_picker)
+        self.assertIn('title: "备战球场"', prep_picker)
+        self.assertIn("onNearby: nearbyCourses", prep_picker)
         self.assertIn("dismissAfterSelection: false", prep_picker)
         self.assertIn("if mode == .nearbyAndName", course_search)
-        self.assertIn('mode == .nameOnly ? "搜索备战球场" : "找球场"', course_search)
+        self.assertIn("self.title = title ??", course_search)
+        self.assertIn('Text(activeSearch == .manual ? "正在搜索" : "搜索")', course_search)
+        self.assertNotIn("搜索 Garmin 全部球场", course_search)
         # “已准备” is derived from both the ordinary downloaded-course library and a durable prep
         # job whose on-disk template/topos have reached ready.  The retained rows must also be wired
         # into the search screen so leaving the detail page does not erase the selected course.
@@ -2168,9 +2171,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("downloads.filter { $0.phase == .ready }", prep_picker)
         self.assertIn("retainedDownloads: downloads", prep_picker)
         self.assertIn("onDownload(course)", prep_picker)
-        self.assertIn("onNearby: { _, _, _ in [] }", prep_picker)
-        self.assertNotIn("requestAuthorization()", prep_picker)
-        self.assertNotIn("startUpdatingLocation()", prep_picker)
+        self.assertIn("onNearby: nearbyCourses", prep_picker)
+        self.assertIn("requestAuthorization()", prep_picker)
+        self.assertIn("startUpdatingLocation()", prep_picker)
+        self.assertIn("stopUpdatingLocation()", prep_picker)
         self.assertNotIn("discoverNearbyCourses", prep_picker)
         self.assertIn(".navigationDestination(isPresented: selectedCoursePresented)", prep_picker)
         self.assertIn("CourseReviewView(", prep_picker)
@@ -2212,7 +2216,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("Par 来源", course_review)
         # Course review and the full caddie plan share one measured hazard projection.  Both water
         # and bunkers show 到前沿 / 过后沿; the legacy lateral gap is never presented as a carry.
-        self.assertIn("CaddiePlanHazard.from(hole.hazards)", course_review)
+        self.assertIn("CaddiePlanHazard.from(", course_review)
+        self.assertIn("route: hole.resolvedMapOverlay?.route", course_review)
         self.assertIn('return "\\(hazard.label)：\\(detail)"', course_review)
         self.assertIn("measuredText(frontM: detail.frontM, backM: detail.backM)", caddie_plan)
         self.assertIn('"到 \\(CoursePrepRoute.yards(fromMetres: frontM)) · 过 \\(CoursePrepRoute.yards(fromMetres: backM)) 码"', caddie_plan)
@@ -3096,7 +3101,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("seed: caddieContextSeed", current_hole)
         # Live package no longer embeds all-hole coursePrep (fast start); hazards come from the
         # per-hole prep fetched on demand alongside the 2D map.
-        self.assertIn("CaddiePlanHazard.from(holePrep.hazards)", current_hole)
+        self.assertIn("CaddiePlanHazard.from(", current_hole)
+        self.assertIn("route: holePrep.resolvedMapOverlay?.route", current_hole)
         self.assertIn("selectedOfflineOption", current_hole)
         self.assertIn("sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)", current_hole)
         self.assertIn("watchBridge?.sendStateToWatch", current_hole)
@@ -3114,7 +3120,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct CaddiePlanView: View", caddie_plan)
         # 球童方案: 备选打法对比表 + 避开区(course_prep hazards 区间)。
         self.assertIn("public struct CaddiePlanHazard", caddie_plan)
-        self.assertIn("static func from(_ hazards: CoursePrepHazards)", caddie_plan)
+        self.assertIn("public static func from(", caddie_plan)
+        self.assertIn("route: [[Double]]? = nil", caddie_plan)
         self.assertIn("备选打法", caddie_plan)
         self.assertIn("避开区", caddie_plan)
         self.assertIn("struct CaddiePlanSequence: Identifiable, Equatable", caddie_plan)
@@ -3132,6 +3139,8 @@ class MobileContractTests(unittest.TestCase):
         # round-11: 整洞序列为主 — three 打法 each rendered as a 开球→攻果岭 club chain (selected on top).
         self.assertIn("private var sequenceCards", caddie_plan)
         self.assertIn("orderedSequences", caddie_plan)
+        self.assertIn("private var orderedOptions", caddie_plan)
+        self.assertIn("ForEach(orderedOptions)", caddie_plan)
         self.assertIn("\\(zhCaddieRouteLabel(sequence.id))打法", caddie_plan)
         self.assertIn("sequence.steps", caddie_plan)
         self.assertIn('number(row["expectedRemaining_m"])', caddie_plan)

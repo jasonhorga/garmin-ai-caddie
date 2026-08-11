@@ -232,9 +232,11 @@ class ClubBagRouteTests(unittest.TestCase):
 class CanonicalClubNameTests(unittest.TestCase):
     def test_normalizes_real_garmin_forms(self) -> None:
         cases = {
-            "Driver": "driver", "1W": "driver", "3W": "wood3", "3 Wood": "wood3", "三号木": "wood3",
+            "Driver": "driver", "1D": "driver", "一号木杆": "driver",
+            "1W": "driver", "3W": "wood3", "3 Wood": "wood3", "三号木": "wood3",
             "5I": "iron5", "5 Iron": "iron5", "九号铁": "iron9",
             "二号小鸡腿": "hybrid2", "2I/Hybrid": "hybrid2", "3 Hybrid": "hybrid3",
+            "三号铁木杆": "hybrid3",
             "Pw": "pw", "PW": "pw", "Aw": "gw", "GW": "gw", "A杆": "gw", "SW": "sw", "LW": "lw",
             "50": "wedge50", "54°": "wedge54", "58": "wedge58",
             "Putter": "putter", "推杆": "putter",
@@ -277,6 +279,20 @@ class InUseCanonicalTests(unittest.TestCase):
         self.assertIn("wedge50", names)   # from custom "50"
         self.assertIn("putter", names)
         self.assertNotIn("hybrid2", names)  # the retired 2-hybrid is excluded
+
+    def test_recognised_custom_identity_replaces_generic_type_identity(self) -> None:
+        bag = {
+            "clubs": [{
+                "id": 1,
+                "clubTypeId": 2,
+                "customName": "三号铁木杆",
+                "retired": False,
+                "deleted": False,
+            }]
+        }
+        with patch.object(club_bag, "load_club_bag", return_value=bag):
+            names = club_bag.in_use_canonical_names()
+        self.assertEqual(names, {"hybrid3"})
 
     def test_no_bag_returns_none(self) -> None:
         with patch.object(club_bag, "load_club_bag", return_value=None):

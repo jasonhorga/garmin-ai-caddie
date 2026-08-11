@@ -38,3 +38,20 @@ class EffectiveLadderTests(unittest.TestCase):
                 ladder = course_prep.effective_club_ladder("me")
             cl.assert_called_once()
             self.assertEqual(ladder, [("driver", 230)])
+
+    def test_explicit_distance_wins_over_measured_history(self) -> None:
+        with TemporaryDirectory() as tmp, self._root(tmp):
+            (Path(tmp) / "data").mkdir()
+            club_bag.save_manual_club_bag("p_m", [
+                {"token": "driver", "distanceM": 205},
+                {"token": "iron7", "distanceM": 132},
+                {"token": "putter", "distanceM": 12},
+            ])
+            with patch.object(
+                course_prep,
+                "_member_measured_by_token",
+                return_value={"driver": 245, "iron7": 155, "putter": 30},
+            ):
+                ladder = dict(course_prep.effective_club_ladder("p_m"))
+
+        self.assertEqual(ladder, {"driver": 205, "iron7": 132})

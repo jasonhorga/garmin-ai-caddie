@@ -208,22 +208,25 @@ class TopoRenderModuleTests(unittest.TestCase):
 
         render.assert_called_once()
 
-    def test_different_cold_holes_do_not_multiply_render_memory(self) -> None:
+    def test_different_cold_holes_are_bounded_to_two_native_renders(self) -> None:
         canned = _test_png()
-        callers_ready = Barrier(2)
-        first_started = Event()
-        overlap = Event()
+        callers_ready = Barrier(3)
+        two_started = Event()
+        third_overlap = Event()
         release_render = Event()
         state_lock = Lock()
         active = 0
+        peak_active = 0
 
         def memory_heavy_render(_gid: int, _hole: int) -> bytes:
-            nonlocal active
+            nonlocal active, peak_active
             with state_lock:
                 active += 1
-                if active > 1:
-                    overlap.set()
-            first_started.set()
+                peak_active = max(peak_active, active)
+                if active == 2:
+                    two_started.set()
+                if active > 2:
+                    third_overlap.set()
             self.assertTrue(release_render.wait(timeout=2))
             with state_lock:
                 active -= 1
@@ -236,20 +239,23 @@ class TopoRenderModuleTests(unittest.TestCase):
         with TemporaryDirectory() as tmp, \
                 patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp}), \
                 patch.object(topo_render, "render_hole_topo", side_effect=memory_heavy_render) as render, \
-                ThreadPoolExecutor(max_workers=2) as pool:
+                ThreadPoolExecutor(max_workers=3) as pool:
             first = pool.submit(request, 1)
             second = pool.submit(request, 2)
-            self.assertTrue(first_started.wait(timeout=2))
+            third = pool.submit(request, 3)
+            self.assertTrue(two_started.wait(timeout=2))
             self.assertFalse(
-                overlap.wait(timeout=0.2),
-                "different cold holes rendered concurrently and multiplied the NumPy memory peak",
+                third_overlap.wait(timeout=0.2),
+                "more than two native-size cold renders multiplied the bounded memory peak",
             )
             release_render.set()
             self.assertEqual(first.result(timeout=2), canned)
             self.assertEqual(second.result(timeout=2), canned)
+            self.assertEqual(third.result(timeout=2), canned)
 
-        self.assertEqual(render.call_count, 2)
-        self.assertFalse(overlap.is_set())
+        self.assertEqual(render.call_count, 3)
+        self.assertEqual(peak_active, 2)
+        self.assertFalse(third_overlap.is_set())
 
     def test_cache_key_includes_style_version(self) -> None:
         with patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": "/x/y"}):

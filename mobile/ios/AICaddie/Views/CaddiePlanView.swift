@@ -43,9 +43,9 @@ func zhCaddieRouteLabel(_ label: String) -> String {
         .trimmingCharacters(in: .whitespaces)
     switch key {
     case "safe", "conservative", "protect", "protect score", "lay back":
-        return "稳妥"
+        return "保守"
     case "stock", "standard", "neutral":
-        return "标准"
+        return "推荐"
     case "attack", "aggressive", "go for it":
         return "进攻"
     case "layup", "lay up":
@@ -488,6 +488,21 @@ public struct CaddiePlanView: View {
         options.first { $0.id == selectedOptionId } ?? options.first
     }
 
+    /// The recommendation is the product's primary answer. Keep it first even though legacy API
+    /// payloads are ordered safe/stock/attack; the remaining alternatives stay conservative-to-
+    /// aggressive by their factual risk score.
+    private var orderedOptions: [CaddiePlanOption] {
+        options.enumerated().sorted { lhs, rhs in
+            let lhsSelected = lhs.element.id == selectedOptionId
+            let rhsSelected = rhs.element.id == selectedOptionId
+            if lhsSelected != rhsSelected { return lhsSelected }
+            if lhs.element.riskScore != rhs.element.riskScore {
+                return lhs.element.riskScore < rhs.element.riskScore
+            }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
+    }
+
     /// Selected打法 first, then the rest in backend order — matches the approved「整洞序列为主」mockup.
     private var orderedSequences: [CaddiePlanSequence] {
         sequences.sorted { ($0.id == selectedSequenceId ? 0 : 1) < ($1.id == selectedSequenceId ? 0 : 1) }
@@ -680,7 +695,7 @@ public struct CaddiePlanView: View {
     /// 备选打法以紧凑卡片比较打法 / 球杆带球 / 风险；推荐卡保持批准稿的克制高亮。
     private var altTable: some View {
         VStack(spacing: 8) {
-            ForEach(options) { option in
+            ForEach(orderedOptions) { option in
                 let isSelected = option.id == selectedOptionId
                 let color = AICaddieDesignTokens.strategyColor(option.id)
                 VStack(alignment: .leading, spacing: 7) {
@@ -766,14 +781,17 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
     /// New prep details give both water and bunkers true front/back edges. Legacy water intervals
     /// retain both readings; a legacy bunker has only one safe route distance because its second
     /// number is an internal lateral gap, never a player-facing back edge.
-    public static func from(_ hazards: CoursePrepHazards) -> [CaddiePlanHazard] {
+    public static func from(
+        _ hazards: CoursePrepHazards,
+        route: [[Double]]? = nil
+    ) -> [CaddiePlanHazard] {
         var out: [(frontRouteM: Double, hazard: CaddiePlanHazard)] = []
         let bunkerDetails = hazards.details
             .filter { $0.kind == "bunker" }
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !bunkerDetails.isEmpty {
             for (index, detail) in bunkerDetails.enumerated() {
-                let label = bunkerDetails.count > 1 ? "沙坑 \(index + 1)" : "沙坑"
+                let label = CoursePrepHazardNaming.label(kind: "bunker", detail: detail, route: route)
                 out.append((detail.frontRouteM, CaddiePlanHazard(
                     id: "bunker-\(index)", icon: "bunker", label: label,
                     detail: measuredText(frontM: detail.frontM, backM: detail.backM)
@@ -793,7 +811,7 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
             .sorted { $0.frontRouteM < $1.frontRouteM }
         if !waterDetails.isEmpty {
             for (index, detail) in waterDetails.enumerated() {
-                let label = waterDetails.count > 1 ? "水域 \(index + 1)" : "水域"
+                let label = CoursePrepHazardNaming.label(kind: "water", detail: detail, route: route)
                 out.append((detail.frontRouteM, CaddiePlanHazard(
                     id: "water-\(index)", icon: "water", label: label,
                     detail: measuredText(frontM: detail.frontM, backM: detail.backM)

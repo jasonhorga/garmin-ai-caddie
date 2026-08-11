@@ -596,16 +596,26 @@ def _prefer_trusted_clubs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _dedupe_near_clubs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Collapse rows whose medians are within NEAR_DUP_CLUB_EPS_M (same club, different label).
+    """Collapse canonical aliases and rows whose medians are near-identical.
 
-    Keeps the better-sampled row of each near-duplicate cluster; the caller re-sorts.
+    Keeps the better-sampled row of each cluster; the caller re-sorts. Canonical identity must win
+    even when stale aliases have drifted by more than the distance epsilon (``3W`` and
+    ``三号木杆`` are one physical club, not two options).
     """
+    from ai_caddie.caddie.club_bag import canonical_club_name
+
     kept: list[dict[str, Any]] = []
+    canonical_seen: set[str] = set()
     for row in sorted(rows, key=lambda r: (-int(r.get("sampleSize") or 0), str(r.get("clubName") or ""))):
+        token = canonical_club_name(str(row.get("clubName") or ""))
+        if token and token in canonical_seen:
+            continue
         median_m = _float(row.get("median_m"))
         if any(abs(_float(other.get("median_m")) - median_m) <= NEAR_DUP_CLUB_EPS_M for other in kept):
             continue
         kept.append(row)
+        if token:
+            canonical_seen.add(token)
     return kept
 
 
@@ -742,8 +752,9 @@ def _sequence_confidence(steps: list[dict[str, Any]]) -> str:
 
 
 def _is_driver(row: dict[str, Any]) -> bool:
-    name = str(row.get("clubName") or "").upper().replace(" ", "")
-    return name in {"D", "1D", "1W", "DRIVER", "一号木", "一号木杆"} or "DRIVER" in name
+    from ai_caddie.caddie.club_bag import canonical_club_name
+
+    return canonical_club_name(str(row.get("clubName") or "")) == "driver"
 
 
 def _sequence_first_club(option: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any] | None:

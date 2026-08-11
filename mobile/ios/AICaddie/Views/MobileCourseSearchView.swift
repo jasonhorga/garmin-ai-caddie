@@ -13,6 +13,7 @@ public enum MobileCourseSearchMode: Equatable {
 public struct MobileCourseSearchView: View {
     @ObservedObject public var locationProvider: LocationProvider
     public let mode: MobileCourseSearchMode
+    public let title: String
     public let dismissAfterSelection: Bool
     public let installedGlobalIds: Set<Int>
     public let retainedDownloads: [PrepCourseDownloadRecord]
@@ -46,6 +47,7 @@ public struct MobileCourseSearchView: View {
     public init(
         locationProvider: LocationProvider,
         mode: MobileCourseSearchMode = .nearbyAndName,
+        title: String? = nil,
         dismissAfterSelection: Bool = true,
         installedGlobalIds: Set<Int> = [],
         retainedDownloads: [PrepCourseDownloadRecord] = [],
@@ -57,6 +59,7 @@ public struct MobileCourseSearchView: View {
     ) {
         self.locationProvider = locationProvider
         self.mode = mode
+        self.title = title ?? (mode == .nameOnly ? "搜索备战球场" : "找球场")
         self.dismissAfterSelection = dismissAfterSelection
         self.installedGlobalIds = installedGlobalIds
         self.retainedDownloads = retainedDownloads
@@ -87,18 +90,18 @@ public struct MobileCourseSearchView: View {
                             } else {
                                 Image(systemName: "location.fill")
                             }
-                            Text(activeSearch == .nearby ? "正在查找" : "查找当前位置附近球场")
-                            Spacer()
+                            Text(activeSearch == .nearby
+                                ? "正在查找"
+                                : (hasNearbyLocation ? "查看附近球场" : "正在定位…"))
                         }
+                        .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(LiveHoleStyle.green)
                     .disabled(!canSearchNearby)
                     .accessibilityIdentifier("course-catalog-nearby-action")
                 } header: {
                     Text("附近球场")
-                } footer: {
-                    Text(hasNearbyLocation
-                        ? "直接读取 Garmin 在所选半径内的完整球场目录，并按真实距离排序。"
-                        : "正在获取当前位置；你仍然可以先用下面的城市或球场名搜索。")
                 }
             }
 
@@ -125,16 +128,16 @@ public struct MobileCourseSearchView: View {
                         } else {
                             Image(systemName: "magnifyingglass")
                         }
-                        Text(activeSearch == .manual ? "正在搜索" : "搜索 Garmin 全部球场")
-                        Spacer()
+                        Text(activeSearch == .manual ? "正在搜索" : "搜索")
                     }
+                    .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(LiveHoleStyle.green)
                 .disabled(!canSearch)
                 .accessibilityIdentifier("course-catalog-search-action")
             } header: {
-                Text("搜索条件")
-            } footer: {
-                Text("可以只填城市、只填球场关键字，或两项都填。搜索只取目录；选择后才下载这一座球场。")
+                Text("搜索球场")
             }
 
             if let errorText {
@@ -144,15 +147,13 @@ public struct MobileCourseSearchView: View {
                 }
             }
 
-            if mode == .nameOnly, !retainedDownloads.isEmpty {
+            if !retainedDownloads.isEmpty {
                 Section {
                     ForEach(retainedDownloads) { download in
                         retainedDownloadRow(download)
                     }
                 } header: {
                     Text("最近选择")
-                } footer: {
-                    Text("离开详情不会中断；每完成一洞就保存在本机，下次从缺少的洞继续。")
                 }
             }
 
@@ -218,10 +219,10 @@ public struct MobileCourseSearchView: View {
                 }
             }
         }
-        .navigationTitle(mode == .nameOnly ? "搜索备战球场" : "找球场")
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if mode == .nearbyAndName {
+            if mode == .nearbyAndName && dismissAfterSelection {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
                 }
@@ -363,7 +364,7 @@ public struct MobileCourseSearchView: View {
             matches = results.filter { seen.insert($0.globalId).inserted }
         } catch {
             matches = []
-            errorText = "现在无法搜索全部球场，请检查网络后重试。"
+            errorText = "现在无法搜索球场，请检查网络后重试。"
         }
     }
 

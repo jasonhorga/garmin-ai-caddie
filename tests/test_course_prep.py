@@ -145,6 +145,19 @@ class PureLogicTests(unittest.TestCase):
         with patch("ai_caddie.courses.course_prep.build_club_profiles", return_value=profiles):
             self.assertEqual(cp.club_ladder(), [("7I", 134), ("PW", 101)])
 
+    def test_club_ladder_collapses_aliases_and_never_recommends_putter(self) -> None:
+        profiles = {
+            "3W": {"median": 175.3, "sampleSize": 4},
+            "三号木杆": {"median": 173.9, "sampleSize": 18},
+            "Putter": {"median": 32.0, "sampleSize": 100},
+            "7I": {"median": 128.0, "sampleSize": 20},
+        }
+        with patch("ai_caddie.courses.course_prep.build_club_profiles", return_value=profiles), \
+                patch.object(cp.club_bag_service, "restrict_to_bag", side_effect=lambda rows, _name: rows):
+            ladder = cp.club_ladder()
+
+        self.assertEqual(ladder, [("三号木杆", 174), ("7I", 128)])
+
     def test_prep_hole_marks_out_of_range_par_record_as_estimate(self) -> None:
         md = {"hole": {
             "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],
@@ -274,6 +287,23 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(len(steps), 2)
         self.assertEqual(tee, "1W")
         self.assertIsNotNone(landing)
+        self.assertNotEqual(cp.club_bag_service.canonical_club_name(steps[1]["club"]), "driver")
+
+    def test_par5_strategy_uses_complete_chain_and_driver_only_from_tee(self) -> None:
+        ladder = [("Driver", 198), ("3W", 175), ("3号铁木杆", 157), ("7I", 128), ("PW", 102)]
+        steps, _cautions, _landing, tee = cp._strategy(
+            5,
+            505,
+            {"water_carry": [], "bunkers": [], "details": []},
+            ladder,
+        )
+
+        self.assertEqual(tee, "Driver")
+        self.assertGreaterEqual(len(steps), 3)
+        self.assertTrue(all(
+            cp.club_bag_service.canonical_club_name(step["club"]) != "driver"
+            for step in steps[1:]
+        ))
 
     def test_in_triangle(self) -> None:
         a, b, c = (0, 0), (10, 0), (0, 10)

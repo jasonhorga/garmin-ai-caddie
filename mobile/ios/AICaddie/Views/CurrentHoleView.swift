@@ -602,7 +602,7 @@ public struct CurrentHoleView: View {
         guard let playsLike = holePrep?.playsLike, playsLike.available, let deltaYd = playsLike.deltaYd, deltaYd != 0 else {
             return nil
         }
-        return "实打约 \(deltaYd > 0 ? "+" : "")\(deltaYd) 码(\(deltaYd > 0 ? "上坡" : "下坡"))"
+        return "坡度修正 \(deltaYd > 0 ? "+" : "")\(deltaYd) 码 · \(deltaYd > 0 ? "上坡" : "下坡")"
     }
 
     /// The nearest mapped hazard over the live map. New geometry shows the same front/back semantics
@@ -613,8 +613,11 @@ public struct CurrentHoleView: View {
             guard let nearest = liveHazards.first else { return nil }
             return "\(nearest.label) · \(nearest.detail)"
         }
-        guard let hazards = holePrep?.hazards,
-              let nearest = CaddiePlanHazard.from(hazards).first,
+        guard let holePrep,
+              let nearest = CaddiePlanHazard.from(
+                  holePrep.hazards,
+                  route: holePrep.resolvedMapOverlay?.route
+              ).first,
               let detail = nearest.detail else {
             return nil
         }
@@ -991,7 +994,10 @@ public struct CurrentHoleView: View {
                 )
             }
         }
-        return CaddiePlanHazard.from(holePrep.hazards)
+        return CaddiePlanHazard.from(
+            holePrep.hazards,
+            route: holePrep.resolvedMapOverlay?.route
+        )
     }
 
     /// Live-round hazard ranges use the player's current GPS fix and the measured front/back boundary

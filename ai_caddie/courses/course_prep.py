@@ -20,7 +20,7 @@ from ai_caddie.geometry import elevation, hole_render, shot_projection
 from ai_caddie.core.data import build_club_profiles, read_json
 from ai_caddie.core.data import OWNER_ID, load_manual_club_bag
 from ai_caddie.core.data import available_prep_holes as available_prep_holes  # re-export: prep's hole-list default
-from ai_caddie.caddie import club_catalog
+from ai_caddie.caddie import club_bag as club_bag_service, club_catalog
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
 
 YARD = 1.09361
@@ -588,28 +588,46 @@ def route_hazards(by: dict, route, *, to_px=None) -> dict:
 # ---------- club ladder (player's real distances) ----------
 
 def club_ladder(path=None) -> list[tuple[str, int]]:
-    """Median distance per club, longest-first, from product club profiles when available."""
-    ladder = dict(DEFAULT_LADDER)
+    """Median distance per physical club, longest-first.
+
+    Garmin's club endpoints provide the bag identity but no carry distance. Carries therefore come
+    from the player's Garmin AutoShot history. Historical aliases for the same physical club are
+    canonicalised here before the recommendation ladder is built; the alias with the strongest
+    sample owns the median, so ``3W`` and ``三号木杆`` can never become two recommendations. Putter
+    and unknown labels are never valid full-shot recommendations.
+    """
+    profiles = {}
     try:
         if path is not None and path.exists():
-            data = read_json(path)
-            ladder = {k: round(v["median"]) for k, v in data.items() if isinstance(v, dict) and v.get("median")}
+            profiles = read_json(path)
         else:
             profiles = build_club_profiles()
-            if profiles:
-                ladder = {
-                    name: round(profile["median"])
-                    for name, profile in profiles.items()
-                    if isinstance(profile, dict) and profile.get("median")
-                }
     except Exception:
-        pass
-    ordered = sorted(ladder.items(), key=lambda kv: -kv[1])
+        profiles = {}
+
+    by_token: dict[str, tuple[str, int, int]] = {}
+    for name, profile in (profiles or {}).items():
+        if not isinstance(profile, dict) or not profile.get("median"):
+            continue
+        token = club_bag_service.canonical_club_name(name)
+        if not token or token == "putter" or not club_catalog.is_valid_token(token):
+            continue
+        sample_size = int(profile.get("sampleSize") or 0)
+        candidate = (str(name), round(profile["median"]), sample_size)
+        previous = by_token.get(token)
+        if previous is None or (candidate[2], candidate[1]) > (previous[2], previous[1]):
+            by_token[token] = candidate
+
+    if not by_token:
+        for name, distance in DEFAULT_LADDER.items():
+            token = club_bag_service.canonical_club_name(name)
+            if token and token != "putter":
+                by_token[token] = (name, int(distance), 0)
+
+    ordered = sorted(((name, distance) for name, distance, _ in by_token.values()), key=lambda kv: -kv[1])
     # Only recommend clubs the player actually carries (real Garmin bag), so a stale mis-tagged
     # club from shot history (e.g. a "2 Hybrid" no longer in the bag) never gets suggested.
-    from ai_caddie.caddie.club_bag import restrict_to_bag
-
-    return restrict_to_bag(ordered, lambda kv: kv[0])
+    return club_bag_service.restrict_to_bag(ordered, lambda kv: kv[0])
 
 
 def _member_measured_by_token(player_id: str) -> dict[str, int]:
@@ -645,15 +663,37 @@ def _member_measured_by_token(player_id: str) -> dict[str, int]:
 def effective_club_ladder(player_id: str) -> list[tuple[str, int]]:
     """The recommended-club ladder for a player, used by every member-reachable prep builder.
 
-    - Owner -> club_ladder() (history-derived distances, restricted to the owner's effective bag).
+    - Owner -> Garmin AutoShot history, restricted to the owner's effective bag. If the owner has
+      explicitly entered a manual distance, that value wins over history.
     - A member WITH a manual bag -> a ladder over their selected tokens, each distance taken as
-      their OWN measured median (from their logged shots) ?? manual distanceM ?? CLUB_CATALOG
+      manual distanceM ?? their OWN measured median (from their logged shots) ?? CLUB_CATALOG
       default, sorted descending (clubs with none are dropped). Measured distances are read only
       from the member's own tree, so no other player's distances ever leak in.
     - A member with no manual bag -> the generic DEFAULT_LADDER. Never the owner's distances.
     """
     if player_id == OWNER_ID:
-        return club_ladder()
+        measured_ladder = club_ladder()
+        manual = load_manual_club_bag(player_id)
+        if not manual:
+            return measured_ladder
+        measured_by_token = {
+            token: distance
+            for name, distance in measured_ladder
+            if (token := club_bag_service.canonical_club_name(name))
+        }
+        pairs: list[tuple[str, int]] = []
+        for club in manual.get("clubs") or []:
+            token = str(club.get("token") or "")
+            if not club_catalog.is_valid_token(token) or token == "putter":
+                continue
+            distance = club.get("distanceM")
+            if distance is None:
+                distance = measured_by_token.get(token)
+            if distance is None:
+                distance = club_catalog.default_distance_m(token)
+            if distance is not None:
+                pairs.append((str(club.get("customName") or token), int(distance)))
+        return sorted(pairs, key=lambda kv: -kv[1]) if pairs else measured_ladder
     manual = load_manual_club_bag(player_id)
     if manual:
         measured_by_token = _member_measured_by_token(player_id)
@@ -662,9 +702,11 @@ def effective_club_ladder(player_id: str) -> list[tuple[str, int]]:
             token = str(club.get("token") or "")
             if not club_catalog.is_valid_token(token):
                 continue
-            dist = measured_by_token.get(token)
+            if token == "putter":
+                continue
+            dist = club.get("distanceM")
             if dist is None:
-                dist = club.get("distanceM")
+                dist = measured_by_token.get(token)
             if dist is None:
                 dist = club_catalog.default_distance_m(token)
             if dist is None:
@@ -676,7 +718,17 @@ def effective_club_ladder(player_id: str) -> list[tuple[str, int]]:
 
 
 def club_for(distance_m: float, ladder, *, exclude=()):
-    cand = [(n, d) for n, d in ladder if n not in exclude]
+    excluded_tokens = {
+        club_bag_service.canonical_club_name(name) or str(name).strip().casefold()
+        for name in exclude
+    }
+    cand = [
+        (name, distance)
+        for name, distance in ladder
+        if (club_bag_service.canonical_club_name(name) or str(name).strip().casefold())
+        not in excluded_tokens
+        and club_bag_service.canonical_club_name(name) != "putter"
+    ]
     if not cand:
         return None, None
     return min(cand, key=lambda kv: abs(kv[1] - distance_m))
@@ -879,19 +931,58 @@ def _hole_image_projection(by: dict, route, md: dict | None = None, *, frame=Non
 def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
     steps: list[dict] = []
     cautions: list[str] = []
-    driver = next((d for n, d in ladder if n == "1W"), 200)
+    usable_ladder = [
+        (name, distance)
+        for name, distance in ladder
+        if club_bag_service.canonical_club_name(name) != "putter"
+    ]
+    driver_row = next(
+        (
+            (name, distance)
+            for name, distance in usable_ladder
+            if club_bag_service.canonical_club_name(name) == "driver"
+        ),
+        usable_ladder[0] if usable_ladder else (None, 200),
+    )
+    driver_name, driver = driver_row
     landing = None
     if par == 3:
-        club, cd = club_for(route_len_m, ladder)
+        club, _ = club_for(route_len_m, usable_ladder)
         steps.append({"club": club, "note": f"约 {yd(route_len_m)}y 到果岭中心，一杆上果岭"})
     else:
         landing = min(driver, route_len_m - 8) if route_len_m > driver else route_len_m * 0.55
-        tee_club, _ = club_for(landing, ladder)
+        # The factual Driver row owns the tee carry. Looking it up again by a free-form display name
+        # was the source of Driver -> Driver: production calls it ``Driver``, while the old exclusion
+        # only recognised ``1W``.
+        tee_club = driver_name if route_len_m > driver else club_for(landing, usable_ladder)[0]
         steps.append({"club": tee_club, "note": f"开球落点约 {yd(landing)}y"})
         remaining = route_len_m - landing
-        if remaining > 5:
-            ap_club, _ = club_for(remaining, ladder, exclude=("1W",))
-            steps.append({"club": ap_club, "note": f"剩约 {yd(remaining)}y 上果岭"})
+        approach_ladder = [
+            (name, distance)
+            for name, distance in usable_ladder
+            if club_bag_service.canonical_club_name(name) != "driver"
+        ]
+        # Plan a complete Par 4/5 chain. A long Par 5 remainder is not one imaginary approach; use
+        # the longest playable non-driver until a normal scoring club can cover what remains.
+        while remaining > 5 and approach_ladder and len(steps) < 4:
+            longest_approach = approach_ladder[0][1]
+            if remaining > longest_approach + 15:
+                approach_club, approach_distance = approach_ladder[0]
+            else:
+                approach_club, approach_distance = club_for(
+                    remaining,
+                    approach_ladder,
+                    exclude=("driver", "1W", "1D"),
+                )
+            if approach_club is None or approach_distance is None:
+                break
+            before = remaining
+            remaining = max(0.0, remaining - float(approach_distance))
+            if remaining <= 15:
+                note = f"剩约 {yd(before)}y 上果岭"
+            else:
+                note = f"推进约 {yd(approach_distance)}y，剩约 {yd(remaining)}y"
+            steps.append({"club": approach_club, "note": note})
     for w in hazards.get("water_carry") or []:
         if w[0] < route_len_m - 5:
             cautions.append(f"水障碍：进水前约 {yd(w[0])}y，过水需 {yd(w[1])}y")

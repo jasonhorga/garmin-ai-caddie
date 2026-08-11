@@ -781,7 +781,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let requestLock = NSLock()
         var requestedURLs: [URL] = []
         var topoRequestCount = 0
-        var firstTopoWasDurableBeforeSecondRequest: Bool?
+        var firstBatchWasDurableBeforeThirdRequest: Bool?
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
             requestLock.withLock {
@@ -800,18 +800,20 @@ final class LiveRoundAppModelTests: XCTestCase {
                 body = try self.offlinePrepResponseData(for: online, localHoles: requested)
                 contentType = "application/json"
             case let path where path.hasSuffix("/topo.png"):
-                let isSecondTopo = requestLock.withLock {
+                let isThirdTopo = requestLock.withLock {
                     topoRequestCount += 1
-                    return topoRequestCount == 2
+                    return topoRequestCount == 3
                 }
-                if isSecondTopo {
-                    let firstHole = try XCTUnwrap(online.holes.first)
-                    let durable = store.loadCourseTopoImageURL(
-                        globalId: firstHole.sourceGlobalId ?? online.course.globalId,
-                        localHole: firstHole.sourceLocalHole ?? firstHole.number
-                    ) != nil
+                if isThirdTopo {
+                    let firstBatch = Array(online.holes.prefix(2))
+                    let durable = firstBatch.allSatisfy { hole in
+                        store.loadCourseTopoImageURL(
+                            globalId: hole.sourceGlobalId ?? online.course.globalId,
+                            localHole: hole.sourceLocalHole ?? hole.number
+                        ) != nil
+                    }
                     requestLock.withLock {
-                        firstTopoWasDurableBeforeSecondRequest = durable
+                        firstBatchWasDurableBeforeThirdRequest = durable
                     }
                 }
                 body = png
@@ -877,9 +879,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertTrue(model.package?.hasCompleteOfflineCoursePrep == true)
         XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))
         XCTAssertEqual(
-            requestLock.withLock { firstTopoWasDurableBeforeSecondRequest },
+            requestLock.withLock { firstBatchWasDurableBeforeThirdRequest },
             true,
-            "each cold topo must be persisted before the background downloader asks for the next hole"
+            "each bounded two-hole batch must be persisted before the downloader starts the next batch"
         )
         XCTAssertNotNil(try store.loadCourseTemplate(
             globalId: online.course.globalId,

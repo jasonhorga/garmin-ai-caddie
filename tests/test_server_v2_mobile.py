@@ -553,7 +553,7 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertIs(tasks.tasks[0].func, server_main._upgrade_course_geometry)
         self.assertEqual(tasks.tasks[0].args, ({31796: [1], 31797: [1]},))
 
-    def test_background_geometry_upgrade_does_not_duplicate_client_topo_downloads(self) -> None:
+    def test_background_geometry_upgrade_prewarms_topo_for_background_resume(self) -> None:
         from server_v2 import main as server_main
 
         with (
@@ -568,7 +568,10 @@ class ServerV2MobileTests(unittest.TestCase):
             ensure_geometry.call_args_list,
             [call(31796, holes=[1, 2]), call(31797, holes=[4])],
         )
-        prewarm_topo.assert_not_called()
+        self.assertEqual(
+            prewarm_topo.call_args_list,
+            [call(31796, [1, 2]), call(31797, [4])],
+        )
 
     def test_background_geometry_upgrade_singleflights_duplicate_course_requests(self) -> None:
         from threading import Event, Thread
@@ -585,7 +588,7 @@ class ServerV2MobileTests(unittest.TestCase):
         with patch(
             "ai_caddie.caddie.mobile_live._ensure_geometry_for_course",
             side_effect=ensure_geometry,
-        ) as ensure:
+        ) as ensure, patch.object(server_main, "_prewarm_course_topo") as prewarm:
             owner = Thread(
                 target=server_main._upgrade_course_geometry,
                 args=({19901: [1, 2, 3]},),
@@ -598,6 +601,7 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertFalse(owner.is_alive())
         ensure.assert_called_once_with(19901, holes=[1, 2, 3])
+        prewarm.assert_called_once_with(19901, [1, 2, 3])
 
     def test_mobile_round_package_can_prefetch_geometry_for_offline_readiness(self) -> None:
         client = TestClient(app)

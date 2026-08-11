@@ -775,7 +775,10 @@ def render_hole_topo(gid: int, hole: int) -> bytes:
     ``TopoRenderError`` on failure (never crashes the caller)."""
     img = render_hole_topo_image(gid, hole)
     buf = io.BytesIO()
-    img.save(buf, "PNG", optimize=True)
+    # Pillow's exhaustive PNG optimisation cost seconds on a cold rich-topo render while saving
+    # only transport bytes that HTTP/cache reuse pays once. Normal compression is fast and keeps a
+    # standards-compliant lossless PNG.
+    img.save(buf, "PNG", optimize=False)
     return buf.getvalue()
 
 
@@ -812,7 +815,7 @@ _cache_inflight: dict[Path, threading.Event] = {}
 # render concurrently (the per-path singleflight only protects duplicate requests), so an iPhone
 # download plus Web/Watch prewarm could multiply that peak until the API host swapped or died.
 # Serialise cold renders process-wide; warm PNG reads never take this gate.
-_cold_render_slot = threading.BoundedSemaphore(1)
+_cold_render_slot = threading.BoundedSemaphore(2)
 
 
 def _release_cold_render_working_set() -> None:

@@ -61,11 +61,11 @@ def canonical_club_name(raw: str | None) -> str | None:
         if 44 <= deg <= 64:
             return f"wedge{deg}"
     # Driver (before the fairway-wood rule so "1W" → driver).
-    if lower in ("driver", "d", "1w"):
+    if lower in ("driver", "d", "dr", "1d", "1w") or s in ("一号木", "一号木杆"):
         return "driver"
-    # Hybrid / 小鸡腿 / rescue (incl. the "3H" shorthand, mirroring the "3W"/"5I" rules below so
+    # Hybrid / 铁木 / 小鸡腿 / rescue (incl. the "3H" shorthand, mirroring the "3W"/"5I" rules below so
     # every DEFAULT_LADDER key — which uses "3H" — normalizes to a catalog token).
-    if "小鸡腿" in s or "hybrid" in lower or "rescue" in lower or (lower.endswith("h") and lower[:-1].isdigit()):
+    if "小鸡腿" in s or "铁木" in s or "hybrid" in lower or "rescue" in lower or (lower.endswith("h") and lower[:-1].isdigit()):
         n = _first_digit(s)
         return f"hybrid{n}" if n else "hybrid"
     # Fairway wood: "3W" / "3 Wood" / "3号木".
@@ -136,10 +136,11 @@ def effective_club_bag(player_id: str = OWNER_ID) -> dict:
 def in_use_canonical_names(player_id: str = OWNER_ID) -> set[str] | None:
     """Canonical tokens for ``player_id``'s IN-USE clubs (not retired/deleted), or None when that
     player has no bag. Reads the EFFECTIVE bag (manual selection wins, else the synced Garmin bag) —
-    only that player's data (never the owner's, for a member). For the synced bag each club
-    contributes both its clubTypeId token AND its custom-name token, so a history entry written
-    either way (e.g. "GW" vs "50°") still matches the same bag club. A manual bag's tokens are
-    already canonical."""
+    only that player's data (never the owner's, for a member). A recognised Garmin custom name is
+    the player's factual club identity and therefore wins over the generic clubTypeId. Adding both
+    identities made one physical club appear twice (for example ``3W`` + ``三号木杆`` or ``GW`` +
+    ``50°``) and let two different distance models survive into recommendations. A manual bag's
+    tokens are already canonical."""
     bag = effective_club_bag(player_id)
     if bag["source"] == "manual":
         names = {c["token"] for c in bag["clubs"] if club_catalog.is_valid_token(str(c.get("token") or ""))}
@@ -151,14 +152,15 @@ def in_use_canonical_names(player_id: str = OWNER_ID) -> set[str] | None:
     for club in raw.get("clubs") or []:
         if not isinstance(club, dict) or club.get("retired") or club.get("deleted"):
             continue
+        custom_token = canonical_club_name(club.get("customName"))
+        if custom_token:
+            names.add(custom_token)
+            continue
         type_id = club.get("clubTypeId")
         if isinstance(type_id, int):
-            token = _CLUBTYPE_CANON.get(type_id)
-            if token:
-                names.add(token)
-        token = canonical_club_name(club.get("customName"))
-        if token:
-            names.add(token)
+            type_token = _CLUBTYPE_CANON.get(type_id)
+            if type_token:
+                names.add(type_token)
     return names or None
 
 

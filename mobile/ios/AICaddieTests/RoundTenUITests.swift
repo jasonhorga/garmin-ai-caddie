@@ -4,6 +4,12 @@ import XCTest
 
 /// round-10 反馈的纯逻辑回归:避开区沙坑编号/排序、issue 中文映射、策略语义着色。
 final class RoundTenUITests: XCTestCase {
+    func testStrategyLabelsDistinguishRecommendationConservativeAndAttack() {
+        XCTAssertEqual(zhCaddieRouteLabel("stock"), "推荐")
+        XCTAssertEqual(zhCaddieRouteLabel("safe"), "保守")
+        XCTAssertEqual(zhCaddieRouteLabel("attack"), "进攻")
+    }
+
     func testHazardIconsUseProductGlyphKeysInsteadOfEmoji() throws {
         let hazards = CaddiePlanHazard.from(
             CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[138, 12]])
@@ -46,13 +52,14 @@ final class RoundTenUITests: XCTestCase {
                         frontPx: [112, 390], backPx: [114, 371], sideM: 12
                     ),
                 ]
-            )
+            ),
+            route: [[100, 500, 0], [100, 100, 260]]
         )
         let bunkers = hazards.filter { $0.icon == "bunker" }
         XCTAssertEqual(bunkers.count, 2)
-        // Number/sort by measured front edge and show the same front/back semantics as S70.
-        XCTAssertEqual(bunkers[0].label, "沙坑 1")
-        XCTAssertEqual(bunkers[1].label, "沙坑 2")
+        // Name by actionable side/area, sort by measured front edge, and keep S70 front/back facts.
+        XCTAssertEqual(bunkers[0].label, "右侧球道沙坑")
+        XCTAssertEqual(bunkers[1].label, "右侧果岭沙坑")
         let nearYards = CoursePrepRoute.yards(fromMetres: 134)
         let nearClearYards = CoursePrepRoute.yards(fromMetres: 149)
         let farYards = CoursePrepRoute.yards(fromMetres: 207)
@@ -66,10 +73,10 @@ final class RoundTenUITests: XCTestCase {
 
         // Every iPhone surface consumes one proximity order, regardless of hazard kind. A water
         // edge between two bunkers must not be appended after every bunker simply because of type.
-        XCTAssertEqual(hazards.map(\.label), ["沙坑 1", "水域", "沙坑 2"])
+        XCTAssertEqual(hazards.map(\.label), ["右侧球道沙坑", "前方水障碍", "右侧果岭沙坑"])
         XCTAssertEqual(
             "\(hazards[0].label) · \(try XCTUnwrap(hazards[0].detail))",
-            "沙坑 1 · 到 147 · 过 163 码"
+            "右侧球道沙坑 · 到 147 · 过 163 码"
         )
     }
 

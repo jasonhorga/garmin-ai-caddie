@@ -117,7 +117,6 @@ struct CoursePrepLiveHazardReadout: Equatable {
             }
         guard !supported.isEmpty else { return nil }
 
-        let totals = Dictionary(grouping: supported, by: \.kind).mapValues(\.count)
         var ordinals: [String: Int] = [:]
         var upcoming: [(readout: Self, frontRouteM: Double)] = []
         var hasUnpassedGeometry = false
@@ -143,8 +142,11 @@ struct CoursePrepLiveHazardReadout: Equatable {
                   ) else {
                 continue
             }
-            let baseLabel = detail.kind == "water" ? "水域" : "沙坑"
-            let label = totals[detail.kind, default: 0] > 1 ? "\(baseLabel) \(ordinal + 1)" : baseLabel
+            let label = CoursePrepHazardNaming.label(
+                kind: detail.kind,
+                detail: detail,
+                route: route
+            )
             upcoming.append((
                 readout: Self(
                     id: "\(detail.kind)-\(ordinal)",
@@ -295,6 +297,91 @@ public struct CoursePrepHazardDetail: Codable, Equatable {
         self.frontPx = frontPx
         self.backPx = backPx
         self.sideM = sideM
+    }
+}
+
+/// Shared player-facing hazard naming for prep and live GPS readouts. Hazard decoder order is not
+/// meaningful; route-relative side and station are. Pixels and route points share one affine frame,
+/// so this uses source geometry only and never guesses a named bunker.
+enum CoursePrepHazardNaming {
+    static func label(
+        kind: String,
+        detail: CoursePrepHazardDetail,
+        route: [[Double]]?
+    ) -> String {
+        let side = lateralLabel(detail: detail, route: route)
+        if kind == "water" {
+            return side == "前方" ? "前方水障碍" : "\(side)水障碍"
+        }
+        let totalM: Double?
+        if let last = route?.last, last.count >= 3 {
+            totalM = last[2]
+        } else {
+            totalM = nil
+        }
+        let area = totalM.map { $0 - detail.frontRouteM <= 55 ? "果岭" : "球道" } ?? ""
+        return side == "前方" ? "\(area)沙坑" : "\(side)\(area)沙坑"
+    }
+
+    private static func lateralLabel(
+        detail: CoursePrepHazardDetail,
+        route: [[Double]]?
+    ) -> String {
+        guard let route, route.count >= 2, detail.frontPx.count >= 2 else { return "前方" }
+        let segments = zip(route, route.dropFirst()).filter { segment in
+            segment.0.count >= 2 && segment.1.count >= 2
+        }
+        guard !segments.isEmpty else { return "前方" }
+        let selected: ([Double], [Double])?
+        if let stationSegment = segments.first(where: { segment in
+            guard segment.0.count >= 3, segment.1.count >= 3 else { return false }
+            let low = min(segment.0[2], segment.1[2]) - 1
+            let high = max(segment.0[2], segment.1[2]) + 1
+            return low...high ~= detail.frontRouteM
+        }) {
+            selected = stationSegment
+        } else {
+            selected = segments.min { lhs, rhs in
+                routeSegmentDistanceSquared(point: detail.frontPx, segment: lhs)
+                    < routeSegmentDistanceSquared(point: detail.frontPx, segment: rhs)
+            }
+        }
+        guard let selected else { return "前方" }
+        let first = selected.0
+        let second = selected.1
+        let dx = second[0] - first[0]
+        let dy = second[1] - first[1]
+        let length = hypot(dx, dy)
+        guard length > 0 else { return "前方" }
+        let cross = dx * (detail.frontPx[1] - first[1])
+            - dy * (detail.frontPx[0] - first[0])
+        let lateralPixels = cross / length
+        if abs(lateralPixels) < 7 || (detail.sideM ?? .greatestFiniteMagnitude) < 4 {
+            return "前方"
+        }
+        // UIKit's y axis points down, so the usual Cartesian cross-product sign is reversed.
+        return lateralPixels < 0 ? "左侧" : "右侧"
+    }
+
+    private static func routeSegmentDistanceSquared(
+        point: [Double],
+        segment: ([Double], [Double])
+    ) -> Double {
+        let first = segment.0
+        let second = segment.1
+        let dx = second[0] - first[0]
+        let dy = second[1] - first[1]
+        let lengthSquared = dx * dx + dy * dy
+        guard lengthSquared > 0 else {
+            let px = point[0] - first[0]
+            let py = point[1] - first[1]
+            return px * px + py * py
+        }
+        let rawT = ((point[0] - first[0]) * dx + (point[1] - first[1]) * dy) / lengthSquared
+        let t = min(1, max(0, rawT))
+        let px = point[0] - (first[0] + t * dx)
+        let py = point[1] - (first[1] + t * dy)
+        return px * px + py * py
     }
 }
 

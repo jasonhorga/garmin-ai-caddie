@@ -143,7 +143,7 @@ final class CoursePrepTests: XCTestCase {
             "valid topo geometry must produce live hazard ranges"
         )
 
-        XCTAssertEqual(upcoming.map(\.label), ["沙坑", "水域"])
+        XCTAssertEqual(upcoming.map(\.label), ["球道沙坑", "前方水障碍"])
         XCTAssertEqual(upcoming.map(\.detail), [
             "到 61 · 过 97 码",
             "到 158 · 过 182 码",
@@ -161,7 +161,7 @@ final class CoursePrepTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(upcoming.map(\.label), ["水域"])
+        XCTAssertEqual(upcoming.map(\.label), ["前方水障碍"])
         XCTAssertEqual(upcoming.first?.detail, "到 36 · 过 61 码")
     }
 

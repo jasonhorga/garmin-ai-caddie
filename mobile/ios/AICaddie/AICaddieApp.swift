@@ -2,6 +2,9 @@ import Combine
 import Foundation
 import os
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @main
 public struct AICaddieApp: App {
@@ -221,6 +224,8 @@ public struct AICaddieApp: App {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
                     model.syncOnForeground()
+                } else if phase == .background {
+                    model.continuePrepDownloadsInBackground()
                 }
             }
         }
@@ -326,6 +331,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private var prepCourseDownloadTask: Task<Void, Never>?
     private var prepCourseDownloadGeneration: UUID?
     private var activePrepCourseDownloadID: String?
+    #if canImport(UIKit)
+    private var prepBackgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
+    #endif
     /// A newly prepared round must commit its first live-hole navigation before this MainActor model
     /// starts the all-hole cache pipeline.  `false` means fill missing assets; `true` also revalidates
     /// the package release.  Optionality distinguishes "not deferred" from the normal false mode.
@@ -1119,14 +1127,14 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// Fetch topo PNGs with a bounded concurrency window. The offline caller deliberately invokes
-    /// this one hole at a time: a cold topo render is CPU-heavy, and four simultaneous renders made
-    /// interactive nearby/search/map requests wait behind the background course download. Returning
-    /// after each hole also lets the caller persist that bitmap before a process death.
+    /// Fetch topo PNGs with a bounded concurrency window. The offline caller uses two-hole batches:
+    /// a cold topo render is CPU-heavy, and four simultaneous renders made interactive nearby/search/
+    /// map requests wait behind the background course download. Returning after each small batch lets
+    /// the caller persist progress before moving on, so a later resume skips completed holes.
     private func fetchOfflineTopoImages(
         _ holes: [(globalId: Int, localHole: Int, geometryRevision: String?)],
         using syncClient: SyncClient,
-        maximumConcurrentRequests: Int = 1
+        maximumConcurrentRequests: Int = 2
     ) async -> [OfflineTopoDownloadResult] {
         guard !holes.isEmpty else { return [] }
         let client = OfflineDownloadClient(value: syncClient)
@@ -1284,42 +1292,50 @@ public final class LiveRoundAppModel: ObservableObject {
                       ) == nil else { return nil }
                 return (globalId, localHole, revision)
             }
-            for hole in ready {
+            var readyIndex = 0
+            while readyIndex < ready.count {
                 guard !Task.isCancelled else { return }
-                let downloads = await fetchOfflineTopoImages([hole], using: syncClient)
-                guard !Task.isCancelled, let download = downloads.first else { return }
-                guard let data = download.data else {
-                    let errorDescription = download.errorDescription ?? "unknown error"
-                    AICaddieLog.network.info(
-                        "Incremental topo deferred for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(errorDescription, privacy: .public)"
-                    )
-                    continue
-                }
-                do {
-                    _ = try offlineStore.saveCourseTopoImage(
-                        data,
-                        globalId: download.globalId,
-                        localHole: download.localHole,
-                        geometryRevision: download.geometryRevision
-                    )
-                    if let prepDownloadID {
-                        updatePrepCourseDownload(
-                            id: prepDownloadID,
-                            generation: prepDownloadGeneration
-                        ) { state in
-                            state.phase = preparedHoleCount() == snapshot.holes.count
-                                ? .downloading
-                                : .preparing
-                            state.preparedHoles = preparedHoleCount()
-                            state.downloadedHoles = downloadedHoleCount()
-                            state.totalHoles = max(1, snapshot.holes.count)
-                        }
+                let end = min(readyIndex + 2, ready.count)
+                let downloads = await fetchOfflineTopoImages(
+                    Array(ready[readyIndex..<end]),
+                    using: syncClient
+                )
+                guard !Task.isCancelled else { return }
+                for download in downloads {
+                    guard let data = download.data else {
+                        let errorDescription = download.errorDescription ?? "unknown error"
+                        AICaddieLog.network.info(
+                            "Incremental topo deferred for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(errorDescription, privacy: .public)"
+                        )
+                        continue
                     }
-                } catch {
-                    AICaddieLog.storage.error(
-                        "Incremental topo save failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(String(describing: error), privacy: .public)"
-                    )
+                    do {
+                        _ = try offlineStore.saveCourseTopoImage(
+                            data,
+                            globalId: download.globalId,
+                            localHole: download.localHole,
+                            geometryRevision: download.geometryRevision
+                        )
+                        if let prepDownloadID {
+                            updatePrepCourseDownload(
+                                id: prepDownloadID,
+                                generation: prepDownloadGeneration
+                            ) { state in
+                                state.phase = preparedHoleCount() == snapshot.holes.count
+                                    ? .downloading
+                                    : .preparing
+                                state.preparedHoles = preparedHoleCount()
+                                state.downloadedHoles = downloadedHoleCount()
+                                state.totalHoles = max(1, snapshot.holes.count)
+                            }
+                        }
+                    } catch {
+                        AICaddieLog.storage.error(
+                            "Incremental topo save failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(String(describing: error), privacy: .public)"
+                        )
+                    }
                 }
+                readyIndex = end
             }
         }
 
@@ -1529,41 +1545,48 @@ public final class LiveRoundAppModel: ObservableObject {
             // Persist each hole as soon as it arrives. The previous all-course task group returned
             // only after every cold render completed, so killing the app on hole 1 discarded even a
             // successfully downloaded first bitmap and four renders could starve foreground APIs.
-            for hole in missingTopoHoles {
+            var missingIndex = 0
+            while missingIndex < missingTopoHoles.count {
                 guard !Task.isCancelled else { return }
-                let downloads = await fetchOfflineTopoImages([hole], using: syncClient)
+                let end = min(missingIndex + 2, missingTopoHoles.count)
+                let downloads = await fetchOfflineTopoImages(
+                    Array(missingTopoHoles[missingIndex..<end]),
+                    using: syncClient
+                )
                 guard !Task.isCancelled else { return }
-                guard let download = downloads.first else { continue }
-                guard let data = download.data else {
-                    let errorDescription = download.errorDescription ?? "unknown error"
-                    AICaddieLog.network.error(
-                        "Offline topo download failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(errorDescription, privacy: .public)"
-                    )
-                    continue
-                }
-                do {
-                    _ = try offlineStore.saveCourseTopoImage(
-                        data,
-                        globalId: download.globalId,
-                        localHole: download.localHole,
-                        geometryRevision: download.geometryRevision
-                    )
-                    if let prepDownloadID {
-                        updatePrepCourseDownload(
-                            id: prepDownloadID,
-                            generation: prepDownloadGeneration
-                        ) { state in
-                            state.phase = .downloading
-                            state.preparedHoles = preparedHoleCount()
-                            state.downloadedHoles = downloadedHoleCount()
-                            state.totalHoles = max(1, snapshot.holes.count)
-                        }
+                for download in downloads {
+                    guard let data = download.data else {
+                        let errorDescription = download.errorDescription ?? "unknown error"
+                        AICaddieLog.network.error(
+                            "Offline topo download failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(errorDescription, privacy: .public)"
+                        )
+                        continue
                     }
-                } catch {
-                    AICaddieLog.storage.error(
-                        "Offline topo cache save failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(String(describing: error), privacy: .public)"
-                    )
+                    do {
+                        _ = try offlineStore.saveCourseTopoImage(
+                            data,
+                            globalId: download.globalId,
+                            localHole: download.localHole,
+                            geometryRevision: download.geometryRevision
+                        )
+                        if let prepDownloadID {
+                            updatePrepCourseDownload(
+                                id: prepDownloadID,
+                                generation: prepDownloadGeneration
+                            ) { state in
+                                state.phase = .downloading
+                                state.preparedHoles = preparedHoleCount()
+                                state.downloadedHoles = downloadedHoleCount()
+                                state.totalHoles = max(1, snapshot.holes.count)
+                            }
+                        }
+                    } catch {
+                        AICaddieLog.storage.error(
+                            "Offline topo cache save failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(String(describing: error), privacy: .public)"
+                        )
+                    }
                 }
+                missingIndex = end
             }
 
             let stillMissing = missingTopoHoles.contains { hole in
@@ -1972,6 +1995,7 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Auto-sync hook for app foreground (scenePhase .active): flush anything still pending.
     public func syncOnForeground() {
+        endPrepBackgroundTask()
         resumePrepCourseDownloads(retryFailed: true)
         guard !eventSyncSuppressedForUITests, let package else { return }
         let mayHavePendingMedia = (try? offlineStore.loadPendingMedia(
@@ -2438,6 +2462,7 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
         activePrepCourseDownloadID = nil
+        endPrepBackgroundTask()
     }
 
     private func startPrepCourseDownloadQueueIfNeeded() {
@@ -2464,6 +2489,35 @@ public final class LiveRoundAppModel: ObservableObject {
         guard prepCourseDownloadGeneration == generation else { return }
         prepCourseDownloadGeneration = nil
         prepCourseDownloadTask = nil
+        endPrepBackgroundTask()
+    }
+
+    /// iOS grants a bounded grace period after the app enters the background. Use it to finish the
+    /// current requests and persist each completed hole. If the system expires that time, move the
+    /// job back to queued instead of reporting a failure; server-side geometry/topo preparation
+    /// continues and foreground resume picks up only the missing holes.
+    public func continuePrepDownloadsInBackground() {
+        guard prepCourseDownloadTask != nil || prepCourseDownloads.contains(where: \.isActive) else {
+            return
+        }
+        #if canImport(UIKit)
+        guard prepBackgroundTaskIdentifier == .invalid else { return }
+        prepBackgroundTaskIdentifier = UIApplication.shared.beginBackgroundTask(
+            withName: "Prepare golf course maps"
+        ) { [weak self] in
+            Task { @MainActor in
+                self?.pausePrepCourseDownload()
+            }
+        }
+        #endif
+    }
+
+    private func endPrepBackgroundTask() {
+        #if canImport(UIKit)
+        guard prepBackgroundTaskIdentifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(prepBackgroundTaskIdentifier)
+        prepBackgroundTaskIdentifier = .invalid
+        #endif
     }
 
     private func runPrepCourseDownload(id: String, generation: UUID) async {

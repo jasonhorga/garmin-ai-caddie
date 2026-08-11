@@ -753,12 +753,20 @@ def _prewarm_course_topo(global_id: int, holes: list[int]) -> None:
     geometry is skipped, never crashing the worker; an already-cached hole returns instantly."""
     from ai_caddie.geometry import topo_render
 
-    for hole in holes:
+    def render_one(hole: int) -> None:
         try:
             topo_render.render_hole_topo_cached(global_id, hole)
         except Exception:
             # TopoGeometryUnavailable / TopoRenderError / any transient render fault: skip this hole.
-            continue
+            pass
+
+    # Native-size renders peak at ~150 MB in production measurements. Two workers fit the shared
+    # four-core server without starving metadata/search requests and cut an 18-hole cold course from
+    # minutes to tens of seconds. ``render_hole_topo_cached`` still single-flights duplicate hits.
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=min(2, max(1, len(holes)))) as executor:
+        list(executor.map(render_one, holes))
 
 
 @app.post("/api/v2/courses/{global_id}/topo/prewarm")
@@ -1251,8 +1259,9 @@ def _upgrade_course_geometry(requested: dict[int, list[int]]) -> None:
     """Best-effort precise upgrade after a lightweight package is already returned.
 
     Mobile installers fetch the selected topo PNGs themselves (iOS concurrently, Watch in bounded
-    batches) and Web explicitly calls ``/topo/prewarm``. Rendering the entire course again here made
-    geometry decoding and the client's real download compete for the same four server cores.
+    batches). Once geometry is installed, also warm the immutable topo cache: iOS may be suspended
+    after the user backgrounds the app, but server-side preparation can safely finish and the phone
+    then resumes with cache hits. Duplicate client requests share the renderer's singleflight.
 
     Multiple package reads commonly overlap while a course is being installed.  Coalesce those
     requests by source GID and ignore holes already in flight; the per-hole geometry locks remain the
@@ -1292,6 +1301,8 @@ def _upgrade_course_geometry(requested: dict[int, list[int]]) -> None:
                     # The active lightweight package remains valid; a later request may retry the
                     # precise upgrade without changing the course or round identity.
                     logger.exception("course geometry upgrade failed gid=%s holes=%s", global_id, holes)
+                else:
+                    _prewarm_course_topo(global_id, holes)
                 logger.info("course geometry upgrade finished gid=%s holes=%s", global_id, holes)
         finally:
             # Do not leave a permanently owned GID if the worker is cancelled during shutdown.

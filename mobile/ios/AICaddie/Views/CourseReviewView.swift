@@ -463,10 +463,10 @@ struct HolePrepCard: View {
         return zhClubName(raw)
     }
 
-    /// 实打坡度标签(仅当 /prep 提供 plays-like 时):如「实打 +8 码」。
+    /// 坡度修正标签(仅当 /prep 提供可信 elevation delta 时)。
     private var playsLikeTag: String? {
         guard let pl = hole.playsLike, pl.available, let dy = pl.deltaYd, dy != 0 else { return nil }
-        return "实打 \(dy > 0 ? "+" : "")\(dy) 码"
+        return "坡度修正 \(dy > 0 ? "+" : "")\(dy) 码"
     }
 
     /// 果岭前/中/后距离(码),仅当 /prep 提供时。
@@ -490,7 +490,10 @@ struct HolePrepCard: View {
     }
 
     private var hazardSummaries: [String] {
-        stableUnique(CaddiePlanHazard.from(hole.hazards).compactMap { hazard in
+        stableUnique(CaddiePlanHazard.from(
+            hole.hazards,
+            route: hole.resolvedMapOverlay?.route
+        ).compactMap { hazard in
             guard let detail = hazard.detail else { return nil }
             return "\(hazard.label)：\(detail)"
         })

@@ -33,7 +33,9 @@ def build_effective_club_bag_response(player_id: str) -> dict:
         else:  # garmin synced bag: map clubTypeId -> token via the canon mapping
             from ai_caddie.caddie.club_bag import _CLUBTYPE_CANON, canonical_club_name
             type_id = c.get("clubTypeId")
-            token = _CLUBTYPE_CANON.get(type_id) or canonical_club_name(c.get("customName"))
+            # A recognised player rename is more specific than Garmin's generic type (for example
+            # a 50° wedge stored under GW). Keep one physical identity instead of exposing both.
+            token = canonical_club_name(c.get("customName")) or _CLUBTYPE_CANON.get(type_id)
             clubs.append({
                 "token": token, "zhName": club_catalog.catalog_zh(token) if token else None,
                 "customName": c.get("customName"), "clubTypeId": type_id,

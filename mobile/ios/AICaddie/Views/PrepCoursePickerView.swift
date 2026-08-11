@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// 备战入口与现场开局刻意分流：备战者已经知道准备去哪里，直接按城市/球场名搜索，
-/// 选中结果后立即进入赛前攻略；不请求 GPS，也不展示附近或历史球场。
+/// 备战入口：既可以按城市／球场名搜索，也可以直接查看当前位置附近球场。选中结果后
+/// 立即进入赛前攻略；下载归 App 级队列所有，离开本页不会丢掉进度。
 public struct PrepCoursePickerView: View {
     public let courseOptions: [MobileCourseOption]
     public let downloadedCourseOptions: [MobileCourseOption]
@@ -12,8 +12,8 @@ public struct PrepCoursePickerView: View {
     public let onDownload: (MobileCourseOption) -> Void
     public let onRetryDownload: (String) -> Void
 
-    /// `MobileCourseSearchView` owns the shared catalogue-search UI. In `.nameOnly` mode this
-    /// provider is never started and Core Location permission is never requested.
+    /// `MobileCourseSearchView` owns the shared catalogue-search UI; this screen owns only the
+    /// short-lived location provider used to request an explicit nearby search.
     @StateObject private var locationProvider = LocationProvider()
     @State private var selectedCourse: MobileCourseOption?
 
@@ -40,7 +40,8 @@ public struct PrepCoursePickerView: View {
     public var body: some View {
         MobileCourseSearchView(
             locationProvider: locationProvider,
-            mode: .nameOnly,
+            mode: .nearbyAndName,
+            title: "备战球场",
             dismissAfterSelection: false,
             installedGlobalIds: Set(
                 downloadedCourseOptions.map(\.globalId)
@@ -48,11 +49,18 @@ public struct PrepCoursePickerView: View {
             ),
             retainedDownloads: downloads,
             onSearch: searchCourses,
-            onNearby: { _, _, _ in [] },
+            onNearby: nearbyCourses,
             onSelect: selectSearchResult,
             onOpenRetainedDownload: openRetainedDownload,
             onRetryRetainedDownload: onRetryDownload
         )
+        .onAppear {
+            locationProvider.requestAuthorization()
+            locationProvider.startUpdatingLocation()
+        }
+        .onDisappear {
+            locationProvider.stopUpdatingLocation()
+        }
         .navigationDestination(isPresented: selectedCoursePresented) {
             if let course = selectedCourse, let apiBaseURL {
                 CourseReviewView(
@@ -81,6 +89,19 @@ public struct PrepCoursePickerView: View {
     private func searchCourses(_ name: String) async throws -> [MobileCourseSearchMatch] {
         guard let apiBaseURL else { throw URLError(.notConnectedToInternet) }
         return try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).searchCourses(name: name)
+    }
+
+    private func nearbyCourses(
+        _ latitude: Double,
+        _ longitude: Double,
+        _ radiusKm: Int
+    ) async throws -> [MobileCourseSearchMatch] {
+        guard let apiBaseURL else { throw URLError(.notConnectedToInternet) }
+        return try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).nearbyCourses(
+            latitude: latitude,
+            longitude: longitude,
+            radiusKm: radiusKm
+        )
     }
 
     private func selectSearchResult(
