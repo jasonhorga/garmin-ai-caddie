@@ -353,7 +353,11 @@ public struct MobileCourseSearchView: View {
             let hasKeyword = trimmedQuery.count >= 2
             let results = try await onSearch(
                 hasKeyword ? trimmedQuery : trimmedCity,
-                trimmedCity.count >= 2 ? trimmedCity : nil
+                // Garmin's city metadata is provider-localised and can disagree with the words a
+                // player types (for example a Beijing course whose city field is a district). For
+                // city-only discovery, search the catalogue with the city text itself; apply the
+                // strict location guard only when it narrows an independent course keyword.
+                hasKeyword && trimmedCity.count >= 2 ? trimmedCity : nil
             )
             matches = results.filter { seen.insert($0.globalId).inserted }
         } catch {
