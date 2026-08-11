@@ -353,7 +353,7 @@ public struct MobileCourseSearchView: View {
             let hasKeyword = trimmedQuery.count >= 2
             let results = try await onSearch(
                 hasKeyword ? trimmedQuery : trimmedCity,
-                hasKeyword && trimmedCity.count >= 2 ? trimmedCity : nil
+                trimmedCity.count >= 2 ? trimmedCity : nil
             )
             matches = results.filter { seen.insert($0.globalId).inserted }
         } catch {
