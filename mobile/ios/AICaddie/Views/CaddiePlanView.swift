@@ -800,7 +800,7 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
         } else {
             let bunkers = hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
             for (index, interval) in bunkers.enumerated() {
-                let label = bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑"
+                let label = legacyLabel(kind: "bunker", interval: interval, route: route)
                 out.append((interval.first ?? .greatestFiniteMagnitude, CaddiePlanHazard(
                     id: "bunker-\(index)", icon: "bunker", label: label, detail: bunkerText(interval)
                 )))
@@ -820,7 +820,7 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
         } else {
             let water = hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
             for (index, interval) in water.enumerated() {
-                let label = water.count > 1 ? "水域 \(index + 1)" : "水域"
+                let label = legacyLabel(kind: "water", interval: interval, route: route)
                 out.append((interval.first ?? .greatestFiniteMagnitude, CaddiePlanHazard(
                     id: "water-\(index)", icon: "water", label: label, detail: rangeText(interval)
                 )))
@@ -830,6 +830,35 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
             if $0.frontRouteM == $1.frontRouteM { return $0.hazard.id < $1.hazard.id }
             return $0.frontRouteM < $1.frontRouteM
         }.map { $0.hazard }
+    }
+
+    /// Old cached prep rows have route distances but no boundary pixels. They cannot honestly claim
+    /// left/right, yet the route length can still distinguish a fairway bunker from one guarding the
+    /// green. Never fall back to decoder-order labels such as “沙坑 1/2”; the measured distance next
+    /// to each repeated label is the useful distinction.
+    private static func legacyLabel(
+        kind: String,
+        interval: [Double],
+        route: [[Double]]?
+    ) -> String {
+        guard let front = interval.first else {
+            return kind == "water" ? "水障碍" : "沙坑"
+        }
+        let back = kind == "water" && interval.count >= 2 ? interval[1] : front
+        return CoursePrepHazardNaming.label(
+            kind: kind,
+            detail: CoursePrepHazardDetail(
+                kind: kind,
+                frontM: front,
+                backM: back,
+                frontRouteM: front,
+                backRouteM: back,
+                frontPx: [],
+                backPx: [],
+                sideM: nil
+            ),
+            route: route
+        )
     }
 
     private static func bunkerText(_ values: [Double]) -> String? {

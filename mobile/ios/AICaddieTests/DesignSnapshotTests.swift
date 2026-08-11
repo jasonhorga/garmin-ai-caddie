@@ -339,8 +339,8 @@ final class DesignSnapshotTests: XCTestCase {
                 sequence("attack", "low", [step("advance", "Driver", 180, 133), step("scoring", "SW", 125, 8)]),
             ],
             selectedSequenceId: "stock",
-            // round-10: multiple bunkers are numbered + sorted near→far (CaddiePlanHazard.from), so
-            // three avoid zones aren't all just "沙坑". Build via .from to exercise that real logic.
+            // Multiple mapped hazards are named by side/area and sorted near→far. Build via .from
+            // to exercise the same player-facing logic as prep and live play.
             hazards: CaddiePlanHazard.from(
                 CoursePrepHazards(
                     waterCarry: [[175, 195]],

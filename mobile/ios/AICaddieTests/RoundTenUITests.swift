@@ -95,7 +95,23 @@ final class RoundTenUITests: XCTestCase {
             CoursePrepHazards(waterCarry: [[175, 195]], bunkers: [[138, 12]])
         )
         XCTAssertEqual(hazards.filter { $0.icon == "bunker" }.first?.label, "沙坑")
-        XCTAssertEqual(hazards.filter { $0.icon == "water" }.first?.label, "水域")
+        XCTAssertEqual(hazards.filter { $0.icon == "water" }.first?.label, "前方水障碍")
+    }
+
+    func testLegacyHazardsUseAreaAndDistanceInsteadOfDecoderOrderNumbers() {
+        let hazards = CaddiePlanHazard.from(
+            CoursePrepHazards(
+                waterCarry: [[175, 195]],
+                bunkers: [[260, 12], [138, 12]]
+            ),
+            route: [[100, 500, 0], [100, 100, 300]]
+        )
+
+        XCTAssertEqual(
+            hazards.map(\.label),
+            ["球道沙坑", "前方水障碍", "果岭沙坑"]
+        )
+        XCTAssertFalse(hazards.contains { $0.label.rangeOfCharacter(from: .decimalDigits) != nil })
     }
 
     func testZhIssueLabelMapsMachineTokensAndPassesUnknownThrough() {
