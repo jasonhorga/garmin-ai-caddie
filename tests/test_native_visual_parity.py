@@ -16,7 +16,8 @@ class NativeVisualParityTests(unittest.TestCase):
         for source in (real_flow, review_edit, tee_selection):
             self.assertIn("continueAfterFailure = false", source)
             self.assertNotIn("continueAfterFailure = true", source)
-        self.assertIn("let enteredHistory = tapContaining", real_flow)
+        self.assertIn("var enteredHistory = tapContaining", real_flow)
+        self.assertIn("enteredHistory = tapContaining", real_flow)
         self.assertIn("this section may never be silently skipped", real_flow)
         self.assertIn("the loaded real shot map must expose a tappable edit action", real_flow)
         self.assertIn("the real home must expose and open 开始一场", tee_selection)
