@@ -3003,6 +3003,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("final class RoundShotMapRepository", shot_map_view)
         self.assertIn("await mapRepository.prefetch(holes", shot_map_view)
         self.assertIn("await shotMapRepository.prefetch(roundHoles)", round_review)
+        self.assertIn("scorecard.filter { $0.score != nil }", round_review)
         # 数据统计(历史宏观,与复盘分开): consume the compact /history/stats/mobile endpoint.
         stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
         mobile_stats_model = _read_required_source(self, IOS_DIR / "Models" / "MobileStats.swift")

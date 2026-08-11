@@ -65,10 +65,13 @@ public struct RoundReviewView: View {
         }
     }
 
-    /// The holes to page through in the shot-map (this round's scorecard holes; fallback 1–18).
+    /// Page and prefetch only holes that were actually scored. A 9-of-18 round keeps blank cells in
+    /// the backend scorecard for context; treating those blanks as played would fabricate maps and
+    /// waste nine requests.
     private var roundHoles: [Int] {
-        let holes = (detail?.scorecard ?? []).map(\.hole)
-        return holes.isEmpty ? Array(1...18) : holes
+        let scorecard = detail?.scorecard ?? []
+        let played = scorecard.filter { $0.score != nil }.map(\.hole)
+        return played.isEmpty ? scorecard.map(\.hole) : played
     }
 
     struct ShotMapHole: Identifiable {
