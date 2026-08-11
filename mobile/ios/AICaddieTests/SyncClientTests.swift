@@ -211,6 +211,7 @@ final class SyncClientTests: XCTestCase {
                 resolvingAgainstBaseURL: false
             )?.queryItems
             XCTAssertEqual(queryItems?.first { $0.name == "name" }?.value, "Mission Hills")
+            XCTAssertEqual(queryItems?.first { $0.name == "city" }?.value, "深圳")
             XCTAssertEqual(queryItems?.first { $0.name == "latitude" }?.value, "22.7401328")
             XCTAssertEqual(queryItems?.first { $0.name == "longitude" }?.value, "114.0714097")
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
@@ -232,6 +233,7 @@ final class SyncClientTests: XCTestCase {
 
         let matches = try await client.searchCourses(
             name: "  Mission Hills  ",
+            city: " 深圳 ",
             latitude: 22.7401328,
             longitude: 114.0714097
         )
@@ -361,37 +363,6 @@ final class SyncClientTests: XCTestCase {
 
         XCTAssertTrue(matches.isEmpty)
         XCTAssertEqual(attempts, 2)
-    }
-
-    func testCityAndKeywordSearchIntersectsProviderResultsByGlobalId() {
-        let shenzhen = [
-            MobileCourseSearchMatch(
-                globalId: 31669, name: "Shenzhen Mission Hills ~ Els", holes: 9,
-                city: "Shenzhen", province: "Guangdong", ratio: 0, distanceKm: 0.4
-            ),
-            MobileCourseSearchMatch(
-                globalId: 31830, name: "Shenzhen Noble Merchant", holes: 18,
-                city: "Shenzhen", province: "Guangdong", ratio: 0, distanceKm: 24.2
-            ),
-        ]
-        let mission = [
-            MobileCourseSearchMatch(
-                globalId: 31669, name: "Shenzhen Mission Hills ~ Els", holes: 9,
-                city: "Shenzhen", province: "Guangdong", ratio: 0.8, distanceKm: 0.4
-            ),
-            MobileCourseSearchMatch(
-                globalId: 31874, name: "Haikou Mission Hills ~ Blackstone", holes: 18,
-                city: "Haikou", province: "Hainan", ratio: 0.8, distanceKm: 500
-            ),
-        ]
-
-        let matches = MobileCourseSearchView.intersection(
-            cityMatches: shenzhen,
-            keywordMatches: mission
-        )
-
-        XCTAssertEqual(matches.map(\.globalId), [31669])
-        XCTAssertEqual(matches.first?.distanceKm, 0.4)
     }
 
     func testFetchCoursePrepCanRequestSmallHoleBatch() async throws {

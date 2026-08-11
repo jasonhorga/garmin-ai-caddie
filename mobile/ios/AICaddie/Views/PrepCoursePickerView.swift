@@ -86,9 +86,15 @@ public struct PrepCoursePickerView: View {
         )
     }
 
-    private func searchCourses(_ name: String) async throws -> [MobileCourseSearchMatch] {
+    private func searchCourses(
+        _ name: String,
+        _ city: String?
+    ) async throws -> [MobileCourseSearchMatch] {
         guard let apiBaseURL else { throw URLError(.notConnectedToInternet) }
-        return try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).searchCourses(name: name)
+        return try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).searchCourses(
+            name: name,
+            city: city
+        )
     }
 
     private func nearbyCourses(

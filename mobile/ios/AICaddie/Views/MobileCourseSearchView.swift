@@ -17,7 +17,7 @@ public struct MobileCourseSearchView: View {
     public let dismissAfterSelection: Bool
     public let installedGlobalIds: Set<Int>
     public let retainedDownloads: [PrepCourseDownloadRecord]
-    public let onSearch: (String) async throws -> [MobileCourseSearchMatch]
+    public let onSearch: (String, String?) async throws -> [MobileCourseSearchMatch]
     public let onNearby: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     public let onSelect: (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
     public let onOpenRetainedDownload: (PrepCourseDownloadRecord) -> Void
@@ -51,7 +51,7 @@ public struct MobileCourseSearchView: View {
         dismissAfterSelection: Bool = true,
         installedGlobalIds: Set<Int> = [],
         retainedDownloads: [PrepCourseDownloadRecord] = [],
-        onSearch: @escaping (String) async throws -> [MobileCourseSearchMatch],
+        onSearch: @escaping (String, String?) async throws -> [MobileCourseSearchMatch],
         onNearby: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
         onSelect: @escaping (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void,
         onOpenRetainedDownload: @escaping (PrepCourseDownloadRecord) -> Void = { _ in },
@@ -350,17 +350,11 @@ public struct MobileCourseSearchView: View {
         defer { activeSearch = nil }
         do {
             var seen = Set<Int>()
-            let results: [MobileCourseSearchMatch]
-            if trimmedCity.count >= 2, trimmedQuery.count >= 2 {
-                async let cityResults = onSearch(trimmedCity)
-                async let keywordResults = onSearch(trimmedQuery)
-                results = Self.intersection(
-                    cityMatches: try await cityResults,
-                    keywordMatches: try await keywordResults
-                )
-            } else {
-                results = try await onSearch(trimmedQuery.count >= 2 ? trimmedQuery : trimmedCity)
-            }
+            let hasKeyword = trimmedQuery.count >= 2
+            let results = try await onSearch(
+                hasKeyword ? trimmedQuery : trimmedCity,
+                hasKeyword && trimmedCity.count >= 2 ? trimmedCity : nil
+            )
             matches = results.filter { seen.insert($0.globalId).inserted }
         } catch {
             matches = []
@@ -392,13 +386,4 @@ public struct MobileCourseSearchView: View {
         }
     }
 
-    /// Garmin accepts a city or a course keyword, but mixed Chinese city/name text is not a stable
-    /// provider query. Query each independently and intersect by factual globalId instead.
-    static func intersection(
-        cityMatches: [MobileCourseSearchMatch],
-        keywordMatches: [MobileCourseSearchMatch]
-    ) -> [MobileCourseSearchMatch] {
-        let cityIds = Set(cityMatches.map(\.globalId))
-        return keywordMatches.filter { cityIds.contains($0.globalId) }
-    }
 }

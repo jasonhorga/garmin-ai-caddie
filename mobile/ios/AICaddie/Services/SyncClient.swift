@@ -249,6 +249,7 @@ public final class SyncClient {
     /// row later uses `fetchCourseTees` and `fetchCoursePackage` for that one course.
     public func searchCourses(
         name: String,
+        city: String? = nil,
         latitude: Double? = nil,
         longitude: Double? = nil
     ) async throws -> [MobileCourseSearchMatch] {
@@ -261,6 +262,10 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         components.queryItems = [URLQueryItem(name: "name", value: query)]
+        if let city = city?.trimmingCharacters(in: .whitespacesAndNewlines),
+           city.count >= 2 {
+            components.queryItems?.append(URLQueryItem(name: "city", value: city))
+        }
         if let latitude, let longitude,
            latitude.isFinite, (-90...90).contains(latitude),
            longitude.isFinite, (-180...180).contains(longitude) {

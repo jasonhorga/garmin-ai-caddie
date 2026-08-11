@@ -47,7 +47,7 @@ public struct RoundHomeView: View {
     /// 拉取所选球场的可选发球台(供「开始一场」的选台器);仅转发给 StartRoundView。
     public let onLoadCourseTees: (Int) async -> [CourseTee]
     /// Garmin 全库名称搜索；StartRoundView 只保留本次结果，选中后走现有单球场准备链。
-    public let onSearchCourses: (String, Double?, Double?) async throws -> [MobileCourseSearchMatch]
+    public let onSearchCourses: (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch]
     /// Garmin 全库坐标发现；StartRoundView 只保留本次结果。
     public let onNearbyCourses: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     public let onDownloadPrepCourse: (MobileCourseOption) -> Void
@@ -92,7 +92,7 @@ public struct RoundHomeView: View {
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
-        onSearchCourses: @escaping (String, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
+        onSearchCourses: @escaping (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _, _ in [] },
         onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
         onDownloadPrepCourse: @escaping (MobileCourseOption) -> Void = { _ in },
         onRetryPrepCourseDownload: @escaping (String) -> Void = { _ in },

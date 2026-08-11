@@ -117,8 +117,13 @@ public struct AICaddieApp: App {
                             }
                         },
                         onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) },
-                        onSearchCourses: { name, latitude, longitude in
-                            try await model.searchCourses(name: name, latitude: latitude, longitude: longitude)
+                        onSearchCourses: { name, city, latitude, longitude in
+                            try await model.searchCourses(
+                                name: name,
+                                city: city,
+                                latitude: latitude,
+                                longitude: longitude
+                            )
                         },
                         onNearbyCourses: { latitude, longitude, radiusKm in
                             try await model.nearbyCourses(
@@ -183,8 +188,13 @@ public struct AICaddieApp: App {
                             },
                             onConnectGarmin: { showNoPackageSettings = true },
                             onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) },
-                            onSearchCourses: { name, latitude, longitude in
-                                try await model.searchCourses(name: name, latitude: latitude, longitude: longitude)
+                            onSearchCourses: { name, city, latitude, longitude in
+                                try await model.searchCourses(
+                                    name: name,
+                                    city: city,
+                                    latitude: latitude,
+                                    longitude: longitude
+                                )
                             },
                             onNearbyCourses: { latitude, longitude, radiusKm in
                                 try await model.nearbyCourses(
@@ -2637,6 +2647,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// durable prep library above.
     public func searchCourses(
         name: String,
+        city: String? = nil,
         latitude: Double? = nil,
         longitude: Double? = nil
     ) async throws -> [MobileCourseSearchMatch] {
@@ -2644,6 +2655,7 @@ public final class LiveRoundAppModel: ObservableObject {
         guard let syncClient else { throw URLError(.notConnectedToInternet) }
         return try await syncClient.searchCourses(
             name: name,
+            city: city,
             latitude: latitude,
             longitude: longitude
         )
