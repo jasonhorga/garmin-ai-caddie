@@ -110,8 +110,19 @@ final class RealFlowUITests: XCTestCase {
                     30,
                     "the approved review uses a large navigation title, not a centred inline title"
                 )
-                let historyBackButton = app.buttons["全部球局"]
+                // A normally visible archive row is pushed from “全部球局”. If the verified
+                // Garmin evidence row is outside the bounded archive scan, openEvidenceRound uses
+                // the DEBUG-only seed whose parent is the compatibility “球场回顾” screen. Both
+                // routes exercise the same production RoundReviewView, so verify the actual back
+                // control and constrain it to those two legitimate parents instead of guessing
+                // which evidence route the current owner history will require.
+                let historyBackButton = app.navigationBars["单场复盘"].buttons.firstMatch
                 XCTAssertTrue(historyBackButton.waitForExistence(timeout: 5))
+                XCTAssertTrue(
+                    ["全部球局", "球场回顾"].contains(historyBackButton.label),
+                    "round review must return to the archive or the bounded evidence fallback"
+                )
+                XCTAssertTrue(historyBackButton.isHittable)
                 let holeRow = app.buttons["round-review-hole-\(reviewEvidence.hole)"]
                 let loadedRound = holeRow.waitForExistence(timeout: 60)
                 XCTAssertTrue(loadedRound, "the real round must load its verified evidence hole")
