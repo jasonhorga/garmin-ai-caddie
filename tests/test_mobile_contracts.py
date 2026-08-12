@@ -3011,6 +3011,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("scorecard.filter { $0.score != nil }", round_review)
         # 成绩合并入口: compact stats + complete archive, then drill into existing round review.
         stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
+        results_view = _read_required_source(self, IOS_DIR / "Views" / "ResultsView.swift")
         mobile_stats_model = _read_required_source(self, IOS_DIR / "Models" / "MobileStats.swift")
         self.assertIn("struct MobileStats", mobile_stats_model)
         self.assertIn(
@@ -3019,9 +3020,15 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("/api/v2/history/stats/mobile", sync_client)
         self.assertIn("struct StatsView: View", stats_view)
-        self.assertIn("fetchMobileStats()", stats_view)
-        self.assertIn('title: "数据统计"', round_home)
-        self.assertIn("StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
+        self.assertIn(
+            '.fetchMobileStats(window: mode == .analysis ? window : "all")',
+            stats_view,
+        )
+        self.assertIn('resultDestination("表现分析"', results_view)
+        self.assertIn(
+            "StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken, mode: .analysis)",
+            results_view,
+        )
         # round-9 D: trend line chart + per-course drill-in (各九洞); 得分构成 dropped, byPar filtered 3-5.
         self.assertIn("struct StatsTrend", mobile_stats_model)
         self.assertIn("nineBreakdown", mobile_stats_model)
@@ -3210,7 +3217,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('.accessibilityIdentifier("home-last-round")', round_home)
         self.assertIn('.accessibilityIdentifier("history-round-row")', recent_review)
         self.assertIn('.accessibilityIdentifier("round-review-hole-\\(hole.hole)")', round_review)
-        self.assertIn("NavigationLink(value: HubRoute.history)", round_home)
+        self.assertIn("value: HubRoute.roundReview(", round_home)
         self.assertIn("NavigationLink {", recent_review)
         self.assertIn("RoundReviewView(", recent_review)
         self.assertNotIn("value: HubRoute.roundReview(", recent_review)
