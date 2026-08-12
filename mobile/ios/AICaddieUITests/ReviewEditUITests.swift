@@ -265,7 +265,18 @@ final class ReviewEditUITests: XCTestCase {
         XCTAssertTrue(upperReorder.isHittable && lastReorder.isHittable)
         let upperLabelBeforeReorder = upperDraftRow.label
         let lastLabelBeforeReorder = lastDraftRow.label
-        lastReorder.press(forDuration: 0.7, thenDragTo: upperReorder)
+        // Ending exactly on the preceding handle's centre is UIKit's insertion boundary: depending
+        // on row geometry it may resolve to the original slot even though the drag was recognised.
+        // Move clearly through the preceding row, matching a player's upward reorder gesture.
+        let reorderDestination = upperReorder.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)
+        )
+        lastReorder.press(
+            forDuration: 0.7,
+            thenDragTo: reorderDestination,
+            withVelocity: .slow,
+            thenHoldForDuration: 0.4
+        )
         settle(2)
         XCTAssertNotEqual(
             upperDraftRow.label,
