@@ -16,7 +16,12 @@ from ai_caddie.connectors.snapshot import (
     write_connector_status,
     write_snapshot_manifest,
 )
-from ai_caddie.history.history import HistoryData, history_course_detail, history_hole
+from ai_caddie.history.history import (
+    HistoryData,
+    history_course_detail,
+    history_hole,
+    remap_shots_to_merged_rounds,
+)
 from ai_caddie.history.history_drilldown import build_drilldown_index, resolve_history_ref
 
 
@@ -425,6 +430,12 @@ class ConnectorSnapshotTests(unittest.TestCase):
         self.assertEqual([shot["hole"] for shot in history.shots], [1, 10])
         self.assertEqual(history.shots[1]["globalId"], 222)
         self.assertEqual(history.shots[1]["localHole"], 1)
+
+        # The shared transform is used by both snapshots and the local loader;
+        # replaying it is a no-op (in particular H10 must not become H19).
+        replayed = remap_shots_to_merged_rounds(history.shots, history.rounds)
+        self.assertEqual([shot["hole"] for shot in replayed], [1, 10])
+        self.assertEqual([shot["localHole"] for shot in replayed], [1, 1])
 
         index = build_drilldown_index(history)
         self.assertIn("merged_201_202:1:0", index["shotRefs"])

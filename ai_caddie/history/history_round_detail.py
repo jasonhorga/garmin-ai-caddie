@@ -7,7 +7,7 @@ from typing import Any
 
 from ai_caddie.core.data import OWNER_ID
 from ai_caddie.reports.annotations import list_annotations
-from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history import HistoryData, remap_shots_to_merged_rounds
 
 
 CORRECTION_KINDS = {"club_correction", "lie_correction", "penalty_correction", "putt_correction", "score_correction"}
@@ -140,21 +140,12 @@ def _shots_for_round(
     # Some ordinary rounds carry only alternate aliases in `ids`; source shots still use the
     # canonical row id. A merged row, by contrast, carries the two physical member scorecard ids.
     member_set = {canonical_ref, *source_ids}
-    back_id = source_ids[1] if round_row.get("merged") and len(source_ids) >= 2 else None
     selected: list[tuple[int, dict[str, Any]]] = []
-    for index, shot in enumerate(data.shots):
-        source_id = str(shot.get("scorecardId") or shot.get("roundId") or "")
-        if source_id not in member_set:
+    canonical_shots = remap_shots_to_merged_rounds(data.shots, [round_row])
+    for index, row in enumerate(canonical_shots):
+        source_id = str(row.get("scorecardId") or row.get("roundId") or "")
+        if source_id not in member_set and str(row.get("roundId") or "") != canonical_ref:
             continue
-        row = dict(shot)
-        try:
-            source_hole = int(row.get("hole") or 0)
-        except (TypeError, ValueError):
-            source_hole = 0
-        row["roundId"] = canonical_ref
-        if source_hole > 0:
-            row["localHole"] = row.get("localHole") or source_hole
-            row["hole"] = source_hole + (9 if source_id == back_id else 0)
         selected.append((index, row))
     return selected
 

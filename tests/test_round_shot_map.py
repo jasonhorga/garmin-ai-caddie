@@ -359,6 +359,48 @@ class RoundShotMapTests(unittest.TestCase):
         self.assertEqual(out["localHole"], 1)
         self.assertEqual(len(out["shots"]), 1)
 
+    def test_merged_back_nine_accepts_already_canonical_shot_without_double_shift(self) -> None:
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[
+                {
+                    "id": "merged_r1_r2",
+                    "ids": ["r1", "r2"],
+                    "merged": True,
+                    "frontNineGlobalCourseId": 31794,
+                    "backNineGlobalCourseId": 31794,
+                    "holePars": "4" * 18,
+                    "holes": [{"number": number, "par": 4} for number in range(1, 19)],
+                }
+            ],
+            shots=[
+                {
+                    "roundId": "merged_r1_r2",
+                    "scorecardId": "r2",
+                    "hole": 10,
+                    "localHole": 1,
+                    "order": 1,
+                    "clubName": "一号木",
+                    "type": "TEE",
+                    "start": {"lat": 40.0, "lon": 116.5, "lie": "TeeBox"},
+                    "end": {"lat": 40.02, "lon": 116.5},
+                    "endLie": "Fairway",
+                }
+            ],
+        )
+        mocks = _geometry_mocks()
+        for mocker in mocks:
+            mocker.start()
+        try:
+            out = rsm.build_round_hole_shot_map(data, "merged_r1_r2", 10)
+        finally:
+            for mocker in mocks:
+                mocker.stop()
+
+        self.assertEqual(out["hole"], 10)
+        self.assertEqual(out["localHole"], 1)
+        self.assertEqual(len(out["shots"]), 1)
+
     def test_map_image_is_cached_topo_png_not_legacy_render(self):
         # 底图必须来自缓存 topo(PNG data URI),不是旧的 JPEG 现渲(render_hole)。
         out = self._build([

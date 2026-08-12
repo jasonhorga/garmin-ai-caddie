@@ -23,7 +23,7 @@ from ai_caddie.core.data import clean_club_name
 from ai_caddie.courses import course_prep
 from ai_caddie.geometry import hole_render, shot_projection, topo_render
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
-from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history import HistoryData, remap_shots_to_merged_rounds
 from ai_caddie.rounds import round_corrections
 
 SCHEMA = "ai-caddie-round-hole-shotmap-v1"
@@ -75,6 +75,11 @@ def _display_hole_for_shot(row: dict[str, Any], shot: dict[str, Any]) -> int | N
     source_hole = _int(shot.get("hole"))
     if source_hole is None:
         return None
+    # Shared history loading and durable snapshots already carry canonical
+    # display holes. Keep accepting legacy/raw HistoryData below, but never
+    # shift a canonical back-nine shot from 10...18 to 19...27.
+    if str(shot.get("roundId") or "") == str(row.get("id") or ""):
+        return source_hole
     ids = [str(value) for value in (row.get("ids") or [row.get("id")])]
     source_id = str(shot.get("scorecardId") or shot.get("roundId") or "")
     if row.get("merged") and len(ids) >= 2 and source_id == ids[1]:
@@ -91,7 +96,7 @@ def _source_shots_for_hole(
     """Select source shots before map preparation, keeping GPS independent from geometry."""
     round_ids = _round_ids(row)
     selected: list[dict[str, Any]] = []
-    for source in data.shots:
+    for source in remap_shots_to_merged_rounds(data.shots, [row]):
         source_id = str(source.get("scorecardId") or source.get("roundId") or "")
         display_hole = _display_hole_for_shot(row, source)
         if source_id not in round_ids or display_hole != hole:

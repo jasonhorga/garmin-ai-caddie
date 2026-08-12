@@ -154,6 +154,26 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertTrue(payload["scorecard"][0]["shotRefs"][0].startswith(f"{merged_id}:1:"))
         self.assertTrue(payload["scorecard"][9]["shotRefs"][0].startswith(f"{merged_id}:10:"))
 
+        canonical = HistoryData(
+            raw_rounds=[],
+            rounds=[row],
+            shots=[
+                {
+                    "roundId": merged_id,
+                    "scorecardId": 710002,
+                    "hole": 10,
+                    "localHole": 1,
+                    "order": 1,
+                    "clubName": "3W",
+                }
+            ],
+        )
+        canonical_payload = build_history_round_detail(canonical, merged_id)
+        self.assertEqual(len(canonical_payload["scorecard"][9]["shotRefs"]), 1)
+        self.assertTrue(
+            canonical_payload["scorecard"][9]["shotRefs"][0].startswith(f"{merged_id}:10:")
+        )
+
     def test_round_detail_renders_full_18_for_a_9_of_18_round(self) -> None:
         # round-12 bug: playing 9 holes on an 18-hole course (real hole numbers spanning both nines)
         # must render the FULL 18-hole card (played holes filled, the rest blank) — NOT collapse to a

@@ -7,7 +7,8 @@ from pathlib import Path
 from unittest import mock
 
 from ai_caddie.history import history
-from ai_caddie.history.history_stats import build_history_stats
+from ai_caddie.history.history_drilldown import build_drilldown_index, resolve_history_ref
+from ai_caddie.history.history_stats import _clear_effective_shots_cache, _effective_shots, build_history_stats
 
 
 def _write_shots(base: Path, rid: int) -> None:
@@ -46,6 +47,8 @@ def _write_round(
     strokes: int,
     *,
     source: str | None = None,
+    holes_completed: int = 18,
+    course_global_id: int = 31796,
 ) -> None:
     """Write a real-Garmin-schema scorecard under ``base/scorecards``.
 
@@ -64,16 +67,16 @@ def _write_round(
                     "id": rid,
                     "formattedStartTime": date,
                     "strokes": strokes,
-                    "holesCompleted": 18,
-                    "courseGlobalId": 31796,
-                    "frontNineGlobalCourseId": 31796,
-                    "holes": [{"number": n, "strokes": 4} for n in range(1, 19)],
+                    "holesCompleted": holes_completed,
+                    "courseGlobalId": course_global_id,
+                    "frontNineGlobalCourseId": course_global_id,
+                    "holes": [{"number": n, "strokes": 4} for n in range(1, holes_completed + 1)],
                 },
                 "scorecardStats": {"round": {}},
                 "statsComparison": {},
             }
         ],
-        "courseSnapshots": [{"name": course, "holePars": "4" * 18}],
+        "courseSnapshots": [{"name": course, "holePars": "4" * holes_completed}],
     }
     if source is not None:
         raw["source"] = source
@@ -143,6 +146,55 @@ class OwnerMergeTests(unittest.TestCase):
         with mock.patch.object(history, "ROOT", self.root):
             rounds = history.load_raw_rounds(player_id="me")
         self.assertEqual(rounds[0]["source"], "manual")
+
+    def test_two_local_nines_expose_one_canonical_round_and_back_nine_shot(self) -> None:
+        _write_round(
+            self.flat,
+            101,
+            "2026-05-03T08:00:00",
+            "Twin Links ~ Front",
+            40,
+            holes_completed=9,
+            course_global_id=111,
+        )
+        _write_round(
+            self.flat,
+            102,
+            "2026-05-03T10:30:00",
+            "Twin Links ~ Back",
+            41,
+            holes_completed=9,
+            course_global_id=222,
+        )
+        _write_shots(self.flat, 101)
+        _write_shots(self.flat, 102)
+
+        with mock.patch.object(history, "ROOT", self.root):
+            data = history.load_history_data(player_id="me")
+
+        self.assertEqual([row["id"] for row in data.rounds], ["merged_101_102"])
+        self.assertEqual([shot["roundId"] for shot in data.shots], ["merged_101_102"] * 2)
+        self.assertEqual([shot["scorecardId"] for shot in data.shots], [101, 102])
+        self.assertEqual([shot["hole"] for shot in data.shots], [1, 10])
+        self.assertEqual([shot["localHole"] for shot in data.shots], [1, 1])
+        self.assertEqual([shot["globalId"] for shot in data.shots], [111, 222])
+
+        _clear_effective_shots_cache()
+        stats_shots = _effective_shots(data)
+        self.assertEqual(
+            [shot["_ref"] for shot in stats_shots],
+            ["merged_101_102:1:0", "merged_101_102:10:1"],
+        )
+        index = build_drilldown_index(data)
+        self.assertIn("merged_101_102:10:1", index["shotRefs"])
+        detail = resolve_history_ref(data, "merged_101_102:10:1")
+        self.assertTrue(detail["found"])
+        self.assertEqual(detail["round"]["id"], "merged_101_102")
+        self.assertEqual(detail["hole"]["number"], 10)
+
+        physical_back_hole = history.history_hole(222, 1, include_overlay=False, data=data)
+        self.assertEqual(physical_back_hole["rounds"][0]["hole"], 10)
+        self.assertEqual(physical_back_hole["rounds"][0]["strokes"], 4)
 
 
 class SupersededRoundExclusionTests(unittest.TestCase):

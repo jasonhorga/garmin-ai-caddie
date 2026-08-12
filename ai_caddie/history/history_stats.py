@@ -3732,9 +3732,10 @@ def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
       dataset (and cacheable by fingerprint).
 
     ``shots`` and ``raw_rounds`` are filtered to the surviving rounds. Merged rounds
-    (``id="merged_<a>_<b>"``) list their member ids in ``ids`` while their shots and
-    raw_rounds reference the RAW member ids, so the surviving-id set includes both;
-    ids are compared as strings because sources mix ints and strings.
+    (``id="merged_<a>_<b>"``) list their member ids in ``ids``. Current loaded shots
+    use the merged id, while legacy/manually-built inputs and raw_rounds may still use
+    RAW member ids, so the surviving-id set includes both; ids are compared as strings
+    because sources mix ints and strings.
     """
     if window == "all":
         return data

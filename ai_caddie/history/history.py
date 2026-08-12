@@ -449,6 +449,124 @@ def merge_same_day_halves(rounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return merged
 
 
+def remap_shots_to_merged_rounds(
+    shots: list[dict[str, Any]], rounds: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Return canonical display-round copies of shot rows.
+
+    Garmin stores a played 18 as two independent nine-hole scorecards on some
+    courses. ``merge_same_day_halves`` exposes those scorecards as one product
+    round, but the raw shot files still identify the member scorecard and holes
+    1...9. Every history consumer must see one identity and holes 1...18:
+
+    * ``roundId`` is the merged product-round id;
+    * ``hole`` is the product display hole (the second nine is shifted by 9);
+    * ``scorecardId`` remains the original Garmin scorecard id;
+    * ``localHole`` remains the physical CourseView hole;
+    * ``globalId`` follows the front/back CourseView authority on the merge.
+
+    The transform is deliberately idempotent. Durable snapshots are already
+    canonical, while local Garmin files are raw; applying this helper to either
+    shape must produce the same row and must never turn holes 10...18 into
+    19...27.
+    """
+
+    aliases: dict[str, dict[str, Any]] = {}
+    for round_row in rounds:
+        canonical_id = round_row.get("id")
+        if canonical_id is None:
+            continue
+        member_ids = (
+            list(round_row.get("ids"))
+            if isinstance(round_row.get("ids"), list)
+            else [canonical_id]
+        )
+        if round_row.get("merged") and len(member_ids) >= 2:
+            aliases[str(member_ids[0])] = {
+                "roundId": canonical_id,
+                "holeOffset": 0,
+                "globalId": (
+                    round_row.get("frontNineGlobalCourseId")
+                    or round_row.get("globalId")
+                    or round_row.get("courseId")
+                ),
+            }
+            aliases[str(member_ids[1])] = {
+                "roundId": canonical_id,
+                "holeOffset": 9,
+                "globalId": (
+                    round_row.get("backNineGlobalCourseId")
+                    or round_row.get("globalId")
+                    or round_row.get("courseId")
+                ),
+            }
+            # A canonical row may omit scorecardId (fixtures/manual imports).
+            aliases[str(canonical_id)] = {
+                "roundId": canonical_id,
+                "holeOffset": None,
+                "globalId": None,
+            }
+        else:
+            for member_id in {canonical_id, *member_ids}:
+                aliases[str(member_id)] = {
+                    "roundId": canonical_id,
+                    "holeOffset": None,
+                    "globalId": None,
+                }
+
+    def positive_int(value: Any) -> int | None:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
+
+    remapped: list[dict[str, Any]] = []
+    for shot in shots:
+        row = dict(shot)
+        scorecard_id = row.get("scorecardId")
+        current_round_id = row.get("roundId")
+        source_key = str(scorecard_id) if scorecard_id is not None else str(current_round_id or "")
+        alias = aliases.get(source_key) or aliases.get(str(current_round_id or ""))
+        if alias is None:
+            remapped.append(row)
+            continue
+
+        canonical_id = alias["roundId"]
+        row["roundId"] = canonical_id
+        offset = alias.get("holeOffset")
+        if offset is not None:
+            offset = int(offset)
+            display_hole = positive_int(row.get("hole"))
+            local_hole = positive_int(row.get("localHole"))
+            already_canonical = str(current_round_id or "") == str(canonical_id)
+
+            if already_canonical and display_hole is not None and (offset == 0 or display_hole > 9):
+                # Snapshot/canonical input: trust its display hole, deriving a
+                # missing physical hole without applying the offset again.
+                if local_hole is None:
+                    local_hole = display_hole - offset
+            else:
+                # Raw local input (or an older partially canonical row): the
+                # physical hole is the stable source for display numbering.
+                source_hole = local_hole or display_hole
+                if source_hole is not None:
+                    if offset == 9 and source_hole > 9:
+                        source_hole -= 9
+                    local_hole = source_hole
+                    display_hole = source_hole + offset
+
+            if display_hole is not None:
+                row["hole"] = display_hole
+            if local_hole is not None:
+                row["localHole"] = local_hole
+            if alias.get("globalId") is not None:
+                row["globalId"] = alias["globalId"]
+
+        remapped.append(row)
+    return remapped
+
+
 def _build_club_map(shot_data: dict[str, Any]) -> tuple[dict[int, str], set[int]]:
     overrides = load_club_overrides()
     club_map: dict[int, str] = {}
@@ -558,7 +676,9 @@ def load_shot_history(
 def load_history_data(player_id: str = OWNER_ID) -> HistoryData:
     raw_rounds = load_raw_rounds(player_id=player_id)
     rounds = merge_same_day_halves(raw_rounds)
-    shots = load_shot_history(raw_rounds, player_id=player_id)
+    shots = remap_shots_to_merged_rounds(
+        load_shot_history(raw_rounds, player_id=player_id), rounds
+    )
     # round-13 fix: stamp each shot with its stable position in the FULL shots list. A shot's ref is
     # "{roundId}:{hole}:{index}", historically the enumerate position over data.shots — but windowed
     # stats (last10/12m) filter data.shots, which renumbers every shot and silently points corrections
@@ -1012,7 +1132,11 @@ def history_hole(global_id: int, local_hole: int, *, include_overlay: bool = Tru
         round_row = raw_by_id.get(sid)
         if not round_row:
             continue
-        score = _round_score_for_hole(round_row, int(shot["hole"]))
+        # ``shot.hole`` is the canonical product hole (10...18 for a merged
+        # second nine), while this score lookup targets its original raw Garmin
+        # member scorecard whose holes remain 1...9.
+        source_hole = int(shot.get("localHole") or shot["hole"])
+        score = _round_score_for_hole(round_row, source_hole)
         entry = by_round.setdefault(sid, {
             "scorecardId": sid,
             "date": round_row["date"],
