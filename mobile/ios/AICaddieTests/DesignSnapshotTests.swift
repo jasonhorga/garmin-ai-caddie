@@ -282,10 +282,10 @@ final class DesignSnapshotTests: XCTestCase {
     @MainActor
     func testLastRoundCardKeepsLongCourseNameWithinTwoLineCardHeight() {
         let card = HubLastRoundCard(
-            courseName: "Cypress Point Club",
+            courseName: "北京北湖九号国际高尔夫俱乐部",
             date: "2026-07-30",
-            score: 55,
-            toPar: -20,
+            score: 98,
+            toPar: 26,
             holesCompleted: 18,
             par: 75,
             topoURL: SyncClient.topoImageURL(

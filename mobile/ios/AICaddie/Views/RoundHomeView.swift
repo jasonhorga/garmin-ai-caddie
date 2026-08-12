@@ -609,6 +609,11 @@ struct HubLastRoundCard: View {
                             .monospacedDigit()
                             .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
                     }
+                    // A long CJK course name has a much larger ideal width than the card. Reserve
+                    // the score's intrinsic width first, then let the name wrap into its two lines;
+                    // otherwise SwiftUI may compress "98 / +26" into one digit per line.
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2)
                 }
                 Text(metadataText)
                     .font(.caption2.weight(.semibold))
