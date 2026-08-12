@@ -1317,7 +1317,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("final class LiveRoundAppModel", app_swift)
         self.assertIn("AI_CADDIE_LIVE_ROUND_ID", app_swift)
         self.assertIn("private let preferredRoundId: String", app_swift)
-        self.assertIn("fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)", app_swift)
+        self.assertIn(
+            "return await fetchRemotePackage(roundId: preferredRoundId, capturedAt: capturedAt)",
+            app_swift,
+        )
         self.assertIn("offlineStore.saveRoundPackage(remotePackage)", app_swift)
         self.assertIn("loadResumablePackage", app_swift)  # event-log-driven resume (round-10 bug fix)
         self.assertIn("live_round_package.fixture", app_swift)
@@ -3010,7 +3013,10 @@ class MobileContractTests(unittest.TestCase):
         stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
         mobile_stats_model = _read_required_source(self, IOS_DIR / "Models" / "MobileStats.swift")
         self.assertIn("struct MobileStats", mobile_stats_model)
-        self.assertIn("func fetchMobileStats() async throws -> MobileStats", sync_client)
+        self.assertIn(
+            'func fetchMobileStats(window: String = "all") async throws -> MobileStats',
+            sync_client,
+        )
         self.assertIn("/api/v2/history/stats/mobile", sync_client)
         self.assertIn("struct StatsView: View", stats_view)
         self.assertIn("fetchMobileStats()", stats_view)
@@ -3201,7 +3207,7 @@ class MobileContractTests(unittest.TestCase):
             self, Path("mobile") / "ios" / "AICaddieUITests" / "ReviewEditUITests.swift"
         )
 
-        self.assertIn('.accessibilityIdentifier("home-last-round-row")', round_home)
+        self.assertIn('.accessibilityIdentifier("home-last-round")', round_home)
         self.assertIn('.accessibilityIdentifier("history-round-row")', recent_review)
         self.assertIn('.accessibilityIdentifier("round-review-hole-\\(hole.hole)")', round_review)
         self.assertIn("NavigationLink(value: HubRoute.history)", round_home)
@@ -3227,7 +3233,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('app.buttons["Reorder 2"]', real_flow)
         self.assertIn('identifier: "shot-draft-row-\\(reviewEvidence.shotCount)"', review_edit)
         self.assertIn('identifier: allowWrites ? "round-edit-save" : "round-edit-cancel"', review_edit)
-        self.assertIn('matching(identifier: "home-last-round-row")', real_flow)
+        self.assertIn('matching(identifier: "home-last-round")', real_flow)
         self.assertIn('save("03-history-list")', real_flow)
         self.assertIn('save("03b-history-real-round")', real_flow)
         # The modal pager's close action remains explicit. Hole editing exposes distinct Cancel/Save
