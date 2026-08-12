@@ -619,6 +619,12 @@ struct HubLastRoundCard: View {
         .hubCard()
     }
 
+    private var metadataText: String {
+        [Optional(aiCaddieShortDate(date)), holesParText]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+
     /// 小尺寸圆角地形缩略图。加载中 / 加载失败 / CI 快照无网络 → 克制的绿调占位(map 图标),
     /// 与卡片风格一致、绝不显示破图空框。真实地形图靠真机加载(ImageRenderer 快照里恒为占位)。
     @ViewBuilder private func thumbnail(_ url: URL) -> some View {

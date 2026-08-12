@@ -184,15 +184,36 @@ struct StatsContent: View {
 
     // MARK: 成绩分布
 
-    private func distributionCard(_ bands: [StatsScoreBand]) -> some View {
+    private func distributionCard(
+        _ bands: [StatsScoreBand],
+        apiBaseURL: URL?,
+        adminToken: String?
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("成绩分布").font(.caption).foregroundStyle(.secondary)
+            Text("成绩分布 · 点击查看球局").font(.caption).foregroundStyle(.secondary)
             ForEach(bands) { band in
-                HStack {
-                    Text(band.label).font(.subheadline).frame(width: 56, alignment: .leading)
-                    bandBar(count: band.count ?? 0, maxCount: bands.map { $0.count ?? 0 }.max() ?? 1)
-                    Text("\(band.count ?? 0)").font(.subheadline.monospacedDigit().weight(.semibold)).frame(width: 40, alignment: .trailing)
+                NavigationLink {
+                    ResultsArchiveView(
+                        apiBaseURL: apiBaseURL,
+                        adminToken: adminToken,
+                        initialScoreBand: band.label
+                    )
+                } label: {
+                    HStack {
+                        Text(scoreBandLabel(band.label))
+                            .font(.subheadline)
+                            .frame(width: 86, alignment: .leading)
+                        bandBar(
+                            count: band.count ?? 0,
+                            maxCount: bands.map { $0.count ?? 0 }.max() ?? 1
+                        )
+                        Text("\(band.count ?? 0) 场 ›")
+                            .font(.subheadline.monospacedDigit().weight(.semibold))
+                            .frame(width: 64, alignment: .trailing)
+                    }
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.primary)
             }
         }
         .hubCard()
@@ -413,6 +434,16 @@ struct StatsContent: View {
     private func parLabel(_ row: StatsByPar) -> String {
         if let par = row.par { return "\(par) 杆洞" }
         return row.label ?? row.key ?? "—"
+    }
+
+    private func scoreBandLabel(_ value: String) -> String {
+        switch value {
+        case "70s": return "70–79"
+        case "80s": return "80–89"
+        case "90s": return "90–99"
+        case "100+": return "100 杆以上"
+        default: return value
+        }
     }
 
     private func directionIcon(_ direction: String?) -> String {
