@@ -73,6 +73,7 @@ public struct StatsSummary: Codable, Equatable {
     public let average18: Double?
     public let median18: Double?
     public let recent10Average: Double?
+    public let recent20Average: Double?
     public let bestScore: Int?
     public let worstScore: Int?
     public let handicapEstimate: Double?
@@ -185,6 +186,7 @@ public struct StatsByPar: Codable, Equatable, Identifiable {
     public let holeCount: Int?
     public let averageScore: Double?
     public let averageToPar: Double?
+    public let parOrBetter: Int?
     public let parOrBetterPct: Double?
     public let birdieOrBetterPct: Double?
     public let bogeyOrWorsePct: Double?
@@ -201,26 +203,51 @@ public struct StatsPutting: Codable, Equatable {
 }
 
 public struct StatsTime: Codable, Equatable {
+    public let byYear: [StatsPeriod]
     public let byQuarter: [StatsPeriod]
     public let byMonth: [StatsPeriod]
+    public let byDay: [StatsPeriod]
+    public let playFrequency: StatsPlayFrequency?
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        byYear = (try? c.decodeIfPresent([StatsPeriod].self, forKey: .byYear)) ?? []
         byQuarter = (try? c.decodeIfPresent([StatsPeriod].self, forKey: .byQuarter)) ?? []
         byMonth = (try? c.decodeIfPresent([StatsPeriod].self, forKey: .byMonth)) ?? []
+        byDay = (try? c.decodeIfPresent([StatsPeriod].self, forKey: .byDay)) ?? []
+        playFrequency = try? c.decodeIfPresent(StatsPlayFrequency.self, forKey: .playFrequency)
     }
 
-    private enum CodingKeys: String, CodingKey { case byQuarter, byMonth }
+    private enum CodingKeys: String, CodingKey { case byYear, byQuarter, byMonth, byDay, playFrequency }
 }
 
 public struct StatsPeriod: Codable, Equatable, Identifiable {
     public var id: String { key }
     public let key: String
     public let roundCount: Int?
+    public let eighteenHoleRounds: Int?
+    public let nineHoleRounds: Int?
     public let average18: Double?
+    public let median18: Double?
     public let bestScore: Int?
     public let worstScore: Int?
+    public let averageToPar18: Double?
+    public let averageDifferential: Double?
+    public let firstDate: String?
+    public let lastDate: String?
+    public let roundIds: [String]?
     public let outcomes: StatsOutcomes?
+}
+
+public struct StatsPlayFrequency: Codable, Equatable {
+    public let totalMonths: Int?
+    public let roundsPerMonth: Double?
+    public let mostActiveMonth: StatsActiveMonth?
+}
+
+public struct StatsActiveMonth: Codable, Equatable {
+    public let key: String
+    public let roundCount: Int?
 }
 
 public struct StatsCourse: Codable, Equatable, Identifiable {

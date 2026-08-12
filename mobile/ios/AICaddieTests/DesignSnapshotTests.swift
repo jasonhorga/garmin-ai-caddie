@@ -119,8 +119,7 @@ final class DesignSnapshotTests: XCTestCase {
             HubPlayTile()
             HStack(spacing: 11) {
                 HubTile(icon: "scope", title: "备战", subtitle: "选场 · 球童试算")
-                HubTile(icon: "clock.arrow.circlepath", title: "历史复盘", subtitle: "逐洞落点")
-                HubTile(icon: "chart.bar.xaxis", title: "数据统计", subtitle: "均杆 · 趋势")
+                HubTile(icon: "chart.line.uptrend.xyaxis", title: "成绩", subtitle: "球局 · 统计")
             }
             VStack(alignment: .leading, spacing: 9) {
                 HubSectionLabel("上一场")
@@ -331,6 +330,31 @@ final class DesignSnapshotTests: XCTestCase {
         """
         let mobileStats = try JSONDecoder().decode(MobileStats.self, from: Data(statsJSON.utf8))
         try captureScreen(StatsContent(stats: mobileStats, isLoading: false, errorText: nil), named: "stats")
+        // Unified 成绩 IA: answer-first landing + the dedicated analysis and trend destinations.
+        // These are fixed-data screen captures, so CI can catch 390pt truncation independently of
+        // the live-backend XCUITest flow.
+        try captureScreen(
+            NavigationStack {
+                ScrollView {
+                    ResultsLandingContent(stats: mobileStats, archive: nil, errorText: nil)
+                }
+                .background(HubStyle.grouped)
+                .navigationTitle("成绩")
+            },
+            named: "results-landing"
+        )
+        try captureScreen(
+            NavigationStack {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        StatsContent(stats: mobileStats, isLoading: false, errorText: nil, mode: .analysis)
+                    }
+                }
+                .background(HubStyle.grouped)
+                .navigationTitle("表现分析")
+            },
+            named: "results-analysis"
+        )
         // 球场钻取(round-10):各九洞组合 + 所有比赛(时间·成绩,点单场看复盘)。
         if let course = mobileStats.courses.first {
             try captureScreen(NavigationStack { CourseStatsDetailView(course: course) }, named: "course-detail")

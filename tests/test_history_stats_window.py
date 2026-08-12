@@ -1,6 +1,6 @@
 """Tests for the windowed-stats additions: windowed_history_data + handicap fields.
 
-``/api/v2/history/stats`` gains a window parameter (all|12m|last10) that must narrow
+``/api/v2/history/stats`` gains a window parameter (all|12m|last20|last10) that must narrow
 the round set BEFORE build_history_stats runs. The filter is pure (never mutates the
 input HistoryData) and deterministic: ``12m`` anchors on the newest round date in the
 data, never the wall clock. The summary additionally gains ``handicapEstimate`` /
@@ -103,6 +103,19 @@ class WindowedHistoryDataTests(unittest.TestCase):
         self.assertEqual(len(data.rounds), 12)
         self.assertEqual(len(data.raw_rounds), 12)
         self.assertEqual(len(data.shots), 4)
+
+    def test_last20_keeps_newest_twenty_rounds(self) -> None:
+        rounds = [_round(f"r{i}", f"2026-01-{i:02d}") for i in range(1, 24)]
+        data = HistoryData(
+            raw_rounds=[dict(row) for row in rounds],
+            rounds=rounds,
+            shots=[_shot("r1"), _shot("r4"), _shot("r23")],
+        )
+
+        result = windowed_history_data(data, "last20")
+
+        self.assertEqual([row["id"] for row in result.rounds], [f"r{i}" for i in range(4, 24)])
+        self.assertEqual([shot["scorecardId"] for shot in result.shots], ["r4", "r23"])
 
     def test_windowed_shot_refs_stay_stable_for_corrections(self) -> None:
         # round-13 regression: a shot's ref is "{roundId}:{hole}:{index}" and is the KEY corrections

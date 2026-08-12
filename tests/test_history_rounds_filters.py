@@ -65,6 +65,22 @@ class HistoryRoundsFilterTests(unittest.TestCase):
         resp = build_history_rounds_response(self._data(), year="2026", course="ca")
         self.assertEqual(self._ids(resp), ["r3"])
 
+    def test_period_filters_day_month_quarter_and_year(self) -> None:
+        data = self._data()
+        self.assertEqual(self._ids(build_history_rounds_response(data, period="2026")), ["r2", "r3"])
+        self.assertEqual(self._ids(build_history_rounds_response(data, period="2026-Q2")), ["r2", "r3"])
+        self.assertEqual(self._ids(build_history_rounds_response(data, period="2026-05")), ["r2"])
+        self.assertEqual(self._ids(build_history_rounds_response(data, period="2026-06-01")), ["r3"])
+
+    def test_score_band_and_text_search(self) -> None:
+        data = self._data()
+        data.rounds[0]["strokes"] = 79
+        data.rounds[1]["strokes"] = 85
+        data.rounds[2]["strokes"] = 102
+        self.assertEqual(self._ids(build_history_rounds_response(data, score_band="80s")), ["r2"])
+        self.assertEqual(self._ids(build_history_rounds_response(data, search="course b")), ["r2"])
+        self.assertEqual(self._ids(build_history_rounds_response(data, search="2026-06")), ["r3"])
+
     def test_filter_options_come_from_all_rounds(self) -> None:
         # options must reflect every round, even when a filter is applied
         resp = build_history_rounds_response(self._data(), year="2026")

@@ -257,7 +257,9 @@ class HistoryMetricSet(BaseModel):
     shotCount: int
     average18: float | None
     recent10Average: float | None
+    recent20Average: float | None = None
     bestScore: int | None
+    handicapEstimate: float | None = None
 
 
 class DistributionFamily(BaseModel):

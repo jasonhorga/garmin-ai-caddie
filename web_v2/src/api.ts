@@ -357,6 +357,9 @@ export function fetchHistoryRounds(
   if (filters?.course) params.set('course', filters.course)
   if (filters?.hasShots !== undefined) params.set('hasShots', String(filters.hasShots))
   if (filters?.hasReport !== undefined) params.set('hasReport', String(filters.hasReport))
+  if (filters?.period) params.set('period', filters.period)
+  if (filters?.scoreBand) params.set('scoreBand', filters.scoreBand)
+  if (filters?.query?.trim()) params.set('search', filters.query.trim())
   params.set('limit', String(limit))
   return getJson<HistoryRoundsResponse>(`/api/v2/history/rounds?${params.toString()}`, adminToken)
 }

@@ -503,11 +503,22 @@ def history_rounds(
     course: str | None = Query(default=None),
     hasShots: bool | None = Query(default=None),
     hasReport: bool | None = Query(default=None),
+    period: str | None = Query(default=None, pattern=r"^(\d{4}|\d{4}-Q[1-4]|\d{4}-\d{2}|\d{4}-\d{2}-\d{2})$"),
+    scoreBand: str | None = Query(default=None, pattern=r"^(70s|80s|90s|100\+)$"),
+    search: str | None = Query(default=None, max_length=120),
     limit: int = Query(default=120, ge=1, le=2000),
     player_id: str = Depends(current_player_id),
 ) -> HistoryRoundsResponse:
     return load_history_rounds_response(
-        year=year, course=course, has_shots=hasShots, has_report=hasReport, limit=limit, player_id=player_id
+        year=year,
+        course=course,
+        has_shots=hasShots,
+        has_report=hasReport,
+        period=period,
+        score_band=scoreBand,
+        search=search,
+        limit=limit,
+        player_id=player_id,
     )
 
 
@@ -549,7 +560,7 @@ def add_round_correction(
 
 @app.get("/api/v2/history/stats", response_model=HistoryStatsResponse)
 def history_stats(
-    window: str = Query("all", pattern="^(all|12m|last10)$"),
+    window: str = Query("all", pattern="^(all|12m|last20|last10)$"),
     player_id: str = Depends(current_player_id),
 ) -> HistoryStatsResponse:
     return load_history_stats_response(window=window, player_id=player_id)
@@ -566,12 +577,12 @@ def history_summary(
 
 @app.get("/api/v2/history/stats/mobile", response_model=MobileStatsResponse)
 def history_stats_mobile(
-    window: str = Query("all", pattern="^(all|12m|last10)$"),
+    window: str = Query("all", pattern="^(all|12m|last20|last10)$"),
     player_id: str = Depends(current_player_id),
 ) -> MobileStatsResponse:
     # Compact 统计 payload for the phone: the deep / periodic / per-course / per-club slices of the
     # full build, without the ~11MB per-hole table — sliced from the same cached stats (cache hit).
-    # window (all|12m|last10) mirrors /history/stats so the GolfLive 统计 view keeps windowed KPIs.
+    # window (all|12m|last20|last10) mirrors /history/stats so the 统计 view keeps windowed KPIs.
     return load_mobile_stats_response(window=window, player_id=player_id)
 
 

@@ -192,7 +192,7 @@ def cached_build_history_stats(
 ):
     """Drop-in replacement for build_history_stats that caches by input fingerprint.
 
-    ``window`` (all|12m|last10) narrows the round set via ``windowed_history_data``
+    ``window`` (all|12m|last20|last10) narrows the round set via ``windowed_history_data``
     BEFORE the build. Each window has its own cache key, so variants coexist and
     switching windows never evicts another window's result; the fingerprint is still
     computed on the FULL data, so all variants invalidate together when inputs change.

@@ -181,12 +181,45 @@ public final class SyncClient {
 
     /// Compact 统计 payload (`GET /api/v2/history/stats/mobile`): basic / deep / periodic / course /
     /// club slices of the full stats build (~180KB, not the ~11MB full one). Used by StatsView.
-    public func fetchMobileStats() async throws -> MobileStats {
-        var request = URLRequest(url: endpointURL("/api/v2/history/stats/mobile"))
+    public func fetchMobileStats(window: String = "all") async throws -> MobileStats {
+        let allowed = ["all", "12m", "last20", "last10"]
+        let selected = allowed.contains(window) ? window : "all"
+        var components = URLComponents(url: endpointURL("/api/v2/history/stats/mobile"), resolvingAgainstBaseURL: false)
+        if selected != "all" { components?.queryItems = [URLQueryItem(name: "window", value: selected)] }
+        guard let url = components?.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
         applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(MobileStats.self, from: data)
+    }
+
+    /// Full historical archive. Filters are server-side so a period/course drill-down
+    /// reuses the same canonical round list instead of reconstructing it from stats refs.
+    public func fetchHistoryRounds(
+        year: String? = nil,
+        course: String? = nil,
+        hasShots: Bool? = nil,
+        period: String? = nil,
+        scoreBand: String? = nil,
+        search: String? = nil,
+        limit: Int = 2000
+    ) async throws -> HistoryRoundsArchive {
+        var components = URLComponents(url: endpointURL("/api/v2/history/rounds"), resolvingAgainstBaseURL: false)
+        var items = [URLQueryItem(name: "limit", value: String(max(1, min(limit, 2000))))]
+        if let year, !year.isEmpty { items.append(URLQueryItem(name: "year", value: year)) }
+        if let course, !course.isEmpty { items.append(URLQueryItem(name: "course", value: course)) }
+        if let hasShots { items.append(URLQueryItem(name: "hasShots", value: hasShots ? "true" : "false")) }
+        if let period, !period.isEmpty { items.append(URLQueryItem(name: "period", value: period)) }
+        if let scoreBand, !scoreBand.isEmpty { items.append(URLQueryItem(name: "scoreBand", value: scoreBand)) }
+        if let search, !search.isEmpty { items.append(URLQueryItem(name: "search", value: search)) }
+        components?.queryItems = items
+        guard let url = components?.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(HistoryRoundsArchive.self, from: data)
     }
 
     /// The player's real Garmin club bag (`GET /api/v2/history/clubs/bag`): the canonical roster

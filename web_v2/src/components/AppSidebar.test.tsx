@@ -4,14 +4,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { AppSidebar } from './AppSidebar'
 
 describe('AppSidebar', () => {
-  it('renders the five redesign sections and marks the active one', () => {
+  it('renders the four task-based sections and marks the active one', () => {
     render(<AppSidebar activePage="clubs" onNavigate={() => undefined} />)
-    ;['复盘', '备战', '统计', '球包', '设置'].forEach((label) =>
+    ;['成绩', '备战', '球包', '设置'].forEach((label) =>
       expect(screen.getByRole('button', { name: label })).toBeEnabled(),
     )
     // 球包 (clubs) is the active section.
     expect(screen.getByRole('button', { name: '球包' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('button', { name: '复盘' })).not.toHaveAttribute('aria-current')
+    expect(screen.getByRole('button', { name: '成绩' })).not.toHaveAttribute('aria-current')
     // The old 实战 section is gone from the rail.
     expect(screen.queryByRole('button', { name: '实战' })).not.toBeInTheDocument()
     expect(screen.getByText('AI Caddie')).toBeInTheDocument()
@@ -20,12 +20,10 @@ describe('AppSidebar', () => {
   it('navigates to each section default page', async () => {
     const onNavigate = vi.fn()
     render(<AppSidebar activePage="overview" onNavigate={onNavigate} />)
-    await userEvent.click(screen.getByRole('button', { name: '复盘' }))
+    await userEvent.click(screen.getByRole('button', { name: '成绩' }))
     expect(onNavigate).toHaveBeenCalledWith('overview')
     await userEvent.click(screen.getByRole('button', { name: '备战' }))
     expect(onNavigate).toHaveBeenCalledWith('prep')
-    await userEvent.click(screen.getByRole('button', { name: '统计' }))
-    expect(onNavigate).toHaveBeenCalledWith('history')
     await userEvent.click(screen.getByRole('button', { name: '球包' }))
     expect(onNavigate).toHaveBeenCalledWith('clubs')
     await userEvent.click(screen.getByRole('button', { name: '设置' }))

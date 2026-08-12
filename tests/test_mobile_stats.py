@@ -25,6 +25,7 @@ def _full_stats() -> dict:
             # outcomeRows + roundOverRoundDeltas are heavy nested data the compact view never renders.
             "byQuarter": [{"key": "2026-Q2", "roundCount": 12, "average18": 92.0, "birdies": 14, "doubles": 31, "roundIds": ["r1", "r2"], "outcomeRows": [{"big": "x"}] * 50}],
             "byMonth": [{"key": "2026-05", "roundCount": 4, "average18": 91.0, "roundIds": ["r1"], "bestRoundRef": "r1", "outcomeRows": [{"big": "x"}] * 50, "scoreHistogram": [1] * 50, "sourceRefs": ["s"] * 50}],
+            "byDay": [{"key": "2026-05-10", "roundCount": 1, "average18": 91.0, "roundIds": ["r1"]}],
             "byYear": [{"key": "2026", "roundCount": 40, "average18": 92.5}],
             "improvement": {"trend": "down", "delta": -1.2, "roundOverRoundDeltas": [0.1] * 400, "roundRefs": ["r"] * 400},
             "playFrequency": {"perMonth": 3.2},
@@ -124,6 +125,7 @@ class BuildMobileStatsTests(unittest.TestCase):
         self.assertEqual(self.out["scoring"]["scoreBands"][0]["roundIds"], ["r1", "r2", "r3"])
         self.assertEqual(self.out["time"]["byMonth"][0]["bestRoundRef"], "r1")
         self.assertEqual(self.out["time"]["byMonth"][0]["roundIds"], ["r1"])
+        self.assertEqual(self.out["time"]["byDay"][0]["roundIds"], ["r1"])
 
     def test_is_far_smaller_than_full(self) -> None:
         full_size = len(json.dumps(_full_stats()))

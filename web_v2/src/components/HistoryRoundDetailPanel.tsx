@@ -31,6 +31,13 @@ export type HistoryRoundDetailPanelState =
 
 interface HistoryRoundDetailPanelProps {
   state: HistoryRoundDetailPanelState
+  /**
+   * Timeline-style callers render the detail far below the clicked card and
+   * need to reveal it. A dedicated single-round page already starts at the
+   * workbench, so scrolling to this lower panel would unexpectedly skip the
+   * shot map.
+   */
+  autoScroll?: boolean
   reportState?: { status: 'idle' } | { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: ReviewReportResponse }
   onSelectRef?: (sourceRef: string) => void
   onRetryRound?: (roundRef: string) => void
@@ -607,6 +614,7 @@ function RoundAiReview({
 
 export function HistoryRoundDetailPanel({
   state,
+  autoScroll = true,
   reportState,
   onSelectRef,
   onRetryRound,
@@ -625,8 +633,8 @@ export function HistoryRoundDetailPanel({
         ? state.data.requestedRef || state.data.roundRef
         : state.roundRef
   useEffect(() => {
-    if (scrollKey) rootRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
-  }, [scrollKey])
+    if (autoScroll && scrollKey) rootRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+  }, [autoScroll, scrollKey])
   if (state.status === 'idle') return null
 
   if (state.status === 'loading') {

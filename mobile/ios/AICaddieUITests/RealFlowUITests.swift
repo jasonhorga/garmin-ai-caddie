@@ -30,16 +30,22 @@ final class RealFlowUITests: XCTestCase {
 
     func testCaptureRealAppFlow() throws {
         writeDiagnostics()
-        // ---- Section 1: home + the two macro tiles (stats) ----
+        // ---- Section 1: home + the unified 成绩 destination ----
         launchFresh()
         save("01-home"); dump("01-home")
-        if tapContaining(["数据统计", "均杆 · 趋势"]) {
-            settle(7); save("02-stats"); dump("02-stats")
+        if tapContaining(["成绩", "球局 · 统计"]) {
+            settle(7); save("02-results"); dump("02-results")
+            if tapContaining(["时间趋势", "近 10 / 20 场"]) {
+                settle(7); save("02b-trends"); dump("02b-trends")
+            }
         }
 
-        // ---- Section 2: history list → a round review → shot-map → review-edit (merged #276) ----
+        // ---- Section 2: 成绩 → 全部球局 → a round review → shot-map → review-edit ----
         launchFresh()
-        if tapContaining(["历史复盘", "逐场逐洞"]) {
+        if tapContaining(["成绩", "球局 · 统计"]) {
+            settle(6)
+        }
+        if tapContaining(["全部球局", "搜索 · 年份"]) {
             settle(6); save("03-history-list"); dump("03-history-list")
             if tapFirstRoundRow() {
                 settle(6); save("04-round-review"); dump("04-round-review")

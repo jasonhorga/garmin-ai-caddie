@@ -1,9 +1,8 @@
 import Foundation
 import SwiftUI
 
-/// 球局主页(Hub)— 已批准设计稿的「三件事」卡片版:打球(开始/继续 + 中途加/减九洞)、
-/// 备战 · 复盘磁贴、上一场速览。灰底圆角白卡(ScrollView),保留导航接线(实战逐洞、
-/// 赛前攻略、历史复盘、同步、Garmin 账号)。工程项(离线诊断、后端地址)不对用户暴露。
+/// 球局主页(Hub):打球、备战、成绩和上一场。历史球局与长期统计只有一个「成绩」入口；
+/// 上一场是直达单场的内容卡，不是第二个历史入口。
 /// 表现型卡片组件(Hub*)纯输入,供 CI 设计快照复用。
 /// Hub navigation routes driven by a path, so the app can jump straight into the live hole after
 /// 开始记分 (instead of bouncing back to the Hub). 备战/复盘 stay simple leaf links.
@@ -212,7 +211,7 @@ public struct RoundHomeView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - 备战 · 复盘 · 统计 磁贴(复盘=单场逐洞,统计=历史宏观,分开)
+    // MARK: - 备战 · 成绩（球局与统计统一入口）
 
     @ViewBuilder private var tilesRow: some View {
         HStack(spacing: 11) {
@@ -226,15 +225,9 @@ public struct RoundHomeView: View {
                 .buttonStyle(.plain)
             }
             NavigationLink {
-                RecentRoundReviewView(package: package, apiBaseURL: apiBaseURL, adminToken: adminToken)
+                ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken)
             } label: {
-                HubTile(icon: "clock.arrow.circlepath", title: "历史复盘", subtitle: "逐洞落点")
-            }
-            .buttonStyle(.plain)
-            NavigationLink {
-                StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)
-            } label: {
-                HubTile(icon: "chart.bar.xaxis", title: "数据统计", subtitle: "均杆 · 趋势")
+                HubTile(icon: "chart.line.uptrend.xyaxis", title: "成绩", subtitle: "球局 · 统计")
             }
             .buttonStyle(.plain)
         }
@@ -393,7 +386,7 @@ struct HubPlayTile: View {
     }
 }
 
-/// 备战 / 历史复盘 / 数据统计 入口磁贴(左上绿色图标方块 + 标题 + 副标题)。
+/// 备战 / 成绩入口磁贴(左上绿色图标方块 + 标题 + 副标题)。
 struct HubTile: View {
     let icon: String
     let title: String

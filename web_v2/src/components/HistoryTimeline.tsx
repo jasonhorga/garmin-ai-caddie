@@ -71,9 +71,11 @@ export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, on
   const filterKey = JSON.stringify(filters ?? {})
   const [lastFilterKey, setLastFilterKey] = useState(filterKey)
   const [visibleCount, setVisibleCount] = useState(ROUNDS_BATCH)
+  const [query, setQuery] = useState(filters?.query ?? '')
   if (filterKey !== lastFilterKey) {
     setLastFilterKey(filterKey)
     setVisibleCount(ROUNDS_BATCH)
+    setQuery(filters?.query ?? '')
   }
 
   const loadedRounds = data.groups.reduce((sum, group) => sum + group.rounds.length, 0)
@@ -83,6 +85,8 @@ export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, on
   // fetched from the server (first paint loaded only the first page).
   const remainingRounds = Math.max(0, serverTotal - visibleCount)
   const hasMoreOnServer = loadedRounds < serverTotal
+  const periodLabel = filters?.period
+  const scoreBandLabel = filters?.scoreBand
 
   return (
     <>
@@ -96,6 +100,17 @@ export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, on
 
       {onFilterChange ? (
         <section className="w4-filter-bar" aria-label="筛选条件">
+          <form
+            className="w4-filter-label w4-filter-search"
+            onSubmit={(event) => {
+              event.preventDefault()
+              onFilterChange({ ...filters, query: query.trim() || undefined })
+            }}
+          >
+            <label htmlFor="history-round-search">搜索</label>
+            <input id="history-round-search" type="search" value={query} placeholder="球场或日期" onChange={(event) => setQuery(event.target.value)} />
+            <button type="submit">搜索</button>
+          </form>
           <label className="w4-filter-label">
             年份
             <select
@@ -138,6 +153,15 @@ export function HistoryTimeline({ data, filters, onFilterChange, onSelectRef, on
             />
             有报告
           </label>
+          {periodLabel || scoreBandLabel ? (
+            <button
+              type="button"
+              className="w4-filter-chip"
+              onClick={() => onFilterChange({ ...filters, period: undefined, scoreBand: undefined })}
+            >
+              {periodLabel ?? scoreBandLabel} · 清除
+            </button>
+          ) : null}
         </section>
       ) : null}
 

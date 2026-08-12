@@ -765,12 +765,15 @@ def _time_stats(data: HistoryData) -> dict[str, Any]:
     by_year: dict[str, list[dict[str, Any]]] = defaultdict(list)
     by_month: dict[str, list[dict[str, Any]]] = defaultdict(list)
     by_quarter: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    by_day: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in data.rounds:
         date = str(row.get("date") or "")
         year = date[:4] if len(date) >= 4 else "unknown"
         month = date[:7] if len(date) >= 7 else "unknown"
+        day = date[:10] if len(date) >= 10 else "unknown"
         by_year[year].append(row)
         by_month[month].append(row)
+        by_day[day].append(row)
         if len(date) >= 7 and date[5:7].isdigit():
             quarter = (int(date[5:7]) - 1) // 3 + 1
             by_quarter[f"{year}-Q{quarter}"].append(row)
@@ -787,6 +790,10 @@ def _time_stats(data: HistoryData) -> dict[str, Any]:
         "byYear": [_period_pack(key, by_year[key], total_rounds=len(data.rounds)) for key in sorted(by_year, reverse=True)],
         "byQuarter": [_period_pack(key, by_quarter[key], total_rounds=len(data.rounds)) for key in sorted(by_quarter, reverse=True)],
         "byMonth": [_period_pack(key, by_month[key], total_rounds=len(data.rounds)) for key in sorted(by_month, reverse=True)],
+        # Activity-calendar evidence. A day row is deliberately the same period
+        # contract as year/quarter/month, so tapping a cell can open the exact
+        # rounds behind it (including the unusual case of two rounds in one day).
+        "byDay": [_period_pack(key, by_day[key], total_rounds=len(data.rounds)) for key in sorted(by_day, reverse=True)],
         "improvement": _improvement_stats(data),
         "playFrequency": {
             "totalMonths": len(known_months),
@@ -3718,8 +3725,8 @@ def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
     """Filter ``data`` to the requested stats window. Pure — never mutates the input.
 
     - ``all``: the input object itself (identity, zero cost).
-    - ``last10``: the 10 most recent rounds by date (ISO-string sort desc, ties keep
-      input order); merged rounds count as one.
+    - ``last10`` / ``last20``: the 10 or 20 most recent rounds by date
+      (ISO-string sort desc, ties keep input order); merged rounds count as one.
     - ``12m``: rounds dated within 365 days of the NEWEST round in the data. Anchoring
       on the data instead of the wall clock keeps the result deterministic for a given
       dataset (and cacheable by fingerprint).
@@ -3731,9 +3738,10 @@ def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
     """
     if window == "all":
         return data
-    if window == "last10":
+    if window in {"last10", "last20"}:
+        limit = 10 if window == "last10" else 20
         order = sorted(range(len(data.rounds)), key=lambda i: str(data.rounds[i].get("date") or ""), reverse=True)
-        keep_indexes = set(order[:10])
+        keep_indexes = set(order[:limit])
         rounds = [row for index, row in enumerate(data.rounds) if index in keep_indexes]
     elif window == "12m":
         dated = [(row, _round_window_date(row)) for row in data.rounds]
@@ -3757,8 +3765,8 @@ def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
     )
 
 
-def _score_trend(data: HistoryData, limit: int = 20) -> dict[str, Any]:
-    """Last N full (18-hole) rounds as a date→score series for the trend line chart (oldest→newest),
+def _score_trend(data: HistoryData, limit: int | None = None) -> dict[str, Any]:
+    """Full 18-hole date→score series (oldest→newest),
     with per-round birdie/par/bogey/double counts for an optional outcome-trend view."""
     def _is_trendable(row: dict[str, Any]) -> bool:
         # Only complete, sane 18-hole rounds — a +50 "round" (data error / abandoned) or one with
@@ -3774,7 +3782,8 @@ def _score_trend(data: HistoryData, limit: int = 20) -> dict[str, Any]:
     rows = [row for row in data.rounds if _is_trendable(row)]
     rows.sort(key=lambda row: str(row.get("date") or ""))
     points: list[dict[str, Any]] = []
-    for row in rows[-limit:]:
+    visible_rows = rows if limit is None else rows[-limit:]
+    for row in visible_rows:
         score = int(row["strokes"])
         par = row.get("par")
         birdies = pars = bogeys = doubles = 0

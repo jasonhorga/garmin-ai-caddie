@@ -259,6 +259,90 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(ack.pendingEventCount, 0)
     }
 
+    func testFetchMobileStatsSendsSelectedWindowAndDecodesNewTrendEvidence() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = """
+        {
+          "summary": {"totalRounds": 20, "recent20Average": 88.4},
+          "time": {
+            "byYear": [{"key": "2026", "roundCount": 2, "roundIds": ["r1", "r2"]}],
+            "byQuarter": [], "byMonth": [],
+            "byDay": [{"key": "2026-08-12", "roundCount": 1, "roundIds": ["r2"]}],
+            "playFrequency": {"totalMonths": 3, "roundsPerMonth": 1.7, "mostActiveMonth": {"key": "2026-08", "roundCount": 2}}
+          },
+          "scoring": {"byPar": [{"par": 4, "holeCount": 10, "parOrBetter": 6, "parOrBetterPct": 60}]},
+          "courses": [], "clubs": []
+        }
+        """.data(using: .utf8)!
+        CapturingURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v2/history/stats/mobile")
+            let queryItems = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
+            XCTAssertEqual(queryItems?.first { $0.name == "window" }?.value, "last20")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url), statusCode: 200,
+                httpVersion: nil, headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")), session: session)
+
+        let stats = try await client.fetchMobileStats(window: "last20")
+
+        XCTAssertEqual(stats.summary?.recent20Average, 88.4)
+        XCTAssertEqual(stats.time?.byDay.first?.roundIds, ["r2"])
+        XCTAssertEqual(stats.time?.playFrequency?.mostActiveMonth?.key, "2026-08")
+        XCTAssertEqual(stats.scoring?.byPar.first?.parOrBetter, 6)
+    }
+
+    func testFetchHistoryRoundsSendsClosedFiltersAndDecodesArchive() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = """
+        {
+          "total": 1,
+          "groups": [{
+            "key": "2026-08", "label": "August 2026", "count": 1,
+            "average18": 86, "bestScore": 86,
+            "rounds": [{"id": "r1", "date": "2026-08-12", "courseName": "Half Moon Bay", "score": 86, "scoreStrip": [], "badges": []}]
+          }],
+          "availableYears": ["2026"],
+          "availableCourses": [{"key": "hmb", "label": "Half Moon Bay"}]
+        }
+        """.data(using: .utf8)!
+        CapturingURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v2/history/rounds")
+            let items = URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let values = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+            XCTAssertEqual(values["limit"], "2000")
+            XCTAssertEqual(values["year"], "2026")
+            XCTAssertEqual(values["course"], "hmb")
+            XCTAssertEqual(values["hasShots"], "true")
+            XCTAssertEqual(values["period"], "2026-Q3")
+            XCTAssertEqual(values["scoreBand"], "80s")
+            XCTAssertEqual(values["search"], "Half Moon")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url), statusCode: 200,
+                httpVersion: nil, headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")), session: session)
+
+        let archive = try await client.fetchHistoryRounds(
+            year: "2026", course: "hmb", hasShots: true, period: "2026-Q3",
+            scoreBand: "80s", search: "Half Moon", limit: 9000
+        )
+
+        XCTAssertEqual(archive.total, 1)
+        XCTAssertEqual(archive.groups.first?.rounds.first?.courseName, "Half Moon Bay")
+        XCTAssertEqual(archive.availableCourses.first?.key, "hmb")
+    }
+
     func testNonSuccessResponseThrowsTypedErrorWithStatusAndBody() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]

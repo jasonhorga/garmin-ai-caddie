@@ -2,7 +2,7 @@ import XCTest
 
 /// Real running-app screenshots of the **复盘编辑** flow (PR2) from the iOS Simulator (XCUITest).
 /// Launches the ACTUAL app against the live backend (funnel) with the owner admin token, navigates
-/// 历史复盘 → a round → a hole's 落点图, taps 「编辑」, and captures each edit affordance: drag handles
+/// 成绩 → 全部球局 → a round → a hole's 落点图, taps 「编辑」, and captures each edit affordance: drag handles
 /// on every landing, the 「补一杆」 add sheet, the 「改这一杆」 edit sheet, and (optionally) a handle drag.
 ///
 /// Runs on-demand only (`native-mobile.yml` gates the AICaddieUITests scheme behind workflow_dispatch),
@@ -36,8 +36,12 @@ final class ReviewEditUITests: XCTestCase {
         launchFresh()
         save("00-home"); dump("00-home")
 
-        guard tapContaining(["历史复盘", "逐场逐洞"]) else {
+        guard tapContaining(["成绩", "球局 · 统计"]) else {
             save("nohistory"); dump("nohistory"); return
+        }
+        settle(6)
+        guard tapContaining(["全部球局", "搜索 · 年份"]) else {
+            save("noarchive"); dump("noarchive"); return
         }
         settle(6); save("01-history-list"); dump("01-history-list")
 
