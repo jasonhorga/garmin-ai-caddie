@@ -12,16 +12,17 @@ interface StatsDashboardProps {
   onWindowChange: (w: StatsWindow) => void
 }
 
-// Backend windows are all|12m|last10 (server_v2/main.py Query pattern) — the mockup's
-// 近5场/近20场/本季 buckets don't exist server-side, so we surface the three REAL windows.
+// Backend windows are all|12m|last20|last10 (server_v2/main.py Query pattern).
 const WINDOW_OPTIONS: Array<{ key: StatsWindow; label: string }> = [
   { key: 'last10', label: '近10场' },
+  { key: 'last20', label: '近20场' },
   { key: '12m', label: '近12个月' },
   { key: 'all', label: '全部' },
 ]
 
 const WINDOW_LABEL: Record<StatsWindow, string> = {
   last10: '近10场',
+  last20: '近20场',
   '12m': '近12个月',
   all: '全部',
 }

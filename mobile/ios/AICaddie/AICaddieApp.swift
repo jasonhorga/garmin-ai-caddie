@@ -354,7 +354,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private var selectedCourseDisplayNames: [Int: String] = [:]
     private var courseOptionsRefreshSucceeded = false
     private var boundPlayerId: String?
-    private let preferredRoundId: String
+    /// Optional DEBUG/CI round to open explicitly. Production and ordinary DEBUG launches must not
+    /// invent a demo round: with no configured id bootstrap lands on the normal home package.
+    private let preferredRoundId: String?
     private let offlineGeometryRetryDelaysNanoseconds: [UInt64]
     /// Keeps the Apple-session observer alive so the watch's standalone-sync auth tracks sign-in /
     /// refresh / sign-out (round-13 watch-auth).
@@ -404,7 +406,10 @@ public final class LiveRoundAppModel: ObservableObject {
         self.adminToken = resolvedAdminToken
         self.watchBridge = watchBridge
         self.garminSessionStore = garminSessionStore
-        self.preferredRoundId = preferredRoundId ?? Self.defaultLiveRoundId()
+        let requestedRoundId = preferredRoundId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.preferredRoundId = requestedRoundId?.isEmpty == false
+            ? requestedRoundId
+            : Self.configuredLiveRoundId()
         self.offlineGeometryRetryDelaysNanoseconds = offlineGeometryRetryDelaysNanoseconds
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map {
@@ -460,10 +465,6 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
             }
             .store(in: &sessionCancellables)
-    }
-
-    public var defaultRoundId: String {
-        preferredRoundId
     }
 
     public var adminTokenConfigured: Bool {
@@ -2278,25 +2279,19 @@ public final class LiveRoundAppModel: ObservableObject {
         #endif
     }
 
-    private static func defaultLiveRoundId() -> String {
+    private static func configuredLiveRoundId() -> String? {
         let roundId = ProcessInfo.processInfo.environment["AI_CADDIE_LIVE_ROUND_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let roundId, !roundId.isEmpty {
             return roundId
         }
-        return "900001"
+        return nil
     }
 
     private func fetchRemotePackage(capturedAt: Date = Date()) async -> LiveRoundPackage? {
-        guard let syncClient else {
+        guard let preferredRoundId else {
             return nil
         }
-        do {
-            return try await syncClient.fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)
-        } catch {
-            AICaddieLog.network.error("Round package fetch failed (using cache): \(String(describing: error), privacy: .public)")
-            syncStatus = "离线中,使用已保存数据"
-            return nil
-        }
+        return await fetchRemotePackage(roundId: preferredRoundId, capturedAt: capturedAt)
     }
 
     private func fetchRemotePackage(

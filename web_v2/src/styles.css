@@ -259,6 +259,487 @@ p {
   white-space: nowrap;
 }
 
+/* ===== Unified 成绩 landing ===== */
+.results-landing {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.results-title {
+  grid-column: 1 / -1;
+  padding: 12px 0 4px;
+}
+
+.results-title > p:last-child {
+  margin-top: 8px;
+}
+
+.results-career {
+  grid-column: 1;
+}
+
+.results-career-head,
+.results-career-head > span,
+.results-kpis,
+.results-recent,
+.results-recent-rounds > header,
+.results-round-row,
+.results-destinations > button {
+  display: flex;
+  align-items: center;
+}
+
+.results-career-head {
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.results-career-head > span {
+  align-items: baseline;
+  gap: 8px;
+}
+
+.results-career-head b {
+  font-size: 42px;
+  line-height: 1;
+}
+
+.results-career small,
+.results-recent small,
+.results-round-row small,
+.results-destinations small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.results-kpis {
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.results-kpis > span {
+  flex: 1;
+  border-radius: 10px;
+  background: var(--green-tint);
+  padding: 12px;
+  text-align: center;
+}
+
+.results-kpis b {
+  display: block;
+  font-size: 23px;
+}
+
+.results-recent {
+  width: 100%;
+  justify-content: space-between;
+  gap: 16px;
+  border-color: var(--line);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.results-recent strong {
+  font-size: 17px;
+}
+
+.results-recent > b,
+.results-recent-rounds header button {
+  border: 0;
+  background: transparent;
+  color: var(--green-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.results-recent-rounds {
+  grid-column: 1;
+}
+
+.results-recent-rounds > header {
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.results-round-row {
+  width: 100%;
+  gap: 12px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  padding: 11px 0;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.results-round-row > span {
+  min-width: 0;
+  flex: 1;
+}
+
+.results-round-row strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.results-round-row > b {
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+}
+
+.results-round-row em {
+  width: 36px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  text-align: right;
+}
+
+.results-round-row .good { color: var(--green-text); }
+.results-round-row .bad { color: var(--double-text); }
+
+.results-destinations {
+  grid-column: 2;
+  grid-row: 2 / span 3;
+  padding: 4px 16px;
+}
+
+.results-destinations > button {
+  width: 100%;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  padding: 16px 0;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.results-destinations > button:last-child { border-bottom: 0; }
+.results-destinations > button > span { min-width: 0; }
+.results-destinations > button > b {
+  flex: 0 0 auto;
+  color: var(--green-text);
+  font-size: 12px;
+}
+
+@media (max-width: 860px) {
+  .results-landing { grid-template-columns: 1fr; }
+  .results-career,
+  .results-recent-rounds,
+  .results-destinations { grid-column: 1; grid-row: auto; }
+}
+
+/* ===== Evidence-bound 表现分析 ===== */
+.performance-page { display: grid; gap: 14px; }
+.performance-phases {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.performance-phases article > span,
+.performance-phases article > small,
+.performance-phases article > em {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+.performance-phases article > b {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+}
+.performance-phases article > em { margin-top: 7px; }
+.performance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.performance-grid h2 { margin-bottom: 14px; }
+.performance-outcome {
+  display: grid;
+  grid-template-columns: 74px minmax(80px, 1fr) 118px;
+  gap: 10px;
+  align-items: center;
+  margin: 9px 0;
+  font-size: 12px;
+}
+.performance-outcome > i {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #edf0ed;
+}
+.performance-outcome > i > b { display: block; height: 100%; min-width: 2px; }
+.performance-outcome .birdie { background: var(--birdie); }
+.performance-outcome .par { background: var(--par); }
+.performance-outcome .bogey { background: var(--bogey); }
+.performance-outcome .double { background: var(--double); }
+.performance-outcome > strong { text-align: right; font-variant-numeric: tabular-nums; }
+.performance-par {
+  display: grid;
+  grid-template-columns: 64px 58px minmax(110px, 1fr) 82px;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding: 13px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.performance-par strong { color: var(--ink); font-size: 14px; }
+.performance-bands > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.performance-bands button {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--green-tint);
+  padding: 12px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.performance-bands button span { color: var(--green-text); font-size: 12px; }
+.performance-links { padding: 4px 16px; }
+.performance-links button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  padding: 14px 0;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.performance-links button:last-child { border-bottom: 0; }
+.performance-links span small { display: block; margin-top: 4px; color: var(--muted); }
+.performance-links button > b { color: var(--green-text); font-size: 12px; }
+@media (max-width: 860px) {
+  .performance-phases { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .performance-grid { grid-template-columns: 1fr; }
+  .performance-bands > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ===== Approved answer-first time trends ===== */
+.results-trends,
+.club-performance { display: grid; gap: 14px; }
+.results-trend-controls {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px 18px;
+}
+.results-trend-controls label { color: var(--muted); font-size: 12px; font-weight: 800; }
+.results-trend-controls small { grid-column: 2; color: var(--muted); }
+.results-trend-controls button:disabled { opacity: .35; cursor: not-allowed; }
+.results-trend-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(140deg, #f8fcf8, var(--green-tint));
+}
+.results-trend-hero > div:first-child span,
+.results-trend-hero small { display: block; color: var(--muted); font-size: 12px; }
+.results-trend-hero > div:first-child b { display: block; margin: 5px 0; font-size: 42px; }
+.results-trend-hero > div:last-child { display: grid; grid-template-columns: auto auto; gap: 4px 10px; text-align: right; }
+.results-trend-hero > div:last-child b { font-size: 19px; }
+.results-trend-plot header,
+.results-calendar header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.results-trend-plot header span,
+.results-calendar header span { color: var(--muted); font-size: 12px; }
+.results-trend-chart { width: 100%; height: 230px; overflow: visible; }
+.results-trend-chart line { stroke: var(--line); stroke-width: 1; }
+.results-trend-chart polyline { fill: none; stroke: var(--green); stroke-width: 3; stroke-linejoin: round; }
+.results-trend-chart circle { fill: var(--panel); stroke: var(--green); stroke-width: 3; cursor: pointer; }
+.results-trend-chart circle:hover,
+.results-trend-chart circle:focus { fill: var(--green); outline: none; }
+.results-trend-axis,
+.results-calendar-months { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+.results-periods h2,
+.results-years h2 { margin-bottom: 6px; }
+.results-periods button,
+.results-years button {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  padding: 12px 0;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.results-periods button span,
+.results-years button span { color: var(--muted); font-size: 12px; }
+.results-periods button b,
+.results-years button b { color: var(--green-text); }
+.results-calendar header p { margin-top: 4px; color: var(--muted); }
+.results-calendar-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 10px);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 3px;
+  margin: 16px 0 8px;
+}
+.results-calendar-grid button { min-width: 0; border: 0; border-radius: 2px; background: #e9eeea; padding: 0; }
+.results-calendar-pad { visibility: hidden; }
+.results-calendar-grid button.level-1 { background: #c7e1cf; cursor: pointer; }
+.results-calendar-grid button.level-2 { background: #7bb690; cursor: pointer; }
+.results-calendar-grid button.level-3 { background: #36835a; cursor: pointer; }
+.results-calendar-grid button.level-4 { background: #155c3a; cursor: pointer; }
+.club-performance > .panel { padding: 6px 16px; }
+.course-performance { display: grid; gap: 14px; }
+.course-performance-list { padding: 0 16px; }
+.course-performance-list details { border-bottom: 1px solid var(--line); }
+.course-performance-list details:last-child { border-bottom: 0; }
+.course-performance-list summary { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 16px 0; cursor: pointer; list-style: none; }
+.course-performance-list summary::-webkit-details-marker { display: none; }
+.course-performance-list summary strong,
+.course-performance-list summary small { display: block; }
+.course-performance-list summary small { margin-top: 4px; color: var(--muted); }
+.course-performance-list summary > b { color: var(--green-text); font-size: 12px; }
+.course-performance-detail { display: grid; gap: 12px; padding: 0 0 16px 18px; }
+.course-performance-detail h2 { margin-bottom: 6px; font-size: 13px; }
+.course-performance-nines p,
+.course-performance-rounds button { display: flex; justify-content: space-between; gap: 12px; border: 0; border-top: 1px solid var(--line); background: transparent; padding: 9px 0; color: var(--ink); text-align: left; }
+.course-performance-nines p span,
+.course-performance-rounds button span { color: var(--muted); font-size: 12px; }
+.course-performance-rounds button { width: 100%; cursor: pointer; }
+.course-performance-recent,
+.course-performance-prep { justify-self: start; border: 0; border-radius: 8px; background: var(--green-tint); padding: 8px 11px; color: var(--green-text); font-weight: 800; cursor: pointer; }
+.club-performance-head,
+.club-performance article {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 110px 180px 60px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0;
+}
+.club-performance-head { color: var(--muted); font-size: 12px; font-weight: 800; }
+.club-performance article { border-top: 1px solid var(--line); }
+.club-performance article b,
+.club-performance article em { font-style: normal; font-variant-numeric: tabular-nums; }
+.club-performance article span { color: var(--muted); font-size: 12px; }
+
+.w4-filter-search input {
+  min-height: 30px;
+  width: 180px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #fbfcfa;
+  padding: 4px 8px;
+  color: var(--ink);
+}
+.w4-filter-search button {
+  min-height: 30px;
+  border: 1px solid var(--green);
+  border-radius: 6px;
+  background: var(--green);
+  color: #fff;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.w4-filter-chip {
+  min-height: 28px;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  background: var(--green-tint);
+  color: var(--green-text);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .results-trend-controls { grid-template-columns: 1fr; }
+  .results-trend-controls small { grid-column: 1; }
+  .results-trend-controls .trends-seg,
+  .course-performance .trends-seg {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    min-width: 0;
+  }
+
+  .results-trend-controls .trends-seg button,
+  .course-performance .trends-seg button { padding-inline: 4px; }
+
+  .results-periods button,
+  .results-years button { grid-template-columns: 74px minmax(0, 1fr) auto; }
+  .club-performance-head,
+  .club-performance article { grid-template-columns: 86px 84px minmax(116px, 1fr) 42px; gap: 7px; }
+
+  .performance-page .statsx-toolbar,
+  .club-performance .statsx-toolbar,
+  .course-performance .statsx-toolbar {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .performance-page .trends-seg,
+  .club-performance .trends-seg {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    min-width: 0;
+  }
+
+  .performance-page .trends-seg button,
+  .club-performance .trends-seg button { padding-inline: 4px; }
+
+  .performance-outcome {
+    grid-template-columns: 68px minmax(0, 1fr) auto;
+    gap: 7px;
+  }
+
+  .performance-outcome > strong { font-size: 11px; }
+
+  .performance-par {
+    grid-template-columns: 58px minmax(0, 1fr);
+    gap: 5px 10px;
+  }
+
+  .performance-links button > span { min-width: 0; }
+  .performance-links button > b { flex: 0 0 auto; }
+
+  .club-performance-head,
+  .club-performance article {
+    grid-template-columns: 42px 78px minmax(0, 1fr) 32px;
+    gap: 6px;
+  }
+
+  .club-performance-head,
+  .club-performance article span { font-size: 11px; }
+}
+
 .round-card {
   padding: 12px;
 }

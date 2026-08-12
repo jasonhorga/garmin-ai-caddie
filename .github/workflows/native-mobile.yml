@@ -334,6 +334,14 @@ jobs:
           name: real-video
           path: real-videos/
           if-no-files-found: warn
+      - name: Remove UI-test app data
+        if: ${{ always() && github.event_name == 'workflow_dispatch' }}
+        run: |
+          UDID=$(xcrun simctl list devices available | grep -E "iPhone 16 \(" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          if [ -n "$UDID" ]; then
+            xcrun simctl terminate "$UDID" com.ai-caddie.mobile 2>/dev/null || true
+            xcrun simctl uninstall "$UDID" com.ai-caddie.mobile 2>/dev/null || true
+          fi
       - name: Resolve and boot Watch test simulator
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full'
         run: |

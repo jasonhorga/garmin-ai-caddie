@@ -168,6 +168,16 @@ describe('HistoryTimeline', () => {
     expect(onFilterChange).toHaveBeenCalledWith({ hasShots: true })
   })
 
+  it('submits text search and clears an evidence period filter', async () => {
+    const onFilterChange = vi.fn()
+    render(<HistoryTimeline data={filterData} filters={{ period: '2026-Q2' }} onFilterChange={onFilterChange} />)
+    await userEvent.type(screen.getByRole('searchbox', { name: '搜索' }), 'Course A')
+    await userEvent.click(screen.getByRole('button', { name: '搜索' }))
+    expect(onFilterChange).toHaveBeenCalledWith({ period: '2026-Q2', query: 'Course A' })
+    await userEvent.click(screen.getByRole('button', { name: '2026-Q2 · 清除' }))
+    expect(onFilterChange).toHaveBeenCalledWith({ period: undefined, scoreBand: undefined })
+  })
+
   it('omits the filter bar when filtering is not enabled', () => {
     render(<HistoryTimeline data={filterData} />)
     expect(screen.queryByLabelText('年份')).toBeNull()

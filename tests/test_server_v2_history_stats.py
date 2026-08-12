@@ -72,10 +72,14 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         # The fixture's 3 rounds are <=10 and within 365 days, so EVERY window maps
         # them to the same 3 rounds — a route that silently dropped the window would
         # still pass (a mutant proved exactly that). Use a synthetic dataset where
-        # the three windows give three DIFFERENT counts: 12 rounds, 11 of them within
-        # 365 days of the newest (2026-06-01), 1 older -> all=12, 12m=11, last10=10.
+        # the bounded windows give different counts. Use 22 rounds so last20 can be
+        # distinguished from both all and last10; 21 are inside the latest 12 months.
         newest = ["2026-06-01", "2026-05-01", "2026-04-01", "2026-03-01", "2026-02-01", "2026-01-01"]
-        older = ["2025-12-01", "2025-11-01", "2025-10-01", "2025-09-01", "2025-08-01"]
+        older = [
+            "2025-12-01", "2025-11-15", "2025-11-01", "2025-10-15", "2025-10-01",
+            "2025-09-15", "2025-09-01", "2025-08-15", "2025-08-01", "2025-07-15",
+            "2025-07-01", "2025-06-15", "2025-06-02", "2025-06-01", "2025-06-01",
+        ]
         beyond_12m = ["2025-01-01"]
         rounds = [
             {
@@ -102,17 +106,20 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
             client = TestClient(app)
             unwindowed = client.get("/api/v2/history/stats")
             last10 = client.get("/api/v2/history/stats?window=last10")
+            last20 = client.get("/api/v2/history/stats?window=last20")
             twelve = client.get("/api/v2/history/stats?window=12m")
             invalid = client.get("/api/v2/history/stats?window=bogus")
 
         self.assertEqual(unwindowed.status_code, 200)
-        self.assertEqual(unwindowed.json()["summary"]["totalRounds"], 12)
+        self.assertEqual(unwindowed.json()["summary"]["totalRounds"], 22)
         self.assertEqual(last10.status_code, 200)
         payload = last10.json()
         self.assertEqual(payload["schema"], "ai-caddie-history-stats-v1")
         self.assertEqual(payload["summary"]["totalRounds"], 10)
+        self.assertEqual(last20.status_code, 200)
+        self.assertEqual(last20.json()["summary"]["totalRounds"], 20)
         self.assertEqual(twelve.status_code, 200)
-        self.assertEqual(twelve.json()["summary"]["totalRounds"], 11)
+        self.assertEqual(twelve.json()["summary"]["totalRounds"], 21)
         self.assertEqual(invalid.status_code, 422)
 
     def test_history_stats_endpoint_includes_decision_audit_diagnosis(self) -> None:

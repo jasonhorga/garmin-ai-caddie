@@ -48,61 +48,38 @@ final class RealFlowUITests: XCTestCase {
         } else {
             newCourseEvidence = nil
         }
-        // ---- Section 1: home + the two macro tiles (stats) ----
+        // ---- Section 1: home + the unified 成绩 destination ----
         launchFresh()
-        let statsTile = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "数据统计")
+        let resultsTile = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "成绩")
         ).firstMatch
         XCTAssertTrue(
-            statsTile.waitForExistence(timeout: 60),
+            resultsTile.waitForExistence(timeout: 60),
             "01-home may be captured only after the real home replaces the launch screen"
         )
         settle(2)
         save("01-home"); dump("01-home")
         XCTAssertFalse(
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Unknown course")).firstMatch.exists,
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Unknown course")).firstMatch.exists,
             "UI-test bootstrap must load the real home course, not auto-activate the implicit DEBUG round 900001"
         )
-        XCTAssertTrue(statsTile.isHittable, "the loaded home statistics tile must be tappable")
-        statsTile.tap()
-        let scoreComposition = app.staticTexts["成绩构成 · 按洞"]
-        let trendHeading = app.staticTexts.matching(
-            NSPredicate(format: "label BEGINSWITH '近 ' AND label CONTAINS '场走势'")
-        ).firstMatch
-        XCTAssertTrue(
-            scoreComposition.waitForExistence(timeout: 20),
-            "the approved scoring composition must be the statistics landing"
-        )
-        XCTAssertTrue(
-            trendHeading.waitForExistence(timeout: 8),
-            "the trend remains available below the approved scoring facts"
-        )
-        XCTAssertLessThan(
-            scoreComposition.frame.minY,
-            trendHeading.frame.minY,
-            "trend must not displace the approved scoring hierarchy from the first viewport"
-        )
-        XCTAssertTrue(
-            fullyVisible(scoreComposition),
-            "the first screenshot must show the scoring composition heading inside the safe viewport"
-        )
-        settle(2); save("02-stats"); dump("02-stats")
+        XCTAssertTrue(resultsTile.isHittable, "the loaded home results tile must be tappable")
+        resultsTile.tap()
+        XCTAssertTrue(app.staticTexts["我的高尔夫生涯"].waitForExistence(timeout: 15))
+        settle(3); save("02-results"); dump("02-results")
+        XCTAssertTrue(scrollAndTapContaining(["时间趋势", "近 10 / 20 场"]))
+        XCTAssertTrue(app.navigationBars["时间趋势"].waitForExistence(timeout: 10))
+        settle(4); save("02b-trends"); dump("02b-trends")
+        XCTAssertTrue(tapBackButton("成绩"))
+        XCTAssertTrue(scrollAndTapContaining(["表现分析", "开球 · 攻果岭"]))
+        XCTAssertTrue(app.navigationBars["表现分析"].waitForExistence(timeout: 10))
+        settle(5); save("02c-analysis"); dump("02c-analysis")
 
-        // ---- Section 2: history list → a round review → shot-map → review-edit (merged #276) ----
+        // ---- Section 2: 成绩 → 全部球局 → round review → shot-map → review-edit ----
         launchFresh()
-        let historyNavigation = app.navigationBars["历史复盘"]
-        var enteredHistory = tapContaining(["历史复盘", "逐场逐洞"])
-        if enteredHistory, !historyNavigation.waitForExistence(timeout: 8) {
-            // The live home can publish a background package refresh between XCUITest resolving
-            // the NavigationLink and synthesising its tap. In that race the old element accepts
-            // the event but the replacement link never navigates. Confirm the destination rather
-            // than treating a dispatched tap as success, then retry the visible production link.
-            enteredHistory = tapContaining(["历史复盘", "逐场逐洞"])
-        }
-        XCTAssertTrue(
-            enteredHistory && historyNavigation.waitForExistence(timeout: 8),
-            "the real home must expose and open 历史复盘; this section may never be silently skipped"
-        )
+        let enteredHistory = tapContaining(["成绩", "球局 · 统计"])
+            && scrollAndTapContaining(["全部球局", "搜索 · 年份"])
+        XCTAssertTrue(enteredHistory, "the real home must expose 成绩 and its complete archive")
         if enteredHistory {
             settle(6); save("03-history-list"); dump("03-history-list")
             // The low-value per-hole “规律” section was deliberately removed from history review.
@@ -133,13 +110,8 @@ final class RealFlowUITests: XCTestCase {
                     30,
                     "the approved review uses a large navigation title, not a centred inline title"
                 )
-                let historyBackButton = app.buttons["历史复盘"]
+                let historyBackButton = app.buttons["球局"]
                 XCTAssertTrue(historyBackButton.waitForExistence(timeout: 5))
-                XCTAssertGreaterThan(
-                    historyBackButton.frame.width,
-                    60,
-                    "the approved review keeps the visible 历史复盘 return label beside its chevron"
-                )
                 let holeRow = app.buttons["round-review-hole-\(reviewEvidence.hole)"]
                 let loadedRound = holeRow.waitForExistence(timeout: 60)
                 XCTAssertTrue(loadedRound, "the real round must load its verified evidence hole")
@@ -216,7 +188,7 @@ final class RealFlowUITests: XCTestCase {
 
         // ---- Section 3: last-round review shortcut from home ----
         launchFresh()
-        let lastRound = app.buttons.matching(identifier: "home-last-round-row").firstMatch
+        let lastRound = app.buttons.matching(identifier: "home-last-round").firstMatch
         let tappedLastRound = lastRound.waitForExistence(timeout: 8) && lastRound.isHittable
         XCTAssertTrue(tappedLastRound, "home must expose a stable last-round link")
         if tappedLastRound {
@@ -1088,6 +1060,15 @@ final class RealFlowUITests: XCTestCase {
 
     private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
 
+    @discardableResult
+    private func tapBackButton(_ label: String) -> Bool {
+        let button = app.navigationBars.buttons[label].firstMatch
+        guard button.waitForExistence(timeout: 6), button.isHittable else { return false }
+        button.tap()
+        settle(2)
+        return true
+    }
+
     /// Bring the whole element into the visible safe viewport. `exists` and even `isHittable` are
     /// insufficient for a SwiftUI ScrollView: the prior prep hazard was reported hittable at y=848
     /// on an 852pt screen, leaving the actual row below the screenshot/home-indicator boundary.
@@ -1394,6 +1375,25 @@ final class RealFlowUITests: XCTestCase {
                 guard !frame.isNull, !frame.isEmpty else { continue }
                 if match.isHittable { match.tap(); return true }
             }
+        }
+        return false
+    }
+
+    /// Results drill-down rows sit below the first viewport. Scroll deliberately so the journey
+    /// does not pass only when an earlier section failed to load and made the page artificially short.
+    @discardableResult
+    private func scrollAndTapContaining(_ fragments: [String], maxSwipes: Int = 4) -> Bool {
+        for attempt in 0...maxSwipes {
+            for fragment in fragments {
+                let predicate = NSPredicate(format: "label CONTAINS %@", fragment)
+                for query in [app.buttons, app.cells, app.staticTexts, app.otherElements] {
+                    let match = query.matching(predicate).firstMatch
+                    if match.exists, match.isHittable { match.tap(); return true }
+                }
+            }
+            guard attempt < maxSwipes else { break }
+            app.swipeUp()
+            settle(1)
         }
         return false
     }

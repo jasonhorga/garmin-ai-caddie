@@ -2934,10 +2934,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("PackageReadinessSection", round_home)
         self.assertIn("CurrentHoleView(", round_home)
         self.assertIn("liveRoundState: liveRoundState,", round_home)
-        self.assertIn("case history", round_home)
-        self.assertIn("case roundReview(roundRef: String, courseName: String?)", round_home)
-        self.assertIn("NavigationLink(value: HubRoute.history)", round_home)
-        self.assertIn('title: "历史复盘"', round_home)
+        self.assertIn("ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken)", round_home)
+        self.assertIn('title: "成绩"', round_home)
         self.assertIn("struct RecentRoundReviewView: View", recent_review)
         self.assertIn("package.recentHistory.rounds", recent_review)
         self.assertIn("round.toPar", recent_review)
@@ -3005,7 +3003,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("await mapRepository.prefetch(holes", shot_map_view)
         self.assertIn("await shotMapRepository.prefetch(roundHoles)", round_review)
         self.assertIn("scorecard.filter { $0.score != nil }", round_review)
-        # 数据统计(历史宏观,与复盘分开): consume the compact /history/stats/mobile endpoint.
+        # 成绩合并入口: compact stats + complete archive, then drill into existing round review.
         stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
         mobile_stats_model = _read_required_source(self, IOS_DIR / "Models" / "MobileStats.swift")
         self.assertIn("struct MobileStats", mobile_stats_model)

@@ -2191,6 +2191,7 @@ final class OfflineStoreTests: XCTestCase {
         let holeState = try XCTUnwrap(snapshot.holeState(for: 1))
 
         XCTAssertEqual(snapshot.activeHole, 1)
+        XCTAssertEqual(snapshot.scoredHoles, [1])
         XCTAssertEqual(holeState.score, 5)
         XCTAssertEqual(holeState.fairwayResult, "left")
         XCTAssertEqual(holeState.putts, 3)
@@ -2205,6 +2206,18 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(holeState.targetLatitude, 22.2799)
         XCTAssertEqual(holeState.targetLongitude, 114.162)
         XCTAssertEqual(holeState.targetKind, "pin")
+    }
+
+    func testRestoreDoesNotCountDefaultHoleStatesAsScoredProgress() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let package = try fixturePackage()
+
+        let snapshot = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+
+        XCTAssertEqual(snapshot.holes.count, package.holes.count)
+        XCTAssertEqual(snapshot.scoredHoles, [])
     }
 
     func testRestoreLiveRoundStateClearsNullableLiveFieldsInLogOrder() throws {

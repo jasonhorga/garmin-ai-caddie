@@ -82,7 +82,11 @@ export interface HistoryMetricSet {
   shotCount: number
   average18: number | null
   recent10Average: number | null
+  /** Present on the stats-summary payload; optional on the lightweight overview fallback. */
+  recent20Average?: number | null
   bestScore: number | null
+  /** Present on the stats-summary payload; optional on the lightweight overview fallback. */
+  handicapEstimate?: number | null
 }
 
 export interface DistributionFamily {
@@ -446,6 +450,11 @@ export interface RoundsFilters {
   course?: string
   hasShots?: boolean
   hasReport?: boolean
+  /** Closed stats key: YYYY, YYYY-Qn, YYYY-MM or YYYY-MM-DD. */
+  period?: string
+  scoreBand?: '70s' | '80s' | '90s' | '100+'
+  /** Course/date text search, applied by the archive endpoint. */
+  query?: string
 }
 
 export interface HistoryRoundsResponse {
@@ -571,6 +580,15 @@ export interface MobileStatsResponse {
   schema: 'ai-caddie-mobile-stats-v1'
   dataMode: ResolvedDataMode
   summary: Record<string, unknown>
+  trend?: {
+    points: Array<{
+      date: string
+      score: number | null
+      toPar?: number | null
+      roundId?: string | null
+    }>
+    windowSize?: number
+  }
   time: Record<string, unknown>
   scoring: Record<string, unknown>
   records: Record<string, unknown>
@@ -1184,7 +1202,7 @@ export interface CoursePrepResponse {
   holes: CoursePrepHole[]
 }
 
-export type StatsWindow = 'all' | '12m' | 'last10'
+export type StatsWindow = 'all' | '12m' | 'last20' | 'last10'
 
 export interface CourseSearchMatch {
   globalId: number

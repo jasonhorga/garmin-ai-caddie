@@ -362,7 +362,7 @@ public struct RoundHomeView: View {
         }).count
     }
 
-    // MARK: - 备战 · 复盘 · 统计 磁贴(复盘=单场逐洞,统计=历史宏观,分开)
+    // MARK: - 备战 · 成绩（球局与统计统一入口）
 
     @ViewBuilder private var tilesRow: some View {
         HStack(spacing: 11) {
@@ -384,14 +384,10 @@ public struct RoundHomeView: View {
                 }
                 .buttonStyle(.plain)
             }
-            NavigationLink(value: HubRoute.history) {
-                HubTile(icon: "clock.arrow.circlepath", title: "历史复盘", subtitle: "逐洞落点")
-            }
-            .buttonStyle(.plain)
             NavigationLink {
-                StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)
+                ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken)
             } label: {
-                HubTile(icon: "chart.bar.xaxis", title: "数据统计", subtitle: "均杆 · 趋势")
+                HubTile(icon: "chart.line.uptrend.xyaxis", title: "成绩", subtitle: "球局 · 统计")
             }
             .buttonStyle(.plain)
         }
@@ -420,7 +416,7 @@ public struct RoundHomeView: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("home-last-round-row")
+                .accessibilityIdentifier("home-last-round")
             }
             .padding(.top, 6)
         }
@@ -594,16 +590,16 @@ struct HubLastRoundCard: View {
             if let topoURL {
                 thumbnail(topoURL)
             }
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .top, spacing: 8) {
                     Text(courseName)
                         .font(.title3.weight(.bold))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                         .layoutPriority(1)
-                    Spacer(minLength: 8)
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Spacer(minLength: 4)
+                    VStack(alignment: .trailing, spacing: 0) {
                         Text("\(score)")
                             .font(.system(size: 26, weight: .heavy))
                             .monospacedDigit()
@@ -613,14 +609,9 @@ struct HubLastRoundCard: View {
                             .monospacedDigit()
                             .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
                     }
-                    .fixedSize()
                 }
-                HStack(spacing: 5) {
-                    Text(aiCaddieShortDate(date)).font(.caption.weight(.semibold))
-                    if let subtitle = holesParText {
-                        Text("· \(subtitle)").font(.caption2)
-                    }
-                }
+                Text(metadataText)
+                    .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             }

@@ -22,14 +22,14 @@ describe('navigation map', () => {
     }
   })
 
-  it('labels the five redesign sections in Chinese, settings last', () => {
-    expect(SECTION_ORDER.map((section) => SECTION_LABELS[section])).toEqual(['复盘', '备战', '统计', '球包', '设置'])
+  it('labels the four task-based sections in Chinese, settings last', () => {
+    expect(SECTION_ORDER.map((section) => SECTION_LABELS[section])).toEqual(['成绩', '备战', '球包', '设置'])
   })
 
-  it('returns the review subnav for review pages, stats subnav for trends/courses, settings subnav for plumbing', () => {
+  it('returns one results subnav for archive, trends, analysis and courses', () => {
     expect(subnavForPage('rounds')).toBe(REVIEW_SUBNAV)
     expect(subnavForPage('holes')).toBe(REVIEW_SUBNAV)
-    // 概览 is the 复盘 landing (no tab of its own) but still shows the review subnav.
+    // 概览 is the answer-first 成绩 landing.
     expect(subnavForPage('overview')).toBe(REVIEW_SUBNAV)
     expect(subnavForPage('history')).toBe(STATS_SUBNAV)
     expect(subnavForPage('courses')).toBe(STATS_SUBNAV)
@@ -48,28 +48,30 @@ describe('navigation map', () => {
     expect(subnavForPage('record')).toBeNull()
     // …but still resolve to a section (for grouping) and a utility title.
     expect(PAGE_TO_SECTION.caddie).toBe('prep')
-    expect(PAGE_TO_SECTION.record).toBe('review')
+    expect(PAGE_TO_SECTION.record).toBe('results')
     expect(pageTitle('caddie')).toBe('球童沙盘')
     expect(pageTitle('record')).toBe('手机记分')
+    expect(PAGE_TO_SECTION.review).toBe('results')
+    expect(subnavForPage('review')).toBeNull()
   })
 
   it('titles a normal page with its section label', () => {
-    expect(pageTitle('overview')).toBe('复盘')
-    expect(pageTitle('history')).toBe('统计')
+    expect(pageTitle('overview')).toBe('成绩')
+    expect(pageTitle('history')).toBe('成绩')
     expect(pageTitle('clubs')).toBe('球包')
     expect(pageTitle('sync-quality')).toBe('设置')
   })
 
-  it('marks 强弱分析 active for holes/issues in the 复盘 section', () => {
-    const analysis = REVIEW_SUBNAV.find((item) => item.label === '强弱分析')
+  it('marks 表现分析 active for analysis routes in the 成绩 section', () => {
+    const analysis = REVIEW_SUBNAV.find((item) => item.label === '表现分析')
     expect(analysis?.page).toBe('holes')
-    expect(analysis?.activeFor).toEqual(['holes', 'issues'])
+    expect(analysis?.activeFor).toEqual(['holes', 'result-clubs', 'issues', 'reports'])
   })
 
-  it('puts trends + course performance under 统计', () => {
-    expect(PAGE_TO_SECTION.history).toBe('stats')
-    expect(PAGE_TO_SECTION.courses).toBe('stats')
-    expect(STATS_SUBNAV.map((item) => item.page)).toEqual(['history', 'courses'])
+  it('puts all history and performance routes under 成绩', () => {
+    expect(PAGE_TO_SECTION.history).toBe('results')
+    expect(PAGE_TO_SECTION.courses).toBe('results')
+    expect(STATS_SUBNAV.map((item) => item.page)).toEqual(['overview', 'rounds', 'history', 'holes', 'courses'])
   })
 
   it('routes the 球包 rail to the clubs page', () => {

@@ -53,9 +53,9 @@ def load_history_summary_response(*, player_id: str = OWNER_ID) -> HistoryStatsS
 
 def load_mobile_stats_response(window: str = "all", *, player_id: str = OWNER_ID) -> MobileStatsResponse:
     """Compact 统计 payload for the phone: the deep / periodic / per-course / per-club slices of the
-    stats build, minus the giant per-hole table and heavy refs. ``window`` (all|12m|last10) mirrors
+    stats build, minus the giant per-hole table and heavy refs. ``window`` (all|12m|last20|last10) mirrors
     ``/history/stats`` so the GolfLive 统计 view keeps its windowed KPIs without the ~11MB payload;
-    the warm cache pre-builds all three windows, so each stays a cache hit — ``cached_build_history_stats``
+    the warm cache pre-builds all four windows, so each stays a cache hit — ``cached_build_history_stats``
     returns the raw dict so ``build_mobile_stats`` slices it with no second Pydantic pass.
     """
     data, mode = load_history_data_for_mode(player_id=player_id)
@@ -77,13 +77,14 @@ def warm_stats_cache() -> None:
 
     Calls the same cached accessors the request path uses: ``cached_load_history_data``
     (the ~2s read) and ``load_history_stats_response`` (the ~10s build, via
-    ``cached_build_history_stats``). Exactly THREE windows are pre-warmed:
+    ``cached_build_history_stats``). Exactly FOUR windows are pre-warmed:
 
     * ``all``   — default for /history/stats, /caddie/context, and the mobile packages
     * ``last10`` — 趋势总览's default range; windowed build sees only 10 rounds (~0.1s extra)
+    * ``last20`` — the wider recent-form range; windowed build sees only 20 rounds
     * ``12m``   — used by the 12-month trend view (~1.7s extra on real data)
 
-    After this runs, all three warmed windows and the other consumers of the stats cache
+    After this runs, all four warmed windows and the other consumers of the stats cache
     return instantly until the inputs change again.
 
     This is purely a pre-population: it never changes the data or the response any
@@ -94,6 +95,7 @@ def warm_stats_cache() -> None:
         cached_load_history_data()
         load_history_stats_response()
         load_history_stats_response(window="last10")
+        load_history_stats_response(window="last20")
         load_history_stats_response(window="12m")
     except Exception:  # noqa: BLE001 - warming is best-effort and must not propagate
         logger.exception("stats cache warm failed")

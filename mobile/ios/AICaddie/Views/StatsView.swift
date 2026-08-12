@@ -2,20 +2,24 @@ import Charts
 import Foundation
 import SwiftUI
 
-/// 数据统计:历史宏观汇总 —— 基础(均杆/差点/抓鸟/保帕)、各杆型(三/四/五杆洞)、推杆、
-/// 在恶化/改善的环节、季度走势、各球场专项、各球杆距离模型。数据来自 /api/v2/history/stats/mobile
-/// (紧凑 ~180KB)。与「历史复盘」(单场逐洞)分开。距离按码显示。
+public enum StatsViewMode { case all, analysis }
+
+/// Aggregate performance detail inside the unified 成绩 destination. `.analysis` omits the career
+/// and archive navigation already owned by ResultsView and keeps the evidence-backed metrics.
 public struct StatsView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
+    public let mode: StatsViewMode
 
     @State private var stats: MobileStats?
     @State private var isLoading = true
     @State private var errorText: String?
+    @State private var window = "last10"
 
-    public init(apiBaseURL: URL? = nil, adminToken: String? = nil) {
+    public init(apiBaseURL: URL? = nil, adminToken: String? = nil, mode: StatsViewMode = .all) {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.mode = mode
     }
 
     public var body: some View {
@@ -24,14 +28,27 @@ public struct StatsView: View {
                 AICaddieLoadingView(text: "载入统计…")
             } else {
                 ScrollView {
-                    StatsContent(stats: stats, isLoading: isLoading, errorText: errorText,
-                                 apiBaseURL: apiBaseURL, adminToken: adminToken)
+                    VStack(spacing: 0) {
+                        if mode == .analysis {
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text("统计范围").font(.caption).foregroundStyle(.secondary)
+                                Picker("统计范围", selection: $window) {
+                                    Text("近 10 场").tag("last10")
+                                    Text("近 20 场").tag("last20")
+                                    Text("近 12 月").tag("12m")
+                                    Text("全部").tag("all")
+                                }.pickerStyle(.segmented)
+                            }.padding(.horizontal, 14).padding(.top, 14)
+                        }
+                        StatsContent(stats: stats, isLoading: isLoading, errorText: errorText,
+                                     apiBaseURL: apiBaseURL, adminToken: adminToken, mode: mode)
+                    }
                 }
             }
         }
         .background(HubStyle.grouped)
-        .navigationTitle("数据统计")
-        .task { await load() }
+        .navigationTitle(mode == .analysis ? "表现分析" : "成绩统计")
+        .task(id: window) { await load() }
     }
 
     @MainActor
@@ -40,7 +57,8 @@ public struct StatsView: View {
         isLoading = true
         errorText = nil
         do {
-            stats = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).fetchMobileStats()
+            stats = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
+                .fetchMobileStats(window: mode == .analysis ? window : "all")
         } catch {
             errorText = "统计暂时取不到(网络或数据)"
         }
@@ -54,25 +72,26 @@ struct StatsContent: View {
     let errorText: String?
     var apiBaseURL: URL? = nil
     var adminToken: String? = nil
+    var mode: StatsViewMode = .all
 
     var body: some View {
         VStack(spacing: 12) {
             if let stats {
-                // Keep the approved, decision-first statistics hierarchy in the first viewport.
-                // Trend and aggregate KPIs remain available below it; they must not push the
-                // score composition, by-par performance, fairway/GIR and putting facts off-screen.
+                if mode == .all, let s = stats.summary { overviewCard(s) }
+                if mode == .all, let trend = stats.trend, !trend.points.isEmpty { trendCard(trend) }
                 if let spread = stats.scoring?.outcomeDistribution, !spread.isEmpty { spreadCard(spread) }
-                if let bands = stats.scoring?.scoreBands, !bands.isEmpty { distributionCard(bands) }
+                if let bands = stats.scoring?.scoreBands, !bands.isEmpty {
+                    distributionCard(bands, apiBaseURL: apiBaseURL, adminToken: adminToken)
+                }
                 let byPar = (stats.scoring?.byPar ?? []).filter { (3...5).contains($0.par ?? 0) }
                 if !byPar.isEmpty { byParCard(byPar) }
                 if let phases = stats.scoring?.phaseStats, !phases.isEmpty { phaseCard(phases) }
                 if let putting = stats.scoring?.putting { puttingCard(putting) }
-                if let s = stats.summary { overviewCard(s) }
-                if let trend = stats.trend, !trend.points.isEmpty { trendCard(trend) }
-                if let trends = stats.diagnosis?.issueTrends, !trends.isEmpty { trendsCard(trends) }
-                if let q = stats.time?.byQuarter, !q.isEmpty { periodCard(q) }
-                if !stats.courses.isEmpty { coursesCard(stats.courses) }
-                if !stats.clubs.isEmpty { clubsCard(stats.clubs) }
+                // The issue engine is not a benchmarked strokes-gained model. Keep estimated
+                // strokes-lost claims out of the consumer analysis surface.
+                if mode == .all, let q = stats.time?.byQuarter, !q.isEmpty { periodCard(q) }
+                if mode == .all, !stats.courses.isEmpty { coursesCard(stats.courses) }
+                if mode == .all, !stats.clubs.isEmpty { clubsCard(stats.clubs) }
             } else if isLoading {
                 ProgressView("载入统计…").padding(.top, 40)
             } else {

@@ -2,7 +2,7 @@ import XCTest
 
 /// Real running-app screenshots of the **复盘编辑** flow (PR2) from the iOS Simulator (XCUITest).
 /// Launches the ACTUAL app against the live backend (funnel) with the owner admin token, navigates
-/// 历史复盘 → a round → a hole's 落点图, taps 「编辑」, and captures the whole-hole draft flow:
+/// 成绩 → 全部球局 → a round → a hole's 落点图, taps 「编辑」, and captures the whole-hole draft flow:
 /// numbered landings, tap-to-add, long-press move, details, count-list delete/reorder, then Cancel or final Save.
 ///
 /// Runs on-demand only (`native-mobile.yml` gates the AICaddieUITests scheme behind workflow_dispatch),
@@ -37,7 +37,7 @@ final class ReviewEditUITests: XCTestCase {
         // ---- Navigate to a round review, then into one hole's 落点图 ----
         launchFresh()
         let historyTile = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "历史复盘")
+            NSPredicate(format: "label CONTAINS %@", "成绩")
         ).firstMatch
         guard historyTile.waitForExistence(timeout: 60) else {
             XCTFail("edit-00-home may be captured only after the real home replaces the launch screen")
@@ -52,6 +52,11 @@ final class ReviewEditUITests: XCTestCase {
             return
         }
         historyTile.tap()
+        guard scrollAndTapContaining(["全部球局", "搜索 · 年份"]) else {
+            save("noarchive"); dump("noarchive")
+            XCTFail("review-edit evidence must expose the complete archive")
+            return
+        }
         settle(6)
         save("01-history-list"); dump("01-history-list")
         // The newest owner rows can be CI-polluted manual rounds with coincident Tee coordinates.
@@ -389,6 +394,17 @@ final class ReviewEditUITests: XCTestCase {
                 let match = query.matching(predicate).firstMatch
                 if match.waitForExistence(timeout: 4), match.isHittable { match.tap(); return true }
             }
+        }
+        return false
+    }
+
+    @discardableResult
+    private func scrollAndTapContaining(_ fragments: [String], maxSwipes: Int = 5) -> Bool {
+        for attempt in 0...maxSwipes {
+            if tapContaining(fragments) { return true }
+            guard attempt < maxSwipes else { break }
+            app.swipeUp()
+            settle(1)
         }
         return false
     }

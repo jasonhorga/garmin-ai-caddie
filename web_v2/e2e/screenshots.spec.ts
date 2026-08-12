@@ -753,45 +753,10 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   const { prepIncludeShots, caddieContextQueries, caddieDecisionBodies } = await mockApi(page)
 
   await page.goto('/?admin=screenshot-admin')
-  // 复盘 landing = the round-review workbench: round selector + shape-coded hole list
-  // + 逐洞落点图 + 杆序. The newest round auto-selects on its first hole.
-  await expect(page.getByText('球洞 · 成绩')).toBeVisible()
-  const reviewRoundPicker = page.locator('[aria-label="选择球局"]')
-  await expect(reviewRoundPicker).toBeVisible()
-  await expect(reviewRoundPicker).toContainText('Black Knight B')
-  await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
-  await expect(page.locator('.review-canvas-hole')).toHaveCSS('color', 'rgb(15, 23, 32)')
-  const holeList = page.locator('.review-holes-list')
-  const lastHole = page.getByRole('button', { name: '第18洞 标准杆4 成绩5' })
-  const holeStripBox = await holeList.boundingBox()
-  const lastHoleBox = await lastHole.boundingBox()
-  expect(holeStripBox).not.toBeNull()
-  expect(lastHoleBox).not.toBeNull()
-  const lastHoleRight = (lastHoleBox?.x ?? 0) + (lastHoleBox?.width ?? 0)
-  const holeStripRight = (holeStripBox?.x ?? 0) + (holeStripBox?.width ?? 0)
-  if (lastHoleRight > holeStripRight) {
-    const strip = await holeList.evaluate((element) => ({
-      clientWidth: element.clientWidth,
-      scrollWidth: element.scrollWidth,
-      overflowX: getComputedStyle(element).overflowX,
-    }))
-    expect(strip.scrollWidth).toBeGreaterThan(strip.clientWidth)
-    expect(strip.overflowX).toMatch(/auto|scroll/)
-    await holeList.evaluate((element) => { element.scrollLeft = element.scrollWidth })
-    const reachableLastHoleBox = await lastHole.boundingBox()
-    expect(reachableLastHoleBox).not.toBeNull()
-    expect((reachableLastHoleBox?.x ?? 0) + (reachableLastHoleBox?.width ?? 0)).toBeLessThanOrEqual(holeStripRight + 1)
-    expect(reachableLastHoleBox?.x ?? 0).toBeGreaterThanOrEqual((holeStripBox?.x ?? 0) - 1)
-    await holeList.evaluate((element) => { element.scrollLeft = 0 })
-  }
-  const replayCanvas = page.locator('[aria-label="第1洞落点图"]')
-  const replayCanvasBox = await replayCanvas.boundingBox()
-  const replayFrameBox = await replayCanvas.locator('.review-canvas-frame').boundingBox()
-  expect(replayCanvasBox).not.toBeNull()
-  expect(replayFrameBox).not.toBeNull()
-  expect((replayFrameBox?.y ?? 0) + (replayFrameBox?.height ?? 0)).toBeLessThanOrEqual(
-    (replayCanvasBox?.y ?? 0) + (replayCanvasBox?.height ?? 0),
-  )
+  // 成绩 is the one answer-first destination for career, trends, analysis and archive.
+  await expect(page.locator('section[aria-label="成绩主页"]')).toBeVisible()
+  await expect(page.locator('section[aria-label="生涯概览"]')).toContainText('82.4')
+  await expect(page.locator('section[aria-label="最近球局"]')).toContainText('Black Knight B')
   await assertNoViewportOverflow(page)
   await expect(page.getByText('历史数据不可用')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'overview')
@@ -840,50 +805,10 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'courses')
 
-  // …while 复盘 owns the rounds list + strengths analysis (split out of the old 历史).
-  await page.getByRole('button', { name: '复盘', exact: true }).click()
-  await subnav.getByRole('button', { name: '球局' }).click()
-  await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
-  await assertNoViewportOverflow(page)
-  await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
-  await captureSmokeScreenshot(page, testInfo, 'rounds')
-
-  // A list screenshot does not prove the completed-round product surface. Open the
-  // actual archive card and capture the production detail panel after its API result
-  // is visible, so the final visual audit cannot accidentally approve a loading shell.
-  await page.getByRole('button', { name: '打开球局 Black Knight B，2026-05-20，成绩 78' }).click()
-  const roundReview = page.locator('section.round-detail-panel')
-  await expect(roundReview).toBeVisible()
-  const roundReviewHeading = roundReview.getByRole('heading', { name: '球局回顾', exact: true })
-  await expect(roundReviewHeading).toBeVisible()
-  await expect(roundReview.getByRole('heading', { name: '记分卡', exact: true })).toBeVisible()
-  const frontNine = roundReview.getByLabel('前九记分卡')
-  const backNine = roundReview.getByLabel('后九记分卡')
-  await expect(frontNine).toBeVisible()
-  await expect(backNine).toBeVisible()
-  await expect(roundReviewHeading).toBeInViewport({ ratio: 1 })
-  const frontNineBox = await frontNine.boundingBox()
-  const backNineBox = await backNine.boundingBox()
-  expect(frontNineBox).not.toBeNull()
-  expect(backNineBox).not.toBeNull()
-  expect(backNineBox?.y ?? 0).toBeGreaterThanOrEqual((frontNineBox?.y ?? 0) + (frontNineBox?.height ?? 0))
-  await assertNoViewportOverflow(page)
-  await captureSmokeScreenshot(page, testInfo, 'round-review')
-
-  await subnav.getByRole('button', { name: '强弱分析' }).click()
-  await expect(page.getByRole('heading', { name: '你最该练', exact: true, level: 1 })).toBeVisible()
-  await assertNoViewportOverflow(page)
-  await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
-  await captureSmokeScreenshot(page, testInfo, 'strengths-list')
-
-  await subnav.getByRole('button', { name: '强弱分析' }).click()
-  await expect(page.getByRole('heading', { name: '你最该练', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '按洞', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '按杆', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '问题', exact: true })).toBeVisible()
-  // 总体数字 from scoring.phaseStats: Tee fairwaysHit 6/10 → 60%
-  await expect(page.getByText('球道命中率')).toBeVisible()
-  await expect(page.getByText('60%', { exact: true })).toBeVisible()
+  await subnav.getByRole('button', { name: '表现分析' }).click()
+  await page.getByRole('button', { name: /球杆表现/ }).click()
+  await expect(page.getByRole('heading', { name: '球杆表现', exact: true })).toBeVisible()
+  await expect(page.getByText('227 码')).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'strengths')
 

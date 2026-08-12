@@ -52,7 +52,7 @@ _CLUB_KEYS = (
     "distanceTrend",
     "confidence",
 )
-_TIME_KEYS = ("byYear", "byQuarter", "byMonth", "improvement", "playFrequency")
+_TIME_KEYS = ("byYear", "byQuarter", "byMonth", "byDay", "improvement", "playFrequency")
 _SCORING_KEYS = ("scoreBands", "outcomes", "outcomeDistribution", "difficultyAdjusted", "byPar", "phaseStats", "putting", "approachMiss", "teeDirection")
 _DIAGNOSIS_KEYS = ("topIssue", "issueTrends", "windowSize")
 _PROFILE_KEYS = ("topStrength", "topWeakness", "strengths", "weaknesses", "caddieBiases")

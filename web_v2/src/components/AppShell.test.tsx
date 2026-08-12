@@ -11,11 +11,11 @@ describe('AppShell', () => {
         <p>review body</p>
       </AppShell>,
     )
-    expect(screen.getByRole('button', { name: '复盘' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('heading', { name: '复盘' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '强弱分析' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('button', { name: '成绩' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('heading', { name: '成绩' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '表现分析' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByText('review body')).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '球局' }))
+    await userEvent.click(screen.getByRole('button', { name: '全部球局' }))
     expect(onNavigate).toHaveBeenCalledWith('rounds')
   })
 

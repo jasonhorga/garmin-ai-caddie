@@ -25,8 +25,8 @@ public struct RecentRoundReviewView: View {
             )
         }
         .background(HubStyle.grouped)
-        // 与首页磁贴「历史复盘」一致(原为「赛后复盘」,单场仍叫「单场复盘」)。
-        .navigationTitle("历史复盘")
+        // Compatibility shortcut for the current-course summary; the complete archive lives in 成绩.
+        .navigationTitle("球场回顾")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarRole(.editor)
     }

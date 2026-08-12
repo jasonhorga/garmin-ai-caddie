@@ -758,13 +758,10 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   const { prepIncludeShots, caddieContextQueries, caddieDecisionBodies } = await mockApi(page)
 
   await page.goto('/')
-  // 复盘 landing = the round-review workbench: round selector + shape-coded hole list
-  // + 逐洞落点图 + 杆序. The newest round auto-selects on its first hole.
-  await expect(page.getByText('球洞 · 成绩')).toBeVisible()
-  const reviewRoundPicker = page.locator('[aria-label="选择球局"]')
-  await expect(reviewRoundPicker).toBeVisible()
-  await expect(reviewRoundPicker).toContainText('Black Knight B')
-  await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
+  // 成绩 is the one answer-first destination for career, trends, analysis and archive.
+  await expect(page.locator('section[aria-label="成绩主页"]')).toBeVisible()
+  await expect(page.locator('section[aria-label="生涯概览"]')).toContainText('82.4')
+  await expect(page.locator('section[aria-label="最近球局"]')).toContainText('Black Knight B')
   await assertNoViewportOverflow(page)
   await expect(page.getByText('历史数据不可用')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'overview')

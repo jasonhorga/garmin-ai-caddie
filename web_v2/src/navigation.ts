@@ -1,9 +1,11 @@
 export type ProductPage =
   | 'overview'
+  | 'review'
   | 'history'
   | 'rounds'
   | 'courses'
   | 'holes'
+  | 'result-clubs'
   | 'clubs'
   | 'issues'
   | 'reports'
@@ -17,26 +19,25 @@ export type ProductPage =
   | 'account'
   | 'settings'
 
-// Web redesign (2026-07): the desktop workbench has five primary sections —
-// 复盘 / 备战 / 统计 / 球包 / 设置 — and does NOT do live play. The old 实战/live
-// section is gone from the rail; the caddie sandbox + phone scorer stay routable
-// but off the primary rail (see UTILITY_NAV / OFF_RAIL_PAGES).
-export type ProductSection = 'review' | 'prep' | 'stats' | 'bag' | 'settings'
+// Historical rounds are the evidence behind performance statistics, so Web exposes
+// one 成绩 section. Detail routes remain distinct, but no longer compete on the rail.
+export type ProductSection = 'results' | 'prep' | 'bag' | 'settings'
 
 export const PAGE_TO_SECTION: Record<ProductPage, ProductSection> = {
-  // 复盘 (review) — rounds list → round detail → shot-map. 概览 is its landing.
-  overview: 'review',
-  rounds: 'review',
-  holes: 'review',
-  issues: 'review',
-  reports: 'review',
-  record: 'review',
+  // 成绩 — answer-first landing → archive/trends/analysis/course detail.
+  overview: 'results',
+  review: 'results',
+  rounds: 'results',
+  history: 'results',
+  courses: 'results',
+  holes: 'results',
+  'result-clubs': 'results',
+  issues: 'results',
+  reports: 'results',
+  record: 'results',
   // 备战 (prep)
   prep: 'prep',
   caddie: 'prep',
-  // 统计 (stats) — trends + course performance (strokes-gained).
-  history: 'stats',
-  courses: 'stats',
   // 球包 (bag) — club distances / performance.
   clubs: 'bag',
   // 设置 (settings) — connectors, corrections, bag management, roster, backend.
@@ -48,20 +49,18 @@ export const PAGE_TO_SECTION: Record<ProductPage, ProductSection> = {
   settings: 'settings',
 }
 
-export const SECTION_ORDER: ProductSection[] = ['review', 'prep', 'stats', 'bag', 'settings']
+export const SECTION_ORDER: ProductSection[] = ['results', 'prep', 'bag', 'settings']
 
 export const SECTION_LABELS: Record<ProductSection, string> = {
-  review: '复盘',
+  results: '成绩',
   prep: '备战',
-  stats: '统计',
   bag: '球包',
   settings: '设置',
 }
 
 export const SECTION_DEFAULT_PAGE: Record<ProductSection, ProductPage> = {
-  review: 'overview',
+  results: 'overview',
   prep: 'prep',
-  stats: 'history',
   bag: 'clubs',
   settings: 'sync-quality',
 }
@@ -88,16 +87,18 @@ export interface SubNavItem {
 }
 
 // 复盘 subnav — the review workspace tabs (概览 is the section landing above them).
-export const REVIEW_SUBNAV: SubNavItem[] = [
-  { page: 'rounds', label: '球局' },
-  { page: 'holes', label: '强弱分析', activeFor: ['holes', 'issues'] },
-]
-
-// 统计 subnav — trends landing + course performance (strokes-gained content).
-export const STATS_SUBNAV: SubNavItem[] = [
-  { page: 'history', label: '趋势总览' },
+export const RESULTS_SUBNAV: SubNavItem[] = [
+  { page: 'overview', label: '总览' },
+  { page: 'rounds', label: '全部球局' },
+  { page: 'history', label: '时间趋势' },
+  { page: 'holes', label: '表现分析', activeFor: ['holes', 'result-clubs', 'issues', 'reports'] },
   { page: 'courses', label: '球场' },
 ]
+
+// Compatibility aliases for code/tests that import the old names. Both now point
+// at the one results information architecture, not two independent sections.
+export const REVIEW_SUBNAV = RESULTS_SUBNAV
+export const STATS_SUBNAV = RESULTS_SUBNAV
 
 // Settings tabs in display order. Consumer-facing tabs come first (连接 Garmin /
 // 球包管理 / 账户 / 订正); the owner-only family + backend tabs trail and are filtered
@@ -134,11 +135,11 @@ export function visibleSettingsSubnav(access: SettingsAccess): SubNavItem[] {
 }
 
 export function subnavForPage(page: ProductPage): SubNavItem[] | null {
+  if (page === 'review') return null
   // Off-rail pages (caddie sandbox / phone scorer) render without a section subnav.
   if (OFF_RAIL_PAGES.includes(page)) return null
   const section = PAGE_TO_SECTION[page]
-  if (section === 'review') return REVIEW_SUBNAV
-  if (section === 'stats') return STATS_SUBNAV
+  if (section === 'results') return RESULTS_SUBNAV
   if (section === 'settings') return SETTINGS_SUBNAV
   return null
 }

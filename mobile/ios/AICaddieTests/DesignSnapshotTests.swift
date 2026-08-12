@@ -263,8 +263,7 @@ final class DesignSnapshotTests: XCTestCase {
             HubPlayTile()
             HStack(spacing: 11) {
                 HubTile(icon: "scope", title: "备战", subtitle: "搜索 · 球童试算")
-                HubTile(icon: "clock.arrow.circlepath", title: "历史复盘", subtitle: "逐洞落点")
-                HubTile(icon: "chart.bar.xaxis", title: "数据统计", subtitle: "均杆 · 趋势")
+                HubTile(icon: "chart.line.uptrend.xyaxis", title: "成绩", subtitle: "球局 · 统计")
             }
             VStack(alignment: .leading, spacing: 9) {
                 HubSectionLabel("上一场")
@@ -531,18 +530,35 @@ final class DesignSnapshotTests: XCTestCase {
         "diagnosis":{"topIssue":"double_or_worse","issueTrends":[{"issue":"tee_miss","direction":"worsening","estimatedStrokesLost":1.2},{"issue":"three_putt","direction":"improving","estimatedStrokesLost":-0.6}]}}
         """
         let mobileStats = try JSONDecoder().decode(MobileStats.self, from: Data(statsJSON.utf8))
-        // Render the same navigable, scrollable container the customer sees. Capturing the oversized
-        // StatsContent component by itself vertically centred and clipped the first sections, which
-        // made the old "approved" image impossible for the production screen to reproduce honestly.
         try captureScreen(
             NavigationStack {
                 ScrollView {
                     StatsContent(stats: mobileStats, isLoading: false, errorText: nil)
                 }
                 .background(HubStyle.grouped)
-                .navigationTitle("数据统计")
+                .navigationTitle("成绩统计")
             },
             named: "stats"
+        )
+        try captureScreen(
+            NavigationStack {
+                ScrollView {
+                    ResultsLandingContent(stats: mobileStats, archive: nil, errorText: nil)
+                }
+                .background(HubStyle.grouped)
+                .navigationTitle("成绩")
+            },
+            named: "results-landing"
+        )
+        try captureScreen(
+            NavigationStack {
+                ScrollView {
+                    StatsContent(stats: mobileStats, isLoading: false, errorText: nil, mode: .analysis)
+                }
+                .background(HubStyle.grouped)
+                .navigationTitle("表现分析")
+            },
+            named: "results-analysis"
         )
         // 球场钻取(round-10):各九洞组合 + 所有比赛(时间·成绩,点单场看复盘)。
         if let course = mobileStats.courses.first {
