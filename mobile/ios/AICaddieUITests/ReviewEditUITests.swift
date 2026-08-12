@@ -268,10 +268,13 @@ final class ReviewEditUITests: XCTestCase {
         // Ending exactly on the preceding handle's centre is UIKit's insertion boundary: depending
         // on row geometry it may resolve to the original slot even though the drag was recognised.
         // Move clearly through the preceding row, matching a player's upward reorder gesture.
+        let reorderStart = lastReorder.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        )
         let reorderDestination = upperReorder.coordinate(
             withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)
         )
-        lastReorder.press(
+        reorderStart.press(
             forDuration: 0.7,
             thenDragTo: reorderDestination,
             withVelocity: .slow,
