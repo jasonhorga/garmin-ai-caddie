@@ -254,6 +254,7 @@ public struct RoundHomeView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("home-last-round")
             }
             .padding(.top, 6)
         }
@@ -423,27 +424,40 @@ struct HubLastRoundCard: View {
     var topoURL: URL? = nil
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             if let topoURL {
                 thumbnail(topoURL)
             }
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(courseName).font(.title3.weight(.bold)).foregroundStyle(.primary)
-                    Text(aiCaddieShortDate(date)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Spacer(minLength: 8)
-                    Text("\(score)").font(.system(size: 26, weight: .heavy)).monospacedDigit().foregroundStyle(.primary)
-                    Text(toParText)
-                        .font(.subheadline.weight(.bold))
-                        .monospacedDigit()
-                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(courseName)
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text("\(score)")
+                            .font(.system(size: 26, weight: .heavy))
+                            .monospacedDigit()
+                            .foregroundStyle(.primary)
+                        Text(toParText)
+                            .font(.subheadline.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+                    }
                 }
-                if let subtitle = holesParText {
-                    Text(subtitle).font(.caption2).foregroundStyle(.secondary)
-                }
+                Text(metadataText)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         }
         .hubCard()
+    }
+
+    private var metadataText: String {
+        [Optional(aiCaddieShortDate(date)), holesParText].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// 小尺寸圆角地形缩略图。加载中 / 加载失败 / CI 快照无网络 → 克制的绿调占位(map 图标),

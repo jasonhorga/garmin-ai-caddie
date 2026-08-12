@@ -50,13 +50,15 @@ public struct ResultsView: View {
         isLoading = true
         errorText = nil
         let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
-        async let statsResult: MobileStats? = try? await client.fetchMobileStats()
-        async let archiveResult: HistoryRoundsArchive? = try? await client.fetchHistoryRounds()
-        let nextStats = await statsResult
-        let nextArchive = await archiveResult
-        if let nextStats { stats = nextStats }
-        if let nextArchive { archive = nextArchive }
-        if stats == nil && archive == nil { errorText = "成绩暂时取不到（网络或数据）" }
+        async let statsRequest = client.fetchMobileStats()
+        async let archiveRequest = client.fetchHistoryRounds()
+        var failedSections: [String] = []
+        do { stats = try await statsRequest } catch { failedSections.append("生涯与趋势") }
+        do { archive = try await archiveRequest } catch { failedSections.append("球局档案") }
+        guard !Task.isCancelled else { return }
+        if !failedSections.isEmpty {
+            errorText = "\(failedSections.joined(separator: "、"))暂时取不到"
+        }
         isLoading = false
     }
 }
@@ -74,6 +76,13 @@ struct ResultsLandingContent: View {
             if let summary = stats?.summary { recentCard(summary, points: stats?.trend?.points ?? []) }
             recentRoundsCard
             destinationsCard
+            if let errorText, stats != nil || archive != nil {
+                Label(errorText, systemImage: "exclamationmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .hubCard()
+            }
             if stats == nil && archive == nil {
                 Text(errorText ?? "暂无成绩")
                     .font(.subheadline).foregroundStyle(.secondary)
@@ -126,7 +135,9 @@ struct ResultsLandingContent: View {
                                 .interpolationMethod(.catmullRom)
                         }
                     }
-                    .frame(height: 82).chartXAxis(.hidden).chartYAxis(.hidden)
+                    .frame(height: 82)
+                    .chartYScale(domain: resultsScoreDomain(points.compactMap { $0.score.map(Double.init) }))
+                    .chartXAxis(.hidden).chartYAxis(.hidden)
                 }
             }
         }
@@ -269,7 +280,6 @@ public struct ResultsArchiveView: View {
         }
         .background(HubStyle.grouped)
         .navigationTitle("全部球局")
-        .searchable(text: $search, prompt: "搜索球场或日期")
         .task(id: "\(year)|\(course)|\(hasShotsOnly)|\(period ?? "")|\(scoreBand ?? "")|\(search)") {
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
             await load()
@@ -279,16 +289,47 @@ public struct ResultsArchiveView: View {
     private var filterCard: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                Picker("年份", selection: $year) {
-                    Text("所有年份").tag("")
-                    ForEach(archive?.availableYears ?? [], id: \.self) { Text($0).tag($0) }
-                }.pickerStyle(.menu)
-                Picker("球场", selection: $course) {
-                    Text("所有球场").tag("")
-                    ForEach(archive?.availableCourses ?? []) { Text($0.label).tag($0.key) }
-                }.pickerStyle(.menu)
-                Spacer()
-                Toggle("有逐杆", isOn: $hasShotsOnly).font(.caption).toggleStyle(.switch)
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("搜索球场或日期", text: $search)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            .padding(.horizontal, 11)
+            .frame(height: 42)
+            .background(HubStyle.grouped)
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            HStack(spacing: 8) {
+                Menu {
+                    Button("所有年份") { year = "" }
+                    ForEach(archive?.availableYears ?? [], id: \.self) { option in
+                        Button(option) { year = option }
+                    }
+                } label: {
+                    filterMenuLabel(year.isEmpty ? "所有年份" : year)
+                }
+                Menu {
+                    Button("所有球场") { course = "" }
+                    ForEach(archive?.availableCourses ?? []) { option in
+                        Button(option.label) { course = option.key }
+                    }
+                } label: {
+                    filterMenuLabel(selectedCourseLabel)
+                }
+                Button { hasShotsOnly.toggle() } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: hasShotsOnly ? "checkmark.circle.fill" : "circle")
+                        Text("逐杆")
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(hasShotsOnly ? LiveHoleStyle.green : .secondary)
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: 38)
+                    .background(HubStyle.grouped)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("只看有逐杆数据")
+                .accessibilityValue(hasShotsOnly ? "已开启" : "已关闭")
             }
             if period != nil || scoreBand != nil {
                 HStack {
@@ -299,6 +340,25 @@ public struct ResultsArchiveView: View {
                 }
             }
         }.hubCard()
+    }
+
+    private var selectedCourseLabel: String {
+        guard !course.isEmpty else { return "所有球场" }
+        return archive?.availableCourses.first { $0.key == course }?.label ?? "已选球场"
+    }
+
+    private func filterMenuLabel(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            Text(text).lineLimit(1)
+            Spacer(minLength: 2)
+            Image(systemName: "chevron.down").font(.caption2.weight(.bold))
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, minHeight: 38)
+        .background(HubStyle.grouped)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var filteredGroups: [HistoryMonthGroup] {
@@ -469,7 +529,9 @@ public struct ResultsTrendView: View {
                             .foregroundStyle(LiveHoleStyle.green).symbolSize(40)
                     }
                 }
-                .frame(height: 180).chartXAxis(.hidden)
+                .frame(height: 180)
+                .chartYScale(domain: resultsScoreDomain(points.map(\.value)))
+                .chartXAxis(.hidden).chartYAxis(.hidden)
                 .chartOverlay { proxy in
                     GeometryReader { geometry in
                         Rectangle().fill(.clear).contentShape(Rectangle())
@@ -746,6 +808,12 @@ struct ResultsClubsView: View {
 }
 
 private func oneDecimal(_ value: Double) -> String { String(format: "%.1f", value) }
+private func resultsScoreDomain(_ values: [Double]) -> ClosedRange<Double> {
+    guard let low = values.min(), let high = values.max() else { return 70...100 }
+    if low == high { return (low - 1)...(high + 1) }
+    let padding = max(1, (high - low) * 0.14)
+    return (low - padding)...(high + padding)
+}
 private func shortDate(_ raw: String?) -> String? { raw.map { String($0.prefix(10)) } }
 private func monthLabel(_ key: String) -> String {
     let parts = key.split(separator: "-")

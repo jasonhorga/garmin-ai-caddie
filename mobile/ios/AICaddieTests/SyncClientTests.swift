@@ -265,7 +265,7 @@ final class SyncClientTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         let payload = """
         {
-          "summary": {"totalRounds": 20, "recent20Average": 88.4},
+          "summary": {"totalRounds": 20, "recent20Average": 88.4, "handicapTrend": -0.8},
           "time": {
             "byYear": [{"key": "2026", "roundCount": 2, "roundIds": ["r1", "r2"]}],
             "byQuarter": [], "byMonth": [],
@@ -273,7 +273,12 @@ final class SyncClientTests: XCTestCase {
             "playFrequency": {"totalMonths": 3, "roundsPerMonth": 1.7, "mostActiveMonth": {"key": "2026-08", "roundCount": 2}}
           },
           "scoring": {"byPar": [{"par": 4, "holeCount": 10, "parOrBetter": 6, "parOrBetterPct": 60}]},
-          "courses": [], "clubs": []
+          "courses": [],
+          "clubs": [{
+            "club": "3W", "sampleCount": 22, "median": 186,
+            "distanceTrend": {"direction": "longer", "deltaMedian": 12.4}
+          }],
+          "diagnosis": {"topIssue": {"issue": "missing_shots"}, "issueTrends": []}
         }
         """.data(using: .utf8)!
         CapturingURLProtocol.requestHandler = { request in
@@ -292,9 +297,15 @@ final class SyncClientTests: XCTestCase {
         let stats = try await client.fetchMobileStats(window: "last20")
 
         XCTAssertEqual(stats.summary?.recent20Average, 88.4)
+        XCTAssertEqual(stats.summary?.handicapTrend, -0.8)
         XCTAssertEqual(stats.time?.byDay.first?.roundIds, ["r2"])
         XCTAssertEqual(stats.time?.playFrequency?.mostActiveMonth?.key, "2026-08")
         XCTAssertEqual(stats.scoring?.byPar.first?.parOrBetter, 6)
+        XCTAssertEqual(
+            stats.clubs.first?.distanceTrend,
+            .object(["direction": .string("longer"), "deltaMedian": .number(12.4)])
+        )
+        XCTAssertEqual(stats.diagnosis?.topIssue, .object(["issue": .string("missing_shots")]))
     }
 
     func testFetchHistoryRoundsSendsClosedFiltersAndDecodesArchive() async throws {

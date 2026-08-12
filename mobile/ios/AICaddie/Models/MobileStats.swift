@@ -77,7 +77,9 @@ public struct StatsSummary: Codable, Equatable {
     public let bestScore: Int?
     public let worstScore: Int?
     public let handicapEstimate: Double?
-    public let handicapTrend: String?
+    /// Numeric recent-vs-baseline delta from the production stats contract.
+    /// Negative means the estimated handicap is improving.
+    public let handicapTrend: Double?
 }
 
 public struct StatsScoring: Codable, Equatable {
@@ -296,16 +298,20 @@ public struct StatsClub: Codable, Equatable, Identifiable {
     public let p90: Double?
     public let max: Double?
     public let consistency: String?
-    public let distanceTrend: String?
+    /// Production returns a structured trend object; older fixtures returned a
+    /// short string. Keep the compact payload lossless across both shapes.
+    public let distanceTrend: JSONValue?
 }
 
 public struct StatsDiagnosis: Codable, Equatable {
-    public let topIssue: String?
+    /// Production emits the complete issue fact object while legacy payloads
+    /// used only its token. Retain either shape without dropping the section.
+    public let topIssue: JSONValue?
     public let issueTrends: [StatsIssueTrend]
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        topIssue = try? c.decodeIfPresent(String.self, forKey: .topIssue)
+        topIssue = try? c.decodeIfPresent(JSONValue.self, forKey: .topIssue)
         issueTrends = (try? c.decodeIfPresent([StatsIssueTrend].self, forKey: .issueTrends)) ?? []
     }
 

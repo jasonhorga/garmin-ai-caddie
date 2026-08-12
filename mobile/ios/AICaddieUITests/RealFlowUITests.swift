@@ -33,12 +33,27 @@ final class RealFlowUITests: XCTestCase {
         // ---- Section 1: home + the unified 成绩 destination ----
         launchFresh()
         save("01-home"); dump("01-home")
-        if tapContaining(["成绩", "球局 · 统计"]) {
-            settle(7); save("02-results"); dump("02-results")
-            if tapContaining(["时间趋势", "近 10 / 20 场"]) {
-                settle(7); save("02b-trends"); dump("02b-trends")
-            }
-        }
+        XCTAssertTrue(tapContaining(["成绩", "球局 · 统计"]), "成绩入口必须可点击")
+        XCTAssertTrue(app.staticTexts["我的高尔夫生涯"].waitForExistence(timeout: 15), "成绩主页必须显示生涯摘要")
+        settle(3); save("02-results"); dump("02-results")
+        XCTAssertTrue(scrollAndTapContaining(["时间趋势", "近 10 / 20 场"]), "时间趋势入口必须可点击")
+        XCTAssertTrue(app.navigationBars["时间趋势"].waitForExistence(timeout: 10), "必须进入时间趋势")
+        settle(4); save("02b-trends"); dump("02b-trends")
+
+        XCTAssertTrue(tapBackButton("成绩"), "时间趋势必须能返回成绩主页")
+        XCTAssertTrue(scrollAndTapContaining(["表现分析", "开球 · 攻果岭"]), "表现分析入口必须可点击")
+        XCTAssertTrue(app.navigationBars["表现分析"].waitForExistence(timeout: 10), "必须进入表现分析")
+        settle(5); save("02c-analysis"); dump("02c-analysis")
+
+        XCTAssertTrue(tapBackButton("成绩"), "表现分析必须能返回成绩主页")
+        XCTAssertTrue(scrollAndTapContaining(["个球场 · 九洞组合"]), "球场入口必须可点击")
+        XCTAssertTrue(app.navigationBars["球场"].waitForExistence(timeout: 10), "必须进入球场列表")
+        settle(3); save("02d-courses"); dump("02d-courses")
+
+        XCTAssertTrue(tapBackButton("成绩"), "球场列表必须能返回成绩主页")
+        XCTAssertTrue(scrollAndTapContaining(["中位距离 · p10"]), "球杆入口必须可点击")
+        XCTAssertTrue(app.navigationBars["球杆"].waitForExistence(timeout: 10), "必须进入球杆列表")
+        settle(3); save("02e-clubs"); dump("02e-clubs")
 
         // ---- Section 2: 成绩 → 全部球局 → a round review → shot-map → review-edit ----
         launchFresh()
@@ -66,9 +81,11 @@ final class RealFlowUITests: XCTestCase {
 
         // ---- Section 3: last-round review shortcut from home ----
         launchFresh()
-        if tapContaining(["上一场"]) {
-            settle(6); save("05-last-round-review"); dump("05-last-round-review")
-        }
+        let lastRound = app.descendants(matching: .any).matching(identifier: "home-last-round").firstMatch
+        XCTAssertTrue(lastRound.waitForExistence(timeout: 8), "首页必须有可点击的上一场卡片")
+        if lastRound.exists { lastRound.tap() }
+        XCTAssertTrue(app.navigationBars["单场复盘"].waitForExistence(timeout: 12), "上一场卡片必须进入单场复盘")
+        settle(4); save("05-last-round-review"); dump("05-last-round-review")
 
         // ---- Section 4: pre-round prep on the nearest real course (黑骑士 via injected GPS) ----
         // READ-ONLY (GET /courses/{id}/prep) — shows real geometry F/M/B + caddie + hazards WITHOUT
@@ -110,6 +127,15 @@ final class RealFlowUITests: XCTestCase {
 
     private func settle(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
 
+    @discardableResult
+    private func tapBackButton(_ label: String) -> Bool {
+        let button = app.navigationBars.buttons[label].firstMatch
+        guard button.waitForExistence(timeout: 6), button.isHittable else { return false }
+        button.tap()
+        settle(2)
+        return true
+    }
+
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.
     @discardableResult
     private func tapContaining(_ fragments: [String]) -> Bool {
@@ -119,6 +145,27 @@ final class RealFlowUITests: XCTestCase {
                 let match = query.matching(predicate).firstMatch
                 if match.waitForExistence(timeout: 4), match.isHittable { match.tap(); return true }
             }
+        }
+        return false
+    }
+
+    /// Results has enough real production content that its drill-down rows are
+    /// below the first viewport. Scroll deliberately instead of accidentally
+    /// passing only when the career summary failed to decode and the page was
+    /// therefore short.
+    @discardableResult
+    private func scrollAndTapContaining(_ fragments: [String], maxSwipes: Int = 4) -> Bool {
+        for attempt in 0...maxSwipes {
+            for fragment in fragments {
+                let predicate = NSPredicate(format: "label CONTAINS %@", fragment)
+                for query in [app.buttons, app.cells, app.staticTexts, app.otherElements] {
+                    let match = query.matching(predicate).firstMatch
+                    if match.exists, match.isHittable { match.tap(); return true }
+                }
+            }
+            guard attempt < maxSwipes else { break }
+            app.swipeUp()
+            settle(1)
         }
         return false
     }
