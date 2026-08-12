@@ -96,14 +96,21 @@ test.describe('real isolated CI player evidence', () => {
     )
     expect(overviewResponse.status(), 'isolated player overview must authorize in the browser').toBe(200)
 
-    const roundPicker = page.locator('[aria-label="选择球局"]')
+    const resultsSubnav = page.getByRole('navigation', { name: '辅助导航' })
+    await resultsSubnav.getByRole('button', { name: '全部球局', exact: true }).click()
+    await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
+    const firstRound = page.getByRole('button', { name: /^打开球局 / }).first()
     try {
-      await expect(roundPicker).toBeVisible({ timeout: 60_000 })
+      await expect(firstRound).toBeVisible({ timeout: 60_000 })
     } catch (error) {
-      await captureWithoutCredentialInLocation(page, 'review-workbench-load-failure.png')
+      await captureWithoutCredentialInLocation(page, 'rounds-list-load-failure.png')
       throw error
     }
-    await expect(roundPicker).toContainText('Cypress Point')
+    await expect(firstRound).toContainText('Cypress Point')
+    await captureWithoutCredentialInLocation(page, 'rounds-list.png')
+
+    await firstRound.click()
+    await expect(page.locator('[aria-label="选择球局"]')).toContainText('Cypress Point')
     await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
     try {
       await expect(page.locator('.hole-base-topo.is-ready')).toBeVisible({ timeout: 60_000 })
@@ -113,17 +120,6 @@ test.describe('real isolated CI player evidence', () => {
     }
     await captureWithoutCredentialInLocation(page, 'review-workbench.png')
 
-    await page.getByRole('button', { name: '复盘', exact: true }).click()
-    await page
-      .getByRole('navigation', { name: '辅助导航' })
-      .getByRole('button', { name: '球局', exact: true })
-      .click()
-    await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
-    const firstRound = page.getByRole('button', { name: /^打开球局 / }).first()
-    await expect(firstRound).toBeVisible()
-    await captureWithoutCredentialInLocation(page, 'rounds-list.png')
-
-    await firstRound.click()
     const roundDetail = page.locator('.round-detail-panel')
     const roundDetailHeading = roundDetail.getByRole('heading', { name: '球局回顾', exact: true })
     await expect(roundDetailHeading).toBeVisible()

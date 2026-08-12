@@ -319,10 +319,9 @@ test.describe('player-facing deployment (link required)', () => {
     await mockPlayerApi(page, PLAYER_A)
 
     await page.goto(`/p/${PLAYER_A.token}`)
-    // 球局 lives under 复盘 in the redesign (was 历史); scope the tab to the 辅助导航
-    // nav so it never collides with the home 看复盘 → / 强弱分析 → cards.
-    await page.getByRole('button', { name: '复盘', exact: true }).click()
-    await page.getByRole('navigation', { name: '辅助导航' }).getByRole('button', { name: '球局' }).click()
+    // The archive lives under the unified 成绩 destination. Scope the lookup so
+    // a same-named content link cannot satisfy the navigation journey.
+    await page.getByRole('navigation', { name: '辅助导航' }).getByRole('button', { name: '全部球局' }).click()
     await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
 
     // Both rounds list as cards (raw round-id refs are owner-diagnostics-only now); the
@@ -348,8 +347,8 @@ test.describe('owner deployment (admin token)', () => {
     const { adminHeadersSeen } = await mockOwnerApi(page)
 
     await page.goto('/')
-    // The 复盘 landing (round-review workbench) loads with the owner's rounds.
-    await expect(page.locator('[aria-label="选择球局"]')).toBeVisible()
+    // The unified 成绩 landing loads with the owner's career and recent-round data.
+    await expect(page.locator('section[aria-label="成绩主页"]')).toBeVisible()
 
     await page.getByRole('button', { name: '设置' }).click()
     await expect(page.getByRole('heading', { name: '同步与数据健康', exact: true })).toBeVisible()

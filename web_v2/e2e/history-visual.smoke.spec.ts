@@ -100,14 +100,19 @@ const statsPayload = {
     handicapTrend: -0.8,
   },
   time: {
-    byYear: [{ key: '2026', roundCount: 12, average18: 82.4, bestScore: 76, roundRefs: ['900001', '900002'] }],
-    byQuarter: [{ key: '2026-Q2', roundCount: 8, average18: 80.9, bestScore: 76, roundRefs: ['900001'] }],
+    byYear: [{ key: '2026', roundCount: 12, average18: 82.4, bestScore: 76, roundIds: ['900001', '900002'] }],
+    byQuarter: [{ key: '2026-Q2', roundCount: 8, average18: 80.9, bestScore: 76, roundIds: ['900001'] }],
     byMonth: [
-      { key: '2026-05', roundCount: 2, average18: 80.5, averageDifferential: 9.1, bestScore: 78, roundRefs: ['900001', '900002'] },
-      { key: '2026-04', roundCount: 3, average18: 82.0, averageDifferential: 10.4, bestScore: 79, roundRefs: ['900004'] },
-      { key: '2026-03', roundCount: 2, average18: 84.5, averageDifferential: 12.0, bestScore: 81, roundRefs: ['900005'] },
+      { key: '2026-05', roundCount: 2, average18: 80.5, averageDifferential: 9.1, bestScore: 78, roundIds: ['900001', '900002'] },
+      { key: '2026-04', roundCount: 3, average18: 82.0, averageDifferential: 10.4, bestScore: 79, roundIds: ['900004'] },
+      { key: '2026-03', roundCount: 2, average18: 84.5, averageDifferential: 12.0, bestScore: 81, roundIds: ['900005'] },
     ],
-    playFrequency: { roundsPerMonth: 3.2, activeMonths: 4 },
+    byDay: [
+      { key: '2026-05-20', roundCount: 1, average18: 78, bestScore: 78, roundIds: ['900001'] },
+      { key: '2026-05-03', roundCount: 1, average18: 83, bestScore: 83, roundIds: ['900002'] },
+      { key: '2026-04-16', roundCount: 1, average18: 79, bestScore: 79, roundIds: ['900004'] },
+    ],
+    playFrequency: { totalMonths: 4, roundsPerMonth: 3.2, mostActiveMonth: { key: '2026-05', roundCount: 4 } },
     improvement: {
       direction: 'improving',
       baselineAverage18: 85.2,
@@ -120,10 +125,17 @@ const statsPayload = {
       recentRoundRefs: ['900001', '900002'],
     },
   },
+  trend: {
+    points: [
+      { date: '2026-03-14', score: 85, toPar: 13, roundId: '900005' },
+      { date: '2026-04-16', score: 79, toPar: 7, roundId: '900004' },
+      { date: '2026-05-20', score: 78, toPar: 6, roundId: '900001' },
+    ],
+  },
   scoring: {
     scoreBands: [
-      { label: '70s', count: 3, roundRefs: ['900001'] },
-      { label: '80s', count: 7, roundRefs: ['900002'] },
+      { label: '70s', count: 3, roundIds: ['900001', '900004'] },
+      { label: '80s', count: 7, roundIds: ['900002', '900005'] },
     ],
     outcomes: { eagleOrBetter: 1, birdie: 14, par: 94, bogey: 76, doubleOrWorse: 31 },
     outcomeDistribution: [
@@ -135,14 +147,19 @@ const statsPayload = {
       { key: 'triple', label: 'Triple', count: 6, pct: 2.8 },
       { key: 'quadPlus', label: '+4 or worse', count: 3, pct: 1.4 },
     ],
+    byPar: [
+      { par: 3, holeCount: 40, averageToPar: 0.3, parOrBetter: 29, parOrBetterPct: 72.5 },
+      { par: 4, holeCount: 120, averageToPar: 0.7, parOrBetter: 61, parOrBetterPct: 50.8 },
+      { par: 5, holeCount: 56, averageToPar: 0.4, parOrBetter: 35, parOrBetterPct: 62.5 },
+    ],
     phaseStats: [
-      { phase: 'Tee', fairwaysHit: 6, sampleCount: 10, sourceRefs: ['900001:1'] },
-      { phase: 'Approach', girPct: 44, sampleCount: 18, sourceRefs: ['900001:7'] },
-      { phase: 'Putting', averagePutts: 1.9, sampleCount: 18, sourceRefs: ['900001:8'] },
+      { phase: 'Tee', fairwaysRecorded: 100, fairwaysHit: 57, fairwayMissLeft: 26, fairwayMissRight: 17 },
+      { phase: 'Approach', girRecorded: 216, gir: 91, missedGir: 125, girPct: 42.1 },
+      { phase: 'Putting', totalPutts: 397, holesWithPutts: 216, averagePutts: 1.84, threePutts: 5 },
     ],
     teeDirection: { hitPct: 57, leftPct: 26, rightPct: 12, otherPct: 5, recorded: 60, dominantMiss: 'left' },
     approachMiss: { girPct: 42, shortPct: 30, longPct: 12, leftPct: 10, rightPct: 24, recorded: 60, dominantMiss: 'short' },
-    putting: { averagePuttsPerRound: 33.1, averagePutts: 1.9, threePutts: 5, roundsWithPutts: 12 },
+    putting: { totalPutts: 397, averagePuttsPerRound: 33.1, averagePutts: 1.84, threePutts: 5, roundsWithPutts: 12 },
   },
   courseDistribution: [
     {
@@ -170,6 +187,15 @@ const statsPayload = {
       average18: 80.5,
       bestScore: 76,
       worstScore: 86,
+      recentRoundId: '900001',
+      nineBreakdown: [
+        { label: 'B/C', roundCount: 3, average: 80.3, bestScore: 76, recentRoundId: '900001' },
+        { label: 'A/B', roundCount: 2, average: 83.5, bestScore: 81, recentRoundId: '900004' },
+      ],
+      rounds: [
+        { roundId: '900001', date: '2026-05-20', score: 78, holesCompleted: 18, toPar: 6, nine: 'B/C' },
+        { roundId: '900002', date: '2026-05-03', score: 83, holesCompleted: 18, toPar: 11, nine: 'B/C' },
+      ],
       geometryCoverage: 'partial',
       roundRefs: ['900001', '900002'],
       recentForm: { direction: 'improving', recentAverage18: 79, deltaAverage18: -2.4 },
@@ -766,71 +792,57 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByText('历史数据不可用')).toHaveCount(0)
   await captureSmokeScreenshot(page, testInfo, 'overview')
 
-  // 统计 owns the trends landing in the redesign (was 历史). exact avoids the home
-  // 看历史 → button substring-matching the rail label.
-  await page.getByRole('button', { name: '统计', exact: true }).click()
-  // Scope subnav-tab clicks to the 辅助导航 nav so they never collide with page
-  // content (e.g. the home 看复盘 → / 强弱分析 → cards).
+  // All archive, trend and analysis pages now live under the one 成绩 destination.
+  // Scope clicks to its subnav so same-named page links cannot satisfy the journey.
   const subnav = page.getByRole('navigation', { name: '辅助导航' })
 
-  // 趋势总览 = the P4 统计 dashboard: KPI tiles + strokes/dispersion/trend/course/composition
-  // panels, all wired to the compact window-aware mobile stats. Locate by [aria-label].
-  await subnav.getByRole('button', { name: '趋势总览' }).click()
-  await expect(page.locator('section[aria-label="统计仪表盘"]')).toBeVisible()
-  // KPI tiles from real summary/scoring fields.
-  await expect(page.locator('[aria-label="差点指数"]')).toContainText('14.2')
-  await expect(page.locator('[aria-label="平均杆"]')).toContainText('82.4')
-  await expect(page.locator('[aria-label="标准杆上果岭"]')).toContainText('42%')
-  await expect(page.locator('[aria-label="开球上球道"]')).toContainText('57%')
-  await expect(page.locator('[aria-label="平均推杆"]')).toContainText('33.1')
-  // 各环节失杆 from diagnosis.issueTrends grouped by phase (NOT fabricated strokes-gained).
-  await expect(page.locator('section[aria-label="各环节失杆"]')).toContainText('攻果岭')
-  // 差点趋势 + 失误倾向 render as real SVG charts.
-  await expect(page.getByRole('img', { name: '差点趋势图' })).toBeVisible()
-  await expect(page.getByRole('img', { name: '攻果岭失误分布图' })).toBeVisible()
-  // 成绩构成 4-bucket breakdown (○ 小鸟及以下 / 标准杆 / □ 柏忌 / ⊡ 双柏忌+).
-  const compPanel = page.locator('section[aria-label="成绩构成"]')
-  await expect(compPanel.getByText('标准杆', { exact: true })).toBeVisible()
-  await expect(compPanel.getByText('柏忌', { exact: true })).toBeVisible()
-  await expect(compPanel.getByText('双柏忌+', { exact: true })).toBeVisible()
-  // 按球场 table from stats.courses.
-  await expect(page.locator('section[aria-label="按球场"]')).toContainText('Black Knight B')
+  await subnav.getByRole('button', { name: '时间趋势' }).click()
+  await expect(page.getByRole('heading', { name: '时间趋势', exact: true })).toBeVisible()
+  await expect(page.getByRole('img', { name: '成绩时间趋势图' })).toBeVisible()
+  await expect(page.locator('section[aria-label="历年表现"]')).toContainText('2026 年')
+  await expect(page.locator('section[aria-label="打球频率"]')).toContainText('3 场')
+  await page.getByRole('group', { name: '统计范围' }).getByRole('button', { name: '近 12 月' }).click()
+  await expect(page.getByRole('group', { name: '汇总粒度' }).getByRole('button', { name: '月' })).toHaveAttribute('aria-pressed', 'true')
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'trends')
 
-  // 统计 owns the dashboard + course performance; walk both subnav tabs.
-  await subnav.getByRole('button', { name: '趋势总览' }).click()
-  await expect(page.locator('section[aria-label="统计仪表盘"]')).toBeVisible()
+  await subnav.getByRole('button', { name: '表现分析' }).click()
+  await expect(page.getByRole('heading', { name: '表现分析', exact: true })).toBeVisible()
+  const phases = page.locator('section[aria-label="四个环节"]')
+  await expect(phases).toContainText('开球')
+  await expect(phases).toContainText('57%')
+  await expect(phases).toContainText('攻果岭')
+  await expect(phases).toContainText('42%')
+  await expect(phases).toContainText('33.1')
+  await expect(phases).toContainText('当前历史统计未提供可靠分母')
+  await expect(page.locator('section[aria-label="成绩构成"]')).toContainText('双柏忌+')
+  await expect(page.locator('section[aria-label="按标准杆类型"]')).toContainText('Par 3')
   await assertNoViewportOverflow(page)
   await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
 
   await subnav.getByRole('button', { name: '球场' }).click()
   await expect(page.getByRole('heading', { name: '球场表现', exact: true, level: 1 })).toBeVisible()
+  await page.getByText('Black Knight B', { exact: true }).click()
+  await expect(page.getByRole('heading', { name: '九洞组合' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '球局证据' })).toBeVisible()
   await assertNoViewportOverflow(page)
   await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
 
-  // …while 复盘 owns the rounds list + strengths analysis (split out of the old 历史).
-  await page.getByRole('button', { name: '复盘', exact: true }).click()
-  for (const [tab, heading, level] of [
-    ['球局', '球局', 1],
-    ['强弱分析', '你最该练', 1],
-  ] as const) {
-    await subnav.getByRole('button', { name: tab }).click()
-    await expect(page.getByRole('heading', { name: heading, exact: true, level })).toBeVisible()
-    await assertNoViewportOverflow(page)
-    await expect(page.locator('text=/unavailable|failed/i')).toHaveCount(0)
-  }
-
-  await subnav.getByRole('button', { name: '强弱分析' }).click()
-  await expect(page.getByRole('heading', { name: '你最该练', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '按洞', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '按杆', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '问题', exact: true })).toBeVisible()
-  // 总体数字 from scoring.phaseStats: Tee fairwaysHit 6/10 → 60%
-  await expect(page.getByText('球道命中率')).toBeVisible()
-  await expect(page.getByText('60%', { exact: true })).toBeVisible()
+  await subnav.getByRole('button', { name: '表现分析' }).click()
+  await page.getByRole('button', { name: /球杆表现/ }).click()
+  await expect(page.getByRole('heading', { name: '球杆表现', exact: true })).toBeVisible()
+  await expect(page.getByText('227 码')).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'strengths')
+
+  await subnav.getByRole('button', { name: '全部球局' }).click()
+  await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
+  await expect(page.getByRole('button', { name: /打开球局 Black Knight B/ })).toBeVisible()
+  await assertNoViewportOverflow(page)
+  await page.getByRole('button', { name: /打开球局 Black Knight B/ }).click()
+  await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '球局回顾', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '记分卡', exact: true })).toBeVisible()
 
   // 球包 (bag rail) = the P5 club-distance gapping workbench: a shared-axis ladder
   // (carry marker + measured P10–P90 band) + a selected-club detail + the editable
