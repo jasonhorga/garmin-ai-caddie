@@ -16,6 +16,12 @@ public struct PrepCoursePickerView: View {
     /// short-lived location provider used to request an explicit nearby search.
     @StateObject private var locationProvider = LocationProvider()
     @State private var selectedCourse: MobileCourseOption?
+    /// `RoundHomeView` is already in a NavigationStack when this picker is pushed. SwiftUI can keep
+    /// that destination's value-type inputs at their navigation-time snapshot even though the app
+    /// model has synchronously created and persisted a new queue record. Keep only the unacknowledged
+    /// selection intents here so returning from the detail screen shows the download immediately;
+    /// the published app-owned records replace them as soon as they reach this destination.
+    @State private var pendingDownloadIntents: [PrepCourseDownloadRecord] = []
 
     public init(
         courseOptions: [MobileCourseOption],
@@ -45,9 +51,9 @@ public struct PrepCoursePickerView: View {
             dismissAfterSelection: false,
             installedGlobalIds: Set(
                 downloadedCourseOptions.map(\.globalId)
-                    + downloads.filter { $0.phase == .ready }.map { $0.course.globalId }
+                    + visibleDownloads.filter { $0.phase == .ready }.map { $0.course.globalId }
             ),
-            retainedDownloads: downloads,
+            retainedDownloads: visibleDownloads,
             onSearch: searchCourses,
             onNearby: nearbyCourses,
             onSelect: selectSearchResult,
@@ -60,6 +66,10 @@ public struct PrepCoursePickerView: View {
         }
         .onDisappear {
             locationProvider.stopUpdatingLocation()
+        }
+        .onChange(of: downloads.map(\.id)) { _, authoritativeIDs in
+            let acknowledged = Set(authoritativeIDs)
+            pendingDownloadIntents.removeAll { acknowledged.contains($0.id) }
         }
         .navigationDestination(isPresented: selectedCoursePresented) {
             if let course = selectedCourse, let apiBaseURL {
@@ -120,6 +130,11 @@ public struct PrepCoursePickerView: View {
     ) {
         _ = matches
         guard let course = resolvedOption(for: selected) else { return }
+        let intent = queuedDownloadIntent(for: course)
+        if !downloads.contains(where: { $0.id == intent.id }) {
+            pendingDownloadIntents.removeAll { $0.id == intent.id }
+            pendingDownloadIntents.insert(intent, at: 0)
+        }
         onDownload(course)
         selectedCourse = course
     }
@@ -135,16 +150,25 @@ public struct PrepCoursePickerView: View {
     /// the short interval between selection and the app model's publication. Both have the same
     /// stable key, so the destination never changes loading ownership during navigation.
     private func selectedDownload(for course: MobileCourseOption) -> PrepCourseDownloadRecord {
+        let queued = queuedDownloadIntent(for: course)
+        return visibleDownloads.first(where: { $0.id == queued.id }) ?? queued
+    }
+
+    private func queuedDownloadIntent(for course: MobileCourseOption) -> PrepCourseDownloadRecord {
         let tee = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTee = tee?.isEmpty == false ? tee! : "blue"
-        let id = PrepCourseDownloadRecord.key(globalId: course.globalId, teeBox: resolvedTee)
-        return downloads.first(where: { $0.id == id })
-            ?? PrepCourseDownloadRecord(
-                course: course,
-                teeBox: resolvedTee,
-                phase: .queued,
-                totalHoles: course.resolvedHoles
-            )
+        return PrepCourseDownloadRecord(
+            course: course,
+            teeBox: resolvedTee,
+            phase: .queued,
+            totalHoles: course.resolvedHoles
+        )
+    }
+
+    private var visibleDownloads: [PrepCourseDownloadRecord] {
+        let authoritativeIDs = Set(downloads.map(\.id))
+        return (downloads + pendingDownloadIntents.filter { !authoritativeIDs.contains($0.id) })
+            .sorted { $0.updatedAt > $1.updatedAt }
     }
 
     private func resolvedOption(for match: MobileCourseSearchMatch) -> MobileCourseOption? {
