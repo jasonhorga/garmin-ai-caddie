@@ -17,6 +17,16 @@ public struct LiveRoundStateSnapshot: Codable, Equatable {
     public let roundId: String
     public let activeHole: Int
     public let holes: [LiveHoleStateSnapshot]
+    /// Hole numbers with an explicit score event. `holes` also contains default UI state for every
+    /// package hole, so its count is not round progress.
+    public let scoredHoles: [Int]
+
+    public init(roundId: String, activeHole: Int, holes: [LiveHoleStateSnapshot], scoredHoles: [Int] = []) {
+        self.roundId = roundId
+        self.activeHole = activeHole
+        self.holes = holes
+        self.scoredHoles = scoredHoles
+    }
 
     public func holeState(for hole: Int) -> LiveHoleStateSnapshot? {
         holes.first { state in
@@ -314,6 +324,8 @@ public final class OfflineStore {
     public func restoreLiveRoundState(roundId: String, package: LiveRoundPackage) throws -> LiveRoundStateSnapshot {
         let defaultClubName = package.clubProfiles.first?.clubName ?? ""
         var activeHole = package.holes.first?.number ?? 1
+        let packageHoleNumbers = Set(package.holes.map(\.number))
+        var scoredHoles = Set<Int>()
         var holeStates = Dictionary(
             uniqueKeysWithValues: package.holes.map { hole in
                 (
@@ -341,7 +353,7 @@ public final class OfflineStore {
             // Only advance activeHole to a hole that's actually in this package — after「移除加打的 9 洞」
             // the package is 1–9 but events may span 1–12, and the Hub's 继续这场 card requires
             // activeHole ∈ package.holes.
-            if package.holes.contains(where: { $0.number == event.hole }) {
+            if packageHoleNumbers.contains(event.hole) {
                 activeHole = event.hole
             }
 
@@ -349,6 +361,9 @@ public final class OfflineStore {
             case .score:
                 if let strokes = numberPayload("strokes", in: event.payload) {
                     state.score = Int(strokes)
+                    if packageHoleNumbers.contains(event.hole) {
+                        scoredHoles.insert(event.hole)
+                    }
                 }
             case .putt:
                 if let putts = numberPayload("putts", in: event.payload) {
@@ -415,7 +430,8 @@ public final class OfflineStore {
             activeHole: activeHole,
             holes: holeStates.values.sorted { lhs, rhs in
                 lhs.hole < rhs.hole
-            }
+            },
+            scoredHoles: scoredHoles.sorted()
         )
     }
 

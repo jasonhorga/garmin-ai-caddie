@@ -226,7 +226,10 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private var syncClient: SyncClient?
     private var mediaUploadClient: MediaUploadClient?
-    private let preferredRoundId: String
+    /// Optional DEBUG/CI round to open explicitly. There is deliberately no hard-coded fallback:
+    /// without `AI_CADDIE_LIVE_ROUND_ID`, bootstrap loads the normal home package instead of
+    /// turning a missing demo round into a fake active round.
+    private let preferredRoundId: String?
     /// Keeps the Apple-session observer alive so the watch's standalone-sync auth tracks sign-in /
     /// refresh / sign-out (round-13 watch-auth).
     private var sessionCancellables = Set<AnyCancellable>()
@@ -266,7 +269,10 @@ public final class LiveRoundAppModel: ObservableObject {
         self.adminToken = resolvedAdminToken
         self.watchBridge = watchBridge
         self.garminSessionStore = garminSessionStore
-        self.preferredRoundId = preferredRoundId ?? Self.defaultLiveRoundId()
+        let requestedRoundId = preferredRoundId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.preferredRoundId = requestedRoundId?.isEmpty == false
+            ? requestedRoundId
+            : Self.configuredLiveRoundId()
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map { MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken) }
         watchBridge?.onAcceptedLiveEvent = { [weak self] event in
@@ -312,10 +318,6 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
             }
             .store(in: &sessionCancellables)
-    }
-
-    public var defaultRoundId: String {
-        preferredRoundId
     }
 
     public var adminTokenConfigured: Bool {
@@ -810,25 +812,19 @@ public final class LiveRoundAppModel: ObservableObject {
         #endif
     }
 
-    private static func defaultLiveRoundId() -> String {
+    private static func configuredLiveRoundId() -> String? {
         let roundId = ProcessInfo.processInfo.environment["AI_CADDIE_LIVE_ROUND_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let roundId, !roundId.isEmpty {
             return roundId
         }
-        return "900001"
+        return nil
     }
 
     private func fetchRemotePackage(capturedAt: Date = Date()) async -> LiveRoundPackage? {
-        guard let syncClient else {
+        guard let preferredRoundId else {
             return nil
         }
-        do {
-            return try await syncClient.fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)
-        } catch {
-            AICaddieLog.network.error("Round package fetch failed (using cache): \(String(describing: error), privacy: .public)")
-            syncStatus = "离线中,使用已保存数据"
-            return nil
-        }
+        return await fetchRemotePackage(roundId: preferredRoundId, capturedAt: capturedAt)
     }
 
     private func fetchRemotePackage(roundId: String, capturedAt: Date = Date()) async -> LiveRoundPackage? {
@@ -837,7 +833,17 @@ public final class LiveRoundAppModel: ObservableObject {
             return nil
         }
         do {
-            return try await syncClient.fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)
+            let fetched = try await syncClient.fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)
+            // The round endpoint intentionally returns a degraded diagnostic package when an id is
+            // absent. That package has placeholder holes / "Unknown course" and must never become
+            // an active consumer round. Course packages use a different path and remain valid for
+            // never-played courses, so this check belongs specifically to the round fetch.
+            guard fetched.sourceCoverage.roundFound else {
+                AICaddieLog.network.info("Round package not found for \(roundId, privacy: .public); ignoring placeholder")
+                syncStatus = "没有找到这场球局"
+                return nil
+            }
+            return fetched
         } catch {
             AICaddieLog.network.error("Round package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             syncStatus = "离线中,使用已保存数据"

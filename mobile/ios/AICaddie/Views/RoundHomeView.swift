@@ -198,7 +198,7 @@ public struct RoundHomeView: View {
                 HubInProgressCard(
                     courseName: package.course.name,
                     activeHole: liveRoundState.activeHole,
-                    recorded: liveRoundState.holes.count,
+                    recorded: liveRoundState.scoredHoles.count,
                     total: package.holes.count
                 )
             }

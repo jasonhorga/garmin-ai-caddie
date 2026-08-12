@@ -33,6 +33,10 @@ final class RealFlowUITests: XCTestCase {
         // ---- Section 1: home + the unified 成绩 destination ----
         launchFresh()
         save("01-home"); dump("01-home")
+        XCTAssertFalse(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Unknown course")).firstMatch.exists,
+            "A missing diagnostic round must never appear as an active consumer round"
+        )
         XCTAssertTrue(tapContaining(["成绩", "球局 · 统计"]), "成绩入口必须可点击")
         XCTAssertTrue(app.staticTexts["我的高尔夫生涯"].waitForExistence(timeout: 15), "成绩主页必须显示生涯摘要")
         settle(3); save("02-results"); dump("02-results")
@@ -121,7 +125,8 @@ final class RealFlowUITests: XCTestCase {
         if app.state == .runningForeground { app.terminate() }
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30), "app did not foreground")
-        // Home renders cached/fixture instantly, then the funnel fetch (Phase 2) swaps in real data.
+        // Home renders cached data instantly, then the funnel refreshes normal home data. No implicit
+        // demo round is opened unless AI_CADDIE_LIVE_ROUND_ID was explicitly supplied.
         settle(20)
     }
 
