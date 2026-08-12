@@ -1278,7 +1278,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("roundId: requestedRoundId", app_swift)
         self.assertIn("capturedAt: preparedAt", app_swift)
         self.assertIn("preparationToken: preparationToken", app_swift)
-        self.assertIn("fetchRoundPackage(roundId: preferredRoundId, capturedAt: capturedAt)", app_swift)
+        self.assertIn(
+            "return await fetchRemotePackage(roundId: preferredRoundId, capturedAt: capturedAt)",
+            app_swift,
+        )
         self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
         self.assertIn(
             "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, nine: nine, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)",

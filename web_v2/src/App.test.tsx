@@ -1908,7 +1908,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '打开球局 Black Knight B，2026-05-20，成绩 82' }))
 
     expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
-    expect(screen.getAllByText('Black Knight B').length).toBeGreaterThan(0)
+    expect(screen.getByText('Black Knight B · 2026-05-20')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds/1')
     await userEvent.click(screen.getByRole('button', { name: '载入 AI 回顾' }))
 
