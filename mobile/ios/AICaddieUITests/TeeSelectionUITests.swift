@@ -88,8 +88,8 @@ final class TeeSelectionUITests: XCTestCase {
             "an 18-hole whole-course selection must not describe itself as a 9-hole loop"
         )
 
-        // Open the 发球台 selector (a SwiftUI Menu whose label is the current tee, e.g. "蓝 T · 6412 码"
-        // or "默认"). Tapping it reveals the tee options with yardage from GET /courses/{id}/tees.
+        // Open the controlled 发球台 selector. Its options and yardages come from
+        // GET /courses/{id}/tees; choosing or cancelling must deterministically dismiss it.
         if tapTeeSelector() {
             settle(2)
             save("03-tee-menu"); dump("03-tee-menu")  // open menu: colour + yards choices
@@ -568,6 +568,11 @@ final class TeeSelectionUITests: XCTestCase {
     /// the known tee labels; fall back to any button carrying the "码" (yards) suffix.
     @discardableResult
     private func tapTeeSelector() -> Bool {
+        let selector = app.buttons["start-round-tee-selector"]
+        if selector.waitForExistence(timeout: 5), selector.isHittable {
+            selector.tap()
+            return true
+        }
         if tapContaining(["默认", "蓝 T", "白 T", "红 T", "金 T", "黑 T", "黄 T", "绿 T", "银 T"]) {
             return true
         }

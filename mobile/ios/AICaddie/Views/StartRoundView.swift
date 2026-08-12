@@ -41,6 +41,7 @@ public struct StartRoundView: View {
     @State private var nearbyCourseOptions: [MobileCourseOption] = []
     @State private var remoteCourseOptions: [MobileCourseOption] = []
     @State private var showingCourseSearch = false
+    @State private var showingTeeSelector = false
     @State private var isLoadingTees = false
     @State private var teeLoadFailed = false
     @State private var isLoadingNearby = false
@@ -419,23 +420,8 @@ public struct StartRoundView: View {
                     HStack(spacing: 8) {
                         Text("发球台").font(.subheadline).foregroundStyle(.secondary)
                         Spacer()
-                        Menu {
-                            // Keep the non-mutating exit above the provider's Tee list. Large real
-                            // courses can expose enough Tee boxes for a bottom action to fall outside
-                            // the menu's initial accessible viewport on iPhone.
-                            Button("取消", role: .cancel) {}
-                            Divider()
-                            ForEach(teeOptions, id: \.self) { tee in
-                                Button {
-                                    teeBox = tee
-                                } label: {
-                                    if tee.caseInsensitiveCompare(teeBox) == .orderedSame {
-                                        Label(teeMenuLabel(tee), systemImage: "checkmark")
-                                    } else {
-                                        Text(teeMenuLabel(tee))
-                                    }
-                                }
-                            }
+                        Button {
+                            showingTeeSelector = true
                         } label: {
                             HStack(spacing: 4) {
                                 Text(teeBox.isEmpty ? "默认" : teeMenuLabel(teeBox))
@@ -445,6 +431,30 @@ public struct StartRoundView: View {
                             }
                         }
                         .disabled(teeOptions.isEmpty)
+                        .accessibilityIdentifier("start-round-tee-selector")
+                        .confirmationDialog(
+                            "选择发球台",
+                            isPresented: $showingTeeSelector,
+                            titleVisibility: .visible
+                        ) {
+                            ForEach(teeOptions, id: \.self) { tee in
+                                Button {
+                                    teeBox = tee
+                                    showingTeeSelector = false
+                                } label: {
+                                    if tee.caseInsensitiveCompare(teeBox) == .orderedSame {
+                                        Label(teeMenuLabel(tee), systemImage: "checkmark")
+                                    } else {
+                                        Text(teeMenuLabel(tee))
+                                    }
+                                }
+                            }
+                            Button("取消", role: .cancel) {
+                                showingTeeSelector = false
+                            }
+                        } message: {
+                            Text("选择本轮使用的发球台")
+                        }
                     }
                 }
                 if isLoadingTees {
