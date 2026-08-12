@@ -5,7 +5,6 @@ import SwiftUI
 public struct PrepCoursePickerView: View {
     public let courseOptions: [MobileCourseOption]
     public let downloadedCourseOptions: [MobileCourseOption]
-    public let downloads: [PrepCourseDownloadRecord]
     public let apiBaseURL: URL?
     public let adminToken: String?
     public let offlineStore: OfflineStore?
@@ -15,6 +14,7 @@ public struct PrepCoursePickerView: View {
     /// `MobileCourseSearchView` owns the shared catalogue-search UI; this screen owns only the
     /// short-lived location provider used to request an explicit nearby search.
     @StateObject private var locationProvider = LocationProvider()
+    @ObservedObject private var downloadPresentation: PrepCourseDownloadPresentationState
     @State private var selectedCourse: MobileCourseOption?
     /// `RoundHomeView` is already in a NavigationStack when this picker is pushed. SwiftUI can keep
     /// that destination's value-type inputs at their navigation-time snapshot even though the app
@@ -27,6 +27,7 @@ public struct PrepCoursePickerView: View {
         courseOptions: [MobileCourseOption],
         downloadedCourseOptions: [MobileCourseOption] = [],
         downloads: [PrepCourseDownloadRecord] = [],
+        downloadPresentation: PrepCourseDownloadPresentationState? = nil,
         apiBaseURL: URL?,
         adminToken: String?,
         offlineStore: OfflineStore? = nil,
@@ -35,7 +36,10 @@ public struct PrepCoursePickerView: View {
     ) {
         self.courseOptions = courseOptions
         self.downloadedCourseOptions = downloadedCourseOptions
-        self.downloads = downloads
+        self._downloadPresentation = ObservedObject(
+            wrappedValue: downloadPresentation
+                ?? PrepCourseDownloadPresentationState(downloads: downloads)
+        )
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         self.offlineStore = offlineStore
@@ -169,6 +173,10 @@ public struct PrepCoursePickerView: View {
         let authoritativeIDs = Set(downloads.map(\.id))
         return (downloads + pendingDownloadIntents.filter { !authoritativeIDs.contains($0.id) })
             .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    private var downloads: [PrepCourseDownloadRecord] {
+        downloadPresentation.downloads
     }
 
     private func resolvedOption(for match: MobileCourseSearchMatch) -> MobileCourseOption? {

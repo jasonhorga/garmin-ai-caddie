@@ -60,6 +60,7 @@ public struct AICaddieApp: App {
                         courseOptions: model.courseOptions,
                         downloadedCourseOptions: model.downloadedCourseOptions,
                         prepCourseDownloads: model.prepCourseDownloads,
+                        prepCourseDownloadPresentation: model.prepCourseDownloadPresentation,
                         startingNine: model.startingNine,
                         isPreparingRound: model.isPreparingRound,
                         isFinishingRound: model.isFinishingRound,
@@ -303,6 +304,22 @@ private struct OfflineDownloadClient: @unchecked Sendable {
     let value: SyncClient
 }
 
+/// Live, read-only presentation stream for the app-owned prep queue. The queue and its disk file
+/// remain authoritative in `LiveRoundAppModel`; this stable reference only lets a destination that
+/// SwiftUI has already pushed observe later per-hole progress without relying on a captured array.
+@MainActor
+public final class PrepCourseDownloadPresentationState: ObservableObject {
+    @Published public private(set) var downloads: [PrepCourseDownloadRecord]
+
+    public init(downloads: [PrepCourseDownloadRecord] = []) {
+        self.downloads = downloads
+    }
+
+    fileprivate func replace(with downloads: [PrepCourseDownloadRecord]) {
+        self.downloads = downloads
+    }
+}
+
 @MainActor
 public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var package: LiveRoundPackage?
@@ -326,7 +343,12 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var liveRoundState: LiveRoundStateSnapshot?
     @Published public private(set) var courseOptions: [MobileCourseOption] = []
     @Published public private(set) var downloadedCourseOptions: [MobileCourseOption] = []
-    @Published public private(set) var prepCourseDownloads: [PrepCourseDownloadRecord] = []
+    public let prepCourseDownloadPresentation = PrepCourseDownloadPresentationState()
+    @Published public private(set) var prepCourseDownloads: [PrepCourseDownloadRecord] = [] {
+        didSet {
+            prepCourseDownloadPresentation.replace(with: prepCourseDownloads)
+        }
+    }
     /// 本局的起始九洞(用于「移除另外 9 洞」撤销目标);随新 roundId 重置。
     @Published public private(set) var startingNine: String?
     public let watchBridge: WatchEventBridge?

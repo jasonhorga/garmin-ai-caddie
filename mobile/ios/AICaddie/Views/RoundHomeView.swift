@@ -28,6 +28,7 @@ public struct RoundHomeView: View {
     public let courseOptions: [MobileCourseOption]
     public let downloadedCourseOptions: [MobileCourseOption]
     public let prepCourseDownloads: [PrepCourseDownloadRecord]
+    public let prepCourseDownloadPresentation: PrepCourseDownloadPresentationState?
     public let startingNine: String?
     public let isPreparingRound: Bool
     public let isFinishingRound: Bool
@@ -75,6 +76,7 @@ public struct RoundHomeView: View {
         courseOptions: [MobileCourseOption] = [],
         downloadedCourseOptions: [MobileCourseOption] = [],
         prepCourseDownloads: [PrepCourseDownloadRecord] = [],
+        prepCourseDownloadPresentation: PrepCourseDownloadPresentationState? = nil,
         startingNine: String? = nil,
         isPreparingRound: Bool = false,
         isFinishingRound: Bool = false,
@@ -114,6 +116,7 @@ public struct RoundHomeView: View {
         self.courseOptions = courseOptions
         self.downloadedCourseOptions = downloadedCourseOptions
         self.prepCourseDownloads = prepCourseDownloads
+        self.prepCourseDownloadPresentation = prepCourseDownloadPresentation
         self.startingNine = startingNine
         self.isPreparingRound = isPreparingRound
         self.isFinishingRound = isFinishingRound
@@ -373,6 +376,7 @@ public struct RoundHomeView: View {
                         courseOptions: courseOptions,
                         downloadedCourseOptions: downloadedCourseOptions,
                         downloads: prepCourseDownloads,
+                        downloadPresentation: prepCourseDownloadPresentation,
                         apiBaseURL: apiBaseURL,
                         adminToken: adminToken,
                         offlineStore: offlineStore,
