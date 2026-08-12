@@ -514,6 +514,101 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(SyncClient.courseReleaseRetryDelayNanoseconds(afterAttempt: 2), 1_000_000_000)
     }
 
+    func testFetchRoundDetailRetriesTransientTLSHandshake() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = Data(#"{"roundRef":"17553539","found":true,"scorecard":[],"phaseSummary":[],"missingData":[]}"#.utf8)
+        var attempts = 0
+        CapturingURLProtocol.requestHandler = { request in
+            attempts += 1
+            XCTAssertEqual(request.url?.path, "/api/v2/history/rounds/17553539")
+            if attempts == 1 {
+                throw URLError(.secureConnectionFailed)
+            }
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { _ in }
+        )
+
+        let detail = try await client.fetchRoundDetail(roundRef: "17553539")
+
+        XCTAssertTrue(detail.found)
+        XCTAssertEqual(detail.roundRef, "17553539")
+        XCTAssertEqual(attempts, 2)
+    }
+
+    func testFetchRoundDetailRetriesTransientHTTPStatuses() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = Data(#"{"roundRef":"round-retry","found":true}"#.utf8)
+        var attempts = 0
+        CapturingURLProtocol.requestHandler = { request in
+            attempts += 1
+            let status = attempts == 1 ? 429 : attempts == 2 ? 503 : 200
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: status,
+                httpVersion: nil,
+                headerFields: status == 200 ? ["Content-Type": "application/json"] : nil
+            )!
+            return (response, status == 200 ? payload : Data("temporary".utf8))
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { _ in }
+        )
+
+        let detail = try await client.fetchRoundDetail(roundRef: "round-retry")
+
+        XCTAssertTrue(detail.found)
+        XCTAssertEqual(attempts, 3)
+    }
+
+    func testFetchRoundDetailDoesNotRetryNotFound() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        var attempts = 0
+        CapturingURLProtocol.requestHandler = { request in
+            attempts += 1
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 404,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data("missing".utf8))
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { _ in XCTFail("404 must not sleep or retry") }
+        )
+
+        do {
+            _ = try await client.fetchRoundDetail(roundRef: "missing-round")
+            XCTFail("Expected 404")
+        } catch let error as SyncClientError {
+            XCTAssertEqual(error, .http(status: 404, body: "missing"))
+        }
+        XCTAssertEqual(attempts, 1)
+    }
+
     func testFetchCoursePackageWithGeometryAllowsLongFirstDownload() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]

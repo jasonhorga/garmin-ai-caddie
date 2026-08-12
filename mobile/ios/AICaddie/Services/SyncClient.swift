@@ -426,8 +426,10 @@ public final class SyncClient {
         let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
         var request = URLRequest(url: endpointURL("/api/v2/history/rounds/\(encoded)"))
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        // A round review should not become a permanent error screen because its first idempotent
+        // GET crossed a one-off Funnel/DNS/TLS interruption. Reuse the bounded transient-only
+        // policy used by course discovery: 404/auth/certificate failures still fail immediately.
+        let data = try await fetchRetriableGetData(request)
         return try decoder.decode(RoundDetail.self, from: data)
     }
 

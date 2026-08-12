@@ -39,7 +39,8 @@ public struct RoundReviewView: View {
                     RoundReviewContent(
                         detail: detail, isLoading: isLoading, errorText: errorText,
                         fallbackCourseName: fallbackCourseName,
-                        onSelectHole: { shotMapHole = ShotMapHole(hole: $0) }
+                        onSelectHole: { shotMapHole = ShotMapHole(hole: $0) },
+                        onRetry: { Task { await load() } }
                     )
                 }
             }
@@ -104,6 +105,7 @@ struct RoundReviewContent: View {
     let errorText: String?
     let fallbackCourseName: String?
     var onSelectHole: (Int) -> Void = { _ in }
+    var onRetry: () -> Void = {}
 
     private struct ReviewMetric: Identifiable {
         let id: String
@@ -411,9 +413,15 @@ struct RoundReviewContent: View {
     }
 
     private var emptyCard: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             Image(systemName: "doc.text.magnifyingglass").font(.title).foregroundStyle(.secondary)
             Text(errorText ?? "这场没有可显示的记录").font(.subheadline).foregroundStyle(.secondary)
+            if errorText != nil {
+                Button("重新载入", action: onRetry)
+                    .buttonStyle(.borderedProminent)
+                    .tint(LiveHoleStyle.green)
+                    .accessibilityIdentifier("round-review-retry")
+            }
         }
         .frame(maxWidth: .infinity).padding(.vertical, 40)
         .hubCard()
