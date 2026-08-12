@@ -110,7 +110,7 @@ final class RealFlowUITests: XCTestCase {
                     30,
                     "the approved review uses a large navigation title, not a centred inline title"
                 )
-                let historyBackButton = app.buttons["球局"]
+                let historyBackButton = app.buttons["全部球局"]
                 XCTAssertTrue(historyBackButton.waitForExistence(timeout: 5))
                 let holeRow = app.buttons["round-review-hole-\(reviewEvidence.hole)"]
                 let loadedRound = holeRow.waitForExistence(timeout: 60)
