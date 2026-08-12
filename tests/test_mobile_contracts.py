@@ -3254,7 +3254,10 @@ class MobileContractTests(unittest.TestCase):
         # journey owns add/move/delete/reorder and proves the removed per-shot add sheet stays gone.
         self.assertIn('identifier: "round-edit-cancel"', real_flow)
         self.assertIn('app.navigationBars["补一杆"].exists', real_flow)
-        self.assertIn('lastReorder.press(forDuration: 0.7, thenDragTo: upperReorder)', review_edit)
+        self.assertIn("let reorderStart = lastReorder.coordinate(", review_edit)
+        self.assertIn("let reorderDestination = upperReorder.coordinate(", review_edit)
+        self.assertIn("reorderStart.press(", review_edit)
+        self.assertIn("thenDragTo: reorderDestination", review_edit)
         self.assertNotIn('app.staticTexts["击球时球位"]', real_flow)
 
     def test_native_visual_tokens_share_garmin_pro_score_semantics(self) -> None:
