@@ -248,6 +248,50 @@ final class RealFlowUITests: XCTestCase {
             app.navigationBars["赛前球场攻略"].waitForExistence(timeout: 20),
             "selecting a pre-round search result must navigate directly to its per-hole prep cards"
         )
+
+        // The course download belongs to the app, not to this detail screen. Leave immediately,
+        // prove the durable row remains visible, then kill and relaunch the process before opening
+        // the same row again. Model/store tests cover exact per-hole counters; this real UI journey
+        // proves those counters remain reachable through the player-facing navigation lifecycle.
+        let prepBack = app.navigationBars.buttons["备战球场"].firstMatch
+        XCTAssertTrue(
+            prepBack.waitForExistence(timeout: 5) && prepBack.isHittable,
+            "course prep must allow leaving while its app-owned download continues"
+        )
+        prepBack.tap()
+        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 8))
+        let retainedDownload = app.buttons[
+            "prep-download-open-\(approvedJourneyCourseGlobalId)"
+        ]
+        XCTAssertTrue(
+            scrollTo(retainedDownload, maxSwipes: 12),
+            "leaving course prep must retain the selected course in 最近选择"
+        )
+        XCTAssertTrue(
+            nonEmptyAccessibilityValue(retainedDownload),
+            "the retained course must expose its current durable download state"
+        )
+        settle(1); save("06b-prep-download-retained"); dump("06b-prep-download-retained")
+
+        launchFresh()
+        XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]))
+        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 12))
+        let relaunchedDownload = app.buttons[
+            "prep-download-open-\(approvedJourneyCourseGlobalId)"
+        ]
+        XCTAssertTrue(
+            scrollTo(relaunchedDownload, maxSwipes: 12),
+            "process relaunch must restore the same selected course instead of restarting search"
+        )
+        XCTAssertTrue(
+            nonEmptyAccessibilityValue(relaunchedDownload),
+            "process relaunch must restore a visible queued, active, ready, or retryable state"
+        )
+        relaunchedDownload.tap()
+        XCTAssertTrue(
+            app.navigationBars["赛前球场攻略"].waitForExistence(timeout: 20),
+            "the restored row must reopen the same course preparation"
+        )
         let loading = app.staticTexts["加载中…"]
         _ = loading.waitForExistence(timeout: 5) // fast cache hits may finish before this appears
         let firstPrepCard = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Par '")).firstMatch
@@ -1184,6 +1228,11 @@ final class RealFlowUITests: XCTestCase {
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func nonEmptyAccessibilityValue(_ element: XCUIElement) -> Bool {
+        guard element.exists, let value = element.value as? String else { return false }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Wait for one ordered real hole to be screenshot-ready and return its actual Par. F/M/B are

@@ -257,6 +257,8 @@ public struct MobileCourseSearchView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("prep-download-open-\(download.course.globalId)")
+            .accessibilityValue(downloadStatus(download))
 
             Spacer(minLength: 4)
             if download.phase == .failed {
