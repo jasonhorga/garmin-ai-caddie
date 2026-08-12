@@ -105,15 +105,8 @@ final class RealFlowUITests: XCTestCase {
         )
         if enteredHistory {
             settle(6); save("03-history-list"); dump("03-history-list")
-            let longPatternChip = app.staticTexts.matching(
-                NSPredicate(format: "label BEGINSWITH %@", "双柏忌或更差")
-            ).firstMatch
-            XCTAssertTrue(longPatternChip.waitForExistence(timeout: 5))
-            XCTAssertLessThanOrEqual(
-                longPatternChip.frame.height,
-                20,
-                "history pattern chips must keep long labels on one readable line"
-            )
+            // The low-value per-hole “规律” section was deliberately removed from history review.
+            // Continue with the real round instead of requiring a chip from that retired UI.
             let enteredRoundReview = openEvidenceRound(
                 roundRef: reviewEvidence.roundRef,
                 courseName: reviewEvidence.courseName,
