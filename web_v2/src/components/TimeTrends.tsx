@@ -69,7 +69,10 @@ function TrendSvg({ points, onOpenRound, onOpenPeriod }: { points: ChartPoint[];
   const high = Math.max(...values)
   const span = high - low || 1
   const x = (index: number) => points.length === 1 ? width / 2 : pad + index * (width - pad * 2) / (points.length - 1)
-  const y = (value: number) => pad + (value - low) / span * (height - pad * 2)
+  // SVG's y-axis grows downward. Keep the familiar numeric-chart convention:
+  // a higher (worse) golf score sits above a lower (better) score, matching the
+  // native Charts rendering and preventing an improvement from reading as a rise.
+  const y = (value: number) => pad + (high - value) / span * (height - pad * 2)
   const line = points.map((point, index) => `${x(index)},${y(point.value)}`).join(' ')
   const open = (point: ChartPoint) => point.roundId ? onOpenRound(point.roundId) : onOpenPeriod(point.key)
   return (

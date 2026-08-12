@@ -38,4 +38,11 @@ describe('TimeTrends', () => {
     await userEvent.click(screen.getByRole('button', { name: /2026-06-01，1 场/ }))
     expect(onOpenPeriod).toHaveBeenCalledWith('2026-06-01')
   })
+
+  it('plots a lower golf score below a higher score on the numeric y-axis', () => {
+    render(<TimeTrends stats={stats} allStats={stats} window="last10" onWindowChange={() => undefined} onOpenRound={() => undefined} onOpenPeriod={() => undefined} />)
+    const higherScoreY = Number(screen.getByRole('button', { name: /2026-05-01，88 杆/ }).getAttribute('cy'))
+    const lowerScoreY = Number(screen.getByRole('button', { name: /2026-06-01，82 杆/ }).getAttribute('cy'))
+    expect(higherScoreY).toBeLessThan(lowerScoreY)
+  })
 })
