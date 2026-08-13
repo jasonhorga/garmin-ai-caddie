@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { fetchCaddieContext, fetchCaddieDecision, fetchCoursePrep, topoImageUrl } from '../api'
-import { fmtYd, metersFromYards } from '../units'
+import { fmtYd, metersFromYards, yards } from '../units'
 import { missDirectionZh } from '../zhLabels'
 import type {
   CaddieContextParams,
@@ -16,7 +16,7 @@ import type {
 } from '../types'
 import { CourseFinder } from './CourseFinder'
 import { HoleBaseImage } from './HoleBaseImage'
-import { atCum, nearestCum } from './coursePrepPanelLogic'
+import { atCum, layoutHazardLabels, nearestCum, resolveCoursePrepOverlay, routeIntervalReadout } from './coursePrepPanelLogic'
 import { asNumber, asRows, asString } from './statsValues'
 
 // 决策沙盘 (spec §5.4 web scope, W3 T3+T4): pick a course (CourseFinder entry)
@@ -394,7 +394,7 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
   // covers never-played courses; the bare gid is the last resort (W2 idiom).
   const courseName = findCourseOption(courseOptions, course.globalId)?.name ?? course.name ?? `球场 ${course.globalId}`
 
-  const overlay = hole?.map?.overlay ?? null
+  const overlay = hole === null ? null : resolveCoursePrepOverlay(hole)
   // Keyboard path on mapped holes (W3 review): the 到果岭 input accepts yards;
   // metersFromYards converts to the metre domain for effectiveCum + the API.
   // effectiveCum places the ball marker at atCum(ln − manualDistanceM) while it
@@ -578,9 +578,46 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
     // A typed 到果岭 past the route length has no honest map position — render
     // no ball rather than extrapolating a marker off the playing line.
     const ball = ballOnRoute ? atCum(overlay.route, effectiveCum) : null
-    const readout = ballOnRoute
-      ? `距T ${fmtYd(effectiveCum)} · 到果岭 ${fmtYd(overlay.ln - effectiveCum)}`
-      : `到果岭 ${fmtYd(manualDistanceM ?? 0)}`
+    const landingM = advice.status === 'ready'
+      ? asNumber(selectedDecisionOption(advice.decision).carry_m)
+      : null
+    const landing = landingM !== null && ball !== null
+      ? atCum(overlay.route, Math.min(overlay.ln, effectiveCum + landingM))
+      : null
+    const recommendedClub = advice.status === 'ready'
+      ? optionClub(selectedDecisionOption(advice.decision))
+      : null
+    const hazardFacts = (ball === null ? [] : (hole.hazards.details ?? []))
+      .filter((detail) =>
+        (detail.kind === 'water' || detail.kind === 'bunker') &&
+        detail.frontPx.length >= 2 &&
+        detail.backPx.length >= 2 &&
+        [...detail.frontPx.slice(0, 2), ...detail.backPx.slice(0, 2)].every(Number.isFinite) &&
+        Math.max(detail.frontRouteM, detail.backRouteM) > effectiveCum,
+      )
+      .sort((a, b) => a.frontRouteM - b.frontRouteM)
+      .slice(0, 2)
+      .map((detail) => {
+        const range = routeIntervalReadout(overlay, effectiveCum, detail.frontRouteM, detail.backRouteM)
+        const toStraight = ball === null || overlay.ppm <= 0
+          ? null
+          : yards(Math.hypot(detail.frontPx[0] - ball.x, detail.frontPx[1] - ball.y) / overlay.ppm)
+        const overStraight = ball === null || overlay.ppm <= 0
+          ? null
+          : yards(Math.hypot(detail.backPx[0] - ball.x, detail.backPx[1] - ball.y) / overlay.ppm)
+        const toYards = toStraight ?? range.toStart
+        const overYards = overStraight ?? range.toClear
+        return {
+          detail,
+          text: `${detail.kind === 'water' ? '水' : '沙'} · 到 ${toYards} / 过 ${overYards}`,
+          x: (detail.frontPx[0] + detail.backPx[0]) / 2,
+          y: (detail.frontPx[1] + detail.backPx[1]) / 2,
+        }
+      })
+    const hazardLabelPlacements = layoutHazardLabels(
+      hazardFacts.map((fact) => ({ y: fact.y - 8, text: fact.text })),
+      22,
+    )
     holeStage = (
       <div className="live-sandbox-hole">
         <div
@@ -606,21 +643,101 @@ export function LiveSandbox({ courseOptions, adminToken, onSearchCourses, recent
               points={overlay.route.map((point) => `${point[0]},${point[1]}`).join(' ')}
               fill="none"
               stroke="#fff"
-              strokeOpacity={0.85}
+              strokeOpacity={0.94}
               strokeWidth={3}
-              strokeDasharray="6 5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             />
-            <circle cx={tee.x} cy={tee.y} r={9} fill="#4aa3d6" stroke="#fff" strokeWidth={3} />
-            <circle cx={green.x} cy={green.y} r={7} fill="#fff" stroke="#333" strokeWidth={2} />
-            {ball !== null ? <circle cx={ball.x} cy={ball.y} r={12} fill="#e8963a" stroke="#fff" strokeWidth={3} /> : null}
+            {hazardFacts.map((fact, index) => {
+              const tint = fact.detail.kind === 'water' ? '#2e94e0' : '#f2c447'
+              const placement = hazardLabelPlacements[index]
+              return (
+                <g key={`${fact.detail.kind}-${index}`}>
+                  <line
+                    x1={fact.detail.frontPx[0]}
+                    y1={fact.detail.frontPx[1]}
+                    x2={fact.detail.backPx[0]}
+                    y2={fact.detail.backPx[1]}
+                    stroke={tint}
+                    strokeWidth={4}
+                    strokeLinecap="round"
+                  />
+                  <circle cx={fact.detail.frontPx[0]} cy={fact.detail.frontPx[1]} r={5} fill={tint} stroke="#111" strokeWidth={1.5} />
+                  <circle cx={fact.detail.backPx[0]} cy={fact.detail.backPx[1]} r={5} fill={tint} stroke="#111" strokeWidth={1.5} />
+                  {placement.showLabel ? (
+                    <text
+                      x={fact.x + 8}
+                      y={placement.labelY}
+                      fontSize={12}
+                      fontWeight={700}
+                      fill="#fff"
+                      stroke="#071018"
+                      strokeWidth={3}
+                      paintOrder="stroke"
+                    >
+                      {fact.text}
+                    </text>
+                  ) : null}
+                </g>
+              )
+            })}
+            <circle cx={tee.x} cy={tee.y} r={8} fill="#fff" stroke="#111" strokeWidth={2} />
+            <circle cx={green.x} cy={green.y} r={7} fill="#fff" stroke="#3fcf72" strokeWidth={3} />
+            {landing !== null ? (
+              <g data-map-overlay="recommended-landing">
+                <circle cx={landing.x} cy={landing.y} r={10} fill="#4ddb78" stroke="#fff" strokeWidth={3} />
+                {recommendedClub !== null ? (
+                  <text x={landing.x + 14} y={landing.y - 8} fontSize={13} fontWeight={800} fill="#4ddb78" stroke="#071018" strokeWidth={3} paintOrder="stroke">
+                    {recommendedClub}
+                  </text>
+                ) : null}
+              </g>
+            ) : null}
+            {ball !== null ? (
+              <g data-map-overlay="player-position">
+                <circle cx={ball.x} cy={ball.y} r={12} fill="#147df5" stroke="#fff" strokeWidth={3} />
+                <path d={`M ${ball.x} ${ball.y - 23} L ${ball.x - 6} ${ball.y - 13} L ${ball.x + 6} ${ball.y - 13} Z`} fill="#fff" />
+              </g>
+            ) : null}
           </svg>
+          <div className="live-sandbox-map-distance">
+            <span>中</span>
+            <strong>{fmtYd(ballOnRoute ? Math.max(0, overlay.ln - effectiveCum) : manualDistanceM)}</strong>
+            <small>拖动蓝点模拟位置</small>
+          </div>
+          <div className={shotType === 'tee' ? 'live-sandbox-map-tools live-sandbox-map-tools--solo' : 'live-sandbox-map-tools'}>
+            {shotTypeControl}
+            <label className="live-sandbox-map-tool">
+              <span>球位</span>
+              <select
+                aria-label="球位状态"
+                value={lie}
+                disabled={shotType === 'tee'}
+                title={shotType === 'tee' ? '开球无需球位状态' : undefined}
+                onChange={(event) => setLie(event.target.value)}
+              >
+                {LIE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+          </div>
         </div>
-        <div className="live-sandbox-readout-row">
-          <p className="live-sandbox-readout">{readout}</p>
+        <div className="live-sandbox-compact-inputs">
           {manualDistanceControl}
+          <label className="live-sandbox-control live-sandbox-control--helper">
+            <span>逆风(m/s)</span>
+            <input
+              type="number"
+              aria-label="逆风(m/s)"
+              min={0}
+              step="0.1"
+              inputMode="decimal"
+              placeholder="选填"
+              value={windSpeed}
+              onChange={(event) => setWindSpeed(event.target.value)}
+            />
+            <span className="live-sandbox-helper">引擎按逆风折算;顺风请留空</span>
+          </label>
         </div>
-        <p className="live-sandbox-hint">拖动橙球摆位,或直接键入到果岭距离</p>
-        <div className="live-sandbox-controls">{situationControls}</div>
       </div>
     )
   } else if (hole !== null) {

@@ -550,6 +550,43 @@ final class WatchSyncClientTests: XCTestCase {
         XCTAssertEqual(client.config?.sessionTokenExpiresAt, ISO8601DateFormatter().date(from: expiry))
     }
 
+    func testValidConfigPersistsAcrossWatchProcessRelaunch() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let queueURL = directory.appendingPathComponent("queued_events.json")
+        let first = WatchSyncClient(queueURL: queueURL)
+        first.applyApplicationContext([
+            "configStatus": "available",
+            "config": [
+                "apiBaseURL": "https://caddie.example.com",
+                "sessionToken": "persisted-watch-token",
+            ],
+        ])
+
+        let relaunched = WatchSyncClient(queueURL: queueURL)
+
+        XCTAssertEqual(relaunched.config?.baseURL.absoluteString, "https://caddie.example.com")
+        XCTAssertEqual(relaunched.config?.sessionToken, "persisted-watch-token")
+    }
+
+    func testExplicitUnavailableConfigClearsPersistedCredential() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let queueURL = directory.appendingPathComponent("queued_events.json")
+        let client = WatchSyncClient(queueURL: queueURL)
+        client.applyApplicationContext([
+            "config": [
+                "apiBaseURL": "https://caddie.example.com",
+                "sessionToken": "old-token",
+            ],
+        ])
+
+        client.applyApplicationContext(["configStatus": "unavailable"])
+
+        XCTAssertNil(client.config)
+        XCTAssertNil(WatchSyncClient(queueURL: queueURL).config)
+    }
+
     func testApplyApplicationContextIgnoresInvalidPayload() throws {
         let client = WatchSyncClient(queueURL: tempQueueURL())
         client.applyApplicationContext(["unrelated": 1])

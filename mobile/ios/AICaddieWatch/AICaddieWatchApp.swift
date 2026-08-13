@@ -3,6 +3,7 @@ import WatchKit
 
 @main
 public struct AICaddieWatchApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     private struct NearbyCourseDiscoveryKey: Equatable {
         let config: WatchRoundConfig?
         let latitudeBucket: Int?
@@ -102,6 +103,13 @@ public struct AICaddieWatchApp: App {
                     }
                 }
                 .onAppear {
+                    reconcileLocationServices()
+                    syncClient.requestConfigurationFromPhone()
+                    Task { await roundModel.retryDeferredFinishes() }
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    guard phase == .active else { return }
+                    syncClient.requestConfigurationFromPhone()
                     reconcileLocationServices()
                     Task { await roundModel.retryDeferredFinishes() }
                 }

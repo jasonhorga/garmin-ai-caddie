@@ -70,18 +70,27 @@ final class DesignSnapshotTests: XCTestCase {
                 .frame(height: 176)
                 .frame(maxWidth: .infinity, alignment: .top)
             LivePlayReticle().offset(x: 30, y: 96)
-            LiveHazardPill(text: "水域 · 到 213 · 过 235 码").offset(x: 54, y: 150)
+            LiveMapGreenDistanceOverlay(
+                frontYards: 205, middleYards: 219, backYards: 231,
+                toPinYards: 245, isLive: false
+            )
+            .position(x: 104, y: 137)
+            LiveMapHazardRangeOverlay(
+                kind: "water",
+                label: "右侧水障碍",
+                toYards: 213,
+                overYards: 235,
+                front: CGPoint(x: 224, y: 292),
+                back: CGPoint(x: 250, y: 266),
+                index: 0,
+                viewportSize: CGSize(width: 390, height: 480)
+            )
             VStack(spacing: 0) {
                 LivePlayHeader(holeNumber: 1, par: 5, yards: 543, teeLabel: "蓝T", roundToParText: "本场 +4")
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
                 Spacer(minLength: 0)
                 LivePlayPanel {
-                    LiveDistanceReadout(
-                        greenFrontYards: 205, greenCenterYards: 219, greenBackYards: 231,
-                        toPinYards: 245, isGreenLive: false
-                    )
-                    Rectangle().fill(LivePlayStyle.hair).frame(height: 1).padding(.horizontal, 2)
                     LiveCaddieStrip(
                         clubs: [
                             .init(name: "3W", sub: "238 码", on: true),
@@ -134,28 +143,6 @@ final class DesignSnapshotTests: XCTestCase {
         XCTAssertTrue(color.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
         XCTAssertLessThan(max(red, green, blue), 0.20)
         XCTAssertEqual(alpha, 1, accuracy: 0.001)
-    }
-
-    func testLiveHazardPillUsesTheLaneOppositeTheClubLandingLabel() {
-        let heroHeight: CGFloat = 360
-        let upperLanding = LivePlayMapOverlayLayout.hazardPillCenterY(
-            heroHeight: heroHeight,
-            landingCenterY: heroHeight * 0.42
-        )
-        let lowerLanding = LivePlayMapOverlayLayout.hazardPillCenterY(
-            heroHeight: heroHeight,
-            landingCenterY: heroHeight * 0.78
-        )
-        let unknownLanding = LivePlayMapOverlayLayout.hazardPillCenterY(
-            heroHeight: heroHeight,
-            landingCenterY: nil
-        )
-
-        XCTAssertEqual(upperLanding, 252, accuracy: 0.001)
-        XCTAssertEqual(lowerLanding, 172.8, accuracy: 0.001)
-        XCTAssertEqual(unknownLanding, upperLanding, accuracy: 0.001)
-        XCTAssertGreaterThan(abs(upperLanding - heroHeight * 0.42 + 18), 80)
-        XCTAssertGreaterThan(abs(lowerLanding - heroHeight * 0.78 + 18), 80)
     }
 
     func testLiveGreenTargetUsesTheSameAspectFitProjectionAsTheHoleMap() throws {
@@ -456,14 +443,15 @@ final class DesignSnapshotTests: XCTestCase {
             named: "hole-map-topo-fallback"
         )
 
-        // 备战逐洞卡 (reskin): 浅色 hubCard — 洞号 / Par / 蓝T / 实打坡度 + 真实球场图 + 球童试算(推荐球杆
-        // 绿胶囊 + 果岭前/中/后码) + 逐步打法 + 障碍提示。渲染真实 HolePrepCard(整套 prep 数据)以验证浅色。
+        // 备战逐洞卡:地图直接承载推荐路线/落点/球杆与 F/M/B；完整打法和提醒按需展开。
         let prepCardJSON = """
         {"hole":7,"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,\
         "route":[[120,330],[118,180],[120,55]],"tee_club":"D","landing_m":150,\
         "steps":[{"club":"D","note":"开球打球道左中,避右侧沙坑"},{"club":"8I","note":"攻果岭中心,后方无碍"}],\
         "cautions":["果岭前缘有陡坡,落点宁长勿短"],\
-        "hazards":{"water_carry":[[175,195]],"bunkers":[[210,18],[138,12]]},\
+        "hazards":{"water_carry":[[175,195]],"bunkers":[[210,18],[138,12]],"details":[\
+        {"kind":"water","frontM":175,"backM":195,"frontRouteM":175,"backRouteM":195,"frontPx":[112,170],"backPx":[126,155],"sideM":null},\
+        {"kind":"bunker","frontM":210,"backM":225,"frontRouteM":210,"backRouteM":225,"frontPx":[145,130],"backPx":[152,116],"sideM":18}]},\
         "map":{"image":"\(b64)","overlay":{"w":\(mapW),"h":\(mapH),"ppm":1.0,"ln":375,\
         "route":[[120,330,0],[118,180,150],[120,55,375]]}},\
         "greenDistances":{"available":true,"frontM":128,"middleM":135,"backM":142},\
@@ -625,7 +613,7 @@ final class DesignSnapshotTests: XCTestCase {
         """
         let shotMap = try JSONDecoder().decode(RoundHoleShotMap.self, from: Data(shotMapJSON.utf8))
         try captureScreen(
-            VStack(spacing: 12) { RoundShotMapView(shotMap: shotMap).frame(height: 420); RoundShotMapLegend() }
+            RoundShotMapView(shotMap: shotMap).frame(height: 520)
                 .padding(24)
                 .background(HubStyle.grouped),
             named: "round-shot-map"

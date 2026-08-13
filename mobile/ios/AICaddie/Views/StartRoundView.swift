@@ -122,7 +122,8 @@ public struct StartRoundView: View {
             && !isLoadingTees
             && !roundId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && courseGlobalId != nil
-            && (!selectedCourseRequiresRemoteTees || !fetchedTees.isEmpty)
+            && !teeBox.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (!selectedCourseRequiresRemoteTees || !teeOptions.isEmpty)
     }
 
     public var body: some View {
@@ -189,12 +190,13 @@ public struct StartRoundView: View {
             return
         }
         let requiresRemoteTees = selectedCourseRequiresRemoteTees
+        let hasCatalogueTeeAuthority = selectedSegment?.tees?.isEmpty == false
         // A cached/history course may already have factual Tee names, but this request still
         // enriches them with Garmin yardage/default authority. Do not let Start race that request:
         // URLSession can otherwise queue the course-package behind a cold CourseView release and
         // silently hit its 60 s timeout. A failed refresh still falls back to the known Tee list.
         isLoadingTees = true
-        if requiresRemoteTees {
+        if requiresRemoteTees && !hasCatalogueTeeAuthority {
             teeLoadFailed = false
             fetchedTees = []
         }
@@ -208,7 +210,7 @@ public struct StartRoundView: View {
               teeRequestToken == requestToken,
               courseGlobalId == globalId else { return }
         guard !tees.isEmpty else {
-            if requiresRemoteTees { teeLoadFailed = true }
+            if requiresRemoteTees && !hasCatalogueTeeAuthority { teeLoadFailed = true }
             return
         }
         fetchedTees = tees
@@ -460,7 +462,7 @@ public struct StartRoundView: View {
                 if isLoadingTees {
                     ProgressView("正在获取发球台…")
                         .font(.caption)
-                } else if selectedCourseRequiresRemoteTees, teeLoadFailed {
+                } else if selectedCourseRequiresRemoteTees, teeLoadFailed, teeOptions.isEmpty {
                     VStack(alignment: .leading, spacing: 7) {
                         Text("这个球场暂时没有可用的发球台数据。")
                             .font(.caption)
@@ -474,6 +476,16 @@ public struct StartRoundView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(LiveHoleStyle.green)
                         .accessibilityIdentifier("start-round-retry-course-tees")
+                        Button {
+                            teeBox = "unknown"
+                            teeLoadFailed = false
+                        } label: {
+                            Text("使用球场默认发球台")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("start-round-use-course-default-tee")
                     }
                 }
             }
@@ -617,7 +629,8 @@ public struct StartRoundView: View {
     private var teeOptions: [String] {
         let fetched = fetchedTees.map(\.teeBox)
         let courseTees = selectedSegment?.tees ?? []
-        if selectedCourseRequiresRemoteTees, fetched.isEmpty { return [] }
+        if selectedCourseRequiresRemoteTees, fetched.isEmpty, courseTees.isEmpty,
+           teeBox.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [] }
         let base = !fetched.isEmpty
             ? fetched
             : (courseTees.isEmpty ? ["blue", "white", "red", "gold", "black", "green", "yellow", "silver"] : courseTees)
@@ -651,6 +664,8 @@ public struct StartRoundView: View {
 
     private func zhTeeLabel(_ tee: String) -> String {
         switch tee.lowercased() {
+        case "unknown":
+            return "球场默认 T"
         case "blue":
             return "蓝 T"
         case "white":

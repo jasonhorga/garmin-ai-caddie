@@ -68,8 +68,8 @@ public struct WatchRoundContainerView: View {
     /// Map Detail owns the Crown. The resting position keeps the facts column and score ring; turning it
     /// enters the existing full-map presentation and continuously changes the real image transform.
     @State private var holeMapCrownScale: Double
-    /// A hazard row opens a focused map instrument. nil keeps the first-level S70-style hazard list.
-    @State private var selectedHazardID: String?
+    /// DEBUG compatibility and deep-linking only; production opens the nearest upcoming obstacle.
+    private let initialHazardID: String?
 
     /// watch P3: F/M/B green distances (码) from the watch's OWN GPS; when present they override the
     /// phone-pushed static distances so the hole view is a live rangefinder even without the phone.
@@ -104,8 +104,8 @@ public struct WatchRoundContainerView: View {
         self.autoShotStatus = autoShotStatus
         self.measuredPxOverride = measuredPxOverride
         self.pinDragOverride = pinDragOverride
+        self.initialHazardID = initialSelectedHazardID
         self._holeMapCrownScale = State(initialValue: initialHoleMapCrownScale)
-        self._selectedHazardID = State(initialValue: initialSelectedHazardID)
     }
 
     // watch P3: effective F/M/B — the watch-GPS value when available, else the phone-pushed distance.
@@ -232,8 +232,7 @@ public struct WatchRoundContainerView: View {
             }
         case .hazards:
             if let state = model.activeHoleState, model.hazardDetailAvailable {
-                if let selectedHazardID,
-                   let geometry = holeGeometry,
+                if let geometry = holeGeometry,
                    let route = state.holeMap?.route,
                    !route.isEmpty {
                     WatchHazardMapView(
@@ -241,30 +240,16 @@ public struct WatchRoundContainerView: View {
                         route: route,
                         hazards: state.hazards,
                         centerGreenYards: centerYd(state),
-                        initialHazardID: selectedHazardID,
-                        onBack: { self.selectedHazardID = nil }
+                        initialHazardID: initialHazardID,
+                        onBack: { model.backToMenu() }
                     )
                 } else {
+                    // Legacy cache without a shared topo frame cannot place obstacle facts honestly.
+                    // Keep its text-only degradation; geometry-capable rounds never pass through it.
                     ScrollView {
                         VStack(alignment: .leading, spacing: 8) {
                             instrumentBackButton
-                            if let geometry = holeGeometry,
-                               let route = state.holeMap?.route,
-                               !route.isEmpty {
-                                let progress = WatchHazardMapLayout.playerProgressMetres(
-                                    on: route,
-                                    playerImagePoint: geometry.youPx
-                                ) ?? 0
-                                WatchHazardView(
-                                    hazards: state.hazards,
-                                    playerProgressM: progress,
-                                    playerImagePoint: geometry.youPx,
-                                    route: route,
-                                    onSelect: { selectedHazardID = $0.id }
-                                )
-                            } else {
-                                WatchHazardView(hazards: state.hazards)
-                            }
+                            WatchHazardView(hazards: state.hazards)
                         }
                         .padding(8)
                     }
@@ -506,6 +491,8 @@ public struct WatchRoundContainerView: View {
             showCaddieRecommendation: currentShot != nil || preparedRootCaddieLayerAvailable,
             currentShotLayout: currentShot,
             showPreparedPlan: preparedRootCaddieLayerAvailable,
+            hazards: s.hazards,
+            hazardRoute: s.holeMap?.route ?? [],
             // owner 2026-07-08 (Fable audit): KEEP the scoring ring — real per-hole scores, current hole hi.
             ringPips: model.allHoleStates.map {
                 WatchRingPip(hole: $0.hole, toPar: $0.score > 0 ? $0.score - $0.par : nil, isCurrent: $0.hole == model.activeHole)

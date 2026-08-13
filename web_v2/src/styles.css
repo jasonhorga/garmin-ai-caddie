@@ -6724,6 +6724,67 @@ button.round-detail-cell:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.prep-hole-nav {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  align-items: end;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.prep-hole-nav-arrow {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--green-text);
+  font-size: 26px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.prep-hole-nav-arrow:disabled {
+  color: var(--muted);
+  opacity: .38;
+  cursor: default;
+}
+
+.prep-hole-picker {
+  display: grid;
+  gap: 3px;
+}
+
+.prep-hole-picker > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.prep-hole-picker select {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  padding: 6px 10px;
+  font: inherit;
+  font-weight: 800;
+}
+
+.prep-active-hole-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 .prep-holes-list {
   list-style: none;
   margin: 0;
@@ -6934,9 +6995,79 @@ button.round-detail-cell:hover {
 }
 
 .prep-canvas-chip--ball {
-  background: var(--green);
-  border-color: var(--green);
+  background: #31b85d;
+  border-color: #31b85d;
   color: #fff;
+}
+
+.prep-map-hole-facts {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 9px;
+  color: #fff;
+  background: rgba(7, 16, 24, .72);
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 10px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, .22);
+  pointer-events: none;
+}
+
+.prep-map-hole-facts strong {
+  font-size: 12px;
+}
+
+.prep-map-hole-facts span {
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, .76);
+  font-variant-numeric: tabular-nums;
+}
+
+.prep-map-green-range {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  min-width: 72px;
+  padding: 5px 8px;
+  color: #fff;
+  background: rgba(7, 16, 24, .74);
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 9px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, .25);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.prep-map-green-range small {
+  font-size: 8px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, .65);
+}
+
+.prep-map-green-range span {
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, .68);
+}
+
+.prep-map-green-range span b {
+  color: #d5d9df;
+}
+
+.prep-map-green-range .middle {
+  font-size: 12px;
+}
+
+.prep-map-green-range .middle b {
+  color: #fff;
+  font-size: 17px;
 }
 
 .prep-canvas-chip-unit {
@@ -7157,6 +7288,23 @@ button.round-detail-cell:hover {
   line-height: 1.5;
 }
 
+.prep-details {
+  margin-top: 10px;
+  border-top: 1px solid rgba(27, 118, 57, .15);
+  padding-top: 8px;
+}
+
+.prep-details summary {
+  color: var(--green-text);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.prep-details--caution summary {
+  color: var(--double-text);
+}
+
 .prep-row {
   display: flex;
   justify-content: space-between;
@@ -7320,6 +7468,13 @@ button.round-detail-cell:hover {
     'canvas inspector';
   gap: 12px;
   height: clamp(480px, calc(100vh - 250px), 880px);
+}
+
+.review-work--map-first {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    'holes'
+    'canvas';
 }
 
 .review-work > * {
@@ -7846,12 +8001,18 @@ button.round-detail-cell:hover {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 0;
+  overflow: hidden;
+  background: #071018;
 }
 
 .live-hole-chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
   gap: 6px;
+  padding: 10px 12px 0;
+  scrollbar-width: none;
 }
 
 .live-hole-chip {
@@ -7886,21 +8047,24 @@ button.round-detail-cell:hover {
 
 .live-sandbox-map {
   position: relative;
-  max-width: 380px;
+  max-width: 620px;
   width: 100%;
   margin: 0 auto;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #102b1a;
 }
 
 .live-sandbox-map img {
   width: 100%;
   display: block;
-  border-radius: 8px;
+  border-radius: 18px;
 }
 
 .live-sandbox-base {
   width: 100%;
   height: 100%;
-  border-radius: 8px;
+  border-radius: 18px;
 }
 
 .live-sandbox-base .hole-base-flat {
@@ -7915,6 +8079,66 @@ button.round-detail-cell:hover {
   height: 100%;
   touch-action: none; /* pointer drags must not scroll the page on touch */
   cursor: grab;
+}
+
+.live-sandbox-map-distance,
+.live-sandbox-map-tools {
+  position: absolute;
+  z-index: 3;
+  color: #fff;
+  background: rgb(4 10 15 / 72%);
+  border: 1px solid rgb(255 255 255 / 18%);
+  backdrop-filter: blur(8px);
+}
+
+.live-sandbox-map-distance {
+  top: 14px;
+  left: 14px;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  gap: 0 6px;
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+
+.live-sandbox-map-distance span { color: #a9d7ff; font-size: 12px; font-weight: 700; }
+.live-sandbox-map-distance strong { font-size: 23px; font-variant-numeric: tabular-nums; }
+.live-sandbox-map-distance small { grid-column: 1 / -1; color: rgb(255 255 255 / 60%); font-size: 9px; }
+
+.live-sandbox-map-tools {
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 6px;
+  padding: 5px 7px;
+  border-radius: 11px;
+}
+
+.live-sandbox-map-tools--solo {
+  left: auto;
+  right: 12px;
+}
+
+.live-sandbox-map-tools .live-sandbox-control,
+.live-sandbox-map-tool { color: #fff; }
+
+.live-sandbox-map-tools .live-sandbox-control > span,
+.live-sandbox-map-tool > span { display: none; }
+
+.live-sandbox-map-tools select,
+.live-sandbox-map-tool select {
+  color: #fff;
+  background: rgb(255 255 255 / 10%);
+  border-color: rgb(255 255 255 / 18%);
+}
+
+.live-sandbox-compact-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 12px 12px;
 }
 
 .live-sandbox-readout {
@@ -9495,5 +9719,234 @@ textarea {
 
   .round-ai-review .button-row {
     flex-wrap: wrap;
+  }
+}
+
+/* ===== Garmin-style map instruments (2026-08-13) =====
+   Maps own the facts. Lists remain only for scorecards and actual edit/reorder work. These final
+   declarations intentionally sit after the frozen visual blocks so older two/three-column rules
+   cannot silently restore a passive inspector rail. */
+
+.prep-work--map-first {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(560px, calc(100vh - 280px));
+  grid-template-areas:
+    'holes'
+    'canvas';
+}
+
+.prep-work--map-first .prep-canvas {
+  position: relative;
+  min-height: 0;
+  padding: 12px;
+  overflow: hidden;
+  background: #202923;
+}
+
+.prep-work--map-first .prep-canvas-frame {
+  width: auto;
+  height: 100%;
+  max-width: min(100%, 590px);
+  max-height: 100%;
+  overflow: hidden;
+  border-radius: 18px;
+}
+
+.prep-work--map-first .prep-canvas-img {
+  border-radius: 18px;
+}
+
+.prep-inspector--map-dock {
+  grid-area: canvas;
+  z-index: 5;
+  align-self: end;
+  justify-self: center;
+  width: min(calc(100% - 28px), 720px);
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  background: transparent;
+  pointer-events: none;
+}
+
+.prep-map-detail-dock {
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.prep-map-details {
+  max-width: min(360px, calc(50vw - 40px));
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 13px;
+  background: rgba(7, 16, 24, .82);
+  color: #fff;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .26);
+  backdrop-filter: blur(14px);
+  overflow: hidden;
+}
+
+.prep-map-details summary {
+  min-width: 132px;
+  padding: 9px 12px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.prep-map-details[open] {
+  padding-bottom: 9px;
+}
+
+.prep-map-details[open] summary {
+  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  margin-bottom: 7px;
+}
+
+.prep-map-details .prep-caddie-steps,
+.prep-map-details .prep-caddie-cautions,
+.prep-map-details .prep-tips-list,
+.prep-map-details .prep-inspector-placeholder,
+.prep-map-details .prep-load-error {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0 10px;
+  color: rgba(255, 255, 255, .88);
+}
+
+.prep-map-details .prep-tip-text,
+.prep-map-details .prep-tip-basis {
+  color: inherit;
+}
+
+.review-work--map-first {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    'holes'
+    'canvas';
+}
+
+.review-work--map-first .review-canvas {
+  position: relative;
+  grid-template-rows: minmax(0, 1fr);
+  padding: 0;
+  overflow: hidden;
+  background: #292820;
+}
+
+.review-work--map-first .review-canvas-frame {
+  width: auto;
+  height: 100%;
+  max-width: min(100%, 620px);
+  max-height: 100%;
+  overflow: hidden;
+  border-radius: 18px;
+}
+
+.review-work--map-first .review-canvas-img {
+  height: 100%;
+  border-radius: 18px;
+  box-shadow: none;
+}
+
+.review-map-hole-facts,
+.review-map-penalty {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, .18);
+  background: rgba(7, 16, 24, .76);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .24);
+  backdrop-filter: blur(10px);
+}
+
+.review-map-hole-facts {
+  top: 12px;
+  left: 12px;
+  display: grid;
+  gap: 1px;
+  padding: 7px 9px;
+  border-radius: 11px;
+}
+
+.review-map-hole-facts strong { font-size: 12px; }
+.review-map-hole-facts span { color: rgba(255, 255, 255, .72); font-size: 10px; font-weight: 700; }
+
+.review-map-penalty {
+  left: 12px;
+  bottom: 12px;
+  border-color: rgba(255, 190, 70, .45);
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #ffe2a6;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+@media (max-width: 900px) {
+  .prep-work--map-first {
+    grid-template-rows: auto minmax(520px, calc(100svh - 215px));
+  }
+
+  .prep-work--map-first .prep-canvas {
+    padding: 0;
+  }
+
+  .prep-work--map-first .prep-canvas-frame,
+  .review-work--map-first .review-canvas-frame {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    border-radius: 0;
+  }
+
+  .prep-work--map-first .prep-canvas-img,
+  .review-work--map-first .review-canvas-img {
+    border-radius: 0;
+  }
+
+  .prep-inspector--map-dock {
+    width: calc(100% - 16px);
+    margin-bottom: 8px;
+  }
+
+  .prep-map-detail-dock {
+    align-items: stretch;
+  }
+
+  .prep-map-details {
+    max-width: calc(50vw - 16px);
+  }
+
+  .prep-map-details summary {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .review-work--map-first {
+    grid-template-rows: auto minmax(560px, calc(100svh - 190px));
+    height: auto;
+  }
+
+  .review-work--map-first .review-canvas {
+    min-height: 560px;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .review-canvas-chip {
+    max-width: 46%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 10px;
   }
 }

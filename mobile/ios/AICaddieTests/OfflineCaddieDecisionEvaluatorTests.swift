@@ -18,6 +18,18 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertNil(LiveCaddieDistance.resolve(manualM: nil, liveMiddleM: nil, staticMiddleM: nil))
     }
 
+    func testOffCourseGPSFallsBackToDownloadedHoleDistance() {
+        XCTAssertEqual(
+            LiveCaddieDistance.resolve(
+                manualM: nil,
+                liveMiddleM: 20_000,
+                staticMiddleM: 374,
+                holeYards: 410
+            ),
+            374
+        )
+    }
+
     func testMakesAuditableOfflineDecisionFromSeedAndStrategy() throws {
         let package = try fixturePackage()
         let seed = try XCTUnwrap(package.caddieContextSeeds.first)

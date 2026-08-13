@@ -87,6 +87,11 @@ struct CoursePrepLiveHazardReadout: Equatable {
     let label: String
     let toYards: Int
     let overYards: Int
+    /// The same factual boundary pixels used to calculate the range. Keeping them attached to the
+    /// readout lets every client put the numbers on the obstacle instead of rebuilding a list below
+    /// the map (or positioning a generic pill in an unrelated screen lane).
+    let frontPx: [Double]
+    let backPx: [Double]
 
     var detail: String { "到 \(toYards) · 过 \(overYards) 码" }
 
@@ -154,7 +159,9 @@ struct CoursePrepLiveHazardReadout: Equatable {
                     kind: detail.kind,
                     label: label,
                     toYards: toYards,
-                    overYards: overYards
+                    overYards: overYards,
+                    frontPx: detail.frontPx,
+                    backPx: detail.backPx
                 ),
                 frontRouteM: detail.frontRouteM
             ))

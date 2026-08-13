@@ -3,8 +3,7 @@ import type { RoundCard, RoundHoleShotMapResponse, ScoreStripCell } from '../typ
 import { prefetchTopoImage, topoImageUrl } from '../api'
 import { cleanCourseName, shortRoundDate } from '../units'
 import { ReviewHoleCanvas, type ReviewShotMapState } from './ReviewHoleCanvas'
-import { ReviewInspector } from './ReviewInspector'
-import { buildTimeline, chipShape, chipShapeZh, type ChipShape } from './reviewShotMapLogic'
+import { chipShape, chipShapeZh, type ChipShape } from './reviewShotMapLogic'
 
 interface ReviewWorkbenchProps {
   rounds: RoundCard[]
@@ -162,14 +161,8 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
   const shotMapState: ReviewShotMapState =
     validHole === null ? { status: 'nogeo', message: '这局暂无逐洞成绩，无法展示落点图。' } : deriveShotMapState(shotMapDone, shotMapKey)
   const activeCell = holes.find((cell) => cell.hole === validHole) ?? null
-  const ppm = shotMapState.status === 'ready' ? shotMapState.data.map?.overlay.ppm ?? null : null
-  const timeline = shotMapState.status === 'ready' ? buildTimeline(shotMapState.data.shots, ppm) : []
-  const manualPenalty = shotMapState.status === 'ready' ? shotMapState.data.manualPenalty ?? 0 : 0
   const roundScore = selectedRound.score ?? null
   const roundToPar = selectedRound.toPar ?? null
-  const workClass = timeline.length <= 1 && manualPenalty === 0
-    ? 'review-work review-work--quiet-inspector'
-    : 'review-work'
 
   return (
     <section className="review-page review-workbench-page" aria-label="复盘">
@@ -204,7 +197,7 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
         </div>
       </div>
 
-      <div className={workClass}>
+      <div className="review-work review-work--map-first">
         <div className="review-holes">
           <div className="review-holes-head">
             <span>球洞 · 成绩</span>
@@ -236,16 +229,6 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
 
         <ReviewHoleCanvas hole={validHole ?? 0} par={activeCell?.par ?? null} score={activeCell?.score ?? null} state={shotMapState} />
 
-        <ReviewInspector
-          hole={validHole ?? 0}
-          par={activeCell?.par ?? null}
-          score={activeCell?.score ?? null}
-          toPar={activeCell?.toPar ?? null}
-          timeline={timeline}
-          decision={null}
-          shotsLoading={shotMapState.status === 'loading'}
-          manualPenalty={manualPenalty}
-        />
       </div>
     </section>
   )

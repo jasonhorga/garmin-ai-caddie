@@ -182,18 +182,33 @@ export interface ShotLandingLabel {
   text: string
 }
 
-// On-map labels at each full-shot landing: the CLUB ONLY (Garmin's review style —
-// "用什么杆打的", no distance/lie text; that detail lives in the right-column 杆序
-// timeline). Putts, shots missing an endpoint, and the synthetic (推算) drive whose
-// club we don't actually know are skipped so the map stays sparse and every label is
-// a real, known club.
-export function shotLandingLabels(shots: RoundHoleShot[]): ShotLandingLabel[] {
+export function shotLandingOverlayText(
+  shot: RoundHoleShot,
+  ppm: number | null | undefined,
+): string | null {
+  if (isPuttShot(shot) || shot.synthetic || !shot.end) return null
+  const club = shot.club?.trim()
+  if (!club) return null
+  const parts = [clubDisplay(shot)]
+  const distance = shotDistanceYd(shot.start, shot.end, ppm)
+  if (distance !== null) parts.push(`${distance}码`)
+  const lie = lieZh(shot.endLie)
+  if (lie) parts.push(`→${lie}`)
+  if (isManuallyCorrected(shot)) parts.push('已修正')
+  return parts.join(' · ')
+}
+
+// On-map labels at each full-shot landing follow Garmin Golf's shot-map hierarchy: the
+// club and measured distance sit beside the landing. We also retain the factual result
+// lie/correction because this product no longer duplicates a passive 杆序 rail.
+export function shotLandingLabels(shots: RoundHoleShot[], ppm?: number | null): ShotLandingLabel[] {
   const labels: ShotLandingLabel[] = []
   for (const shot of shots) {
     if (isPuttShot(shot) || shot.synthetic || !shot.end) continue
     const club = shot.club?.trim()
     if (!club) continue
-    labels.push({ x: shot.end[0], y: shot.end[1], text: clubDisplay(shot) })
+    const text = shotLandingOverlayText(shot, ppm)
+    if (text) labels.push({ x: shot.end[0], y: shot.end[1], text })
   }
   return labels
 }

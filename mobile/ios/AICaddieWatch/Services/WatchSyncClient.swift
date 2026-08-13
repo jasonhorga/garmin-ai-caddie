@@ -1,7 +1,87 @@
 import Combine
 import Foundation
 import os
+#if canImport(Security)
+import Security
+#endif
 import WatchConnectivity
+
+protocol WatchConfigPersisting {
+    func read() -> WatchRoundConfig?
+    func write(_ config: WatchRoundConfig)
+    func clear()
+}
+
+/// File-backed test/dev persistence. The production convenience initializer replaces this with the
+/// Keychain store below, so a member bearer is never written to the Watch Documents container.
+private struct WatchFileConfigStore: WatchConfigPersisting {
+    let url: URL
+
+    func read() -> WatchRoundConfig? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(WatchRoundConfig.self, from: data)
+    }
+
+    func write(_ config: WatchRoundConfig) {
+        guard let data = try? JSONEncoder().encode(config) else { return }
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: url, options: [.atomic])
+    }
+
+    func clear() {
+        try? FileManager.default.removeItem(at: url)
+    }
+}
+
+/// The phone provisions the Watch once; the Watch then keeps that backend identity across app
+/// launches and phone disconnection. `AfterFirstUnlockThisDeviceOnly` supports background Watch
+/// networking after the wearer has unlocked the device without allowing the credential into backups.
+private struct WatchKeychainConfigStore: WatchConfigPersisting {
+    private let service = "com.ai-caddie.mobile.watchkitapp.backend-config"
+    private let account = "current"
+
+    func read() -> WatchRoundConfig? {
+        #if canImport(Security)
+        var query = baseQuery
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return try? JSONDecoder().decode(WatchRoundConfig.self, from: data)
+        #else
+        return nil
+        #endif
+    }
+
+    func write(_ config: WatchRoundConfig) {
+        #if canImport(Security)
+        guard let data = try? JSONEncoder().encode(config) else { return }
+        SecItemDelete(baseQuery as CFDictionary)
+        var item = baseQuery
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(item as CFDictionary, nil)
+        #endif
+    }
+
+    func clear() {
+        #if canImport(Security)
+        SecItemDelete(baseQuery as CFDictionary)
+        #endif
+    }
+
+    private var baseQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+    }
+}
 
 public enum WatchInputKind: String, Codable, Equatable {
     case score
@@ -163,6 +243,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
 
     private let queueURL: URL
     private let stateURL: URL
+    private let configStore: WatchConfigPersisting
     private let queueFileLock = NSLock()
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -171,16 +252,34 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     public let holeImageStore: WatchHoleImageStore
     @Published public private(set) var lastHoleImageKey: String?
 
-    public init(
+    public convenience init(
         queueURL: URL,
         stateURL: URL? = nil,
         holeImageStore: WatchHoleImageStore = WatchHoleImageStore()
     ) {
+        self.init(
+            queueURL: queueURL,
+            stateURL: stateURL,
+            holeImageStore: holeImageStore,
+            configStore: WatchFileConfigStore(
+                url: queueURL.deletingLastPathComponent().appendingPathComponent("backend_config.json")
+            )
+        )
+    }
+
+    private init(
+        queueURL: URL,
+        stateURL: URL?,
+        holeImageStore: WatchHoleImageStore,
+        configStore: WatchConfigPersisting
+    ) {
         self.queueURL = queueURL
         self.stateURL = stateURL ?? queueURL.deletingLastPathComponent().appendingPathComponent("current_state.json")
+        self.configStore = configStore
         self.holeImageStore = holeImageStore
         super.init()
         currentState = try? loadPersistedState()
+        config = self.configStore.read()
         refreshQueuedEventCount()
         if WCSession.isSupported() {
             WCSession.default.delegate = self
@@ -195,7 +294,28 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             .appendingPathComponent("AICaddieWatch", isDirectory: true)
         self.init(
             queueURL: directory.appendingPathComponent("queued_events.json"),
-            stateURL: directory.appendingPathComponent("current_state.json")
+            stateURL: directory.appendingPathComponent("current_state.json"),
+            configStore: WatchKeychainConfigStore()
+        )
+    }
+
+    /// Ask for the latest backend identity instead of relying on a one-shot phone push that may have
+    /// happened while this process was not running. Called on activation, foreground and every
+    /// reachability recovery; the persisted config remains usable when the phone is absent.
+    public func requestConfigurationFromPhone() {
+        guard WCSession.isSupported(),
+              WCSession.default.activationState == .activated,
+              WCSession.default.isReachable else { return }
+        WCSession.default.sendMessage(
+            ["requestConfiguration": true],
+            replyHandler: { [weak self] reply in
+                self?.applyApplicationContext(reply)
+            },
+            errorHandler: { error in
+                WatchLog.connectivity.error(
+                    "Watch configuration request failed: \(String(describing: error), privacy: .public)"
+                )
+            }
         )
     }
 
@@ -510,6 +630,12 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     /// round-12 P3.4 (Watch standalone): parse the backend config the phone delivers in its application
     /// context. Exposed (not just used inside the delegate) so it can be unit-tested without WCSession.
     public func applyApplicationContext(_ context: [String: Any]) {
+        if context["configStatus"] as? String == "unavailable" {
+            configStore.clear()
+            publishStateUpdate { client in
+                client.config = nil
+            }
+        }
         if let configDict = context["config"] as? [String: Any],
            let baseURLString = configDict["apiBaseURL"] as? String,
            let baseURL = URL(string: baseURLString) {
@@ -525,6 +651,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
                 sessionToken: sessionToken,
                 sessionTokenExpiresAt: sessionTokenExpiresAt
             )
+            configStore.write(parsed)
             publishStateUpdate { client in
                 client.config = parsed
             }
@@ -552,6 +679,7 @@ extension WatchSyncClient: WCSessionDelegate {
             // `receivedApplicationContext` is only authoritative after activation. Re-read it here
             // so config/seed delivered while the app was dead cannot be missed by the eager init read.
             applyApplicationContext(session.receivedApplicationContext)
+            requestConfigurationFromPhone()
         }
         if activationState == .activated, session.isReachable {
             do {
@@ -565,6 +693,7 @@ extension WatchSyncClient: WCSessionDelegate {
     public func sessionReachabilityDidChange(_ session: WCSession) {
         publishPhoneReachable(session.isReachable)
         if session.isReachable {
+            requestConfigurationFromPhone()
             do {
                 try flushQueue()
             } catch {

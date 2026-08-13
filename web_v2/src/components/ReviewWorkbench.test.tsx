@@ -79,38 +79,31 @@ describe('ReviewWorkbench', () => {
     expect(screen.getByLabelText('双柏忌 5')).toBeInTheDocument() // hole 3: +2
     expect(screen.getByLabelText('小鸟 4')).toBeInTheDocument() // hole 4: -1 circle
     expect(screen.getByLabelText('三柏忌以上 7')).toBeInTheDocument() // hole 5: +3 triangle
-    const timeline = await screen.findByRole('complementary', { name: '杆序' })
-    expect(await within(timeline).findByText('一号木')).toBeInTheDocument()
+    const canvas = await screen.findByLabelText('第1洞落点图')
+    expect(within(canvas).getByText(/一号木/)).toBeInTheDocument()
   })
 
   it('uses a celebratory under-par tone for a negative round total', async () => {
     const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
     render(<ReviewWorkbench rounds={[round({ toPar: -2 })]} fetchShotMap={fetchShotMap} />)
     expect(screen.getByText('· -2')).toHaveClass('score-under')
-    const timeline = await screen.findByRole('complementary', { name: '杆序' })
-    expect(await within(timeline).findByText('一号木')).toBeInTheDocument()
+    const canvas = await screen.findByLabelText('第1洞落点图')
+    expect(within(canvas).getByText(/一号木/)).toBeInTheDocument()
   })
 
-  it('loads the selected hole shot map and renders the 杆序 timeline (club + distance + putts)', async () => {
+  it('loads the selected hole shot map and overlays club, distance, and result on each landing', async () => {
     const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
     render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
 
     // Hole 1 auto-selects → its shot map loads.
     await waitFor(() => expect(fetchShotMap).toHaveBeenCalledWith('900001', 1))
-    // Club now appears BOTH on the map (review-canvas-chip) and in the 杆序 timeline, so
-    // scope the timeline assertions to the 杆序 aside to disambiguate.
-    const timeline = await screen.findByRole('complementary', { name: '杆序' })
-    expect(await within(timeline).findByText('一号木')).toBeInTheDocument()
-    expect(within(timeline).getByText('五号木')).toBeInTheDocument()
-    // The two-shot trajectory yardage is derived from the overlay ppm scale.
-    expect(screen.getByText('→ 沙坑')).toBeInTheDocument()
-    // The recorded putt collapses to a ×1 row.
-    expect(screen.getByText('×1')).toBeInTheDocument()
-    // The落点图 canvas renders on the real geometry.
-    expect(screen.getByLabelText('第1洞落点图')).toBeInTheDocument()
+    const canvas = await screen.findByLabelText('第1洞落点图')
+    expect(within(canvas).getByText(/一号木 · \d+码 · →球道/)).toBeInTheDocument()
+    expect(within(canvas).getByText(/五号木 · \d+码 · →沙坑/)).toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: '杆序' })).not.toBeInTheDocument()
   })
 
-  it('shows read-only 复盘 corrections: a 已修正 marker on edited shots and the hand-added penalty badge', async () => {
+  it('shows read-only corrections and penalty directly on the map', async () => {
     const corrected: RoundHoleShotMapResponse = {
       ...shotMap(1),
       manualPenalty: 2,
@@ -124,23 +117,19 @@ describe('ReviewWorkbench', () => {
     const fetchShotMap = vi.fn(async () => corrected)
     render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
 
-    const timeline = await screen.findByRole('complementary', { name: '杆序' })
-    // Hand-added penalty surfaces as a read-only hole badge.
-    expect(await within(timeline).findByText('本洞手填罚杆 +2')).toBeInTheDocument()
-    // The edited shot carries a 已修正 marker; the untouched drive does not.
-    const editedRow = (await within(timeline).findByText('九号铁')).closest('.review-shot') as HTMLElement
-    expect(within(editedRow).getByLabelText('已修正')).toBeInTheDocument()
-    const originalRow = within(timeline).getByText('一号木').closest('.review-shot') as HTMLElement
-    expect(within(originalRow).queryByLabelText('已修正')).toBeNull()
+    const canvas = await screen.findByLabelText('第1洞落点图')
+    expect(within(canvas).getByText('罚杆 +2')).toBeInTheDocument()
+    expect(within(canvas).getByText(/九号铁 · .*已修正/)).toBeInTheDocument()
+    expect(within(canvas).getByText(/推杆 ×1/)).toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: '杆序' })).not.toBeInTheDocument()
   })
 
   it('does not show a penalty badge when none was hand-added', async () => {
     const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
     render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
-    const timeline = await screen.findByRole('complementary', { name: '杆序' })
-    await within(timeline).findByText('一号木')
-    expect(within(timeline).queryByText(/本洞手填罚杆/)).toBeNull()
-    expect(within(timeline).queryByLabelText('已修正')).toBeNull()
+    await screen.findByLabelText('第1洞落点图')
+    expect(screen.queryByRole('complementary', { name: '杆序' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/本洞手填罚杆/)).toBeNull()
   })
 
   it('re-fetches the shot map when a different hole is selected', async () => {

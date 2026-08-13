@@ -709,7 +709,9 @@ def _sequence_distance(context: dict[str, Any]) -> float:
     # A live/manual distance is more current than the package's tee-distance fallback.
     for key in ("distanceToPin_m", "remainingToPin_m", "holeRemaining_m"):
         if context.get(key) is not None:
-            return _float(context.get(key))
+            value = _float(context.get(key))
+            if math.isfinite(value) and 0.0 < value <= 1000.0:
+                return value
     return 0.0
 
 
@@ -2276,6 +2278,16 @@ def _apply_live_location(context: dict[str, Any]) -> dict[str, Any]:
         return analysis
 
     distance_m = round(_haversine_m(current, target), 1)
+    # Far-away coordinates are useful evidence that the player is off-course, not a golf distance.
+    # Leave the packaged nominal hole distance in authority instead of generating kilometre-long
+    # sequences and displaying them as a recommendation.
+    if not math.isfinite(distance_m) or distance_m <= 0.0 or distance_m > 1000.0:
+        analysis["_liveDistanceRejected"] = {
+            "source": "currentLocation+targetLocation",
+            "distanceToPin_m": distance_m,
+            "reason": "outside_golf_range",
+        }
+        return analysis
     bearing = round(_bearing_deg(current, target), 1)
     analysis["distanceToPin_m"] = distance_m
     analysis.setdefault("shotBearingDeg", bearing)

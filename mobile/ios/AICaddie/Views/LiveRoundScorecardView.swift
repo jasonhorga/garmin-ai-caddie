@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The in-round scorecard is a quick correction surface, not a second play cursor. Every row can
-/// open score editing, while the highlighted active hole remains the hole the player is actually on.
+/// Compact front/back scorecard plus an explicit hole picker. Tapping a cell only selects it; the
+/// player then chooses either “go to this hole” or “edit score”, so navigation and score correction
+/// can no longer be confused. GPS is a proposal only and requires the same confirmation.
 struct LiveRoundScorecardView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -9,24 +10,55 @@ struct LiveRoundScorecardView: View {
     let holes: [Hole]
     let liveRoundState: LiveRoundStateSnapshot?
     let recordedScoreHoles: Set<Int>
+    let gpsCandidate: LiveHoleGPSCandidate?
+    let onGoToHole: (Int) -> Void
     let onEdit: (Int) -> Void
+
+    @State private var selectedHole: Int
+
+    init(
+        courseName: String,
+        holes: [Hole],
+        liveRoundState: LiveRoundStateSnapshot?,
+        recordedScoreHoles: Set<Int>,
+        gpsCandidate: LiveHoleGPSCandidate? = nil,
+        onGoToHole: @escaping (Int) -> Void = { _ in },
+        onEdit: @escaping (Int) -> Void
+    ) {
+        self.courseName = courseName
+        self.holes = holes.sorted { $0.number < $1.number }
+        self.liveRoundState = liveRoundState
+        self.recordedScoreHoles = recordedScoreHoles
+        self.gpsCandidate = gpsCandidate
+        self.onGoToHole = onGoToHole
+        self.onEdit = onEdit
+        _selectedHole = State(
+            initialValue: liveRoundState?.activeHole
+                ?? holes.sorted { $0.number < $1.number }.first?.number
+                ?? 1
+        )
+    }
 
     var body: some View {
         ZStack {
             LivePlayStyle.panelFill.ignoresSafeArea()
-            VStack(spacing: 14) {
-                header
-                ScrollView(showsIndicators: false) {
-                    LazyVStack(spacing: 8) {
-                        ForEach(holes) { hole in
-                            scoreRow(hole)
-                        }
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 14) {
+                    header
+                    if let gpsCandidate,
+                       gpsCandidate.hole != liveRoundState?.activeHole {
+                        gpsSuggestion(gpsCandidate)
                     }
-                    .padding(.bottom, 10)
+                    scoreNine(title: "前九", holes: Array(holes.prefix(9)))
+                    if holes.count > 9 {
+                        scoreNine(title: "后九", holes: Array(holes.dropFirst(9).prefix(9)))
+                    }
+                    selectedActions
                 }
+                .padding(.horizontal, 14)
+                .padding(.top, 18)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 18)
         }
         .preferredColorScheme(.dark)
         .presentationDetents([.fraction(0.68), .large])
@@ -52,9 +84,7 @@ struct LiveRoundScorecardView: View {
                     .padding(.horizontal, 10)
                     .background(LivePlayStyle.fill08, in: Capsule())
             }
-            Button {
-                dismiss()
-            } label: {
+            Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title2)
                     .foregroundStyle(LivePlayStyle.ink45)
@@ -64,74 +94,177 @@ struct LiveRoundScorecardView: View {
         }
     }
 
-    private func scoreRow(_ hole: Hole) -> some View {
-        let score = recordedScoreHoles.contains(hole.number)
-            ? liveRoundState?.holeState(for: hole.number)?.score
-            : nil
-        let isActive = liveRoundState?.activeHole == hole.number
-
-        return Button {
-            onEdit(hole.number)
+    private func gpsSuggestion(_ candidate: LiveHoleGPSCandidate) -> some View {
+        Button {
+            selectedHole = candidate.hole
         } label: {
-            HStack(spacing: 12) {
-                Text("\(hole.number)")
-                    .font(.headline.monospacedDigit().weight(.heavy))
-                    .foregroundStyle(isActive ? LivePlayStyle.greenLabel : LivePlayStyle.ink60)
-                    .frame(width: 28, alignment: .leading)
-                    .accessibilityIdentifier("live-scorecard-hole-index-\(hole.number)")
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 7) {
-                        Text("第 \(hole.number) 洞")
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(LivePlayStyle.ink)
-                        if isActive {
-                            Text("当前")
-                                .font(.caption2.weight(.heavy))
-                                .foregroundStyle(LivePlayStyle.greenLabel)
-                        }
-                    }
-                    Text("Par \(hole.par)")
-                        .font(.caption)
+            HStack(spacing: 9) {
+                Image(systemName: "location.fill")
+                    .foregroundStyle(LivePlayStyle.greenLabel)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("GPS 建议第 \(candidate.hole) 洞")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(LivePlayStyle.ink)
+                    Text("距离发球台约 \(Int(candidate.distanceM.rounded())) 米 · 点此后确认")
+                        .font(.caption2)
                         .foregroundStyle(LivePlayStyle.ink60)
                 }
-
-                Spacer(minLength: 0)
-                if let score {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        ScoreChip(score: score, toPar: score - hole.par, size: 34)
-                            .accessibilityIdentifier("live-scorecard-score-chip-\(hole.number)")
-                        Text(toParText(score - hole.par))
-                            .font(.caption2.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(LivePlayStyle.ink60)
-                    }
-                } else {
-                    Text("—")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(LivePlayStyle.ink45)
-                }
+                Spacer()
                 Image(systemName: "chevron.forward")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(LivePlayStyle.ink45)
             }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 15).stroke(LivePlayStyle.stroke10))
-            .contentShape(Rectangle())
+            .padding(11)
+            .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 13))
+            .overlay(RoundedRectangle(cornerRadius: 13).stroke(LivePlayStyle.greenLabel.opacity(0.35)))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("编辑第 \(hole.number) 洞成绩")
+        .accessibilityIdentifier("live-scorecard-gps-candidate")
+    }
+
+    private func scoreNine(title: String, holes: [Hole]) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(LivePlayStyle.ink60)
+            scoreRow(label: "洞", holes: holes) { hole in
+                Text("\(hole.number)")
+                    .font(.caption.monospacedDigit().weight(.heavy))
+                    .foregroundStyle(cellInk(hole))
+                    .accessibilityIdentifier("live-scorecard-hole-index-\(hole.number)")
+            }
+            scoreRow(label: "Par", holes: holes) { hole in
+                Text("\(hole.par)")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(LivePlayStyle.ink60)
+            }
+            scoreRow(label: "成绩", holes: holes) { hole in
+                if let score = score(for: hole) {
+                    ScoreChip(score: score, toPar: score - hole.par, size: 27)
+                        .accessibilityIdentifier("live-scorecard-score-chip-\(hole.number)")
+                } else {
+                    Text("—")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(LivePlayStyle.ink45)
+                }
+            }
+        }
+        .padding(10)
+        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 15))
+        .overlay(RoundedRectangle(cornerRadius: 15).stroke(LivePlayStyle.stroke10))
+    }
+
+    private func scoreRow<Content: View>(
+        label: String,
+        holes: [Hole],
+        @ViewBuilder content: @escaping (Hole) -> Content
+    ) -> some View {
+        HStack(spacing: 3) {
+            Text(label)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(LivePlayStyle.ink45)
+                .frame(width: 34, alignment: .leading)
+            ForEach(holes) { hole in
+                Button {
+                    selectedHole = hole.number
+                } label: {
+                    content(hole)
+                        .frame(maxWidth: .infinity, minHeight: 29)
+                        .background(cellFill(hole), in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(cellStroke(hole)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("选择第 \(hole.number) 洞")
+            }
+        }
+    }
+
+    private var selectedActions: some View {
+        VStack(spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("第 \(selectedHole) 洞")
+                        .font(.headline.weight(.heavy))
+                        .foregroundStyle(LivePlayStyle.ink)
+                    if selectedHole == liveRoundState?.activeHole {
+                        Text("当前正在记录")
+                            .font(.caption)
+                            .foregroundStyle(LivePlayStyle.greenLabel)
+                    } else {
+                        Text("选择去此洞或只修改成绩")
+                            .font(.caption)
+                            .foregroundStyle(LivePlayStyle.ink60)
+                    }
+                }
+                Spacer()
+                if let hole = holes.first(where: { $0.number == selectedHole }),
+                   let score = score(for: hole) {
+                    Text("\(score) 杆 · \(toParText(score - hole.par))")
+                        .font(.subheadline.monospacedDigit().weight(.bold))
+                        .foregroundStyle(LivePlayStyle.ink)
+                }
+            }
+            HStack(spacing: 9) {
+                Button {
+                    onGoToHole(selectedHole)
+                } label: {
+                    Label("去第 \(selectedHole) 洞", systemImage: "location.circle.fill")
+                        .font(.subheadline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(LivePlayStyle.onAccent)
+                        .background(LivePlayStyle.accent, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .disabled(selectedHole == liveRoundState?.activeHole)
+                .opacity(selectedHole == liveRoundState?.activeHole ? 0.45 : 1)
+                .accessibilityIdentifier("live-scorecard-go-hole")
+
+                Button {
+                    onEdit(selectedHole)
+                } label: {
+                    Label("编辑成绩", systemImage: "pencil")
+                        .font(.subheadline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(LivePlayStyle.stroke14))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("live-scorecard-edit-hole")
+            }
+        }
+        .padding(12)
+        .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 15))
+        .overlay(RoundedRectangle(cornerRadius: 15).stroke(LivePlayStyle.stroke10))
+    }
+
+    private func score(for hole: Hole) -> Int? {
+        recordedScoreHoles.contains(hole.number)
+            ? liveRoundState?.holeState(for: hole.number)?.score
+            : nil
+    }
+
+    private func cellFill(_ hole: Hole) -> Color {
+        if selectedHole == hole.number { return LivePlayStyle.accent.opacity(0.22) }
+        if liveRoundState?.activeHole == hole.number { return LivePlayStyle.greenLabel.opacity(0.10) }
+        return .clear
+    }
+
+    private func cellStroke(_ hole: Hole) -> Color {
+        if selectedHole == hole.number { return LivePlayStyle.accent.opacity(0.8) }
+        if liveRoundState?.activeHole == hole.number { return LivePlayStyle.greenLabel.opacity(0.5) }
+        return .clear
+    }
+
+    private func cellInk(_ hole: Hole) -> Color {
+        liveRoundState?.activeHole == hole.number ? LivePlayStyle.greenLabel : LivePlayStyle.ink
     }
 
     private var totalToPar: Int? {
         let recorded = holes.compactMap { hole -> Int? in
-            guard recordedScoreHoles.contains(hole.number),
-                  let score = liveRoundState?.holeState(for: hole.number)?.score else {
-                return nil
-            }
-            return score - hole.par
+            score(for: hole).map { $0 - hole.par }
         }
         return recorded.isEmpty ? nil : recorded.reduce(0, +)
     }

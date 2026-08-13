@@ -92,6 +92,9 @@ public struct AICaddieApp: App {
                         onFinishRound: {
                             return await model.finishActiveRound()
                         },
+                        onDiscardRound: {
+                            model.discardActiveRound()
+                        },
                         onSetActiveHole: { hole in
                             model.setActiveHole(hole)
                         },
@@ -368,6 +371,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private var mediaUploadClient: MediaUploadClient?
     private var isSyncingPendingEvents = false
     private var watchFinishedRoundReconciliationTask: Task<Void, Never>?
+    private var deferredRoundFinishTask: Task<Void, Never>?
+    private var deferredRoundFinishGeneration: UUID?
+    private var deferredRoundFinishRetryRequested = false
     private var offlineCourseDownloadTask: Task<Void, Never>?
     private var prepCourseDownloadTask: Task<Void, Never>?
     private var prepCourseDownloadGeneration: UUID?
@@ -516,6 +522,10 @@ public final class LiveRoundAppModel: ObservableObject {
         pausePrepCourseDownload()
         watchFinishedRoundReconciliationTask?.cancel()
         watchFinishedRoundReconciliationTask = nil
+        deferredRoundFinishTask?.cancel()
+        deferredRoundFinishTask = nil
+        deferredRoundFinishGeneration = nil
+        deferredRoundFinishRetryRequested = false
         deferredOfflineCourseDownloadRevalidation = nil
         roundPreparationToken = nil
         isPreparingRound = false
@@ -543,6 +553,7 @@ public final class LiveRoundAppModel: ObservableObject {
         defer {
             isBootstrapping = false
             resumePrepCourseDownloads(retryFailed: true)
+            retryDeferredRoundFinishes()
         }
         #if DEBUG
         // A deterministic, backend-free two-hole round for the phone scoring XCUITest. Force it
@@ -1787,9 +1798,9 @@ public final class LiveRoundAppModel: ObservableObject {
         )
     }
 
-    /// Persist a completed round only after every local event has an explicit server identity ACK
-    /// and the idempotent finish endpoint succeeds. Any failure leaves the package, progress and
-    /// event log intact so the player can retry or keep playing.
+    /// Save & End is local-first. The tap seals the round and exits live play immediately; delivery
+    /// is a durable outbox transaction that retries now and on every future foreground. Network
+    /// reachability must never become a prison around the player.
     @discardableResult
     public func finishActiveRound() async -> Bool {
         guard !isFinishingRound, let package else { return false }
@@ -1813,37 +1824,7 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         #endif
 
-        guard let syncClient else {
-            finishErrorMessage = "尚未联网，本场已完整保留"
-            syncStatus = "结束失败,稍后重试"
-            return false
-        }
-
-        // A score tap auto-schedules background sync. Let an already-running batch settle before the
-        // finish transaction starts; new background batches are suppressed by isFinishingRound.
-        while isSyncingPendingEvents {
-            try? await Task.sleep(nanoseconds: 50_000_000)
-        }
-
         do {
-            _ = try await syncPendingMedia(roundId: package.roundId)
-            guard try offlineStore.loadPendingMedia(roundId: package.roundId).isEmpty else {
-                throw LiveRoundFinishError.pendingMedia
-            }
-
-            let pending = try offlineStore.loadPendingEvents(roundId: package.roundId)
-            if !pending.isEmpty {
-                try await postPendingEventsAndRequireFullAcknowledgement(
-                    pending,
-                    roundId: package.roundId,
-                    syncClient: syncClient
-                )
-            }
-            guard try offlineStore.loadPendingEvents(roundId: package.roundId).isEmpty,
-                  try offlineStore.loadPendingMedia(roundId: package.roundId).isEmpty else {
-                throw LiveRoundFinishError.incompleteAcknowledgement
-            }
-
             let events = try offlineStore.loadEvents().filter { $0.roundId == package.roundId }
             let completedHoles = Set(events.compactMap { event in
                 event.kind == .score && event.hole > 0 ? event.hole : nil
@@ -1854,31 +1835,130 @@ public final class LiveRoundAppModel: ObservableObject {
                 holesCompleted: completedHoles.count,
                 courseGlobalId: package.course.globalId
             )
-            try await syncClient.finishRound(roundId: package.roundId, metadata: metadata)
-            // Finish ingestion updates the acting player's history synchronously. Fetch a fresh home
-            // package before clearing the active pointer so the first Hub frame already shows the
-            // round that was just saved instead of the package's pre-round `recentHistory` snapshot.
-            // A failed refresh is non-fatal: the completed round is already durable server-side and
-            // the cached home remains available until the normal next bootstrap refresh.
-            let refreshedHome = await fetchHomePackage(preferredCourse: package.course)
-            // Both Finish and the home refresh suspend the MainActor. A Watch event can arrive after
-            // the upload watermark was proven empty; never delete that newly appended local fact.
-            guard try offlineStore.loadPendingEvents(roundId: package.roundId).isEmpty else {
-                throw LiveRoundFinishError.incompleteAcknowledgement
-            }
-            try clearFinishedRoundLocally(roundId: package.roundId)
-            if let refreshedHome {
-                try activateHomePackage(refreshedHome, status: "本场已保存")
-            }
+            try offlineStore.sealRoundForDeferredFinish(package: package, metadata: metadata)
+            try leaveSealedRoundLocally(package: package)
+            watchBridge?.sendRoundClosureToWatch(
+                roundId: package.roundId,
+                disposition: .finished
+            )
+            retryDeferredRoundFinishes()
             return true
         } catch {
-            AICaddieLog.network.error("Round finish failed: \(String(describing: error), privacy: .public)")
-            finishErrorMessage = error is LiveRoundFinishError
-                ? "部分记录尚未确认，本场已完整保留"
-                : "保存结束失败，本场已完整保留"
-            syncStatus = "结束失败,稍后重试"
+            AICaddieLog.storage.error("Round seal failed: \(String(describing: error), privacy: .public)")
+            finishErrorMessage = "本地保存状态不可用，本场已完整保留"
+            syncStatus = "本地保存失败,请重试"
             pendingEventCount = (try? offlineStore.loadPendingEvents(roundId: package.roundId).count) ?? pendingEventCount
             return false
+        }
+    }
+
+    private func leaveSealedRoundLocally(package sealedPackage: LiveRoundPackage) throws {
+        if let cachedHome = try offlineStore.loadHomePackage() {
+            try activateHomePackage(cachedHome, status: "本场已保存 · 后台同步中")
+        } else {
+            package = sealedPackage
+            liveRoundState = nil
+            startingNine = nil
+            pendingEventCount = 0
+            pendingLiveHole = nil
+            finishErrorMessage = nil
+            syncStatus = "本场已保存 · 后台同步中"
+        }
+    }
+
+    private func retryDeferredRoundFinishes() {
+        guard deferredRoundFinishTask == nil else {
+            // A late Watch fact or a foreground transition can arrive while Finish is awaiting the
+            // server. Remember that edge instead of losing it; run one more pass after this pass
+            // settles. This is bounded (not a connectivity retry loop).
+            deferredRoundFinishRetryRequested = true
+            return
+        }
+        guard !isSyncingPendingEvents,
+              !eventSyncSuppressedForUITests,
+              syncClient != nil,
+              (try? offlineStore.loadPendingRoundFinishes().isEmpty) == false else { return }
+        deferredRoundFinishRetryRequested = false
+        let generation = UUID()
+        deferredRoundFinishGeneration = generation
+        deferredRoundFinishTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.processDeferredRoundFinishes()
+            // Account activation cancels the old task and can start a new account's task before a
+            // suspended URLSession continuation unwinds. The old generation must not clear or drive
+            // the new account's state.
+            guard self.deferredRoundFinishGeneration == generation else { return }
+            let rerun = self.deferredRoundFinishRetryRequested
+                && ((try? self.offlineStore.loadPendingRoundFinishes().isEmpty) == false)
+            self.deferredRoundFinishRetryRequested = false
+            self.deferredRoundFinishTask = nil
+            self.deferredRoundFinishGeneration = nil
+            if rerun {
+                self.retryDeferredRoundFinishes()
+            } else if self.liveRoundState != nil {
+                // A player may already have started the next round while the old one finished. Its
+                // score taps were durably queued while the finish transaction owned the uploader.
+                await self.syncPendingEvents(wakeDeferredAfterCompletion: true)
+            }
+        }
+    }
+
+    private func processDeferredRoundFinishes() async {
+        guard let syncClient else { return }
+        let playerScope = boundPlayerId
+        let records = (try? offlineStore.loadPendingRoundFinishes()) ?? []
+        for record in records {
+            guard !Task.isCancelled, boundPlayerId == playerScope else { return }
+            do {
+                let finishedPackage = try offlineStore.loadRoundPackage(roundId: record.roundId)
+                _ = try await syncPendingMedia(roundId: record.roundId)
+                guard !Task.isCancelled, boundPlayerId == playerScope else { return }
+                guard try offlineStore.loadPendingMedia(roundId: record.roundId).isEmpty else {
+                    throw LiveRoundFinishError.pendingMedia
+                }
+                let pending = try offlineStore.loadPendingEvents(roundId: record.roundId)
+                if !pending.isEmpty {
+                    try await postPendingEventsAndRequireFullAcknowledgement(
+                        pending,
+                        roundId: record.roundId,
+                        syncClient: syncClient
+                    )
+                }
+                guard !Task.isCancelled, boundPlayerId == playerScope else { return }
+                guard try offlineStore.loadPendingEvents(roundId: record.roundId).isEmpty,
+                      try offlineStore.loadPendingMedia(roundId: record.roundId).isEmpty else {
+                    throw LiveRoundFinishError.incompleteAcknowledgement
+                }
+                try await syncClient.finishRound(
+                    roundId: record.roundId,
+                    metadata: record.metadata
+                )
+                guard !Task.isCancelled, boundPlayerId == playerScope else { return }
+                let refreshedHome = if let course = finishedPackage?.course {
+                    await fetchHomePackage(preferredCourse: course)
+                } else {
+                    nil
+                }
+                guard !Task.isCancelled, boundPlayerId == playerScope else { return }
+                // A late Watch event cannot be deleted merely because the request above suspended.
+                guard try offlineStore.loadPendingEvents(roundId: record.roundId).isEmpty else {
+                    throw LiveRoundFinishError.incompleteAcknowledgement
+                }
+                try offlineStore.discardRound(roundId: record.roundId)
+                if let refreshedHome {
+                    if liveRoundState == nil {
+                        try activateHomePackage(refreshedHome, status: "本场已同步")
+                    } else {
+                        try offlineStore.saveHomePackage(refreshedHome)
+                    }
+                }
+                syncStatus = "已同步结束的球局"
+            } catch {
+                AICaddieLog.network.info(
+                    "Deferred round finish retained for retry \(record.roundId, privacy: .public): \(String(describing: error), privacy: .public)"
+                )
+                syncStatus = "已保存 · 等待网络同步"
+            }
         }
     }
 
@@ -2050,6 +2130,11 @@ public final class LiveRoundAppModel: ObservableObject {
             #if DEBUG
             UITestEventLatencyTrace.record("handle.append.end kind=\(event.kind.rawValue) hole=\(event.hole)")
             #endif
+            if try offlineStore.isRoundPendingFinish(event.roundId) {
+                syncStatus = "已保存 · 记录待同步"
+                retryDeferredRoundFinishes()
+                return
+            }
             if let package, package.roundId == event.roundId {
                 liveRoundState = try offlineStore.restoreLiveRoundState(roundId: event.roundId, package: package)
             }
@@ -2084,7 +2169,12 @@ public final class LiveRoundAppModel: ObservableObject {
     public func syncOnForeground() {
         endPrepBackgroundTask()
         resumePrepCourseDownloads(retryFailed: true)
-        guard !eventSyncSuppressedForUITests, let package else { return }
+        retryDeferredRoundFinishes()
+        // Only a real live state enters the ordinary uploader. A sealed round can remain as the Hub's
+        // visual home fallback with the same package ID, but its durable finish worker owns that tail.
+        guard !eventSyncSuppressedForUITests,
+              liveRoundState != nil,
+              let package else { return }
         let mayHavePendingMedia = (try? offlineStore.loadPendingMedia(
             roundId: package.roundId
         ).isEmpty) != true
@@ -2101,9 +2191,21 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     public func syncPendingEvents() async {
-        guard !isFinishingRound, !isSyncingPendingEvents else { return }
+        await syncPendingEvents(wakeDeferredAfterCompletion: true)
+    }
+
+    private func syncPendingEvents(wakeDeferredAfterCompletion: Bool) async {
+        guard !isFinishingRound,
+              !isSyncingPendingEvents,
+              deferredRoundFinishTask == nil else { return }
         isSyncingPendingEvents = true
-        defer { isSyncingPendingEvents = false }
+        let playerScope = boundPlayerId
+        defer {
+            isSyncingPendingEvents = false
+            if wakeDeferredAfterCompletion {
+                retryDeferredRoundFinishes()
+            }
+        }
         guard let package else {
             syncStatus = "没有进行中的球局"
             return
@@ -2115,6 +2217,8 @@ public final class LiveRoundAppModel: ObservableObject {
 
         do {
             let uploadedMediaCount = try await syncPendingMedia(roundId: package.roundId)
+            guard !Task.isCancelled, boundPlayerId == playerScope else { return }
+            if try offlineStore.isRoundPendingFinish(package.roundId) { return }
             let events = try offlineStore.loadPendingEvents(roundId: package.roundId)
             pendingEventCount = events.count
             if events.isEmpty {
@@ -2126,6 +2230,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     roundId: package.roundId,
                     syncClient: syncClient
                 )
+                guard !Task.isCancelled, boundPlayerId == playerScope else { return }
+                if try offlineStore.isRoundPendingFinish(package.roundId) { return }
                 pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
                 let mediaSuffix = uploadedMediaCount > 0 ? " · \(uploadedMediaCount) 张照片/视频" : ""
                 syncStatus = result.duplicate ? "已同步" : "已同步\(mediaSuffix)"
@@ -2139,6 +2245,12 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
+    #if DEBUG
+    func waitForDeferredRoundFinishesForTesting() async {
+        await deferredRoundFinishTask?.value
+    }
+    #endif
+
     private func postPendingEventsAndRequireFullAcknowledgement(
         _ events: [LiveRoundEvent],
         roundId: String,
@@ -2149,6 +2261,7 @@ public final class LiveRoundAppModel: ObservableObject {
             roundId: roundId,
             idempotencyKey: idempotencyKey(roundId: roundId, events: events)
         )
+        guard !Task.isCancelled else { throw CancellationError() }
         let expected = events.map(\.eventId)
         let acknowledged = result.acceptedEventIds + result.duplicateEventIds
         guard Set(expected).count == expected.count,
@@ -2179,7 +2292,11 @@ public final class LiveRoundAppModel: ObservableObject {
     /// NOTE: re-projection folds by local-log order; cross-client SAME-field ordering uses the
     /// authoritative `GET …/state` projection (round-12 P2.2) — wired here when multi-client lands.
     private func pullAndApplyRemoteEvents(roundId: String) async {
-        guard let syncClient, let package, package.roundId == roundId else { return }
+        guard let syncClient,
+              let package,
+              package.roundId == roundId,
+              liveRoundState?.roundId == roundId,
+              (try? offlineStore.isRoundPendingFinish(roundId)) != true else { return }
         var appliedAny = false
         var cursor: Int? = nil  // nil → server uses THIS client's ack cursor (events since last ack)
         var latestCursor = 0
@@ -2204,6 +2321,8 @@ public final class LiveRoundAppModel: ObservableObject {
             _ = try? await syncClient.ackEventCursor(roundId: roundId, serverSequence: latestCursor)
         }
         if appliedAny {
+            guard liveRoundState?.roundId == roundId,
+                  (try? offlineStore.isRoundPendingFinish(roundId)) != true else { return }
             liveRoundState = try? offlineStore.restoreLiveRoundState(roundId: roundId, package: package)
         }
     }
@@ -2215,6 +2334,7 @@ public final class LiveRoundAppModel: ObservableObject {
         let pendingMedia = try offlineStore.loadPendingMedia(roundId: roundId)
         var uploadedIds = Set<String>()
         for media in pendingMedia {
+            try Task.checkCancellation()
             do {
                 let mediaData = try Data(contentsOf: media.fileURL)
                 let request = MediaCreateRequest(
@@ -2227,13 +2347,16 @@ public final class LiveRoundAppModel: ObservableObject {
                     mimeType: inferredMimeType(fileName: media.fileName, mediaKind: media.mediaKind)
                 )
                 let uploadResponse = try await mediaUploadClient.uploadMediaWithRetry(request)
+                try Task.checkCancellation()
                 try? await mediaUploadClient.analyzeMedia(mediaId: uploadResponse.media.id)
+                try Task.checkCancellation()
                 uploadedIds.insert(media.id)
             } catch {
                 AICaddieLog.network.error("Pending media upload failed: \(String(describing: error), privacy: .public)")
                 continue
             }
         }
+        try Task.checkCancellation()
         try offlineStore.removePendingMedia(ids: uploadedIds)
         return uploadedIds.count
     }
@@ -2906,6 +3029,17 @@ public final class LiveRoundAppModel: ObservableObject {
         let alreadyStored = try offlineStore.containsEvent(eventId: event.eventId)
         if !alreadyStored {
             try offlineStore.appendEvent(event)
+        }
+
+        // Save & End has already removed this round from the live UI. A late wrist event belongs to
+        // the sealed transaction; wake that transaction without restoring the round or routing it
+        // through the normal current-package uploader (which could race Finish).
+        if try offlineStore.isRoundPendingFinish(event.roundId) {
+            syncStatus = "已保存 · 手表记录待同步"
+            if !eventSyncSuppressedForUITests {
+                retryDeferredRoundFinishes()
+            }
+            return
         }
         do {
             if let package, package.roundId == event.roundId {

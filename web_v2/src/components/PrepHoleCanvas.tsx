@@ -3,7 +3,7 @@ import type { CoursePrepHole } from '../types'
 import { topoImageUrl } from '../api'
 import { atCum, layoutHazardLabels, nearestCum, resolveCoursePrepOverlay, routeIntervalReadout } from './coursePrepPanelLogic'
 import { HoleBaseImage } from './HoleBaseImage'
-import { toYd } from './prepWorkbenchLogic'
+import { headlineTargetYd, recosForTarget, slopeYd, toYd } from './prepWorkbenchLogic'
 
 // Minimum vertical gap (overlay px) between two stacked hazard distance labels.
 const HAZARD_LABEL_MIN_GAP = 14
@@ -21,13 +21,14 @@ export interface PrepHoleCanvasProps {
   // geometry (overlay present), the base image is the realistic server topo; otherwise it falls
   // back to the legacy render / placeholder.
   globalId?: number
+  clubs?: Array<{ name: string; m: number; yd: number }>
 }
 
 // The big center canvas of the 备战 workbench: a hole render (real per-hole
 // image when the payload carries geometry, else the shared placeholder) with the
 // playing line, tee/green markers, your shot scatter, hazards and a draggable
 // ball drawn on top. Distance chips + a fill legend float over the frame.
-export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasProps): React.ReactElement {
+export function PrepHoleCanvas({ hole, cum, onCum, globalId, clubs = [] }: PrepHoleCanvasProps): React.ReactElement {
   const svgRef = useRef<SVGSVGElement>(null)
   const map = hole.map
   const overlay = resolveCoursePrepOverlay(hole)
@@ -40,6 +41,9 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasPro
     ? topoImageUrl(globalId, hole.hole, hole.geometryRevision)
     : undefined
   const yourShots = hole.yourShots ?? []
+  const headline = headlineTargetYd(hole, cum)
+  const recommendedClub = recosForTarget(clubs, headline).find((club) => club.on) ?? null
+  const slope = slopeYd(hole)
   // All distance markers use overlay coordinates, so the overlay dimensions—not
   // a placeholder bitmap's intrinsic ratio—must own the visible frame.
   const frameStyle: CSSProperties | undefined = overlay
@@ -63,32 +67,47 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasPro
     const ln = overlay.ln
     const clamped = Math.max(0, Math.min(ln, cum))
     const tee = atCum(route, 0)
-    const green = atCum(route, ln)
+    const greenPoint = atCum(route, ln)
     const ball = atCum(route, clamped)
     const distT = toYd(clamped)
     const toGreen = toYd(Math.max(0, ln - clamped))
 
-    const haz: Array<{ start: number; end: number; cum: number; color: string; kind: 'water' | 'bunker' }> = [
-      ...hole.hazards.water_carry.map((w) => ({ start: w[0], end: w[1], cum: w[1], color: '#2f7fb0', kind: 'water' as const })),
-      ...hole.hazards.bunkers
-        .filter((b) => b[1] <= 20)
-        .slice(0, 3)
-        .map((b) => ({ start: b[0], end: b[0], cum: b[0], color: '#caa14a', kind: 'bunker' as const })),
-    ]
+    const preciseHazards = hole.geometryCoverage === 'ready'
+      ? (hole.hazards.details ?? [])
+          .filter((detail) =>
+            (detail.kind === 'water' || detail.kind === 'bunker') &&
+            detail.frontPx.length >= 2 &&
+            detail.backPx.length >= 2 &&
+            [...detail.frontPx.slice(0, 2), ...detail.backPx.slice(0, 2)].every(Number.isFinite),
+          )
+          .sort((a, b) => a.frontRouteM - b.frontRouteM)
+          .slice(0, 2)
+      : []
+    const haz = preciseHazards.map((detail) => ({
+      start: detail.frontRouteM,
+      end: detail.backRouteM,
+      cum: detail.frontRouteM,
+      color: detail.kind === 'water' ? '#2e94e0' : '#f2c447',
+      kind: detail.kind === 'water' ? 'water' as const : 'bunker' as const,
+      frontPx: detail.frontPx,
+      backPx: detail.backPx,
+    }))
     const markers = haz.map((h) => {
-      const p = atCum(route, h.cum)
+      const p = { x: (h.frontPx[0] + h.backPx[0]) / 2, y: (h.frontPx[1] + h.backPx[1]) / 2 }
       const readout = routeIntervalReadout(overlay, clamped, h.start, h.end)
-      const text =
-        h.kind === 'water'
-          ? readout.isCleared
-            ? '水已过'
-            : readout.isInside
-              ? `水中过${readout.toClear}y`
-              : `过水${readout.toClear}y`
-          : readout.isCleared
-            ? '沙已过'
-            : `沙${readout.toStart}y`
-      return { color: h.color, x: p.x, y: p.y, text }
+      // Once the planning point moves off the tee, use its true straight carry to each measured
+      // edge. Route distance remains the honest fallback for old overlays without a usable scale.
+      const directYards = (edge: number[]): number | null => {
+        if (!overlay.ppm || overlay.ppm <= 0 || edge.length < 2) return null
+        return toYd(Math.hypot(edge[0] - ball.x, edge[1] - ball.y) / overlay.ppm)
+      }
+      const toStart = directYards(h.frontPx) ?? readout.toStart
+      const toClear = directYards(h.backPx) ?? readout.toClear
+      const kind = h.kind === 'water' ? '水' : '沙'
+      const text = readout.isCleared
+        ? `${kind}已过`
+        : `${kind} · 到 ${toStart} / 过 ${toClear}`
+      return { ...h, color: h.color, x: p.x, y: p.y, text }
     })
     const hazardLabels = layoutHazardLabels(
       markers.map((m) => ({ y: m.y + 4, text: m.text })),
@@ -158,12 +177,16 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasPro
           points={route.map((p) => `${p[0]},${p[1]}`).join(' ')}
           fill="none"
           stroke="#fff"
-          strokeOpacity={0.85}
+          strokeOpacity={0.94}
           strokeWidth={3}
-          strokeDasharray="6 5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         />
-        <circle cx={tee.x} cy={tee.y} r={9} fill="#4aa3d6" stroke="#fff" strokeWidth={3} />
-        <circle cx={green.x} cy={green.y} r={7} fill="#fff" stroke="#333" strokeWidth={2} />
+        {/* Preparation has no live player GPS. A white T marks the selected tee without pretending
+            to be the blue "you are here" marker used in live play. */}
+        <circle cx={tee.x} cy={tee.y} r={10} fill="#fff" stroke="#17212b" strokeWidth={2} />
+        <text x={tee.x} y={tee.y + 4} textAnchor="middle" fontSize={10} fontWeight={900} fill="#17212b">T</text>
+        <circle cx={greenPoint.x} cy={greenPoint.y} r={7} fill="#fff" stroke="#333" strokeWidth={2} />
         {yourShots.map((shot, i) => (
           <circle key={i} cx={shot.x} cy={shot.y} r={4.5} fill={shotDotFill(shot.shotType)} fillOpacity={0.7} stroke="#fff" strokeWidth={1.5}>
             <title>{`${shot.club ?? '未知杆'} · ${shot.roundId}`}</title>
@@ -171,7 +194,9 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasPro
         ))}
         {markers.map((m, i) => (
           <g key={i}>
-            <circle cx={m.x} cy={m.y} r={5} fill={m.color} stroke="#fff" strokeWidth={2} />
+            <line x1={m.frontPx[0]} y1={m.frontPx[1]} x2={m.backPx[0]} y2={m.backPx[1]} stroke={m.color} strokeWidth={4} strokeLinecap="round" />
+            <circle cx={m.frontPx[0]} cy={m.frontPx[1]} r={5} fill={m.color} stroke="#111" strokeWidth={1.5} />
+            <circle cx={m.backPx[0]} cy={m.backPx[1]} r={5} fill={m.color} stroke="#111" strokeWidth={1.5} />
             {hazardLabels[i].showLabel ? (
               <text x={m.x + 7} y={hazardLabels[i].labelY} fontSize={12} fontWeight={700} fill="#fff" stroke="#000" strokeWidth={2.4} paintOrder="stroke">
                 {m.text}
@@ -179,21 +204,40 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasPro
             ) : null}
           </g>
         ))}
-        <circle cx={ball.x} cy={ball.y} r={12} fill="#e8963a" stroke="#fff" strokeWidth={3} />
+        <circle cx={ball.x} cy={ball.y} r={12} fill="#4ddb78" stroke="#fff" strokeWidth={3} />
+        {recommendedClub ? (
+          <text x={ball.x + 15} y={ball.y - 8} fontSize={13} fontWeight={800} fill="#4ddb78" stroke="#071018" strokeWidth={3} paintOrder="stroke">
+            {recommendedClub.name}
+          </text>
+        ) : null}
       </svg>
     )
 
     const chipStyle = (x: number, y: number): CSSProperties => ({ left: `${(x / overlay.w) * 100}%`, top: `${(y / overlay.h) * 100}%` })
-    if (toGreen > 0) {
+    const greenDistances = hole.greenDistances?.available === true ? hole.greenDistances : null
+    if (greenDistances && (greenDistances.frontM != null || greenDistances.middleM != null || greenDistances.backM != null)) {
       greenChip = (
-        <div className="prep-canvas-chip" style={chipStyle(green.x, green.y)}>
+        <div className="prep-map-green-range" style={chipStyle(greenPoint.x, greenPoint.y)} aria-label="果岭前中后距离">
+          <small>蓝T→果岭</small>
+          <span>后 <b>{greenDistances.backM == null ? '—' : toYd(greenDistances.backM)}</b></span>
+          <span className="middle">中 <b>{greenDistances.middleM == null ? '—' : toYd(greenDistances.middleM)}</b></span>
+          <span>前 <b>{greenDistances.frontM == null ? '—' : toYd(greenDistances.frontM)}</b></span>
+        </div>
+      )
+    } else if (toGreen > 0) {
+      greenChip = (
+        <div className="prep-canvas-chip" style={chipStyle(greenPoint.x, greenPoint.y)}>
           {toGreen} <span className="prep-canvas-chip-unit">码到中</span>
         </div>
       )
     }
     ballChip = (
-      <div className="prep-canvas-chip prep-canvas-chip--ball" style={chipStyle(ball.x, ball.y)}>
-        {distT}
+      <div
+        className="prep-canvas-chip prep-canvas-chip--ball"
+        style={chipStyle(ball.x, ball.y)}
+        aria-label="地图推荐球杆"
+      >
+        {recommendedClub ? `${recommendedClub.name} · ` : ''}{distT}码落点
       </div>
     )
   }
@@ -205,34 +249,13 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId }: PrepHoleCanvasPro
         {svg}
         {greenChip}
         {ballChip}
+        <div className="prep-map-hole-facts">
+          <strong>第 {hole.hole} 洞 · Par {hole.par}</strong>
+          <span>{hole.blue_yards} 码</span>
+          {slope !== null ? <span>坡度 {slope > 0 ? '+' : ''}{slope} 码</span> : null}
+        </div>
         {overlay ? null : <div className="prep-canvas-noviz">此洞暂无实景航图(示意图)</div>}
-        <div className="prep-canvas-legend">
-          <span>
-            <b style={{ background: '#7fbf5a' }} />
-            果岭
-          </span>
-          <span>
-            <b style={{ background: '#8cda55' }} />
-            球道
-          </span>
-          <span>
-            <b style={{ background: '#e8d9a8' }} />沙
-          </span>
-          <span>
-            <b style={{ background: '#3e9bff' }} />水
-          </span>
-        </div>
       </div>
-      {yourShots.length > 0 ? (
-        <div className="prep-canvas-shots">
-          <span>你的落点:</span>
-          <span aria-hidden="true" className="prep-canvas-shots-dot tee" />
-          <span>开球(落点)</span>
-          <span aria-hidden="true" className="prep-canvas-shots-dot appr" />
-          <span>攻果岭</span>
-        </div>
-      ) : null}
-      {overlay ? <p className="prep-canvas-hint">拖动橙点试算任意落点</p> : null}
     </div>
   )
 }

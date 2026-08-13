@@ -64,6 +64,119 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
     }
 
+    func testSealedRoundIsNotResumableAndOutboxSurvivesRelaunch() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let package = try localFixturePackage()
+        let store = OfflineStore(directoryURL: directory)
+        try store.saveRoundPackage(package)
+        try store.appendEvent(LiveRoundEvent(
+            eventId: "sealed-score",
+            roundId: package.roundId,
+            timestamp: "2026-08-13T00:00:00Z",
+            hole: 1,
+            kind: .score,
+            payload: ["strokes": .number(5)]
+        ))
+        try store.saveActiveHole(roundId: package.roundId, hole: 1)
+        let metadata = MobileRoundFinishMetadata(
+            courseName: package.course.name,
+            holePars: package.holes.map(\.par),
+            holesCompleted: 1,
+            courseGlobalId: package.course.globalId
+        )
+
+        try store.sealRoundForDeferredFinish(package: package, metadata: metadata)
+
+        XCTAssertNil(try store.loadCurrentRoundPackage())
+        XCTAssertNil(try store.loadResumablePackage())
+        XCTAssertTrue(try store.isRoundPendingFinish(package.roundId))
+        XCTAssertNotNil(try store.loadRoundPackage(roundId: package.roundId))
+        XCTAssertEqual(try store.loadPendingEvents(roundId: package.roundId).map(\.eventId), ["sealed-score"])
+
+        let reopened = OfflineStore(directoryURL: directory)
+        XCTAssertNil(try reopened.loadResumablePackage())
+        XCTAssertEqual(
+            try reopened.loadPendingRoundFinishes(),
+            [PendingRoundFinish(
+                roundId: package.roundId,
+                metadata: metadata,
+                queuedAt: try XCTUnwrap(store.loadPendingRoundFinishes().first?.queuedAt)
+            )]
+        )
+    }
+
+    func testPendingFinishLedgerRecoversFromCorruptPrimaryBackup() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let package = try localFixturePackage()
+        let store = OfflineStore(directoryURL: directory)
+        let metadata = MobileRoundFinishMetadata(
+            courseName: package.course.name,
+            holePars: package.holes.map(\.par),
+            holesCompleted: 0,
+            courseGlobalId: package.course.globalId
+        )
+        try store.sealRoundForDeferredFinish(package: package, metadata: metadata)
+        try Data("{corrupt".utf8).write(
+            to: directory.appendingPathComponent("pending_round_finishes.json"),
+            options: [.atomic]
+        )
+
+        let reopened = OfflineStore(directoryURL: directory)
+        XCTAssertTrue(try reopened.isRoundPendingFinish(package.roundId))
+        XCTAssertEqual(try reopened.loadPendingRoundFinishes().first?.metadata, metadata)
+        XCTAssertNoThrow(
+            try JSONSerialization.jsonObject(
+                with: Data(contentsOf: directory.appendingPathComponent("pending_round_finishes.json"))
+            )
+        )
+    }
+
+    func testDeferredFinishCleanupDoesNotClearNewRoundPointer() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let oldRound = try localFixturePackage()
+        let store = OfflineStore(directoryURL: directory)
+        let metadata = MobileRoundFinishMetadata(
+            courseName: oldRound.course.name,
+            holePars: oldRound.holes.map(\.par),
+            holesCompleted: 0,
+            courseGlobalId: oldRound.course.globalId
+        )
+        try store.sealRoundForDeferredFinish(package: oldRound, metadata: metadata)
+        let newRound = LiveRoundPackage(
+            schema: oldRound.schema,
+            roundId: "round-after-sealed-round",
+            dataMode: oldRound.dataMode,
+            sourceCoverage: oldRound.sourceCoverage,
+            missingData: oldRound.missingData,
+            playerProfile: oldRound.playerProfile,
+            course: oldRound.course,
+            holes: oldRound.holes,
+            nine: oldRound.nine,
+            coursePrep: oldRound.coursePrep,
+            geometryCoverage: oldRound.geometryCoverage,
+            readinessChecks: oldRound.readinessChecks,
+            caddieContextSeeds: oldRound.caddieContextSeeds,
+            weatherSnapshot: oldRound.weatherSnapshot,
+            clubProfiles: oldRound.clubProfiles,
+            caddieDecisionEndpoint: oldRound.caddieDecisionEndpoint,
+            offlinePackageStatus: oldRound.offlinePackageStatus,
+            eventCursor: oldRound.eventCursor,
+            recentHistory: oldRound.recentHistory,
+            cachedCaddieRules: oldRound.cachedCaddieRules,
+            generatedAt: oldRound.generatedAt
+        )
+        try store.saveRoundPackage(newRound)
+
+        try store.discardRound(roundId: oldRound.roundId)
+
+        XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, newRound.roundId)
+        XCTAssertNotNil(try store.loadRoundPackage(roundId: newRound.roundId))
+        XCTAssertFalse(try store.isRoundPendingFinish(oldRound.roundId))
+    }
+
     func testPrepCourseDownloadIntentPersistsForRelaunchResume() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -162,22 +275,31 @@ final class OfflineStoreTests: XCTestCase {
             payload: ["strokes": .number(4)]
         )
         let png = validOnePixelPNGData()
+        let finishMetadata = MobileRoundFinishMetadata(
+            courseName: package.course.name,
+            holePars: package.holes.map(\.par),
+            holesCompleted: 1,
+            courseGlobalId: package.course.globalId
+        )
 
         // Upgrade path: an already-authenticated player owns the legacy unscoped cache.
         try store.saveRoundPackage(package)
         try store.saveHomePackage(package)
         try store.appendEvent(accountAEvent)
         try store.savePrepCourseDownloads([prepDownload])
+        try store.sealRoundForDeferredFinish(package: package, metadata: finishMetadata)
         XCTAssertTrue(try store.saveCourseTopoImage(
             png,
             globalId: package.course.globalId,
             localHole: 1
         ))
         store.bindAccount(playerId: "player-a", migrateLegacyData: true)
-        XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
+        XCTAssertNil(try store.loadCurrentRoundPackage())
+        XCTAssertNil(try store.loadResumablePackage())
         XCTAssertEqual(try store.loadEvents(), [accountAEvent])
         XCTAssertFalse(try store.loadCourseTemplates().isEmpty)
         XCTAssertEqual(try store.loadPrepCourseDownloads(), [prepDownload])
+        XCTAssertTrue(try store.isRoundPendingFinish(package.roundId))
 
         // A new family member gets a clean personal scope, but can reuse factual map pixels.
         store.bindAccount(playerId: "player-b", migrateLegacyData: false)
@@ -186,6 +308,7 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertTrue(try store.loadEvents().isEmpty)
         XCTAssertTrue(try store.loadCourseTemplates().isEmpty)
         XCTAssertTrue(try store.loadPrepCourseDownloads().isEmpty)
+        XCTAssertTrue(try store.loadPendingRoundFinishes().isEmpty)
         XCTAssertEqual(
             store.loadCourseTopoImage(globalId: package.course.globalId, localHole: 1),
             png
@@ -193,20 +316,45 @@ final class OfflineStoreTests: XCTestCase {
 
         let accountBEvent = LiveRoundEvent(
             eventId: "account-b-score",
-            roundId: package.roundId,
+            roundId: "account-b-round",
             timestamp: "2026-08-07T00:01:00Z",
             hole: 1,
             kind: .score,
             payload: ["strokes": .number(6)]
         )
-        try store.saveRoundPackage(package)
+        let accountBPackage = LiveRoundPackage(
+            schema: package.schema,
+            roundId: "account-b-round",
+            dataMode: package.dataMode,
+            sourceCoverage: package.sourceCoverage,
+            missingData: package.missingData,
+            playerProfile: package.playerProfile,
+            course: package.course,
+            holes: package.holes,
+            nine: package.nine,
+            coursePrep: package.coursePrep,
+            geometryCoverage: package.geometryCoverage,
+            readinessChecks: package.readinessChecks,
+            caddieContextSeeds: package.caddieContextSeeds,
+            weatherSnapshot: package.weatherSnapshot,
+            clubProfiles: package.clubProfiles,
+            caddieDecisionEndpoint: package.caddieDecisionEndpoint,
+            offlinePackageStatus: package.offlinePackageStatus,
+            eventCursor: package.eventCursor,
+            recentHistory: package.recentHistory,
+            cachedCaddieRules: package.cachedCaddieRules,
+            generatedAt: package.generatedAt
+        )
+        try store.saveRoundPackage(accountBPackage)
         try store.appendEvent(accountBEvent)
         XCTAssertEqual(try store.loadEvents(), [accountBEvent])
 
         store.bindAccount(playerId: "player-a", migrateLegacyData: false)
         XCTAssertEqual(try store.loadEvents(), [accountAEvent])
-        XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, package.roundId)
+        XCTAssertNil(try store.loadCurrentRoundPackage())
+        XCTAssertNil(try store.loadResumablePackage())
         XCTAssertEqual(try store.loadPrepCourseDownloads(), [prepDownload])
+        XCTAssertTrue(try store.isRoundPendingFinish(package.roundId))
     }
 
     func testCourseTemplateSurvivesRoundDiscardAndRebasesWithoutOldIdentityOrCursor() throws {

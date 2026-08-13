@@ -419,6 +419,17 @@ class DecisionLayerTests(unittest.TestCase):
         self.assertTrue(any(row["kind"] == "live_location" for row in plan["evidence"]))
         self.assertTrue(any(row["kind"] == "strategy" for row in plan["evidence"]))
 
+    def test_far_away_live_location_does_not_create_kilometre_sequence(self) -> None:
+        context = long_hole_fixture()
+        context.pop("distanceToPin_m")
+        context["currentLocation"] = {"latitude": 37.7749, "longitude": -122.4194}
+        context["targetLocation"] = {"latitude": 22.2799, "longitude": 114.162}
+
+        plan = recommend_approach(context)
+
+        self.assertIsNone(plan["context"]["distanceToPin_m"])
+        self.assertEqual(plan["sequences"], [])
+
     def test_strategy_mode_attack_selects_attack_when_clearance_and_dispersion_allow(self) -> None:
         context = approach_fixture()
         context["strategyMode"] = "attack"

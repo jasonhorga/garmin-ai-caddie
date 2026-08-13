@@ -60,7 +60,14 @@ function richHole1(): CoursePrepHole {
       { club: '8I', note: '第二杆攻果岭中部' },
     ],
     cautions: ['右侧长草密集,宁左勿右'],
-    hazards: { water_carry: [[100, 150]], bunkers: [[200, 8]] },
+    hazards: {
+      water_carry: [[100, 150]],
+      bunkers: [[200, 8]],
+      details: [{
+        kind: 'water', frontM: 100, backM: 150, frontRouteM: 100, backRouteM: 150,
+        frontPx: [175, 240], backPx: [180, 205], sideM: 0,
+      }],
+    },
     map: {
       image: 'data:image/png;base64,AAAA',
       overlay: {
@@ -225,48 +232,47 @@ describe('PrepPage workbench', () => {
     expect(screen.queryByText('选择球场开始备战')).not.toBeInTheDocument()
   })
 
-  it('lists every hole and selects the first by default, driving the canvas + inspector', async () => {
+  it('uses one compact hole picker and selects the first by default, driving the map', async () => {
     renderPrep()
     await screen.findByText('PAR 9 · 900 码')
 
-    const holeButtons = screen.getAllByRole('button', { name: /第\d洞 Par\d/ })
-    expect(holeButtons.map((button) => button.getAttribute('aria-label'))).toEqual([
-      '第1洞 Par4 380码',
-      '第2洞 Par5 520码',
+    const picker = screen.getByRole('combobox', { name: '选择球洞' })
+    expect(picker).toHaveValue('1')
+    expect(within(picker).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      '第 1 洞 · Par 4 · 380码 · 关键',
+      '第 2 洞 · Par 5 · 520码 · 关键',
     ])
-    // hole 1 is active by default → its canvas + inspector are on screen.
-    expect(holeButtons[0]).toHaveAttribute('aria-current', 'true')
     expect(screen.getByLabelText('第1洞球道图')).toBeInTheDocument()
-    expect(screen.getByText('你的落点:')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '球童试算 · 第 1 洞' })).toBeInTheDocument()
+    expect(screen.getByLabelText('地图推荐球杆')).toHaveTextContent('1D')
+    expect(screen.getByLabelText('展开完整打法')).toBeInTheDocument()
   })
 
-  it('caddie card recommends the nearest club and shows the hole hazards', async () => {
-    const { view } = renderPrep()
+  it('caddie card recommends the nearest club while obstacle ranges remain on the map', async () => {
+    renderPrep()
     await screen.findByText('PAR 9 · 900 码')
 
     // Ball opens at the landing (210 m ≈ 230 y): 1D (241 y) is the nearest club.
-    const big = view.container.querySelector('.prep-caddie-big')
-    expect(big?.textContent).toContain('230')
-    const recos = screen.getByLabelText('推荐球杆')
-    expect(recos.querySelector('.prep-club.on')?.textContent).toMatch(/^1D/)
+    const mapRecommendation = screen.getByLabelText('地图推荐球杆')
+    expect(mapRecommendation).toHaveTextContent('1D · 230码落点')
+    expect(Array.from(screen.getByLabelText('第1洞球道图').querySelectorAll('text'))
+      .some((node) => node.textContent?.includes('水已过'))).toBe(true)
     const inspector = screen.getByRole('complementary', { name: '球童试算' })
-    expect(within(inspector).getByText('水×1 · 沙×1')).toBeInTheDocument()
-    expect(within(inspector).getByText('过水需')).toBeInTheDocument()
+    expect(within(inspector).queryByText('水×1 · 沙×1')).not.toBeInTheDocument()
+    expect(within(inspector).queryByText('过水需')).not.toBeInTheDocument()
   })
 
   it('selecting another hole re-drives the canvas + inspector to that hole', async () => {
     renderPrep()
     await screen.findByText('PAR 9 · 900 码')
 
-    await userEvent.click(screen.getByRole('button', { name: '第2洞 Par5 520码' }))
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: '选择球洞' }), '2')
 
-    expect(screen.getByRole('button', { name: '第2洞 Par5 520码' })).toHaveAttribute('aria-current', 'true')
-    expect(screen.getByRole('button', { name: '第1洞 Par4 380码' })).not.toHaveAttribute('aria-current')
+    expect(screen.getByRole('combobox', { name: '选择球洞' })).toHaveValue('2')
     expect(screen.getByLabelText('第2洞球道图')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '球童试算 · 第 2 洞' })).toBeInTheDocument()
-    // Hole 2 has no scatter, so the shot legend is gone.
-    expect(screen.queryByText('你的落点:')).not.toBeInTheDocument()
+    // Hole 2 has no authoritative overlay coordinates. Keep the map shell but do not fabricate a
+    // recommendation point; the text fallback remains explicit until geometry arrives.
+    expect(screen.queryByLabelText('地图推荐球杆')).not.toBeInTheDocument()
+    expect(screen.getByText('此洞暂无实景航图(示意图)')).toBeInTheDocument()
   })
 
   it('marks the played key hole and colors its average chip', async () => {
@@ -278,14 +284,15 @@ describe('PrepPage workbench', () => {
     })
     await screen.findByText('PAR 9 · 900 码')
 
-    const holeOne = screen.getByRole('button', { name: '第1洞 Par4 380码' })
-    expect(within(holeOne).getByText('关键')).toBeInTheDocument()
-    const chip = within(holeOne).getByText('平均+1.1')
+    const summary = document.querySelector('.prep-active-hole-summary') as HTMLElement
+    expect(summary).not.toBeNull()
+    expect(within(summary).getByText('关键')).toBeInTheDocument()
+    const chip = within(summary).getByText('平均+1.1')
     expect(chip).toHaveClass('bigover')
-    // Hole 2 has no history → no chip, no key tag.
-    const holeTwo = screen.getByRole('button', { name: '第2洞 Par5 520码' })
-    expect(within(holeTwo).queryByText(/平均/)).not.toBeInTheDocument()
-    expect(within(holeTwo).queryByText('关键')).not.toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: '选择球洞' }), '2')
+    const secondSummary = document.querySelector('.prep-active-hole-summary') as HTMLElement
+    expect(secondSummary).not.toBeNull()
+    expect(within(secondSummary).queryByText(/平均/)).not.toBeInTheDocument()
   })
 
   it('falls back to 球场 {gid} and hides 你的战绩 when courseOptions has no match', async () => {

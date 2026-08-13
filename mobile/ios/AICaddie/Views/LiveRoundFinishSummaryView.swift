@@ -18,6 +18,7 @@ struct LiveRoundFinishSummaryView: View {
     let finishErrorMessage: String?
     let onFinish: () -> Void
     let onContinue: () -> Void
+    let onDiscard: () -> Void
 
     var body: some View {
         ZStack {
@@ -134,6 +135,15 @@ struct LiveRoundFinishSummaryView: View {
                 .overlay(RoundedRectangle(cornerRadius: 15).stroke(LivePlayStyle.stroke14))
                 .buttonStyle(.plain)
                 .disabled(isFinishingRound)
+
+            Button("放弃本场", role: .destructive, action: onDiscard)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(LivePlayStyle.hazard)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .buttonStyle(.plain)
+                .disabled(isFinishingRound)
+                .accessibilityIdentifier("live-finish-discard")
         }
     }
 

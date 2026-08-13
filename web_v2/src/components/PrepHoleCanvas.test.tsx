@@ -87,4 +87,46 @@ describe('PrepHoleCanvas', () => {
     expect(canvas.querySelector('.hole-base-topo')).not.toBeInTheDocument()
     expect(canvas.querySelector('.hole-base')).toHaveClass('is-vector-only')
   })
+
+  it('puts recommendation, green range, and measured obstacle ranges on the precise map', () => {
+    const hole = {
+      hole: 7,
+      par: 4,
+      par_source: 'courseview',
+      blue_yards: 410,
+      route_len_m: 375,
+      route: [],
+      geometryCoverage: 'ready',
+      sourceRefs: [],
+      missingData: [],
+      candidateRoutes: [],
+      carryTargets: [],
+      steps: [],
+      cautions: [],
+      landing_m: 200,
+      tee_club: '1D',
+      hazards: {
+        water_carry: [[120, 150]],
+        bunkers: [],
+        details: [{
+          kind: 'water', frontM: 120, backM: 150, frontRouteM: 120, backRouteM: 150,
+          frontPx: [170, 250], backPx: [175, 220], sideM: 0,
+        }],
+      },
+      map: {
+        image: 'data:image/png;base64,AAAA',
+        overlay: { w: 360, h: 560, ppm: 1, ln: 375, route: [[180, 520, 0], [180, 40, 375]] },
+      },
+      greenDistances: { available: true, frontM: 345, middleM: 355, backM: 365 },
+    } as CoursePrepHole
+
+    render(<PrepHoleCanvas hole={hole} cum={200} onCum={vi.fn()} clubs={[{ name: '1D', m: 220, yd: 241 }]} />)
+
+    const canvas = screen.getByLabelText('第7洞球道图')
+    expect(screen.getByLabelText('果岭前中后距离')).toHaveTextContent('中 388')
+    expect(Array.from(canvas.querySelectorAll('text')).some((node) => node.textContent?.includes('水已过'))).toBe(true)
+    expect(Array.from(canvas.querySelectorAll('text')).some((node) => node.textContent === 'T')).toBe(true)
+    expect(Array.from(canvas.querySelectorAll('text')).some((node) => node.textContent === '1D')).toBe(true)
+    expect(screen.getByLabelText('地图推荐球杆')).toHaveTextContent('1D · 219码落点')
+  })
 })

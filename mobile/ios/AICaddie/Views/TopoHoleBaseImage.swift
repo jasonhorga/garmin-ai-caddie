@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftUI
 #if canImport(UIKit)
@@ -54,6 +55,17 @@ final class TopoHoleImageStore: ObservableObject {
         let key = url as NSURL
         if let cached = imageCache.object(forKey: key) { return cached }
 
+        // URLCache is not a durable contract (and was repeatedly evicted between review-screen
+        // visits). Keep the exact revision/style-bound PNG in our own Caches directory as well.
+        // The URL already contains both `v=topo-vN` and the Garmin geometry revision, so a changed
+        // render naturally receives a different key without showing stale pixels.
+        if let diskImage = diskImage(for: url) {
+            let cost = Int(diskImage.size.width * diskImage.size.height
+                * diskImage.scale * diskImage.scale * 4)
+            imageCache.setObject(diskImage, forKey: key, cost: cost)
+            return diskImage
+        }
+
         let task: Task<UIImage?, Never>
         if let existing = inFlight[url] {
             task = existing
@@ -71,6 +83,7 @@ final class TopoHoleImageStore: ObservableObject {
                 guard let (data, response) = try? await URLSession.shared.data(for: request),
                       (response as? HTTPURLResponse).map({ 200..<300 ~= $0.statusCode }) != false,
                       let image = UIImage(data: data) else { return nil }
+                saveImageData(data, for: url)
                 return image
             }
             inFlight[url] = task
@@ -83,6 +96,36 @@ final class TopoHoleImageStore: ObservableObject {
             imageCache.setObject(resolved, forKey: key, cost: cost)
         }
         return resolved
+    }
+
+    private static func diskImage(for url: URL) -> UIImage? {
+        guard let data = try? Data(contentsOf: diskURL(for: url)),
+              let image = UIImage(data: data) else { return nil }
+        return image
+    }
+
+    private static func saveImageData(_ data: Data, for url: URL) {
+        let destination = diskURL(for: url)
+        do {
+            try FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: destination, options: [.atomic])
+        } catch {
+            AICaddieLog.storage.info(
+                "Topo disk cache deferred: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
+    private static func diskURL(for url: URL) -> URL {
+        let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("AICaddieTopoImages-v1", isDirectory: true)
+            .appendingPathComponent("\(digest).png")
     }
 }
 

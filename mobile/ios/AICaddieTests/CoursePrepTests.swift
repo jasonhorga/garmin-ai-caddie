@@ -148,6 +148,8 @@ final class CoursePrepTests: XCTestCase {
             "到 61 · 过 97 码",
             "到 158 · 过 182 码",
         ])
+        XCTAssertEqual(upcoming.map(\.frontPx), [[100, 0], [180, 0]])
+        XCTAssertEqual(upcoming.map(\.backPx), [[130, 0], [200, 0]])
     }
 
     func testLiveHazardsRemoveAnObstacleOnlyAfterItsFarEdgeIsPassed() throws {

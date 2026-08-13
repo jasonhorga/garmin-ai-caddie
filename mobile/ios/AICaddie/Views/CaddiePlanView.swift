@@ -305,7 +305,7 @@ public struct CaddiePlanSequenceStep: Identifiable, Equatable {
         if let targetCarryM {
             parts.append("\(CoursePrepRoute.yards(fromMetres: targetCarryM)) 码")
         }
-        if let expectedRemainingM {
+        if let expectedRemainingM = CaddiePlanSequence.actionableDistance(expectedRemainingM) {
             parts.append("留 \(CoursePrepRoute.yards(fromMetres: expectedRemainingM)) 码")
         }
         return parts.joined(separator: " · ")
@@ -347,12 +347,22 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
         return "来源 " + sourceRefs.prefix(2).joined(separator: ", ")
     }
 
+    static func actionableDistance(_ value: Double?) -> Double? {
+        guard let value,
+              value.isFinite,
+              value >= -25,
+              value <= GeoDistance.maximumUsefulGreenMetres else { return nil }
+        return value
+    }
+
     public static func sequences(from response: CaddieDecisionResponse) -> [CaddiePlanSequence] {
         (response.sequences ?? []).enumerated().map { index, row in
             CaddiePlanSequence(
                 id: string(row["id"]) ?? string(row["label"]) ?? "sequence-\(index + 1)",
                 label: string(row["label"]) ?? "Sequence \(index + 1)",
-                expectedRemainingM: number(row["expectedRemaining_m"]) ?? number(row["expectedRemainingM"]),
+                expectedRemainingM: actionableDistance(
+                    number(row["expectedRemaining_m"]) ?? number(row["expectedRemainingM"])
+                ),
                 riskScore: number(row["riskScore"]),
                 confidence: string(row["confidence"]),
                 coverageText: coverageText(row["coverage"]),
@@ -384,7 +394,9 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
                 role: role,
                 clubName: clubName,
                 targetCarryM: number(row["targetCarry_m"]) ?? number(row["targetCarryM"]),
-                expectedRemainingM: number(row["expectedRemaining_m"]) ?? number(row["expectedRemainingM"]),
+                expectedRemainingM: actionableDistance(
+                    number(row["expectedRemaining_m"]) ?? number(row["expectedRemainingM"])
+                ),
                 sampleSize: integer(row["sampleSize"]),
                 confidence: string(row["confidence"]),
                 sourceRefs: stringArray(row["sourceRefs"])

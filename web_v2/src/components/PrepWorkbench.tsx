@@ -70,9 +70,9 @@ export interface PrepWorkbenchProps {
   record: { roundCount: number; average18: number } | null
 }
 
-// The three-pane 备战 workbench: selectable hole list | big hole canvas | 球童
-// 试算 inspector. Selection + ball position live here so the canvas and inspector
-// stay in sync; both reset when the course (hence hole set) changes.
+// The map-first 备战 workbench: compact hole navigation + one large planning map.
+// Full strategy/personal evidence is progressive disclosure over that same map,
+// rather than a permanently visible report column that repeats its distances.
 export function PrepWorkbench({
   prepData,
   holeRows,
@@ -107,22 +107,20 @@ export function PrepWorkbench({
   const played = playedKeyHoleSet(holeRows, holes)
   const keyHoles = played.size > 0 ? played : longKeyHoleSet(holes)
 
-  // Prefetch the previous/next hole's topo bitmap so stepping through the strip is instant — the
-  // neighbour's realistic base image is already in the browser cache by the time it's selected. Only
-  // holes with geometry (an overlay) have a topo; a single-gid course means localHole == hole.number.
+  // Warm each factual topo exactly once. The previous implementation ran both an all-hole pass and
+  // a neighbour pass, so changing holes repeatedly requested the same images. The server already
+  // prewarms the course; this pass only fills the browser cache for instant hole switching.
   const globalId = prepData.globalId
   useEffect(() => {
-    if (validSelected === null) return
-    const index = holes.findIndex((hole) => hole.hole === validSelected)
-    for (const neighbour of [holes[index - 1], holes[index + 1]]) {
-      if (neighbour?.map?.overlay) {
-        prefetchTopoImage(topoImageUrl(globalId, neighbour.hole, neighbour.geometryRevision))
+    for (const hole of holes) {
+      if (hole.map?.overlay) {
+        prefetchTopoImage(topoImageUrl(globalId, hole.hole, hole.geometryRevision))
       }
     }
-  }, [validSelected, holes, globalId])
+  }, [holes, globalId])
 
   return (
-    <div className="prep-work">
+    <div className="prep-work prep-work--map-first">
       <div className="prep-holes">
         <div className="prep-holes-head">
           <span>球洞</span>
@@ -137,40 +135,68 @@ export function PrepWorkbench({
             你的战绩:打过 {record.roundCount} 次 · 均杆 {Number(record.average18.toFixed(1))}
           </p>
         ) : null}
-        <ul className="prep-holes-list">
-          {holes.map((hole) => {
-            const average = averages.get(hole.hole) ?? null
-            const bucket = quickBucket(average)
-            return (
-              <li key={hole.hole}>
-                <button
-                  type="button"
-                  className={hole.hole === validSelected ? 'prep-hole on' : 'prep-hole'}
-                  aria-current={hole.hole === validSelected ? 'true' : undefined}
-                  aria-label={`第${hole.hole}洞 Par${hole.par} ${hole.blue_yards}码`}
-                  onClick={() => setSelected(hole.hole)}
-                >
-                  <span className="prep-hole-par">P{hole.par}</span>
-                  <span className="prep-hole-n">{hole.hole}</span>
-                  <span className="prep-hole-yd">
-                    {hole.blue_yards}
-                    <span className="prep-hole-unit">码</span>
-                  </span>
-                  {average !== null ? (
-                    <span className={`prep-hole-avg ${bucket}`}>平均{formatToParValue(average)}</span>
-                  ) : null}
-                  {keyHoles.has(hole.hole) ? <span className="prep-hole-key">关键</span> : null}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
+        <div className="prep-hole-nav" aria-label="选择球洞">
+          <button
+            type="button"
+            className="prep-hole-nav-arrow"
+            aria-label="上一洞"
+            disabled={holes.findIndex((hole) => hole.hole === validSelected) <= 0}
+            onClick={() => {
+              const index = holes.findIndex((hole) => hole.hole === validSelected)
+              if (index > 0) setSelected(holes[index - 1].hole)
+            }}
+          >
+            ‹
+          </button>
+          <label className="prep-hole-picker">
+            <span>当前球洞</span>
+            <select
+              aria-label="选择球洞"
+              value={validSelected ?? ''}
+              onChange={(event) => setSelected(Number(event.target.value))}
+            >
+              {holes.map((hole) => {
+                const average = averages.get(hole.hole) ?? null
+                return (
+                  <option key={hole.hole} value={hole.hole}>
+                    第 {hole.hole} 洞 · Par {hole.par} · {hole.blue_yards}码
+                    {average !== null ? ` · 平均${formatToParValue(average)}` : ''}
+                    {keyHoles.has(hole.hole) ? ' · 关键' : ''}
+                  </option>
+                )
+              })}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="prep-hole-nav-arrow"
+            aria-label="下一洞"
+            disabled={holes.findIndex((hole) => hole.hole === validSelected) >= holes.length - 1}
+            onClick={() => {
+              const index = holes.findIndex((hole) => hole.hole === validSelected)
+              if (index >= 0 && index < holes.length - 1) setSelected(holes[index + 1].hole)
+            }}
+          >
+            ›
+          </button>
+        </div>
+        {/* Hole/par/yardage are already on the map and in the picker. Keep only personal context here. */}
+        {active ? (
+          <div className="prep-active-hole-summary">
+            {averages.get(active.hole) != null ? (
+              <span className={`prep-hole-avg ${quickBucket(averages.get(active.hole) ?? null)}`}>
+                平均{formatToParValue(averages.get(active.hole) as number)}
+              </span>
+            ) : null}
+            {keyHoles.has(active.hole) ? <span className="prep-hole-key">关键</span> : null}
+          </div>
+        ) : null}
       </div>
 
       {active ? (
         <>
-          <PrepHoleCanvas hole={active} cum={ball.cum} onCum={(cum) => setBall({ hole: validSelected, cum })} globalId={prepData.globalId} />
-          <PrepInspector hole={active} cum={ball.cum} clubs={clubs} tips={tips} tipsError={tipsError} onRetryTips={onRetryTips} />
+          <PrepHoleCanvas hole={active} cum={ball.cum} onCum={(cum) => setBall({ hole: validSelected, cum })} globalId={prepData.globalId} clubs={clubs} />
+          <PrepInspector hole={active} tips={tips} tipsError={tipsError} onRetryTips={onRetryTips} />
         </>
       ) : (
         <p className="prep-inspector-placeholder">此球场暂无球洞数据</p>

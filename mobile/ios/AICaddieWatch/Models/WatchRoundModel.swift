@@ -173,7 +173,7 @@ extension WatchScoreDraft {
     }
 }
 
-public struct WatchRoundConfig: Equatable {
+public struct WatchRoundConfig: Codable, Equatable {
     public let baseURL: URL
     public let adminToken: String?
     /// round-13 watch-auth: the phone's live Apple session token (and its expiry), pushed over

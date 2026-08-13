@@ -143,13 +143,18 @@ describe('buildTimeline', () => {
 })
 
 describe('shotLandingLabels', () => {
-  it('labels each full-shot landing with the CLUB ONLY (no distance/lie)', () => {
+  it('labels each full-shot landing with club, factual distance, and result lie', () => {
     const labels = shotLandingLabels([
       shot({ club: '一号木', endLie: 'Fairway', end: [30, 40] }),
       shot({ club: '推杆', shotType: 'PUTT' }),
-    ])
+    ], 1)
     expect(labels).toHaveLength(1)
-    expect(labels[0]).toMatchObject({ x: 30, y: 40, text: '一号木' })
+    expect(labels[0]).toMatchObject({ x: 30, y: 40, text: '一号木 · 55码 · →球道' })
+  })
+
+  it('puts the manual-correction fact in the landing pill', () => {
+    const labels = shotLandingLabels([shot({ club: '9I', clubSource: 'manual' })], 1)
+    expect(labels[0].text).toContain('已修正')
   })
 
   it('skips the synthetic drive and shots with no known club', () => {
@@ -159,7 +164,7 @@ describe('shotLandingLabels', () => {
       shot({ club: '7I', end: [30, 30] }),
     ])
     expect(labels).toHaveLength(1)
-    expect(labels[0]).toMatchObject({ x: 30, y: 30, text: '七号铁' })
+    expect(labels[0]).toMatchObject({ x: 30, y: 30, text: '七号铁 · →球道' })
   })
 })
 

@@ -795,14 +795,24 @@ public final class WatchEventBridge: NSObject {
         guard WCSession.default.activationState == .activated else {
             return
         }
-        var context: [String: Any] = [:]
+        let context = pendingApplicationContext()
+        try? WCSession.default.updateApplicationContext(context)
+    }
+
+    /// One complete latest-wins snapshot, shared by application-context delivery and the Watch's
+    /// active request/reply handshake. `configStatus` makes clearing explicit; an empty dictionary
+    /// must never leave an obsolete credential alive on the Watch.
+    func pendingApplicationContext() -> [String: Any] {
+        var context: [String: Any] = [
+            "configStatus": pendingConfig == nil ? "unavailable" : "available",
+        ]
         if let pendingConfig {
             context["config"] = pendingConfig
         }
         if let pendingRoundSeed {
             context["roundSeed"] = pendingRoundSeed
         }
-        try? WCSession.default.updateApplicationContext(context)
+        return context
     }
 
     public func handleWatchRoundClosure(_ object: [String: Any]) {
@@ -850,6 +860,10 @@ public final class WatchEventBridge: NSObject {
     }
 
     public func handleWatchInputMessage(_ message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
+        if message["requestConfiguration"] as? Bool == true {
+            replyHandler(pendingApplicationContext())
+            return
+        }
         guard let object = message["event"] as? [String: Any],
               JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object),

@@ -311,15 +311,14 @@ final class RealFlowUITests: XCTestCase {
         )
         let loading = app.staticTexts["加载中…"]
         _ = loading.waitForExistence(timeout: 5) // fast cache hits may finish before this appears
-        let firstPrepCard = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Par '")).firstMatch
-        XCTAssertTrue(firstPrepCard.waitForExistence(timeout: 60), "real course prep must load at least one hole")
+        let firstPrepHeader = app.descendants(matching: .any)["prep-hole-header-1"].firstMatch
+        XCTAssertTrue(firstPrepHeader.waitForExistence(timeout: 60), "real course prep must load the first map header")
         XCTAssertTrue(
             waitUntilGone(loading, timeout: 60),
             "pre-round screenshot must wait for the live prep request to finish"
         )
-        // Bind readiness to the visible first card. LazyVStack may finish an off-screen hole first;
-        // accepting any `prep-hole-map-*` lets this card still be a 72pt loading placeholder, then
-        // expand after scrollTo and push the requested hazard below the screenshot.
+        // Bind readiness to the selected hole. Preparation now renders one large map at a time;
+        // background batches must never substitute a different hole's readiness.
         let firstPrepMap = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier == %@", "prep-hole-map-1")
         ).firstMatch
@@ -328,8 +327,8 @@ final class RealFlowUITests: XCTestCase {
             "the first visible prep card must lazily load its real single-hole map"
         )
         XCTAssertTrue(
-            scrollTo(firstPrepCard, maxSwipes: 3),
-            "first real prep card must be fully inside the simulator safe viewport"
+            scrollTo(firstPrepMap, maxSwipes: 3),
+            "first real prep map must be fully inside the simulator safe viewport"
         )
         let firstPrepTopoReady = firstPrepMap.descendants(matching: .any).matching(
             NSPredicate(format: "identifier == %@", "topo-hole-base-ready")
@@ -349,49 +348,33 @@ final class RealFlowUITests: XCTestCase {
         settle(2)
         save("07-prep-card"); dump("07-prep-card")
 
-        // I08 proves that expanding hole 1 exposes another real measured hazard. Keep this evidence
-        // separate from the next-hole state: on a compact phone viewport, requiring an expanded
-        // hole-1 row and hole 2's header/map in the same screenshot is a layout accident rather than
-        // a product requirement.
-        let firstHazardsToggle = app.buttons["prep-hazards-toggle-1"]
+        // I08 now proves the product rule directly: spatial facts stay on the map instead of being
+        // repeated as a list below it. Accessibility binds the same measured near/far obstacle to
+        // its map annotation, while additional hazards remain available through map navigation.
+        let firstMapHazard = app.descendants(matching: .any)["prep-map-hazard-1"].firstMatch
         XCTAssertTrue(
-            firstHazardsToggle.waitForExistence(timeout: 5),
-            "the dense real hole must keep its additional measured hazards behind an explicit disclosure"
-        )
-        firstHazardsToggle.tap()
-        settle(1)
-        let measuredHazards = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "：到 ", " · 过 ")
-        )
-        // The collapsed first-hole card shows exactly three hazards. Its fourth measured row is
-        // therefore stable evidence that the disclosure expanded, without depending on course copy.
-        let expandedFirstHoleHazard = measuredHazards.element(boundBy: 3)
-        XCTAssertTrue(
-            expandedFirstHoleHazard.waitForExistence(timeout: 10),
-            "expanding hole 1 must publish an additional real 到前沿 / 过后沿 hazard fact"
+            firstMapHazard.waitForExistence(timeout: 10),
+            "the real prep map must expose its nearest measured 到/过 obstacle as a map overlay"
         )
         XCTAssertTrue(
-            scrollTo(expandedFirstHoleHazard, maxSwipes: 8),
-            "the expanded real hazard fact must fit wholly inside the safe viewport"
+            firstMapHazard.label.contains("到") && firstMapHazard.label.contains("过"),
+            "the map obstacle must retain both measured near-edge and far-edge semantics"
         )
+        let greenRange = app.descendants(matching: .any)["prep-map-green-range"].firstMatch
         XCTAssertTrue(
-            fullyVisible(expandedFirstHoleHazard),
-            "the hazard evidence must retain a fully visible real 到前沿 / 过后沿 fact"
+            greenRange.waitForExistence(timeout: 5),
+            "the real prep map must carry F/M/B on the green rather than in a duplicate row"
         )
         settle(1)
-        save("08-prep-hazards"); dump("08-prep-hazards")
+        save("08-prep-map-overlays"); dump("08-prep-map-overlays")
 
         // I08b independently proves that the progressive real-course response continues to hole 2
-        // and lazily renders that hole's actual topo after scrolling.
+        // and renders that hole's actual topo after explicit next-hole navigation.
+        let nextPrepHole = app.buttons["prep-next-hole"]
+        XCTAssertTrue(nextPrepHole.waitForExistence(timeout: 5), "prep must expose compact next-hole navigation")
+        nextPrepHole.tap()
         let secondPrepHeader = app.descendants(matching: .any)["prep-hole-header-2"].firstMatch
-        XCTAssertTrue(
-            secondPrepHeader.waitForExistence(timeout: 75),
-            "the full real-course response must publish hole 2 before capturing the next-hole state"
-        )
-        XCTAssertTrue(
-            scrollTo(secondPrepHeader, maxSwipes: 24),
-            "the next-hole evidence must reach the next real hole after hole 1's measured hazards"
-        )
+        XCTAssertTrue(secondPrepHeader.waitForExistence(timeout: 10), "next-hole navigation must select hole 2")
         let secondPrepMap = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier == %@", "prep-hole-map-2")
         ).firstMatch

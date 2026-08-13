@@ -16,6 +16,7 @@ enum GeoDistance {
     /// number to be useful. Keep the S70-style rangefinder to three digits instead of letting a stale
     /// previous-hole fix wrap the F/M/B instrument while Core Location catches up after a transition.
     static let maximumUsefulGreenYards = 999
+    static let maximumUsefulGreenMetres = Double(maximumUsefulGreenYards) / 1.09361
 
     /// Metres between two WGS84 coordinates (haversine, mean Earth radius 6 371 000 m).
     static func haversineMetres(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {

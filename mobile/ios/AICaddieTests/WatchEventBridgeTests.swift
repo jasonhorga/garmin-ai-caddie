@@ -2,6 +2,24 @@ import XCTest
 @testable import AICaddie
 
 final class WatchEventBridgeTests: XCTestCase {
+    func testWatchCanActivelyRequestLatestConfigAfterMissingPhonePush() throws {
+        let bridge = WatchEventBridge()
+        bridge.sendConfigToWatch(
+            apiBaseURL: "https://caddie.example.com",
+            adminToken: nil,
+            sessionToken: "member-session",
+            sessionTokenExpiresAt: nil
+        )
+        var reply: [String: Any]?
+
+        bridge.handleWatchInputMessage(["requestConfiguration": true]) { reply = $0 }
+
+        XCTAssertEqual(reply?["configStatus"] as? String, "available")
+        let config = try XCTUnwrap(reply?["config"] as? [String: Any])
+        XCTAssertEqual(config["apiBaseURL"] as? String, "https://caddie.example.com")
+        XCTAssertEqual(config["sessionToken"] as? String, "member-session")
+    }
+
     func testWatchRoundSeedUsesRealCourseAndHoleFacts() throws {
         let bridge = WatchEventBridge()
         let package = try fixturePackage()

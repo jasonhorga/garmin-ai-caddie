@@ -23,6 +23,7 @@ public struct CourseReviewView: View {
     @State private var holes: [CoursePrepHole] = []
     @State private var isLoading = false
     @State private var errorText: String?
+    @State private var selectedHoleNumber: Int?
 
     public init(
         client: SyncClient,
@@ -43,7 +44,7 @@ public struct CourseReviewView: View {
 
     public var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 14) {
                 if let download {
                     downloadBanner(download)
                 }
@@ -53,7 +54,8 @@ public struct CourseReviewView: View {
                 if let errorText {
                     Text("加载失败：\(errorText)").foregroundColor(.red).font(.callout)
                 }
-                ForEach(holes, id: \.hole) { hole in
+                if let hole = selectedHole {
+                    holeNavigator
                     CourseReviewHoleCard(
                         client: client,
                         globalId: globalId,
@@ -62,6 +64,7 @@ public struct CourseReviewView: View {
                         managedDownload: download != nil,
                         managedDownloadFailed: download?.phase == .failed
                     )
+                    .id("\(globalId):\(hole.hole)")
                 }
             }
             .padding()
@@ -77,6 +80,75 @@ public struct CourseReviewView: View {
             await load()
             _ = await preciseUpgrade
         }
+    }
+
+    private var selectedHole: CoursePrepHole? {
+        if let selectedHoleNumber,
+           let exact = holes.first(where: { $0.hole == selectedHoleNumber }) {
+            return exact
+        }
+        return holes.first
+    }
+
+    private var selectedIndex: Int? {
+        guard let hole = selectedHole else { return nil }
+        return holes.firstIndex(where: { $0.hole == hole.hole })
+    }
+
+    /// One map at a time keeps preparation spatial. Hole navigation is a compact control, not an
+    /// 18-card vertical report that repeatedly shrinks the map and forces long scrolling.
+    private var holeNavigator: some View {
+        HStack(spacing: 12) {
+            Button {
+                moveHole(by: -1)
+            } label: {
+                Image(systemName: "chevron.left")
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.bordered)
+            .disabled((selectedIndex ?? 0) <= 0)
+            .accessibilityLabel("上一洞")
+            .accessibilityIdentifier("prep-previous-hole")
+
+            Menu {
+                ForEach(holes, id: \.hole) { hole in
+                    Button("第 \(hole.hole) 洞 · Par \(hole.par)") {
+                        selectedHoleNumber = hole.hole
+                    }
+                }
+            } label: {
+                VStack(spacing: 1) {
+                    Text("第 \(selectedHole?.hole ?? 1) 洞")
+                        .font(.headline.weight(.bold))
+                    Text("共 \(holes.count) 洞 · 点此选洞")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("prep-hole-menu")
+
+            Button {
+                moveHole(by: 1)
+            } label: {
+                Image(systemName: "chevron.right")
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.bordered)
+            .disabled((selectedIndex ?? 0) >= holes.count - 1)
+            .accessibilityLabel("下一洞")
+            .accessibilityIdentifier("prep-next-hole")
+        }
+        .tint(LiveHoleStyle.green)
+        .hubCard(padding: 10)
+    }
+
+    private func moveHole(by delta: Int) {
+        guard let selectedIndex else { return }
+        let next = min(max(selectedIndex + delta, 0), holes.count - 1)
+        guard holes.indices.contains(next) else { return }
+        selectedHoleNumber = holes[next].hole
     }
 
     @ViewBuilder
@@ -189,7 +261,7 @@ enum CourseReviewMapPolicy {
 }
 
 /// Shows the lightweight factual row immediately and requests a rendered map only after this card
-/// enters the LazyVStack viewport. A failed optional bitmap never erases distances or advice.
+/// appears. A failed optional bitmap never erases distances or advice.
 private struct CourseReviewHoleCard: View {
     let client: SyncClient
     let globalId: Int
@@ -296,15 +368,16 @@ struct HolePrepCard: View {
     var isLoadingMap = false
     var mapUnavailable = false
     var onRetryMap: (() -> Void)? = nil
-    @State private var showsAllHazards = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            header
             // CourseView facts are useful immediately. Keep that lightweight map visible while the
             // optional precise topo is prepared, then upgrade the same card in place when ready.
             if hole.resolvedMapOverlay != nil {
-                HoleImageMapView(hole: hole, topoURL: topoURL)
+                HoleImageMapView(
+                    hole: hole,
+                    topoURL: topoURL,
+                    showsPrepFactOverlays: true
+                )
                     // Keep the AsyncImage loading/ready children in the accessibility tree while
                     // retaining this hole-specific container identifier for UI navigation.
                     .accessibilityElement(children: .contain)
@@ -323,13 +396,10 @@ struct HolePrepCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            caddieTrySection
-            if !hole.steps.isEmpty { stepsSection }
-            if !hazardSummaries.isEmpty { hazardsSection }
-            ForEach(Array(cautionSummaries.enumerated()), id: \.offset) { _, caution in
-                Label(caution, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(HubStyle.warmBad)
-            }
+            if hole.resolvedMapOverlay == nil { header }
+            if hole.resolvedMapOverlay == nil { fallbackFacts }
+            if !hole.steps.isEmpty { strategyDisclosure }
+            if !cautionSummaries.isEmpty { cautionDisclosure }
         }
         .hubCard()
     }
@@ -383,8 +453,9 @@ struct HolePrepCard: View {
         .accessibilityIdentifier("prep-hole-header-\(hole.hole)")
     }
 
-    // MARK: 球童试算:推荐球杆(绿色胶囊)+ 果岭前/中/后距离
-    @ViewBuilder private var caddieTrySection: some View {
+    /// Geometry-free degradation only. When the hole is drawable these same facts live on the map,
+    /// so this row must never become a duplicate inspector underneath it.
+    @ViewBuilder private var fallbackFacts: some View {
         if recommendedClub != nil || greenDistanceText != nil {
             HStack(spacing: 8) {
                 if let club = recommendedClub {
@@ -405,55 +476,49 @@ struct HolePrepCard: View {
         }
     }
 
-    // MARK: 推荐打法逐步(球杆胶囊 + 说明)
-    private var stepsSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(hole.steps.enumerated()), id: \.offset) { _, step in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if let club = step.club, !club.isEmpty {
-                        Text(zhClubName(club))
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 7).padding(.vertical, 2)
-                            .background(HubStyle.iconTint)
-                            .foregroundStyle(LiveHoleStyle.green)
-                            .clipShape(Capsule())
-                    } else {
-                        Circle().fill(Color.secondary.opacity(0.4)).frame(width: 5, height: 5)
-                            .padding(.top, 6)
+    /// The map shows the recommended landing and club at a glance. A complete multi-shot chain is
+    /// useful only on demand, so keep it collapsed instead of turning every hole into a long list.
+    private var strategyDisclosure: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 7) {
+                ForEach(Array(hole.steps.enumerated()), id: \.offset) { _, step in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if let club = step.club, !club.isEmpty {
+                            Text(zhClubName(club))
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 7).padding(.vertical, 2)
+                                .background(HubStyle.iconTint)
+                                .foregroundStyle(LiveHoleStyle.green)
+                                .clipShape(Capsule())
+                        }
+                        Text(step.note).font(.subheadline)
+                        Spacer()
                     }
-                    Text(step.note).font(.subheadline)
-                    Spacer()
                 }
             }
+            .padding(.top, 6)
+        } label: {
+            Label("完整打法 · \(hole.steps.count) 步", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(LiveHoleStyle.green)
         }
+        .accessibilityIdentifier("prep-strategy-disclosure-\(hole.hole)")
     }
 
-    // MARK: 障碍提示（蓝 T 到前沿 / 过后沿）
-    private var hazardsSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(visibleHazardSummaries.enumerated()), id: \.offset) { _, summary in
-                HStack(spacing: 6) {
-                    Circle().fill(HubStyle.warmBad.opacity(0.7)).frame(width: 5, height: 5)
-                    Text(summary).font(.caption).foregroundColor(.secondary)
+    private var cautionDisclosure: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(Array(cautionSummaries.enumerated()), id: \.offset) { _, caution in
+                    Text(caution)
+                        .font(.caption)
+                        .foregroundStyle(HubStyle.warmBad)
                 }
             }
-            if hazardSummaries.count > 3 {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        showsAllHazards.toggle()
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(showsAllHazards ? "收起障碍" : "查看全部 \(hazardSummaries.count) 个障碍")
-                        Image(systemName: showsAllHazards ? "chevron.up" : "chevron.down")
-                            .font(.caption2.weight(.bold))
-                    }
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(LiveHoleStyle.green)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("prep-hazards-toggle-\(hole.hole)")
-            }
+            .padding(.top, 5)
+        } label: {
+            Label("本洞提醒 · \(cautionSummaries.count)", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(HubStyle.warmBad)
         }
     }
 
@@ -487,20 +552,6 @@ struct HolePrepCard: View {
         case 5: return .orange
         default: return LiveHoleStyle.green
         }
-    }
-
-    private var hazardSummaries: [String] {
-        stableUnique(CaddiePlanHazard.from(
-            hole.hazards,
-            route: hole.resolvedMapOverlay?.route
-        ).compactMap { hazard in
-            guard let detail = hazard.detail else { return nil }
-            return "\(hazard.label)：\(detail)"
-        })
-    }
-
-    private var visibleHazardSummaries: [String] {
-        showsAllHazards ? hazardSummaries : Array(hazardSummaries.prefix(3))
     }
 
     /// Course prep may describe the same mapped risk more than once (for example when two source

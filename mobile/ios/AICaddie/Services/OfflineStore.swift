@@ -41,6 +41,27 @@ public struct LiveRoundStateSnapshot: Codable, Equatable {
     }
 }
 
+/// A round the player has explicitly saved and left, but whose network transaction has not yet
+/// completed. This is durable product state (not a transient retry flag): the UI must never reopen
+/// it as an active round, while its package/events/media remain intact until the backend ACKs every
+/// event and the idempotent finish endpoint succeeds.
+public struct PendingRoundFinish: Codable, Equatable, Identifiable {
+    public var id: String { roundId }
+    public let roundId: String
+    public let metadata: MobileRoundFinishMetadata
+    public let queuedAt: String
+
+    public init(
+        roundId: String,
+        metadata: MobileRoundFinishMetadata,
+        queuedAt: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        self.roundId = roundId
+        self.metadata = metadata
+        self.queuedAt = queuedAt
+    }
+}
+
 public struct LiveHoleStateSnapshot: Codable, Equatable, Identifiable {
     public var id: Int { hole }
 
@@ -574,6 +595,8 @@ public final class OfflineStore {
     private var homePackageURL: URL
     private var liveProgressURL: URL
     private var prepCourseDownloadsURL: URL
+    private var pendingRoundFinishesURL: URL
+    private var pendingRoundFinishesBackupURL: URL
     private var pendingMediaDirectoryURL: URL
     private var pendingMediaIndexURL: URL
     private let encoder: JSONEncoder
@@ -662,6 +685,8 @@ public final class OfflineStore {
         self.homePackageURL = resolvedDirectory.appendingPathComponent("home_package.json")
         self.liveProgressURL = resolvedDirectory.appendingPathComponent("live_progress.json")
         self.prepCourseDownloadsURL = resolvedDirectory.appendingPathComponent("prep_course_downloads.json")
+        self.pendingRoundFinishesURL = resolvedDirectory.appendingPathComponent("pending_round_finishes.json")
+        self.pendingRoundFinishesBackupURL = resolvedDirectory.appendingPathComponent("pending_round_finishes.backup.json")
         self.pendingMediaDirectoryURL = resolvedDirectory.appendingPathComponent(
             "pending_media",
             isDirectory: true
@@ -720,6 +745,8 @@ public final class OfflineStore {
         homePackageURL = directory.appendingPathComponent("home_package.json")
         liveProgressURL = directory.appendingPathComponent("live_progress.json")
         prepCourseDownloadsURL = directory.appendingPathComponent("prep_course_downloads.json")
+        pendingRoundFinishesURL = directory.appendingPathComponent("pending_round_finishes.json")
+        pendingRoundFinishesBackupURL = directory.appendingPathComponent("pending_round_finishes.backup.json")
         pendingMediaDirectoryURL = directory.appendingPathComponent(
             "pending_media",
             isDirectory: true
@@ -737,6 +764,8 @@ public final class OfflineStore {
             "home_package.json",
             "live_progress.json",
             "prep_course_downloads.json",
+            "pending_round_finishes.json",
+            "pending_round_finishes.backup.json",
             "pending_media",
             "pending_media.jsonl",
         ]
@@ -787,11 +816,15 @@ public final class OfflineStore {
     /// An explicit live cursor/draft is the strongest in-progress signal. Older rounds without that
     /// file fall back to the most recent real hole event.
     public func inProgressRoundId() throws -> String? {
-        if let progress = try? loadLiveRoundProgress() {
+        let finishedRoundIds = Set(try loadPendingRoundFinishes().map(\.roundId))
+        if let progress = try? loadLiveRoundProgress(),
+           !finishedRoundIds.contains(progress.roundId) {
             return progress.roundId
         }
         var roundId: String?
-        for event in try loadEvents() where event.kind != .syncMarker && event.hole > 0 {
+        for event in try loadEvents() where event.kind != .syncMarker
+            && event.hole > 0
+            && !finishedRoundIds.contains(event.roundId) {
             roundId = event.roundId
         }
         return roundId
@@ -811,7 +844,9 @@ public final class OfflineStore {
             }
             AICaddieLog.storage.error("Resumable package unreadable for \(roundId, privacy: .public); using current pointer")
         }
-        return try loadCurrentRoundPackage()
+        guard let current = try loadCurrentRoundPackage() else { return nil }
+        let finishedRoundIds = Set(try loadPendingRoundFinishes().map(\.roundId))
+        return finishedRoundIds.contains(current.roundId) ? nil : current
     }
 
     /// True when play has explicit live progress (including an unfinished score draft) or at least
@@ -1130,6 +1165,103 @@ public final class OfflineStore {
         try encoder.encode(progress).write(to: liveProgressURL, options: [.atomic])
     }
 
+    public func loadPendingRoundFinishes() throws -> [PendingRoundFinish] {
+        guard FileManager.default.fileExists(atPath: pendingRoundFinishesURL.path) else {
+            guard FileManager.default.fileExists(atPath: pendingRoundFinishesBackupURL.path) else {
+                return []
+            }
+            let recovered = try decoder.decode(
+                [PendingRoundFinish].self,
+                from: Data(contentsOf: pendingRoundFinishesBackupURL)
+            )
+            try restorePendingRoundFinishesPrimary(recovered)
+            return recovered
+        }
+        do {
+            return try decoder.decode(
+                [PendingRoundFinish].self,
+                from: Data(contentsOf: pendingRoundFinishesURL)
+            )
+        } catch {
+            // Atomic writes make corruption rare, but a damaged finish ledger must fail safe: using
+            // the independently written backup keeps sealed rounds out of the live UI and preserves
+            // their upload/finish retry. Never silently treat a corrupt ledger as an empty one.
+            let recovered = try decoder.decode(
+                [PendingRoundFinish].self,
+                from: Data(contentsOf: pendingRoundFinishesBackupURL)
+            )
+            try restorePendingRoundFinishesPrimary(recovered)
+            AICaddieLog.storage.error("Recovered pending-round finish ledger from backup")
+            return recovered
+        }
+    }
+
+    public func isRoundPendingFinish(_ roundId: String) throws -> Bool {
+        try loadPendingRoundFinishes().contains { $0.roundId == roundId }
+    }
+
+    /// Seal before leaving the live UI. Ordering is deliberately crash-safe:
+    /// 1. retain the per-round package and a home fallback;
+    /// 2. persist the finish outbox record;
+    /// 3. remove only the active pointer/cursor.
+    /// A crash after step 2 still cannot reopen the round because resume excludes outbox IDs.
+    public func sealRoundForDeferredFinish(
+        package: LiveRoundPackage,
+        metadata: MobileRoundFinishMetadata
+    ) throws {
+        // Persist the newest package even if an older copy already exists. A crash before the ledger
+        // write simply leaves the round resumable; a crash after it leaves the complete sealed copy.
+        try saveRoundPackage(package)
+        try saveHomePackage(package)
+        var records = try loadPendingRoundFinishes()
+        let queuedAt = records.first(where: { $0.roundId == package.roundId })?.queuedAt
+            ?? ISO8601DateFormatter().string(from: Date())
+        let record = PendingRoundFinish(
+            roundId: package.roundId,
+            metadata: metadata,
+            queuedAt: queuedAt
+        )
+        if let index = records.firstIndex(where: { $0.roundId == package.roundId }) {
+            records[index] = record
+        } else {
+            records.append(record)
+        }
+        try savePendingRoundFinishes(records)
+        removeCurrentRoundPointerIfMatching(package.roundId)
+        if let progress = try? loadLiveRoundProgress(), progress.roundId == package.roundId {
+            try? FileManager.default.removeItem(at: liveProgressURL)
+        }
+    }
+
+    private func savePendingRoundFinishes(_ records: [PendingRoundFinish]) throws {
+        if records.isEmpty {
+            try? FileManager.default.removeItem(at: pendingRoundFinishesURL)
+            try? FileManager.default.removeItem(at: pendingRoundFinishesBackupURL)
+            return
+        }
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let data = try encoder.encode(records)
+        // Keep two independently replaced copies. The backup is written first so failure cannot
+        // destroy the last readable authority; the primary remains the normal fast path.
+        try data.write(to: pendingRoundFinishesBackupURL, options: [.atomic])
+        try data.write(to: pendingRoundFinishesURL, options: [.atomic])
+    }
+
+    private func restorePendingRoundFinishesPrimary(_ records: [PendingRoundFinish]) throws {
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try encoder.encode(records).write(to: pendingRoundFinishesURL, options: [.atomic])
+    }
+
+    private func removePendingRoundFinish(roundId: String) throws {
+        let remaining = try loadPendingRoundFinishes().filter { $0.roundId != roundId }
+        try savePendingRoundFinishes(remaining)
+    }
+
+    private func removeCurrentRoundPointerIfMatching(_ roundId: String) {
+        guard let current = try? loadCurrentRoundPackage(), current.roundId == roundId else { return }
+        try? FileManager.default.removeItem(at: currentPackageURL)
+    }
+
     /// Forget a round entirely (discard/cancel): clear the active-package pointer + its
     /// cached package, events and queued media so a discarded round never resurfaces on relaunch or
     /// syncs to the backend. Save & End callers must prove media is uploaded before invoking this;
@@ -1158,7 +1290,9 @@ public final class OfflineStore {
                 )
             }
         }
-        try? FileManager.default.removeItem(at: currentPackageURL)
+        // A deferred finish may complete after the player has already started another round. Never
+        // let cleanup of the old round erase the new round's active pointer.
+        removeCurrentRoundPointerIfMatching(roundId)
         try? FileManager.default.removeItem(at: packageURL(roundId: roundId))
         if let progress = try? loadLiveRoundProgress(), progress.roundId == roundId {
             try? FileManager.default.removeItem(at: liveProgressURL)
@@ -1170,6 +1304,7 @@ public final class OfflineStore {
             isDirectory: true
         )
         try? FileManager.default.removeItem(at: mediaDirectory)
+        try removePendingRoundFinish(roundId: roundId)
         AICaddieLog.storage.debug("Discarded round \(roundId, privacy: .public)")
     }
 
@@ -1440,8 +1575,15 @@ public final class OfflineStore {
                     state.lie = lie
                 }
                 switch optionalNumberPayload("distanceToPinM", in: event.payload) {
-                case .number(let distanceToPinM):
+                case .number(let distanceToPinM)
+                    where distanceToPinM.isFinite
+                        && distanceToPinM > 0
+                        && distanceToPinM <= GeoDistance.maximumUsefulGreenMetres:
                     state.distanceToPinM = distanceToPinM
+                case .number:
+                    // Legacy builds could persist a stale home/other-hole GPS range here. Treat it
+                    // as absent so relaunch cannot resurrect a 20,000-yard manual override.
+                    state.distanceToPinM = nil
                 case .null:
                     state.distanceToPinM = nil
                 case .missing:

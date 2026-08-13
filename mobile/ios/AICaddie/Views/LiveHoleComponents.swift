@@ -368,6 +368,7 @@ struct LivePlayHeader: View {
     let teeLabel: String?
     let roundToParText: String
     var onBack: (() -> Void)? = nil
+    var onFinishRound: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -402,6 +403,19 @@ struct LivePlayHeader: View {
                 .padding(.horizontal, 11)
                 .background(LivePlayStyle.panelFill.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(LivePlayStyle.stroke14))
+            if let onFinishRound {
+                Button(action: onFinishRound) {
+                    Image(systemName: "ellipsis.circle.fill")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .frame(width: 36, height: 36)
+                        .background(LivePlayStyle.panelFill.opacity(0.7), in: Circle())
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("结束或放弃本场")
+                .accessibilityIdentifier("live-round-end-menu")
+            }
         }
     }
 
@@ -840,14 +854,163 @@ struct LivePlayReticle: View {
     }
 }
 
+/// Live GPS position in the same topo projection used by the Watch. The white halo keeps the marker
+/// legible over fairway, sand, water and contour backgrounds without pretending to be a shot point.
+struct LivePlayerPositionMarker: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white)
+                .frame(width: 22, height: 22)
+                .shadow(color: .black.opacity(0.45), radius: 4, y: 2)
+            Circle()
+                .fill(Color(red: 0.12, green: 0.48, blue: 1.0))
+                .frame(width: 14, height: 14)
+            Circle()
+                .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                .frame(width: 14, height: 14)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("我的 GPS 位置")
+    }
+}
+
+/// Compact F/M/B rangefinder embedded in the map. The phone previously repeated this as the first
+/// row of a bottom list-like panel; the shared product language now keeps spatial golf facts on the
+/// hole itself, matching the Watch root and leaving the lower panel for actions only.
+struct LiveMapGreenDistanceOverlay: View {
+    let frontYards: Int?
+    let middleYards: Int?
+    let backYards: Int?
+    let toPinYards: Int?
+    let isLive: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(isLive ? "果岭 · 实时" : "到果岭")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white.opacity(0.72))
+            distanceRow("后", backYards, LivePlayStyle.back, large: false,
+                        accessibilityIdentifier: "live-green-back")
+            distanceRow("中", middleYards, .white, large: true,
+                        accessibilityIdentifier: "live-green-middle")
+            distanceRow("前", frontYards, LivePlayStyle.front, large: false,
+                        accessibilityIdentifier: "live-green-front")
+            if let toPinYards, !GeoDistance.isBeyondUsefulGreenRange(toPinYards) {
+                Text("旗 \(toPinYards) 码")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.66))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(width: 108, alignment: .leading)
+        .background(Color.black.opacity(0.67), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.16)))
+        .shadow(color: .black.opacity(0.38), radius: 5, y: 3)
+    }
+
+    private func distanceRow(
+        _ label: String,
+        _ value: Int?,
+        _ color: Color,
+        large: Bool,
+        accessibilityIdentifier: String
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(label)
+                .font(.system(size: large ? 11 : 9, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.58))
+            Text(GeoDistance.greenRangeText(value))
+                .font(.system(size: large ? 25 : 15, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+                .accessibilityIdentifier(accessibilityIdentifier)
+        }
+    }
+}
+
+/// Obstacle distances are attached to their true front/back boundary points. A short connector makes
+/// label displacement explicit on dense maps; blue always means water and yellow always means sand.
+struct LiveMapHazardRangeOverlay: View {
+    let kind: String
+    let label: String
+    let toYards: Int
+    let overYards: Int
+    let front: CGPoint
+    let back: CGPoint
+    let index: Int
+    let viewportSize: CGSize
+
+    private var tint: Color {
+        kind == "water"
+            ? Color(red: 0.18, green: 0.58, blue: 0.94)
+            : Color(red: 0.95, green: 0.77, blue: 0.28)
+    }
+
+    var body: some View {
+        ZStack {
+            boundaryMarker(at: front)
+            boundaryMarker(at: back)
+            callout
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label)，到 \(toYards) 码，过 \(overYards) 码")
+    }
+
+    private var callout: some View {
+        let anchor = CGPoint(x: (front.x + back.x) / 2, y: (front.y + back.y) / 2)
+        let preferRight = anchor.x < viewportSize.width * 0.54
+        let width: CGFloat = 112
+        let desiredX = anchor.x + (preferRight ? 70 : -70)
+        let x = min(max(desiredX, width / 2 + 6), viewportSize.width - width / 2 - 6)
+        let stagger: CGFloat = index == 0 ? -20 : 24
+        let y = min(max(anchor.y + stagger, 176), viewportSize.height - 48)
+        let center = CGPoint(x: x, y: y)
+
+        return ZStack {
+            Path { path in
+                path.move(to: anchor)
+                path.addLine(to: center)
+            }
+            .stroke(tint.opacity(0.9), style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .lineLimit(1)
+                Text("到 \(toYards)  ·  过 \(overYards)")
+                    .font(.system(size: 11, weight: .heavy))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(width: width, alignment: .leading)
+            .background(Color.black.opacity(0.74), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(tint.opacity(0.9)))
+            .position(center)
+        }
+    }
+
+    private func boundaryMarker(at point: CGPoint) -> some View {
+        Circle()
+            .fill(tint)
+            .frame(width: 9, height: 9)
+            .overlay(Circle().stroke(Color.black.opacity(0.8), lineWidth: 1.2))
+            .position(point)
+    }
+}
+
 enum LivePlayMapOverlayLayout {
     /// The map begins below the fixed live header. Applying the same inset to the bitmap and every
     /// projected marker keeps a shallow/partial hole's green reticle from crossing the title while
     /// preserving pixel alignment with the factual route.
     static let liveMapTopInset: CGFloat = 80
-    private static let upperHazardLane: CGFloat = 0.48
-    private static let lowerHazardLane: CGFloat = 0.70
-    private static let landingLaneThreshold: CGFloat = 0.64
 
     static func fallbackGreenTarget(in heroSize: CGSize) -> CGPoint {
         CGPoint(x: heroSize.width * 0.55, y: heroSize.height * 0.30)
@@ -893,33 +1056,6 @@ enum LivePlayMapOverlayLayout {
         )
     }
 
-    /// The landing label moves along the route when the player changes clubs. Use the opposite map
-    /// lane for the hazard readout instead of pinning both facts to the same fixed 45% position.
-    static func hazardPillCenterY(heroHeight: CGFloat, landingCenterY: CGFloat?) -> CGFloat {
-        guard heroHeight.isFinite, heroHeight > 0 else { return 0 }
-        guard let landingCenterY, landingCenterY.isFinite else {
-            return heroHeight * lowerHazardLane
-        }
-        let landingFractionY = landingCenterY / heroHeight
-        let lane = landingFractionY <= landingLaneThreshold ? lowerHazardLane : upperHazardLane
-        return heroHeight * lane
-    }
-}
-
-/// One amber hazard pill over the map (e.g. 水域 · 到 213 · 过 235 码).
-struct LiveHazardPill: View {
-    let text: String
-    var body: some View {
-        Text(text)
-            .font(.system(size: 12, weight: .heavy))
-            .monospacedDigit()
-            .foregroundStyle(LivePlayStyle.hazard)
-            .padding(.vertical, 4)
-            .padding(.horizontal, 11)
-            .background(Color(red: 10 / 255, green: 14 / 255, blue: 20 / 255).opacity(0.8), in: Capsule())
-            .overlay(Capsule().stroke(LivePlayStyle.hazard.opacity(0.5)))
-            .shadow(color: .black.opacity(0.45), radius: 6, y: 4)
-    }
 }
 
 /// A cold course can draw Garmin's lightweight route immediately, but that package does not prove

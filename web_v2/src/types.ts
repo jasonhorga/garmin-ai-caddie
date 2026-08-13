@@ -1175,6 +1175,12 @@ export interface CoursePrepHole {
   }
   map?: { image: string; overlay: CoursePrepOverlay }
   yourShots?: CoursePrepShotDot[]
+  greenDistances?: {
+    available: boolean
+    frontM?: number | null
+    middleM?: number | null
+    backM?: number | null
+  } | null
   // round-13: elevation playsLike (tee→green) from the hole mesh; deltaYd>0 = uphill (plays longer).
   // Mirrors the phone/watch caddie glance so slope shows on every surface.
   playsLike?: {

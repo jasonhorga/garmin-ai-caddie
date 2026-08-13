@@ -1108,7 +1108,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))
     }
 
-    func testFinishActiveRoundAcknowledgesEventsBeforeFinishAndOnlyThenClearsLocalRound() async throws {
+    func testFinishActiveRoundSealsImmediatelyThenUploadsAndFinishesInBackground() async throws {
         let fixture = try completedFixtureRound()
         let finishedRound = RecentRoundSummary(
             roundId: fixture.package.roundId,
@@ -1246,6 +1246,13 @@ final class LiveRoundAppModelTests: XCTestCase {
 
         let didFinish = await model.finishActiveRound()
         XCTAssertTrue(didFinish)
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertNil(try fixture.store.loadResumablePackage())
+        for _ in 0..<4 {
+            await model.waitForDeferredRoundFinishesForTesting()
+            if try !fixture.store.isRoundPendingFinish(fixture.package.roundId) { break }
+            await Task.yield()
+        }
 
         requestLock.lock()
         let paths = requestedPaths
@@ -1380,7 +1387,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         await model.waitForOfflineCourseDownloadForTesting()
     }
 
-    func testFinishActiveRoundRejectsPartialAcknowledgementAndPreservesWholeRound() async throws {
+    func testDeferredFinishRetainsSealedRoundAfterPartialAcknowledgement() async throws {
         let fixture = try completedFixtureRound()
         let requestLock = NSLock()
         var requestedPaths: [String] = []
@@ -1429,23 +1436,25 @@ final class LiveRoundAppModelTests: XCTestCase {
         requestLock.unlock()
 
         let didFinish = await model.finishActiveRound()
-        XCTAssertFalse(didFinish)
+        XCTAssertTrue(didFinish)
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertNil(try fixture.store.loadResumablePackage())
+        await model.waitForDeferredRoundFinishesForTesting()
 
         requestLock.lock()
         let paths = requestedPaths
         requestLock.unlock()
         XCTAssertTrue(paths.contains("/api/v2/mobile/rounds/\(fixture.package.roundId)/events"))
         XCTAssertFalse(paths.contains("/api/v2/mobile/rounds/\(fixture.package.roundId)/finish"))
-        XCTAssertEqual(model.package?.roundId, fixture.package.roundId)
-        XCTAssertNotNil(model.liveRoundState)
+        XCTAssertTrue(try fixture.store.isRoundPendingFinish(fixture.package.roundId))
         XCTAssertEqual(
             Set(try fixture.store.loadPendingEvents(roundId: fixture.package.roundId).map(\.eventId)),
             Set(fixture.events.map(\.eventId))
         )
-        XCTAssertNotNil(try fixture.store.loadCurrentRoundPackage())
+        XCTAssertNotNil(try fixture.store.loadRoundPackage(roundId: fixture.package.roundId))
     }
 
-    func testFinishActiveRoundPreservesWholeRoundWhenPendingMediaCannotUpload() async throws {
+    func testDeferredFinishRetainsSealedRoundWhenPendingMediaCannotUpload() async throws {
         let fixture = try completedFixtureRound()
         let attachment = try fixture.store.savePendingMedia(
             data: Data("pending-photo".utf8),
@@ -1506,10 +1515,12 @@ final class LiveRoundAppModelTests: XCTestCase {
 
         let didFinish = await model.finishActiveRound()
 
-        XCTAssertFalse(didFinish)
-        XCTAssertEqual(model.package?.roundId, fixture.package.roundId)
-        XCTAssertNotNil(model.liveRoundState)
-        XCTAssertNotNil(try fixture.store.loadCurrentRoundPackage())
+        XCTAssertTrue(didFinish)
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertNil(try fixture.store.loadResumablePackage())
+        await model.waitForDeferredRoundFinishesForTesting()
+        XCTAssertTrue(try fixture.store.isRoundPendingFinish(fixture.package.roundId))
+        XCTAssertNotNil(try fixture.store.loadRoundPackage(roundId: fixture.package.roundId))
         XCTAssertEqual(
             try fixture.store.loadPendingMedia(roundId: fixture.package.roundId).map(\.id),
             [attachment.id]
@@ -1611,7 +1622,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
-    func testFinishCannotClearAnEventArrivingDuringHomeRefresh() async throws {
+    func testLateEventDuringDeferredFinishIsRetainedAndRetried() async throws {
         let fixture = try completedFixtureRound()
         let refreshedHome = package(
             fixture.package,
@@ -1622,6 +1633,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         let refreshedHomeBody = try JSONEncoder().encode(refreshedHome)
         let homeRefreshStarted = expectation(description: "post-finish home refresh started")
         let releaseHomeRefresh = DispatchSemaphore(value: 0)
+        let homeRefreshLock = NSLock()
+        var homeRefreshCount = 0
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -1659,9 +1672,15 @@ final class LiveRoundAppModelTests: XCTestCase {
                 let roundId = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                     .first { $0.name == "round_id" }?.value
                 if roundId == refreshedHome.roundId {
-                    homeRefreshStarted.fulfill()
-                    guard releaseHomeRefresh.wait(timeout: .now() + 5) == .success else {
-                        throw URLError(.timedOut)
+                    let shouldBlock = homeRefreshLock.withLock { () -> Bool in
+                        homeRefreshCount += 1
+                        return homeRefreshCount == 1
+                    }
+                    if shouldBlock {
+                        homeRefreshStarted.fulfill()
+                        guard releaseHomeRefresh.wait(timeout: .now() + 5) == .success else {
+                            throw URLError(.timedOut)
+                        }
                     }
                     return (
                         HTTPURLResponse(
@@ -1722,14 +1741,21 @@ final class LiveRoundAppModelTests: XCTestCase {
         releaseHomeRefresh.signal()
 
         let didFinish = await finishTask.value
-        XCTAssertFalse(didFinish)
-        XCTAssertEqual(model.package?.roundId, fixture.package.roundId)
-        XCTAssertNotNil(model.liveRoundState)
+        XCTAssertTrue(didFinish)
+        XCTAssertNil(model.liveRoundState)
         XCTAssertEqual(
             try fixture.store.loadPendingEvents(roundId: fixture.package.roundId).map(\.eventId),
             [laterEvent.eventId]
         )
-        XCTAssertNotNil(try fixture.store.loadCurrentRoundPackage())
+        XCTAssertNil(try fixture.store.loadCurrentRoundPackage())
+        XCTAssertTrue(try fixture.store.isRoundPendingFinish(fixture.package.roundId))
+        for _ in 0..<4 {
+            await model.waitForDeferredRoundFinishesForTesting()
+            if try !fixture.store.isRoundPendingFinish(fixture.package.roundId) { break }
+            await Task.yield()
+        }
+        XCTAssertFalse(try fixture.store.isRoundPendingFinish(fixture.package.roundId))
+        XCTAssertTrue(try fixture.store.loadPendingEvents(roundId: fixture.package.roundId).isEmpty)
     }
 
     func testWatchAbandonAndWatchFinishWithoutBackendKeepPendingPhoneRound() async throws {

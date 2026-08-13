@@ -258,7 +258,7 @@ public struct WatchHazardMapView: View {
                     onBack()
                 }
         )
-        .accessibilityAction(named: Text("返回障碍列表"), onBack)
+        .accessibilityAction(named: Text("返回菜单"), onBack)
         .persistentSystemOverlays(.hidden)
         .ignoresSafeArea()
     }

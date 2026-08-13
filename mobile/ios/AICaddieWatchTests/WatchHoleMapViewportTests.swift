@@ -70,6 +70,24 @@ final class WatchHoleMapViewportTests: XCTestCase {
         )
     }
 
+    func testRootHazardOverlayUsesOnlyTheNearestUpcomingMeasuredObstacle() throws {
+        let route = [[0.0, 200.0, 0.0], [0.0, 100.0, 100.0], [0.0, 0.0, 200.0]]
+        let passed = WatchHazard(kind: "bunker", label: "已过沙坑", startM: 10, endM: 20,
+                                 frontPx: [0, 190], backPx: [0, 180])
+        let nearest = WatchHazard(kind: "water", label: "前方水障碍", startM: 80, endM: 110,
+                                  frontPx: [0, 120], backPx: [0, 90])
+        let farther = WatchHazard(kind: "bunker", label: "果岭沙坑", startM: 150, endM: 170,
+                                  frontPx: [0, 50], backPx: [0, 30])
+
+        let selected = try XCTUnwrap(WatchHoleMapView.nearestUpcomingHazard(
+            [farther, passed, nearest],
+            route: route,
+            playerImagePoint: CGPoint(x: 0, y: 150)
+        ))
+
+        XCTAssertEqual(selected.id, nearest.id)
+    }
+
     func testEighteenHoleRingStartsAtThreeAndEndsAtTwelve() {
         let centers = (0 ..< 18).map {
             WatchHoleMapView.scoringRingCenterFraction(index: $0, count: 18)

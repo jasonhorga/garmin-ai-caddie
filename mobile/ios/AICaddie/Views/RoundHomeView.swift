@@ -40,6 +40,7 @@ public struct RoundHomeView: View {
     public let onRememberCourseDisplayName: (Int, String) -> Void
     public let onChangeNine: (String) -> Void
     public let onFinishRound: () async -> Bool
+    public let onDiscardRound: () -> Void
     public let onSetActiveHole: (Int) -> Void
     public let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
     public let onSync: () -> Void
@@ -88,6 +89,7 @@ public struct RoundHomeView: View {
         onRememberCourseDisplayName: @escaping (Int, String) -> Void = { _, _ in },
         onChangeNine: @escaping (String) -> Void = { _ in },
         onFinishRound: @escaping () async -> Bool = { false },
+        onDiscardRound: @escaping () -> Void = {},
         onSetActiveHole: @escaping (Int) -> Void = { _ in },
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
         onSync: @escaping () -> Void = {},
@@ -128,6 +130,7 @@ public struct RoundHomeView: View {
         self.onRememberCourseDisplayName = onRememberCourseDisplayName
         self.onChangeNine = onChangeNine
         self.onFinishRound = onFinishRound
+        self.onDiscardRound = onDiscardRound
         self.onSetActiveHole = onSetActiveHole
         self.onRetainReadyHolePrep = onRetainReadyHolePrep
         self.onSync = onSync
@@ -289,6 +292,7 @@ public struct RoundHomeView: View {
                 finishErrorMessage: finishErrorMessage,
                 onChangeNine: onChangeNine, onPrepareCourseRound: onPrepareCourseRound,
                 onPrepareCompositeRound: onPrepareCompositeRound, onFinishRound: onFinishRound,
+                onDiscardRound: onDiscardRound,
                 onAdvanceHole: { next in
                     onSetActiveHole(next)
                     path = [.hole(next)]

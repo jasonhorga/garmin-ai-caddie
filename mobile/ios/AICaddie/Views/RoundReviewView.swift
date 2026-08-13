@@ -50,9 +50,6 @@ public struct RoundReviewView: View {
         .navigationBarTitleDisplayMode(.large)
         .task(id: roundRef) {
             await load()
-            // Warm the complete round after the scorecard appears. Opening any hole is immediate,
-            // and closing/reopening the sheet reuses this repository owned by the round screen.
-            await shotMapRepository.prefetch(roundHoles)
         }
         .sheet(item: $shotMapHole) { item in
             NavigationStack {
@@ -87,12 +84,18 @@ public struct RoundReviewView: View {
             errorText = "未配置后端地址"
             return
         }
-        isLoading = true
+        if detail == nil, let cached = RoundReviewDiskCache.loadDetail(roundRef: roundRef) {
+            detail = cached
+            isLoading = false
+        }
+        isLoading = detail == nil
         errorText = nil
         do {
-            detail = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).fetchRoundDetail(roundRef: roundRef)
+            let fresh = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).fetchRoundDetail(roundRef: roundRef)
+            detail = fresh
+            RoundReviewDiskCache.saveDetail(fresh, roundRef: roundRef)
         } catch {
-            errorText = "这场暂时取不到(网络或数据)"
+            if detail == nil { errorText = "这场暂时取不到(网络或数据)" }
         }
         isLoading = false
     }

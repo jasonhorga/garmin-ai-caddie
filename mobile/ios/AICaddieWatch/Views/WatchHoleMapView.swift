@@ -216,6 +216,11 @@ public struct WatchHoleMapView: View {
     /// Offline Tee plan from the downloaded route/landing facts. Unlike a live decision it has no
     /// dispersion, so it draws only the two grounded route legs and their prepared landing target.
     public let showPreparedPlan: Bool
+    /// Factual obstacles and the route station frame they belong to. The root uses these to annotate
+    /// the nearest upcoming front/back edges directly on the map; the separate hazard browser remains
+    /// available only as progressive disclosure for additional obstacles.
+    public let hazards: [WatchHazard]
+    public let hazardRoute: [[Double]]
     public let ringPips: [WatchRingPip]
     public let showTextOverlay: Bool
     /// Distance block toggle: false = raw yardage; true = 实打 (slope-adjusted) with a ↑/↓ arrow.
@@ -251,6 +256,8 @@ public struct WatchHoleMapView: View {
         showCaddieRecommendation: Bool = false,
         currentShotLayout: WatchCurrentShotLayout? = nil,
         showPreparedPlan: Bool = false,
+        hazards: [WatchHazard] = [],
+        hazardRoute: [[Double]] = [],
         ringPips: [WatchRingPip] = WatchHoleMapView.sampleRing,
         showTextOverlay: Bool = true,
         showPlaysLike: Bool = false,
@@ -273,6 +280,8 @@ public struct WatchHoleMapView: View {
         self.showCaddieRecommendation = showCaddieRecommendation
         self.currentShotLayout = currentShotLayout
         self.showPreparedPlan = showPreparedPlan
+        self.hazards = hazards
+        self.hazardRoute = hazardRoute
         self.ringPips = ringPips
         self.showTextOverlay = showTextOverlay
         self.showPlaysLike = showPlaysLike
@@ -610,6 +619,13 @@ public struct WatchHoleMapView: View {
             break
         }
 
+        // The nearest upcoming obstacle is a map fact, not a menu/list fact. Keep it visible on the
+        // glanceable root, but yield during tap-to-measure and pin-drag interactions to avoid two
+        // competing sets of distance callouts on the small face.
+        if measuredPx == nil, pinDrag == .zero {
+            drawNearestHazard(&context, size: size, transform: a.t)
+        }
+
         // Pin + flag.
         let pr: CGFloat = 5
         let pinRect = CGRect(x: green.x - pr, y: green.y - pr, width: pr * 2, height: pr * 2)
@@ -759,7 +775,7 @@ public struct WatchHoleMapView: View {
         context.stroke(
             aim,
             with: .color(.white.opacity(0.94)),
-            style: StrokeStyle(lineWidth: 2.2, lineCap: .round, dash: [6, 5])
+            style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
         )
 
         var depth = Path()
@@ -839,7 +855,7 @@ public struct WatchHoleMapView: View {
         firstLeg.addQuadCurve(to: target, control: firstControl)
         context.stroke(
             firstLeg,
-            with: .color(caddieGreen.opacity(0.95)),
+            with: .color(.white.opacity(0.94)),
             style: StrokeStyle(lineWidth: 2.8, lineCap: .round)
         )
 
@@ -849,7 +865,7 @@ public struct WatchHoleMapView: View {
         context.stroke(
             nextLeg,
             with: .color(.white.opacity(0.92)),
-            style: StrokeStyle(lineWidth: 2.2, lineCap: .round, dash: [6, 5])
+            style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
         )
 
         let radius: CGFloat = 5
@@ -865,6 +881,80 @@ public struct WatchHoleMapView: View {
             with: .color(.white),
             style: StrokeStyle(lineWidth: 2)
         )
+    }
+
+    private func drawNearestHazard(
+        _ context: inout GraphicsContext,
+        size: CGSize,
+        transform: (CGPoint) -> CGPoint
+    ) {
+        guard let hazard = Self.nearestUpcomingHazard(
+            hazards,
+            route: hazardRoute,
+            playerImagePoint: geometry.youPx
+        ),
+              let frontImage = WatchHazardMapLayout.frontImagePoint(for: hazard, on: hazardRoute),
+              let backImage = WatchHazardMapLayout.backImagePoint(for: hazard, on: hazardRoute),
+              let toYards = WatchHazardMapLayout.distanceYards(
+                  from: geometry.youPx, to: frontImage, on: hazardRoute
+              ),
+              let overYards = WatchHazardMapLayout.distanceYards(
+                  from: geometry.youPx, to: backImage, on: hazardRoute
+              ),
+              let usefulTo = WatchGeoMath.usefulGolfYards(toYards),
+              let usefulOver = WatchGeoMath.usefulGolfYards(overYards) else { return }
+
+        let tint = hazard.kind == "water"
+            ? Color(red: 0.18, green: 0.58, blue: 0.94)
+            : golfYellow
+        let front = transform(frontImage)
+        let back = transform(backImage)
+        var span = Path()
+        span.move(to: front)
+        span.addLine(to: back)
+        context.stroke(span, with: .color(tint.opacity(0.9)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+        for point in [front, back] {
+            context.fill(
+                Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)),
+                with: .color(tint)
+            )
+            context.stroke(
+                Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)),
+                with: .color(.black.opacity(0.85)),
+                style: StrokeStyle(lineWidth: 1)
+            )
+        }
+        let anchor = CGPoint(x: (front.x + back.x) / 2, y: (front.y + back.y) / 2)
+        let kind = hazard.kind == "water" ? "水" : "沙"
+        pill(
+            &context,
+            at: anchor,
+            text: "\(kind) · 到 \(usefulTo) / 过 \(usefulOver)",
+            tint: tint,
+            viewportSize: size,
+            preferredOffset: 24
+        )
+    }
+
+    static func nearestUpcomingHazard(
+        _ hazards: [WatchHazard],
+        route: [[Double]],
+        playerImagePoint: CGPoint
+    ) -> WatchHazard? {
+        guard let progress = WatchHazardMapLayout.playerProgressMetres(
+            on: route,
+            playerImagePoint: playerImagePoint
+        ) else { return nil }
+        return hazards
+            .filter {
+                (WatchHazardMapLayout.alongRouteEndMetres(for: $0)
+                    ?? -Double.greatestFiniteMagnitude) > progress
+            }
+            .sorted {
+                ($0.startM ?? $0.endM ?? Double.greatestFiniteMagnitude)
+                    < ($1.startM ?? $1.endM ?? Double.greatestFiniteMagnitude)
+            }
+            .first
     }
 
     /// A small opaque distance pill near its marker, tinted by the marker it belongs to.

@@ -1652,12 +1652,19 @@ class MobileContractTests(unittest.TestCase):
         summary_open = current_hole.index("showRoundSummary = true", final_hole_branch)
         self.assertIn("nextHole(after: accepted.hole)", current_hole[final_hole_branch:summary_open])
         self.assertNotIn("未保存的记录会被丢弃", current_hole)
-        self.assertNotIn("onDiscard", current_hole)
+        # The former Save/Continue-only sheet could trap an invalid round. Keep a deliberate
+        # destructive exit, but require a second confirmation before deleting local data.
+        self.assertIn("onDiscard:", current_hole)
+        self.assertIn("showDiscardConfirmation = true", current_hole)
+        self.assertIn(".confirmationDialog(", current_hole)
+        self.assertIn('Button("放弃并删除本场记录", role: .destructive)', current_hole)
+        self.assertIn("onDiscardRound()", current_hole)
 
         self.assertIn("isFinishingRound: model.isFinishingRound", app_swift)
         self.assertIn("finishErrorMessage: model.finishErrorMessage", app_swift)
         self.assertIn("return await model.finishActiveRound()", app_swift)
-        self.assertNotIn("model.discardActiveRound()", app_swift)
+        self.assertIn("onDiscardRound:", app_swift)
+        self.assertIn("model.discardActiveRound()", app_swift)
 
     def test_ios_course_option_models_and_fetcher_match_backend_endpoint(self) -> None:
         course_options = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")
@@ -1950,7 +1957,10 @@ class MobileContractTests(unittest.TestCase):
             "func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false) async throws -> CoursePrepHole?",
             sync_client,
         )
-        self.assertIn("HoleImageMapView(hole: hole, topoURL: topoURL)", course_review)
+        self.assertIn("HoleImageMapView(", course_review)
+        self.assertIn("hole: hole,", course_review)
+        self.assertIn("topoURL: topoURL,", course_review)
+        self.assertIn("showsPrepFactOverlays: true", course_review)
         self.assertIn("hole.sourceGlobalId ?? package.course.globalId", current_hole)
         self.assertIn("func loadHoleMap()", current_hole)
         # Play line is a smooth curve, not a polyline; landing marker + club label track the
@@ -2115,7 +2125,7 @@ class MobileContractTests(unittest.TestCase):
         # persisted only on explicit Save) — it reconciles them, preserving unsaved local edits.
         self.assertIn("restoredHoleState.reconciledSaveOnlyFields(", current_hole)
         self.assertIn("guard let latestFix else", current_hole)
-        self.assertIn("distanceToPinText = restoredHoleState.distanceToPinM.map(Self.yardsText(fromMetres:)) ?? \"\"", current_hole)
+        self.assertIn("distanceToPinText = Self.validDistanceText(restoredHoleState.distanceToPinM)", current_hole)
         # Distance remains a restorable club/shot-context fact.  The live view now builds that
         # payload as a dictionary literal; end-of-hole score confirmation deliberately does not
         # fabricate a location/shot event merely to persist this field.
@@ -2174,8 +2184,8 @@ class MobileContractTests(unittest.TestCase):
         # into the search screen so leaving the detail page does not erase the selected course.
         self.assertIn("installedGlobalIds: Set(", prep_picker)
         self.assertIn("downloadedCourseOptions.map(\\.globalId)", prep_picker)
-        self.assertIn("downloads.filter { $0.phase == .ready }", prep_picker)
-        self.assertIn("retainedDownloads: downloads", prep_picker)
+        self.assertIn("visibleDownloads.filter { $0.phase == .ready }", prep_picker)
+        self.assertIn("retainedDownloads: visibleDownloads", prep_picker)
         self.assertIn("onDownload(course)", prep_picker)
         self.assertIn("onNearby: nearbyCourses", prep_picker)
         self.assertIn("requestAuthorization()", prep_picker)
@@ -2188,7 +2198,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("globalId: course.globalId", prep_picker)
         self.assertIn("holeCount: course.resolvedHoles", prep_picker)
         self.assertIn("download: selectedDownload(for: course)", prep_picker)
-        self.assertIn("PrepCourseDownloadRecord.key", prep_picker)
+        # The queued record constructor owns the stable identity; matching its id avoids copying the
+        # key algorithm into the picker and keeps the first destination frame managed.
+        self.assertIn("let queued = queuedDownloadIntent(for: course)", prep_picker)
+        self.assertIn("$0.id == queued.id", prep_picker)
         self.assertIn("phase: .queued", prep_picker)
 
     def test_ios_course_review_product_copy_and_route_yardage_contract(self) -> None:
@@ -2204,13 +2217,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('.navigationTitle("赛前球场攻略")', course_review)
         self.assertIn('Text("蓝T \\(hole.blueYards)y")', course_review)
         # Opening the review must not synchronously render and embed every hole image. Factual rows
-        # arrive in small ordered batches, while only visible LazyVStack cards request their map.
+        # arrive in small ordered batches, while the selected-hole map upgrades in place.
         self.assertIn("stride(from: 1, through: holeCount, by: 3)", course_review)
         self.assertIn("let batch = Array(start...min(start + 2, holeCount))", course_review)
         self.assertIn("holes: batch", course_review)
         self.assertIn("render: false", course_review)
         self.assertIn("holes = merged.values.sorted { $0.hole < $1.hole }", course_review)
-        self.assertIn("LazyVStack(alignment: .leading, spacing: 14)", course_review)
+        self.assertIn("if let hole = selectedHole", course_review)
+        self.assertIn("private var holeNavigator: some View", course_review)
+        self.assertIn('accessibilityIdentifier("prep-hole-menu")', course_review)
+        self.assertIn("showsPrepFactOverlays: true", course_review)
         self.assertIn("fetchHolePrep(", course_review)
         # Prep selection starts precise geometry installation, but the factual CourseView outline is
         # useful immediately and remains visible while the card upgrades to precise topo in place.
@@ -2223,11 +2239,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("fetchCourseGeometryCoverage", course_review)
         # De-engineered: the "Par 来源：…" provenance label is hidden from the consumer course review.
         self.assertNotIn("Par 来源", course_review)
-        # Course review and the full caddie plan share one measured hazard projection.  Both water
-        # and bunkers show 到前沿 / 过后沿; the legacy lateral gap is never presented as a carry.
-        self.assertIn("CaddiePlanHazard.from(", course_review)
-        self.assertIn("route: hole.resolvedMapOverlay?.route", course_review)
-        self.assertIn('return "\\(hazard.label)：\\(detail)"', course_review)
+        # Course review and the full caddie plan share one measured hazard projection.  On a
+        # drawable prep hole, water/bunker front/back facts live on the map rather than a list.
+        hole_map = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
+        self.assertIn("prepHazardAnnotations.prefix(2)", hole_map)
+        self.assertIn('Text("到 \\(toYards) · 过 \\(overYards)")', hole_map)
+        self.assertNotIn("private var hazardsSection", course_review)
         self.assertIn("measuredText(frontM: detail.frontM, backM: detail.backM)", caddie_plan)
         self.assertIn('"到 \\(CoursePrepRoute.yards(fromMetres: frontM)) · 过 \\(CoursePrepRoute.yards(fromMetres: backM)) 码"', caddie_plan)
         self.assertNotIn("离球路", course_review)
@@ -2998,18 +3015,23 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("shotMap.usesCourseDataFrame", shot_map_view)
         self.assertIn("RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))", shot_map_view)
         self.assertIn("geometryRevision: shotMap.geometryRevision", shot_map_view)
-        # round-9 B: color legend + 横滑翻洞 (TabView .page over the round's holes) + unknown lie → 「—」.
+        # Map-first review: one visible hole + compact navigation, zoomable map, and every passive
+        # shot fact attached to its landing. Lists remain only in the edit/reorder surface.
         self.assertIn("struct RoundShotMapPagerScreen", shot_map_view)
-        self.assertIn("struct RoundShotMapLegend", shot_map_view)
         self.assertIn("func shotLieColor(", shot_map_view)
         self.assertIn("func shotLieLabel(", shot_map_view)
-        self.assertIn(".tabViewStyle(.page", shot_map_view)
+        self.assertIn("reviewFactOverlays(overlay: overlay)", shot_map_view)
+        self.assertIn('Text("推杆 ×\\(puttCount)")', shot_map_view)
+        self.assertIn('Text("罚杆 +\\(shotMap.manualPenalty)")', shot_map_view)
+        self.assertNotIn("shotLegendOverlay", shot_map_view)
         self.assertIn("RoundShotMapPagerScreen(", round_review)
         self.assertIn("MagnificationGesture()", shot_map_view)
         self.assertIn("displayedScale > 1.01 ? .all : .none", shot_map_view)
         self.assertIn("final class RoundShotMapRepository", shot_map_view)
         self.assertIn("await mapRepository.prefetch(holes", shot_map_view)
-        self.assertIn("await shotMapRepository.prefetch(roundHoles)", round_review)
+        # The pager owns progressive all-hole warming. The summary hands it the shared repository
+        # rather than duplicating requests before the player opens a map.
+        self.assertIn("mapRepository: shotMapRepository", round_review)
         self.assertIn("scorecard.filter { $0.score != nil }", round_review)
         # 成绩合并入口: compact stats + complete archive, then drill into existing round review.
         stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
@@ -3229,7 +3251,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn(".navigationBarBackButtonDisplayMode", recent_review)
         self.assertIn(".navigationBarTitleDisplayMode(.large)", round_review)
         self.assertNotIn(".navigationBarBackButtonDisplayMode", round_review)
-        self.assertIn('· 落点 · 左右滑', shot_map)
+        self.assertIn('isLocked ? "第 \\(current) 洞 · 编辑中" : "第 \\(current) 洞 · 落点"', shot_map)
+        self.assertIn('Label("上一洞", systemImage: "chevron.backward")', shot_map)
+        self.assertIn('Label("下一洞", systemImage: "chevron.forward")', shot_map)
         for ui_test in [real_flow, review_edit]:
             self.assertIn("RealEvidenceRoundResolver(", ui_test)
             self.assertIn("resolveReviewEvidence()", ui_test)
@@ -3481,7 +3505,9 @@ class MobileContractTests(unittest.TestCase):
         for label in ["前果岭", "中果岭", "后果岭"]:
             self.assertIn(label, live_components)
         self.assertIn("greenCenterYards", live_components)
-        self.assertIn("greenCenterYards:", current_hole)  # CurrentHoleView feeds the header
+        # F/M/B now sits directly on the map instead of feeding the legacy green header.
+        self.assertIn("LiveMapGreenDistanceOverlay(", current_hole)
+        self.assertIn("middleYards:", current_hole)
 
     def test_live_gps_rangefinder_to_green(self) -> None:
         # round-13 B1: the phone recomputes its LIVE distance to the green Front/Middle/Back from its
@@ -3499,7 +3525,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("liveGreenYards", current_hole)
         self.assertIn("GeoDistance.yards(", current_hole)
         self.assertIn("locationProvider.latestFix", current_hole)
-        self.assertIn("isGreenLive: isGreenRangeLive", current_hole)
+        self.assertIn("isLive: isGreenRangeLive", current_hole)
         # The live value is preferred but ALWAYS falls back to the static prep distance (never blank).
         self.assertIn("?? greenYards(liveGreenDistances?.frontM)", current_hole)
         # A subtle 实时 (live) indicator distinguishes live GPS distances from the static prep values.

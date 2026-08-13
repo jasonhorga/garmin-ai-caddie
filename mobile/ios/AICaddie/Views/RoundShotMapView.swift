@@ -1,11 +1,12 @@
+import CryptoKit
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
 
 /// 复盘逐洞落点图:把这一局这一洞**实际打的每一杆**画在真实球场 2D 图上 —— 开球→落点→…→果岭
-/// 连成实际打球路线,落点按球位(球道/长草/沙坑/果岭/水)配色,合成补的开球杆用虚线淡色,
-/// 已知球杆标在落点旁。坐标用服务端投影好的 overlay 像素(误差 0.04m)。
+/// 连成实际打球路线,落点按球位(球道/长草/沙坑/果岭/水)配色,合成补的开球杆用虚线淡色。
+/// 可访问的球杆/距离标签由 SwiftUI 叠在真实落点旁。坐标使用服务端投影好的 overlay 像素。
 public struct RoundShotMapView: View {
     public let shotMap: RoundHoleShotMap
     /// 服务端真实地形底图 URL(`…/holes/{hole}/topo.png`)。有则底图用它,否则/加载失败回退到
@@ -53,18 +54,18 @@ public struct RoundShotMapView: View {
                         Canvas { context, size in
                             draw(&context, size: size, overlay: overlay)
                         }
+                        reviewFactOverlays(overlay: overlay)
                     }
                 }
                 .overlay(alignment: .topLeading) { holeTag }
                 .overlay(alignment: .bottomTrailing) {
-                    Label("双指缩放", systemImage: "plus.magnifyingglass")
-                        .font(.caption2.weight(.semibold))
+                    Image(systemName: "plus.magnifyingglass")
+                        .font(.caption.weight(.bold))
                         .foregroundStyle(.white)
-                        .padding(.vertical, 5)
-                        .padding(.horizontal, 8)
-                        .background(.black.opacity(0.55), in: Capsule())
-                        .padding(9)
-                        .allowsHitTesting(false)
+                        .frame(width: 34, height: 34)
+                        .background(.black.opacity(0.62), in: Circle())
+                        .padding(10)
+                        .accessibilityLabel("双指缩放")
                 }
                 .mapSurface()
             }
@@ -105,6 +106,98 @@ public struct RoundShotMapView: View {
 
     private func draw(_ context: inout GraphicsContext, size: CGSize, overlay: CoursePrepOverlay) {
         drawRoundShotPath(&context, size: size, overlay: overlay, shots: shotMap.shots)
+    }
+
+    /// Garmin Golf's review map keeps club/distance and the putt result beside their real landing.
+    /// The edit screen retains the reorder list because it is an action surface; read-only review does
+    /// not repeat the same shots underneath the map.
+    private func reviewFactOverlays(overlay: CoursePrepOverlay) -> some View {
+        GeometryReader { proxy in
+            ZStack {
+                ForEach(Array(nonPuttShots.enumerated()), id: \.element.id) { index, shot in
+                    if let end = mapPoint(shot.end, in: proxy.size, overlay: overlay),
+                       let text = shotOverlayText(shot, ppm: overlay.ppm) {
+                        Text(text)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(Color.black.opacity(0.78), in: Capsule())
+                            .position(reviewLabelPoint(end, index: index, in: proxy.size))
+                            .accessibilityLabel(text)
+                    }
+                }
+                if puttCount > 0, let anchor = greenAnchor(in: proxy.size, overlay: overlay) {
+                    Text("推杆 ×\(puttCount)")
+                        .font(.system(size: 10, weight: .heavy))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color.white.opacity(0.94), in: Capsule())
+                        .position(reviewLabelPoint(anchor, index: nonPuttShots.count, in: proxy.size))
+                        .accessibilityIdentifier("round-map-putts")
+                }
+                if shotMap.manualPenalty > 0 {
+                    Text("罚杆 +\(shotMap.manualPenalty)")
+                        .font(.caption2.weight(.heavy))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color.orange.opacity(0.9), in: Capsule())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .padding(10)
+                        .accessibilityIdentifier("round-map-penalty")
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    private var nonPuttShots: [RoundShot] {
+        shotMap.shots.filter { !isPutt($0) && !$0.synthetic && $0.end != nil }
+    }
+
+    private var puttCount: Int { shotMap.shots.filter(isPutt).count }
+
+    private func isPutt(_ shot: RoundShot) -> Bool {
+        (shot.shotType ?? "").uppercased() == "PUTT"
+            || (shot.club ?? "").localizedCaseInsensitiveContains("putt")
+            || (shot.club ?? "").contains("推")
+    }
+
+    private func shotOverlayText(_ shot: RoundShot, ppm: Double?) -> String? {
+        guard let raw = shot.club?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty, raw.lowercased() != "unknown" else { return nil }
+        var facts = [zhClubName(raw)]
+        if let yards = roundShotYards(shot, ppm: ppm) { facts.append("\(yards)码") }
+        let lie = shotLieLabel(shot.endLie)
+        if lie != "—" { facts.append("→\(lie)") }
+        if shot.clubSource == "manual" || shot.lieSource == "manual" { facts.append("已修正") }
+        return facts.joined(separator: " · ")
+    }
+
+    private func greenAnchor(in size: CGSize, overlay: CoursePrepOverlay) -> CGPoint? {
+        let puttEnd = shotMap.shots.reversed().first(where: { isPutt($0) && $0.end != nil })?.end
+        return mapPoint(puttEnd ?? overlay.route.last.map { [Int($0[0]), Int($0[1])] }, in: size, overlay: overlay)
+    }
+
+    private func mapPoint(_ row: [Int]?, in size: CGSize, overlay: CoursePrepOverlay) -> CGPoint? {
+        guard let row, row.count >= 2, overlay.w > 0, overlay.h > 0 else { return nil }
+        return CGPoint(
+            x: CGFloat(row[0]) / CGFloat(overlay.w) * size.width,
+            y: CGFloat(row[1]) / CGFloat(overlay.h) * size.height
+        )
+    }
+
+    private func reviewLabelPoint(_ anchor: CGPoint, index: Int, in size: CGSize) -> CGPoint {
+        let xShift: CGFloat = anchor.x < size.width * 0.58 ? 58 : -58
+        let yShift: CGFloat = index.isMultiple(of: 2) ? -14 : 16
+        return CGPoint(
+            x: min(max(anchor.x + xShift, 55), size.width - 55),
+            y: min(max(anchor.y + yShift, 24), size.height - 24)
+        )
     }
 }
 
@@ -206,8 +299,8 @@ private struct ZoomableRoundMapViewport<Content: View>: View {
 }
 #endif
 
-/// Shared shot-path rendering (amber actual path + tee ring + landing dots + club
-/// labels), factored out of ``RoundShotMapView`` so the drag magnifier (``MagnifierLoupe``) draws the
+/// Shared shot-path rendering (amber actual path + tee ring + landing dots), factored out of
+/// ``RoundShotMapView`` so the drag magnifier (``MagnifierLoupe``) draws the
 /// exact same picture — magnified — over the exact same projection.
 func drawRoundShotPath(_ context: inout GraphicsContext, size: CGSize, overlay: CoursePrepOverlay, shots: [RoundShot]) {
     let sx = size.width / CGFloat(max(overlay.w, 1))
@@ -220,6 +313,10 @@ func drawRoundShotPath(_ context: inout GraphicsContext, size: CGSize, overlay: 
     // legible over green/sand/water; synthetic (auto-filled) shots are dashed + faded.
     let amber = Color(red: 1.0, green: 0.70, blue: 0.0)
     for shot in shots {
+        let isPutt = (shot.shotType ?? "").uppercased() == "PUTT"
+            || (shot.club ?? "").localizedCaseInsensitiveContains("putt")
+            || (shot.club ?? "").contains("推")
+        if isPutt { continue }
         guard let a = point(shot.start), let b = point(shot.end) else { continue }
         var path = Path()
         path.move(to: a)
@@ -237,27 +334,22 @@ func drawRoundShotPath(_ context: inout GraphicsContext, size: CGSize, overlay: 
                        with: .color(.white), style: StrokeStyle(lineWidth: 2.5))
     }
 
-    // Landing dot at each shot's end, colored by the lie it ended on (white outline) + club label.
+    // Landing dot at each full shot's end, colored by the lie. Read-only club/distance pills are
+    // SwiftUI overlays (so they remain legible and accessible); edit-mode labels live in its handles.
     for shot in shots {
+        let isPutt = (shot.shotType ?? "").uppercased() == "PUTT"
+            || (shot.club ?? "").localizedCaseInsensitiveContains("putt")
+            || (shot.club ?? "").contains("推")
+        if isPutt { continue }
         guard let b = point(shot.end) else { continue }
         let rect = CGRect(x: b.x - 6, y: b.y - 6, width: 12, height: 12)
         context.fill(Path(ellipseIn: rect), with: .color(shotLieColor(shot.endLie)))
         context.stroke(Path(ellipseIn: rect), with: .color(.white), style: StrokeStyle(lineWidth: 1.5))
-        if let club = shot.club, !club.isEmpty, club.lowercased() != "unknown" {
-            // Dark shadow behind the white club label so it stays legible over light lies
-            // (fairway/green/sand). GraphicsContext is a value type — copy + addFilter so the
-            // shadow applies only to this label draw, not the dots/lines.
-            var labelCtx = context
-            labelCtx.addFilter(.shadow(color: .black.opacity(0.85), radius: 1.4, x: 0, y: 0.5))
-            labelCtx.draw(
-                Text(zhClubName(club)).font(.caption2.weight(.bold)).foregroundColor(.white),
-                at: CGPoint(x: b.x, y: b.y - 15)
-            )
-        }
     }
 }
 
-/// 落点球位 → 颜色(球道绿、长草橄榄、沙坑沙黄、果岭浅绿、水蓝、其它/未知 红)。共享给图例。
+/// 落点球位 → 颜色(球道绿、长草橄榄、沙坑沙黄、果岭浅绿、水蓝、其它/未知 红)。
+/// 编辑态的颜色说明复用同一语义。
 public func shotLieColor(_ lie: String?) -> Color {
     switch (lie ?? "").lowercased() {
     case "fairway": return LiveHoleStyle.green
@@ -270,7 +362,7 @@ public func shotLieColor(_ lie: String?) -> Color {
     }
 }
 
-/// 球位中文(未知/缺失 → 「—」,不编造)。共享给逐杆列表 + 图例。
+/// 球位中文(未知/缺失 → 「—」,不编造)。共享给地图标签与编辑态逐杆列表。
 public func shotLieLabel(_ lie: String?) -> String {
     switch (lie ?? "").lowercased() {
     case "fairway": return "球道"
@@ -295,7 +387,7 @@ public func roundShotYards(_ shot: RoundShot, ppm: Double?) -> Int? {
     return Int((metres * 1.09361).rounded())
 }
 
-/// 颜色图例:每个球位一个色点 + 中文,解决「这些点的颜色到底什么意思」。
+/// 编辑态颜色说明。只读复盘把球位直接写在落点旁，不再重复展示一份图例。
 public struct RoundShotMapLegend: View {
     public init() {}
     private let items: [(String, String)] = [
@@ -320,10 +412,8 @@ public struct RoundShotMapLegend: View {
     }
 }
 
-/// Screen-level cache for one historical round. A `TabView` is free to unload off-screen pages;
-/// keeping maps and in-flight work here makes that an implementation detail instead of another
-/// server request. The pager fetches the current hole first, then the remaining holes four at a
-/// time, and warms each corresponding topo bitmap through `TopoHoleImageStore`.
+/// One round-level memory + disk cache. The visible pager renders exactly one hole; this repository
+/// prefetches data without creating hidden SwiftUI pages or competing toolbars.
 @MainActor
 final class RoundShotMapRepository: ObservableObject {
     private enum LoadResult {
@@ -352,14 +442,30 @@ final class RoundShotMapRepository: ObservableObject {
 
     func error(for hole: Int) -> String? { errors[hole] }
 
+    func cachedCount(in holes: [Int]) -> Int {
+        Set(holes).filter { maps[$0] != nil }.count
+    }
+
+    func failedCount(in holes: [Int]) -> Int {
+        Set(holes).filter { maps[$0] == nil && errors[$0] != nil }.count
+    }
+
     func store(_ map: RoundHoleShotMap, for hole: Int) {
         maps[hole] = map
         errors[hole] = nil
+        RoundReviewDiskCache.saveShotMap(map, roundRef: roundRef, hole: hole)
         prefetchTopo(for: map)
     }
 
-    func load(_ hole: Int) async {
-        guard maps[hole] == nil else { return }
+    func load(_ hole: Int, revalidate: Bool = false) async {
+        if maps[hole] == nil,
+           let cached = RoundReviewDiskCache.loadShotMap(roundRef: roundRef, hole: hole) {
+            maps[hole] = cached
+            errors[hole] = nil
+            prefetchTopo(for: cached)
+            if !revalidate { return }
+        }
+        guard maps[hole] == nil || revalidate else { return }
         guard let client else {
             errors[hole] = "未配置后端地址"
             return
@@ -388,15 +494,20 @@ final class RoundShotMapRepository: ObservableObject {
         case .success(let map):
             maps[hole] = map
             errors[hole] = nil
+            RoundReviewDiskCache.saveShotMap(map, roundRef: roundRef, hole: hole)
             prefetchTopo(for: map)
         case .failure:
             if maps[hole] == nil { errors[hole] = "这一洞落点暂时取不到" }
         }
     }
 
-    /// Current/start hole first, then neighbours, then the rest. Four concurrent API calls keep the
-    /// 18-hole warm-up fast without creating the request storm that previously slowed every page.
-    func prefetch(_ holes: [Int], startingAt startHole: Int? = nil) async {
+    /// Current/start hole first, then neighbours, then the rest. Two concurrent calls are enough to
+    /// warm a round without recreating the request storm that made the old 18-page TabView flash.
+    func prefetch(
+        _ holes: [Int],
+        startingAt startHole: Int? = nil,
+        revalidate: Bool = false
+    ) async {
         var seen: Set<Int> = []
         let valid = holes.filter { $0 > 0 && seen.insert($0).inserted }
         let ordered: [Int]
@@ -408,12 +519,12 @@ final class RoundShotMapRepository: ObservableObject {
             ordered = valid
         }
 
-        for index in stride(from: 0, to: ordered.count, by: 4) {
+        for index in stride(from: 0, to: ordered.count, by: 2) {
             guard !Task.isCancelled else { return }
-            let batch = Array(ordered[index..<min(index + 4, ordered.count)])
+            let batch = Array(ordered[index..<min(index + 2, ordered.count)])
             await withTaskGroup(of: Void.self) { group in
                 for hole in batch {
-                    group.addTask { await self.load(hole) }
+                    group.addTask { await self.load(hole, revalidate: revalidate) }
                 }
             }
         }
@@ -570,8 +681,6 @@ public struct RoundHoleShotMapScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .hubCard()
                 }
-                RoundShotMapLegend()
-                shotListCard(shotMap)
             }
             .padding(14)
         } else if let shotMap, shotMap.found, !shotMap.shots.isEmpty {
@@ -598,11 +707,23 @@ public struct RoundHoleShotMapScreen: View {
                 )
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                if errorText != nil {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        Label("重新载入这一洞", systemImage: "arrow.clockwise")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("round-shot-map-retry")
+                }
             }
             .frame(maxWidth: .infinity).padding(.vertical, 40).hubCard()
         }
     }
 
+    /// Geometry-free fallback only. If positions cannot be drawn, the factual list is still the
+    /// only honest way to expose the recorded shots; a drawable map never repeats it underneath.
     private func shotListCard(_ shotMap: RoundHoleShotMap) -> some View {
         let ppm = shotMap.map?.overlay.ppm
         return VStack(alignment: .leading, spacing: 8) {
@@ -681,7 +802,8 @@ public struct RoundHoleShotMapScreen: View {
     }
 }
 
-/// 横滑翻洞:整页左右滑过这一局每一洞的落点图(从复盘点某洞进入,停在该洞,可左右滑到相邻洞)。
+/// One visible hole at a time. Previous/next/menu navigation avoids eagerly creating 18 child views,
+/// which was the source of duplicate Edit toolbars and endless task-driven redraws.
 public struct RoundShotMapPagerScreen: View {
     public let roundRef: String
     public let holes: [Int]
@@ -736,31 +858,41 @@ public struct RoundShotMapPagerScreen: View {
 
     private var isLocked: Bool { !editingHoles.isEmpty }
 
+    private var currentIndex: Int? { holes.firstIndex(of: current) }
+
+    private var previousHole: Int? {
+        currentIndex.flatMap { holes[safe: $0 - 1] }
+    }
+
+    private var nextHole: Int? {
+        currentIndex.flatMap { holes[safe: $0 + 1] }
+    }
+
     public var body: some View {
-        // A pinned selection binding: while editing, reject page changes so a stray horizontal swipe
-        // rubber-bands back to the current hole instead of switching away mid-edit. This never touches
-        // the child's own drag/tap gestures (no ancestor gesture is added), so drag-to-move still works.
-        let selection = Binding(get: { current }, set: { if !isLocked { current = $0 } })
-        return TabView(selection: selection) {
-            ForEach(holes, id: \.self) { hole in
-                RoundHoleShotMapScreen(
-                    roundRef: roundRef, hole: hole,
-                    apiBaseURL: apiBaseURL, adminToken: adminToken, showsNavigationTitle: false,
-                    onEditingChange: { editing in
-                        if editing { editingHoles.insert(hole) } else { editingHoles.remove(hole) }
-                    },
-                    mapRepository: mapRepository
-                )
-                .tag(hole)
-            }
+        VStack(spacing: 0) {
+            downloadProgress
+            RoundHoleShotMapScreen(
+                roundRef: roundRef,
+                hole: current,
+                apiBaseURL: apiBaseURL,
+                adminToken: adminToken,
+                showsNavigationTitle: false,
+                onEditingChange: { editing in
+                    if editing { editingHoles.insert(current) } else { editingHoles.remove(current) }
+                },
+                mapRepository: mapRepository
+            )
+            .id("\(roundRef):\(current)")
+            if !isLocked { pagerControls }
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
         .background(HubStyle.grouped)
         // Editing has exactly two exits: the explicit Cancel and Save actions.  A sheet pull-down
         // must not become a third, silent way to discard the whole local draft.
         .interactiveDismissDisabled(isLocked)
-        .navigationTitle(isLocked ? "第 \(current) 洞 · 编辑中" : "第 \(current) 洞 · 落点 · 左右滑")
+        .navigationTitle(isLocked ? "第 \(current) 洞 · 编辑中" : "第 \(current) 洞 · 落点")
         .task(id: roundRef) {
+            await mapRepository.load(current)
+            await mapRepository.load(current, revalidate: true)
             await mapRepository.prefetch(holes, startingAt: current)
         }
         .onChange(of: current) { _, newHole in
@@ -781,5 +913,114 @@ public struct RoundShotMapPagerScreen: View {
                 }
             }
         }
+    }
+
+    private var downloadProgress: some View {
+        let cached = mapRepository.cachedCount(in: holes)
+        let failed = mapRepository.failedCount(in: holes)
+        return HStack(spacing: 8) {
+            ProgressView(value: Double(cached), total: Double(max(holes.count, 1)))
+                .tint(LiveHoleStyle.green)
+            Text(failed > 0
+                ? "已缓存 \(cached)/\(holes.count) · \(failed) 洞待重试"
+                : "已缓存 \(cached)/\(holes.count)")
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(failed > 0 ? .orange : .secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(HubStyle.grouped)
+        .accessibilityIdentifier("round-shot-map-download-progress")
+    }
+
+    private var pagerControls: some View {
+        HStack(spacing: 10) {
+            Button {
+                if let previousHole { current = previousHole }
+            } label: {
+                Label("上一洞", systemImage: "chevron.backward")
+                    .frame(maxWidth: .infinity)
+            }
+            .disabled(previousHole == nil)
+
+            Menu {
+                ForEach(holes, id: \.self) { hole in
+                    Button("第 \(hole) 洞") { current = hole }
+                }
+            } label: {
+                Text("第 \(current) 洞")
+                    .font(.subheadline.monospacedDigit().weight(.bold))
+                    .frame(maxWidth: .infinity)
+            }
+
+            Button {
+                if let nextHole { current = nextHole }
+            } label: {
+                Label("下一洞", systemImage: "chevron.forward")
+                    .labelStyle(.titleAndIcon)
+                    .frame(maxWidth: .infinity)
+            }
+            .disabled(nextHole == nil)
+        }
+        .font(.subheadline.weight(.semibold))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(.background)
+        .overlay(alignment: .top) { Divider() }
+    }
+}
+
+enum RoundReviewDiskCache {
+    private static let decoder = JSONDecoder()
+    private static let encoder = JSONEncoder()
+
+    static func loadDetail(roundRef: String) -> RoundDetail? {
+        load(RoundDetail.self, from: url(roundRef: roundRef, fileName: "detail.json"))
+    }
+
+    static func saveDetail(_ detail: RoundDetail, roundRef: String) {
+        save(detail, to: url(roundRef: roundRef, fileName: "detail.json"))
+    }
+
+    static func loadShotMap(roundRef: String, hole: Int) -> RoundHoleShotMap? {
+        load(RoundHoleShotMap.self, from: url(roundRef: roundRef, fileName: "hole-\(hole).json"))
+    }
+
+    static func saveShotMap(_ map: RoundHoleShotMap, roundRef: String, hole: Int) {
+        save(map, to: url(roundRef: roundRef, fileName: "hole-\(hole).json"))
+    }
+
+    private static func load<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? decoder.decode(type, from: data)
+    }
+
+    private static func save<T: Encodable>(_ value: T, to url: URL) {
+        guard let data = try? encoder.encode(value) else { return }
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: url, options: [.atomic])
+    }
+
+    private static func url(roundRef: String, fileName: String) -> URL {
+        let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("AICaddieRoundReview-v3", isDirectory: true)
+        // A round reference is not globally unique across backend members. Bind every review byte
+        // to the currently signed-in player so signing out/in can never show another account's
+        // cached scorecard or shot positions. DEBUG without Apple auth receives its own scope.
+        let playerScope = SessionStore.shared.currentSession?.playerId ?? "debug-no-session"
+        let safePlayer = digest(playerScope)
+        let safeRef = digest(roundRef)
+        return root.appendingPathComponent(safePlayer, isDirectory: true)
+            .appendingPathComponent(safeRef, isDirectory: true)
+            .appendingPathComponent(fileName)
+    }
+
+    private static func digest(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 }

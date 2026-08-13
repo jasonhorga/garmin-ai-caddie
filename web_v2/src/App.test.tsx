@@ -1498,10 +1498,15 @@ describe('App navigation', () => {
     expect(await screen.findByText('PAR 9 · 930 码')).toBeInTheDocument()
     // 你的战绩 joins stats.courses through the option's courseKey.
     expect(screen.getByText('你的战绩:打过 2 次 · 均杆 82')).toBeInTheDocument()
-    // The workbench lists every hole in the left rail; the first is selected.
-    expect(screen.getByRole('button', { name: '第1洞 Par4 410码' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '第2洞 Par5 520码' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '球童试算 · 第 1 洞' })).toBeInTheDocument()
+    // Garmin-style workbench keeps one compact hole picker over one map instead of an 18-row rail.
+    const picker = screen.getByRole('combobox', { name: '选择球洞' })
+    expect(picker).toHaveValue('1')
+    expect(within(picker).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      '第 1 洞 · Par 4 · 410码 · 关键',
+      '第 2 洞 · Par 5 · 520码 · 关键',
+    ])
+    expect(screen.getByLabelText('第1洞球道图')).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: '球童试算' })).toBeInTheDocument()
   })
 
   it('球场 tab renders 球场表现 heading', async () => {
