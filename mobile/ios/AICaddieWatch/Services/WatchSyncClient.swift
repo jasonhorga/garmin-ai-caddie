@@ -295,6 +295,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         self.init(
             queueURL: directory.appendingPathComponent("queued_events.json"),
             stateURL: directory.appendingPathComponent("current_state.json"),
+            holeImageStore: WatchHoleImageStore(),
             configStore: WatchKeychainConfigStore()
         )
     }
