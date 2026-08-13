@@ -12,10 +12,15 @@ public final class RoundEditModel: ObservableObject {
     @Published public var saveError: String?
     @Published public var draggingShotId: String?
     @Published public var selectedShotId: String?
-    /// Only a current prodgeometry bitmap owns an authoritative pixel frame. Every other state edits
-    /// ordered shot facts only and must preserve the source GPS endpoints.
+    /// A current prodgeometry revision plus its exact overlay owns the authoritative pixel frame.
+    /// The PNG is transferred through the revision-bound topo URL rather than repeated inside every
+    /// shot-map JSON response, so `map.image == nil` does not make that frame imprecise. CourseData
+    /// and mapless states still edit ordered facts only and preserve source GPS endpoints.
     public var canEditPositions: Bool {
-        !map.usesCourseDataFrame && map.geometryRevision != nil && map.map?.image != nil
+        guard !map.usesCourseDataFrame,
+              map.geometryRevision != nil,
+              let overlay = map.map?.overlay else { return false }
+        return overlay.w > 0 && overlay.h > 0
     }
 
     private let sync: SyncClient

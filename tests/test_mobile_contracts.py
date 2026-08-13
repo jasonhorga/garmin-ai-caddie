@@ -2993,6 +2993,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)", shot_map_view)
         self.assertIn("editModel.canEditPositions", shot_map_view)
         self.assertIn("RoundShotFactEditContent(editModel: editModel)", shot_map_view)
+        round_edit_model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
+        self.assertNotIn("map.map?.image != nil", round_edit_model)
         self.assertIn("shotMap.usesCourseDataFrame", shot_map_view)
         self.assertIn("RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))", shot_map_view)
         self.assertIn("geometryRevision: shotMap.geometryRevision", shot_map_view)

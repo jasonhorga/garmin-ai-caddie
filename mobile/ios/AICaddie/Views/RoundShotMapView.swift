@@ -36,10 +36,13 @@ public struct RoundShotMapView: View {
                 }
                 .aspectRatio(ratio, contentMode: .fit)
                 .overlay {
-                    if let image = decodedImage {
-                        RoundShotEditLayer(editModel: editModel, overlay: overlay, clubs: editClubs,
-                                           baseImage: image, topoURL: topoURL)
-                    }
+                    RoundShotEditLayer(
+                        editModel: editModel,
+                        overlay: overlay,
+                        clubs: editClubs,
+                        baseImage: decodedImage,
+                        topoURL: topoURL
+                    )
                 }
                 .overlay(alignment: .topLeading) { holeTag }
                 .mapSurface()

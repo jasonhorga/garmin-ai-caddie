@@ -177,6 +177,22 @@ final class RoundEditModelTests: XCTestCase {
         await fulfillment(of: [posted], timeout: 2)
     }
 
+    func testPreciseOverlayWithoutDuplicatedEmbeddedImageCanEditPositions() {
+        let model = makeModel(includeEmbeddedImage: false) { request in
+            Self.response(request, status: 503)
+        }
+
+        XCTAssertTrue(
+            model.canEditPositions,
+            "the revision-bound topo URL owns bitmap transfer; its precise overlay remains editable"
+        )
+        model.enterEdit()
+        model.move(shotId: "shot-1", px: [63, 41])
+
+        XCTAssertEqual(model.map.shots.first?.end, [63, 41])
+        XCTAssertTrue(model.hasUnsavedChanges)
+    }
+
     func testEmptyHoleCanAddSeveralNumberedShotsBeforeOneSave() async throws {
         let posted = expectation(description: "empty-hole snapshot")
         var payloadShots: [[String: Any]] = []
@@ -207,6 +223,7 @@ final class RoundEditModelTests: XCTestCase {
     private func makeModel(
         shots: [RoundShot]? = nil,
         includeMap: Bool = true,
+        includeEmbeddedImage: Bool = true,
         geometryRevision: String? = "geometry-r1",
         handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
     ) -> RoundEditModel {
@@ -214,7 +231,7 @@ final class RoundEditModelTests: XCTestCase {
         configuration.protocolClasses = [CapturingURLProtocol.self]
         CapturingURLProtocol.requestHandler = handler
         let courseMap = CoursePrepMap(
-            image: "data:image/png;base64,AA==",
+            image: includeEmbeddedImage ? "data:image/png;base64,AA==" : nil,
             overlay: CoursePrepOverlay(
                 w: 100,
                 h: 100,

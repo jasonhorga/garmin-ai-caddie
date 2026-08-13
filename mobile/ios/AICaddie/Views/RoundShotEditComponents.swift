@@ -52,7 +52,7 @@ public struct RoundShotEditLayer: View {
     let clubs: [String]
     /// The map's own base bitmap (flat fallback) + topo URL — reused by the magnifier so it shows the
     /// real course under the finger, not just the shot lines.
-    let baseImage: UIImage
+    let baseImage: UIImage?
     let topoURL: URL?
 
     @State private var editingShot: RoundShot?
@@ -66,7 +66,7 @@ public struct RoundShotEditLayer: View {
     private let loupeDiameter: CGFloat = 116
 
     public init(editModel: RoundEditModel, overlay: CoursePrepOverlay, clubs: [String],
-                baseImage: UIImage, topoURL: URL?) {
+                baseImage: UIImage?, topoURL: URL?) {
         self.editModel = editModel
         self.overlay = overlay
         self.clubs = clubs
@@ -326,7 +326,7 @@ public struct RoundShotEditLayer: View {
 public struct MagnifierLoupe: View {
     let overlay: CoursePrepOverlay
     let shots: [RoundShot]
-    let baseImage: UIImage
+    let baseImage: UIImage?
     let topoURL: URL?
     /// Fitted map size in view coordinates (the edit layer's GeometryReader size).
     let mapSize: CGSize
@@ -335,7 +335,7 @@ public struct MagnifierLoupe: View {
     var diameter: CGFloat = 116
     var magnification: CGFloat = 2.2
 
-    public init(overlay: CoursePrepOverlay, shots: [RoundShot], baseImage: UIImage, topoURL: URL?,
+    public init(overlay: CoursePrepOverlay, shots: [RoundShot], baseImage: UIImage?, topoURL: URL?,
                 mapSize: CGSize, focus: CGPoint, diameter: CGFloat = 116, magnification: CGFloat = 2.2) {
         self.overlay = overlay
         self.shots = shots
