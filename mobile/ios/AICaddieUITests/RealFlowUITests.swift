@@ -161,9 +161,9 @@ final class RealFlowUITests: XCTestCase {
                         && topoReady.waitForExistence(timeout: 30)
                     XCTAssertTrue(loadedShotMap, "shot-map evidence must finish loading the real topo before capture")
                     if loadedShotMap {
-                        XCTAssertTrue(
+                        XCTAssertFalse(
                             app.staticTexts["逐杆"].exists,
-                            "the verified real shot map must render its actual per-shot list"
+                            "a drawable Garmin-style shot map must keep shot facts on the map, not repeat a list below it"
                         )
                         settle(2); save("04b-shot-map"); dump("04b-shot-map")
                     }
