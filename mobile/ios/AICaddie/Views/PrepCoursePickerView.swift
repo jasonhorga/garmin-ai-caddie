@@ -16,12 +16,6 @@ public struct PrepCoursePickerView: View {
     @StateObject private var locationProvider = LocationProvider()
     @ObservedObject private var downloadPresentation: PrepCourseDownloadPresentationState
     @State private var selectedCourse: MobileCourseOption?
-    /// `RoundHomeView` is already in a NavigationStack when this picker is pushed. SwiftUI can keep
-    /// that destination's value-type inputs at their navigation-time snapshot even though the app
-    /// model has synchronously created and persisted a new queue record. Keep only the unacknowledged
-    /// selection intents here so returning from the detail screen shows the download immediately;
-    /// the published app-owned records replace them as soon as they reach this destination.
-    @State private var pendingDownloadIntents: [PrepCourseDownloadRecord] = []
 
     public init(
         courseOptions: [MobileCourseOption],
@@ -70,10 +64,6 @@ public struct PrepCoursePickerView: View {
         }
         .onDisappear {
             locationProvider.stopUpdatingLocation()
-        }
-        .onChange(of: downloads.map(\.id)) { _, authoritativeIDs in
-            let acknowledged = Set(authoritativeIDs)
-            pendingDownloadIntents.removeAll { acknowledged.contains($0.id) }
         }
         .navigationDestination(isPresented: selectedCoursePresented) {
             if let course = selectedCourse, let apiBaseURL {
@@ -134,11 +124,6 @@ public struct PrepCoursePickerView: View {
     ) {
         _ = matches
         guard let course = resolvedOption(for: selected) else { return }
-        let intent = queuedDownloadIntent(for: course)
-        if !downloads.contains(where: { $0.id == intent.id }) {
-            pendingDownloadIntents.removeAll { $0.id == intent.id }
-            pendingDownloadIntents.insert(intent, at: 0)
-        }
         onDownload(course)
         selectedCourse = course
     }
@@ -170,9 +155,7 @@ public struct PrepCoursePickerView: View {
     }
 
     private var visibleDownloads: [PrepCourseDownloadRecord] {
-        let authoritativeIDs = Set(downloads.map(\.id))
-        return (downloads + pendingDownloadIntents.filter { !authoritativeIDs.contains($0.id) })
-            .sorted { $0.updatedAt > $1.updatedAt }
+        downloads.sorted { $0.updatedAt > $1.updatedAt }
     }
 
     private var downloads: [PrepCourseDownloadRecord] {

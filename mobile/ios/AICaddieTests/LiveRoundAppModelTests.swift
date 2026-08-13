@@ -190,6 +190,35 @@ private func capturedRequestBodyData(from request: URLRequest) throws -> Data {
 
 @MainActor
 final class LiveRoundAppModelTests: XCTestCase {
+    func testPrepSelectionPublishesThroughStablePresentationBeforeAsyncDownloadRuns() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory),
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil
+        )
+        let course = MobileCourseOption(
+            globalId: 31_793,
+            name: "北京丽宫体育公园高尔夫俱乐部",
+            holes: 18,
+            teeBox: "blue"
+        )
+
+        model.downloadPrepCourse(course)
+
+        XCTAssertEqual(model.prepCourseDownloads.map(\.course.globalId), [31_793])
+        XCTAssertEqual(
+            model.prepCourseDownloadPresentation.downloads.map(\.course.globalId),
+            [31_793],
+            "a pushed prep picker must observe the retained row through the stable reference"
+        )
+        XCTAssertEqual(model.prepCourseDownloadPresentation.downloads.first?.phase, .queued)
+        XCTAssertEqual(try model.offlineStore.loadPrepCourseDownloads().first?.course.globalId, 31_793)
+    }
+
     func testPersistedPrepDownloadContinuesAcrossFailedRoundStartAndReattachesWithoutRestarting() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -318,6 +318,15 @@ public final class PrepCourseDownloadPresentationState: ObservableObject {
     fileprivate func replace(with downloads: [PrepCourseDownloadRecord]) {
         self.downloads = downloads
     }
+
+    /// Publish the player's selection before the detail destination is pushed. This is only a
+    /// presentation mirror; `LiveRoundAppModel.downloadPrepCourse` remains the queue/disk authority
+    /// and immediately replaces this row with its persisted state.
+    fileprivate func retainSelection(_ course: MobileCourseOption) {
+        let record = PrepCourseDownloadRecord(course: course)
+        guard !downloads.contains(where: { $0.id == record.id }) else { return }
+        downloads.insert(record, at: 0)
+    }
 }
 
 @MainActor
@@ -2457,6 +2466,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Selecting a catalogue result creates/reattaches to one app-owned job before navigation.
     /// Reopening the same course never replaces a running task or discards its per-hole progress.
     public func downloadPrepCourse(_ course: MobileCourseOption) {
+        prepCourseDownloadPresentation.retainSelection(course)
         let teeBox = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTee = teeBox?.isEmpty == false ? teeBox! : "blue"
         let id = PrepCourseDownloadRecord.key(
