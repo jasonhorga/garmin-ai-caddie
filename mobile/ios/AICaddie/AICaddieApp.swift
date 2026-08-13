@@ -1934,7 +1934,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     metadata: record.metadata
                 )
                 guard !Task.isCancelled, boundPlayerId == playerScope else { return }
-                let refreshedHome = if let course = finishedPackage?.course {
+                let refreshedHome: LiveRoundPackage? = if let course = finishedPackage?.course {
                     await fetchHomePackage(preferredCourse: course)
                 } else {
                     nil
