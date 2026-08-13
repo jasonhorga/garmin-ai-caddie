@@ -77,7 +77,13 @@ final class RealFlowUITests: XCTestCase {
 
         // ---- Section 2: 成绩 → 全部球局 → round review → shot-map → review-edit ----
         launchFresh()
-        let enteredHistory = tapContaining(["成绩", "球局 · 统计"])
+        let openedResults = tapContaining(["成绩", "球局 · 统计"])
+        // A fresh launch can still be committing the NavigationStack transition after the home tile
+        // receives its tap. Do not start swiping the old home ScrollView while the results page is
+        // entering; wait for the same live-data root marker already proved in Section 1.
+        let resultsReady = openedResults
+            && app.staticTexts["我的高尔夫生涯"].waitForExistence(timeout: 15)
+        let enteredHistory = resultsReady
             && scrollAndTapContaining(["全部球局", "搜索 · 年份"])
         XCTAssertTrue(enteredHistory, "the real home must expose 成绩 and its complete archive")
         if enteredHistory {
