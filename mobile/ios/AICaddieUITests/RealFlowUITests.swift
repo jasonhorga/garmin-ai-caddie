@@ -278,7 +278,7 @@ final class RealFlowUITests: XCTestCase {
         prepBack.tap()
         XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 8))
         let retainedDownload = app.buttons[
-            "prep-download-open-\(approvedJourneyCourseGlobalId)"
+            "prep-download-row-\(approvedJourneyCourseGlobalId)"
         ]
         XCTAssertTrue(
             scrollTo(retainedDownload, maxSwipes: 12),
@@ -294,7 +294,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]))
         XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 12))
         let relaunchedDownload = app.buttons[
-            "prep-download-open-\(approvedJourneyCourseGlobalId)"
+            "prep-download-row-\(approvedJourneyCourseGlobalId)"
         ]
         XCTAssertTrue(
             scrollTo(relaunchedDownload, maxSwipes: 12),
