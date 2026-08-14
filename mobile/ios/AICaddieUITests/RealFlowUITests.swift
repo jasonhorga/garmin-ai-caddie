@@ -523,13 +523,13 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(livePlayPanel.waitForExistence(timeout: 5))
         XCTAssertGreaterThanOrEqual(
             livePlayPanel.frame.minY,
-            liveWindowFrame.height * 0.50,
-            "the approved map keeps the upper half of the first screen before the data panel begins"
+            liveWindowFrame.height * 0.60,
+            "the approved map-first live screen keeps at least three fifths of the first glance for the factual hole map"
         )
         XCTAssertLessThanOrEqual(
             livePlayPanel.frame.minY,
-            liveWindowFrame.height * 0.55,
-            "the data panel must still begin in the approved lower-map band, not drift below the first glance"
+            liveWindowFrame.height * 0.68,
+            "the data panel must still begin soon enough for every primary live action to remain in the first glance"
         )
         XCTAssertLessThan(
             visibleStatusChromeBrightPixelFraction(in: XCUIScreen.main.screenshot()),
