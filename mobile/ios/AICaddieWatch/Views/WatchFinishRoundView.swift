@@ -4,6 +4,12 @@ enum WatchFinishRoundLayout {
     /// watchOS owns the top-right clock lane even when the app asks for full-screen content.
     /// Reserve the same horizontal space as scoring so a long course name cannot run under it.
     static let systemTimeTrailingClearance: CGFloat = 48
+
+    /// Keep the complete score summary and all lifecycle choices on the first 41 mm screen.
+    /// Larger Dynamic Type sizes may still scroll, but the normal layout must not depend on an
+    /// initial bottom scroll that leaves the score half-hidden above the rounded display mask.
+    static let primaryActionHeight: CGFloat = 38
+    static let secondaryActionHeight: CGFloat = 36
 }
 
 /// The approved compact end-of-round summary. The richer GIR/fairway facts remain in the model for
@@ -85,68 +91,92 @@ public struct WatchFinishRoundView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .padding(.top, 6)
+                .padding(.top, 4)
 
-                if totalPutts != nil {
-                    Text(puttsText)
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 5)
-                }
-
-                if let pendingUploadText {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.up.circle")
-                        Text(pendingUploadText)
+                if totalPutts != nil || pendingUploadText != nil {
+                    HStack(spacing: 8) {
+                        if totalPutts != nil {
+                            Text(puttsText)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                        if let pendingUploadText {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.up.circle")
+                                Text(pendingUploadText)
+                            }
+                            .foregroundStyle(AICaddieDesignTokens.offline)
+                        }
                     }
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AICaddieDesignTokens.offline)
-                    .padding(.top, 5)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .padding(.top, 3)
                 }
 
                 Button(action: onConfirmFinish) {
                     Text(primaryActionLabel)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(AICaddieDesignTokens.par)
-                        .frame(maxWidth: .infinity, minHeight: 42, maxHeight: 42)
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: WatchFinishRoundLayout.primaryActionHeight,
+                            maxHeight: WatchFinishRoundLayout.primaryActionHeight
+                        )
                         .background(
                             AICaddieDesignTokens.par.opacity(0.25),
                             in: RoundedRectangle(cornerRadius: 26, style: .continuous)
                         )
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 6)
+                .padding(.top, 4)
 
-                Button(action: onKeepPlaying) {
-                    Text(secondaryActionLabel)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 42, maxHeight: 42)
-                        .background(
-                            Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255),
-                            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        )
+                HStack(spacing: 5) {
+                    Button(action: onKeepPlaying) {
+                        Text(secondaryActionLabel)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                            .frame(
+                                maxWidth: .infinity,
+                                minHeight: WatchFinishRoundLayout.secondaryActionHeight,
+                                maxHeight: WatchFinishRoundLayout.secondaryActionHeight
+                            )
+                            .background(
+                                Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(role: .destructive, action: onAbandon) {
+                        Text("放弃本场")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(AICaddieDesignTokens.doubleBogey)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                            .frame(
+                                maxWidth: .infinity,
+                                minHeight: WatchFinishRoundLayout.secondaryActionHeight,
+                                maxHeight: WatchFinishRoundLayout.secondaryActionHeight
+                            )
+                            .background(
+                                AICaddieDesignTokens.doubleBogey.opacity(0.12),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                .padding(.top, 5)
+                .padding(.top, 4)
                 .id(Self.secondaryActionAnchor)
-
-                Button(role: .destructive, action: onAbandon) {
-                    Text("放弃本场")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(AICaddieDesignTokens.doubleBogey)
-                        .frame(maxWidth: .infinity, minHeight: 38, maxHeight: 38)
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 3)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, WatchDisplayGeometry.minimumContentInset)
             .padding(.top, 4)
-            .padding(.bottom, 4)
+            .padding(.bottom, 2)
         }
         .scrollIndicators(.hidden)
-        .defaultScrollAnchor(initiallyShowSecondaryAction ? .bottom : .top)
+        .defaultScrollAnchor(.top)
         .background(Color.black)
         .ignoresSafeArea(edges: .top)
     }

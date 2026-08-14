@@ -203,6 +203,7 @@ jobs:
           capture_compact compact-score-fairway compact-41mm-score-fairway.png
           capture_compact compact-club-prompt compact-41mm-club-prompt.png
           capture_compact compact-finish compact-41mm-finish.png
+          capture_compact finish-actions compact-41mm-finish-actions.png
           capture_compact compact-home compact-41mm-home-long-course.png
           xcrun simctl shutdown "$COMPACT_DEVICE"
 
@@ -481,8 +482,8 @@ jobs:
           launch_and_capture interaction-settings watch-settings-runtime.png
           launch_and_capture interaction-flag-direction watch-flag-direction-runtime.png
           launch_and_capture finish watch-round-finish.png
-          # The approved W16 reference is taller than the physical 45mm viewport. Capture the same
-          # production summary scrolled to its second action instead of pretending one frame is 588px.
+          # All lifecycle choices must remain visible without pushing the score through the rounded
+          # top edge. Keep a separate boundary capture so that regression is visible in artifacts.
           launch_and_capture finish-actions watch-round-finish-actions.png
           launch_and_capture finish-confirmation watch-finish-confirmation-runtime.png
           if [[ "$WATCH_RUNTIME_SCOPE" == "setup-visual" ]]; then
