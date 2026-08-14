@@ -128,8 +128,28 @@ final class WatchHazardMapLayoutTests: XCTestCase {
                 pillWidth: 60,
                 viewportWidth: 198
             ),
-            34,
+            40,
             accuracy: 0.0001
         )
+    }
+
+    func testHazardPillClampsInsideEveryRoundedFaceGuide() {
+        for size in [
+            CGSize(width: 176, height: 215),
+            CGSize(width: 198, height: 242),
+            CGSize(width: 205, height: 251),
+        ] {
+            let pillWidth: CGFloat = 60
+            let safeRect = WatchDisplayGeometry.contentRect(in: size)
+            for markerX in [CGFloat.zero, size.width] {
+                let centerX = WatchHazardMapLayout.distancePillCenterX(
+                    markerX: markerX,
+                    pillWidth: pillWidth,
+                    viewportWidth: size.width
+                )
+                XCTAssertGreaterThanOrEqual(centerX - pillWidth / 2, safeRect.minX)
+                XCTAssertLessThanOrEqual(centerX + pillWidth / 2, safeRect.maxX)
+            }
+        }
     }
 }

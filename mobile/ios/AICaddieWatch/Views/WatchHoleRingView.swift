@@ -2,9 +2,8 @@ import SwiftUI
 
 /// round-13 (Watch standalone): the 18-hole ring that hugs the rounded-rect watch screen EDGE
 /// (spec screen ①, the user's explicit "贴着屏幕边缘,不要一个居中的圆"). Each hole is drawn as a thin
-/// RADIAL TICK (a short capsule, like a watch-face minute mark) placed where a ray from the centre
-/// meets the screen rectangle and rotated to align with that ray — so the marks ride the rim, point
-/// inward, and stay slim enough not to cover the centre distance/number (the user's
+/// short capsule placed on the physical rounded-rectangle perimeter — so the marks ride the visible
+/// rim and stay slim enough not to cover the centre distance/number (the user's
 /// "沿着手表边缘做一些小横线,做得细一点,这样不会覆盖其他元素"). 1号洞从3点位置起、顺时针到12点结束;
 /// 当前洞用更长更亮的白色刻度高亮,已记洞按成绩着色。Plain shape layers → renders in ImageRenderer snapshots.
 public struct WatchRingPip: Identifiable, Equatable {
@@ -33,46 +32,43 @@ public struct WatchHoleRingView<Center: View>: View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
-            let inset: CGFloat = 9   // keep pips fully on-screen
+            let inset: CGFloat = 6
+            let centerPoint = CGPoint(x: w / 2, y: h / 2)
+            let halfW = max(0, w / 2 - inset)
+            let halfH = max(0, h / 2 - inset)
+            let corner = max(
+                0,
+                min(WatchDisplayGeometry.cornerRadius(for: geo.size) - inset, min(halfW, halfH))
+            )
+            let flatW = max(0, halfW - corner)
+            let flatH = max(0, halfH - corner)
+            let perimeter = 4 * flatW + 4 * flatH + 2 * CGFloat.pi * corner
             ZStack {
                 center
                     .frame(width: max(0, w - inset * 5), height: max(0, h - inset * 5))
                     .position(x: w / 2, y: h / 2)
                 ForEach(Array(pips.enumerated()), id: \.element.hole) { index, pip in
-                    let angle = pipAngle(index: index, count: pips.count)
-                    let pt = edgePoint(angle: angle, w: w, h: h, inset: inset)
+                    let distance = perimeter * WatchHoleMapView.scoringRingCenterFraction(
+                        index: index,
+                        count: pips.count
+                    )
+                    let (point, tangent) = WatchHoleMapView.perimeterPointTangent(
+                        s: distance,
+                        center: centerPoint,
+                        halfW: halfW,
+                        halfH: halfH,
+                        corner: corner
+                    )
+                    let tangentAngle = atan2(tangent.y, tangent.x)
                     tickView(pip)
-                        // rotate the upright capsule so its long axis points along the ray from
-                        // centre → it reads as a rim tick aiming inward (+π/2: a vertical capsule's
-                        // axis is at −π/2, so add π/2 to swing it onto the ray direction `angle`).
-                        .rotationEffect(.radians(Double(angle) + .pi / 2))
-                        .position(x: pt.x, y: pt.y)
+                        .rotationEffect(.radians(Double(tangentAngle - .pi / 2)))
+                        .position(x: point.x, y: point.y)
                 }
             }
         }
     }
 
-    /// Clockwise angle (from centre) at which this pip sits on the ring. 0° is 3 o'clock and the
-    /// final pip lands at 270° / 12 o'clock, leaving the upper-right clock quadrant empty.
-    private func pipAngle(index: Int, count: Int) -> CGFloat {
-        guard count > 1 else { return 0 }
-        let boundedIndex = min(max(index, 0), count - 1)
-        return 1.5 * CGFloat.pi * CGFloat(boundedIndex) / CGFloat(count - 1)
-    }
-
-    /// Point where the ray at `angle` meets the screen rectangle (edge-hugging), inset.
-    private func edgePoint(angle: CGFloat, w: CGFloat, h: CGFloat, inset: CGFloat) -> CGPoint {
-        let cx = w / 2, cy = h / 2
-        let dx = cos(angle), dy = sin(angle)
-        let halfW = cx - inset, halfH = cy - inset
-        // distance along the ray until it meets the nearer of the vertical/horizontal edges
-        let tx = abs(dx) < 0.0001 ? CGFloat.greatestFiniteMagnitude : halfW / abs(dx)
-        let ty = abs(dy) < 0.0001 ? CGFloat.greatestFiniteMagnitude : halfH / abs(dy)
-        let t = min(tx, ty)
-        return CGPoint(x: cx + dx * t, y: cy + dy * t)
-    }
-
-    /// A thin radial tick (short capsule) drawn UPRIGHT — the caller rotates it onto the ray. Scored
+    /// A thin perimeter tick (short capsule) drawn upright — the caller rotates it onto the tangent. Scored
     /// holes use the score colour, not-yet-played holes a dim grey, and the current hole a brighter,
     /// longer white tick so "you are here" stands out subtly without a centre-covering ring.
     private func tickView(_ pip: WatchRingPip) -> some View {

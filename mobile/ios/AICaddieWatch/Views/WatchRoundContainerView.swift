@@ -295,7 +295,7 @@ public struct WatchRoundContainerView: View {
                         onBack: { model.backToMenu() }
                     )
                 }
-                .ignoresSafeArea(edges: [.top, .leading, .trailing])
+                .ignoresSafeArea(edges: .top)
             } else {
                 Color.black.onAppear { model.backToMenu() }
             }

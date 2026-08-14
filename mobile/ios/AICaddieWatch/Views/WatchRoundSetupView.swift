@@ -127,7 +127,7 @@ public struct WatchRoundSetupView: View {
             .padding(.horizontal, 8)
             .padding(.top, 8)
         }
-        .ignoresSafeArea(edges: [.top, .leading, .trailing])
+        .ignoresSafeArea(edges: .top)
         .scrollIndicators(.hidden)
     }
 
@@ -196,7 +196,7 @@ public struct WatchRoundSetupView: View {
             .padding(.top, 8)
             .padding(.bottom, 6)
         }
-        .ignoresSafeArea(edges: [.top, .leading, .trailing])
+        .ignoresSafeArea(edges: .top)
         .scrollIndicators(.hidden)
     }
 

@@ -185,7 +185,8 @@ public struct WatchClubPromptView: View {
         .padding(.horizontal, 8)
         .padding(.top, WatchClubPromptLayout.topPadding)
         .padding(.bottom, WatchClubPromptLayout.bottomPadding)
-        .ignoresSafeArea(edges: [.top, .leading, .trailing])
+        // Keep the compact top treatment, but let watchOS enforce the real rounded side mask.
+        .ignoresSafeArea(edges: .top)
         .persistentSystemOverlays(.hidden)
     }
 

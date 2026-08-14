@@ -148,7 +148,7 @@ public struct WatchFinishRoundView: View {
         .scrollIndicators(.hidden)
         .defaultScrollAnchor(initiallyShowSecondaryAction ? .bottom : .top)
         .background(Color.black)
-        .ignoresSafeArea(edges: [.top, .leading, .trailing])
+        .ignoresSafeArea(edges: .top)
     }
 
     private static let secondaryActionAnchor = "watch-finish-secondary-action"
@@ -263,7 +263,7 @@ public struct WatchResumeRoundView: View {
         }
         .scrollIndicators(.hidden)
         .background(Color.black)
-        .ignoresSafeArea(edges: [.top, .leading, .trailing])
+        .ignoresSafeArea(edges: .top)
     }
 
     private func lifecycleButton(

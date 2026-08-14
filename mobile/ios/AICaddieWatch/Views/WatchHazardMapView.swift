@@ -8,7 +8,7 @@ enum WatchHazardMapLayout {
     /// The real watchOS runtime keeps drawing its clock even when this full-screen map requests
     /// hidden overlays. Reserve that top-right lane instead of centering map copy underneath it.
     static let systemTimeTrailingClearance: CGFloat = 56
-    static let topSummaryLeadingInset: CGFloat = 4
+    static let topSummaryLeadingInset: CGFloat = WatchDisplayGeometry.minimumContentInset
 
     static func topSummaryWidth(viewportWidth: CGFloat) -> CGFloat {
         max(0, viewportWidth - topSummaryLeadingInset - systemTimeTrailingClearance)
@@ -24,8 +24,9 @@ enum WatchHazardMapLayout {
         viewportWidth: CGFloat
     ) -> CGFloat {
         let halfWidth = max(pillWidth, 0) / 2
-        let minimumX = halfWidth + 4
-        let maximumX = max(minimumX, viewportWidth - halfWidth - 4)
+        let safeInset = WatchDisplayGeometry.horizontalContentInset(forWidth: viewportWidth)
+        let minimumX = halfWidth + safeInset
+        let maximumX = max(minimumX, viewportWidth - halfWidth - safeInset)
         return min(max(markerX, minimumX), maximumX)
     }
 
@@ -354,10 +355,11 @@ public struct WatchHazardMapView: View {
         let frontPoint = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
         let backPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
         let pillHeight = WatchHazardMapLayout.distancePillSize(for: "到 000").height
+        let safeRect = WatchDisplayGeometry.contentRect(in: size)
         let minimumPillCenterY: CGFloat = (centerGreenYards ?? 0) > 0
             ? WatchHazardMapLayout.topPillLaneCenterY
-            : pillHeight * 0.5 + 4
-        let maximumPillCenterY = max(minimumPillCenterY, size.height - pillHeight * 0.5 - 4)
+            : safeRect.minY + pillHeight * 0.5
+        let maximumPillCenterY = max(minimumPillCenterY, safeRect.maxY - pillHeight * 0.5)
         let frontCanvasPoint = frontPoint.map(canvas)
         let backCanvasPoint = backPoint.map(canvas)
         let lanes = WatchHazardMapLayout.separatedPillCenterYs(
@@ -430,6 +432,7 @@ public struct WatchHazardMapView: View {
 
     private func controls(hazard: WatchHazard, index: Int, size: CGSize) -> some View {
         let summary = "\(hazard.label) \(index + 1)/\(upcoming.count)"
+        let safeInset = WatchDisplayGeometry.contentInset(for: size)
         let trackHeight = min(size.height * 0.55, 104)
         let thumbHeight = min(40, max(18, trackHeight * 0.28))
         let thumbOffset = CGFloat(index) * (trackHeight - thumbHeight)
@@ -473,7 +476,7 @@ public struct WatchHazardMapView: View {
                 .minimumScaleFactor(0.75)
                 .shadow(color: .black, radius: 2)
             }
-            .padding(.top, 5)
+            .padding(.top, safeInset)
             .padding(.bottom, 16)
 
             if upcoming.count > 1 {
@@ -488,7 +491,7 @@ public struct WatchHazardMapView: View {
                             .frame(width: 4, height: thumbHeight)
                             .offset(y: thumbOffset)
                     }
-                    .padding(.trailing, 6)
+                    .padding(.trailing, safeInset)
                 }
             }
         }

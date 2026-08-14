@@ -41,8 +41,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testRenderAutoShotCandidateConfirmation() throws {
         let view = WatchAutoShotCandidateView()
-            .frame(width: 198, height: 242)
-            .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-autoshot-candidate")
     }
 
@@ -124,8 +123,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             onBack: {}
         )
         .padding(8)
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-caddie-options")
     }
 
@@ -165,8 +163,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             distanceText: "152 码", pendingUploads: 2,
             canRecordShot: true
         )
-        .frame(width: 198, height: 198)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-round-home")
     }
 
@@ -186,8 +183,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 Text("码 · 到旗杆").font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .frame(width: 198, height: 198)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-hole-ring")
     }
 
@@ -242,8 +238,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             latestShotDistanceM: 38,
             canAddShot: true
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-current-hole-shots")
     }
 
@@ -252,8 +247,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let view = WatchScoreHoleView(
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-hole")
     }
 
@@ -295,8 +289,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
             step: .score
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-total")
     }
 
@@ -306,8 +299,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
             step: .putts
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-putts")
     }
 
@@ -317,8 +309,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
             step: .fairway
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-fairway")
     }
 
@@ -328,8 +319,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
             step: .penalty
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-penalty")
     }
 
@@ -339,8 +329,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
             candidateNextHole: 8
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-next-tee-candidate")
     }
 
@@ -412,8 +401,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             toPar: 5,
             pendingUploads: 2
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-finish-confirmation")
     }
 
@@ -737,8 +725,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let view = WatchFlagDirectionView(
             state: .ready(relativeDegrees: -20, distanceYards: 152)
         )
-            .frame(width: 198, height: 198)
-            .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-flag-direction")
     }
 
@@ -753,8 +740,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             watchGreenYards: (front: 164, center: 173, back: 181),
             shotLocation: Self.snapshotWatchFix
         )
-            .frame(width: 198, height: 242)
-            .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-container-home")
     }
 
@@ -806,16 +792,14 @@ final class WatchDesignSnapshotTests: XCTestCase {
             watchGreenYards: (front: 248, center: 262, back: 274),
             shotLocation: Self.snapshotWatchFix
         )
-            .frame(width: 198, height: 242)
-            .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-container-holemap")
     }
 
     @MainActor
     func testRenderWatchGPSAcquiring() throws {
         let view = WatchGPSAcquiringView()
-            .frame(width: 198, height: 198)
-            .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-gps-acquiring")
     }
 
@@ -823,8 +807,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testRenderWatchDistanceHero() throws {
         // watch P1f: the no-geometry FALLBACK for the hole view — F/M/B hero (center biggest, Garmin S70).
         let view = WatchDistanceHero(frontYd: 248, centerYd: 262, backYd: 274, caddieLine: "3号木 · 稳妥")
-            .frame(width: 198, height: 198)
-            .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-distance-hero")
     }
 
@@ -832,8 +815,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testRenderWatchDistanceHeroBig() throws {
         // watch P1f (spec D1 大字模式): tapping the hole view blows the center number up for arm's-length.
         let view = WatchDistanceHero(frontYd: 248, centerYd: 262, backYd: 274, caddieLine: "3号木 · 稳妥", bigText: true)
-            .frame(width: 198, height: 198)
-            .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-distance-hero-big")
     }
 
@@ -845,8 +827,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             backYd: 18_393,
             caddieLine: nil
         )
-        .frame(width: 176, height: 198)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 176, height: 215)
         try render(view, named: "watch-distance-hero-off-course")
     }
 
@@ -854,8 +835,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testRenderWatchOffCourseSecondarySurfaces() throws {
         try render(
             WatchFlagDirectionView(state: .blocked(.tooFarFromHole))
-                .frame(width: 176, height: 215)
-                .background(Color.black),
+                .watchSnapshotFrame(width: 176, height: 215),
             named: "watch-flag-direction-off-course"
         )
 
@@ -879,8 +859,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 latestShotDistanceM: 16_800,
                 canAddShot: true
             )
-            .frame(width: 176, height: 215)
-            .background(Color.black),
+            .watchSnapshotFrame(width: 176, height: 215),
             named: "watch-current-hole-shots-off-course"
         )
 
@@ -898,8 +877,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 lastShotDistanceM: 16_800
             )
             .padding(8)
-            .frame(width: 176, height: 215, alignment: .top)
-            .background(Color.black),
+            .watchSnapshotFrame(width: 176, height: 215, alignment: .top),
             named: "watch-caddie-glance-off-course"
         )
 
@@ -914,8 +892,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 ringPips: [],
                 fullMap: true
             )
-            .frame(width: 198, height: 242)
-            .background(Color.black),
+            .watchSnapshotFrame(width: 198, height: 242),
             named: "watch-hole-map-off-course"
         )
 
@@ -943,8 +920,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 hazards: hazards,
                 centerGreenYards: 18_383
             )
-            .frame(width: 198, height: 242)
-            .background(Color.black),
+            .watchSnapshotFrame(width: 198, height: 242),
             named: "watch-hazard-map-off-course"
         )
     }
@@ -952,8 +928,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testRenderWatchAlwaysOnDistance() throws {
         let view = WatchAlwaysOnDistanceView(hole: 4, par: 5, centerYd: 262)
-            .frame(width: 198, height: 242)
-            .background(Color.black)
+            .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-always-on-distance")
     }
 
@@ -997,8 +972,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             caddieClub: "3号木", caddieNote: "推进 · 留100",
             ringPips: pips
         )
-        .frame(width: 198, height: 242)   // ≈ 46mm Apple Watch logical size
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)   // 45 mm Apple Watch logical size
         try render(view, named: "watch-holemap")
     }
 
@@ -1036,8 +1010,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             currentShotLayout: layout,
             ringPips: pips
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-holemap-current-shot")
     }
 
@@ -1054,8 +1027,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             showCaddieRecommendation: true,
             showPreparedPlan: true
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-holemap-long-copy")
     }
 
@@ -1074,8 +1046,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             showCaddieRecommendation: true,
             showPreparedPlan: true
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-holemap-prepared-plan")
     }
 
@@ -1099,8 +1070,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             ringPips: pips,
             showPlaysLike: true
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-holemap-pl")
     }
 
@@ -1115,8 +1085,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             ringPips: [],
             measuredPxOverride: CGPoint(x: 470, y: 470)
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-holemap-measured")
     }
 
@@ -1131,8 +1100,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             ringPips: [],
             pinDragOverride: CGSize(width: 16, height: 20)
         )
-        .frame(width: 198, height: 242)
-        .background(Color.black)
+        .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-holemap-pindrag")
     }
 
@@ -1159,8 +1127,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 showPreparedPlan: true,
                 ringPips: pips
             )
-            .frame(width: 176, height: 215)
-            .background(Color.black),
+            .watchSnapshotFrame(width: 176, height: 215),
             named: "watch-compact-holemap-long-copy"
         )
         try render(
@@ -1173,8 +1140,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 step: .fairway,
                 candidateNextHole: 1
             )
-            .frame(width: 176, height: 215)
-            .background(Color.black),
+            .watchSnapshotFrame(width: 176, height: 215),
             named: "watch-compact-score-fairway"
         )
         try render(
@@ -1189,8 +1155,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 pendingUploads: 18,
                 canRecordShot: true
             )
-            .frame(width: 176, height: 215)
-            .background(Color.black),
+            .watchSnapshotFrame(width: 176, height: 215),
             named: "watch-compact-long-course-name"
         )
     }
@@ -1246,5 +1211,25 @@ final class WatchDesignSnapshotTests: XCTestCase {
             return
         }
         print("WROTE_WATCH_SNAPSHOT \(name)")
+    }
+}
+
+private extension View {
+    /// ImageRenderer has no physical Watch bezel. Apply the same rounded display mask used by the
+    /// product geometry so approval PNGs cannot falsely present corner pixels as visible content.
+    func watchSnapshotFrame(
+        width: CGFloat,
+        height: CGFloat,
+        alignment: Alignment = .center
+    ) -> some View {
+        let size = CGSize(width: width, height: height)
+        return frame(width: width, height: height, alignment: alignment)
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: WatchDisplayGeometry.cornerRadius(for: size),
+                    style: .continuous
+                )
+            )
+            .background(Color.black)
     }
 }

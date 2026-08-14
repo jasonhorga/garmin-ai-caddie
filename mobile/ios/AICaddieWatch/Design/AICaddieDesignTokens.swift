@@ -64,3 +64,58 @@ public enum AICaddieDesignTokens {
         return par
     }
 }
+
+/// Geometry shared by every full-screen Watch surface.
+///
+/// The simulator framebuffer is rectangular, but the physical display is a rounded rectangle.
+/// Background imagery may bleed beneath that mask; readable text, controls, markers and callouts
+/// must remain inside `contentRect`. The conservative rectangular guide is valid for the 41, 45 and
+/// 49 mm displays and also grows if a future Watch has a wider face.
+public enum WatchDisplayGeometry {
+    public static let minimumContentInset: CGFloat = 10
+    public static let cornerRadiusFraction: CGFloat = 0.12
+
+    public static func cornerRadius(for size: CGSize) -> CGFloat {
+        max(0, min(size.width, size.height) * cornerRadiusFraction)
+    }
+
+    public static func contentInset(for size: CGSize) -> CGFloat {
+        let radius = cornerRadius(for: size)
+        // Inset of the largest axis-aligned rectangle inside a quarter circle, plus two points of
+        // optical/stroke clearance so anti-aliased glyphs do not sit on the hardware mask.
+        let tangentInset = radius * (1 - 1 / CGFloat(2).squareRoot()) + 2
+        return ceil(max(minimumContentInset, tangentInset))
+    }
+
+    public static func horizontalContentInset(forWidth width: CGFloat) -> CGFloat {
+        contentInset(for: CGSize(width: width, height: width * 1.25))
+    }
+
+    public static func contentRect(in size: CGSize) -> CGRect {
+        let inset = min(contentInset(for: size), max(0, min(size.width, size.height) / 2))
+        return CGRect(
+            x: inset,
+            y: inset,
+            width: max(0, size.width - inset * 2),
+            height: max(0, size.height - inset * 2)
+        )
+    }
+
+    /// Testable representation of the physical rounded display mask.
+    public static func contains(_ point: CGPoint, in size: CGSize, tolerance: CGFloat = 0) -> Bool {
+        guard size.width > 0, size.height > 0,
+              point.x >= -tolerance, point.y >= -tolerance,
+              point.x <= size.width + tolerance, point.y <= size.height + tolerance else {
+            return false
+        }
+        let radius = cornerRadius(for: size)
+        guard radius > 0 else { return true }
+        if (radius...(size.width - radius)).contains(point.x)
+            || (radius...(size.height - radius)).contains(point.y) {
+            return true
+        }
+        let cornerX = point.x < radius ? radius : size.width - radius
+        let cornerY = point.y < radius ? radius : size.height - radius
+        return hypot(point.x - cornerX, point.y - cornerY) <= radius + tolerance
+    }
+}

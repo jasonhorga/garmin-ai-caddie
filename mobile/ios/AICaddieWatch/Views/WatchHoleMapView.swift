@@ -44,12 +44,14 @@ enum WatchHoleMapViewport {
     ) -> CGPoint {
         let halfWidth = max(pillSize.width, 0) / 2
         let halfHeight = max(pillSize.height, 0) / 2
+        let safeRect = WatchDisplayGeometry.contentRect(in: viewportSize)
         // The normal hole root masks its left data column after drawing the map. Clamp every map
         // callout to the unmasked panel so a perfectly valid pill cannot subsequently lose its
-        // hazard kind or its leading “到” text under that mask.
-        let boundedContentMinX = min(max(contentMinX, 0), max(viewportSize.width, 0))
+        // hazard kind or its leading “到” text under that mask. The physical Watch corners are also
+        // absent even though simulator PNGs contain those pixels, so clamp to the shared safe rect.
+        let boundedContentMinX = min(max(contentMinX, safeRect.minX), safeRect.maxX)
         let minX = boundedContentMinX + halfWidth + pillMargin
-        let maxX = max(minX, viewportSize.width - halfWidth - pillMargin)
+        let maxX = max(minX, safeRect.maxX - halfWidth - pillMargin)
         let x = min(max(marker.x, minX), maxX)
         let offset = abs(preferredOffset)
         let timeRect = systemTimeRect(in: viewportSize)
@@ -69,8 +71,8 @@ enum WatchHoleMapViewport {
             }
         }
 
-        let minY = halfHeight + pillMargin
-        let maxY = max(minY, viewportSize.height - halfHeight - pillMargin)
+        let minY = safeRect.minY + halfHeight + pillMargin
+        let maxY = max(minY, safeRect.maxY - halfHeight - pillMargin)
         return CGPoint(x: x, y: min(max(y, minY), maxY))
     }
 
@@ -500,6 +502,7 @@ public struct WatchHoleMapView: View {
                 .padding(.top, size.height * 0.09)
             }
             if geometry.image == nil {
+                let safeRect = WatchDisplayGeometry.contentRect(in: size)
                 Text("地图准备中")
                     .font(.system(size: 8.5, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.82))
@@ -508,7 +511,7 @@ public struct WatchHoleMapView: View {
                     .background(Capsule().fill(.black.opacity(0.68)))
                     .position(
                         x: fullMap ? size.width * 0.5 : size.width * (columnFrac + (1 - columnFrac) * 0.5),
-                        y: size.height - 13
+                        y: safeRect.maxY - 8
                     )
                     .accessibilityIdentifier("watch-map-preparing")
             }
@@ -526,6 +529,7 @@ public struct WatchHoleMapView: View {
     // persistentSystemOverlays(.hidden) is only a preference on watchOS; the system can retain its
     // clock, so product chrome must not assume that area is available.
     @ViewBuilder private func fullMapControls(_ size: CGSize) -> some View {
+        let safeInset = WatchDisplayGeometry.contentInset(for: size)
         if let centerGreen {
             VStack {
                 HStack {
@@ -543,7 +547,7 @@ public struct WatchHoleMapView: View {
                     .background(Capsule().fill(.black.opacity(0.5)))
                     Spacer(minLength: 0)
                 }
-                .padding(.leading, 8)
+                .padding(.leading, safeInset)
                 .padding(.trailing, 48)
                 .padding(.top, 12)
                 Spacer()
@@ -561,14 +565,14 @@ public struct WatchHoleMapView: View {
                     .offset(y: (1 - zoomProgress) * 64)
             }
             .frame(width: 4, height: 104, alignment: .top)
-            .padding(.trailing, 6)
+            .padding(.trailing, safeInset)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
 
         VStack {
             Spacer()
             Text("转表冠缩放").font(.system(size: 8.5, weight: .medium)).foregroundStyle(.white.opacity(0.6))
-                .padding(.bottom, 7)
+                .padding(.bottom, safeInset)
         }
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -1043,7 +1047,12 @@ public struct WatchHoleMapView: View {
         let inset: CGFloat = 6
         let halfW = size.width / 2 - inset
         let halfH = size.height / 2 - inset
-        let r = max(0, min(min(halfW, halfH) * 0.52, min(halfW, halfH)))
+        // Follow the inset of the physical rounded display, rather than a generic rectangular
+        // framebuffer. This keeps every stroke visible through the 41/45/49 mm hardware masks.
+        let r = max(
+            0,
+            min(WatchDisplayGeometry.cornerRadius(for: size) - inset, min(halfW, halfH))
+        )
         let fw = max(0, halfW - r), fh = max(0, halfH - r)
         let perim = 4 * fw + 4 * fh + 2 * CGFloat.pi * r
         let count = ringPips.count

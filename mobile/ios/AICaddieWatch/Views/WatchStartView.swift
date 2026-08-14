@@ -138,7 +138,7 @@ public struct WatchStartView: View {
             .padding(.top, 8)
             .padding(.bottom, 14)
         }
-        .ignoresSafeArea(edges: [.top, .leading, .trailing])
+        .ignoresSafeArea(edges: .top)
         .scrollIndicators(.hidden)
     }
 
@@ -293,7 +293,7 @@ public struct WatchStartView: View {
             .padding(.top, 8)
             .padding(.bottom, 14)
         }
-        .ignoresSafeArea(edges: [.top, .leading, .trailing])
+        .ignoresSafeArea(edges: .top)
         .scrollIndicators(.hidden)
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)

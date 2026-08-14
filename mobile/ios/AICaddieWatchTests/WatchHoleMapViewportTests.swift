@@ -2,6 +2,32 @@ import XCTest
 @testable import AICaddieWatch
 
 final class WatchHoleMapViewportTests: XCTestCase {
+    func testCriticalContentGuideFitsEverySupportedRoundedWatchFace() {
+        let faces = [
+            CGSize(width: 176, height: 215), // 41 mm
+            CGSize(width: 198, height: 242), // 45 mm
+            CGSize(width: 205, height: 251), // Ultra 49 mm
+        ]
+
+        for size in faces {
+            XCTAssertGreaterThan(size.height, size.width, "Watch display must be tested as a portrait rectangle")
+            let rect = WatchDisplayGeometry.contentRect(in: size)
+            XCTAssertGreaterThanOrEqual(rect.minX, WatchDisplayGeometry.minimumContentInset)
+            XCTAssertGreaterThanOrEqual(rect.minY, WatchDisplayGeometry.minimumContentInset)
+            for point in [
+                CGPoint(x: rect.minX, y: rect.minY),
+                CGPoint(x: rect.maxX, y: rect.minY),
+                CGPoint(x: rect.minX, y: rect.maxY),
+                CGPoint(x: rect.maxX, y: rect.maxY),
+            ] {
+                XCTAssertTrue(
+                    WatchDisplayGeometry.contains(point, in: size),
+                    "safe guide corner \(point) must remain visible on \(size)"
+                )
+            }
+        }
+    }
+
     func testEdgeBackGestureAcceptsAHorizontalSwipeFromTheLeftEdge() {
         XCTAssertTrue(WatchEdgeBackGesture.shouldTrigger(
             startX: 20,
@@ -80,7 +106,39 @@ final class WatchHoleMapViewportTests: XCTestCase {
         )
 
         XCTAssertGreaterThanOrEqual(pillRect.minX, dataColumnMaxX + 4)
-        XCTAssertLessThanOrEqual(pillRect.maxX, viewport.width - 4)
+        XCTAssertLessThanOrEqual(
+            pillRect.maxX,
+            WatchDisplayGeometry.contentRect(in: viewport).maxX
+        )
+    }
+
+    func testMapPillsStayInsideRoundedFaceGuideAtEveryViewportEdge() {
+        for viewport in [
+            CGSize(width: 176, height: 215),
+            CGSize(width: 198, height: 242),
+            CGSize(width: 205, height: 251),
+        ] {
+            let safeRect = WatchDisplayGeometry.contentRect(in: viewport)
+            let pillSize = CGSize(width: 68, height: 18)
+            for marker in [CGPoint.zero, CGPoint(x: viewport.width, y: viewport.height)] {
+                let center = WatchHoleMapViewport.distancePillCenter(
+                    marker: marker,
+                    pillSize: pillSize,
+                    viewportSize: viewport,
+                    preferredOffset: 20
+                )
+                let rect = CGRect(
+                    x: center.x - pillSize.width / 2,
+                    y: center.y - pillSize.height / 2,
+                    width: pillSize.width,
+                    height: pillSize.height
+                )
+                XCTAssertGreaterThanOrEqual(rect.minX, safeRect.minX)
+                XCTAssertLessThanOrEqual(rect.maxX, safeRect.maxX)
+                XCTAssertGreaterThanOrEqual(rect.minY, safeRect.minY)
+                XCTAssertLessThanOrEqual(rect.maxY, safeRect.maxY)
+            }
+        }
     }
 
     func testFullMapHazardLabelRetainsExplicitNearAndFarGrammar() {
@@ -169,6 +227,49 @@ final class WatchHoleMapViewportTests: XCTestCase {
         }
 
         XCTAssertGreaterThanOrEqual(separations.min() ?? 0, 0.03)
+    }
+
+    func testScoringRingStrokeFitsInsideEveryRoundedHardwareMask() {
+        for size in [
+            CGSize(width: 176, height: 215),
+            CGSize(width: 198, height: 242),
+            CGSize(width: 205, height: 251),
+        ] {
+            let inset: CGFloat = 6
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let halfW = size.width / 2 - inset
+            let halfH = size.height / 2 - inset
+            let corner = max(0, WatchDisplayGeometry.cornerRadius(for: size) - inset)
+            let flatW = max(0, halfW - corner)
+            let flatH = max(0, halfH - corner)
+            let perimeter = 4 * flatW + 4 * flatH + 2 * CGFloat.pi * corner
+
+            for sample in 0...120 {
+                let (point, _) = WatchHoleMapView.perimeterPointTangent(
+                    s: perimeter * CGFloat(sample) / 120,
+                    center: center,
+                    halfW: halfW,
+                    halfH: halfH,
+                    corner: corner
+                )
+                // The widest current-hole stroke is 5.5 pt, so a 3 pt disc around its centreline
+                // must remain inside the physical mask.
+                for angle in stride(
+                    from: CGFloat.zero,
+                    to: 2 * CGFloat.pi,
+                    by: CGFloat.pi / 4
+                ) {
+                    let strokePoint = CGPoint(
+                        x: point.x + cos(angle) * 3,
+                        y: point.y + sin(angle) * 3
+                    )
+                    XCTAssertTrue(
+                        WatchDisplayGeometry.contains(strokePoint, in: size, tolerance: 0.01),
+                        "ring stroke at \(strokePoint) must remain visible on \(size)"
+                    )
+                }
+            }
+        }
     }
 
     func testCompactRuntimeViewportFitsTheFlagWithoutChangingPlayerAnchor() {
