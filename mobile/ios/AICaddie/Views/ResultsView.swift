@@ -234,6 +234,12 @@ struct ResultsLandingContent: View {
                 Text(title).font(.subheadline.weight(.bold))
                 Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
+            // The two-column card contains deliberate whitespace between its title and chevron.
+            // Without an explicit shape SwiftUI exposes one accessibility "Button" whose visual
+            // bounds include that gap, but a tap in the gap can miss the NavigationLink entirely.
+            // Make the whole visible card content plane the link target.
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(.primary)

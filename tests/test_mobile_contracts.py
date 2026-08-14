@@ -3015,7 +3015,7 @@ class MobileContractTests(unittest.TestCase):
         round_edit_model = _read_required_source(self, IOS_DIR / "Models" / "RoundEditModel.swift")
         self.assertNotIn("map.map?.image != nil", round_edit_model)
         self.assertIn("shotMap.usesCourseDataFrame", shot_map_view)
-        self.assertIn("RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))", shot_map_view)
+        self.assertIn("bottomControlClearance: showsNavigationTitle ? 0 : 58", shot_map_view)
         self.assertIn("geometryRevision: shotMap.geometryRevision", shot_map_view)
         # Map-first review: one visible hole + compact navigation, zoomable map, and every passive
         # shot fact attached to its landing. Lists remain only in the edit/reorder surface.
@@ -3023,10 +3023,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func shotLieColor(", shot_map_view)
         self.assertIn("func shotLieLabel(", shot_map_view)
         self.assertIn("reviewFactOverlays(overlay: overlay)", shot_map_view)
-        self.assertIn('Text("推杆 ×\\(puttCount)")', shot_map_view)
+        self.assertIn('text: "推杆 ×\\(puttCount)"', shot_map_view)
         self.assertIn('Text("罚杆 +\\(shotMap.manualPenalty)")', shot_map_view)
         self.assertIn("with: .color(.white.opacity", shot_map_view)
-        self.assertIn(".background(Color.white.opacity(0.96), in: Capsule())", shot_map_view)
+        self.assertIn("reviewFactPlacements(in: proxy.size, overlay: overlay)", shot_map_view)
+        self.assertIn("let spacing: CGFloat = 28", shot_map_view)
         self.assertNotIn('facts.append("→\\(lie)")', shot_map_view)
         self.assertNotIn("shotLegendOverlay", shot_map_view)
         self.assertIn("RoundShotMapPagerScreen(", round_review)

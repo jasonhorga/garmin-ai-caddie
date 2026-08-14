@@ -1441,7 +1441,10 @@ final class RealFlowUITests: XCTestCase {
                 let predicate = NSPredicate(format: "label CONTAINS %@", fragment)
                 for query in [app.buttons, app.cells, app.staticTexts, app.otherElements] {
                     let match = query.matching(predicate).firstMatch
-                    if match.exists, match.isHittable { match.tap(); return true }
+                    // SwiftUI can report the bottom feature cards hittable while their last few
+                    // points still sit under the home-indicator lane. Bring the whole target into
+                    // the safe viewport before tapping the same card a player sees.
+                    if match.exists, scrollTo(match, maxSwipes: 1) { match.tap(); return true }
                 }
             }
             guard attempt < maxSwipes else { break }

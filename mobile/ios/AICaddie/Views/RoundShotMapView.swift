@@ -15,13 +15,18 @@ public struct RoundShotMapView: View {
     /// 非 nil = 编辑态:在同一投影帧上叠一层拖动手柄 + 点击加/改(见 RoundShotEditLayer)。
     public let editModel: RoundEditModel?
     public let editClubs: [String]
+    /// Read-only pagers float their hole controls over the map. Keep the zoom affordance above that
+    /// overlay; standalone maps leave this at zero.
+    public let bottomControlClearance: CGFloat
 
     public init(shotMap: RoundHoleShotMap, topoURL: URL? = nil,
-                editModel: RoundEditModel? = nil, editClubs: [String] = []) {
+                editModel: RoundEditModel? = nil, editClubs: [String] = [],
+                bottomControlClearance: CGFloat = 0) {
         self.shotMap = shotMap
         self.topoURL = topoURL
         self.editModel = editModel
         self.editClubs = editClubs
+        self.bottomControlClearance = bottomControlClearance
     }
 
     public var body: some View {
@@ -65,7 +70,8 @@ public struct RoundShotMapView: View {
                         .frame(width: 34, height: 34)
                         .background(.white.opacity(0.96), in: Circle())
                         .shadow(color: .black.opacity(0.22), radius: 3, y: 1)
-                        .padding(10)
+                        .padding(.trailing, 10)
+                        .padding(.bottom, 10 + bottomControlClearance)
                         .accessibilityLabel("双指缩放")
                 }
                 .background(Color(red: 0.10, green: 0.10, blue: 0.09))
@@ -115,32 +121,23 @@ public struct RoundShotMapView: View {
     /// not repeat the same shots underneath the map.
     private func reviewFactOverlays(overlay: CoursePrepOverlay) -> some View {
         GeometryReader { proxy in
+            let placements = reviewFactPlacements(in: proxy.size, overlay: overlay)
             ZStack {
-                ForEach(Array(nonPuttShots.enumerated()), id: \.element.id) { index, shot in
-                    if let end = mapPoint(shot.end, in: proxy.size, overlay: overlay),
-                       let text = shotOverlayText(shot, ppm: overlay.ppm) {
-                        Text(text)
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(Color.white.opacity(0.96), in: Capsule())
-                            .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
-                            .position(reviewLabelPoint(end, index: index, in: proxy.size))
-                            .accessibilityLabel(text)
-                    }
-                }
-                if puttCount > 0, let anchor = greenAnchor(in: proxy.size, overlay: overlay) {
-                    Text("推杆 ×\(puttCount)")
-                        .font(.system(size: 10, weight: .heavy))
+                ForEach(placements) { placement in
+                    Text(placement.text)
+                        .font(.system(size: 10, weight: placement.isPutt ? .heavy : .bold))
                         .foregroundStyle(.primary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(Color.white.opacity(0.94), in: Capsule())
-                        .position(reviewLabelPoint(anchor, index: nonPuttShots.count, in: proxy.size))
-                        .accessibilityIdentifier("round-map-putts")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .padding(.horizontal, placement.isPutt ? 8 : 7)
+                        .padding(.vertical, placement.isPutt ? 5 : 4)
+                        .background(Color.white.opacity(placement.isPutt ? 0.94 : 0.96), in: Capsule())
+                        .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+                        .position(placement.point)
+                        .accessibilityLabel(placement.text)
+                        .accessibilityIdentifier(
+                            placement.isPutt ? "round-map-putts" : "round-map-shot-\(placement.id)"
+                        )
                 }
                 if shotMap.manualPenalty > 0 {
                     Text("罚杆 +\(shotMap.manualPenalty)")
@@ -156,6 +153,68 @@ public struct RoundShotMapView: View {
             }
             .allowsHitTesting(false)
         }
+    }
+
+    private struct ReviewFactPlacement: Identifiable {
+        let id: String
+        let text: String
+        let lane: Int
+        let isPutt: Bool
+        var point: CGPoint
+    }
+
+    /// Keep labels close to their real landing while preventing two nearby shots (most often the
+    /// final approach and a short miss around the green) from drawing capsules on top of each other.
+    /// Resolve collisions independently on the left/right label lanes, then clamp inside the map.
+    private func reviewFactPlacements(in size: CGSize, overlay: CoursePrepOverlay) -> [ReviewFactPlacement] {
+        var placements: [ReviewFactPlacement] = []
+        for (index, shot) in nonPuttShots.enumerated() {
+            guard let anchor = mapPoint(shot.end, in: size, overlay: overlay),
+                  let text = shotOverlayText(shot, ppm: overlay.ppm) else { continue }
+            placements.append(
+                ReviewFactPlacement(
+                    id: shot.id,
+                    text: text,
+                    lane: anchor.x < size.width * 0.58 ? 0 : 1,
+                    isPutt: false,
+                    point: reviewLabelPoint(anchor, index: index, in: size)
+                )
+            )
+        }
+        if puttCount > 0, let anchor = greenAnchor(in: size, overlay: overlay) {
+            placements.append(
+                ReviewFactPlacement(
+                    id: "putts",
+                    text: "推杆 ×\(puttCount)",
+                    lane: anchor.x < size.width * 0.58 ? 0 : 1,
+                    isPutt: true,
+                    point: reviewLabelPoint(anchor, index: nonPuttShots.count, in: size)
+                )
+            )
+        }
+
+        let minimumY: CGFloat = 24
+        let maximumY = max(minimumY, size.height - 24)
+        let spacing: CGFloat = 28
+        for lane in 0...1 {
+            let indices = placements.indices
+                .filter { placements[$0].lane == lane }
+                .sorted { placements[$0].point.y < placements[$1].point.y }
+            var previousY = minimumY - spacing
+            for index in indices {
+                let resolved = min(max(placements[index].point.y, previousY + spacing), maximumY)
+                placements[index].point.y = resolved
+                previousY = resolved
+            }
+            guard let last = indices.last, placements[last].point.y >= maximumY else { continue }
+            var nextY = maximumY + spacing
+            for index in indices.reversed() {
+                let resolved = max(min(placements[index].point.y, nextY - spacing), minimumY)
+                placements[index].point.y = resolved
+                nextY = resolved
+            }
+        }
+        return placements
     }
 
     private var nonPuttShots: [RoundShot] {
@@ -675,7 +734,11 @@ public struct RoundHoleShotMapScreen: View {
             .padding(14)
         } else if let shotMap, shotMap.found, shotMap.map != nil {
             ZStack(alignment: .bottomLeading) {
-                RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))
+                RoundShotMapView(
+                    shotMap: shotMap,
+                    topoURL: topoURL(for: shotMap),
+                    bottomControlClearance: showsNavigationTitle ? 0 : 58
+                )
                 if let reason = shotMap.missingData.first?.reason {
                     Label(reason, systemImage: "arrow.clockwise.circle")
                         .font(.caption.weight(.semibold))
@@ -874,20 +937,22 @@ public struct RoundShotMapPagerScreen: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            downloadProgress
-            RoundHoleShotMapScreen(
-                roundRef: roundRef,
-                hole: current,
-                apiBaseURL: apiBaseURL,
-                adminToken: adminToken,
-                showsNavigationTitle: false,
-                onEditingChange: { editing in
-                    if editing { editingHoles.insert(current) } else { editingHoles.remove(current) }
-                },
-                mapRepository: mapRepository
-            )
-            .id("\(roundRef):\(current)")
+        RoundHoleShotMapScreen(
+            roundRef: roundRef,
+            hole: current,
+            apiBaseURL: apiBaseURL,
+            adminToken: adminToken,
+            showsNavigationTitle: false,
+            onEditingChange: { editing in
+                if editing { editingHoles.insert(current) } else { editingHoles.remove(current) }
+            },
+            mapRepository: mapRepository
+        )
+        .id("\(roundRef):\(current)")
+        .overlay(alignment: .topTrailing) {
+            if !isLocked { downloadProgress }
+        }
+        .overlay(alignment: .bottom) {
             if !isLocked { pagerControls }
         }
         .background(HubStyle.grouped)
@@ -920,22 +985,28 @@ public struct RoundShotMapPagerScreen: View {
         }
     }
 
-    private var downloadProgress: some View {
+    @ViewBuilder private var downloadProgress: some View {
         let cached = mapRepository.cachedCount(in: holes)
         let failed = mapRepository.failedCount(in: holes)
-        return HStack(spacing: 8) {
-            ProgressView(value: Double(cached), total: Double(max(holes.count, 1)))
-                .tint(LiveHoleStyle.green)
-            Text(failed > 0
-                ? "已缓存 \(cached)/\(holes.count) · \(failed) 洞待重试"
-                : "已缓存 \(cached)/\(holes.count)")
-                .font(.caption2.monospacedDigit().weight(.semibold))
-                .foregroundStyle(failed > 0 ? .orange : .secondary)
+        if cached < holes.count || failed > 0 {
+            HStack(spacing: 7) {
+                ProgressView(value: Double(cached), total: Double(max(holes.count, 1)))
+                    .tint(LiveHoleStyle.green)
+                    .frame(width: 52)
+                Text(failed > 0
+                    ? "\(cached)/\(holes.count) · \(failed) 待重试"
+                    : "缓存 \(cached)/\(holes.count)")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(failed > 0 ? .orange : .secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+            .shadow(color: .black.opacity(0.16), radius: 3, y: 1)
+            .padding(.top, 10)
+            .padding(.trailing, 12)
+            .accessibilityIdentifier("round-shot-map-download-progress")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 7)
-        .background(HubStyle.grouped)
-        .accessibilityIdentifier("round-shot-map-download-progress")
     }
 
     private var pagerControls: some View {
@@ -968,10 +1039,12 @@ public struct RoundShotMapPagerScreen: View {
             .disabled(nextHole == nil)
         }
         .font(.subheadline.weight(.semibold))
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 9)
         .padding(.vertical, 9)
-        .background(.background)
-        .overlay(alignment: .top) { Divider() }
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
     }
 }
 
