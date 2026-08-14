@@ -1260,14 +1260,19 @@ def mobile_course_package(
     if background_geometry and not ensure_geometry:
         requested: dict[int, set[int]] = {}
         ready: dict[int, set[int]] = {}
-        for hole in package.holes:
+        for index, hole in enumerate(package.holes):
             source_global_id = int(hole.get("sourceGlobalId") or package.course.get("globalId") or global_id)
             source_local_hole = int(hole.get("sourceLocalHole") or hole.get("number") or 0)
             if source_global_id > 0 and source_local_hole > 0:
+                # The first visible hole is the latency-critical authority. Revalidate it even when
+                # a lightweight package briefly classifies legacy bytes as ready while the refreshed
+                # Garmin release is being published. A genuinely current hole takes the cheap cached
+                # ensure path; a stale/unbound one cannot be stranded behind a topo-only prewarm.
                 target = (
-                    ready
-                    if str(hole.get("geometryCoverage") or "missing") == "ready"
-                    else requested
+                    requested
+                    if index == 0
+                    or str(hole.get("geometryCoverage") or "missing") != "ready"
+                    else ready
                 )
                 target.setdefault(source_global_id, set()).add(source_local_hole)
         if requested:

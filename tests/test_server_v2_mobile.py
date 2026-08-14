@@ -224,6 +224,84 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual([row["localHole"] for row in summary["results"]], [1, 2, 3, 4])
         self.assertEqual(summary["state"], "ready")
 
+    def test_course_geometry_ensure_keeps_only_a_two_job_window_in_the_shared_pool(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event, Lock, Thread
+
+        from ai_caddie.caddie import mobile_live
+
+        first_pair_started = Event()
+        release = Event()
+        state_lock = Lock()
+        active = 0
+        submitted = 0
+        completed = 0
+        maximum_outstanding = 0
+
+        class RecordingExecutor:
+            def __init__(self) -> None:
+                self.executor = ThreadPoolExecutor(max_workers=2)
+
+            def submit(self, function, *args):
+                nonlocal submitted, completed, maximum_outstanding
+                with state_lock:
+                    submitted += 1
+                    maximum_outstanding = max(maximum_outstanding, submitted - completed)
+
+                def wrapped():
+                    nonlocal completed
+                    try:
+                        return function(*args)
+                    finally:
+                        with state_lock:
+                            completed += 1
+
+                return self.executor.submit(wrapped)
+
+            def shutdown(self) -> None:
+                self.executor.shutdown(wait=True)
+
+        def ensure(global_id: int, local_hole: int) -> dict[str, object]:
+            nonlocal active
+            with state_lock:
+                active += 1
+                if active == 2:
+                    first_pair_started.set()
+            self.assertTrue(release.wait(timeout=5))
+            return {
+                "status": "downloaded",
+                "ok": True,
+                "globalId": global_id,
+                "localHole": local_hole,
+            }
+
+        executor = RecordingExecutor()
+        summary: list[dict[str, object]] = []
+
+        def run_download() -> None:
+            summary.append(mobile_live._ensure_geometry_for_course(31791, holes=list(range(1, 10))))
+
+        try:
+            with (
+                patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", side_effect=ensure),
+                patch.object(mobile_live, "_GEOMETRY_INSTALL_POOL", executor),
+                patch("ai_caddie.caddie.analysis.load_geometry.cache_clear"),
+                patch("ai_caddie.caddie.mobile_live._load_mobile_hazards.cache_clear"),
+            ):
+                worker = Thread(target=run_download)
+                worker.start()
+                self.assertTrue(first_pair_started.wait(timeout=5))
+                with state_lock:
+                    self.assertEqual(maximum_outstanding, 2)
+                release.set()
+                worker.join(timeout=10)
+                self.assertFalse(worker.is_alive())
+        finally:
+            release.set()
+            executor.shutdown()
+
+        self.assertEqual([row["localHole"] for row in summary[0]["results"]], list(range(1, 10)))
+
     def test_recent_history_hole_issue_label_is_chinese_from_token(self) -> None:
         # 复盘 holes 的 repeatedIssues label 必须中文(iOS 直接展示该字符串)。
         self.assertEqual(_hole_issue_label_zh({"issue": "approach_short", "count": 2}), "攻果岭偏短")
@@ -552,6 +630,45 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(len(tasks.tasks), 2)
         self.assertIs(tasks.tasks[0].func, server_main._upgrade_course_geometry)
         self.assertEqual(tasks.tasks[0].args, ({31796: [1], 31797: [1]},))
+        self.assertIs(tasks.tasks[1].func, server_main._prewarm_course_topo)
+        self.assertEqual(tasks.tasks[1].args, (31796, [2]))
+
+    def test_course_package_revalidates_first_playing_hole_even_when_marked_ready(self) -> None:
+        from server_v2 import main as server_main
+
+        package = SimpleNamespace(
+            course={"globalId": 31796},
+            holes=[
+                {
+                    "number": 1,
+                    "geometryCoverage": "ready",
+                    "sourceGlobalId": 31796,
+                    "sourceLocalHole": 1,
+                },
+                {
+                    "number": 2,
+                    "geometryCoverage": "ready",
+                    "sourceGlobalId": 31796,
+                    "sourceLocalHole": 2,
+                },
+            ],
+        )
+        tasks = BackgroundTasks()
+        with patch.object(
+            server_main,
+            "build_mobile_course_package_response",
+            return_value=package,
+        ):
+            server_main.mobile_course_package(
+                31796,
+                background_tasks=tasks,
+                background_geometry=True,
+                player_id="owner",
+            )
+
+        self.assertEqual(len(tasks.tasks), 2)
+        self.assertIs(tasks.tasks[0].func, server_main._upgrade_course_geometry)
+        self.assertEqual(tasks.tasks[0].args, ({31796: [1]},))
         self.assertIs(tasks.tasks[1].func, server_main._prewarm_course_topo)
         self.assertEqual(tasks.tasks[1].args, (31796, [2]))
 

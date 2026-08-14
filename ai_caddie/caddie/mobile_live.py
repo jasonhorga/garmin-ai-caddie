@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 import json
@@ -745,10 +745,34 @@ def _ensure_geometry_for_course(global_id: int, holes: list[int] | None = None) 
             result=result,
         )
 
-    # ``Future.result`` is consumed in request order, so the public summary remains deterministic
-    # even though the independent installs finish out of order.
-    futures = [_GEOMETRY_INSTALL_POOL.submit(ensure_one, local_hole) for local_hole in requested_holes]
-    results = [future.result() for future in futures]
+    # Do not enqueue an entire 18-hole course at once. The executor is process-wide, so the former
+    # eager submission let one background download put 18 jobs ahead of the first playing hole of
+    # every course selected afterwards. Keep only a two-job window per caller: completed jobs admit
+    # the next hole, while a newly selected course can place its first hole after at most that small
+    # window. Results are restored to request order so the public summary remains deterministic.
+    indexed_holes = list(enumerate(requested_holes))
+    iterator = iter(indexed_holes)
+    pending: dict[Any, int] = {}
+    results_by_index: dict[int, dict[str, Any]] = {}
+
+    for _ in range(min(2, len(indexed_holes))):
+        index, local_hole = next(iterator)
+        pending[_GEOMETRY_INSTALL_POOL.submit(ensure_one, local_hole)] = index
+
+    while pending:
+        completed, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
+        ordered_completed = sorted(completed, key=lambda future: pending[future])
+        for future in ordered_completed:
+            index = pending.pop(future)
+            results_by_index[index] = future.result()
+        for _ in ordered_completed:
+            try:
+                index, local_hole = next(iterator)
+            except StopIteration:
+                break
+            pending[_GEOMETRY_INSTALL_POOL.submit(ensure_one, local_hole)] = index
+
+    results = [results_by_index[index] for index in range(len(indexed_holes))]
     # Both loaders cache missing files. A first course download must be visible to the package
     # response and the next Tee read without requiring an app/server restart.
     from ai_caddie.caddie.analysis import load_geometry
