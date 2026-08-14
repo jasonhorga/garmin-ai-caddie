@@ -981,14 +981,15 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
 
   // Hole chips come from the prep payload (1/2/7); hole 1 is active by default
   // and carries the rendered map. Hole 7 has no geometry, so switching there
-  // degrades to the manual 到果岭 input; back on hole 1 the readout shows the
-  // ball on the tee (距T 0 · 到果岭 = full route length 393m).
+  // degrades to the manual 到果岭 input; back on hole 1 the map overlay shows
+  // the full tee-to-green distance for the blue player marker.
   await expect(page.getByRole('button', { name: '第1洞' })).toHaveAttribute('aria-current', 'true')
   await page.getByRole('button', { name: '第7洞' }).click()
   await expect(page.getByLabel('到果岭(码)')).toBeVisible()
   await page.getByRole('button', { name: '第1洞' }).click()
-  // 393m * 1.09361 = 430.09 → 430码
-  await expect(page.getByText('距T 0码 · 到果岭 430码')).toBeVisible()
+  // 393m * 1.09361 = 430.09 → 430码. The old text strip is deliberately gone;
+  // distance is now one Garmin-style map overlay.
+  await expect(page.locator('.live-sandbox-map-distance')).toContainText('430码')
   await assertNoViewportOverflow(page)
 
   // Tee shots take no lie; switching 击球类型 to 攻果岭 (ball still on the
