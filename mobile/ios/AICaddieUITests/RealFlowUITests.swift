@@ -769,7 +769,17 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(scrollTo(scorecard, maxSwipes: 8), "scorecard must remain available after historical save")
         scorecard.tap()
         XCTAssertTrue(app.staticTexts["本场计分卡"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["当前"].exists, "scorecard must still mark hole 2 as the playing hole")
+        XCTAssertTrue(
+            app.staticTexts["当前正在记录"].exists,
+            "scorecard must still describe its selected hole as the active playing hole"
+        )
+        let goToCurrentHole = app.buttons["live-scorecard-go-hole"]
+        XCTAssertTrue(goToCurrentHole.exists)
+        XCTAssertEqual(goToCurrentHole.label, "去第 2 洞")
+        XCTAssertFalse(
+            goToCurrentHole.isEnabled,
+            "saving a historical score edit must keep hole 2 active, so going to hole 2 remains disabled"
+        )
         XCTAssertTrue(app.descendants(matching: .any)["live-scorecard-hole-index-1"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["live-scorecard-score-chip-1"].exists)
         settle(1); save("17-scorecard-after-edit"); dump("17-scorecard-after-edit")
