@@ -169,6 +169,37 @@ final class RealFlowUITests: XCTestCase {
                             app.staticTexts["逐杆"].exists,
                             "a drawable Garmin-style shot map must keep shot facts on the map, not repeat a list below it"
                         )
+                        let layerControl = app.buttons["round-map-layer"]
+                        let fitControl = app.buttons["round-map-fit"]
+                        let zoomControl = app.buttons["round-map-zoom"]
+                        XCTAssertTrue(
+                            layerControl.waitForExistence(timeout: 5) && layerControl.isHittable,
+                            "the Garmin-style review map must expose its layer menu on the map"
+                        )
+                        XCTAssertTrue(
+                            fitControl.waitForExistence(timeout: 5) && fitControl.isHittable,
+                            "the review map must expose a one-tap full-hole reset"
+                        )
+                        XCTAssertTrue(
+                            zoomControl.waitForExistence(timeout: 5) && zoomControl.isHittable,
+                            "the visible zoom affordance must be a real button"
+                        )
+                        zoomControl.tap()
+                        let zoomedControl = app.buttons.matching(
+                            NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "round-map-zoom", "缩小")
+                        ).firstMatch
+                        XCTAssertTrue(
+                            zoomedControl.waitForExistence(timeout: 3),
+                            "tapping the zoom button must change the live viewport state"
+                        )
+                        fitControl.tap()
+                        let resetZoomControl = app.buttons.matching(
+                            NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "round-map-zoom", "放大")
+                        ).firstMatch
+                        XCTAssertTrue(
+                            resetZoomControl.waitForExistence(timeout: 3),
+                            "full-hole reset must restore the fitted viewport before capture"
+                        )
                         settle(2); save("04b-shot-map"); dump("04b-shot-map")
                     }
                     XCTAssertTrue(

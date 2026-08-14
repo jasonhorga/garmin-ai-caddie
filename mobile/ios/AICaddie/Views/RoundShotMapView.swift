@@ -19,6 +19,11 @@ public struct RoundShotMapView: View {
     /// overlay; standalone maps leave this at zero.
     public let bottomControlClearance: CGFloat
 
+    /// Garmin keeps map tools on the map itself. The realistic topo remains the default, while a
+    /// factual flat render is available as a second layer when both assets exist.
+    @State private var showsTopoLayer = true
+    @State private var showsShotFacts = true
+
     public init(shotMap: RoundHoleShotMap, topoURL: URL? = nil,
                 editModel: RoundEditModel? = nil, editClubs: [String] = [],
                 bottomControlClearance: CGFloat = 0) {
@@ -53,27 +58,27 @@ public struct RoundShotMapView: View {
                 .overlay(alignment: .topLeading) { holeTag }
                 .mapSurface()
             } else {
-                ZoomableRoundMapViewport(aspectRatio: ratio) {
+                ZoomableRoundMapViewport(
+                    aspectRatio: ratio,
+                    supportsBaseLayerToggle: topoURL != nil && decodedImage != nil,
+                    showsTopoLayer: $showsTopoLayer,
+                    showsShotFacts: $showsShotFacts,
+                    bottomControlClearance: bottomControlClearance
+                ) {
                     ZStack {
-                        TopoHoleBaseImage(topoURL: topoURL, fallback: decodedImage)
+                        TopoHoleBaseImage(
+                            topoURL: showsTopoLayer ? topoURL : nil,
+                            fallback: decodedImage
+                        )
                         Canvas { context, size in
                             draw(&context, size: size, overlay: overlay)
                         }
-                        reviewFactOverlays(overlay: overlay)
+                        if showsShotFacts {
+                            reviewFactOverlays(overlay: overlay)
+                        }
                     }
                 }
                 .overlay(alignment: .topLeading) { holeTag }
-                .overlay(alignment: .bottomTrailing) {
-                    Image(systemName: "plus.magnifyingglass")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.black)
-                        .frame(width: 34, height: 34)
-                        .background(.white.opacity(0.96), in: Circle())
-                        .shadow(color: .black.opacity(0.22), radius: 3, y: 1)
-                        .padding(.trailing, 10)
-                        .padding(.bottom, 10 + bottomControlClearance)
-                        .accessibilityLabel("双指缩放")
-                }
                 .background(Color(red: 0.10, green: 0.10, blue: 0.09))
                 .clipped()
             }
@@ -266,6 +271,10 @@ public struct RoundShotMapView: View {
 /// unscaled coordinate plane so its landing-point drag gestures remain pixel-authoritative.
 private struct ZoomableRoundMapViewport<Content: View>: View {
     let aspectRatio: CGFloat
+    let supportsBaseLayerToggle: Bool
+    @Binding var showsTopoLayer: Bool
+    @Binding var showsShotFacts: Bool
+    let bottomControlClearance: CGFloat
     let content: Content
 
     @State private var scale: CGFloat = 1
@@ -277,8 +286,19 @@ private struct ZoomableRoundMapViewport<Content: View>: View {
         min(max(scale * pinchScale, 1), 4)
     }
 
-    init(aspectRatio: CGFloat, @ViewBuilder content: () -> Content) {
+    init(
+        aspectRatio: CGFloat,
+        supportsBaseLayerToggle: Bool,
+        showsTopoLayer: Binding<Bool>,
+        showsShotFacts: Binding<Bool>,
+        bottomControlClearance: CGFloat,
+        @ViewBuilder content: () -> Content
+    ) {
         self.aspectRatio = aspectRatio
+        self.supportsBaseLayerToggle = supportsBaseLayerToggle
+        _showsTopoLayer = showsTopoLayer
+        _showsShotFacts = showsShotFacts
+        self.bottomControlClearance = bottomControlClearance
         self.content = content()
     }
 
@@ -289,33 +309,108 @@ private struct ZoomableRoundMapViewport<Content: View>: View {
                 width: offset.width + dragOffset.width,
                 height: offset.height + dragOffset.height
             )
-            content
-                .frame(width: size.width, height: size.height)
-                .scaleEffect(displayedScale)
-                .offset(clamped(proposedOffset, in: size, scale: displayedScale))
-                .contentShape(Rectangle())
-                .gesture(magnifyGesture(in: size))
-                // At 1× the pager owns horizontal drags (change hole). Once zoomed, the map owns
-                // them with higher priority so panning never accidentally jumps to another hole.
-                .highPriorityGesture(
-                    panGesture(in: size),
-                    including: displayedScale > 1.01 ? .all : .none
-                )
-                .onTapGesture(count: 2) {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        if scale > 1.05 {
-                            scale = 1
-                            offset = .zero
-                        } else {
-                            scale = 2.5
-                            offset = .zero
+            ZStack {
+                content
+                    .frame(width: size.width, height: size.height)
+                    .scaleEffect(displayedScale)
+                    .offset(clamped(proposedOffset, in: size, scale: displayedScale))
+                    .contentShape(Rectangle())
+                    .gesture(magnifyGesture(in: size))
+                    // At 1× the pager owns horizontal drags (change hole). Once zoomed, the map owns
+                    // them with higher priority so panning never accidentally jumps to another hole.
+                    .highPriorityGesture(
+                        panGesture(in: size),
+                        including: displayedScale > 1.01 ? .all : .none
+                    )
+                    .onTapGesture(count: 2) { toggleZoom() }
+                    .accessibilityHint("双指缩放，放大后拖动；双击可快速放大或还原")
+
+                VStack(spacing: 9) {
+                    Menu {
+                        Button {
+                            showsShotFacts.toggle()
+                        } label: {
+                            Label(
+                                showsShotFacts ? "隐藏逐杆标签" : "显示逐杆标签",
+                                systemImage: showsShotFacts ? "checkmark.circle.fill" : "circle"
+                            )
                         }
+                        if supportsBaseLayerToggle {
+                            Button {
+                                showsTopoLayer.toggle()
+                            } label: {
+                                Label(
+                                    showsTopoLayer ? "切换到简洁球道图" : "切换到真实地形图",
+                                    systemImage: "map"
+                                )
+                            }
+                        }
+                    } label: {
+                        mapControlIcon(system: "square.3.layers.3d")
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("地图图层")
+                    .accessibilityIdentifier("round-map-layer")
+                    mapControl(
+                        system: "scope",
+                        label: "回到全洞",
+                        identifier: "round-map-fit"
+                    ) { resetViewport() }
+                    mapControl(
+                        system: scale > 1.05 ? "minus.magnifyingglass" : "plus.magnifyingglass",
+                        label: scale > 1.05 ? "缩小到全洞" : "放大地图",
+                        identifier: "round-map-zoom"
+                    ) { toggleZoom() }
                 }
-                .accessibilityHint("双指缩放，放大后拖动；双击可快速放大或还原")
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .padding(.trailing, 10)
+                .padding(.bottom, bottomControlClearance * 0.35)
+            }
         }
         .aspectRatio(aspectRatio, contentMode: .fit)
         .clipped()
+    }
+
+    private func mapControl(
+        system: String,
+        label: String,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            mapControlIcon(system: system)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func mapControlIcon(system: String) -> some View {
+        Image(systemName: system)
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(.black)
+            .frame(width: 42, height: 42)
+            .background(Color.white.opacity(0.96), in: Circle())
+            .shadow(color: .black.opacity(0.24), radius: 4, y: 2)
+    }
+
+    private func resetViewport() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            scale = 1
+            offset = .zero
+        }
+    }
+
+    private func toggleZoom() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if scale > 1.05 {
+                scale = 1
+                offset = .zero
+            } else {
+                scale = 2.5
+                offset = .zero
+            }
+        }
     }
 
     private func magnifyGesture(in size: CGSize) -> some Gesture {
@@ -992,16 +1087,16 @@ public struct RoundShotMapPagerScreen: View {
             HStack(spacing: 7) {
                 ProgressView(value: Double(cached), total: Double(max(holes.count, 1)))
                     .tint(LiveHoleStyle.green)
-                    .frame(width: 52)
+                    .frame(width: 42)
                 Text(failed > 0
                     ? "\(cached)/\(holes.count) · \(failed) 待重试"
                     : "缓存 \(cached)/\(holes.count)")
                     .font(.caption2.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(failed > 0 ? .orange : .secondary)
+                    .foregroundStyle(failed > 0 ? Color.orange : Color.white)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(.ultraThinMaterial, in: Capsule())
+            .background(Color.black.opacity(0.70), in: Capsule())
             .shadow(color: .black.opacity(0.16), radius: 3, y: 1)
             .padding(.top, 10)
             .padding(.trailing, 12)
@@ -1039,9 +1134,11 @@ public struct RoundShotMapPagerScreen: View {
             .disabled(nextHole == nil)
         }
         .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.black)
+        .tint(.black)
         .padding(.horizontal, 9)
         .padding(.vertical, 9)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.2), radius: 5, y: 2)
         .padding(.horizontal, 12)
         .padding(.bottom, 10)

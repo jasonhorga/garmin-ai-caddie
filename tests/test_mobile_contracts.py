@@ -3033,6 +3033,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("RoundShotMapPagerScreen(", round_review)
         self.assertIn("MagnificationGesture()", shot_map_view)
         self.assertIn("displayedScale > 1.01 ? .all : .none", shot_map_view)
+        self.assertIn('.accessibilityIdentifier("round-map-layer")', shot_map_view)
+        self.assertIn('identifier: "round-map-fit"', shot_map_view)
+        self.assertIn('identifier: "round-map-zoom"', shot_map_view)
+        self.assertIn("showsShotFacts.toggle()", shot_map_view)
+        self.assertIn("private func toggleZoom()", shot_map_view)
+        self.assertNotIn('Image(systemName: "plus.magnifyingglass")', shot_map_view)
         self.assertIn("final class RoundShotMapRepository", shot_map_view)
         self.assertIn("await mapRepository.prefetch(holes", shot_map_view)
         # The pager owns progressive all-hole warming. The summary hands it the shared repository
