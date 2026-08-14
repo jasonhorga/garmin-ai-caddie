@@ -504,8 +504,12 @@ final class DesignSnapshotTests: XCTestCase {
         "outcomeDistribution":[{"key":"eagleOrBetter","label":"Eagle+","count":1,"pct":0.5},{"key":"birdie","label":"Birdie","count":40,"pct":6.5},{"key":"par","label":"Par","count":300,"pct":43.5},{"key":"bogey","label":"Bogey","count":250,"pct":35.2},{"key":"double","label":"Double","count":70,"pct":10.2},{"key":"triple","label":"Triple","count":20,"pct":2.8},{"key":"quadPlus","label":"+4 or worse","count":10,"pct":1.4}],\
         "scoreBands":[{"label":"80s","count":42},{"label":"90s","count":171},{"label":"100+","count":93}],\
         "byPar":[{"par":3,"averageToPar":0.62,"parOrBetterPct":38},{"par":4,"averageToPar":0.44,"parOrBetterPct":42},{"par":5,"averageToPar":0.21,"parOrBetterPct":55},{"par":6,"averageToPar":1.1,"parOrBetterPct":10}],\
-        "phaseStats":[{"phase":"Tee","fairwaysRecorded":180,"fairwaysHit":102,"fairwayMissLeft":46,"fairwayMissRight":32},{"phase":"Approach","girRecorded":300,"gir":99,"girPct":33},{"phase":"Putting","averagePutts":1.9,"threePutts":40}],\
+        "phaseStats":[{"phase":"Tee","fairwaysRecorded":180,"fairwaysHit":102,"fairwayMissLeft":46,"fairwayMissRight":32,"coverage":{"ready":180,"total":240,"pct":75}},\
+        {"phase":"Approach","girRecorded":300,"gir":99,"missedGir":201,"girPct":33,"coverage":{"ready":300,"total":360,"pct":83.3}},\
+        {"phase":"Short Game","roughOrBunkerShots":74,"coverage":{"ready":74,"total":520,"pct":14.2}},\
+        {"phase":"Putting","totalPutts":3900,"holesWithPutts":2160,"averagePutts":1.9,"threePutts":240,"coverage":{"ready":2160,"total":2400,"pct":90}}],\
         "teeDirection":{"recorded":180,"hit":102,"left":46,"right":32,"hitPct":57,"dominantMiss":"left"},\
+        "approachMiss":{"recorded":300,"gir":99,"missed":201,"short":82,"long":31,"left":51,"right":37,"girPct":33,"dominantMiss":"short"},\
         "putting":{"averagePutts":1.9,"averagePuttsPerRound":32.5,"roundsWithPutts":120,"threePutts":240}},\
         "time":{"byQuarter":[{"key":"2026-Q2","roundCount":12,"average18":92.4,"bestScore":84,"outcomes":{"birdie":14,"doubleOrWorse":31}}]},\
         "courses":[{"courseKey":"bk","courseName":"北京天竺黑骑士","roundCount":128,"average18":91.0,"bestScore":82,"worstScore":99,\
@@ -518,6 +522,17 @@ final class DesignSnapshotTests: XCTestCase {
         "diagnosis":{"topIssue":"double_or_worse","issueTrends":[{"issue":"tee_miss","direction":"worsening","estimatedStrokesLost":1.2},{"issue":"three_putt","direction":"improving","estimatedStrokesLost":-0.6}]}}
         """
         let mobileStats = try JSONDecoder().decode(MobileStats.self, from: Data(statsJSON.utf8))
+        let archiveJSON = """
+        {"total":423,"groups":[{"key":"2026-06","label":"2026 年 6 月","count":3,"average18":88.7,"bestScore":86,"rounds":[
+        {"id":"r-901","date":"2026-06-11","courseName":"北京天竺黑骑士球员俱乐部 ~ C/A","holesCompleted":18,"score":89,"par":72,"toPar":17,"scoreStrip":[
+        {"hole":1,"score":5,"par":4,"toPar":1},{"hole":2,"score":3,"par":3,"toPar":0},{"hole":3,"score":4,"par":5,"toPar":-1},{"hole":4,"score":6,"par":4,"toPar":2},{"hole":5,"score":4,"par":4,"toPar":0}]},
+        {"id":"r-880","date":"2026-05-28","courseName":"北京北湖九号国际高尔夫俱乐部","holesCompleted":18,"score":86,"par":72,"toPar":14,"scoreStrip":[
+        {"hole":1,"score":4,"par":4,"toPar":0},{"hole":2,"score":4,"par":3,"toPar":1},{"hole":3,"score":5,"par":5,"toPar":0}]},
+        {"id":"r-855","date":"2026-05-12","courseName":"Cypress Point Club","holesCompleted":18,"score":91,"par":72,"toPar":19,"scoreStrip":[
+        {"hole":1,"score":5,"par":4,"toPar":1},{"hole":2,"score":3,"par":3,"toPar":0},{"hole":3,"score":6,"par":5,"toPar":1}]}]}],
+        "availableYears":["2026"],"availableCourses":[]}
+        """
+        let historyArchive = try JSONDecoder().decode(HistoryRoundsArchive.self, from: Data(archiveJSON.utf8))
         try captureScreen(
             NavigationStack {
                 ScrollView {
@@ -531,7 +546,7 @@ final class DesignSnapshotTests: XCTestCase {
         try captureScreen(
             NavigationStack {
                 ScrollView {
-                    ResultsLandingContent(stats: mobileStats, archive: nil, errorText: nil)
+                    ResultsLandingContent(stats: mobileStats, archive: historyArchive, errorText: nil)
                 }
                 .background(HubStyle.grouped)
                 .navigationTitle("成绩")
@@ -543,7 +558,7 @@ final class DesignSnapshotTests: XCTestCase {
                 ScrollView {
                     StatsContent(stats: mobileStats, isLoading: false, errorText: nil, mode: .analysis)
                 }
-                .background(HubStyle.grouped)
+                .background(Color.white)
                 .navigationTitle("表现分析")
             },
             named: "results-analysis"
@@ -613,9 +628,11 @@ final class DesignSnapshotTests: XCTestCase {
         """
         let shotMap = try JSONDecoder().decode(RoundHoleShotMap.self, from: Data(shotMapJSON.utf8))
         try captureScreen(
-            RoundShotMapView(shotMap: shotMap).frame(height: 520)
-                .padding(24)
-                .background(HubStyle.grouped),
+            VStack(spacing: 0) {
+                RoundShotMapView(shotMap: shotMap)
+                Spacer(minLength: 0)
+            }
+            .background(Color(red: 0.10, green: 0.10, blue: 0.09)),
             named: "round-shot-map"
         )
 

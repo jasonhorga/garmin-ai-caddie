@@ -72,10 +72,11 @@ struct ResultsLandingContent: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            if let summary = stats?.summary { careerCard(summary) }
-            if let summary = stats?.summary { recentCard(summary, points: stats?.trend?.points ?? []) }
             recentRoundsCard
-            destinationsCard
+            if let summary = stats?.summary { recentCard(summary, points: stats?.trend?.points ?? []) }
+            quickDestinations
+            if let summary = stats?.summary { careerCard(summary) }
+            libraryDestinations
             if let errorText, stats != nil || archive != nil {
                 Label(errorText, systemImage: "exclamationmark.circle")
                     .font(.caption)
@@ -147,9 +148,9 @@ struct ResultsLandingContent: View {
     @ViewBuilder private var recentRoundsCard: some View {
         let rounds = archive?.groups.flatMap(\.rounds) ?? []
         if !rounds.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("最近球局").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                    Text("球局活动").font(.title3.weight(.bold))
                     Spacer()
                     NavigationLink("全部 \(archive?.total ?? rounds.count) 场 ›") {
                         ResultsArchiveView(apiBaseURL: apiBaseURL, adminToken: adminToken, initialArchive: archive)
@@ -160,26 +161,30 @@ struct ResultsLandingContent: View {
                     NavigationLink {
                         RoundReviewView(roundRef: round.id, fallbackCourseName: round.courseName,
                                         apiBaseURL: apiBaseURL, adminToken: adminToken)
-                    } label: { ResultsRoundRow(round: round, showsScoreStrip: false) }
-                    .buttonStyle(.plain).foregroundStyle(.primary)
+                    } label: { ResultsRoundRow(round: round, showsScoreStrip: true) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.primary)
+                    .hubCard(padding: 14)
                 }
             }
-            .hubCard()
         }
     }
 
-    private var destinationsCard: some View {
-        VStack(spacing: 0) {
-            resultDestination("全部球局", "搜索 · 年份 · 球场 · 逐杆数据", "clock.arrow.circlepath") {
+    private var quickDestinations: some View {
+        HStack(spacing: 10) {
+            resultFeatureDestination("表现分析", "四阶段空间分析", "scope") {
+                StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken, mode: .analysis)
+            }
+            resultFeatureDestination("全部球局", "搜索 · 年份 · 球场", "clock.arrow.circlepath") {
                 ResultsArchiveView(apiBaseURL: apiBaseURL, adminToken: adminToken, initialArchive: archive)
             }
-            Divider()
+        }
+    }
+
+    private var libraryDestinations: some View {
+        VStack(spacing: 0) {
             resultDestination("时间趋势", "近 10 / 20 场 · 年 · 季 · 月 · 频率", "chart.xyaxis.line") {
                 ResultsTrendView(apiBaseURL: apiBaseURL, adminToken: adminToken)
-            }
-            Divider()
-            resultDestination("表现分析", "开球 · 攻果岭 · 推杆 · 成绩分布", "scope") {
-                StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken, mode: .analysis)
             }
             Divider()
             resultDestination("球场", "\(stats?.courses.count ?? 0) 个球场 · 九洞组合", "map") {
@@ -210,6 +215,29 @@ struct ResultsLandingContent: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain).foregroundStyle(.primary)
+    }
+
+    private func resultFeatureDestination<Destination: View>(
+        _ title: String, _ detail: String, _ icon: String, @ViewBuilder destination: () -> Destination
+    ) -> some View {
+        NavigationLink(destination: destination()) {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack {
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(LiveHoleStyle.green)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.tertiary)
+                }
+                Text(title).font(.subheadline.weight(.bold))
+                Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .hubCard(padding: 13)
     }
 
     private func resultKPI(_ label: String, _ value: String) -> some View {
@@ -396,19 +424,35 @@ struct ResultsRoundRow: View {
     let round: HistoryRoundCard
     let showsScoreStrip: Bool
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 5) {
+                Image(systemName: "figure.golf")
+                Text("高尔夫")
+                Spacer()
+                Text(shortDate(round.date))
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(round.courseName).font(.subheadline.weight(.bold)).lineLimit(1)
-                    Text([shortDate(round.date), round.holesCompleted.map { "\($0) 洞" }, round.par.map { "Par \($0)" }]
+                    Text(round.courseName)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(2)
+                    Text([round.holesCompleted.map { "\($0) 洞" }, round.par.map { "Par \($0)" },
+                          round.source == "manual" ? "手动记录" : nil]
                         .compactMap { $0 }.joined(separator: " · "))
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if round.source == "manual" { Text("手动").font(.caption2).foregroundStyle(.secondary) }
-                Text(round.score.map(String.init) ?? "—").font(.title3.monospacedDigit().weight(.heavy))
-                Text(toParText(round.toPar)).font(.caption.monospacedDigit().weight(.bold))
-                    .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: round.toPar))
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(round.score.map(String.init) ?? "—")
+                        .font(.system(size: 31, weight: .regular))
+                        .monospacedDigit()
+                    Text(toParText(round.toPar))
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: round.toPar))
+                }
             }
             if showsScoreStrip && !round.scoreStrip.isEmpty {
                 HStack(spacing: 2) {
@@ -419,7 +463,8 @@ struct ResultsRoundRow: View {
                     }
                 }
             }
-        }.padding(.vertical, 7).contentShape(Rectangle())
+        }
+        .contentShape(Rectangle())
     }
 }
 

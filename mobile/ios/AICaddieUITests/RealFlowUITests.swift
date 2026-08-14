@@ -109,12 +109,10 @@ final class RealFlowUITests: XCTestCase {
                 settle(8)
                 // Match the approved edit render with a real Garmin hole whose recorded positions
                 // are spatially separated and retain their actual clubs.
-                let reviewTitle = app.staticTexts["单场复盘"]
-                XCTAssertTrue(reviewTitle.waitForExistence(timeout: 5))
-                XCTAssertGreaterThan(
-                    reviewTitle.frame.height,
-                    30,
-                    "the approved review uses a large navigation title, not a centred inline title"
+                let reviewNavigation = app.navigationBars["单场复盘"]
+                XCTAssertTrue(
+                    reviewNavigation.waitForExistence(timeout: 5),
+                    "the Garmin-style review must expose its compact navigation title"
                 )
                 // A normally visible archive row is pushed from “全部球局”. If the verified
                 // Garmin evidence row is outside the bounded archive scan, openEvidenceRound uses

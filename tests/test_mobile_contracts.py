@@ -3048,7 +3048,7 @@ class MobileContractTests(unittest.TestCase):
             '.fetchMobileStats(window: mode == .analysis ? window : "all")',
             stats_view,
         )
-        self.assertIn('resultDestination("表现分析"', results_view)
+        self.assertIn('resultFeatureDestination("表现分析"', results_view)
         self.assertIn(
             "StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken, mode: .analysis)",
             results_view,
@@ -3249,7 +3249,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn(".navigationBarTitleDisplayMode(.inline)", recent_review)
         self.assertIn(".toolbarRole(.editor)", recent_review)
         self.assertNotIn(".navigationBarBackButtonDisplayMode", recent_review)
-        self.assertIn(".navigationBarTitleDisplayMode(.large)", round_review)
+        self.assertIn(".navigationBarTitleDisplayMode(.inline)", round_review)
         self.assertNotIn(".navigationBarBackButtonDisplayMode", round_review)
         self.assertIn('isLocked ? "第 \\(current) 洞 · 编辑中" : "第 \\(current) 洞 · 落点"', shot_map)
         self.assertIn('Label("上一洞", systemImage: "chevron.backward")', shot_map)

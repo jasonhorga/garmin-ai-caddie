@@ -67,7 +67,8 @@ public struct RoundShotMapView: View {
                         .padding(10)
                         .accessibilityLabel("双指缩放")
                 }
-                .mapSurface()
+                .background(Color(red: 0.10, green: 0.10, blue: 0.09))
+                .clipped()
             }
         }
         #endif
@@ -618,7 +619,9 @@ public struct RoundHoleShotMapScreen: View {
                     .accessibilityIdentifier(isEditing ? "round-shot-edit-scroll" : "round-shot-read-scroll")
             }
         }
-        .background(HubStyle.grouped)
+        .background(!isEditing && shotMap?.map != nil
+                    ? Color(red: 0.10, green: 0.10, blue: 0.09)
+                    : HubStyle.grouped)
         .navigationTitle(showsNavigationTitle ? "第 \(hole) 洞 · 落点" : "")
         .toolbar {
             if let sm = shotMap, sm.found, editModel != nil {
@@ -672,17 +675,20 @@ public struct RoundHoleShotMapScreen: View {
             .allowsHitTesting(!isSaving)
             .padding(14)
         } else if let shotMap, shotMap.found, shotMap.map != nil {
-            VStack(spacing: 12) {
+            ZStack(alignment: .bottomLeading) {
                 RoundShotMapView(shotMap: shotMap, topoURL: topoURL(for: shotMap))
                 if let reason = shotMap.missingData.first?.reason {
                     Label(reason, systemImage: "arrow.clockwise.circle")
-                        .font(.subheadline)
-                        .foregroundStyle(.orange)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .hubCard()
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 10))
+                        .padding(10)
                 }
             }
-            .padding(14)
+            .frame(maxWidth: .infinity)
         } else if let shotMap, shotMap.found, !shotMap.shots.isEmpty {
             VStack(spacing: 12) {
                 Label(

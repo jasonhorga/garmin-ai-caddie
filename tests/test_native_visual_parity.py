@@ -16,7 +16,9 @@ class NativeVisualParityTests(unittest.TestCase):
         for source in (real_flow, review_edit, tee_selection):
             self.assertIn("continueAfterFailure = false", source)
             self.assertNotIn("continueAfterFailure = true", source)
-        self.assertIn('let enteredHistory = tapContaining(["成绩", "球局 · 统计"])', real_flow)
+        self.assertIn('let openedResults = tapContaining(["成绩", "球局 · 统计"])', real_flow)
+        self.assertIn("let resultsReady = openedResults", real_flow)
+        self.assertIn("let enteredHistory = resultsReady", real_flow)
         self.assertIn('&& scrollAndTapContaining(["全部球局", "搜索 · 年份"])', real_flow)
         self.assertIn(
             'XCTAssertTrue(enteredHistory, "the real home must expose 成绩 and its complete archive")',

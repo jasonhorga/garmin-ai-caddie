@@ -47,7 +47,7 @@ public struct RoundReviewView: View {
         }
         .background(HubStyle.grouped)
         .navigationTitle("单场复盘")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .task(id: roundRef) {
             await load()
         }
@@ -123,12 +123,12 @@ struct RoundReviewContent: View {
         VStack(alignment: .leading, spacing: 12) {
             if let detail, detail.found {
                 summaryCard(detail)
+                if !detail.scorecard.isEmpty {
+                    scorecardGrid(detail.scorecard)
+                }
                 let metrics = reviewMetrics(detail)
                 if !metrics.isEmpty {
                     metricGrid(metrics)
-                }
-                if !detail.scorecard.isEmpty {
-                    scorecardGrid(detail.scorecard)
                 }
                 if !detail.missingData.isEmpty {
                     missingCard(detail.missingData)
