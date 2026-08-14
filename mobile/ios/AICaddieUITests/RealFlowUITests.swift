@@ -968,6 +968,31 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(waitUntilEnabled(nearby, timeout: 20), "simulated GPS must enable nearby discovery")
         nearby.tap()
 
+        // Do not start scrolling the lazy result List while the provider request is still in
+        // flight.  If the first swipes happen against the empty state, a top-ranked row can be
+        // inserted above the current viewport and never enter XCUITest's accessibility tree; the
+        // generic scroll helper would then keep moving down forever.  Observe both edges of the
+        // real loading state so an already-enabled pre-tap button cannot satisfy the completion
+        // gate by accident.
+        let nearbyStarted = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@ AND enabled == false", "正在查找"),
+            object: nearby
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [nearbyStarted], timeout: 5),
+            .completed,
+            "nearby discovery must expose its in-flight state before result navigation"
+        )
+        let nearbyFinished = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@ AND enabled == true", "查看附近球场"),
+            object: nearby
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [nearbyFinished], timeout: 90),
+            .completed,
+            "nearby discovery must finish before the lazy result list is scrolled"
+        )
+
         let result = app.buttons["course-catalog-result-\(evidence.globalId)"]
         XCTAssertTrue(
             scrollTo(result, maxSwipes: 60),
