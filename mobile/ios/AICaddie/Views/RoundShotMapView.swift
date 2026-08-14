@@ -61,9 +61,10 @@ public struct RoundShotMapView: View {
                 .overlay(alignment: .bottomTrailing) {
                     Image(systemName: "plus.magnifyingglass")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.black)
                         .frame(width: 34, height: 34)
-                        .background(.black.opacity(0.62), in: Circle())
+                        .background(.white.opacity(0.96), in: Circle())
+                        .shadow(color: .black.opacity(0.22), radius: 3, y: 1)
                         .padding(10)
                         .accessibilityLabel("双指缩放")
                 }
@@ -120,12 +121,13 @@ public struct RoundShotMapView: View {
                        let text = shotOverlayText(shot, ppm: overlay.ppm) {
                         Text(text)
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.primary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.72)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 4)
-                            .background(Color.black.opacity(0.78), in: Capsule())
+                            .background(Color.white.opacity(0.96), in: Capsule())
+                            .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
                             .position(reviewLabelPoint(end, index: index, in: proxy.size))
                             .accessibilityLabel(text)
                     }
@@ -169,13 +171,11 @@ public struct RoundShotMapView: View {
     }
 
     private func shotOverlayText(_ shot: RoundShot, ppm: Double?) -> String? {
-        guard let raw = shot.club?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty, raw.lowercased() != "unknown" else { return nil }
-        var facts = [zhClubName(raw)]
+        let raw = shot.club?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var facts: [String] = []
+        if let raw, !raw.isEmpty, raw.lowercased() != "unknown" { facts.append(zhClubName(raw)) }
         if let yards = roundShotYards(shot, ppm: ppm) { facts.append("\(yards)码") }
-        let lie = shotLieLabel(shot.endLie)
-        if lie != "—" { facts.append("→\(lie)") }
-        if shot.clubSource == "manual" || shot.lieSource == "manual" { facts.append("已修正") }
+        guard !facts.isEmpty else { return nil }
         return facts.joined(separator: " · ")
     }
 
@@ -300,7 +300,7 @@ private struct ZoomableRoundMapViewport<Content: View>: View {
 }
 #endif
 
-/// Shared shot-path rendering (amber actual path + tee ring + landing dots), factored out of
+/// Shared shot-path rendering (white actual path + tee ring + landing dots), factored out of
 /// ``RoundShotMapView`` so the drag magnifier (``MagnifierLoupe``) draws the
 /// exact same picture — magnified — over the exact same projection.
 func drawRoundShotPath(_ context: inout GraphicsContext, size: CGSize, overlay: CoursePrepOverlay, shots: [RoundShot]) {
@@ -310,9 +310,8 @@ func drawRoundShotPath(_ context: inout GraphicsContext, size: CGSize, overlay: 
         guard let p, p.count >= 2 else { return nil }
         return CGPoint(x: CGFloat(p[0]) * sx, y: CGFloat(p[1]) * sy)
     }
-    // Actual shot path: each shot start→end, in order, in AMBER (#ffb300). A dark halo keeps it
-    // legible over green/sand/water; synthetic (auto-filled) shots are dashed + faded.
-    let amber = Color(red: 1.0, green: 0.70, blue: 0.0)
+    // Garmin's review map uses one bright route over the course art. A dark halo keeps the white
+    // path legible over sand and pale greens; synthetic (auto-filled) shots stay dashed + faded.
     for shot in shots {
         let isPutt = (shot.shotType ?? "").uppercased() == "PUTT"
             || (shot.club ?? "").localizedCaseInsensitiveContains("putt")
@@ -326,7 +325,7 @@ func drawRoundShotPath(_ context: inout GraphicsContext, size: CGSize, overlay: 
         context.stroke(path, with: .color(.black.opacity(0.30)),
                        style: StrokeStyle(lineWidth: width + 1.6, lineCap: .round, lineJoin: .round))
         let line = StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round, dash: shot.synthetic ? [5, 5] : [])
-        context.stroke(path, with: .color(amber.opacity(shot.synthetic ? 0.7 : 1.0)), style: line)
+        context.stroke(path, with: .color(.white.opacity(shot.synthetic ? 0.68 : 0.96)), style: line)
     }
 
     // Tee marker: a hollow white ring (the start of the hole).

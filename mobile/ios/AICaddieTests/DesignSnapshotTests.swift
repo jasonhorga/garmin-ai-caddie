@@ -463,22 +463,35 @@ final class DesignSnapshotTests: XCTestCase {
             named: "prep-hole"
         )
 
-        // 单场复盘: compact KPIs + tappable score grid + graceful missing-data,
+        // 单场复盘: a representative 18-hole Garmin-style scorecard before the compact metrics,
         // rendered from a round-detail fixture (mirrors /api/v2/history/rounds/{ref}).
         let roundJSON = """
         {"roundRef":"r1","found":true,"title":"Fixture Links",\
-        "round":{"courseName":"Fixture Links","date":"2026-05-20","score":22,"par":20,"toPar":2,"holesCompleted":5,"confidence":"high"},\
+        "round":{"courseName":"Fixture Links","date":"2026-05-20","score":80,"par":72,"toPar":8,"holesCompleted":18,"confidence":"high"},\
         "scorecard":[\
-        {"hole":1,"par":4,"score":5,"toPar":1,"className":"bogey","putts":2,"penalties":1,"status":"complete"},\
+        {"hole":1,"par":4,"score":5,"toPar":1,"className":"bogey","putts":2,"penalties":1,"gir":false,"status":"complete"},\
         {"hole":2,"par":3,"score":3,"toPar":0,"className":"par","putts":2,"penalties":0,"gir":true,"status":"complete"},\
-        {"hole":3,"par":5,"score":4,"toPar":-1,"className":"birdie","putts":1,"penalties":0,"status":"complete"},\
-        {"hole":4,"par":4,"score":6,"toPar":2,"className":"double","putts":3,"penalties":0,"fairway":"left","status":"complete"},\
-        {"hole":5,"par":4,"score":4,"toPar":0,"className":"par","putts":2,"penalties":0,"status":"complete"}],\
+        {"hole":3,"par":5,"score":4,"toPar":-1,"className":"birdie","putts":1,"penalties":0,"gir":false,"status":"complete"},\
+        {"hole":4,"par":4,"score":6,"toPar":2,"className":"double","putts":3,"penalties":0,"gir":false,"fairway":"left","status":"complete"},\
+        {"hole":5,"par":4,"score":4,"toPar":0,"className":"par","putts":2,"penalties":0,"gir":false,"status":"complete"},\
+        {"hole":6,"par":4,"score":4,"toPar":0,"className":"par","putts":2,"penalties":0,"gir":true,"fairway":"hit","status":"complete"},\
+        {"hole":7,"par":3,"score":4,"toPar":1,"className":"bogey","putts":2,"penalties":0,"gir":false,"status":"complete"},\
+        {"hole":8,"par":4,"score":5,"toPar":1,"className":"bogey","putts":2,"penalties":0,"gir":false,"fairway":"right","status":"complete"},\
+        {"hole":9,"par":5,"score":5,"toPar":0,"className":"par","putts":2,"penalties":0,"gir":true,"fairway":"hit","status":"complete"},\
+        {"hole":10,"par":4,"score":4,"toPar":0,"className":"par","putts":2,"penalties":0,"gir":true,"fairway":"hit","status":"complete"},\
+        {"hole":11,"par":4,"score":5,"toPar":1,"className":"bogey","putts":2,"penalties":0,"gir":false,"fairway":"left","status":"complete"},\
+        {"hole":12,"par":3,"score":3,"toPar":0,"className":"par","putts":2,"penalties":0,"gir":true,"status":"complete"},\
+        {"hole":13,"par":5,"score":6,"toPar":1,"className":"bogey","putts":2,"penalties":0,"gir":false,"fairway":"hit","status":"complete"},\
+        {"hole":14,"par":4,"score":4,"toPar":0,"className":"par","putts":2,"penalties":0,"gir":true,"fairway":"hit","status":"complete"},\
+        {"hole":15,"par":4,"score":5,"toPar":1,"className":"bogey","putts":2,"penalties":0,"gir":false,"fairway":"right","status":"complete"},\
+        {"hole":16,"par":3,"score":4,"toPar":1,"className":"bogey","putts":2,"penalties":0,"gir":false,"status":"complete"},\
+        {"hole":17,"par":5,"score":5,"toPar":0,"className":"par","putts":2,"penalties":0,"gir":true,"fairway":"hit","status":"complete"},\
+        {"hole":18,"par":4,"score":4,"toPar":0,"className":"par","putts":2,"penalties":0,"gir":false,"fairway":"hit","status":"complete"}],\
         "phaseSummary":[\
-        {"phase":"Tee","state":"ready","primary":"0/1 球道命中","metrics":{"fairwaysHit":0,"fairwaysRecorded":1}},\
-        {"phase":"Approach","state":"ready","primary":"1/1 标准杆上果岭(GIR)","metrics":{"gir":1,"girRecorded":1}},\
+        {"phase":"Tee","state":"ready","primary":"7/11 球道命中","metrics":{"fairwaysHit":7,"fairwaysRecorded":11}},\
+        {"phase":"Approach","state":"ready","primary":"7/18 标准杆上果岭(GIR)","metrics":{"gir":7,"girRecorded":18}},\
         {"phase":"Short Game","state":"ready","primary":"2 次短杆","metrics":{"shots":2}},\
-        {"phase":"Putting","state":"ready","primary":"10 推","metrics":{"totalPutts":10}},\
+        {"phase":"Putting","state":"ready","primary":"36 推","metrics":{"totalPutts":36}},\
         {"phase":"Penalty / Damage","state":"ready","primary":"1 罚杆","metrics":{"totalPenalties":1}}],\
         "missingData":[{"label":"shot rows","state":"missing","reason":"no normalized Garmin shot rows for this round"}]}
         """
