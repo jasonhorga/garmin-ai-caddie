@@ -26,7 +26,7 @@ test.describe('real isolated CI player evidence', () => {
     })
   }
 
-  test('captures the Watch-created round in review, archive, and detail', async ({ page }) => {
+  test('captures the real results journey from overview through round detail', async ({ page }) => {
     if (!playerToken) return
 
     // Keep failure evidence useful without ever printing the capability token or request headers.
@@ -97,6 +97,25 @@ test.describe('real isolated CI player evidence', () => {
     expect(overviewResponse.status(), 'isolated player overview must authorize in the browser').toBe(200)
 
     const resultsSubnav = page.getByRole('navigation', { name: '辅助导航' })
+
+    const resultsLanding = page.locator('section[aria-label="成绩主页"]')
+    await expect(resultsLanding).toBeVisible({ timeout: 60_000 })
+    await expect(resultsLanding).toContainText('Cypress Point')
+    await captureWithoutCredentialInLocation(page, 'results-overview.png', resultsLanding)
+
+    await resultsSubnav.getByRole('button', { name: '时间趋势', exact: true }).click()
+    const trends = page.locator('section[aria-label="时间趋势"]')
+    await expect(trends.getByRole('heading', { name: '时间趋势', exact: true })).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByText('统计加载失败')).toHaveCount(0)
+    await captureWithoutCredentialInLocation(page, 'time-trends.png', trends)
+
+    await resultsSubnav.getByRole('button', { name: '表现分析', exact: true }).click()
+    const performance = page.locator('section[aria-label="表现分析"]')
+    await expect(performance.getByRole('heading', { name: '表现分析', exact: true })).toBeVisible({ timeout: 60_000 })
+    await expect(performance.locator('section[aria-label="四个环节"]')).toBeVisible()
+    await expect(page.getByText('表现分析加载失败')).toHaveCount(0)
+    await captureWithoutCredentialInLocation(page, 'performance-analysis.png', performance)
+
     await resultsSubnav.getByRole('button', { name: '全部球局', exact: true }).click()
     await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
     const firstRound = page.getByRole('button', { name: /^打开球局 / }).first()
@@ -106,7 +125,7 @@ test.describe('real isolated CI player evidence', () => {
       await captureWithoutCredentialInLocation(page, 'rounds-list-load-failure.png')
       throw error
     }
-    await expect(firstRound).toContainText('Cypress Point')
+    await expect(firstRound).toHaveAccessibleName(/Cypress Point/)
     await captureWithoutCredentialInLocation(page, 'rounds-list.png')
 
     await firstRound.click()
