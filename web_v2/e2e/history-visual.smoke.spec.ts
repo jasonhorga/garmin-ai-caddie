@@ -901,16 +901,19 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByText('PAR 11 · 1020 码')).toBeVisible()
   await expect(page.getByText('你的战绩:打过 5 次 · 均杆 80.5')).toBeVisible()
 
-  // Left rail lists every hole; hole 7 (a played key hole, stats avg +1.1) is flagged.
-  const holeSeven = page.getByRole('button', { name: '第7洞 Par4 410码' })
-  await expect(holeSeven).toBeVisible()
-  await expect(holeSeven.getByText('平均+1.1')).toBeVisible()
-  await expect(holeSeven.getByText('关键')).toBeVisible()
+  // The compact picker replaces the old 18-row rail. Exercise a real hole switch so the option's
+  // yardage/history labels and the selected-hole summary are both covered without restoring a list.
+  const holePicker = page.getByRole('combobox', { name: '选择球洞' })
+  await expect(holePicker.locator('option[value="7"]')).toHaveText(/第 7 洞 · Par 4 · 410码 · 平均\+1\.1 · 关键/)
+  await holePicker.selectOption('7')
+  await expect(page.locator('.prep-active-hole-summary')).toContainText('平均+1.1')
+  await expect(page.locator('.prep-active-hole-summary')).toContainText('关键')
+  await holePicker.selectOption('1')
 
   // Hole 1 is selected by default → its canvas (real geometry + shot scatter) drives the
   // 球童试算 inspector; the caddie recommends the nearest club to the ~235 y tee-shot landing.
   const prepInspector = page.getByRole('complementary', { name: '球童试算' })
-  await expect(page.getByRole('button', { name: '第1洞 Par4 430码' })).toHaveAttribute('aria-current', 'true')
+  await expect(holePicker).toHaveValue('1')
   await expect(page.locator('[aria-label="第1洞球道图"]')).toBeVisible()
   await expect(page.getByText('你的落点:')).toBeVisible()
   await expect(prepInspector.getByRole('heading', { name: '球童试算 · 第 1 洞' })).toBeVisible()
