@@ -70,8 +70,14 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(scrollAndTapContaining(["时间趋势", "近 10 / 20 场"]))
         XCTAssertTrue(app.navigationBars["时间趋势"].waitForExistence(timeout: 10))
         settle(4); save("02b-trends"); dump("02b-trends")
-        XCTAssertTrue(tapBackButton("成绩"))
-        XCTAssertTrue(scrollAndTapContaining(["表现分析", "开球 · 攻果岭"]))
+        // Performance is now a first-screen feature destination above the trend/library rows.
+        // Relaunch from a known top position instead of inheriting the old trend-row scroll offset
+        // and swiping in the wrong direction after Back.
+        launchFresh()
+        let reopenedResults = tapContaining(["成绩", "球局 · 统计"])
+            && app.staticTexts["我的高尔夫生涯"].waitForExistence(timeout: 15)
+        XCTAssertTrue(reopenedResults, "the real home must reopen the Garmin-style activity surface")
+        XCTAssertTrue(scrollAndTapContaining(["表现分析", "四阶段空间分析"]))
         XCTAssertTrue(app.navigationBars["表现分析"].waitForExistence(timeout: 10))
         settle(5); save("02c-analysis"); dump("02c-analysis")
 
