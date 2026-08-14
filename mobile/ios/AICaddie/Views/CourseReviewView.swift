@@ -24,6 +24,7 @@ public struct CourseReviewView: View {
     @State private var isLoading = false
     @State private var errorText: String?
     @State private var selectedHoleNumber: Int?
+    @State private var foregroundLoadErrors: [Int: String] = [:]
 
     public init(
         client: SyncClient,
@@ -54,17 +55,24 @@ public struct CourseReviewView: View {
                 if let errorText {
                     Text("加载失败：\(errorText)").foregroundColor(.red).font(.callout)
                 }
-                if let hole = selectedHole {
+                if download != nil || !holes.isEmpty || isLoading {
                     holeNavigator
-                    CourseReviewHoleCard(
-                        client: client,
-                        globalId: globalId,
-                        initialHole: hole,
-                        offlineStore: offlineStore,
-                        managedDownload: download != nil,
-                        managedDownloadFailed: download?.phase == .failed
-                    )
-                    .id("\(globalId):\(hole.hole)")
+                    if let hole = selectedHole {
+                        CourseReviewHoleCard(
+                            client: client,
+                            globalId: globalId,
+                            initialHole: hole,
+                            offlineStore: offlineStore,
+                            managedDownload: download != nil,
+                            managedDownloadFailed: download?.phase == .failed
+                        )
+                        .id("\(globalId):\(hole.hole)")
+                    } else {
+                        pendingHoleCard(currentHoleNumber)
+                            .task(id: currentHoleNumber) {
+                                await loadSelectedHoleIfNeeded(currentHoleNumber)
+                            }
+                    }
                 }
             }
             .padding()
@@ -83,16 +91,13 @@ public struct CourseReviewView: View {
     }
 
     private var selectedHole: CoursePrepHole? {
-        if let selectedHoleNumber,
-           let exact = holes.first(where: { $0.hole == selectedHoleNumber }) {
-            return exact
-        }
-        return holes.first
+        holes.first(where: { $0.hole == currentHoleNumber })
     }
 
-    private var selectedIndex: Int? {
-        guard let hole = selectedHole else { return nil }
-        return holes.firstIndex(where: { $0.hole == hole.hole })
+    /// Course metadata owns navigation. Incremental download progress must never make an 18-hole
+    /// course look like a one-hole course merely because only the first factual row is cached yet.
+    private var currentHoleNumber: Int {
+        min(max(selectedHoleNumber ?? holes.first?.hole ?? 1, 1), holeCount)
     }
 
     /// One map at a time keeps preparation spatial. Hole navigation is a compact control, not an
@@ -106,21 +111,21 @@ public struct CourseReviewView: View {
                     .frame(width: 34, height: 34)
             }
             .buttonStyle(.bordered)
-            .disabled((selectedIndex ?? 0) <= 0)
+            .disabled(currentHoleNumber <= 1)
             .accessibilityLabel("上一洞")
             .accessibilityIdentifier("prep-previous-hole")
 
             Menu {
-                ForEach(holes, id: \.hole) { hole in
-                    Button("第 \(hole.hole) 洞 · Par \(hole.par)") {
-                        selectedHoleNumber = hole.hole
+                ForEach(Array(1...holeCount), id: \.self) { holeNumber in
+                    Button(holeMenuLabel(holeNumber)) {
+                        selectedHoleNumber = holeNumber
                     }
                 }
             } label: {
                 VStack(spacing: 1) {
-                    Text("第 \(selectedHole?.hole ?? 1) 洞")
+                    Text("第 \(currentHoleNumber) 洞")
                         .font(.headline.weight(.bold))
-                    Text("共 \(holes.count) 洞 · 点此选洞")
+                    Text("共 \(holeCount) 洞 · 点此选洞")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -136,7 +141,7 @@ public struct CourseReviewView: View {
                     .frame(width: 34, height: 34)
             }
             .buttonStyle(.bordered)
-            .disabled((selectedIndex ?? 0) >= holes.count - 1)
+            .disabled(currentHoleNumber >= holeCount)
             .accessibilityLabel("下一洞")
             .accessibilityIdentifier("prep-next-hole")
         }
@@ -145,10 +150,77 @@ public struct CourseReviewView: View {
     }
 
     private func moveHole(by delta: Int) {
-        guard let selectedIndex else { return }
-        let next = min(max(selectedIndex + delta, 0), holes.count - 1)
-        guard holes.indices.contains(next) else { return }
-        selectedHoleNumber = holes[next].hole
+        selectedHoleNumber = min(max(currentHoleNumber + delta, 1), holeCount)
+    }
+
+    private func holeMenuLabel(_ holeNumber: Int) -> String {
+        guard let hole = holes.first(where: { $0.hole == holeNumber }) else {
+            return "第 \(holeNumber) 洞 · 准备中"
+        }
+        return "第 \(holeNumber) 洞 · Par \(hole.par)"
+    }
+
+    /// The app-owned queue protects whole-course durability. This foreground request is deliberately
+    /// limited to the one hole the player selected so navigation remains useful while that queue is
+    /// still preparing the other 17 holes. It does not own or cancel the durable download.
+    @MainActor
+    private func loadSelectedHoleIfNeeded(_ holeNumber: Int) async {
+        guard holes.first(where: { $0.hole == holeNumber }) == nil else { return }
+        foregroundLoadErrors[holeNumber] = nil
+        do {
+            let response = try await client.fetchCoursePrep(
+                globalId: globalId,
+                holes: [holeNumber],
+                render: false
+            )
+            guard !Task.isCancelled else { return }
+            guard let fetched = response.holes.first(where: { $0.hole == holeNumber }) else {
+                foregroundLoadErrors[holeNumber] = "本洞资料仍在后台准备"
+                return
+            }
+            mergeHoles([fetched])
+        } catch is CancellationError {
+            return
+        } catch {
+            foregroundLoadErrors[holeNumber] = "本洞资料仍在后台准备"
+        }
+    }
+
+    private func mergeHoles(_ incoming: [CoursePrepHole]) {
+        var merged = Dictionary(uniqueKeysWithValues: holes.map { ($0.hole, $0) })
+        for hole in incoming {
+            if let existing = merged[hole.hole],
+               CourseReviewMapPolicy.hasPreciseFacts(existing),
+               !CourseReviewMapPolicy.hasPreciseFacts(hole) {
+                continue
+            }
+            merged[hole.hole] = hole
+        }
+        holes = merged.values.sorted { $0.hole < $1.hole }
+    }
+
+    private func pendingHoleCard(_ holeNumber: Int) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255))
+                    .frame(maxWidth: .infinity, minHeight: 420)
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .tint(.white)
+                    Text(foregroundLoadErrors[holeNumber] ?? "正在优先准备第 \(holeNumber) 洞地图…")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("prep-hole-map-\(holeNumber)")
+
+            Text("第 \(holeNumber) 洞 · 地图准备中")
+                .font(.headline.weight(.bold))
+                .accessibilityIdentifier("prep-hole-header-\(holeNumber)")
+        }
+        .hubCard()
     }
 
     @ViewBuilder
@@ -191,7 +263,7 @@ public struct CourseReviewView: View {
                   teeBox: teeBox,
                   nine: "all"
               ), let prep = template.coursePrep else { return }
-        holes = prep.holes.sorted { $0.hole < $1.hole }
+        mergeHoles(prep.holes)
         isLoading = false
         errorText = nil
     }
@@ -230,11 +302,7 @@ public struct CourseReviewView: View {
                     holes: batch,
                     render: false
                 )
-                var merged = Dictionary(uniqueKeysWithValues: holes.map { ($0.hole, $0) })
-                for hole in response.holes {
-                    merged[hole.hole] = hole
-                }
-                holes = merged.values.sorted { $0.hole < $1.hole }
+                mergeHoles(response.holes)
                 isLoading = false
             } catch {
                 // Keep already-loaded holes usable. Only replace the empty screen with an error.
@@ -281,12 +349,15 @@ private struct CourseReviewHoleCard: View {
         HolePrepCard(
             hole: hole,
             topoURL: topoURL,
-            isLoadingMap: isLoadingMap || (managedDownload && !managedDownloadFailed),
+            isLoadingMap: isLoadingMap || (
+                managedDownload
+                    && !managedDownloadFailed
+                    && !CourseReviewMapPolicy.hasPreciseFacts(hole)
+            ),
             mapUnavailable: mapUnavailable || managedDownloadFailed,
             onRetryMap: retryPreciseMap
         )
         .task(id: initialHole.hole) {
-            guard !managedDownload else { return }
             await loadMapIfNeeded()
         }
     }
