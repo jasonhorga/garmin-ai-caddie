@@ -1107,15 +1107,32 @@ final class RealFlowUITests: XCTestCase {
         )
         try recordJourneyShot(selectActualClub: false)
         try confirmJourneyHole(hole: 1, par: par, manual: false, fairwayLabel: nil)
-        XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 20))
+        let restoredFirstHoleHeading = app.staticTexts["第 1 洞"]
+        let restoredSecondHoleHeading = app.staticTexts["第 2 洞"]
+        XCTAssertTrue(restoredSecondHoleHeading.waitForExistence(timeout: 20))
+        XCTAssertTrue(
+            waitUntilGone(restoredFirstHoleHeading, timeout: 12),
+            "accepting the restored first-hole score must finish replacing the old live-hole view"
+        )
+        XCTAssertTrue(
+            fullyVisible(restoredSecondHoleHeading),
+            "the replacement second-hole view must finish resetting to its visible map/header before navigation"
+        )
 
+        // Re-query the action only after the id-keyed CurrentHoleView replacement and score-sheet
+        // dismissal have both completed. Tapping the outgoing view can synthesize successfully while
+        // losing the presentation request with that view's lifecycle.
         let scorecard = app.buttons["本场计分卡"]
         XCTAssertTrue(scrollTo(scorecard, maxSwipes: 18))
         scorecard.tap()
-        XCTAssertTrue(app.staticTexts["本场计分卡"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["编辑第 1 洞成绩"].waitForExistence(timeout: 5))
+        let scorecardEdit = app.buttons["live-scorecard-edit-hole"]
+        XCTAssertTrue(
+            scorecardEdit.waitForExistence(timeout: 5),
+            "the unique scorecard edit action must prove the scorecard sheet was presented"
+        )
+        XCTAssertEqual(scorecardEdit.label, "编辑第 1 洞成绩")
         settle(1); save("09g-new-course-scorecard"); dump("09g-new-course-scorecard")
-        app.buttons["编辑第 1 洞成绩"].tap()
+        scorecardEdit.tap()
         XCTAssertTrue(app.staticTexts["手动确认 · 总杆"].waitForExistence(timeout: 5))
         settle(1); save("09h-new-course-score-edit"); dump("09h-new-course-score-edit")
         app.buttons["取消"].tap()
