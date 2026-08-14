@@ -9,6 +9,24 @@ enum WatchHoleMapViewport {
     static let flagTopClearance = 20.0
     private static let pillMargin: CGFloat = 4
 
+    static func hazardDistanceText(
+        kind: String,
+        toYards: Int,
+        overYards: Int,
+        fullMap: Bool
+    ) -> String {
+        fullMap
+            ? "\(kind) · 到 \(toYards) / 过 \(overYards)"
+            : "\(kind) 到\(toYards) 过\(overYards)"
+    }
+
+    static func distancePillSize(for text: String) -> CGSize {
+        // `Canvas` works in logical Watch points (198 wide on the approved 45 mm face, not the
+        // 396-pixel screenshot). Seven points per glyph plus compact side padding leaves enough
+        // room for the three-digit near/far hazard label even in the 41 mm split-map panel.
+        CGSize(width: CGFloat(text.count) * 7 + 14, height: 18)
+    }
+
     /// watchOS can retain the clock even when system overlays are requested hidden. Keep dynamic map
     /// callouts out of the same top-right lane already reserved by the full-map controls.
     static func systemTimeRect(in viewportSize: CGSize) -> CGRect {
@@ -934,7 +952,12 @@ public struct WatchHoleMapView: View {
         pill(
             &context,
             at: anchor,
-            text: "\(kind) · 到 \(usefulTo) / 过 \(usefulOver)",
+            text: WatchHoleMapViewport.hazardDistanceText(
+                kind: kind,
+                toYards: usefulTo,
+                overYards: usefulOver,
+                fullMap: fullMap
+            ),
             tint: tint,
             viewportSize: size,
             preferredOffset: 24
@@ -971,15 +994,15 @@ public struct WatchHoleMapView: View {
         viewportSize: CGSize,
         preferredOffset: CGFloat
     ) {
-        let w = CGFloat(text.count) * 8 + 20
+        let pillSize = WatchHoleMapViewport.distancePillSize(for: text)
+        let w = pillSize.width
         let p = WatchHoleMapViewport.distancePillCenter(
             marker: marker,
-            pillSize: CGSize(width: w, height: 18),
+            pillSize: pillSize,
             viewportSize: viewportSize,
             preferredOffset: preferredOffset,
             contentMinX: fullMap ? 0 : viewportSize.width * columnFrac
         )
-        let pillSize = CGSize(width: w, height: 18)
         let rect = CGRect(x: p.x - w / 2, y: p.y - 9, width: w, height: 18)
         if let connector = WatchHoleMapViewport.distancePillConnector(
             marker: marker,

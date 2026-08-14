@@ -46,12 +46,27 @@ final class WatchHoleMapViewportTests: XCTestCase {
     }
 
     func testDistancePillStaysOutOfTheMaskedHoleRootDataColumn() {
-        let viewport = CGSize(width: 396, height: 484)
+        // SwiftUI lays out the 41 mm Watch in logical points; its screenshot is 352x430 pixels.
+        // Testing with screenshot pixels would falsely allow a label twice as wide as the product.
+        let viewport = CGSize(width: 176, height: 215)
         let dataColumnMaxX = viewport.width * 0.38
-        let pillSize = CGSize(width: 172, height: 18)
+        let text = WatchHoleMapViewport.hazardDistanceText(
+            kind: "沙",
+            toYards: 999,
+            overYards: 999,
+            fullMap: false
+        )
+        let pillSize = WatchHoleMapViewport.distancePillSize(for: text)
+
+        XCTAssertEqual(text, "沙 到999 过999")
+        XCTAssertLessThanOrEqual(
+            pillSize.width,
+            viewport.width - dataColumnMaxX - 8,
+            "the longest useful compact hazard label must fit the 41 mm split-map panel"
+        )
 
         let center = WatchHoleMapViewport.distancePillCenter(
-            marker: CGPoint(x: 190, y: 250),
+            marker: CGPoint(x: 85, y: 120),
             pillSize: pillSize,
             viewportSize: viewport,
             preferredOffset: 24,
@@ -66,6 +81,18 @@ final class WatchHoleMapViewportTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(pillRect.minX, dataColumnMaxX + 4)
         XCTAssertLessThanOrEqual(pillRect.maxX, viewport.width - 4)
+    }
+
+    func testFullMapHazardLabelRetainsExplicitNearAndFarGrammar() {
+        XCTAssertEqual(
+            WatchHoleMapViewport.hazardDistanceText(
+                kind: "水",
+                toYards: 37,
+                overYards: 54,
+                fullMap: true
+            ),
+            "水 · 到 37 / 过 54"
+        )
     }
 
     func testDistancePillConnectorBindsTheCalloutToItsMarker() {
