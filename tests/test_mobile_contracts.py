@@ -2980,7 +2980,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("detail.scorecard", round_review)
         self.assertIn("detail.missingData", round_review)  # graceful, never blank
         self.assertIn("func scorecardGrid(", round_review)
-        self.assertIn("func nineGrid(", round_review)
+        self.assertIn("func scorecardNine(", round_review)
+        self.assertIn("Grid(horizontalSpacing: 0", round_review)
+        self.assertIn("func scoreToken(", round_review)
         self.assertIn("func metricGrid(", round_review)
         self.assertIn("func phaseMetrics(", round_review)
         self.assertNotIn('HubSectionLabel("各环节")', round_review)

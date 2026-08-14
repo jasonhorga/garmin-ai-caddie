@@ -429,7 +429,7 @@ struct ResultsRoundRow: View {
                 Image(systemName: "figure.golf")
                 Text("高尔夫")
                 Spacer()
-                Text(shortDate(round.date))
+                Text(round.date.map(shortDate) ?? "日期未知")
             }
             .font(.caption2)
             .foregroundStyle(.secondary)

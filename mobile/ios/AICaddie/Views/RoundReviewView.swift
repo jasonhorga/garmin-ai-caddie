@@ -330,7 +330,7 @@ struct RoundReviewContent: View {
         }
     }
 
-    // MARK: compact front/back-nine scorecard (every cell opens its shot map)
+    // MARK: Garmin-style front/back-nine scorecard (every score opens its shot map)
 
     private func scorecardGrid(_ holes: [RoundDetailHole]) -> some View {
         let played = holes.filter { $0.score != nil }
@@ -339,55 +339,101 @@ struct RoundReviewContent: View {
         let back = Array(sorted.dropFirst(9))
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("逐洞成绩").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text("记分卡").font(.headline)
                 Spacer()
-                Text("点球洞看落点 →").font(.caption2.weight(.semibold)).foregroundStyle(LiveHoleStyle.green)
+                Text("点成绩看落点").font(.caption2.weight(.semibold)).foregroundStyle(LiveHoleStyle.green)
             }
-            nineGrid(title: sorted.count > 9 ? "前九" : "本场", holes: front)
-            if !back.isEmpty { nineGrid(title: "后九", holes: back) }
+            scorecardNine(title: sorted.count > 9 ? "前九" : "本场", totalLabel: "Out", holes: front)
+            if !back.isEmpty {
+                Divider()
+                scorecardNine(title: "后九", totalLabel: "In", holes: back)
+            }
         }
         .hubCard()
     }
 
-    private func nineGrid(title: String, holes: [RoundDetailHole]) -> some View {
+    private func scorecardNine(title: String, totalLabel: String, holes: [RoundDetailHole]) -> some View {
         let scored = holes.filter { $0.score != nil }
         let totalScore = scored.compactMap(\.score).reduce(0, +)
         let totalPar = scored.compactMap(\.par).reduce(0, +)
-        let relative = totalScore - totalPar
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.subheadline.weight(.bold))
-                Spacer()
-                if totalPar > 0 {
-                    Text("\(totalScore) · Par \(totalPar) · \(toParText(relative))")
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(relative > 0 ? HubStyle.warmBad : Color.secondary)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Grid(horizontalSpacing: 0, verticalSpacing: 6) {
+                GridRow {
+                    scorecardTextCell("")
+                    ForEach(holes) { hole in scorecardTextCell("\(hole.hole)") }
+                    scorecardTextCell(totalLabel)
                 }
-            }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 9), spacing: 4) {
-                ForEach(holes) { hole in
-                    Button { onSelectHole(hole.hole) } label: {
-                        VStack(spacing: 2) {
-                            Text("\(hole.hole)")
-                                .font(.system(size: 9, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.secondary)
-                            Text(hole.score.map(String.init) ?? "–")
-                                .font(.system(size: 15, weight: .heavy, design: .rounded))
-                                .monospacedDigit()
-                                .foregroundStyle(scoreColor(hole))
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 43)
-                        .background(scoreColor(hole).opacity(hole.score == nil ? 0.05 : 0.14))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .contentShape(Rectangle())
+                GridRow {
+                    scorecardRowLabel("Par")
+                    ForEach(holes) { hole in scorecardTextCell(hole.par.map(String.init) ?? "–") }
+                    scorecardTextCell(totalPar > 0 ? "\(totalPar)" : "–")
+                }
+                GridRow {
+                    scorecardRowLabel("成绩")
+                    ForEach(holes) { hole in
+                        Button { onSelectHole(hole.hole) } label: { scoreToken(hole) }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(holeAccessibilityLabel(hole))
+                            .accessibilityHint("打开这一洞的逐杆落点")
+                            .accessibilityIdentifier("round-review-hole-\(hole.hole)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(holeAccessibilityLabel(hole))
-                    .accessibilityHint("打开这一洞的逐杆落点")
-                    .accessibilityIdentifier("round-review-hole-\(hole.hole)")
+                    scorecardTextCell(
+                        scored.isEmpty ? "–" : "\(totalScore)",
+                        color: .primary,
+                        weight: .semibold
+                    )
                 }
             }
         }
+    }
+
+    private func scorecardRowLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 31, alignment: .leading)
+    }
+
+    private func scorecardTextCell(
+        _ text: String,
+        color: Color = .secondary,
+        weight: Font.Weight = .regular
+    ) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: weight, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(color)
+            .frame(maxWidth: .infinity, minHeight: 22)
+    }
+
+    /// Familiar score notation keeps the table readable without restoring the old tinted tile wall:
+    /// circles are under par, squares are over par, and par stays plain.
+    private func scoreToken(_ hole: RoundDetailHole) -> some View {
+        let relative = hole.toPar ?? {
+            guard let score = hole.score, let par = hole.par else { return 0 }
+            return score - par
+        }()
+        let color = scoreColor(hole)
+        return ZStack {
+            if hole.score != nil, relative < 0 {
+                Circle().stroke(color, lineWidth: 1.3).padding(2)
+                if relative <= -2 { Circle().stroke(color, lineWidth: 1).padding(5) }
+            } else if hole.score != nil, relative > 0 {
+                RoundedRectangle(cornerRadius: 1.5).stroke(color, lineWidth: 1.3).padding(2)
+                if relative >= 2 {
+                    RoundedRectangle(cornerRadius: 1).stroke(color, lineWidth: 1).padding(5)
+                }
+            }
+            Text(hole.score.map(String.init) ?? "–")
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(hole.score == nil ? Color.secondary : Color.primary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 27)
+        .contentShape(Rectangle())
     }
 
     private func holeAccessibilityLabel(_ hole: RoundDetailHole) -> String {
