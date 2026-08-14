@@ -45,6 +45,29 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertFalse(pillRect.intersects(WatchHoleMapViewport.systemTimeRect(in: viewport)))
     }
 
+    func testDistancePillStaysOutOfTheMaskedHoleRootDataColumn() {
+        let viewport = CGSize(width: 396, height: 484)
+        let dataColumnMaxX = viewport.width * 0.38
+        let pillSize = CGSize(width: 172, height: 18)
+
+        let center = WatchHoleMapViewport.distancePillCenter(
+            marker: CGPoint(x: 190, y: 250),
+            pillSize: pillSize,
+            viewportSize: viewport,
+            preferredOffset: 24,
+            contentMinX: dataColumnMaxX
+        )
+        let pillRect = CGRect(
+            x: center.x - pillSize.width / 2,
+            y: center.y - pillSize.height / 2,
+            width: pillSize.width,
+            height: pillSize.height
+        )
+
+        XCTAssertGreaterThanOrEqual(pillRect.minX, dataColumnMaxX + 4)
+        XCTAssertLessThanOrEqual(pillRect.maxX, viewport.width - 4)
+    }
+
     func testDistancePillConnectorBindsTheCalloutToItsMarker() {
         let connector = WatchHoleMapViewport.distancePillConnector(
             marker: CGPoint(x: 100, y: 100),

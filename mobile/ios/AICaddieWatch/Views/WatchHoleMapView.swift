@@ -21,11 +21,16 @@ enum WatchHoleMapViewport {
         marker: CGPoint,
         pillSize: CGSize,
         viewportSize: CGSize,
-        preferredOffset: CGFloat
+        preferredOffset: CGFloat,
+        contentMinX: CGFloat = 0
     ) -> CGPoint {
         let halfWidth = max(pillSize.width, 0) / 2
         let halfHeight = max(pillSize.height, 0) / 2
-        let minX = halfWidth + pillMargin
+        // The normal hole root masks its left data column after drawing the map. Clamp every map
+        // callout to the unmasked panel so a perfectly valid pill cannot subsequently lose its
+        // hazard kind or its leading “到” text under that mask.
+        let boundedContentMinX = min(max(contentMinX, 0), max(viewportSize.width, 0))
+        let minX = boundedContentMinX + halfWidth + pillMargin
         let maxX = max(minX, viewportSize.width - halfWidth - pillMargin)
         let x = min(max(marker.x, minX), maxX)
         let offset = abs(preferredOffset)
@@ -971,7 +976,8 @@ public struct WatchHoleMapView: View {
             marker: marker,
             pillSize: CGSize(width: w, height: 18),
             viewportSize: viewportSize,
-            preferredOffset: preferredOffset
+            preferredOffset: preferredOffset,
+            contentMinX: fullMap ? 0 : viewportSize.width * columnFrac
         )
         let pillSize = CGSize(width: w, height: 18)
         let rect = CGRect(x: p.x - w / 2, y: p.y - 9, width: w, height: 18)
