@@ -232,6 +232,7 @@ struct LiveRoundScorecardView: View {
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(LivePlayStyle.stroke14))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("编辑第 \(selectedHole) 洞成绩")
                 .accessibilityIdentifier("live-scorecard-edit-hole")
             }
         }
