@@ -740,6 +740,12 @@ final class RealFlowUITests: XCTestCase {
         )
         settle(1); save("14-live-scorecard"); dump("14-live-scorecard")
 
+        let selectFirstHole = app.buttons["选择第 1 洞"].firstMatch
+        XCTAssertTrue(
+            selectFirstHole.waitForExistence(timeout: 5) && selectFirstHole.isHittable,
+            "editing a historical score must start by selecting that hole in the scorecard"
+        )
+        selectFirstHole.tap()
         let editFirstHole = app.buttons["编辑第 1 洞成绩"]
         XCTAssertTrue(editFirstHole.waitForExistence(timeout: 5), "any completed hole must be editable")
         editFirstHole.tap()
@@ -1130,9 +1136,24 @@ final class RealFlowUITests: XCTestCase {
             scorecardEdit.waitForExistence(timeout: 5),
             "the unique scorecard edit action must prove the scorecard sheet was presented"
         )
-        XCTAssertEqual(scorecardEdit.label, "编辑第 1 洞成绩")
+        XCTAssertEqual(
+            scorecardEdit.label,
+            "编辑第 2 洞成绩",
+            "a newly opened scorecard must select the active playing hole"
+        )
+        let selectCompletedFirstHole = app.buttons["选择第 1 洞"].firstMatch
+        XCTAssertTrue(
+            selectCompletedFirstHole.waitForExistence(timeout: 5) && selectCompletedFirstHole.isHittable,
+            "the completed first hole must remain selectable from the active second hole"
+        )
+        selectCompletedFirstHole.tap()
+        let editCompletedFirstHole = app.buttons["编辑第 1 洞成绩"]
+        XCTAssertTrue(
+            editCompletedFirstHole.waitForExistence(timeout: 5),
+            "selecting the completed first hole must retarget the unique edit action"
+        )
         settle(1); save("09g-new-course-scorecard"); dump("09g-new-course-scorecard")
-        scorecardEdit.tap()
+        editCompletedFirstHole.tap()
         XCTAssertTrue(app.staticTexts["手动确认 · 总杆"].waitForExistence(timeout: 5))
         settle(1); save("09h-new-course-score-edit"); dump("09h-new-course-score-edit")
         app.buttons["取消"].tap()
