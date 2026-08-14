@@ -915,16 +915,15 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.locator('.prep-active-hole-summary')).toContainText('关键')
   await holePicker.selectOption('1')
 
-  // Hole 1 is selected by default → its canvas (real geometry + shot scatter) drives the
-  // 球童试算 inspector; the caddie recommends the nearest club to the ~235 y tee-shot landing.
+  // Hole 1 is selected by default. Its real geometry, shot scatter and nearest-club recommendation
+  // now live on the map; the dock keeps only progressive strategy/personal detail.
   const prepInspector = page.getByRole('complementary', { name: '球童试算' })
   await expect(holePicker).toHaveValue('1')
-  await expect(page.locator('[aria-label="第1洞球道图"]')).toBeVisible()
-  await expect(page.getByText('你的落点:')).toBeVisible()
-  await expect(prepInspector.getByRole('heading', { name: '球童试算 · 第 1 洞' })).toBeVisible()
-  await expect(prepInspector.locator('.prep-club.on')).toContainText('1D')
-  await expect(prepInspector.getByText('水×1 · 沙×1')).toBeVisible()
   const prepCanvas = page.getByLabel('第1洞球道图')
+  await expect(prepCanvas).toBeVisible()
+  await expect(prepCanvas.getByLabel('地图推荐球杆')).toContainText('1D · 235码落点')
+  await expect(prepCanvas.locator('title').filter({ hasText: '1D · 900001' })).toHaveCount(1)
+  await expect(prepInspector.getByLabel('展开完整打法')).toBeVisible()
   const prepCanvasBox = await prepCanvas.boundingBox()
   const prepFrameBox = await prepCanvas.locator('.prep-canvas-frame').boundingBox()
   const prepBaseBox = await prepCanvas.locator('.prep-canvas-img').boundingBox()
@@ -939,15 +938,20 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'prep-overview')
 
-  // Selecting hole 7 re-drives the inspector (no geometry → placeholder canvas, no scatter).
-  await holeSeven.click()
-  await expect(prepInspector.getByRole('heading', { name: '球童试算 · 第 7 洞' })).toBeVisible()
-  await expect(page.getByText('你的落点:')).toHaveCount(0)
+  // Selecting hole 7 re-drives the same map surface (no geometry → explicit placeholder and
+  // no fabricated recommendation point).
+  await holePicker.selectOption('7')
+  await expect(holePicker).toHaveValue('7')
+  const holeSevenCanvas = page.getByLabel('第7洞球道图')
+  await expect(holeSevenCanvas).toBeVisible()
+  await expect(holeSevenCanvas.getByLabel('地图推荐球杆')).toHaveCount(0)
+  await expect(holeSevenCanvas.getByText('此洞暂无实景航图(示意图)', { exact: true })).toBeVisible()
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'prep-holes')
 
   // 针对你 tips render in the inspector (no tab), machine basis keys mapped to zh 依据
   // lines (raw keys must never surface).
+  await prepInspector.getByText(/^\u9488对你 ·/).click()
   await expect(page.getByText('开球偏右(58%),第1洞、第7洞尤其要瞄球道左侧')).toBeVisible()
   await expect(page.getByText('三杆洞稳(平均+0.2),按部就班拿帕')).toBeVisible()
   await expect(page.getByText('依据:你在本场的开球倾向')).toBeVisible()
