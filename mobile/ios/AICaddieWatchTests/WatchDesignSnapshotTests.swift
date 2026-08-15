@@ -68,7 +68,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
     }
 
-    func testGolfMenuKeepsCurrentHoleToolsFirstAndEndRoundLast() {
+    func testGolfMenuKeepsOnlyPrimaryInPlayChoicesAtTheFirstLevel() {
         let items = WatchMenuView.visibleItems(
             hasCaddie: true,
             hasHazards: true,
@@ -76,10 +76,18 @@ final class WatchDesignSnapshotTests: XCTestCase {
             hasFlagDirection: true
         )
 
-        XCTAssertEqual(Array(items.prefix(4)), [.recordShot, .scoreHole, .caddie, .hazards])
+        XCTAssertEqual(Array(items.prefix(4)), [.caddie, .hazards, .holeSelect, .scorecard])
+        XCTAssertFalse(items.contains(.recordShot))
+        XCTAssertFalse(items.contains(.currentHoleShots))
+        XCTAssertEqual(items[items.count - 2], .moreTools)
         XCTAssertEqual(items.last, .finish)
         XCTAssertFalse(items.map(\.rawValue).contains("继续打球"))
         XCTAssertFalse(items.map(\.rawValue).contains("放弃本场"))
+
+        XCTAssertEqual(
+            WatchMenuView.moreToolItems(hasClubStats: true, hasFlagDirection: true),
+            [.currentHoleShots, .flagDirection, .clubStats, .settings]
+        )
     }
 
     @MainActor
@@ -421,7 +429,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(view.totalStrokesText, "41 杆")
         XCTAssertEqual(view.holesText, "9/9 洞")
         XCTAssertEqual(view.puttsText, "推杆 16")
-        XCTAssertEqual(view.pendingUploadText, "稍后同步 2")
+        XCTAssertEqual(view.completionText, "9/9 洞 · 16 推")
         XCTAssertEqual(view.primaryActionLabel, "保存并结束")
         XCTAssertEqual(view.editScoreActionLabel, "编辑成绩")
         XCTAssertEqual(view.secondaryActionLabel, "继续打球")
@@ -429,6 +437,10 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(
             WatchFinishRoundLayout.systemTimeTrailingClearance,
             WatchScoreHoleLayout.systemTimeTrailingClearance
+        )
+        XCTAssertLessThan(
+            WatchFinishRoundLayout.secondaryActionHeight,
+            WatchFinishRoundLayout.primaryActionHeight
         )
     }
 

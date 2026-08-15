@@ -5,11 +5,11 @@ enum WatchFinishRoundLayout {
     /// Reserve the same horizontal space as scoring so a long course name cannot run under it.
     static let systemTimeTrailingClearance: CGFloat = 48
 
-    /// Keep the complete score summary and all lifecycle choices on the first 41 mm screen.
-    /// Larger Dynamic Type sizes may still scroll, but the normal layout must not depend on an
-    /// initial bottom scroll that leaves the score half-hidden above the rounded display mask.
+    /// Keep the result and the two non-destructive choices together. Discard stays visible just
+    /// below them, but no longer competes with the primary save action in a three-button row.
     static let primaryActionHeight: CGFloat = 38
-    static let secondaryActionHeight: CGFloat = 36
+    static let secondaryActionHeight: CGFloat = 34
+    static let abandonActionHeight: CGFloat = 28
 }
 
 /// The approved compact end-of-round summary. The richer GIR/fairway facts remain in the model for
@@ -66,19 +66,13 @@ public struct WatchFinishRoundView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Text("结束本场")
-                    .font(.system(size: 14, weight: .bold))
-
-                Text(courseName)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                    .font(.system(size: 15, weight: .bold))
                     .padding(.trailing, WatchFinishRoundLayout.systemTimeTrailingClearance)
-                    .padding(.top, 2)
+                    .accessibilityLabel("\(courseName)，结束本场")
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(scoreText)
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
                         .lineLimit(1)
@@ -88,34 +82,15 @@ public struct WatchFinishRoundView: View {
                         Text(totalStrokesText)
                             .font(.system(size: 15, weight: .bold, design: .rounded))
                             .monospacedDigit()
-                        Text(holesText)
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                        Text(completionText)
+                            .font(.system(size: 10.5, weight: .medium, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.78)
                     }
                 }
-                .padding(.top, 4)
-
-                if totalPutts != nil || pendingUploadText != nil {
-                    HStack(spacing: 8) {
-                        if totalPutts != nil {
-                            Text(puttsText)
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
-                        if let pendingUploadText {
-                            HStack(spacing: 3) {
-                                Image(systemName: "arrow.up.circle")
-                                Text(pendingUploadText)
-                            }
-                            .foregroundStyle(AICaddieDesignTokens.offline)
-                        }
-                    }
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-                    .padding(.top, 3)
-                }
+                .padding(.top, 7)
 
                 Button(action: onConfirmFinish) {
                     Text(primaryActionLabel)
@@ -132,21 +107,27 @@ public struct WatchFinishRoundView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 4)
+                .padding(.top, 9)
 
-                HStack(spacing: 4) {
-                    secondaryButton("编辑", accessibilityLabel: editScoreActionLabel, action: onEditScore)
-                    secondaryButton("继续", accessibilityLabel: secondaryActionLabel, action: onKeepPlaying)
-                    secondaryButton(
-                        "放弃",
-                        accessibilityLabel: "放弃本场",
-                        tint: AICaddieDesignTokens.doubleBogey,
-                        background: AICaddieDesignTokens.doubleBogey.opacity(0.12),
-                        role: .destructive,
-                        action: onAbandon
-                    )
+                HStack(spacing: 6) {
+                    secondaryButton(editScoreActionLabel, action: onEditScore)
+                    secondaryButton(secondaryActionLabel, action: onKeepPlaying)
                 }
-                .padding(.top, 4)
+                .padding(.top, 6)
+
+                Button(role: .destructive, action: onAbandon) {
+                    Text("放弃本场")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(AICaddieDesignTokens.doubleBogey)
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: WatchFinishRoundLayout.abandonActionHeight,
+                            maxHeight: WatchFinishRoundLayout.abandonActionHeight
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
                 .id(Self.secondaryActionAnchor)
             }
             .padding(.horizontal, WatchDisplayGeometry.minimumContentInset)
@@ -170,34 +151,32 @@ public struct WatchFinishRoundView: View {
     var totalStrokesText: String { "\(totalStrokes) 杆" }
     var holesText: String { "\(holesPlayed)/\(holeCount) 洞" }
     var puttsText: String { totalPutts.map { "推杆 \($0)" } ?? "推杆 —" }
-    var pendingUploadText: String? { pendingUploads > 0 ? "稍后同步 \(pendingUploads)" : nil }
+    var completionText: String {
+        guard let totalPutts else { return holesText }
+        return "\(holesText) · \(totalPutts) 推"
+    }
     var primaryActionLabel: String { "保存并结束" }
     var editScoreActionLabel: String { "编辑成绩" }
     var secondaryActionLabel: String { "继续打球" }
 
     private func secondaryButton(
         _ label: String,
-        accessibilityLabel: String,
-        tint: Color = .white,
-        background: Color = Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255),
-        role: ButtonRole? = nil,
         action: @escaping () -> Void
     ) -> some View {
-        Button(role: role, action: action) {
+        Button(action: action) {
             Text(label)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(tint)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.white)
                 .lineLimit(1)
-                .minimumScaleFactor(0.85)
+                .minimumScaleFactor(0.78)
                 .frame(
                     maxWidth: .infinity,
                     minHeight: WatchFinishRoundLayout.secondaryActionHeight,
                     maxHeight: WatchFinishRoundLayout.secondaryActionHeight
                 )
-                .background(background, in: Capsule())
+                .background(Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255), in: Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
     }
 }
 

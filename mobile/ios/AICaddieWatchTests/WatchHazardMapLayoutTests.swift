@@ -79,10 +79,10 @@ final class WatchHazardMapLayoutTests: XCTestCase {
     func testHazardPillUsesApprovedCompactMapGeometry() {
         let size = WatchHazardMapLayout.distancePillSize(for: "过 149")
 
-        XCTAssertEqual(size.width, 60, accuracy: 0.0001)
-        XCTAssertEqual(size.height, 18, accuracy: 0.0001)
-        XCTAssertEqual(WatchHazardMapLayout.markerDiameter, 8, accuracy: 0.0001)
-        XCTAssertEqual(WatchHazardMapLayout.markerToPillCenterOffset, 14, accuracy: 0.0001)
+        XCTAssertEqual(size.width, 44, accuracy: 0.0001)
+        XCTAssertEqual(size.height, 15, accuracy: 0.0001)
+        XCTAssertEqual(WatchHazardMapLayout.markerDiameter, 6, accuracy: 0.0001)
+        XCTAssertEqual(WatchHazardMapLayout.markerToPillCenterOffset, 11, accuracy: 0.0001)
     }
 
     func testTopHazardBoundaryMarkerStaysClearOfTheApprovedPillLane() {
@@ -113,10 +113,11 @@ final class WatchHazardMapLayoutTests: XCTestCase {
     }
 
     func testHazardPillStaysCenteredOnItsBoundaryMarker() {
+        let pillWidth = WatchHazardMapLayout.distancePillSize(for: "过 149").width
         XCTAssertEqual(
             WatchHazardMapLayout.distancePillCenterX(
                 markerX: 84,
-                pillWidth: 60,
+                pillWidth: pillWidth,
                 viewportWidth: 198
             ),
             84,
@@ -125,10 +126,10 @@ final class WatchHazardMapLayoutTests: XCTestCase {
         XCTAssertEqual(
             WatchHazardMapLayout.distancePillCenterX(
                 markerX: 20,
-                pillWidth: 60,
+                pillWidth: pillWidth,
                 viewportWidth: 198
             ),
-            40,
+            32,
             accuracy: 0.0001
         )
     }
@@ -139,7 +140,7 @@ final class WatchHazardMapLayoutTests: XCTestCase {
             CGSize(width: 198, height: 242),
             CGSize(width: 205, height: 251),
         ] {
-            let pillWidth: CGFloat = 60
+            let pillWidth = WatchHazardMapLayout.distancePillSize(for: "过 149").width
             let safeRect = WatchDisplayGeometry.contentRect(in: size)
             for markerX in [CGFloat.zero, size.width] {
                 let centerX = WatchHazardMapLayout.distancePillCenterX(

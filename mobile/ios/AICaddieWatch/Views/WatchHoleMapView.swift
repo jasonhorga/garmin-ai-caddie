@@ -152,13 +152,17 @@ public struct WatchCurrentShotLayout: Equatable {
     public let target: CGPoint
     public let carryP10: CGPoint
     public let carryP90: CGPoint
+    /// Caddie detail may continue from the first landing through later plan landings to the real pin.
+    /// Hole Root leaves this empty so its permanent overlay still describes only the next shot.
+    public let continuation: [CGPoint]
 
     public static func resolve(
         route: [[Double]],
         playerImagePoint: CGPoint,
         aimCarryM: Double,
         carryP10M: Double,
-        carryP90M: Double
+        carryP90M: Double,
+        continuation: [CGPoint] = []
     ) -> WatchCurrentShotLayout? {
         guard aimCarryM.isFinite, aimCarryM > 0,
               carryP10M.isFinite, carryP10M > 0,
@@ -187,7 +191,8 @@ public struct WatchCurrentShotLayout: Equatable {
             player: playerImagePoint,
             target: target,
             carryP10: carryP10,
-            carryP90: carryP90
+            carryP90: carryP90,
+            continuation: continuation.filter { $0.x.isFinite && $0.y.isFinite }
         )
     }
 }
@@ -823,6 +828,33 @@ public struct WatchHoleMapView: View {
             with: .color(.white.opacity(0.94)),
             style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
         )
+
+        if !layout.continuation.isEmpty {
+            var remainingPlan = Path()
+            remainingPlan.move(to: target)
+            for point in layout.continuation {
+                remainingPlan.addLine(to: transform(point))
+            }
+            context.stroke(
+                remainingPlan,
+                with: .color(.white.opacity(0.82)),
+                style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round)
+            )
+
+            // The final continuation point is the real pin, which already has its own flag marker.
+            for point in layout.continuation.dropLast() {
+                let landing = transform(point)
+                context.fill(
+                    Path(ellipseIn: CGRect(x: landing.x - 3, y: landing.y - 3, width: 6, height: 6)),
+                    with: .color(caddieGreen.opacity(0.92))
+                )
+                context.stroke(
+                    Path(ellipseIn: CGRect(x: landing.x - 3, y: landing.y - 3, width: 6, height: 6)),
+                    with: .color(.white),
+                    style: StrokeStyle(lineWidth: 1.2)
+                )
+            }
+        }
 
         var depth = Path()
         depth.move(to: p10)

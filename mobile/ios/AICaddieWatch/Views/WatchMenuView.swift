@@ -14,6 +14,7 @@ public struct WatchMenuView: View {
         case flagDirection = "旗向指引"
         case clubStats = "球杆数据"
         case settings = "设置"
+        case moreTools = "更多工具"
         case finish = "结束本场"
     }
 
@@ -34,6 +35,8 @@ public struct WatchMenuView: View {
     public let onFlagDirection: () -> Void
     public let onFinish: () -> Void
     public let onBack: () -> Void
+
+    @State private var showingMoreTools = false
 
     public init(
         hasCaddie: Bool = false,
@@ -77,23 +80,23 @@ public struct WatchMenuView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
-                    Button(action: onBack) {
+                    Button(action: navigateBack) {
                         Image(systemName: "chevron.backward")
                             .font(.system(size: 12, weight: .bold))
                             .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("返回球洞")
-                    Text("高尔夫菜单")
+                    .accessibilityLabel(showingMoreTools ? "返回高尔夫菜单" : "返回球洞")
+                    Text(showingMoreTools ? "更多工具" : "高尔夫菜单")
                         .font(.system(size: 15, weight: .bold))
                         .lineLimit(1)
                     Spacer(minLength: 48)
                 }
                 .padding(.bottom, 2)
 
-                // Current-hole tools first, round navigation next, settings near the end, and the
-                // single destructive doorway last: the same product order as S70's Golf Menu.
-                ForEach(visibleItems, id: \.self) { item in
+                // The root menu keeps only the Garmin-like in-play decisions. Manual shot capture is
+                // already a fixed Hole Root control; diagnostic/correction tools live one level down.
+                ForEach(renderedItems, id: \.self) { item in
                     menuRow(item)
                 }
             }
@@ -110,14 +113,20 @@ public struct WatchMenuView: View {
                         startX: value.startLocation.x,
                         translation: value.translation
                     ) else { return }
-                    onBack()
+                    navigateBack()
                 }
         )
         .accessibilityIdentifier("watch-golf-menu")
     }
 
-    private var visibleItems: [Item] {
-        Self.visibleItems(
+    private var renderedItems: [Item] {
+        if showingMoreTools {
+            return Self.moreToolItems(
+                hasClubStats: hasClubStats,
+                hasFlagDirection: hasFlagDirection
+            )
+        }
+        return Self.visibleItems(
             hasCaddie: hasCaddie,
             hasHazards: hasHazards,
             hasClubStats: hasClubStats,
@@ -125,21 +134,29 @@ public struct WatchMenuView: View {
         )
     }
 
-    /// The same list drives rendering and tests, so an accidental reintroduction of Continue or
-    /// Abandon cannot hide behind a screenshot that happens to be scrolled to a different position.
+    /// The same list drives rendering and tests. Duplicate shot capture and low-frequency diagnostics
+    /// must not creep back onto the first level merely because the list can scroll.
     static func visibleItems(
         hasCaddie: Bool,
         hasHazards: Bool,
         hasClubStats: Bool,
         hasFlagDirection: Bool
     ) -> [Item] {
-        var items: [Item] = [.recordShot, .scoreHole]
+        var items: [Item] = []
         if hasCaddie { items.append(.caddie) }
         if hasHazards { items.append(.hazards) }
-        items += [.currentHoleShots, .holeSelect, .scorecard]
+        items += [.holeSelect, .scorecard, .scoreHole, .moreTools, .finish]
+        return items
+    }
+
+    static func moreToolItems(
+        hasClubStats: Bool,
+        hasFlagDirection: Bool
+    ) -> [Item] {
+        var items: [Item] = [.currentHoleShots]
         if hasFlagDirection { items.append(.flagDirection) }
         if hasClubStats { items.append(.clubStats) }
-        items += [.settings, .finish]
+        items.append(.settings)
         return items
     }
 
@@ -150,6 +167,11 @@ public struct WatchMenuView: View {
                     .font(.system(size: 14, weight: .regular))
                     .lineLimit(1)
                 Spacer()
+                if item == .moreTools {
+                    Image(systemName: "chevron.forward")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
             }
             .contentShape(Rectangle())
             .padding(.vertical, 7)
@@ -176,7 +198,16 @@ public struct WatchMenuView: View {
         case .flagDirection: return onFlagDirection
         case .clubStats: return onClubStats
         case .settings: return onSettings
+        case .moreTools: return { showingMoreTools = true }
         case .finish: return onFinish
+        }
+    }
+
+    private func navigateBack() {
+        if showingMoreTools {
+            showingMoreTools = false
+        } else {
+            onBack()
         }
     }
 }

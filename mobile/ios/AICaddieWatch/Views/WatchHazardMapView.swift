@@ -1,8 +1,8 @@
 import SwiftUI
 
 enum WatchHazardMapLayout {
-    static let markerDiameter: CGFloat = 8
-    static let markerToPillCenterOffset: CGFloat = 14
+    static let markerDiameter: CGFloat = 6
+    static let markerToPillCenterOffset: CGFloat = 11
     static let topPillLaneCenterY: CGFloat = 42
     static let topBoundaryClearance: CGFloat = 56
     /// The real watchOS runtime keeps drawing its clock even when this full-screen map requests
@@ -15,7 +15,7 @@ enum WatchHazardMapLayout {
     }
 
     static func distancePillSize(for text: String) -> CGSize {
-        CGSize(width: CGFloat(text.count) * 8 + 20, height: 18)
+        CGSize(width: CGFloat(text.count) * 6 + 14, height: 15)
     }
 
     static func distancePillCenterX(
@@ -348,7 +348,7 @@ public struct WatchHazardMapView: View {
                 - WatchHazardMapLayout.markerToPillCenterOffset,
             minimumY: minimumPillCenterY,
             maximumY: maximumPillCenterY,
-            minimumSpacing: pillHeight + 4
+            minimumSpacing: pillHeight + 3
         )
         let edges: [(String, Double, CGPoint?, CGFloat?)] = hasFrontBack
             ? [("到", startMetres, frontPoint, lanes.front), ("过", endMetres, backPoint, lanes.back)]
@@ -373,7 +373,7 @@ public struct WatchHazardMapView: View {
             context.stroke(
                 Path(ellipseIn: markerRect),
                 with: .color(.black),
-                style: StrokeStyle(lineWidth: 1.2)
+                style: StrokeStyle(lineWidth: 1)
             )
 
             let text = "\(label) \(yards)"
@@ -400,10 +400,10 @@ public struct WatchHazardMapView: View {
             context.stroke(
                 Path(roundedRect: rect, cornerRadius: pillSize.height * 0.5),
                 with: .color(tint),
-                style: StrokeStyle(lineWidth: 1)
+                style: StrokeStyle(lineWidth: 0.8)
             )
             context.draw(
-                context.resolve(Text(text).font(.system(size: 10, weight: .semibold)).foregroundColor(.white)),
+                context.resolve(Text(text).font(.system(size: 8.5, weight: .semibold)).foregroundColor(.white)),
                 at: pillCenter
             )
         }

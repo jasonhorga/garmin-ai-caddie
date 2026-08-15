@@ -1,5 +1,11 @@
 import SwiftUI
 
+enum WatchCurrentHoleShotsLayout {
+    /// This scroll surface cannot hide watchOS's clock. Start its own header below that lane rather
+    /// than placing “H7 · P4” beside a seemingly unrelated system time.
+    static let systemTimeTopClearance: CGFloat = 30
+}
+
 /// The shallow current-hole correction surface locked by D10/L11. It shows only facts already recorded
 /// on the Watch and reuses the existing manual-shot path for a missed stroke. Full position, ordering,
 /// lie and historical cross-hole editing remain on iPhone.
@@ -82,8 +88,10 @@ public struct WatchCurrentHoleShotsView: View {
             .disabled(!canAddShot)
             .accessibilityHint(canAddShot ? "保存当前位置并选择实际球杆" : "等待手表取得 GPS 位置")
         }
-        .frame(minHeight: 207, alignment: .top)
-        .padding(8)
+        .frame(minHeight: 180, alignment: .top)
+        .padding(.horizontal, 8)
+        .padding(.top, WatchCurrentHoleShotsLayout.systemTimeTopClearance)
+        .padding(.bottom, 8)
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
                 .onEnded { value in

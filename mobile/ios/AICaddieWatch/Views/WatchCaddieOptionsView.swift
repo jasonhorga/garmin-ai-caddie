@@ -93,7 +93,13 @@ public struct WatchCaddieOptionsView: View {
         let safeInset = WatchDisplayGeometry.contentInset(for: size)
         let mappedGeometry = geometry.map { optionGeometry(option, base: $0) }
         let shotLayout = mappedGeometry.flatMap { currentShotLayout(option, geometry: $0) }
-        let focusY = shotLayout?.carryP90.y ?? mappedGeometry?.layupPx.y ?? geometry?.pinPx.y ?? 0
+        // The focused Caddie screen is a whole-hole plan, not a duplicate next-shot overlay. Fit the
+        // viewport through the final pin whenever the payload contains a multi-club sequence.
+        let focusY = shotLayout?.continuation.last?.y
+            ?? shotLayout?.carryP90.y
+            ?? mappedGeometry?.layupPx.y
+            ?? geometry?.pinPx.y
+            ?? 0
         let scale = mappedGeometry.map {
             CGFloat(WatchHoleMapViewport.effectiveRestingScale(
                 requestedScale: WatchHoleMapView.maximumCrownScale,
@@ -240,13 +246,60 @@ public struct WatchCaddieOptionsView: View {
         guard let aim = firstCarry(option) ?? fallback?.aimCarryM,
               let p10 = option.carryP10M ?? fallback?.carryP10M,
               let p90 = option.carryP90M ?? fallback?.carryP90M else { return nil }
+        let continuation = Self.continuationTargets(
+            for: option,
+            route: route,
+            geometry: geometry
+        )
         return WatchCurrentShotLayout.resolve(
             route: route,
             playerImagePoint: geometry.youPx,
             aimCarryM: aim,
             carryP10M: p10,
-            carryP90M: p90
+            carryP90M: p90,
+            continuation: continuation
         )
+    }
+
+    /// Convert the remaining club sequence into grounded route points. The first shot already owns
+    /// `WatchCurrentShotLayout.target`; every middle shot gets its cumulative route landing and the
+    /// final shot terminates at the actual pin instead of an invented extension beyond the green.
+    static func continuationTargets(
+        for option: WatchCaddieOption,
+        route: [[Double]],
+        geometry: WatchHoleMapGeometry
+    ) -> [CGPoint] {
+        guard let plan = option.plan,
+              plan.count > 1,
+              let firstCarry = plan.first?.carryM ?? option.carryM,
+              firstCarry.isFinite,
+              firstCarry > 0,
+              let progress = WatchHazardMapLayout.playerProgressMetres(
+                on: route,
+                playerImagePoint: geometry.youPx
+              ),
+              var previous = WatchHazardMapLayout.imagePoint(
+                on: route,
+                atMetres: progress + firstCarry
+              ) else { return [] }
+
+        var cumulative = progress + firstCarry
+        var targets: [CGPoint] = []
+        if plan.count > 2 {
+            for step in plan.dropFirst().dropLast() {
+                guard let carry = step.carryM, carry.isFinite, carry > 0 else { continue }
+                cumulative += carry
+                guard let target = WatchHazardMapLayout.imagePoint(on: route, atMetres: cumulative),
+                      hypot(target.x - previous.x, target.y - previous.y) > 1 else { continue }
+                targets.append(target)
+                previous = target
+            }
+        }
+
+        if hypot(geometry.pinPx.x - previous.x, geometry.pinPx.y - previous.y) > 1 {
+            targets.append(geometry.pinPx)
+        }
+        return targets
     }
 
     private func optionGeometry(
