@@ -48,6 +48,13 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(WatchClubDisplay.shortCode("putter"), "PT")
     }
 
+    func testWatchHoleRootShowsOnlyCompactCurrentShotFacts() {
+        XCTAssertEqual(WatchHoleMapView.rootCaddieFact("188码"), "188码")
+        XCTAssertEqual(WatchHoleMapView.rootCaddieFact("留 100 码"), "留100码")
+        XCTAssertEqual(WatchHoleMapView.rootCaddieFact("攻果岭"), "攻果岭")
+        XCTAssertNil(WatchHoleMapView.rootCaddieFact("推进 · 后接九号铁并避开右沙坑"))
+    }
+
     func testCaddieOrderStaysRecommendationSafeAttackRegardlessOfPayloadOrder() {
         let options = [
             WatchCaddieOption(optionId: "attack", label: "进攻"),
@@ -1014,7 +1021,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             holeNumber: 4, par: 5,
             frontGreen: 273, centerGreen: 287, backGreen: 300,
             playsLikeDelta: 8, lastShot: 200,
-            caddieClub: "3号木", caddieNote: "推进 · 留100",
+            caddieClub: "3号木", caddieNote: "留100码",
             ringPips: pips
         )
         .watchSnapshotFrame(width: 198, height: 242)   // 45 mm Apple Watch logical size
@@ -1050,7 +1057,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             playsLikeDelta: 8,
             lastShot: 200,
             caddieClub: "3号木",
-            caddieNote: "推进 · 留100",
+            caddieNote: "留100码",
             showCaddieRecommendation: true,
             currentShotLayout: layout,
             ringPips: pips
@@ -1087,7 +1094,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             playsLikeDelta: 8,
             lastShot: 0,
             caddieClub: "3号木",
-            caddieNote: "推进 · 留100",
+            caddieNote: "留100码",
             showCaddieRecommendation: true,
             showPreparedPlan: true
         )
@@ -1109,7 +1116,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             holeNumber: 4, par: 5,
             frontGreen: 273, centerGreen: 287, backGreen: 300,
             playsLikeDelta: 8, lastShot: 200,
-            caddieClub: "3号木", caddieNote: "推进 · 留100",
+            caddieClub: "3号木", caddieNote: "留100码",
             showCaddieRecommendation: true,
             showPreparedPlan: true,
             ringPips: pips,

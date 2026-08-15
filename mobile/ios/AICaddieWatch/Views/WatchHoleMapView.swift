@@ -277,7 +277,7 @@ public struct WatchHoleMapView: View {
         playsLikeDelta: Int = 8,
         lastShot: Int = 200,
         caddieClub: String = "3号木",
-        caddieNote: String = "推进 · 留100",
+        caddieNote: String = "留100码",
         showCaddieRecommendation: Bool = false,
         currentShotLayout: WatchCurrentShotLayout? = nil,
         showPreparedPlan: Bool = false,
@@ -318,6 +318,28 @@ public struct WatchHoleMapView: View {
         self.measuredPxOverride = measuredPxOverride
         self.pinDragOverride = pinDragOverride
         self.onOpenCaddie = onOpenCaddie
+    }
+
+    /// Hole Root has room for one current-shot fact, not arbitrary strategy prose. Production
+    /// supplies a carry/leave distance or the short green-attack state; longer explanations remain
+    /// available through the Caddie detail and the full accessibility label.
+    static func rootCaddieFact(_ raw: String) -> String? {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "")
+        guard !value.isEmpty else { return nil }
+        if value == "攻果岭" { return value }
+        guard value.hasSuffix("码") else { return nil }
+
+        let body = String(value.dropLast())
+        let isAsciiNumber: (String) -> Bool = { candidate in
+            !candidate.isEmpty && candidate.allSatisfy { $0.isASCII && $0.isNumber }
+        }
+        if isAsciiNumber(body) { return "\(body)码" }
+        if body.hasPrefix("留") {
+            let yards = String(body.dropFirst())
+            if isAsciiNumber(yards) { return "留\(yards)码" }
+        }
+        return nil
     }
 
     private let onOpenCaddie: () -> Void
@@ -468,11 +490,12 @@ public struct WatchHoleMapView: View {
                                         .foregroundStyle(.white)
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.85)
-                                    Text(caddieNote)
-                                        .font(.system(size: 9.5, weight: .medium))
-                                        .foregroundStyle(caddieGreen)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.85)
+                                    if let rootCaddieFact = Self.rootCaddieFact(caddieNote) {
+                                        Text(rootCaddieFact)
+                                            .font(.system(size: 9.5, weight: .medium))
+                                            .foregroundStyle(caddieGreen)
+                                            .lineLimit(1)
+                                    }
                                 }
                                 .padding(.horizontal, 8).padding(.vertical, 5)
                                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -87,7 +87,7 @@ public struct WatchClubPromptView: View {
         VStack(spacing: WatchClubPromptLayout.stackSpacing) {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
-                    Text(hole.map { "记进第\($0)洞" } ?? "记录第\(shotNumber)杆")
+                    Text(hole.map { "H\($0) · 第\(shotNumber)杆" } ?? "第\(shotNumber)杆")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(recommendedGreen)
                     Spacer(minLength: 2)
@@ -101,7 +101,7 @@ public struct WatchClubPromptView: View {
                             .padding(.trailing, 46)
                     }
                 }
-                Text("刚才这杆用的？")
+                Text("刚才用哪支杆？")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -121,12 +121,11 @@ public struct WatchClubPromptView: View {
                             let isRecommended = club.clubName == normalizedRecommendedClub
                             Button(action: { onSelectClub(club.clubName) }) {
                                 HStack(spacing: 4) {
-                                    Text(WatchClubDisplay.name(club.clubName))
+                                    Text(WatchClubDisplay.shortCode(club.clubName))
                                         .font(.system(size: 15, weight: .semibold))
                                         .lineLimit(1)
-                                        .minimumScaleFactor(0.7)
                                     if let distance = WatchClubPromptPresentation.distanceText(for: club) {
-                                        Text(distance)
+                                        Text("\(distance)码")
                                             .font(.system(size: 13, weight: .semibold))
                                             .foregroundStyle(
                                                 isRecommended

@@ -120,14 +120,14 @@ public struct WatchFinishRoundView: View {
                 Button(action: onConfirmFinish) {
                     Text(primaryActionLabel)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(AICaddieDesignTokens.par)
+                        .foregroundStyle(.white)
                         .frame(
                             maxWidth: .infinity,
                             minHeight: WatchFinishRoundLayout.primaryActionHeight,
                             maxHeight: WatchFinishRoundLayout.primaryActionHeight
                         )
                         .background(
-                            AICaddieDesignTokens.par.opacity(0.25),
+                            AICaddieDesignTokens.par,
                             in: RoundedRectangle(cornerRadius: 26, style: .continuous)
                         )
                 }
@@ -278,11 +278,11 @@ public struct WatchResumeRoundView: View {
                 }
                 lifecycleButton(
                     isFreshRound ? "开始本场" : "继续本场",
-                    tint: AICaddieDesignTokens.par,
+                    primary: true,
                     action: onResume
                 )
                 if canSaveAndEnd {
-                    lifecycleButton("保存并结束", tint: Color.white, action: onSaveAndEnd)
+                    lifecycleButton("保存并结束", action: onSaveAndEnd)
                 }
                 Button(role: .destructive, action: onAbandon) {
                     Text("放弃本场")
@@ -302,15 +302,20 @@ public struct WatchResumeRoundView: View {
 
     private func lifecycleButton(
         _ label: String,
-        tint: Color,
+        primary: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Text(label)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(tint)
+                .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, minHeight: 36)
-                .background(Color(red: 35 / 255, green: 35 / 255, blue: 37 / 255), in: Capsule())
+                .background(
+                    primary
+                        ? AICaddieDesignTokens.par
+                        : Color(red: 35 / 255, green: 35 / 255, blue: 37 / 255),
+                    in: Capsule()
+                )
         }
         .buttonStyle(.plain)
     }

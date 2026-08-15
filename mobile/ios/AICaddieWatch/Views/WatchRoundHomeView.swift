@@ -1,5 +1,9 @@
 import SwiftUI
 
+enum WatchRoundHomeLayout {
+    static let systemTimeTrailingClearance: CGFloat = 48
+}
+
 /// Honest current-hole fallback when neither a map nor a live green distance is available. It is not a
 /// second dashboard: lifecycle, hole navigation and scoring stay in Golf Menu, just as on S70.
 public struct WatchRoundHomeView: View {
@@ -67,14 +71,16 @@ public struct WatchRoundHomeView: View {
         GeometryReader { proxy in
             let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
             VStack(spacing: 5) {
-                HStack(spacing: 5) {
+                HStack(spacing: 7) {
                     Text("H\(hole) · P\(par)")
                         .font(.system(size: 13, weight: .bold))
                         .lineLimit(1)
-                    Spacer()
-                    Text(toParText)
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+                    if toPar != nil {
+                        Text(toParText)
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+                    }
+                    Spacer(minLength: WatchRoundHomeLayout.systemTimeTrailingClearance)
                 }
                 Spacer(minLength: 2)
                 Text(distanceText ?? "—")

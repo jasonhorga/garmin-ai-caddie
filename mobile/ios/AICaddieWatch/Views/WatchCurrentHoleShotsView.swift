@@ -32,7 +32,7 @@ public struct WatchCurrentHoleShotsView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("第\(hole)洞 · Par \(par)")
+            Text("H\(hole) · P\(par)")
                 .font(.system(size: 15, weight: .bold))
 
             if shots.isEmpty {
@@ -61,7 +61,7 @@ public struct WatchCurrentHoleShotsView: View {
                 }
             }
 
-            Text("推杆在洞末成绩确认中记录")
+            Text("推杆在洞末确认")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
 
@@ -72,10 +72,10 @@ public struct WatchCurrentHoleShotsView: View {
                     .font(.system(size: 11, weight: .bold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 7)
-                    .foregroundStyle(AICaddieDesignTokens.par)
+                    .foregroundStyle(canAddShot ? Color.white : Color.secondary)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(AICaddieDesignTokens.par.opacity(0.16))
+                            .fill(canAddShot ? AICaddieDesignTokens.par : Color.white.opacity(0.08))
                     )
             }
             .buttonStyle(.plain)
@@ -99,7 +99,7 @@ public struct WatchCurrentHoleShotsView: View {
     }
 
     private func shotLabel(_ shot: WatchRecordedShot) -> String {
-        let club = shot.clubName.map(WatchClubDisplay.name) ?? "未选球杆"
+        let club = shot.clubName.map(WatchClubDisplay.shortCode) ?? "未选球杆"
         return shot.number == 1 && shot.shotType == "tee" ? "开球 \(club)" : club
     }
 
