@@ -98,7 +98,9 @@ enum WatchClubDisplay {
     }
 
     private static func clubNumber(in value: String) -> String? {
-        if let digit = value.first(where: \.isNumber) { return String(digit) }
+        if let digit = value.first(where: { $0.isASCII && $0.isNumber }) {
+            return String(digit)
+        }
         let reverse = Dictionary(uniqueKeysWithValues: chineseNumber.map { ($0.value, $0.key) })
         return value.first(where: { reverse[String($0)] != nil }).flatMap { reverse[String($0)] }
     }

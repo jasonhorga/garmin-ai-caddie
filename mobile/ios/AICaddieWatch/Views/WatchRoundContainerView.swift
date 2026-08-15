@@ -279,7 +279,7 @@ public struct WatchRoundContainerView: View {
                     holes: model.allHoleStates.map { WatchScorecardRow(hole: $0.hole, par: $0.par, score: $0.score) },
                     totalToPar: model.toPar,
                     onSelectHole: { model.startEditingHole($0) },
-                    onBack: { model.openMenu() }
+                    onBack: { model.closeScorecard() }
                 )
             }
         case .currentHoleShots:
@@ -356,6 +356,7 @@ public struct WatchRoundContainerView: View {
                 girSummary: model.girSummary,
                 pendingUploads: model.pendingUploads,
                 onConfirmFinish: { model.requestFinishConfirmation() },
+                onEditScore: { model.openScorecardFromFinish() },
                 onKeepPlaying: { model.keepPlaying() },
                 onAbandon: { model.requestAbandon() }
             )

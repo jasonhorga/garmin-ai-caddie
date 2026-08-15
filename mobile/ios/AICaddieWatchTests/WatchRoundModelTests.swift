@@ -1314,6 +1314,28 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .home)
     }
 
+    func testFinishScorecardEditsReturnToEndRoundWithoutMovingLiveHole() {
+        let model = seededModel(holes: [
+            hole(1, score: 4, putts: 2),
+            hole(2, score: 5, putts: 2),
+            hole(3),
+        ])
+        model.selectHole(3)
+        model.requestFinish()
+
+        model.openScorecardFromFinish()
+        XCTAssertEqual(model.screen, .scorecard)
+        model.startEditingHole(1)
+        model.adjustDraftScore(1)
+        model.saveManualScore()
+
+        XCTAssertEqual(model.round?.holeStates.first { $0.hole == 1 }?.score, 5)
+        XCTAssertEqual(model.activeHole, 3)
+        XCTAssertEqual(model.screen, .scorecard)
+        model.closeScorecard()
+        XCTAssertEqual(model.screen, .finishing)
+    }
+
     func testFinishSummaryRequiresExplicitConfirmationBeforeUpload() {
         let model = seededModel(holes: [hole(1, score: 4)])
 

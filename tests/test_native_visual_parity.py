@@ -46,35 +46,38 @@ class NativeVisualParityTests(unittest.TestCase):
 
         self.assertIn("WatchScoreHoleLayout.systemTimeTrailingClearance", source)
         self.assertIn(
-            ".padding(.trailing, WatchScoreHoleLayout.systemTimeTrailingClearance)",
+            "Spacer(minLength: WatchScoreHoleLayout.systemTimeTrailingClearance)",
             source,
         )
 
-    def test_watch_round_tools_use_the_approved_shallow_long_press_entry(self) -> None:
+    def test_watch_round_tools_expose_a_visible_menu_and_keep_long_press_as_a_shortcut(self) -> None:
         source = (WATCH_VIEWS / "WatchRoundContainerView.swift").read_text(encoding="utf-8")
 
         self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }", source)
         self.assertIn('accessibilityAction(named: Text("球局工具"))', source)
-        self.assertNotIn("private var roundToolsButton", source)
+        self.assertIn('identifier: "watch-hole-menu"', source)
+        self.assertIn("private var rootControls", source)
 
-    def test_watch_menu_uses_the_full_top_canvas_without_changing_the_app_root(self) -> None:
+    def test_watch_menu_reclaims_only_the_top_edge_and_keeps_rounded_sides_safe(self) -> None:
         source = (WATCH_VIEWS / "WatchMenuView.swift").read_text(encoding="utf-8")
 
-        self.assertIn(
-            ".ignoresSafeArea(edges: [.top, .leading, .trailing])",
-            source,
-        )
+        self.assertIn(".ignoresSafeArea(edges: .top)", source)
+        self.assertNotIn(".ignoresSafeArea(edges: [.top, .leading, .trailing])", source)
         self.assertNotIn(".contentMargins(.vertical, 0, for: .scrollContent)", source)
 
-    def test_watch_finish_actions_use_the_approved_ten_point_side_inset(self) -> None:
+    def test_watch_finish_actions_use_the_shared_rounded_display_inset(self) -> None:
         source = (WATCH_VIEWS / "WatchFinishRoundView.swift").read_text(encoding="utf-8")
 
-        # Resume, finish, abandon-confirmation and save-locally confirmation share this inset.
-        self.assertEqual(source.count(".padding(.horizontal, 10)"), 4)
+        # Resume, finish, abandon-confirmation and save confirmation share the physical display inset.
+        self.assertEqual(
+            source.count(".padding(.horizontal, WatchDisplayGeometry.minimumContentInset)"),
+            4,
+        )
+        self.assertNotIn(".padding(.horizontal, 10)", source)
         self.assertNotIn(".padding(.horizontal, 25)", source)
 
-    def test_watch_approved_canvas_is_claimed_by_each_affected_surface(self) -> None:
-        full_top_canvas = ".ignoresSafeArea(edges: [.top, .leading, .trailing])"
+    def test_watch_scroll_surfaces_keep_horizontal_content_inside_the_rounded_display(self) -> None:
+        top_only = ".ignoresSafeArea(edges: .top)"
 
         for filename in [
             "WatchMenuView.swift",
@@ -83,19 +86,22 @@ class NativeVisualParityTests(unittest.TestCase):
             "WatchSettingsView.swift",
         ]:
             source = (WATCH_VIEWS / filename).read_text(encoding="utf-8")
-            self.assertIn(full_top_canvas, source, filename)
+            self.assertIn(top_only, source, filename)
+            self.assertNotIn(
+                ".ignoresSafeArea(edges: [.top, .leading, .trailing])",
+                source,
+                filename,
+            )
 
         container = (WATCH_VIEWS / "WatchRoundContainerView.swift").read_text(encoding="utf-8")
-        self.assertIn(full_top_canvas, container)
+        self.assertIn(top_only, container)
         self.assertIn(".ignoresSafeArea()", container)
 
         setup = (WATCH_VIEWS / "WatchRoundSetupView.swift").read_text(encoding="utf-8")
-        self.assertEqual(setup.count(full_top_canvas), 2)
-        self.assertNotIn(".ignoresSafeArea(edges: .top)", setup)
+        self.assertEqual(setup.count(top_only), 2)
 
         start = (WATCH_VIEWS / "WatchStartView.swift").read_text(encoding="utf-8")
-        self.assertEqual(start.count(full_top_canvas), 2)
-        self.assertNotIn(".ignoresSafeArea(edges: .top)", start)
+        self.assertEqual(start.count(top_only), 2)
 
         distance = (WATCH_VIEWS / "WatchDistanceHero.swift").read_text(encoding="utf-8")
         self.assertIn(".ignoresSafeArea()", distance)

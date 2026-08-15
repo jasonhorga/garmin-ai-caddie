@@ -26,6 +26,7 @@ public struct WatchFinishRoundView: View {
     public let pendingUploads: Int
     public let initiallyShowSecondaryAction: Bool
     public let onConfirmFinish: () -> Void
+    public let onEditScore: () -> Void
     public let onKeepPlaying: () -> Void
     public let onAbandon: () -> Void
 
@@ -41,6 +42,7 @@ public struct WatchFinishRoundView: View {
         pendingUploads: Int = 0,
         initiallyShowSecondaryAction: Bool = false,
         onConfirmFinish: @escaping () -> Void = {},
+        onEditScore: @escaping () -> Void = {},
         onKeepPlaying: @escaping () -> Void = {},
         onAbandon: @escaping () -> Void = {}
     ) {
@@ -55,6 +57,7 @@ public struct WatchFinishRoundView: View {
         self.pendingUploads = pendingUploads
         self.initiallyShowSecondaryAction = initiallyShowSecondaryAction
         self.onConfirmFinish = onConfirmFinish
+        self.onEditScore = onEditScore
         self.onKeepPlaying = onKeepPlaying
         self.onAbandon = onAbandon
     }
@@ -131,42 +134,17 @@ public struct WatchFinishRoundView: View {
                 .buttonStyle(.plain)
                 .padding(.top, 4)
 
-                HStack(spacing: 5) {
-                    Button(action: onKeepPlaying) {
-                        Text(secondaryActionLabel)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .frame(
-                                maxWidth: .infinity,
-                                minHeight: WatchFinishRoundLayout.secondaryActionHeight,
-                                maxHeight: WatchFinishRoundLayout.secondaryActionHeight
-                            )
-                            .background(
-                                Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255),
-                                in: Capsule()
-                            )
-                    }
-                    .buttonStyle(.plain)
-
-                    Button(role: .destructive, action: onAbandon) {
-                        Text("放弃本场")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(AICaddieDesignTokens.doubleBogey)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                            .frame(
-                                maxWidth: .infinity,
-                                minHeight: WatchFinishRoundLayout.secondaryActionHeight,
-                                maxHeight: WatchFinishRoundLayout.secondaryActionHeight
-                            )
-                            .background(
-                                AICaddieDesignTokens.doubleBogey.opacity(0.12),
-                                in: Capsule()
-                            )
-                    }
-                    .buttonStyle(.plain)
+                HStack(spacing: 4) {
+                    secondaryButton("编辑", accessibilityLabel: editScoreActionLabel, action: onEditScore)
+                    secondaryButton("继续", accessibilityLabel: secondaryActionLabel, action: onKeepPlaying)
+                    secondaryButton(
+                        "放弃",
+                        accessibilityLabel: "放弃本场",
+                        tint: AICaddieDesignTokens.doubleBogey,
+                        background: AICaddieDesignTokens.doubleBogey.opacity(0.12),
+                        role: .destructive,
+                        action: onAbandon
+                    )
                 }
                 .padding(.top, 4)
                 .id(Self.secondaryActionAnchor)
@@ -194,7 +172,33 @@ public struct WatchFinishRoundView: View {
     var puttsText: String { totalPutts.map { "推杆 \($0)" } ?? "推杆 —" }
     var pendingUploadText: String? { pendingUploads > 0 ? "稍后同步 \(pendingUploads)" : nil }
     var primaryActionLabel: String { "保存并结束" }
+    var editScoreActionLabel: String { "编辑成绩" }
     var secondaryActionLabel: String { "继续打球" }
+
+    private func secondaryButton(
+        _ label: String,
+        accessibilityLabel: String,
+        tint: Color = .white,
+        background: Color = Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255),
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: WatchFinishRoundLayout.secondaryActionHeight,
+                    maxHeight: WatchFinishRoundLayout.secondaryActionHeight
+                )
+                .background(background, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+    }
 }
 
 /// Restored rounds pause here instead of reopening a stale score draft. Nothing is discarded until
@@ -288,7 +292,7 @@ public struct WatchResumeRoundView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, WatchDisplayGeometry.minimumContentInset)
             .padding(.vertical, 6)
         }
         .scrollIndicators(.hidden)
@@ -347,7 +351,7 @@ public struct WatchAbandonConfirmationView: View {
                     confirmationButton("放弃", background: Color(red: 1.0, green: 69 / 255, blue: 59 / 255), action: onConfirm)
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, WatchDisplayGeometry.minimumContentInset)
             .padding(.bottom, 10)
             .frame(width: proxy.size.width, height: min(proxy.size.height, 198))
         }
@@ -441,7 +445,7 @@ public struct WatchFinishConfirmationView: View {
                     )
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, WatchDisplayGeometry.minimumContentInset)
             .padding(.top, 10)
             .padding(.bottom, 10)
             .frame(width: proxy.size.width, height: approvedHeight)

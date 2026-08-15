@@ -416,6 +416,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(view.puttsText, "推杆 16")
         XCTAssertEqual(view.pendingUploadText, "稍后同步 2")
         XCTAssertEqual(view.primaryActionLabel, "保存并结束")
+        XCTAssertEqual(view.editScoreActionLabel, "编辑成绩")
         XCTAssertEqual(view.secondaryActionLabel, "继续打球")
         XCTAssertFalse(view.initiallyShowSecondaryAction)
         XCTAssertGreaterThanOrEqual(

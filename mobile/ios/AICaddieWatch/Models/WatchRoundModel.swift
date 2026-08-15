@@ -233,6 +233,8 @@ public final class WatchRoundModel: ObservableObject {
     private let uploaderOverride: (([WatchInputEvent], String) async throws -> [String])?
     private let finisherOverride: ((String, WatchRoundFinishMetadata) async throws -> Void)?
     private var advanceAfterScoring = true
+    private var scoreEntryReturnScreen: WatchRoundScreen = .home
+    private var scorecardReturnScreen: WatchRoundScreen = .menu
     private var screenBeforeFinishConfirmation: WatchRoundScreen = .finishing
     private var screenBeforeAbandon: WatchRoundScreen = .finishing
     private var isRetryingDeferredFinishes = false
@@ -493,7 +495,19 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     // round-13 navigation between the standalone round screens (menu hub → scorecard / hole select).
-    public func openScorecard() { screen = .scorecard }
+    public func openScorecard() {
+        scorecardReturnScreen = .menu
+        screen = .scorecard
+    }
+    public func openScorecardFromFinish() {
+        guard screen == .finishing else { return }
+        scorecardReturnScreen = .finishing
+        screen = .scorecard
+    }
+    public func closeScorecard() {
+        guard screen == .scorecard else { return }
+        screen = scorecardReturnScreen
+    }
     public func openCurrentHoleShots() { screen = .currentHoleShots }
     public func openHoleSelect() { screen = .holeSelect }
     public func openMenu() { screen = .menu }
@@ -791,6 +805,7 @@ public final class WatchRoundModel: ObservableObject {
     private func restoreInteractionState(from persisted: WatchRoundStore.PersistedRound?) {
         pendingManualShot = persisted?.pendingManualShot
         pendingAutoShotCandidate = persisted?.pendingAutoShotCandidate
+        scoreEntryReturnScreen = .home
         guard let draft = persisted?.scoreDraft,
               persisted?.holeStates.contains(where: { $0.hole == draft.hole }) == true else {
             scoringHole = nil
@@ -858,12 +873,14 @@ public final class WatchRoundModel: ObservableObject {
 
     public func startScoringActiveHole() {
         guard let hole = activeHoleState else { return }
+        scoreEntryReturnScreen = .home
         beginScoring(hole: hole, advanceAfterSave: true, offerRecommendation: hole.score == 0)
     }
 
     /// Edit a completed/historical hole without moving the live-play cursor.
     public func startEditingHole(_ holeNumber: Int) {
         guard let hole = round?.holeStates.first(where: { $0.hole == holeNumber }) else { return }
+        scoreEntryReturnScreen = screen == .scorecard ? .scorecard : .home
         beginScoring(hole: hole, advanceAfterSave: false, offerRecommendation: false)
     }
 
@@ -1138,7 +1155,7 @@ public final class WatchRoundModel: ObservableObject {
             return
         }
         scoringHole = nil
-        screen = .home
+        screen = scoreEntryReturnScreen
         persistInteractionState()
     }
 
@@ -1191,7 +1208,7 @@ public final class WatchRoundModel: ObservableObject {
             pendingManualShot = resolved
             screen = .clubPrompt
         } else {
-            screen = .home
+            screen = scoreEntryReturnScreen
         }
         persistInteractionState()
     }
