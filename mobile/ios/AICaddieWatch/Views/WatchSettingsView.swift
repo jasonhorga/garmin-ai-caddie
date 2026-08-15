@@ -36,9 +36,7 @@ public struct WatchSettingsView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("设置")
-                    .font(.system(size: 16, weight: .bold))
-                    .padding(.bottom, 6)
+                WatchInstrumentHeader("设置", backLabel: "返回菜单", onBack: onBack)
 
                 Toggle("GPS 预热", isOn: $gpsPreheatEnabled)
                     .font(.system(size: 13, weight: .regular))

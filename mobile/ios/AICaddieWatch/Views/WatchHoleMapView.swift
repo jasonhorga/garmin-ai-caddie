@@ -144,6 +144,78 @@ enum WatchHoleMapRouteOverlay: Equatable {
     }
 }
 
+/// Root, map-detail and read-only instruments intentionally have different touch semantics. A root
+/// tap opens Garmin-style Touch Target; it must not silently move a target or the flag in place.
+public enum WatchHoleMapInteractionMode: Equatable {
+    case root
+    case touchTarget
+    case passive
+}
+
+struct WatchRemainingDistanceMarker: Equatable {
+    let remainingYards: Int
+    let imagePoint: CGPoint
+}
+
+enum WatchHoleMapReferenceLayout {
+    static let remainingYards = [100, 150, 200, 250]
+    static let metresPerYard = 0.9144
+
+    /// Garmin's fixed layup markers are distances remaining to the green, not percentages of the
+    /// screen or of the current hole. Resolve them only from the cumulative-metre route.
+    static func remainingMarkers(
+        route: [[Double]],
+        playerImagePoint: CGPoint
+    ) -> [WatchRemainingDistanceMarker] {
+        guard let progress = WatchHazardMapLayout.playerProgressMetres(
+            on: route,
+            playerImagePoint: playerImagePoint
+        ),
+              let total = route.reversed().first(where: validRouteRow).map({ $0[2] }),
+              total > progress else { return [] }
+
+        return remainingYards.compactMap { yards in
+            let absoluteMetres = total - Double(yards) * metresPerYard
+            guard absoluteMetres > progress,
+                  absoluteMetres < total,
+                  let point = WatchHazardMapLayout.imagePoint(
+                    on: route,
+                    atMetres: absoluteMetres
+                  ) else { return nil }
+            return WatchRemainingDistanceMarker(
+                remainingYards: yards,
+                imagePoint: point
+            )
+        }
+    }
+
+    /// Driver Distance is a player fact. It is present only when the caller has a real bag distance
+    /// and the corresponding range still lands before the route's green endpoint.
+    static func driverTarget(
+        route: [[Double]],
+        playerImagePoint: CGPoint,
+        driverDistanceM: Double?
+    ) -> CGPoint? {
+        guard let driverDistanceM,
+              driverDistanceM.isFinite,
+              driverDistanceM > 0,
+              let progress = WatchHazardMapLayout.playerProgressMetres(
+                on: route,
+                playerImagePoint: playerImagePoint
+              ),
+              let total = route.reversed().first(where: validRouteRow).map({ $0[2] }),
+              progress + driverDistanceM < total else { return nil }
+        return WatchHazardMapLayout.imagePoint(
+            on: route,
+            atMetres: progress + driverDistanceM
+        )
+    }
+
+    private static func validRouteRow(_ row: [Double]) -> Bool {
+        row.count >= 3 && row[0].isFinite && row[1].isFinite && row[2].isFinite
+    }
+}
+
 /// Image-space facts for one recommendation. There is deliberately no lateral-radius field: the live
 /// decision currently carries measured carry depth only, so the Watch can render p10/p90 longitudinally
 /// without manufacturing a dispersion ellipse.
@@ -203,7 +275,8 @@ public struct WatchCurrentShotLayout: Equatable {
 ///
 /// This snapshot is a par-5 SECOND shot (gid31669 h4). Layout after the "太挤" review:
 ///  • Left column shows only the essentials: 第N洞·P and the green distance block 后/中/前, with
-///    **中 = distance to the pin you drag in Green Preview**. The recommendation chip and current-shot
+///    **中 = distance to the canonical pin**. Green Preview is temporary until a dedicated flag event
+///    exists. The recommendation chip and current-shot
 ///    overlay appear together only after the complete D02 evidence/freshness/location gate passes.
 ///  • The distance block is a **TOGGLE**: default shows the raw yardage; `showPlaysLike` flips it to the
 ///    slope/elevation-adjusted **实打** values with a ↑/↓ arrow (Garmin taps the distance for this).
@@ -244,8 +317,13 @@ public struct WatchHoleMapView: View {
     public let showCaddieRecommendation: Bool
     public let currentShotLayout: WatchCurrentShotLayout?
     /// Offline Tee plan from the downloaded route/landing facts. Unlike a live decision it has no
-    /// dispersion, so it draws only the two grounded route legs and their prepared landing target.
+    /// dispersion, so Hole Root draws only the grounded first shot and its prepared landing target.
     public let showPreparedPlan: Bool
+    /// User-configured/measured Driver range. It renders as a fact-layer arc only when the current
+    /// route can place that distance before the green.
+    public let driverDistanceM: Double?
+    /// Garmin's fixed 100/150/200/250-yard remaining markers. These are route facts, never AI targets.
+    public let showReferenceMarkers: Bool
     /// Factual obstacles and their route frame. Geometry remains visible in the topo itself; textual
     /// front/back distance callouts belong to the focused Hazard screen, not Hole Root.
     public let hazards: [WatchHazard]
@@ -261,17 +339,13 @@ public struct WatchHoleMapView: View {
     // watch P1: the topo image + overlay anchors (image-px). Defaults to the baked sample (snapshots);
     // the real playing view builds it from the fetched /topo.png + holeImageProjection.
     public let geometry: WatchHoleMapGeometry
-    // watch P2 (选点测距 / 拖旗): snapshot overrides so the measured-point + dragged-pin states render in CI
-    // without touch. Live interaction uses the @State below; the override wins when set.
+    // Touch Target snapshot override; live interaction uses the @State below.
     public let measuredPxOverride: CGPoint?
-    public let pinDragOverride: CGSize?
+    public let interactionMode: WatchHoleMapInteractionMode
     /// 选点测距: the last tapped point in IMAGE-px space (a crosshair + distance-from-you pill).
     @State private var liveMeasuredPx: CGPoint?
-    /// 拖旗: drag offset (canvas px) applied to the pin, so "中" previews "what if the flag were here".
-    @State private var livePinDrag: CGSize = .zero
 
     private var measuredPx: CGPoint? { measuredPxOverride ?? liveMeasuredPx }
-    private var pinDrag: CGSize { pinDragOverride ?? livePinDrag }
 
     public init(
         holeNumber: Int = 4,
@@ -286,6 +360,8 @@ public struct WatchHoleMapView: View {
         showCaddieRecommendation: Bool = false,
         currentShotLayout: WatchCurrentShotLayout? = nil,
         showPreparedPlan: Bool = false,
+        driverDistanceM: Double? = nil,
+        showReferenceMarkers: Bool = false,
         hazards: [WatchHazard] = [],
         hazardRoute: [[Double]] = [],
         ringPips: [WatchRingPip] = WatchHoleMapView.sampleRing,
@@ -296,8 +372,10 @@ public struct WatchHoleMapView: View {
         mapScale: CGFloat = 0.32,
         geometry: WatchHoleMapGeometry = WatchHoleMapSample.geometry,
         measuredPxOverride: CGPoint? = nil,
-        pinDragOverride: CGSize? = nil,
-        onOpenCaddie: @escaping () -> Void = {}
+        interactionMode: WatchHoleMapInteractionMode = .passive,
+        onOpenCaddie: @escaping () -> Void = {},
+        onOpenMapDetail: @escaping () -> Void = {},
+        onBack: @escaping () -> Void = {}
     ) {
         self.holeNumber = holeNumber
         self.par = par
@@ -311,6 +389,8 @@ public struct WatchHoleMapView: View {
         self.showCaddieRecommendation = showCaddieRecommendation
         self.currentShotLayout = currentShotLayout
         self.showPreparedPlan = showPreparedPlan
+        self.driverDistanceM = driverDistanceM
+        self.showReferenceMarkers = showReferenceMarkers
         self.hazards = hazards
         self.hazardRoute = hazardRoute
         self.ringPips = ringPips
@@ -321,8 +401,10 @@ public struct WatchHoleMapView: View {
         self.mapScale = mapScale
         self.geometry = geometry
         self.measuredPxOverride = measuredPxOverride
-        self.pinDragOverride = pinDragOverride
+        self.interactionMode = interactionMode
         self.onOpenCaddie = onOpenCaddie
+        self.onOpenMapDetail = onOpenMapDetail
+        self.onBack = onBack
     }
 
     /// Hole Root has room for one current-shot fact, not arbitrary strategy prose. Production
@@ -348,6 +430,8 @@ public struct WatchHoleMapView: View {
     }
 
     private let onOpenCaddie: () -> Void
+    private let onOpenMapDetail: () -> Void
+    private let onBack: () -> Void
 
     /// Yards per image-pixel, derived from the known you→green pixel span vs the 中 green yardage — so
     /// tap-to-measure needs no extra payload. nil if degenerate (no center distance / you==pin).
@@ -385,6 +469,13 @@ public struct WatchHoleMapView: View {
         return Int(d.rounded())
     }
 
+    private func yards(fromImagePx start: CGPoint, toImagePx end: CGPoint) -> Int? {
+        guard let ypp = yardsPerPx else { return nil }
+        let d = hypot(end.x - start.x, end.y - start.y) * ypp
+        guard d.isFinite, d >= 0 else { return nil }
+        return Int(d.rounded())
+    }
+
     /// Convert a canvas tap/drag location back to image-px (inverse of `anchors`).
     private func imagePx(fromCanvas c: CGPoint, size: CGSize) -> CGPoint {
         let a = anchors(size)
@@ -394,21 +485,14 @@ public struct WatchHoleMapView: View {
     }
 
     private func handleTap(_ location: CGPoint, size: CGSize) {
-        let a = anchors(size)
-        // Tapping the you-marker clears an existing measurement; otherwise measure to the tapped point.
-        if hypot(location.x - a.you.x, location.y - a.you.y) < 20 { liveMeasuredPx = nil; return }
-        liveMeasuredPx = imagePx(fromCanvas: location, size: size)
-    }
-
-    private func pinDragGesture(_ size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 4)
-            .onChanged { value in
-                let pinCanvas = anchors(size).t(geometry.pinPx)
-                // Only drag the flag when the gesture STARTED on it (else a stray drag is ignored).
-                if hypot(value.startLocation.x - pinCanvas.x, value.startLocation.y - pinCanvas.y) < 32 {
-                    livePinDrag = value.translation
-                }
-            }
+        switch interactionMode {
+        case .root:
+            onOpenMapDetail()
+        case .touchTarget:
+            liveMeasuredPx = imagePx(fromCanvas: location, size: size)
+        case .passive:
+            break
+        }
     }
 
     // MARK: - Palette
@@ -416,6 +500,7 @@ public struct WatchHoleMapView: View {
     private let golfYellow = Color(red: 1.0, green: 0.83, blue: 0.28)
     private let youBlue = Color(red: 0.04, green: 0.52, blue: 1.0)
     private let flagRed = Color(red: 0.94, green: 0.28, blue: 0.24)
+    private let touchTargetCyan = Color(red: 0.18, green: 0.84, blue: 0.96)
     private let frontBlue = Color(red: 0.35, green: 0.72, blue: 1.0)
     private let backGrey = Color(red: 0.72, green: 0.74, blue: 0.78)
 
@@ -434,16 +519,48 @@ public struct WatchHoleMapView: View {
                 // Hole identity and vector-map upgrade status remain truthful even before F/M/B
                 // coordinates arrive. Distance-dependent controls stay gated inside `overlay`.
                 overlay(geo.size)
+                if interactionMode == .touchTarget {
+                    touchTargetControls(geo.size)
+                }
             }
             .contentShape(Rectangle())
-            // 拖旗: drag the flag; 选点测距: tap to measure. The container exclusively owns
-            // long-press so this map cannot race the round-menu gesture. 大字模式 is entered
-            // from the distance presentation or the persisted round setting.
-            .gesture(pinDragGesture(geo.size))
             .simultaneousGesture(SpatialTapGesture().onEnded { handleTap($0.location, size: geo.size) })
         }
         .background(Color.black)
         .ignoresSafeArea()
+    }
+
+    private func touchTargetControls(_ size: CGSize) -> some View {
+        let safeRect = WatchDisplayGeometry.contentRect(in: size)
+        return ZStack {
+            WatchInstrumentBackButton(accessibilityLabel: "返回球洞", onBack: onBack)
+                .position(x: safeRect.minX + 22, y: safeRect.minY + 22)
+
+            if measuredPx != nil && measuredPxOverride == nil {
+                Button {
+                    liveMeasuredPx = nil
+                } label: {
+                    Label("清除", systemImage: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 8)
+                        .frame(minHeight: 40)
+                        .background(Color.black.opacity(0.70), in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("清除测距目标")
+                .position(x: safeRect.maxX - 28, y: safeRect.maxY - 21)
+            } else if measuredPx == nil {
+                Text("点地图选目标")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.black.opacity(0.68), in: Capsule())
+                    .position(x: safeRect.midX, y: safeRect.maxY - 14)
+            }
+        }
+        .frame(width: size.width, height: size.height)
     }
 
     /// Shared transform so the Canvas vectors and the Text overlay agree on where map points land.
@@ -513,7 +630,7 @@ public struct WatchHoleMapView: View {
                             Spacer().frame(height: 8)
                         }
 
-                        // Distance block — TOGGLE. 中 = to the (draggable) pin. 实打 flips values + shows ↑/↓.
+                        // Distance block — TOGGLE. 中 = current canonical pin; 实打 flips values + shows ↑/↓.
                         Text(pl ? "\(arrow)\(abs(playsLikeDelta)) 码" : "到果岭")
                             .font(.system(size: 9.5, weight: pl ? .semibold : .regular))
                             .foregroundStyle(pl ? golfYellow : Color.secondary)
@@ -626,8 +743,7 @@ public struct WatchHoleMapView: View {
         let scale = currentScale(size)
         let a = anchors(size)
         let player = a.you
-        // 拖旗: the flag follows the drag offset (canvas px), previewing "到旗" from a moved pin.
-        let green = CGPoint(x: a.t(geometry.pinPx).x + pinDrag.width, y: a.t(geometry.pinPx).y + pinDrag.height)
+        let green = a.t(geometry.pinPx)
 
         var drew = false
         #if canImport(UIKit)
@@ -653,6 +769,10 @@ public struct WatchHoleMapView: View {
                      with: .radialGradient(
                         Gradient(colors: [.black.opacity(0), .black.opacity(0.05), .black.opacity(0.82)]),
                         center: player, startRadius: size.height * 0.12, endRadius: size.height * 0.62))
+
+        if showReferenceMarkers {
+            drawReferenceFacts(&context, size: size, transform: a.t)
+        }
 
         switch WatchHoleMapRouteOverlay.resolve(
             measuredPoint: measuredPx,
@@ -714,18 +834,7 @@ public struct WatchHoleMapView: View {
             context.draw(context.resolve(Text("上一杆 \(lastShot) 码").font(.system(size: 10, weight: .semibold)).foregroundColor(.white)), at: lp)
         }
 
-        // 拖旗: live "到旗" distance from the dragged flag.
-        if pinDrag != .zero, let d = yards(toImagePx: imagePx(fromCanvas: green, size: size)) {
-            pill(
-                &context,
-                at: green,
-                text: "到旗 \(d)",
-                tint: flagRed,
-                viewportSize: size,
-                preferredOffset: 20
-            )
-        }
-        // 选点测距: crosshair + distance-from-you at the tapped point.
+        // Touch Target: both legs remain explicit — current position → target and target → flag.
         if let m = measuredPx {
             let mc = a.t(m)
             let r: CGFloat = 7
@@ -739,17 +848,27 @@ public struct WatchHoleMapView: View {
                 pill(
                     &context,
                     at: mc,
-                    text: "\(d) 码",
-                    tint: youBlue,
+                    text: "目标 \(d)",
+                    tint: touchTargetCyan,
                     viewportSize: size,
                     preferredOffset: 18
                 )
             }
+            if let remaining = yards(fromImagePx: m, toImagePx: geometry.pinPx) {
+                pill(
+                    &context,
+                    at: green,
+                    text: "余 \(remaining)",
+                    tint: touchTargetCyan,
+                    viewportSize: size,
+                    preferredOffset: 22
+                )
+            }
         }
 
-        // Scoring ring ONLY on the outermost hole root. Free measurement and dragged-pin preview are
-        // focused map states even when they retain the split data column, so the root ring must yield.
-        if !fullMap, measuredPx == nil, pinDrag == .zero {
+        // Scoring ring ONLY on the outermost hole root. Touch Target is a focused map state, so the
+        // root ring must yield.
+        if !fullMap, measuredPx == nil {
             drawRing(&context, size: size)
         }
     }
@@ -808,6 +927,116 @@ public struct WatchHoleMapView: View {
                 style: StrokeStyle(lineWidth: 0.8)
             )
         }
+    }
+
+    /// Driver range and fixed remaining-yard markers are factual map references. They stay visually
+    /// quieter than recommendation or Touch Target layers and are resolved from the same route frame.
+    private func drawReferenceFacts(
+        _ context: inout GraphicsContext,
+        size: CGSize,
+        transform: (CGPoint) -> CGPoint
+    ) {
+        if let targetImage = WatchHoleMapReferenceLayout.driverTarget(
+            route: hazardRoute,
+            playerImagePoint: geometry.youPx,
+            driverDistanceM: driverDistanceM
+        ), let driverDistanceM {
+            let player = transform(geometry.youPx)
+            let target = transform(targetImage)
+            let radius = hypot(target.x - player.x, target.y - player.y)
+            if radius.isFinite, radius > 8 {
+                let heading = atan2(target.y - player.y, target.x - player.x)
+                var arc = Path()
+                arc.addArc(
+                    center: player,
+                    radius: radius,
+                    startAngle: .radians(Double(heading - .pi / 7)),
+                    endAngle: .radians(Double(heading + .pi / 7)),
+                    clockwise: false
+                )
+                context.stroke(
+                    arc,
+                    with: .color(.white.opacity(0.92)),
+                    style: StrokeStyle(lineWidth: 1.25, lineCap: .round)
+                )
+                referenceLabel(
+                    &context,
+                    text: "D \(WatchUnits.yards(driverDistanceM))",
+                    at: target,
+                    tint: .white,
+                    viewportSize: size
+                )
+            }
+        }
+
+        for marker in WatchHoleMapReferenceLayout.remainingMarkers(
+            route: hazardRoute,
+            playerImagePoint: geometry.youPx
+        ) {
+            let point = transform(marker.imagePoint)
+            let tint = remainingMarkerColor(marker.remainingYards)
+            let radius: CGFloat = 3.2
+            let markerRect = CGRect(
+                x: point.x - radius,
+                y: point.y - radius,
+                width: radius * 2,
+                height: radius * 2
+            )
+            context.fill(Path(ellipseIn: markerRect), with: .color(tint))
+            context.stroke(
+                Path(ellipseIn: markerRect),
+                with: .color(.black.opacity(0.92)),
+                style: StrokeStyle(lineWidth: 1)
+            )
+            referenceLabel(
+                &context,
+                text: "\(marker.remainingYards)",
+                at: point,
+                tint: tint,
+                viewportSize: size
+            )
+        }
+    }
+
+    private func remainingMarkerColor(_ yards: Int) -> Color {
+        switch yards {
+        case 100: return Color(red: 0.96, green: 0.28, blue: 0.24)
+        case 150: return .white
+        case 200: return Color(red: 0.18, green: 0.56, blue: 1.0)
+        case 250: return Color(red: 1.0, green: 0.80, blue: 0.18)
+        default: return .white
+        }
+    }
+
+    private func referenceLabel(
+        _ context: inout GraphicsContext,
+        text: String,
+        at marker: CGPoint,
+        tint: Color,
+        viewportSize: CGSize
+    ) {
+        let width = max(18, CGFloat(text.count) * 5.3 + 7)
+        let height: CGFloat = 11
+        let safeRect = WatchDisplayGeometry.contentRect(in: viewportSize)
+        let preferredX = marker.x + width * 0.5 + 4
+        let x = min(max(preferredX, safeRect.minX + width * 0.5), safeRect.maxX - width * 0.5)
+        var y = min(max(marker.y, safeRect.minY + height * 0.5), safeRect.maxY - height * 0.5)
+        var rect = CGRect(x: x - width * 0.5, y: y - height * 0.5, width: width, height: height)
+        let timeRect = WatchHoleMapViewport.systemTimeRect(in: viewportSize)
+        if rect.intersects(timeRect) {
+            y = min(timeRect.maxY + height * 0.5 + 2, safeRect.maxY - height * 0.5)
+            rect.origin.y = y - height * 0.5
+        }
+        context.fill(Path(roundedRect: rect, cornerRadius: height * 0.5), with: .color(.black.opacity(0.68)))
+        context.stroke(
+            Path(roundedRect: rect, cornerRadius: height * 0.5),
+            with: .color(tint.opacity(0.9)),
+            style: StrokeStyle(lineWidth: 0.65)
+        )
+        context.draw(
+            context.resolve(Text(text).font(.system(size: 6.8, weight: .bold)).foregroundColor(.white)),
+            at: CGPoint(x: x, y: y)
+        )
     }
 
     private func drawCurrentShot(
@@ -902,8 +1131,8 @@ public struct WatchHoleMapView: View {
         selectedLeg.addLine(to: measured)
         context.stroke(
             selectedLeg,
-            with: .color(caddieGreen.opacity(0.95)),
-            style: StrokeStyle(lineWidth: 2.8, lineCap: .round)
+            with: .color(touchTargetCyan.opacity(0.96)),
+            style: StrokeStyle(lineWidth: 2.6, lineCap: .round, dash: [7, 4])
         )
 
         var remainingLeg = Path()
@@ -911,13 +1140,13 @@ public struct WatchHoleMapView: View {
         remainingLeg.addLine(to: pin)
         context.stroke(
             remainingLeg,
-            with: .color(.white.opacity(0.92)),
-            style: StrokeStyle(lineWidth: 2.2, lineCap: .round, dash: [6, 5])
+            with: .color(touchTargetCyan.opacity(0.88)),
+            style: StrokeStyle(lineWidth: 2.0, lineCap: .round, dash: [4, 4])
         )
     }
 
-    /// The prepared route is already part of the downloaded course package: player → landing → pin.
-    /// No ellipse or success percentage is added because the offline package carries neither fact.
+    /// The prepared route is already part of the downloaded course package. Hole Root shows only its
+    /// first grounded shot; the remaining club chain belongs to the focused Caddie instrument.
     private func drawPreparedPlan(
         _ context: inout GraphicsContext,
         transform: (CGPoint) -> CGPoint
@@ -925,9 +1154,6 @@ public struct WatchHoleMapView: View {
         let player = transform(geometry.youPx)
         let target = transform(geometry.layupPx)
         let firstControl = transform(geometry.apexPx)
-        let pin = transform(geometry.pinPx)
-        let secondControl = transform(geometry.greenCtrlPx)
-
         var firstLeg = Path()
         firstLeg.move(to: player)
         firstLeg.addQuadCurve(to: target, control: firstControl)
@@ -935,15 +1161,6 @@ public struct WatchHoleMapView: View {
             firstLeg,
             with: .color(.white.opacity(0.94)),
             style: StrokeStyle(lineWidth: 2.8, lineCap: .round)
-        )
-
-        var nextLeg = Path()
-        nextLeg.move(to: target)
-        nextLeg.addQuadCurve(to: pin, control: secondControl)
-        context.stroke(
-            nextLeg,
-            with: .color(.white.opacity(0.92)),
-            style: StrokeStyle(lineWidth: 2.2, lineCap: .round)
         )
 
         let radius: CGFloat = 5

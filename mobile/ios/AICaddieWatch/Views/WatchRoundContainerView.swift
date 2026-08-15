@@ -80,10 +80,9 @@ public struct WatchRoundContainerView: View {
     private let watchHeading: WatchHeadingFix?
     private let autoShotSupported: Bool
     private let autoShotStatus: String
-    /// DEBUG runtime evidence may start the real map in a deterministic interaction state. Production
-    /// callers leave both nil, so live tap/drag state remains owned by WatchHoleMapView.
+    /// DEBUG runtime evidence may start Touch Target at a deterministic measured point. Production
+    /// callers leave it nil, so live target state remains owned by WatchHoleMapView.
     private let measuredPxOverride: CGPoint?
-    private let pinDragOverride: CGSize?
 
     public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil,
                 watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
@@ -93,8 +92,7 @@ public struct WatchRoundContainerView: View {
                 autoShotStatus: String = "本机不支持",
                 initialHoleMapCrownScale: Double = WatchHoleMapView.restingCrownScale,
                 initialSelectedHazardID: String? = nil,
-                measuredPxOverride: CGPoint? = nil,
-                pinDragOverride: CGSize? = nil) {
+                measuredPxOverride: CGPoint? = nil) {
         self.model = model
         self.holeGeometry = holeGeometry
         self.watchGreenYards = watchGreenYards
@@ -103,7 +101,6 @@ public struct WatchRoundContainerView: View {
         self.autoShotSupported = autoShotSupported
         self.autoShotStatus = autoShotStatus
         self.measuredPxOverride = measuredPxOverride
-        self.pinDragOverride = pinDragOverride
         self.initialHazardID = initialSelectedHazardID
         self._holeMapCrownScale = State(initialValue: initialHoleMapCrownScale)
     }
@@ -182,21 +179,21 @@ public struct WatchRoundContainerView: View {
                 Color.black.onAppear { model.backToHome() }
             }
         case .holeMap:
-            if let state = model.activeHoleState {
-                // Backward-compatible navigation alias for pending interactions written by older builds.
-                // It renders the same single root; there is no user-visible sibling map page.
-                currentHoleRoot(state)
+            if let state = model.activeHoleState, let geometry = holeGeometry {
+                holeMapDetailView(state, geometry)
             } else {
                 Color.black.onAppear { model.backToHome() }
             }
         case .menu:
             WatchMenuView(
                 hasCaddie: model.caddieDetailAvailable,
+                hasViewGreen: holeGeometry != nil,
                 hasHazards: model.hazardDetailAvailable,
                 canRecordShot: shotLocation != nil,
                 hasClubStats: model.clubStatsAvailable,
                 hasFlagDirection: activeFlagCoordinate != nil,
                 onRecordShot: { recordManualShot() },
+                onViewGreen: { model.openViewGreen() },
                 onScoreHole: { model.startScoringActiveHole() },
                 onCaddie: { model.openCaddie() },
                 onHazards: { model.openHazards() },
@@ -209,6 +206,16 @@ public struct WatchRoundContainerView: View {
                 onFinish: { model.requestFinish() },
                 onBack: { model.backToHome() }
             )
+        case .viewGreen:
+            if let state = model.activeHoleState, let geometry = holeGeometry {
+                WatchGreenPreviewView(
+                    geometry: geometry,
+                    centerGreenYards: centerYd(state),
+                    onBack: { model.backToMenu() }
+                )
+            } else {
+                Color.black.onAppear { model.backToMenu() }
+            }
         case .caddie:
             if let state = model.activeHoleState, model.caddieDetailAvailable {
                 WatchCaddieScreen(
@@ -489,6 +496,8 @@ public struct WatchRoundContainerView: View {
             showCaddieRecommendation: currentShot != nil || preparedRootCaddieLayerAvailable,
             currentShotLayout: currentShot,
             showPreparedPlan: preparedRootCaddieLayerAvailable,
+            driverDistanceM: model.playerAtActiveTee(at: shotLocation) ? driverDistanceM(s) : nil,
+            showReferenceMarkers: true,
             hazards: s.hazards,
             hazardRoute: s.holeMap?.route ?? [],
             // owner 2026-07-08 (Fable audit): KEEP the scoring ring — real per-hole scores, current hole hi.
@@ -499,12 +508,44 @@ public struct WatchRoundContainerView: View {
             // owner 2026-07-08: KEEP 实打 — only when the backend has a real mesh-elevation slope
             // (elevationDeltaM non-nil ⇒ playsLike.available), so it stays honest.
             showPlaysLike: s.elevationDeltaM != nil,
-            fullMap: WatchHoleMapView.isFullMap(crownScale: holeMapCrownScale),
+            fullMap: false,
+            mapScale: CGFloat(WatchHoleMapView.restingCrownScale),
+            geometry: geometry,
+            measuredPxOverride: measuredPxOverride,
+            interactionMode: .root,
+            onOpenCaddie: { model.openCaddie() },
+            onOpenMapDetail: {
+                holeMapCrownScale = WatchHoleMapView.restingCrownScale
+                model.openHoleMap()
+            }
+        )
+    }
+
+    private func holeMapDetailView(
+        _ s: WatchRoundState,
+        _ geometry: WatchHoleMapGeometry
+    ) -> some View {
+        WatchHoleMapView(
+            holeNumber: s.hole,
+            par: s.par,
+            frontGreen: frontYd(s),
+            centerGreen: centerYd(s),
+            backGreen: backYd(s),
+            lastShot: 0,
+            showCaddieRecommendation: false,
+            showPreparedPlan: false,
+            showReferenceMarkers: false,
+            hazards: [],
+            hazardRoute: s.holeMap?.route ?? [],
+            ringPips: [],
+            showTextOverlay: false,
+            showHoleIdentity: false,
+            fullMap: true,
             mapScale: CGFloat(holeMapCrownScale),
             geometry: geometry,
             measuredPxOverride: measuredPxOverride,
-            pinDragOverride: pinDragOverride,
-            onOpenCaddie: { model.openCaddie() }
+            interactionMode: .touchTarget,
+            onBack: { model.backToHome() }
         )
         .focusable(true)
         .digitalCrownRotation(
@@ -519,6 +560,16 @@ public struct WatchRoundContainerView: View {
         .onChange(of: s.hole) { _ in
             holeMapCrownScale = WatchHoleMapView.restingCrownScale
         }
+    }
+
+    /// Driver Distance is drawn only from a real bag median. Missing/unknown values remove the arc;
+    /// the recommended club or a prepared carry is never substituted as if it were the user's Driver.
+    private func driverDistanceM(_ state: WatchRoundState) -> Double? {
+        state.availableClubs.first(where: {
+            WatchClubDisplay.shortCode($0.clubName) == "D"
+                && ($0.medianM?.isFinite ?? false)
+                && ($0.medianM ?? 0) > 0
+        })?.medianM
     }
 
     private func currentShotLayout(
@@ -588,9 +639,7 @@ public struct WatchRoundContainerView: View {
     ) -> some View {
         ZStack {
             content()
-            if !WatchHoleMapView.isFullMap(crownScale: holeMapCrownScale) {
-                rootControls
-            }
+            rootControls
         }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
@@ -625,7 +674,7 @@ public struct WatchRoundContainerView: View {
                 }
             }
             .frame(width: safeRect.width)
-            .position(x: safeRect.midX, y: safeRect.maxY - 17)
+            .position(x: safeRect.midX, y: safeRect.maxY - 22)
         }
     }
 
@@ -640,9 +689,11 @@ public struct WatchRoundContainerView: View {
             Image(systemName: systemName)
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.white)
-                .frame(width: 34, height: 34)
+                .frame(width: 30, height: 30)
                 .background(Color.black.opacity(0.72), in: Circle())
                 .overlay(Circle().stroke(.white.opacity(0.34), lineWidth: 1))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -683,11 +734,9 @@ public struct WatchRoundContainerView: View {
     }
 
     private var instrumentBackButton: some View {
-        Button(action: { model.backToMenu() }) {
-            Label("菜单", systemImage: "chevron.backward")
-                .font(.caption.weight(.semibold))
+        WatchInstrumentBackButton(accessibilityLabel: "返回菜单") {
+            model.backToMenu()
         }
-        .buttonStyle(.plain)
     }
 
 }

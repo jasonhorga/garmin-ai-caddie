@@ -601,7 +601,7 @@ class CIWorkflowTests(unittest.TestCase):
 
         for mode in [
             "real-course-map-measured",
-            "real-course-map-pin-drag",
+            "real-course-view-green",
             "caddie-options",
             "score-total",
             "score-putts",

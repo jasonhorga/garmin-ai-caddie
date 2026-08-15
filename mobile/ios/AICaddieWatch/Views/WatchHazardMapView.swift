@@ -419,6 +419,7 @@ public struct WatchHazardMapView: View {
         return ZStack {
             VStack {
                 HStack(spacing: 4) {
+                    WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
                     Text(shortHazardTitle(hazard))
                         .font(.system(size: 12, weight: .bold))
                         .lineLimit(1)
@@ -428,7 +429,7 @@ public struct WatchHazardMapView: View {
                         .background(Capsule().fill(.black.opacity(0.72)))
                     Spacer(minLength: WatchHazardMapLayout.systemTimeTrailingClearance)
                 }
-                .padding(.leading, safeInset)
+                .padding(.leading, max(0, safeInset - 6))
                 Spacer()
                 if upcoming.count > 1 {
                     Text("\(index + 1)/\(upcoming.count) · 转表冠")
@@ -469,10 +470,7 @@ public struct WatchHazardMapView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Button(action: onBack) {
-                Label("障碍列表", systemImage: "chevron.backward")
-            }
-            .buttonStyle(.plain)
+            WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
             Text("前方没有可用障碍")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -482,10 +480,7 @@ public struct WatchHazardMapView: View {
 
     private var offCourseState: some View {
         VStack(spacing: 12) {
-            Button(action: onBack) {
-                Label("障碍列表", systemImage: "chevron.backward")
-            }
-            .buttonStyle(.plain)
+            WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
             Image(systemName: "location.slash")
                 .font(.system(size: 42))
                 .foregroundStyle(.secondary)

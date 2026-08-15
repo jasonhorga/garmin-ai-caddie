@@ -1120,6 +1120,20 @@ final class WatchRoundModelTests: XCTestCase {
 
     // MARK: navigation
 
+    func testMapDetailAndGreenPreviewHaveExplicitShallowNavigationStates() {
+        let model = seededModel(holes: [hole(1)])
+
+        model.openHoleMap()
+        XCTAssertEqual(model.screen, .holeMap)
+        model.backToHome()
+        XCTAssertEqual(model.screen, .home)
+
+        model.openViewGreen()
+        XCTAssertEqual(model.screen, .viewGreen)
+        model.backToMenu()
+        XCTAssertEqual(model.screen, .menu)
+    }
+
     func testCaddieSurfaceOpensOnlyWhenTheActiveHoleHasARecommendation() {
         let recommended = WatchRoundState(
             roundId: "r1", hole: 1, par: 5, distanceM: 480,
@@ -1272,6 +1286,11 @@ final class WatchRoundModelTests: XCTestCase {
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
         ))
         let partialModel = seededModel(holes: [partial])
+        XCTAssertTrue(partialModel.playerAtActiveTee(at: WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.0455, longitude: 116.5462),
+            horizontalAccuracyM: 6,
+            capturedAt: "2026-06-20T00:00:00Z"
+        )))
         XCTAssertFalse(partialModel.preparedRootCaddieLayerAvailable(at: WatchLocationFix(
             coordinate: CLLocationCoordinate2D(latitude: 40.0455, longitude: 116.5462),
             horizontalAccuracyM: 6,

@@ -42,7 +42,7 @@ public struct WatchUITestRoot: View {
             standaloneCourseRound
         case "real-course-download-seed", "real-course-download-restore",
              "real-course-download-caddie",
-             "real-course-map-measured", "real-course-map-pin-drag",
+             "real-course-map-measured", "real-course-view-green",
              "real-course-hazard-map", "real-course-hazard-mid-map",
              "real-course-journey-start", "real-course-journey-advance",
              "real-course-journey-restore", "real-course-journey-history-edit",
@@ -129,6 +129,7 @@ public struct WatchUITestRoot: View {
             )
         case "menu":
             WatchMenuView(
+                hasViewGreen: true,
                 hasCaddie: true,
                 hasHazards: true
             )
@@ -364,9 +365,6 @@ public struct WatchUITestRoot: View {
                         shotLocation: realCourseRuntimeFix,
                         measuredPxOverride: screen == "real-course-map-measured"
                             ? realCourseMeasuredPoint
-                            : nil,
-                        pinDragOverride: screen == "real-course-map-pin-drag"
-                            ? CGSize(width: 16, height: 20)
                             : nil
                     )
                 }
@@ -623,8 +621,11 @@ public struct WatchUITestRoot: View {
         if screen == "real-course-download-caddie" {
             model.openCaddie()
         }
-        if screen == "real-course-map-measured" || screen == "real-course-map-pin-drag" {
+        if screen == "real-course-map-measured" {
             model.openHoleMap()
+        }
+        if screen == "real-course-view-green" {
+            model.openViewGreen()
         }
         if selectHazardHole {
             writeRealCourseMarker(screen == "real-course-hazard-mid-map"

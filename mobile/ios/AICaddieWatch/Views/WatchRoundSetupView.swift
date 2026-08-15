@@ -92,9 +92,7 @@ public struct WatchRoundSetupView: View {
     private var holeSelection: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 7) {
-                Text("打几洞")
-                    .font(.system(size: 16, weight: .bold))
-                    .padding(.horizontal, 2)
+                WatchInstrumentHeader("打几洞", backLabel: "返回球场", onBack: handleBack)
 
                 ForEach(loopChoices) { choice in
                     Button {
@@ -134,8 +132,7 @@ public struct WatchRoundSetupView: View {
     private var teeSelection: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
-                Text("发球台")
-                    .font(.system(size: 16, weight: .bold))
+                WatchInstrumentHeader("发球台", backLabel: "返回", onBack: handleBack)
 
                 if isLoadingTees {
                     HStack(spacing: 6) {

@@ -114,10 +114,11 @@ public struct WatchFlagDirectionView: View {
     }
 
     public var body: some View {
-        Group {
-            switch state {
-            case let .ready(relativeDegrees, distanceYards):
-                VStack(spacing: 6) {
+        ZStack {
+            Group {
+                switch state {
+                case let .ready(relativeDegrees, distanceYards):
+                    VStack(spacing: 6) {
                     Text("旗向指引")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.secondary)
@@ -131,13 +132,13 @@ public struct WatchFlagDirectionView: View {
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
-                }
-                .padding(.top, 4)
-                .frame(maxHeight: .infinity, alignment: .top)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("旗向指引，\(distanceYards) 码")
-            case let .blocked(reason):
-                VStack(spacing: 12) {
+                    }
+                    .padding(.top, 4)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("旗向指引，\(distanceYards) 码")
+                case let .blocked(reason):
+                    VStack(spacing: 12) {
                     Text("旗向指引")
                         .font(.headline.weight(.bold))
                     Image(systemName: "location.north.circle")
@@ -146,7 +147,14 @@ public struct WatchFlagDirectionView: View {
                     Text(reason.message)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
+                    }
                 }
+            }
+
+            GeometryReader { proxy in
+                let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
+                WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
+                    .position(x: safeRect.minX + 22, y: safeRect.minY + 22)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

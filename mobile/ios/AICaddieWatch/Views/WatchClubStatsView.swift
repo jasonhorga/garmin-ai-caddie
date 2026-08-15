@@ -24,9 +24,7 @@ public struct WatchClubStatsView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("球杆数据 · 典型")
-                    .font(.system(size: 15, weight: .bold))
-                    .padding(.bottom, 3)
+                WatchInstrumentHeader("球杆数据", backLabel: "返回菜单", onBack: onBack)
 
                 if rows.isEmpty {
                     Text("暂无真实球杆距离")

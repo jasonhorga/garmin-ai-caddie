@@ -23,6 +23,7 @@ public enum WatchRoundScreen: Equatable {
     case holeSelect  // round-13: 选洞
     case menu        // round-13: 菜单 hub(纯文字,S70 式)
     case holeMap     // watch P1b: 全屏球道图(真几何底图 + 事实标记)
+    case viewGreen   // S70 View Green 等价入口；当前仅做诚实的临时旗位预览
     case caddie      // S70 式浅层仪表面: 当前洞球童详情
     case hazards     // S70 式浅层仪表面: 当前洞障碍距离
     case clubStats   // 下载球包内的真实球杆 median 距离
@@ -459,10 +460,9 @@ public final class WatchRoundModel: ObservableObject {
         return true
     }
 
-    /// A downloaded course already contains a real Tee recommendation, landing point, route and the
-    /// player's bag distances. Keep that prepared plan visible while the player is still at this Tee;
-    /// once they leave, only a fresh live recommendation may remain on Hole Root.
-    public func preparedRootCaddieLayerAvailable(at fix: WatchLocationFix?) -> Bool {
+    /// Driver Distance is a Tee fact, not an AI recommendation. Keep its location gate independent so
+    /// a player can still see the arc when no prepared Caddie option is available.
+    public func playerAtActiveTee(at fix: WatchLocationFix?) -> Bool {
         guard let fix,
               fix.coordinate.latitude.isFinite,
               (-90...90).contains(fix.coordinate.latitude),
@@ -474,11 +474,7 @@ public final class WatchRoundModel: ObservableObject {
               let teeLatitude = state.teeLatitude,
               let teeLongitude = state.teeLongitude,
               teeLatitude.isFinite, (-90...90).contains(teeLatitude),
-              teeLongitude.isFinite, (-180...180).contains(teeLongitude),
-              state.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame,
-              state.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
-              !state.caddieOptions.isEmpty,
-              (state.holeMap?.route?.count ?? 0) >= 2 else {
+              teeLongitude.isFinite, (-180...180).contains(teeLongitude) else {
             return false
         }
         return WatchGeoMath.metres(
@@ -487,6 +483,21 @@ public final class WatchRoundModel: ObservableObject {
             fix.coordinate.latitude,
             fix.coordinate.longitude
         ) <= 35 + fix.horizontalAccuracyM
+    }
+
+    /// A downloaded course already contains a real Tee recommendation, landing point, route and the
+    /// player's bag distances. Keep that prepared plan visible while the player is still at this Tee;
+    /// once they leave, only a fresh live recommendation may remain on Hole Root.
+    public func preparedRootCaddieLayerAvailable(at fix: WatchLocationFix?) -> Bool {
+        guard playerAtActiveTee(at: fix),
+              let state = activeHoleState,
+              state.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame,
+              state.suggestedClub?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              !state.caddieOptions.isEmpty,
+              (state.holeMap?.route?.count ?? 0) >= 2 else {
+            return false
+        }
+        return true
     }
 
     /// Source elevation is metres; every player-facing Watch distance is yards (L21).
@@ -518,6 +529,7 @@ public final class WatchRoundModel: ObservableObject {
         screen = .clubStats
     }
     public func openHoleMap() { screen = .holeMap }
+    public func openViewGreen() { screen = .viewGreen }
     public func openCaddie() {
         guard caddieDetailAvailable else { return }
         screen = .caddie

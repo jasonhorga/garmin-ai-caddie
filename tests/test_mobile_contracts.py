@@ -3447,7 +3447,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("WatchHoleRootPresentation.resolve(", container)
         self.assertIn("case .map:", container)
         self.assertIn("holeMapView(s, geometry)", container)
-        self.assertNotIn("model.openHoleMap()", container)
+        self.assertIn("onOpenMapDetail:", container)
+        self.assertIn("model.openHoleMap()", container)
         model = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundModel.swift")
         self.assertIn("case holeMap", model)
         self.assertIn("func openHoleMap()", model)
@@ -3459,14 +3460,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("holeMapBigText", container)     # 大字 toggle state
         self.assertIn("hasLiveCenterDistance:", container) # root degrades map → distances → score honestly
         self.assertIn(".onTapGesture", container)      # hero tap ↔ map
-        # watch P2 map interactions: 选点测距(tap→distance)+ 拖旗(drag flag). The shared
-        # current-hole container owns long-press exclusively for 球局工具; 大字 is toggled from
-        # the distance presentation / persisted setting so the gestures cannot race each other.
+        # Garmin-style map interactions are separated: root tap opens focused Touch Target; flag
+        # movement exists only in explicit Green Preview and never masquerades as a saved shot event.
         map_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift")
-        self.assertIn("measuredPxOverride", map_view)   # 选点测距 state (+ snapshot override)
-        self.assertIn("pinDragOverride", map_view)      # 拖旗 state (+ snapshot override)
-        self.assertIn("SpatialTapGesture", map_view)    # tap → measure
-        self.assertIn("pinDragGesture", map_view)       # drag → move flag
+        green_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchGreenPreviewView.swift")
+        self.assertIn("measuredPxOverride", map_view)
+        self.assertIn("case touchTarget", map_view)
+        self.assertIn("SpatialTapGesture", map_view)
+        self.assertNotIn("pinDragOverride", map_view)
+        self.assertIn("temporaryPin", green_view)
+        self.assertIn("离开后复原", green_view)
         self.assertNotIn("onLongPressGesture", map_view)
         self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }", container)
         self.assertIn("func yards(toImagePx", map_view) # derived px→码, no extra payload

@@ -178,6 +178,60 @@ final class WatchHoleMapViewportTests: XCTestCase {
         )
     }
 
+    func testFixedRemainingMarkersComeFromRouteMetresRatherThanScreenPercentages() {
+        let route = [
+            [0.0, 400.0, 0.0],
+            [0.0, 0.0, 400.0],
+        ]
+
+        let all = WatchHoleMapReferenceLayout.remainingMarkers(
+            route: route,
+            playerImagePoint: CGPoint(x: 0, y: 400)
+        )
+        XCTAssertEqual(all.map(\.remainingYards), [100, 150, 200, 250])
+        XCTAssertEqual(all[0].imagePoint.y, 91.44, accuracy: 0.01)
+
+        let late = WatchHoleMapReferenceLayout.remainingMarkers(
+            route: route,
+            playerImagePoint: CGPoint(x: 0, y: 150)
+        )
+        XCTAssertEqual(late.map(\.remainingYards), [100])
+    }
+
+    func testDriverArcRequiresARealInBoundsBagDistance() throws {
+        let route = [
+            [0.0, 400.0, 0.0],
+            [0.0, 0.0, 400.0],
+        ]
+        let target = try XCTUnwrap(WatchHoleMapReferenceLayout.driverTarget(
+            route: route,
+            playerImagePoint: CGPoint(x: 0, y: 400),
+            driverDistanceM: 200
+        ))
+        XCTAssertEqual(target.y, 200, accuracy: 0.001)
+        XCTAssertNil(WatchHoleMapReferenceLayout.driverTarget(
+            route: route,
+            playerImagePoint: CGPoint(x: 0, y: 400),
+            driverDistanceM: 450
+        ))
+        XCTAssertNil(WatchHoleMapReferenceLayout.driverTarget(
+            route: route,
+            playerImagePoint: CGPoint(x: 0, y: 400),
+            driverDistanceM: nil
+        ))
+    }
+
+    func testGreenPreviewOnlyAcceptsPointsInsideTheRealOutline() {
+        let outline = [
+            CGPoint(x: 0, y: 0),
+            CGPoint(x: 10, y: 0),
+            CGPoint(x: 10, y: 10),
+            CGPoint(x: 0, y: 10),
+        ]
+        XCTAssertTrue(WatchGreenPreviewLayout.contains(CGPoint(x: 5, y: 5), polygon: outline))
+        XCTAssertFalse(WatchGreenPreviewLayout.contains(CGPoint(x: 15, y: 5), polygon: outline))
+    }
+
     func testRootHazardOverlayUsesOnlyTheNearestUpcomingMeasuredObstacle() throws {
         let route = [[0.0, 200.0, 0.0], [0.0, 100.0, 100.0], [0.0, 0.0, 200.0]]
         let passed = WatchHazard(kind: "bunker", label: "已过沙坑", startM: 10, endM: 20,

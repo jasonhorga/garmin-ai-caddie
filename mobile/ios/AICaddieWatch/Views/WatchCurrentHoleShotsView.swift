@@ -3,7 +3,7 @@ import SwiftUI
 enum WatchCurrentHoleShotsLayout {
     /// This scroll surface cannot hide watchOS's clock. Start its own header below that lane rather
     /// than placing “H7 · P4” beside a seemingly unrelated system time.
-    static let systemTimeTopClearance: CGFloat = 30
+    static let systemTimeTopClearance: CGFloat = 18
 }
 
 /// The shallow current-hole correction surface locked by D10/L11. It shows only facts already recorded
@@ -38,8 +38,11 @@ public struct WatchCurrentHoleShotsView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("H\(hole) · P\(par)")
-                .font(.system(size: 15, weight: .bold))
+            WatchInstrumentHeader(
+                "H\(hole) · 本洞击球",
+                backLabel: "返回菜单",
+                onBack: onBack
+            )
 
             if shots.isEmpty {
                 Text("本洞还没有记录击球")

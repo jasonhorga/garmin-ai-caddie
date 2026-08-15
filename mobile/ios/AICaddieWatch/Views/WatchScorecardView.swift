@@ -36,16 +36,16 @@ public struct WatchScorecardView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack {
+            HStack(spacing: 0) {
+                WatchInstrumentBackButton(accessibilityLabel: "返回", onBack: onBack)
                 Text("计分卡").font(.headline.weight(.bold))
                 Spacer()
                 Text(totalToParText)
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: totalToPar))
-                Button(action: onBack) { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                Spacer(minLength: 46)
             }
+            .frame(height: 44)
             ForEach(holes) { row in
                 Button { onSelectHole(row.hole) } label: {
                     HStack(spacing: 6) {

@@ -176,14 +176,7 @@ public struct WatchCaddieOptionsView: View {
 
     private func header(_ option: WatchCaddieOption) -> some View {
         HStack(spacing: 5) {
-            Button(action: { onBack?() }) {
-                Image(systemName: "chevron.backward")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 28, height: 28)
-                    .background(Color.black.opacity(0.58), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("返回球洞")
+            WatchInstrumentBackButton(accessibilityLabel: "返回球洞") { onBack?() }
             Text(strategyLabel(option))
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(AICaddieDesignTokens.strategyColor(Self.strategyKey(option.optionId)))
@@ -221,10 +214,7 @@ public struct WatchCaddieOptionsView: View {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         return VStack(spacing: 8) {
             HStack {
-                Button(action: { onBack?() }) {
-                    Image(systemName: "chevron.backward")
-                }
-                .buttonStyle(.plain)
+                WatchInstrumentBackButton(accessibilityLabel: "返回球洞") { onBack?() }
                 Text("球童建议").font(.system(size: 14, weight: .bold))
                 Spacer(minLength: 48)
             }
@@ -457,12 +447,7 @@ public struct WatchCaddieScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 5) {
-                        Button(action: onBack) {
-                            Image(systemName: "chevron.backward")
-                                .font(.caption.weight(.semibold))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("返回球洞")
+                        WatchInstrumentBackButton(accessibilityLabel: "返回球洞", onBack: onBack)
                         Text("球童建议")
                             .font(.headline)
                     }

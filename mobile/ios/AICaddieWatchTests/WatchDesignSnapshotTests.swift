@@ -70,13 +70,15 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     func testGolfMenuKeepsOnlyPrimaryInPlayChoicesAtTheFirstLevel() {
         let items = WatchMenuView.visibleItems(
+            hasViewGreen: true,
             hasCaddie: true,
             hasHazards: true,
             hasClubStats: true,
             hasFlagDirection: true
         )
 
-        XCTAssertEqual(Array(items.prefix(4)), [.caddie, .hazards, .holeSelect, .scorecard])
+        XCTAssertEqual(Array(items.prefix(4)), [.viewGreen, .caddie, .holeSelect, .scorecard])
+        XCTAssertEqual(items[4], .hazards)
         XCTAssertFalse(items.contains(.recordShot))
         XCTAssertFalse(items.contains(.currentHoleShots))
         XCTAssertEqual(items[items.count - 2], .moreTools)
@@ -407,11 +409,12 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    func testClubPromptKeepsFourApprovedClubChoicesOnTheFirst45mmScreen() {
+    func testClubPromptKeepsThreeClubsAndAUsableSkipTargetOnTheFirst45mmScreen() {
         XCTAssertGreaterThanOrEqual(
             WatchClubPromptLayout.firstScreenClubRows(viewportHeight: 210),
-            4
+            3
         )
+        XCTAssertGreaterThanOrEqual(WatchClubPromptLayout.footerHeight, 40)
     }
 
     @MainActor
@@ -1140,32 +1143,42 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testRenderWatchHoleMapMeasured() throws {
-        // watch P2 选点测距: a tapped point → crosshair + distance-from-you pill (derived from 中 yardage).
+        // Touch Target owns a focused map and shows both current→target and target→flag ranges.
         let view = WatchHoleMapView(
             holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
             lastShot: 0,
             showCaddieRecommendation: true,
             showPreparedPlan: true,
             ringPips: [],
-            measuredPxOverride: CGPoint(x: 470, y: 470)
+            measuredPxOverride: CGPoint(x: 470, y: 470),
+            interactionMode: .touchTarget
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-holemap-measured")
     }
 
     @MainActor
-    func testRenderWatchHoleMapPinDrag() throws {
-        // watch P2 拖旗: dragging the flag previews 到旗 from the moved pin.
-        let view = WatchHoleMapView(
-            holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
-            lastShot: 0,
-            showCaddieRecommendation: true,
-            showPreparedPlan: true,
-            ringPips: [],
-            pinDragOverride: CGSize(width: 16, height: 20)
+    func testRenderWatchGreenPreview() throws {
+        let base = WatchHoleMapSample.geometry
+        let geometry = WatchHoleMapGeometry(
+            image: base.image,
+            imageSize: base.imageSize,
+            youPx: base.youPx,
+            pinPx: base.pinPx,
+            layupPx: base.layupPx,
+            apexPx: base.apexPx,
+            greenCtrlPx: base.greenCtrlPx,
+            greenOutlinePx: [
+                CGPoint(x: 410, y: 256),
+                CGPoint(x: 458, y: 252),
+                CGPoint(x: 472, y: 289),
+                CGPoint(x: 428, y: 307),
+                CGPoint(x: 399, y: 283),
+            ]
         )
+        let view = WatchGreenPreviewView(geometry: geometry, centerGreenYards: 287)
         .watchSnapshotFrame(width: 198, height: 242)
-        try render(view, named: "watch-holemap-pindrag")
+        try render(view, named: "watch-green-preview")
     }
 
     /// Deterministic compact geometry checks. ScrollView-backed club/finish screens are deliberately

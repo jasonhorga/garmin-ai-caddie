@@ -5,6 +5,7 @@ import SwiftUI
 public struct WatchMenuView: View {
     enum Item: String, Hashable {
         case recordShot = "记一杆"
+        case viewGreen = "查看果岭"
         case scoreHole = "本洞成绩"
         case caddie = "球童建议"
         case hazards = "障碍与铺垫"
@@ -19,11 +20,13 @@ public struct WatchMenuView: View {
     }
 
     public let hasCaddie: Bool
+    public let hasViewGreen: Bool
     public let hasHazards: Bool
     public let canRecordShot: Bool
     public let hasClubStats: Bool
     public let hasFlagDirection: Bool
     public let onRecordShot: () -> Void
+    public let onViewGreen: () -> Void
     public let onScoreHole: () -> Void
     public let onCaddie: () -> Void
     public let onHazards: () -> Void
@@ -40,11 +43,13 @@ public struct WatchMenuView: View {
 
     public init(
         hasCaddie: Bool = false,
+        hasViewGreen: Bool = false,
         hasHazards: Bool = false,
         canRecordShot: Bool = false,
         hasClubStats: Bool = false,
         hasFlagDirection: Bool = false,
         onRecordShot: @escaping () -> Void = {},
+        onViewGreen: @escaping () -> Void = {},
         onScoreHole: @escaping () -> Void = {},
         onCaddie: @escaping () -> Void = {},
         onHazards: @escaping () -> Void = {},
@@ -58,11 +63,13 @@ public struct WatchMenuView: View {
         onBack: @escaping () -> Void = {}
     ) {
         self.hasCaddie = hasCaddie
+        self.hasViewGreen = hasViewGreen
         self.hasHazards = hasHazards
         self.canRecordShot = canRecordShot
         self.hasClubStats = hasClubStats
         self.hasFlagDirection = hasFlagDirection
         self.onRecordShot = onRecordShot
+        self.onViewGreen = onViewGreen
         self.onScoreHole = onScoreHole
         self.onCaddie = onCaddie
         self.onHazards = onHazards
@@ -83,7 +90,10 @@ public struct WatchMenuView: View {
                     Button(action: navigateBack) {
                         Image(systemName: "chevron.backward")
                             .font(.system(size: 12, weight: .bold))
-                            .frame(width: 28, height: 28)
+                            .frame(width: 26, height: 26)
+                            .background(Color.black.opacity(0.68), in: Circle())
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(showingMoreTools ? "返回高尔夫菜单" : "返回球洞")
@@ -127,6 +137,7 @@ public struct WatchMenuView: View {
             )
         }
         return Self.visibleItems(
+            hasViewGreen: hasViewGreen,
             hasCaddie: hasCaddie,
             hasHazards: hasHazards,
             hasClubStats: hasClubStats,
@@ -137,15 +148,18 @@ public struct WatchMenuView: View {
     /// The same list drives rendering and tests. Duplicate shot capture and low-frequency diagnostics
     /// must not creep back onto the first level merely because the list can scroll.
     static func visibleItems(
+        hasViewGreen: Bool = false,
         hasCaddie: Bool,
         hasHazards: Bool,
         hasClubStats: Bool,
         hasFlagDirection: Bool
     ) -> [Item] {
         var items: [Item] = []
+        if hasViewGreen { items.append(.viewGreen) }
         if hasCaddie { items.append(.caddie) }
+        items += [.holeSelect, .scorecard]
         if hasHazards { items.append(.hazards) }
-        items += [.holeSelect, .scorecard, .scoreHole, .moreTools, .finish]
+        items += [.scoreHole, .moreTools, .finish]
         return items
     }
 
@@ -189,6 +203,7 @@ public struct WatchMenuView: View {
     private func action(for item: Item) -> () -> Void {
         switch item {
         case .recordShot: return onRecordShot
+        case .viewGreen: return onViewGreen
         case .scoreHole: return onScoreHole
         case .caddie: return onCaddie
         case .hazards: return onHazards

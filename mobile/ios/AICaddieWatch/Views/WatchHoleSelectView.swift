@@ -31,12 +31,7 @@ public struct WatchHoleSelectView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("选洞").font(.headline.weight(.bold))
-                Spacer()
-                Button(action: onBack) { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-            }
+            WatchInstrumentHeader("选洞", backLabel: "返回菜单", onBack: onBack)
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: 6) {
                     ForEach(row, id: \.self) { hole in

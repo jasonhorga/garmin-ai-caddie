@@ -364,7 +364,7 @@ jobs:
               if [[ "$mode" == "real-course-download-restore" \
                     || "$mode" == "real-course-download-caddie" \
                     || "$mode" == "real-course-map-measured" \
-                    || "$mode" == "real-course-map-pin-drag" ]]; then
+                    || "$mode" == "real-course-view-green" ]]; then
                 marker="real-course-offline-ready"
                 failed_marker="real-course-offline-failed"
               elif [[ "$mode" == "real-course-hazard-map" ]]; then
@@ -568,7 +568,7 @@ jobs:
           # screen; a static/demo option list is not acceptable visual evidence for this state.
           launch_and_capture real-course-download-caddie watch-real-course-caddie.png
           launch_and_capture real-course-map-measured watch-real-course-map-measured.png
-          launch_and_capture real-course-map-pin-drag watch-real-course-map-pin-drag.png
+          launch_and_capture real-course-view-green watch-real-course-view-green.png
           # Reuse the same offline cache and select its first real hazard-bearing hole. This proves the
           # map callouts are placed from retained production route data rather than a screenshot fixture.
           launch_and_capture real-course-hazard-map watch-real-course-hazard-map.png

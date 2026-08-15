@@ -2,13 +2,13 @@ import Foundation
 import SwiftUI
 
 enum WatchClubPromptLayout {
-    // The approved prompt shows four clubs at a glance. These values fit that density inside the
-    // 45mm viewport left below watchOS's clock lane without shrinking the club names.
+    // Three short-code rows plus a real 40-point Skip target fit the compact face without depending
+    // on an 18-point tap strip at the rounded bottom edge.
     static let topPadding: CGFloat = 8
     static let bottomPadding: CGFloat = 2
     static let stackSpacing: CGFloat = 3
     static let headerHeight: CGFloat = 32
-    static let footerHeight: CGFloat = 18
+    static let footerHeight: CGFloat = 40
     static let clubRowHeight: CGFloat = 32
     static let clubRowSpacing: CGFloat = 5
 
@@ -166,7 +166,7 @@ public struct WatchClubPromptView: View {
                 }
                     .font(.system(size: 9.5, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.76))
-                    .frame(maxWidth: .infinity, minHeight: WatchClubPromptLayout.footerHeight)
+                    .frame(maxWidth: .infinity, minHeight: 24)
                     .background(
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .fill(Color.white.opacity(0.08))
@@ -175,6 +175,8 @@ public struct WatchClubPromptView: View {
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .stroke(Color.white.opacity(0.16), lineWidth: 0.8)
                     }
+                    .frame(maxWidth: .infinity, minHeight: WatchClubPromptLayout.footerHeight)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -207,7 +209,7 @@ public struct WatchClubPromptView: View {
     }
 
     private var clubListHeight: CGFloat {
-        let visibleRows = min(clubChoices.count, 4)
+        let visibleRows = min(clubChoices.count, 3)
         guard visibleRows > 0 else { return 0 }
         return CGFloat(visibleRows) * WatchClubPromptLayout.clubRowHeight
             + CGFloat(visibleRows - 1) * WatchClubPromptLayout.clubRowSpacing
