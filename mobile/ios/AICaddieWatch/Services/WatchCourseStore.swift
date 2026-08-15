@@ -368,6 +368,8 @@ public enum WatchCourseTemplateBuilder {
               let last = route.last, last.count >= 3,
               last[2] > 0 else { return nil }
         let total = last[2]
+        // Keep the legacy non-optional anchor decodable, but never treat the 60% fallback as advice.
+        // WatchRoundContainerView rebuilds every visible prepared target from an explicit option carry.
         let landing = min(max(landingM ?? total * 0.6, 0), total)
         return WatchHoleMap(
             w: overlay.w,

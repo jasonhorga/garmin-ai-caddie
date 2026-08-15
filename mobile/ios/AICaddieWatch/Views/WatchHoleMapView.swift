@@ -487,8 +487,20 @@ public struct WatchHoleMapView: View {
     private func handleTap(_ location: CGPoint, size: CGSize) {
         switch interactionMode {
         case .root:
+            // Only the actual map panel opens Touch Target. The left facts/Caddie column and bottom
+            // Golf Menu/manual-shot controls retain their own actions without a simultaneous race.
+            let safeRect = WatchDisplayGeometry.contentRect(in: size)
+            guard location.x >= size.width * columnFrac,
+                  location.y < safeRect.maxY - 48 else { return }
             onOpenMapDetail()
         case .touchTarget:
+            let safeRect = WatchDisplayGeometry.contentRect(in: size)
+            let hitsBack = location.x <= safeRect.minX + 50
+                && location.y <= safeRect.minY + 50
+            let hitsClear = measuredPx != nil
+                && location.x >= safeRect.maxX - 62
+                && location.y >= safeRect.maxY - 48
+            guard !hitsBack, !hitsClear else { return }
             liveMeasuredPx = imagePx(fromCanvas: location, size: size)
         case .passive:
             break

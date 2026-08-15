@@ -629,9 +629,10 @@ public final class WatchEventBridge: NSObject {
 
     /// watch P1b: pre-compute the five hole-map overlay anchors from the hole's centreline route so the
     /// watch renders the map with zero projection math. `overlay.route` is `[[px, py, cumMetres]]` in the
-    /// same /topo.png pixel space the watch caches. `you` = tee, `pin` = green centre, `layup` = the
-    /// recommended lay-up (at `landingM` along the route, default 60%), `apex`/`greenCtrl` = the mid-route
-    /// points that make the you→lay-up / lay-up→green curves bend with the dogleg. nil for < 2 route points.
+    /// same /topo.png pixel space the watch caches. `you` = tee, `pin` = green centre. `layup` retains
+    /// the historical 60% compatibility anchor when `landingM` is absent, but Garmin-first consumers
+    /// must never present that fallback as advice; the Watch root rebuilds its target from an explicit
+    /// selected-option carry. `apex`/`greenCtrl` are curve-layout anchors. nil for < 2 route points.
     public static func makeHoleMap(
         overlay: CoursePrepOverlay,
         landingM: Double?,

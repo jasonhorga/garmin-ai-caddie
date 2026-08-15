@@ -481,8 +481,12 @@ public struct WatchRoundContainerView: View {
     @ViewBuilder
     private func holeMapView(_ s: WatchRoundState, _ geometry: WatchHoleMapGeometry) -> some View {
         let currentShot = currentShotLayout(for: s, geometry: geometry)
-        let preparedRootCaddieLayerAvailable = currentShot == nil
+        let preparedGeometry = currentShot == nil
             && model.preparedRootCaddieLayerAvailable(at: shotLocation)
+            ? preparedRootGeometry(for: s, base: geometry)
+            : nil
+        let preparedRootCaddieLayerAvailable = preparedGeometry != nil
+        let renderedGeometry = preparedGeometry ?? geometry
         WatchHoleMapView(
             holeNumber: s.hole,
             par: s.par,
@@ -510,7 +514,7 @@ public struct WatchRoundContainerView: View {
             showPlaysLike: s.elevationDeltaM != nil,
             fullMap: false,
             mapScale: CGFloat(WatchHoleMapView.restingCrownScale),
-            geometry: geometry,
+            geometry: renderedGeometry,
             measuredPxOverride: measuredPxOverride,
             interactionMode: .root,
             onOpenCaddie: { model.openCaddie() },
@@ -570,6 +574,50 @@ public struct WatchRoundContainerView: View {
                 && ($0.medianM?.isFinite ?? false)
                 && ($0.medianM ?? 0) > 0
         })?.medianM
+    }
+
+    /// Legacy map payloads retain a 60%-of-hole compatibility anchor when no landing was supplied.
+    /// Never render that anchor as advice: a prepared first shot must be rebuilt from the selected
+    /// Caddie option's explicit carry and the measured cumulative-metre route.
+    private func preparedRootGeometry(
+        for state: WatchRoundState,
+        base: WatchHoleMapGeometry
+    ) -> WatchHoleMapGeometry? {
+        let option = caddieOption(state)
+        guard let carry = option?.plan?.first?.carryM ?? option?.carryM,
+              carry.isFinite,
+              carry > 0,
+              let route = state.holeMap?.route,
+              let progress = WatchHazardMapLayout.playerProgressMetres(
+                on: route,
+                playerImagePoint: base.youPx
+              ),
+              let target = WatchHazardMapLayout.imagePoint(
+                on: route,
+                atMetres: progress + carry
+              ),
+              hypot(target.x - base.youPx.x, target.y - base.youPx.y) > 1 else {
+            return nil
+        }
+        let apex = WatchHazardMapLayout.imagePoint(
+            on: route,
+            atMetres: progress + carry * 0.5
+        ) ?? CGPoint(
+            x: (base.youPx.x + target.x) * 0.5,
+            y: (base.youPx.y + target.y) * 0.5
+        )
+        return WatchHoleMapGeometry(
+            image: base.image,
+            imageSize: base.imageSize,
+            youPx: base.youPx,
+            pinPx: base.pinPx,
+            layupPx: target,
+            apexPx: apex,
+            greenCtrlPx: base.greenCtrlPx,
+            routePx: base.routePx,
+            greenOutlinePx: base.greenOutlinePx,
+            hazardSpans: base.hazardSpans
+        )
     }
 
     private func currentShotLayout(

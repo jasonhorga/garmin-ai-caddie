@@ -129,8 +129,8 @@ public struct WatchUITestRoot: View {
             )
         case "menu":
             WatchMenuView(
-                hasViewGreen: true,
                 hasCaddie: true,
+                hasViewGreen: true,
                 hasHazards: true
             )
         case "score", "score-recommendation":
