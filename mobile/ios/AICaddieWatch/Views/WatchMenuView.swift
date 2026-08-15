@@ -1,21 +1,31 @@
 import SwiftUI
 
-/// round-13 (Watch standalone): the menu hub (spec screen ⑩) — a plain text list (S70-style, no
-/// icons) of the round actions. The list scrolls so every action remains reachable as capabilities grow.
+/// The in-round equivalent of S70's Golf Menu. S70 opens this list with its physical Action key;
+/// Apple Watch opens it from the compact Hole Root menu control and keeps a visible Back equivalent.
 public struct WatchMenuView: View {
+    enum Item: String, Hashable {
+        case recordShot = "记一杆"
+        case scoreHole = "本洞成绩"
+        case caddie = "球童建议"
+        case hazards = "障碍与铺垫"
+        case currentHoleShots = "本洞击球"
+        case holeSelect = "选洞"
+        case scorecard = "计分卡"
+        case flagDirection = "旗向指引"
+        case clubStats = "球杆数据"
+        case settings = "设置"
+        case finish = "结束本场"
+    }
+
     public let hasCaddie: Bool
     public let hasHazards: Bool
     public let canRecordShot: Bool
-    public let autoShotSupported: Bool
-    public let autoShotEnabled: Bool
-    public let autoShotStatus: String
     public let hasClubStats: Bool
     public let hasFlagDirection: Bool
     public let onRecordShot: () -> Void
     public let onScoreHole: () -> Void
     public let onCaddie: () -> Void
     public let onHazards: () -> Void
-    public let onToggleAutoShot: () -> Void
     public let onScorecard: () -> Void
     public let onCurrentHoleShots: () -> Void
     public let onHoleSelect: () -> Void
@@ -23,23 +33,18 @@ public struct WatchMenuView: View {
     public let onSettings: () -> Void
     public let onFlagDirection: () -> Void
     public let onFinish: () -> Void
-    public let onAbandon: () -> Void
-    public let onClose: () -> Void
+    public let onBack: () -> Void
 
     public init(
         hasCaddie: Bool = false,
         hasHazards: Bool = false,
         canRecordShot: Bool = false,
-        autoShotSupported: Bool = false,
-        autoShotEnabled: Bool = false,
-        autoShotStatus: String = "本机不支持",
         hasClubStats: Bool = false,
         hasFlagDirection: Bool = false,
         onRecordShot: @escaping () -> Void = {},
         onScoreHole: @escaping () -> Void = {},
         onCaddie: @escaping () -> Void = {},
         onHazards: @escaping () -> Void = {},
-        onToggleAutoShot: @escaping () -> Void = {},
         onScorecard: @escaping () -> Void = {},
         onCurrentHoleShots: @escaping () -> Void = {},
         onHoleSelect: @escaping () -> Void = {},
@@ -47,22 +52,17 @@ public struct WatchMenuView: View {
         onSettings: @escaping () -> Void = {},
         onFlagDirection: @escaping () -> Void = {},
         onFinish: @escaping () -> Void = {},
-        onAbandon: @escaping () -> Void = {},
-        onClose: @escaping () -> Void = {}
+        onBack: @escaping () -> Void = {}
     ) {
         self.hasCaddie = hasCaddie
         self.hasHazards = hasHazards
         self.canRecordShot = canRecordShot
-        self.autoShotSupported = autoShotSupported
-        self.autoShotEnabled = autoShotEnabled
-        self.autoShotStatus = autoShotStatus
         self.hasClubStats = hasClubStats
         self.hasFlagDirection = hasFlagDirection
         self.onRecordShot = onRecordShot
         self.onScoreHole = onScoreHole
         self.onCaddie = onCaddie
         self.onHazards = onHazards
-        self.onToggleAutoShot = onToggleAutoShot
         self.onScorecard = onScorecard
         self.onCurrentHoleShots = onCurrentHoleShots
         self.onHoleSelect = onHoleSelect
@@ -70,60 +70,113 @@ public struct WatchMenuView: View {
         self.onSettings = onSettings
         self.onFlagDirection = onFlagDirection
         self.onFinish = onFinish
-        self.onAbandon = onAbandon
-        self.onClose = onClose
+        self.onBack = onBack
     }
 
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
-                Text("菜单").font(.headline.weight(.bold)).padding(.bottom, 2)
-                // Keep the approved S70-like round-navigation quartet on the first glance. The
-                // additional correction and telemetry tools remain reachable immediately below.
-                menuRow("计分卡", action: onScorecard)
-                menuRow("选洞", action: onHoleSelect)
-                menuRow("结束本场", role: .destructive, action: onFinish)
-                menuRow("继续打球", action: onClose)
-                menuRow("放弃本场", role: .destructive, action: onAbandon)
+                HStack(spacing: 5) {
+                    Button(action: onBack) {
+                        Image(systemName: "chevron.backward")
+                            .font(.system(size: 12, weight: .bold))
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("返回球洞")
+                    Text("高尔夫菜单")
+                        .font(.system(size: 15, weight: .bold))
+                        .lineLimit(1)
+                    Spacer(minLength: 48)
+                }
+                .padding(.bottom, 2)
 
-                Text("本洞")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 5)
-                menuRow("记一杆", action: onRecordShot)
-                    .disabled(!canRecordShot)
-                    .accessibilityHint(canRecordShot ? "先保存当前位置，再选择实际球杆" : "等待 GPS 定位")
-                menuRow("本洞成绩", action: onScoreHole)
-                menuRow("本洞击球", action: onCurrentHoleShots)
-                if hasCaddie { menuRow("球童建议", action: onCaddie) }
-                if hasHazards { menuRow("障碍", action: onHazards) }
-                if hasFlagDirection { menuRow("旗向指引", action: onFlagDirection) }
-                if hasClubStats { menuRow("球杆数据", action: onClubStats) }
-                menuRow("设置", action: onSettings)
-                menuRow(
-                    "AutoShot Beta · \(autoShotEnabled ? autoShotStatus : (autoShotSupported ? "关闭" : "本机不支持"))",
-                    action: onToggleAutoShot
-                )
-                .disabled(!autoShotSupported)
+                // Current-hole tools first, round navigation next, settings near the end, and the
+                // single destructive doorway last: the same product order as S70's Golf Menu.
+                ForEach(visibleItems, id: \.self) { item in
+                    menuRow(item)
+                }
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 8)
             .padding(.top, 2)
             .padding(.bottom, 8)
         }
         .ignoresSafeArea(edges: .top)
         .scrollIndicators(.hidden)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard WatchEdgeBackGesture.shouldTrigger(
+                        startX: value.startLocation.x,
+                        translation: value.translation
+                    ) else { return }
+                    onBack()
+                }
+        )
+        .accessibilityIdentifier("watch-golf-menu")
     }
 
-    private func menuRow(_ title: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
-        Button(role: role, action: action) {
+    private var visibleItems: [Item] {
+        Self.visibleItems(
+            hasCaddie: hasCaddie,
+            hasHazards: hasHazards,
+            hasClubStats: hasClubStats,
+            hasFlagDirection: hasFlagDirection
+        )
+    }
+
+    /// The same list drives rendering and tests, so an accidental reintroduction of Continue or
+    /// Abandon cannot hide behind a screenshot that happens to be scrolled to a different position.
+    static func visibleItems(
+        hasCaddie: Bool,
+        hasHazards: Bool,
+        hasClubStats: Bool,
+        hasFlagDirection: Bool
+    ) -> [Item] {
+        var items: [Item] = [.recordShot, .scoreHole]
+        if hasCaddie { items.append(.caddie) }
+        if hasHazards { items.append(.hazards) }
+        items += [.currentHoleShots, .holeSelect, .scorecard]
+        if hasFlagDirection { items.append(.flagDirection) }
+        if hasClubStats { items.append(.clubStats) }
+        items += [.settings, .finish]
+        return items
+    }
+
+    private func menuRow(_ item: Item) -> some View {
+        Button(role: item == .finish ? .destructive : nil, action: action(for: item)) {
             HStack {
-                Text(title).font(.body)
+                Text(item.rawValue)
+                    .font(.system(size: 14, weight: .regular))
+                    .lineLimit(1)
                 Spacer()
             }
             .contentShape(Rectangle())
             .padding(.vertical, 7)
         }
         .buttonStyle(.plain)
+        .disabled(item == .recordShot && !canRecordShot)
+        .accessibilityHint(
+            item == .recordShot
+                ? (canRecordShot ? "先保存当前位置，再选择实际球杆" : "等待 GPS 定位")
+                : ""
+        )
         .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func action(for item: Item) -> () -> Void {
+        switch item {
+        case .recordShot: return onRecordShot
+        case .scoreHole: return onScoreHole
+        case .caddie: return onCaddie
+        case .hazards: return onHazards
+        case .currentHoleShots: return onCurrentHoleShots
+        case .holeSelect: return onHoleSelect
+        case .scorecard: return onScorecard
+        case .flagDirection: return onFlagDirection
+        case .clubStats: return onClubStats
+        case .settings: return onSettings
+        case .finish: return onFinish
+        }
     }
 }

@@ -113,6 +113,26 @@ final class WatchRoundStateTests: XCTestCase {
         XCTAssertNil(decoded.offlineOptionId)
     }
 
+    func testWatchCaddieOptionDecodesLegacyCacheWithoutMeasuredCarryRange() throws {
+        let legacy = """
+        {
+          "optionId": "stock",
+          "label": "推荐",
+          "clubName": "1W",
+          "carryM": 205,
+          "confidence": "offline"
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(WatchCaddieOption.self, from: legacy)
+
+        XCTAssertEqual(decoded.optionId, "stock")
+        XCTAssertEqual(decoded.carryM, 205)
+        XCTAssertNil(decoded.carryP10M)
+        XCTAssertNil(decoded.carryP90M)
+        XCTAssertNil(decoded.sampleSize)
+    }
+
     func testWatchDistanceInputUpdatesLocalDistanceWithoutDroppingTarget() throws {
         let state = WatchRoundState(
             roundId: "round-1",

@@ -38,6 +38,43 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(WatchClubDisplay.compactMapName("自定义杆"), "自定义杆")
     }
 
+    func testWatchHoleMapUsesGarminStyleShortClubCodes() {
+        XCTAssertEqual(WatchClubDisplay.shortCode("Driver"), "D")
+        XCTAssertEqual(WatchClubDisplay.shortCode("3号木"), "3W")
+        XCTAssertEqual(WatchClubDisplay.shortCode("hybrid4"), "4H")
+        XCTAssertEqual(WatchClubDisplay.shortCode("五号铁"), "5i")
+        XCTAssertEqual(WatchClubDisplay.shortCode("PW"), "PW")
+        XCTAssertEqual(WatchClubDisplay.shortCode("wedge50"), "50°")
+        XCTAssertEqual(WatchClubDisplay.shortCode("putter"), "PT")
+    }
+
+    func testCaddieOrderStaysRecommendationSafeAttackRegardlessOfPayloadOrder() {
+        let options = [
+            WatchCaddieOption(optionId: "attack", label: "进攻"),
+            WatchCaddieOption(optionId: "safe", label: "保守"),
+            WatchCaddieOption(optionId: "stock", label: "推荐"),
+        ]
+
+        XCTAssertEqual(
+            WatchCaddieOptionsView.ordered(options).map(\.optionId),
+            ["stock", "safe", "attack"]
+        )
+    }
+
+    func testGolfMenuKeepsCurrentHoleToolsFirstAndEndRoundLast() {
+        let items = WatchMenuView.visibleItems(
+            hasCaddie: true,
+            hasHazards: true,
+            hasClubStats: true,
+            hasFlagDirection: true
+        )
+
+        XCTAssertEqual(Array(items.prefix(4)), [.recordShot, .scoreHole, .caddie, .hazards])
+        XCTAssertEqual(items.last, .finish)
+        XCTAssertFalse(items.map(\.rawValue).contains("继续打球"))
+        XCTAssertFalse(items.map(\.rawValue).contains("放弃本场"))
+    }
+
     @MainActor
     func testRenderAutoShotCandidateConfirmation() throws {
         let view = WatchAutoShotCandidateView()
@@ -106,9 +143,9 @@ final class WatchDesignSnapshotTests: XCTestCase {
             suggestedClub: "3号木", selectedClub: nil,
             offlineOptionId: "stock",
             caddieOptions: [
-                WatchCaddieOption(optionId: "stock", label: "推荐", clubName: "8号铁", carryM: 142, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "8I", carryM: 142)], confidence: "high"),
-                WatchCaddieOption(optionId: "safe", label: "保守", clubName: "9号铁", carryM: 128, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 172), WatchCaddiePlanStep(clubName: "9I", carryM: 128)], confidence: "high"),
-                WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "7号铁", carryM: 156, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "PW", carryM: 118)], confidence: "medium"),
+                WatchCaddieOption(optionId: "stock", label: "推荐", clubName: "8号铁", carryM: 192, carryP10M: 176, carryP90M: 208, sampleSize: 28, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "8I", carryM: 142)], confidence: "high"),
+                WatchCaddieOption(optionId: "safe", label: "保守", clubName: "9号铁", carryM: 172, carryP10M: 160, carryP90M: 184, sampleSize: 31, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 172), WatchCaddiePlanStep(clubName: "9I", carryM: 128)], confidence: "high"),
+                WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "7号铁", carryM: 205, carryP10M: 181, carryP90M: 224, sampleSize: 24, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 205), WatchCaddiePlanStep(clubName: "PW", carryM: 118)], confidence: "medium"),
             ],
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "high"
         )
@@ -118,11 +155,18 @@ final class WatchDesignSnapshotTests: XCTestCase {
         // ImageRenderer does not materialize ScrollView contents on watchOS. Render the exact primary
         // content used by WatchCaddieScreen; the assertion above separately locks the production order.
         let view = WatchCaddieOptionsView(
+            hole: 4,
+            par: 5,
             options: state.caddieOptions,
             recommendedId: state.offlineOptionId,
+            geometry: WatchHoleMapSample.geometry,
+            route: [
+                [504, 702, 0],
+                [506, 403, 210],
+                [435, 279, 400],
+            ],
             onBack: {}
         )
-        .padding(8)
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-caddie-options")
     }

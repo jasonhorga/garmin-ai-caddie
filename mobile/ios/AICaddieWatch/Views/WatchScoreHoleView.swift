@@ -67,17 +67,26 @@ public struct WatchScoreHoleView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 8) {
-            Text("第 \(hole) 洞 · Par \(par)")
-                .font(.headline.weight(.bold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-                .frame(maxWidth: .infinity)
-                .padding(.trailing, WatchScoreHoleLayout.systemTimeTrailingClearance)
+        VStack(spacing: 5) {
+            HStack(spacing: 5) {
+                Button(action: onCancel) {
+                    Image(systemName: "chevron.backward")
+                        .font(.system(size: 11, weight: .bold))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("取消记分")
+                Text("H\(hole) · P\(par)")
+                    .font(.system(size: 13, weight: .bold))
+                    .lineLimit(1)
+                Spacer(minLength: WatchScoreHoleLayout.systemTimeTrailingClearance)
+            }
 
             stepContent
         }
-        .padding(8)
+        .padding(.horizontal, WatchDisplayGeometry.minimumContentInset)
+        .padding(.top, 3)
+        .padding(.bottom, 7)
         // Padding must participate in the proposed Watch content size. Putting it outside the
         // full-screen frame makes the view 16 pt taller than watchOS's safe content viewport and
         // clips the recommendation actions at the bottom in the real runtime.
@@ -110,28 +119,25 @@ public struct WatchScoreHoleView: View {
         case .recommendation:
             // Two action rows must both clear the rounded 45 mm screen edge. The former 6 pt
             // rhythm pushed the secondary row roughly 3 pt below the real simulator viewport.
-            VStack(spacing: 4) {
+            VStack(spacing: 3) {
                 Text(stepLabel)
-                    .font(.caption2.weight(.semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                 VStack(spacing: 0) {
                     Text("\(score)")
-                        .font(.system(size: 42, weight: .bold, design: .rounded))
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
                         .monospacedDigit()
                     Text(diffText)
                         .font(.caption.weight(.bold))
                         .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: score - par))
                 }
                 Text(recommendationNote)
-                    .font(.caption2)
+                    .font(.system(size: 9.5, weight: .medium))
                     .monospacedDigit()
                     .foregroundStyle(candidateNextHole == nil ? Color.secondary : AICaddieDesignTokens.par)
                 Spacer(minLength: 0)
                 actionButton("确认 \(score) 杆", primary: true, action: onAcceptRecommended)
-                HStack(spacing: 6) {
-                    actionButton("手动确认", action: onManualEntry)
-                    actionButton("取消", action: onCancel)
-                }
+                actionButton("修改详情", action: onManualEntry)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .score:
@@ -150,7 +156,7 @@ public struct WatchScoreHoleView: View {
                 onPrimary: onAdvance
             )
         case .fairway:
-            VStack(spacing: 8) {
+            VStack(spacing: 5) {
                 Text(stepLabel)
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
@@ -160,7 +166,6 @@ public struct WatchScoreHoleView: View {
                     fairwayButton("偏右", .right)
                 }
                 Spacer(minLength: 0)
-                actionButton("取消", action: onCancel)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .penalty:
@@ -180,7 +185,7 @@ public struct WatchScoreHoleView: View {
         primaryTitle: String,
         onPrimary: @escaping () -> Void
     ) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 5) {
             Text(stepLabel)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
@@ -188,7 +193,7 @@ public struct WatchScoreHoleView: View {
                 stepButton("minus") { onDelta(-1) }
                 VStack(spacing: 0) {
                     Text("\(value)")
-                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
                         .monospacedDigit()
                     if let detail {
                         Text(detail)
@@ -201,7 +206,6 @@ public struct WatchScoreHoleView: View {
             }
             Spacer(minLength: 0)
             actionButton(primaryTitle, primary: true, action: onPrimary)
-            actionButton("取消", action: onCancel)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -216,7 +220,7 @@ public struct WatchScoreHoleView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(.plain)
-        .frame(height: 44)
+        .frame(height: 40)
         .background(
             RoundedRectangle(cornerRadius: 15)
                 .fill(fairway == result ? AICaddieDesignTokens.par : Color.white.opacity(0.27))
@@ -251,7 +255,7 @@ public struct WatchScoreHoleView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(.plain)
-        .frame(height: 36)
+        .frame(height: 34)
         .background(
             Capsule()
                 .fill(primary ? AICaddieDesignTokens.par : Color.white.opacity(0.27))
@@ -263,11 +267,11 @@ public struct WatchScoreHoleView: View {
             Image(systemName: systemName)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(.white)
-                .frame(width: 42, height: 42)
+                .frame(width: 38, height: 38)
         }
         .buttonStyle(.plain)
         .background(
-            RoundedRectangle(cornerRadius: 15)
+            RoundedRectangle(cornerRadius: 13)
                 .fill(Color.white.opacity(0.27))
         )
     }

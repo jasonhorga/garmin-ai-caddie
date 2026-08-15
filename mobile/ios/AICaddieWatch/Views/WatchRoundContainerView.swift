@@ -194,19 +194,12 @@ public struct WatchRoundContainerView: View {
                 hasCaddie: model.caddieDetailAvailable,
                 hasHazards: model.hazardDetailAvailable,
                 canRecordShot: shotLocation != nil,
-                autoShotSupported: autoShotSupported,
-                autoShotEnabled: model.autoShotEnabled,
-                autoShotStatus: autoShotStatus,
                 hasClubStats: model.clubStatsAvailable,
                 hasFlagDirection: activeFlagCoordinate != nil,
                 onRecordShot: { recordManualShot() },
                 onScoreHole: { model.startScoringActiveHole() },
                 onCaddie: { model.openCaddie() },
                 onHazards: { model.openHazards() },
-                onToggleAutoShot: {
-                    guard autoShotSupported else { return }
-                    model.setAutoShotEnabled(!model.autoShotEnabled)
-                },
                 onScorecard: { model.openScorecard() },
                 onCurrentHoleShots: { model.openCurrentHoleShots() },
                 onHoleSelect: { model.openHoleSelect() },
@@ -214,13 +207,13 @@ public struct WatchRoundContainerView: View {
                 onSettings: { model.openSettings() },
                 onFlagDirection: { model.openFlagDirection() },
                 onFinish: { model.requestFinish() },
-                onAbandon: { model.requestAbandon() },
-                onClose: { model.backToHome() }
+                onBack: { model.backToHome() }
             )
         case .caddie:
             if let state = model.activeHoleState, model.caddieDetailAvailable {
                 WatchCaddieScreen(
                     state: state,
+                    geometry: holeGeometry,
                     frontYd: watchGreenYards?.front,
                     centerYd: watchGreenYards?.center,
                     backYd: watchGreenYards?.back,
@@ -266,6 +259,13 @@ public struct WatchRoundContainerView: View {
             WatchSettingsView(
                 gpsPreheatEnabled: $gpsPreheatEnabled,
                 bigTextMode: $holeMapBigText,
+                autoShotSupported: autoShotSupported,
+                autoShotEnabled: model.autoShotEnabled,
+                autoShotStatus: autoShotStatus,
+                onToggleAutoShot: {
+                    guard autoShotSupported else { return }
+                    model.setAutoShotEnabled(!model.autoShotEnabled)
+                },
                 onBack: { model.backToMenu() }
             )
         case .flagDirection:
@@ -439,21 +439,18 @@ public struct WatchRoundContainerView: View {
     }
 
     private func caddieNote(_ s: WatchRoundState) -> String {
-        if let note = s.targetNote?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
-            return note
-        }
         let option = caddieOption(s)
         if let remaining = s.expectedRemainingM, remaining.isFinite, remaining >= 0 {
             if remaining <= 10 { return "攻果岭" }
-            return "留 \(WatchUnits.yards(remaining)) 码"
+            return "留\(WatchUnits.yards(remaining))码"
         }
 
-        // The shallow S70-style glance has room for one current-shot fact. Keep the full club chain
-        // in the expanded caddie view instead of shrinking or truncating it on the hole root.
+        // Hole Root gets one short current-shot fact. Arbitrary target prose belongs in Caddie detail;
+        // allowing it here was the source of 0.55–0.62 text scaling on the compact display.
         if let carry = option?.plan?.first?.carryM ?? option?.carryM,
            carry.isFinite,
            carry > 0 {
-            return "推荐 · \(WatchUnits.yards(carry))码"
+            return "\(WatchUnits.yards(carry))码"
         }
         return option?.label ?? ""
     }
@@ -588,7 +585,12 @@ public struct WatchRoundContainerView: View {
     private func currentHoleInstrument<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
-        ZStack { content() }
+        ZStack {
+            content()
+            if !WatchHoleMapView.isFullMap(crownScale: holeMapCrownScale) {
+                rootControls
+            }
+        }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
             .ignoresSafeArea()
@@ -598,6 +600,54 @@ public struct WatchRoundContainerView: View {
             .onChange(of: model.activeHole) { _ in
                 holeMapCrownScale = WatchHoleMapView.restingCrownScale
             }
+    }
+
+    private var rootControls: some View {
+        GeometryReader { proxy in
+            let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
+            HStack {
+                rootControl(
+                    systemName: "line.3.horizontal",
+                    label: "球局菜单",
+                    identifier: "watch-hole-menu",
+                    action: { model.openMenu() }
+                )
+                Spacer()
+                if !model.autoShotEnabled {
+                    rootControl(
+                        systemName: "plus",
+                        label: "手动记杆",
+                        identifier: "watch-hole-record-shot",
+                        isEnabled: shotLocation != nil,
+                        action: { recordManualShot() }
+                    )
+                }
+            }
+            .frame(width: safeRect.width)
+            .position(x: safeRect.midX, y: safeRect.maxY - 17)
+        }
+    }
+
+    private func rootControl(
+        systemName: String,
+        label: String,
+        identifier: String,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 34)
+                .background(Color.black.opacity(0.72), in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.34), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.45)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
     }
 
     private func scoreOnlyRoot(_ s: WatchRoundState) -> some View {

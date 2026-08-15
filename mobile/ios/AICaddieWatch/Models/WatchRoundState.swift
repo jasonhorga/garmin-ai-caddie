@@ -71,8 +71,8 @@ public struct WatchCaddiePlanStep: Codable, Equatable {
     }
 }
 
-/// One AI-caddie route. The full `plan` is shown when available; no expected-strokes or success-%
-/// is accepted into the player-facing Watch model until a calibrated model exists.
+/// One AI-caddie route. Longitudinal p10/p90 are measured carry facts, not a fabricated lateral
+/// ellipse. Expected strokes stay absent until the product has a calibrated scoring model.
 public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public var id: String { optionId }
 
@@ -80,6 +80,9 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let label: String             // 稳妥/标准/进攻
     public let clubName: String?
     public let carryM: Double?
+    public let carryP10M: Double?
+    public let carryP90M: Double?
+    public let sampleSize: Int?
     public let plan: [WatchCaddiePlanStep]?
     public let confidence: String?
 
@@ -88,6 +91,9 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         label: String,
         clubName: String? = nil,
         carryM: Double? = nil,
+        carryP10M: Double? = nil,
+        carryP90M: Double? = nil,
+        sampleSize: Int? = nil,
         plan: [WatchCaddiePlanStep]? = nil,
         confidence: String? = nil
     ) {
@@ -95,6 +101,9 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         self.label = label
         self.clubName = clubName
         self.carryM = carryM
+        self.carryP10M = carryP10M
+        self.carryP90M = carryP90M
+        self.sampleSize = sampleSize
         self.plan = plan
         self.confidence = confidence
     }

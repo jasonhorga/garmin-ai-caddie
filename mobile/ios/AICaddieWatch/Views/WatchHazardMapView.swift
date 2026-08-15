@@ -260,7 +260,6 @@ public struct WatchHazardMapView: View {
                 }
         )
         .accessibilityAction(named: Text("返回菜单"), onBack)
-        .persistentSystemOverlays(.hidden)
         .ignoresSafeArea()
     }
 
@@ -290,6 +289,7 @@ public struct WatchHazardMapView: View {
                 lastShot: 0,
                 ringPips: [],
                 showTextOverlay: false,
+                showHoleIdentity: false,
                 fullMap: true,
                 mapScale: scale,
                 geometry: geometry
@@ -324,27 +324,6 @@ public struct WatchHazardMapView: View {
             CGPoint(
                 x: (point.x - geometry.youPx.x) * scale + playerCanvas.x,
                 y: (point.y - geometry.youPx.y) * scale + playerCanvas.y
-            )
-        }
-
-        var measuredPoints: [CGPoint] = [playerCanvas]
-        if let start = WatchHazardMapLayout.imagePoint(on: route, atMetres: playerProgressMetres) {
-            measuredPoints.append(canvas(start))
-        }
-        for row in route where row.count >= 3 && row[2] > playerProgressMetres && row[2] < endMetres {
-            measuredPoints.append(canvas(CGPoint(x: row[0], y: row[1])))
-        }
-        if let end = WatchHazardMapLayout.imagePoint(on: route, atMetres: endMetres) {
-            measuredPoints.append(canvas(end))
-        }
-        if measuredPoints.count >= 2 {
-            var path = Path()
-            path.move(to: measuredPoints[0])
-            for point in measuredPoints.dropFirst() { path.addLine(to: point) }
-            context.stroke(
-                path,
-                with: .color(.white.opacity(0.9)),
-                style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round, dash: [6, 5])
             )
         }
 
@@ -431,7 +410,6 @@ public struct WatchHazardMapView: View {
     }
 
     private func controls(hazard: WatchHazard, index: Int, size: CGSize) -> some View {
-        let summary = "\(hazard.label) \(index + 1)/\(upcoming.count)"
         let safeInset = WatchDisplayGeometry.contentInset(for: size)
         let trackHeight = min(size.height * 0.55, 104)
         let thumbHeight = min(40, max(18, trackHeight * 0.28))
@@ -440,44 +418,29 @@ public struct WatchHazardMapView: View {
 
         return ZStack {
             VStack {
-                if let centerGreenYards, centerGreenYards > 0 {
-                    HStack(spacing: 0) {
-                        Text(
-                            WatchGeoMath.isBeyondUsefulGreenRange(centerGreenYards)
-                                ? "离本洞较远"
-                                : "中 \(WatchGeoMath.greenRangeText(centerGreenYards)) 码 · 到果岭"
-                        )
-                            .font(.system(size: 11, weight: .semibold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Capsule().fill(.black.opacity(0.72)))
-                            .frame(
-                                width: WatchHazardMapLayout.topSummaryWidth(viewportWidth: size.width),
-                                alignment: .leading
-                            )
-                        Spacer(minLength: WatchHazardMapLayout.systemTimeTrailingClearance)
-                    }
-                    .padding(.leading, WatchHazardMapLayout.topSummaryLeadingInset)
+                HStack(spacing: 4) {
+                    Text(shortHazardTitle(hazard))
+                        .font(.system(size: 12, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(.black.opacity(0.72)))
+                    Spacer(minLength: WatchHazardMapLayout.systemTimeTrailingClearance)
                 }
+                .padding(.leading, safeInset)
                 Spacer()
-                VStack(spacing: 1) {
-                    Text(summary)
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(upcoming.count > 1
-                        ? "转表冠换障碍"
-                        : ((hazard.kind == "water" || WatchHazardMapLayout.hasMeasuredFrontBack(hazard))
-                            ? "障碍前后沿" : "到障碍距离"))
-                        .font(.system(size: 8.5, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.62))
+                if upcoming.count > 1 {
+                    Text("\(index + 1)/\(upcoming.count) · 转表冠")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.72))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(.black.opacity(0.62)))
                 }
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .shadow(color: .black, radius: 2)
             }
             .padding(.top, safeInset)
-            .padding(.bottom, 16)
+            .padding(.bottom, safeInset)
 
             if upcoming.count > 1 {
                 HStack {
@@ -495,6 +458,13 @@ public struct WatchHazardMapView: View {
                 }
             }
         }
+    }
+
+    private func shortHazardTitle(_ hazard: WatchHazard) -> String {
+        if hazard.kind == "water" { return "水障碍" }
+        if hazard.label.contains("果岭") { return "果岭沙坑" }
+        if hazard.label.contains("球道") { return "球道沙坑" }
+        return "沙坑"
     }
 
     private var emptyState: some View {

@@ -6,18 +6,30 @@ import WatchKit
 public struct WatchSettingsView: View {
     @Binding public var gpsPreheatEnabled: Bool
     @Binding public var bigTextMode: Bool
+    public let autoShotSupported: Bool
+    public let autoShotEnabled: Bool
+    public let autoShotStatus: String
     public let wristLabel: String
+    public let onToggleAutoShot: () -> Void
     public let onBack: () -> Void
 
     public init(
         gpsPreheatEnabled: Binding<Bool>,
         bigTextMode: Binding<Bool>,
+        autoShotSupported: Bool = false,
+        autoShotEnabled: Bool = false,
+        autoShotStatus: String = "本机不支持",
         wristLabel: String = WatchSettingsView.currentWristLabel,
+        onToggleAutoShot: @escaping () -> Void = {},
         onBack: @escaping () -> Void = {}
     ) {
         self._gpsPreheatEnabled = gpsPreheatEnabled
         self._bigTextMode = bigTextMode
+        self.autoShotSupported = autoShotSupported
+        self.autoShotEnabled = autoShotEnabled
+        self.autoShotStatus = autoShotStatus
         self.wristLabel = wristLabel
+        self.onToggleAutoShot = onToggleAutoShot
         self.onBack = onBack
     }
 
@@ -38,6 +50,23 @@ public struct WatchSettingsView: View {
                     .font(.system(size: 13, weight: .regular))
                     .toggleStyle(WatchApprovedToggleStyle())
                     .padding(.vertical, 7)
+                Divider()
+
+                Toggle(
+                    "自动记杆",
+                    isOn: Binding(
+                        get: { autoShotEnabled },
+                        set: { requestedValue in
+                            guard requestedValue != autoShotEnabled else { return }
+                            onToggleAutoShot()
+                        }
+                    )
+                )
+                .font(.system(size: 13, weight: .regular))
+                .toggleStyle(WatchApprovedToggleStyle())
+                .disabled(!autoShotSupported)
+                .accessibilityHint(autoShotSupported ? autoShotStatus : "本机不支持")
+                .padding(.vertical, 7)
                 Divider()
 
                 HStack(spacing: 6) {

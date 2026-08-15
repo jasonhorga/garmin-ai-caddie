@@ -1,37 +1,65 @@
 import SwiftUI
 
-/// AI-caddie 球童打法: each route shows its complete club chain when available. The recommended
-/// option is highlighted. Expected strokes and success-% stay absent until there is a calibrated model.
-/// `WatchRoundState.caddieOptions`; a plain VStack so it renders in the ImageRenderer design snapshot.
+/// Garmin-style Virtual Caddie instrument: one route at a time, with the factual hole map and target
+/// as the visual subject. Turning the Crown browses the stable 推荐 → 保守 → 进攻 order; selecting a
+/// route never moves it to a different slot.
 public struct WatchCaddieOptionsView: View {
+    public let hole: Int
+    public let par: Int
     public let options: [WatchCaddieOption]
     public let recommendedId: String?
+    public let geometry: WatchHoleMapGeometry?
+    public let route: [[Double]]
+    public let rootRecommendation: WatchRootCaddieRecommendation?
     public let onBack: (() -> Void)?
 
+    @State private var crownSelection: Double
+
     public init(
+        hole: Int = 0,
+        par: Int = 0,
         options: [WatchCaddieOption],
         recommendedId: String? = nil,
+        geometry: WatchHoleMapGeometry? = nil,
+        route: [[Double]] = [],
+        rootRecommendation: WatchRootCaddieRecommendation? = nil,
         onBack: (() -> Void)? = nil
     ) {
+        self.hole = hole
+        self.par = par
         self.options = options
         self.recommendedId = recommendedId
+        self.geometry = geometry
+        self.route = route
+        self.rootRecommendation = rootRecommendation
         self.onBack = onBack
+
+        let ordered = Self.ordered(options)
+        let initialIndex = recommendedId.flatMap { id in
+            ordered.firstIndex { $0.optionId == id }
+        } ?? ordered.firstIndex { Self.strategyKey($0.optionId) == "stock" } ?? 0
+        _crownSelection = State(initialValue: Double(initialIndex))
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("球童打法")
-                .font(.system(size: 15, weight: .bold))
-            if options.isEmpty {
-                Text("暂无方案")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        GeometryReader { proxy in
+            if let option = selectedOption {
+                optionInstrument(option, size: proxy.size)
             } else {
-                ForEach(orderedOptions) { option in
-                    optionRow(option)
-                }
+                emptyState(size: proxy.size)
             }
         }
+        .background(Color.black)
+        .focusable(true)
+        .digitalCrownRotation(
+            $crownSelection,
+            from: 0,
+            through: crownUpperBound,
+            by: 1,
+            sensitivity: .medium,
+            isContinuous: false,
+            isHapticFeedbackEnabled: true
+        )
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
                 .onEnded { value in
@@ -44,101 +72,296 @@ public struct WatchCaddieOptionsView: View {
                 }
         )
         .accessibilityAction(named: Text("返回球洞")) { onBack?() }
+        .accessibilityIdentifier("watch-caddie-instrument")
+        .ignoresSafeArea()
     }
 
-    /// Companion payloads can arrive in the backend's legacy safe/stock/attack order. Keep the
-    /// selected recommendation first on the small screen, then order alternatives low-to-high risk.
-    private var orderedOptions: [WatchCaddieOption] {
-        let selectedId = recommendedId ?? "stock"
-        return options.enumerated().sorted { lhs, rhs in
-            let lhsRecommended = lhs.element.optionId == selectedId
-            let rhsRecommended = rhs.element.optionId == selectedId
-            if lhsRecommended != rhsRecommended { return lhsRecommended }
+    private var orderedOptions: [WatchCaddieOption] { Self.ordered(options) }
+
+    private var selectedIndex: Int {
+        min(max(Int(crownSelection.rounded()), 0), max(orderedOptions.count - 1, 0))
+    }
+
+    private var selectedOption: WatchCaddieOption? {
+        guard orderedOptions.indices.contains(selectedIndex) else { return nil }
+        return orderedOptions[selectedIndex]
+    }
+
+    private var crownUpperBound: Double { Double(max(orderedOptions.count - 1, 1)) }
+
+    private func optionInstrument(_ option: WatchCaddieOption, size: CGSize) -> some View {
+        let safeInset = WatchDisplayGeometry.contentInset(for: size)
+        let mappedGeometry = geometry.map { optionGeometry(option, base: $0) }
+        let shotLayout = mappedGeometry.flatMap { currentShotLayout(option, geometry: $0) }
+        let focusY = shotLayout?.carryP90.y ?? mappedGeometry?.layupPx.y ?? geometry?.pinPx.y ?? 0
+        let scale = mappedGeometry.map {
+            CGFloat(WatchHoleMapViewport.effectiveRestingScale(
+                requestedScale: WatchHoleMapView.maximumCrownScale,
+                viewportHeight: Double(size.height),
+                playerAnchorFraction: 0.66,
+                playerImageY: Double($0.youPx.y),
+                pinImageY: Double(focusY),
+                topClearance: 52
+            ))
+        } ?? CGFloat(WatchHoleMapView.restingCrownScale)
+
+        return ZStack {
+            if let mappedGeometry {
+                WatchHoleMapView(
+                    holeNumber: hole,
+                    par: par,
+                    frontGreen: nil,
+                    centerGreen: nil,
+                    backGreen: nil,
+                    lastShot: 0,
+                    caddieClub: primaryClub(option),
+                    caddieNote: "",
+                    showCaddieRecommendation: true,
+                    currentShotLayout: shotLayout,
+                    showPreparedPlan: shotLayout == nil && firstCarry(option) != nil,
+                    hazards: [],
+                    hazardRoute: route,
+                    ringPips: [],
+                    showTextOverlay: false,
+                    showHoleIdentity: false,
+                    fullMap: true,
+                    mapScale: scale,
+                    geometry: mappedGeometry
+                )
+                .allowsHitTesting(false)
+            } else {
+                Color(red: 0.08, green: 0.18, blue: 0.10)
+                Image(systemName: "map")
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundStyle(.white.opacity(0.25))
+            }
+
+            LinearGradient(
+                colors: [.black.opacity(0.76), .clear, .clear, .black.opacity(0.88)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .allowsHitTesting(false)
+
+            VStack(spacing: 0) {
+                header(option)
+                Spacer()
+                footer(option)
+            }
+            .padding(.horizontal, safeInset)
+            .padding(.top, safeInset)
+            .padding(.bottom, safeInset)
+
+            if orderedOptions.count > 1 {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 5) {
+                        ForEach(orderedOptions.indices, id: \.self) { index in
+                            Circle()
+                                .fill(index == selectedIndex ? Color.white : Color.white.opacity(0.28))
+                                .frame(width: index == selectedIndex ? 5 : 4, height: index == selectedIndex ? 5 : 4)
+                        }
+                    }
+                    .padding(.trailing, safeInset)
+                }
+            }
+        }
+    }
+
+    private func header(_ option: WatchCaddieOption) -> some View {
+        HStack(spacing: 5) {
+            Button(action: { onBack?() }) {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 28, height: 28)
+                    .background(Color.black.opacity(0.58), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("返回球洞")
+            Text(strategyLabel(option))
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(AICaddieDesignTokens.strategyColor(Self.strategyKey(option.optionId)))
+                .lineLimit(1)
+            Spacer(minLength: 48)
+        }
+    }
+
+    private func footer(_ option: WatchCaddieOption) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(clubChain(option))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+            HStack(spacing: 5) {
+                Text(carrySummary(option))
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.82))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                Spacer(minLength: 2)
+                Text("\(selectedIndex + 1)/\(orderedOptions.count)")
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.62))
+            }
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+
+    private func emptyState(size: CGSize) -> some View {
+        let safeRect = WatchDisplayGeometry.contentRect(in: size)
+        return VStack(spacing: 8) {
+            HStack {
+                Button(action: { onBack?() }) {
+                    Image(systemName: "chevron.backward")
+                }
+                .buttonStyle(.plain)
+                Text("球童建议").font(.system(size: 14, weight: .bold))
+                Spacer(minLength: 48)
+            }
+            Spacer()
+            Text("暂无可用方案")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(width: safeRect.width, height: safeRect.height)
+        .position(x: safeRect.midX, y: safeRect.midY)
+    }
+
+    private func currentShotLayout(
+        _ option: WatchCaddieOption,
+        geometry: WatchHoleMapGeometry
+    ) -> WatchCurrentShotLayout? {
+        let fallback = option.optionId == recommendedId ? rootRecommendation : nil
+        guard let aim = firstCarry(option) ?? fallback?.aimCarryM,
+              let p10 = option.carryP10M ?? fallback?.carryP10M,
+              let p90 = option.carryP90M ?? fallback?.carryP90M else { return nil }
+        return WatchCurrentShotLayout.resolve(
+            route: route,
+            playerImagePoint: geometry.youPx,
+            aimCarryM: aim,
+            carryP10M: p10,
+            carryP90M: p90
+        )
+    }
+
+    private func optionGeometry(
+        _ option: WatchCaddieOption,
+        base: WatchHoleMapGeometry
+    ) -> WatchHoleMapGeometry {
+        guard let carry = firstCarry(option), carry.isFinite, carry > 0,
+              let progress = WatchHazardMapLayout.playerProgressMetres(
+                on: route,
+                playerImagePoint: base.youPx
+              ),
+              let target = WatchHazardMapLayout.imagePoint(on: route, atMetres: progress + carry)
+        else { return base }
+
+        let apex = WatchHazardMapLayout.imagePoint(on: route, atMetres: progress + carry * 0.5)
+            ?? midpoint(base.youPx, target)
+        let total = route.last.flatMap { $0.count >= 3 ? $0[2] : nil } ?? progress + carry
+        let greenControl = WatchHazardMapLayout.imagePoint(
+            on: route,
+            atMetres: min(total, progress + carry + max(0, total - progress - carry) * 0.5)
+        ) ?? midpoint(target, base.pinPx)
+
+        return WatchHoleMapGeometry(
+            image: base.image,
+            imageSize: base.imageSize,
+            youPx: base.youPx,
+            pinPx: base.pinPx,
+            layupPx: target,
+            apexPx: apex,
+            greenCtrlPx: greenControl,
+            routePx: base.routePx,
+            greenOutlinePx: base.greenOutlinePx,
+            hazardSpans: base.hazardSpans
+        )
+    }
+
+    private func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
+        CGPoint(x: (lhs.x + rhs.x) * 0.5, y: (lhs.y + rhs.y) * 0.5)
+    }
+
+    private func primaryClub(_ option: WatchCaddieOption) -> String {
+        option.plan?.first?.clubName ?? option.clubName ?? "—"
+    }
+
+    private func firstCarry(_ option: WatchCaddieOption) -> Double? {
+        option.plan?.first?.carryM ?? option.carryM
+    }
+
+    private func clubChain(_ option: WatchCaddieOption) -> String {
+        let plan = option.plan ?? []
+        if !plan.isEmpty {
+            return plan.map { WatchClubDisplay.shortCode($0.clubName) }.joined(separator: " → ")
+        }
+        return option.clubName.map(WatchClubDisplay.shortCode) ?? "—"
+    }
+
+    private func carrySummary(_ option: WatchCaddieOption) -> String {
+        if let p10 = option.carryP10M,
+           let p90 = option.carryP90M,
+           p10.isFinite, p90.isFinite, p10 > 0, p90 >= p10 {
+            return "实测 \(Self.yards(p10))–\(Self.yards(p90))码"
+        }
+        if let fallback = option.optionId == recommendedId ? rootRecommendation : nil {
+            return "实测 \(Self.yards(fallback.carryP10M))–\(Self.yards(fallback.carryP90M))码"
+        }
+        if let carry = firstCarry(option), carry.isFinite, carry > 0 {
+            return "目标 \(Self.yards(carry))码"
+        }
+        return "暂无落点范围"
+    }
+
+    private func strategyLabel(_ option: WatchCaddieOption) -> String {
+        switch Self.strategyKey(option.optionId) {
+        case "stock": return "推荐"
+        case "protect_score": return "保守"
+        case "attack": return "进攻"
+        default: return option.label
+        }
+    }
+
+    /// Internal so the Watch tests can lock the player-facing order without reaching into SwiftUI
+    /// rendering state. The selected recommendation changes the initial Crown position, never order.
+    static func ordered(_ options: [WatchCaddieOption]) -> [WatchCaddieOption] {
+        options.enumerated().sorted { lhs, rhs in
             let lhsRank = strategyRank(lhs.element.optionId)
             let rhsRank = strategyRank(rhs.element.optionId)
-            if lhsRank != rhsRank { return lhsRank < rhsRank }
-            return lhs.offset < rhs.offset
+            return lhsRank == rhsRank ? lhs.offset < rhs.offset : lhsRank < rhsRank
         }.map(\.element)
     }
 
-    private func strategyRank(_ optionId: String) -> Int {
+    private static func strategyRank(_ optionId: String) -> Int {
         switch strategyKey(optionId) {
-        case "protect_score": return 0
-        case "stock": return 1
+        case "stock": return 0
+        case "protect_score": return 1
         case "attack": return 2
         default: return 3
         }
     }
 
-    private func optionRow(_ option: WatchCaddieOption) -> some View {
-        let key = strategyKey(option.optionId)
-        let isRecommended = option.optionId == (recommendedId ?? "stock")
-        let plan = option.plan ?? []
-        let chain = plan.map { WatchClubDisplay.name($0.clubName) }.joined(separator: " → ")
-        let carries = plan.compactMap(\.carryM).map { "\(Self.yards($0))" }
-        return VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 5) {
-                Text(option.label)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(AICaddieDesignTokens.strategyColor(key))
-                    .fixedSize()
-                Spacer(minLength: 2)
-                if !chain.isEmpty {
-                    Text(chain)
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.62)
-                } else if let club = option.clubName {
-                    Text(WatchClubDisplay.name(club))
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .lineLimit(1)
-                }
-            }
-            if !carries.isEmpty {
-                Text(carries.joined(separator: " · ") + " 码")
-                    .font(.system(size: 9.5, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            } else if let carry = option.carryM {
-                Text("\(Self.yards(carry)) 码")
-                    .font(.system(size: 9.5, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 5)
-        .frame(minHeight: 43)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isRecommended ? AICaddieDesignTokens.strategyColor("stock").opacity(0.18) : Color.white.opacity(0.06))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isRecommended ? AICaddieDesignTokens.strategyColor("stock") : Color.clear, lineWidth: 1.5)
-        )
-    }
-
-    /// Map the option id to the strategy colour key the design tokens understand.
-    private func strategyKey(_ optionId: String) -> String {
+    private static func strategyKey(_ optionId: String) -> String {
         switch optionId.lowercased() {
-        case "safe", "conservative", "protect", "protect_score":
-            return "protect_score"
-        case "attack", "aggressive":
-            return "attack"
-        default:
-            return "stock"
+        case "safe", "conservative", "protect", "protect_score": return "protect_score"
+        case "attack", "aggressive": return "attack"
+        default: return "stock"
         }
     }
 
     static func yards(_ metres: Double) -> Int { Int((metres * 1.09361).rounded()) }
 }
 
-/// Opening the recommendation from Hole Root goes straight to the complete play chains. The older
-/// single-shot facts remain an honest fallback only for companion payloads that have no full plans.
+/// Opening the recommendation from Hole Root goes to the focused route instrument. Older payloads
+/// with only one current-shot fact retain the honest text fallback.
 public struct WatchCaddieScreen: View {
     public let state: WatchRoundState
+    public let geometry: WatchHoleMapGeometry?
     public let frontYd: Int?
     public let centerYd: Int?
     public let backYd: Int?
@@ -147,6 +370,7 @@ public struct WatchCaddieScreen: View {
 
     public init(
         state: WatchRoundState,
+        geometry: WatchHoleMapGeometry? = nil,
         frontYd: Int? = nil,
         centerYd: Int? = nil,
         backYd: Int? = nil,
@@ -154,6 +378,7 @@ public struct WatchCaddieScreen: View {
         onBack: @escaping () -> Void = {}
     ) {
         self.state = state
+        self.geometry = geometry
         self.frontYd = frontYd
         self.centerYd = centerYd
         self.backYd = backYd
@@ -164,15 +389,19 @@ public struct WatchCaddieScreen: View {
     var showsPlanOptionsFirst: Bool { !state.caddieOptions.isEmpty }
 
     public var body: some View {
-        ScrollView {
-            if showsPlanOptionsFirst {
-                WatchCaddieOptionsView(
-                    options: state.caddieOptions,
-                    recommendedId: state.offlineOptionId,
-                    onBack: onBack
-                )
-                .padding(8)
-            } else {
+        if showsPlanOptionsFirst {
+            WatchCaddieOptionsView(
+                hole: state.hole,
+                par: state.par,
+                options: state.caddieOptions,
+                recommendedId: state.offlineOptionId ?? state.strategyMode,
+                geometry: geometry,
+                route: state.holeMap?.route ?? [],
+                rootRecommendation: state.rootCaddieRecommendation,
+                onBack: onBack
+            )
+        } else {
+            ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 5) {
                         Button(action: onBack) {
@@ -194,7 +423,7 @@ public struct WatchCaddieScreen: View {
                 }
                 .padding(8)
             }
+            .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
     }
 }

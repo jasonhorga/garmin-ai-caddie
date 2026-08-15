@@ -57,12 +57,18 @@ public struct WatchHazardView: View {
 
     private func hazardRow(_ hazard: WatchHazard, showsDisclosure: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(hazard.kind == "water" ? "💧" : "🏖")
+            Image(systemName: hazard.kind == "water" ? "drop.fill" : "oval.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(
+                    hazard.kind == "water"
+                        ? Color(red: 0.20, green: 0.68, blue: 1.0)
+                        : Color(red: 1.0, green: 0.76, blue: 0.18)
+                )
             VStack(alignment: .leading, spacing: 1) {
                 Text(hazard.label)
                     .font(.system(size: 14, weight: .semibold))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(0.85)
                 if let detail = carryText(hazard) {
                     Text(detail)
                         .font(.caption2)

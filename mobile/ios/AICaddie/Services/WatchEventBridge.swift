@@ -80,7 +80,7 @@ public struct WatchCaddiePlanStep: Codable, Equatable {
 }
 
 /// One AI-caddie route on Watch. `clubName/carryM` remain the current-shot fallback; `plan` carries
-/// the complete route when the backend can prove one. Expected strokes are intentionally absent.
+/// the complete route and p10/p90 carries measured longitudinal dispersion when available.
 public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public var id: String { optionId }
 
@@ -88,6 +88,9 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let label: String
     public let clubName: String?
     public let carryM: Double?
+    public let carryP10M: Double?
+    public let carryP90M: Double?
+    public let sampleSize: Int?
     public let plan: [WatchCaddiePlanStep]?
     public let confidence: String?
 
@@ -96,6 +99,9 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         label: String,
         clubName: String? = nil,
         carryM: Double? = nil,
+        carryP10M: Double? = nil,
+        carryP90M: Double? = nil,
+        sampleSize: Int? = nil,
         plan: [WatchCaddiePlanStep]? = nil,
         confidence: String? = nil
     ) {
@@ -103,6 +109,9 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         self.label = label
         self.clubName = clubName
         self.carryM = carryM
+        self.carryP10M = carryP10M
+        self.carryP90M = carryP90M
+        self.sampleSize = sampleSize
         self.plan = plan
         self.confidence = confidence
     }
@@ -1155,6 +1164,9 @@ public final class WatchEventBridge: NSObject {
                 label: idLabel != option.id ? idLabel : fallbackLabel,
                 clubName: option.clubName == "-" ? nil : option.clubName,
                 carryM: option.carryM > 0 ? option.carryM : nil,
+                carryP10M: option.p10M,
+                carryP90M: option.p90M,
+                sampleSize: option.sampleSize,
                 plan: sequence?.steps.map { WatchCaddiePlanStep(clubName: $0.clubName, carryM: $0.targetCarryM) },
                 confidence: sequence?.confidence ?? option.confidence
             )

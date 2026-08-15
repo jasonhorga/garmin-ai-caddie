@@ -61,6 +61,48 @@ enum WatchClubDisplay {
         return String(loft)
     }
 
+    /// Garmin uses short club codes on the watch face and expands them only on larger detail
+    /// surfaces. Keeping this mapping here prevents raw backend tokens and long Chinese names from
+    /// competing for the map's narrow fact column.
+    static func shortCode(_ raw: String) -> String {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = value.lowercased().replacingOccurrences(of: " ", with: "")
+        guard !value.isEmpty else { return value }
+
+        if let degrees = Int(value), (44...64).contains(degrees) { return "\(degrees)°" }
+        if lower.hasPrefix("wedge"),
+           let degrees = Int(lower.dropFirst("wedge".count)),
+           (44...64).contains(degrees) { return "\(degrees)°" }
+        if ["driver", "d", "1w", "一号木"].contains(lower) { return "D" }
+        switch lower {
+        case "pw", "p", "pwedge", "p杆": return "PW"
+        case "gw", "aw", "a", "ap", "gap", "a杆": return "AW"
+        case "sw", "s", "sand", "s杆": return "SW"
+        case "lw", "l", "lob", "l杆": return "LW"
+        case "putter", "putt", "pt", "推杆": return "PT"
+        default: break
+        }
+
+        let number = clubNumber(in: value)
+        if lower.contains("hybrid") || lower.contains("rescue")
+            || lower.hasSuffix("h") || value.contains("小鸡腿") {
+            return number.map { "\($0)H" } ?? "H"
+        }
+        if lower.hasPrefix("wood") || lower.hasSuffix("w") || value.contains("号木") {
+            return number.map { "\($0)W" } ?? compactMapName(value)
+        }
+        if lower.hasPrefix("iron") || lower.hasSuffix("i") || value.contains("号铁") {
+            return number.map { "\($0)i" } ?? compactMapName(value)
+        }
+        return compactMapName(value)
+    }
+
+    private static func clubNumber(in value: String) -> String? {
+        if let digit = value.first(where: \.isNumber) { return String(digit) }
+        let reverse = Dictionary(uniqueKeysWithValues: chineseNumber.map { ($0.value, $0.key) })
+        return value.first(where: { reverse[String($0)] != nil }).flatMap { reverse[String($0)] }
+    }
+
     private static func numbered(_ value: String, suffix: String) -> String? {
         guard let digit = value.first(where: \.isNumber).map(String.init) else { return nil }
         return "\(chineseNumber[digit] ?? digit)\(suffix)"

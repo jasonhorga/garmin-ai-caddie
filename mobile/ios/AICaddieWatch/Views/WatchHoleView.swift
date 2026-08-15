@@ -61,7 +61,13 @@ public struct WatchHoleView: View {
                 WatchCaddieGlanceView(state: state)
                 if !state.caddieOptions.isEmpty {
                     NavigationLink("球童打法") {
-                        ScrollView { WatchCaddieOptionsView(options: state.caddieOptions, recommendedId: state.offlineOptionId).padding(8) }
+                        WatchCaddieOptionsView(
+                            hole: state.hole,
+                            par: state.par,
+                            options: state.caddieOptions,
+                            recommendedId: state.offlineOptionId,
+                            route: state.holeMap?.route ?? []
+                        )
                     }
                 }
                 if !state.hazards.isEmpty {

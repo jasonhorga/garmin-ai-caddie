@@ -224,6 +224,18 @@
             "type": ["number", "null"],
             "minimum": 0
           },
+          "carryP10M": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "carryP90M": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "sampleSize": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
           "plan": {
             "type": ["array", "null"],
             "items": {

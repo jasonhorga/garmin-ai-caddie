@@ -103,6 +103,9 @@ final class WatchEventBridgeTests: XCTestCase {
                     "label": .string("Center green"),
                     "carryM": .number(142),
                     "clubName": .string("8I"),
+                    "p10M": .number(132),
+                    "p90M": .number(153),
+                    "sampleSize": .number(24),
                 ]
             ],
             selected: nil,
@@ -189,6 +192,9 @@ final class WatchEventBridgeTests: XCTestCase {
         let stock = try XCTUnwrap(plans.first { $0.optionId == "stock" })
         XCTAssertEqual(stock.plan?.map(\.clubName), ["1D", "5I", "54"])
         XCTAssertEqual(stock.plan?.map(\.carryM), [245, 168, 94])
+        XCTAssertEqual(stock.carryP10M, 132)
+        XCTAssertEqual(stock.carryP90M, 153)
+        XCTAssertEqual(stock.sampleSize, 24)
     }
 
     func testOfflineEvidenceSummaryRedactsPrivateSourceRefs() throws {

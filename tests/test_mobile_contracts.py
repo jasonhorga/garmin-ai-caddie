@@ -385,7 +385,7 @@ class MobileContractTests(unittest.TestCase):
             },
             "caddieOptions": [
                 {"optionId": "safe", "label": "稳妥", "clubName": "9I", "carryM": 128.0, "plan": [{"clubName": "3W", "carryM": 172.0}, {"clubName": "9I", "carryM": 128.0}], "confidence": "high"},
-                {"optionId": "stock", "label": "标准", "clubName": "8I", "carryM": 142.0, "plan": [{"clubName": "1W", "carryM": 192.0}, {"clubName": "8I", "carryM": 142.0}], "confidence": "high"},
+                {"optionId": "stock", "label": "标准", "clubName": "8I", "carryM": 142.0, "carryP10M": 132.0, "carryP90M": 153.0, "sampleSize": 24, "plan": [{"clubName": "1W", "carryM": 192.0}, {"clubName": "8I", "carryM": 142.0}], "confidence": "high"},
                 {"optionId": "attack", "label": "进攻", "clubName": "7I", "carryM": 156.0, "plan": [{"clubName": "1W", "carryM": 192.0}, {"clubName": "PW", "carryM": 118.0}], "confidence": "medium"},
             ],
             "hazards": [

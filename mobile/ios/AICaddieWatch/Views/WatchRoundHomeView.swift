@@ -1,9 +1,7 @@
 import SwiftUI
 
-/// round-12 P3.3 (Watch standalone): the round overview shown on the watch — the standalone entry that
-/// ties a round together (course, current hole, progress, distance) with the core actions: score this
-/// hole, move between holes, finish. Presentational (driven by the standalone round model); kept as a
-/// VStack (not a List) so it renders in ImageRenderer snapshots for CI visual review.
+/// Honest current-hole fallback when neither a map nor a live green distance is available. It is not a
+/// second dashboard: lifecycle, hole navigation and scoring stay in Golf Menu, just as on S70.
 public struct WatchRoundHomeView: View {
     public let courseName: String
     public let hole: Int
@@ -66,69 +64,68 @@ public struct WatchRoundHomeView: View {
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(courseName)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            HStack {
-                Text("第\(hole)洞 · P\(par)").font(.headline.weight(.bold))
-                Spacer()
-                if let distanceText {
-                    Text(distanceText).font(.headline.monospacedDigit()).foregroundStyle(AICaddieDesignTokens.par)
-                }
-            }
-            HStack(spacing: 6) {
-                Text("已记 \(scoredHoles)/\(holeCount)").font(.caption2).foregroundStyle(.secondary)
-                Text(toParText)
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
-                if pendingUploads > 0 {
+        GeometryReader { proxy in
+            let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
+            VStack(spacing: 5) {
+                HStack(spacing: 5) {
+                    Text("H\(hole) · P\(par)")
+                        .font(.system(size: 13, weight: .bold))
+                        .lineLimit(1)
                     Spacer()
-                    Label("\(pendingUploads)", systemImage: "arrow.up.circle")
-                        .font(.caption2)
-                        .foregroundStyle(AICaddieDesignTokens.offline)
+                    Text(toParText)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+                }
+                Spacer(minLength: 2)
+                Text(distanceText ?? "—")
+                    .font(.system(size: distanceText == nil ? 34 : 30, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .foregroundStyle(distanceText == nil ? Color.secondary : Color.white)
+                Text(distanceText == nil ? "距离不可用" : "到果岭中")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 2)
+                HStack {
+                    compactControl(
+                        systemName: "line.3.horizontal",
+                        label: "球局菜单",
+                        isEnabled: true,
+                        action: onMenu
+                    )
+                    Spacer()
+                    compactControl(
+                        systemName: "plus",
+                        label: "手动记杆",
+                        isEnabled: canRecordShot,
+                        action: onRecordShot
+                    )
                 }
             }
-            if hasHoleMap {
-                Button(action: onHoleMap) {
-                    Label("球道图", systemImage: "map.fill").frame(maxWidth: .infinity)
-                }
-                .tint(AICaddieDesignTokens.par)
-            }
-            HStack(spacing: 6) {
-                Button(action: onRecordShot) {
-                    Text("记一杆")
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(AICaddieDesignTokens.par)
-                .disabled(!canRecordShot)
-                .accessibilityHint(canRecordShot ? "先保存当前位置，再选择实际球杆" : "等待 GPS 定位")
-
-                Button(action: onScoreHole) {
-                    Text("本洞成绩").frame(maxWidth: .infinity)
-                }
-            }
-            HStack(spacing: 10) {
-                Button(action: onPreviousHole) {
-                    Image(systemName: "chevron.left")
-                }
-                Button(action: onNextHole) {
-                    Image(systemName: "chevron.right")
-                }
-                Button(action: onMenu) {
-                    Image(systemName: "list.bullet")
-                }
-                Spacer()
-                Button(role: .destructive, action: onFinish) {
-                    Text("结束").font(.caption2)
-                }
-            }
-            .buttonStyle(.bordered)
+            .frame(width: safeRect.width, height: safeRect.height)
+            .position(x: safeRect.midX, y: safeRect.midY)
         }
-        .padding(8)
+        .background(Color.black)
+        .ignoresSafeArea()
+        .accessibilityIdentifier("watch-score-only-root")
+    }
+
+    private func compactControl(
+        systemName: String,
+        label: String,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .bold))
+                .frame(width: 34, height: 34)
+                .background(Color.white.opacity(0.12), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.45)
+        .accessibilityLabel(label)
     }
 
     private var toParText: String {

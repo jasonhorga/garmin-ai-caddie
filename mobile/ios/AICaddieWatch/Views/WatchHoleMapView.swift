@@ -241,13 +241,13 @@ public struct WatchHoleMapView: View {
     /// Offline Tee plan from the downloaded route/landing facts. Unlike a live decision it has no
     /// dispersion, so it draws only the two grounded route legs and their prepared landing target.
     public let showPreparedPlan: Bool
-    /// Factual obstacles and the route station frame they belong to. The root uses these to annotate
-    /// the nearest upcoming front/back edges directly on the map; the separate hazard browser remains
-    /// available only as progressive disclosure for additional obstacles.
+    /// Factual obstacles and their route frame. Geometry remains visible in the topo itself; textual
+    /// front/back distance callouts belong to the focused Hazard screen, not Hole Root.
     public let hazards: [WatchHazard]
     public let hazardRoute: [[Double]]
     public let ringPips: [WatchRingPip]
     public let showTextOverlay: Bool
+    public let showHoleIdentity: Bool
     /// Distance block toggle: false = raw yardage; true = 实打 (slope-adjusted) with a ↑/↓ arrow.
     public let showPlaysLike: Bool
     /// Zoomed full-map state (tap the map): hides the data column, map fills the width + zooms in.
@@ -285,6 +285,7 @@ public struct WatchHoleMapView: View {
         hazardRoute: [[Double]] = [],
         ringPips: [WatchRingPip] = WatchHoleMapView.sampleRing,
         showTextOverlay: Bool = true,
+        showHoleIdentity: Bool = true,
         showPlaysLike: Bool = false,
         fullMap: Bool = false,
         mapScale: CGFloat = 0.32,
@@ -309,6 +310,7 @@ public struct WatchHoleMapView: View {
         self.hazardRoute = hazardRoute
         self.ringPips = ringPips
         self.showTextOverlay = showTextOverlay
+        self.showHoleIdentity = showHoleIdentity
         self.showPlaysLike = showPlaysLike
         self.fullMap = fullMap
         self.mapScale = mapScale
@@ -414,7 +416,6 @@ public struct WatchHoleMapView: View {
             .simultaneousGesture(SpatialTapGesture().onEnded { handleTap($0.location, size: geo.size) })
         }
         .background(Color.black)
-        .persistentSystemOverlays(.hidden)
         .ignoresSafeArea()
     }
 
@@ -445,7 +446,7 @@ public struct WatchHoleMapView: View {
             if fullMap {
                 if showTextOverlay {
                     fullMapControls(size)
-                } else {
+                } else if showHoleIdentity {
                     holeIdentity
                         .padding(.leading, size.width * 0.07)
                         .padding(.top, size.height * 0.09)
@@ -462,16 +463,16 @@ public struct WatchHoleMapView: View {
                             // Current-shot recommendation only; the map itself never draws a whole-hole route.
                             Button(action: onOpenCaddie) {
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(WatchClubDisplay.compactMapName(caddieClub))
+                                    Text(WatchClubDisplay.shortCode(caddieClub))
                                         .font(.system(size: 16, weight: .bold))
                                         .foregroundStyle(.white)
                                         .lineLimit(1)
-                                        .minimumScaleFactor(0.68)
+                                        .minimumScaleFactor(0.85)
                                     Text(caddieNote)
                                         .font(.system(size: 9.5, weight: .medium))
                                         .foregroundStyle(caddieGreen)
                                         .lineLimit(1)
-                                        .minimumScaleFactor(0.62)
+                                        .minimumScaleFactor(0.85)
                                 }
                                 .padding(.horizontal, 8).padding(.vertical, 5)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -485,13 +486,13 @@ public struct WatchHoleMapView: View {
                         }
 
                         // Distance block — TOGGLE. 中 = to the (draggable) pin. 实打 flips values + shows ↑/↓.
-                        Text(pl ? "实打 \(arrow)\(abs(playsLikeDelta))" : "到果岭")
+                        Text(pl ? "\(arrow)\(abs(playsLikeDelta)) 码" : "到果岭")
                             .font(.system(size: 9.5, weight: pl ? .semibold : .regular))
                             .foregroundStyle(pl ? golfYellow : Color.secondary)
                         if let backGreen {
                             distLine("后", backGreen + d, backGrey, big: false)
                         }
-                        distLine("中", centerGreen + d, pl ? golfYellow : .white, big: true)
+                        distLine("中", centerGreen + d, golfYellow, big: true)
                         if let frontGreen {
                             distLine("前", frontGreen + d, frontBlue, big: false)
                         }
@@ -520,9 +521,11 @@ public struct WatchHoleMapView: View {
     }
 
     private var holeIdentity: some View {
-        Text("第\(holeNumber)洞 · P\(par)")
+        Text("H\(holeNumber) · P\(par)")
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.white)
+            .lineLimit(1)
+            .accessibilityLabel("第 \(holeNumber) 洞，标准杆 \(par)")
     }
 
     // Zoomed full-map state: keep the map full-bleed, but leave the top-right lane to watchOS.
@@ -644,13 +647,6 @@ public struct WatchHoleMapView: View {
             drawPreparedPlan(&context, transform: a.t)
         case .none:
             break
-        }
-
-        // The nearest upcoming obstacle is a map fact, not a menu/list fact. Keep it visible on the
-        // glanceable root, but yield during tap-to-measure and pin-drag interactions to avoid two
-        // competing sets of distance callouts on the small face.
-        if measuredPx == nil, pinDrag == .zero {
-            drawNearestHazard(&context, size: size, transform: a.t)
         }
 
         // Pin + flag.

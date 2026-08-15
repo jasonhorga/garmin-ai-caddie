@@ -188,7 +188,18 @@ jobs:
             local screenshot="$2"
             xcrun simctl launch "$COMPACT_DEVICE" "$BID" -uitest-screen "$mode" \
               | tee "watch-runtime-artifacts/launch-$mode-41mm.txt"
-            sleep 3
+            if [[ "$mode" == "standalone-course-seed" ]]; then
+              local app_container=""
+              for _ in $(seq 1 30); do
+                app_container=$(xcrun simctl get_app_container "$COMPACT_DEVICE" "$BID" data 2>/dev/null || true)
+                test -s "$app_container/Documents/watch-round/round.json" && break
+                sleep 1
+              done
+              test -s "$app_container/Documents/watch-round/round.json"
+              sleep 1
+            else
+              sleep 3
+            fi
             xcrun simctl io "$COMPACT_DEVICE" screenshot \
               "watch-runtime-artifacts/$screenshot"
             test "$(sips -g pixelWidth "watch-runtime-artifacts/$screenshot" \
@@ -200,6 +211,10 @@ jobs:
           }
 
           capture_compact compact-holemap-long-copy compact-41mm-holemap-long-copy.png
+          capture_compact standalone-course-seed compact-41mm-hole-root.png
+          capture_compact standalone-course-caddie compact-41mm-caddie.png
+          capture_compact standalone-course-hazards compact-41mm-hazard.png
+          capture_compact menu compact-41mm-menu.png
           capture_compact compact-score-fairway compact-41mm-score-fairway.png
           capture_compact compact-club-prompt compact-41mm-club-prompt.png
           capture_compact compact-finish compact-41mm-finish.png
@@ -244,7 +259,18 @@ jobs:
             local screenshot="$2"
             xcrun simctl launch "$ULTRA_DEVICE" "$BID" -uitest-screen "$mode" \
               | tee "watch-runtime-artifacts/launch-$mode-ultra-49mm.txt"
-            sleep 3
+            if [[ "$mode" == "standalone-course-seed" ]]; then
+              local app_container=""
+              for _ in $(seq 1 30); do
+                app_container=$(xcrun simctl get_app_container "$ULTRA_DEVICE" "$BID" data 2>/dev/null || true)
+                test -s "$app_container/Documents/watch-round/round.json" && break
+                sleep 1
+              done
+              test -s "$app_container/Documents/watch-round/round.json"
+              sleep 1
+            else
+              sleep 3
+            fi
             xcrun simctl io "$ULTRA_DEVICE" screenshot \
               "watch-runtime-artifacts/$screenshot"
             test "$(sips -g pixelWidth "watch-runtime-artifacts/$screenshot" \
@@ -258,6 +284,10 @@ jobs:
           capture_ultra score-penalty ultra-49mm-score-penalty.png
           capture_ultra gps-acquiring ultra-49mm-gps-acquiring.png
           capture_ultra compact-holemap-long-copy ultra-49mm-holemap.png
+          capture_ultra standalone-course-seed ultra-49mm-hole-root.png
+          capture_ultra standalone-course-caddie ultra-49mm-caddie.png
+          capture_ultra standalone-course-hazards ultra-49mm-hazard.png
+          capture_ultra menu ultra-49mm-menu.png
           capture_ultra finish-actions ultra-49mm-finish-actions.png
           capture_ultra finish-confirmation ultra-49mm-finish-confirmation.png
           capture_ultra resume-round ultra-49mm-resume-round.png
