@@ -154,7 +154,7 @@ public struct WatchFlagDirectionView: View {
             GeometryReader { proxy in
                 let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
                 WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
-                    .position(x: safeRect.minX + 22, y: safeRect.minY + 22)
+                    .position(x: safeRect.minX + 22, y: safeRect.maxY - 22)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

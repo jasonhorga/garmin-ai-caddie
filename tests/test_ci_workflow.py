@@ -600,6 +600,8 @@ class CIWorkflowTests(unittest.TestCase):
         script = steps["Seed and restore a real Watch round"]["run"]
 
         for mode in [
+            "standalone-course-touch-target",
+            "standalone-course-view-green",
             "real-course-map-measured",
             "real-course-view-green",
             "caddie-options",

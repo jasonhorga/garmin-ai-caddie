@@ -36,6 +36,7 @@ public struct WatchUITestRoot: View {
             milestoneRound
         case "standalone-course-seed", "standalone-course-restore",
              "standalone-course-map-zoom",
+             "standalone-course-touch-target", "standalone-course-view-green",
              "standalone-course-caddie", "standalone-course-hazards",
              "standalone-course-last-shot", "standalone-course-caddie-last-shot",
              "standalone-course-live-home":
@@ -308,6 +309,9 @@ public struct WatchUITestRoot: View {
                         : WatchHoleMapView.restingCrownScale,
                     initialSelectedHazardID: screen == "standalone-course-hazards"
                         ? model.activeHoleState?.hazards.first?.id
+                        : nil,
+                    measuredPxOverride: screen == "standalone-course-touch-target"
+                        ? CGPoint(x: 500, y: 470)
                         : nil
                 )
             } else {
@@ -324,6 +328,10 @@ public struct WatchUITestRoot: View {
                 // same real "上一杆" fact instead of proving zoom with an artificially empty round.
                 ensureStandaloneLastShot()
                 model.openHoleMap()
+            } else if screen == "standalone-course-touch-target" {
+                model.openHoleMap()
+            } else if screen == "standalone-course-view-green" {
+                model.openViewGreen()
             } else if screen == "standalone-course-caddie" {
                 model.openCaddie()
             } else if screen == "standalone-course-hazards" {
@@ -1527,6 +1535,7 @@ public struct WatchUITestRoot: View {
         suggestedClub: "3号木",
         selectedClub: nil,
         availableClubs: [
+            WatchClubOption(clubName: "一号木", medianM: 220, source: "course-prep"),
             WatchClubOption(clubName: "3号木", medianM: 205, source: "course-prep"),
             WatchClubOption(clubName: "5号铁", medianM: 170, source: "course-prep"),
         ],
@@ -1546,6 +1555,14 @@ public struct WatchUITestRoot: View {
                 [504, 702, 0],
                 [506, 403, 210],
                 [435, 279, 400],
+            ],
+            greenOutline: [
+                [410, 257],
+                [452, 252],
+                [470, 281],
+                [447, 306],
+                [408, 296],
+                [397, 274],
             ]
         ),
         playsLikeDistanceM: 525.8,

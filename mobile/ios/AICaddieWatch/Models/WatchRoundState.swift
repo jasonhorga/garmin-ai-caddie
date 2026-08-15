@@ -139,9 +139,9 @@ public struct WatchHoleImageProjection: Codable, Equatable {
 
 // watch P1b: the five overlay anchor points (in /topo.png IMAGE-pixel space, w×h) the phone pre-computes
 // from the hole's centreline route so the watch renders the hole map WITHOUT any projection math — just
-// draws the cached image + these anchors. `you` = tee (pre-GPS start), `pin` = green centre, `layup` =
-// recommended lay-up, `apex`/`greenCtrl` = the you→lay-up / lay-up→green curve controls (on the route,
-// so the play line bends with the dogleg). Each point is `[px, py]`.
+// draws the cached image + these anchors. `you` = tee (pre-GPS start), `pin` = green centre. `layup`
+// may be a historical compatibility anchor; visible advice must rebuild it from an explicit option
+// carry. `apex`/`greenCtrl` are curve-layout controls on the route. Each point is `[px, py]`.
 public struct WatchHoleMap: Codable, Equatable {
     public let w: Int
     public let h: Int

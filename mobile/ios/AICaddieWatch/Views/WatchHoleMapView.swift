@@ -870,7 +870,7 @@ public struct WatchHoleMapView: View {
                 pill(
                     &context,
                     at: green,
-                    text: "余 \(remaining)",
+                    text: "到旗 \(remaining)",
                     tint: touchTargetCyan,
                     viewportSize: size,
                     preferredOffset: 22
