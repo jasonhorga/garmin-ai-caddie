@@ -195,7 +195,7 @@ final class WatchHoleMapViewportTests: XCTestCase {
             route: route,
             playerImagePoint: CGPoint(x: 0, y: 150)
         )
-        XCTAssertEqual(late.map(\.remainingYards), [100])
+        XCTAssertEqual(late.map(\.remainingYards), [100, 150])
     }
 
     func testDriverArcRequiresARealInBoundsBagDistance() throws {

@@ -3,7 +3,7 @@ import SwiftUI
 enum WatchCurrentHoleShotsLayout {
     /// This scroll surface cannot hide watchOS's clock. Start its own header below that lane rather
     /// than placing “H7 · P4” beside a seemingly unrelated system time.
-    static let systemTimeTopClearance: CGFloat = 18
+    static let systemTimeTopClearance: CGFloat = 30
 }
 
 /// The shallow current-hole correction surface locked by D10/L11. It shows only facts already recorded
