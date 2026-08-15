@@ -1281,8 +1281,9 @@ final class WatchRoundModelTests: XCTestCase {
         )))
 
         let partial = state.applyingCourseMapUpgrade(WatchRoundState(
-            roundId: "r1", hole: 1, par: 4, distanceM: nil, selectedClub: nil,
+            roundId: "r1", hole: 1, par: 4, distanceM: nil,
             teeLatitude: 40.0455, teeLongitude: 116.5462,
+            selectedClub: nil,
             geometryCoverage: "partial",
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
         ))
