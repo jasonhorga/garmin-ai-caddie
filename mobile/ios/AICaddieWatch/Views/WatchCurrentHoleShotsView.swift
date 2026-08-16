@@ -3,7 +3,7 @@ import SwiftUI
 enum WatchCurrentHoleShotsLayout {
     /// This scroll surface cannot hide watchOS's clock. Start its own header below that lane rather
     /// than placing “H7 · P4” beside a seemingly unrelated system time.
-    static let systemTimeTopClearance: CGFloat = 30
+    static let systemTimeTopClearance: CGFloat = 28
 }
 
 /// The shallow current-hole correction surface locked by D10/L11. It shows only facts already recorded
@@ -66,7 +66,7 @@ public struct WatchCurrentHoleShotsView: View {
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                     }
-                    .padding(.vertical, 5)
+                    .padding(.vertical, 3)
                     .overlay(alignment: .bottom) { Divider() }
                 }
             }
@@ -75,13 +75,13 @@ public struct WatchCurrentHoleShotsView: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 2)
 
             Button(action: onAddShot) {
                 Text(canAddShot ? "+ 补记一杆" : "等待 GPS 后补杆")
                     .font(.system(size: 11, weight: .bold))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 5)
                     .foregroundStyle(canAddShot ? Color.white : Color.secondary)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
@@ -95,7 +95,7 @@ public struct WatchCurrentHoleShotsView: View {
         .frame(minHeight: 180, alignment: .top)
         .padding(.horizontal, 8)
         .padding(.top, WatchCurrentHoleShotsLayout.systemTimeTopClearance)
-        .padding(.bottom, 8)
+        .padding(.bottom, 4)
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
                 .onEnded { value in
