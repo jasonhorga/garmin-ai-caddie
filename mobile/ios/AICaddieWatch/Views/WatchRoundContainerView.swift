@@ -209,7 +209,7 @@ public struct WatchRoundContainerView: View {
             if let state = model.activeHoleState, let geometry = holeGeometry {
                 WatchGreenPreviewView(
                     geometry: geometry,
-                    centerGreenYards: centerYd(state),
+                    centerGreenYards: watchGreenYards?.center ?? centerYd(state),
                     onBack: { model.backToMenu() }
                 )
             } else {
@@ -238,7 +238,7 @@ public struct WatchRoundContainerView: View {
                         geometry: geometry,
                         route: route,
                         hazards: state.hazards,
-                        centerGreenYards: centerYd(state),
+                        centerGreenYards: watchGreenYards?.center ?? centerYd(state),
                         initialHazardID: initialHazardID,
                         onBack: { model.backToMenu() }
                     )
@@ -715,12 +715,12 @@ public struct WatchRoundContainerView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
+                .frame(width: 26, height: 26)
                 .background(Color.black.opacity(0.72), in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.34), lineWidth: 1))
-                .frame(width: 44, height: 44)
+                .overlay(Circle().stroke(.white.opacity(0.24), lineWidth: 0.8))
+                .frame(width: 40, height: 40)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -22,7 +22,8 @@ struct WatchGreenViewport: Equatable {
 enum WatchGreenPreviewLayout {
     static func viewport(
         geometry: WatchHoleMapGeometry,
-        size: CGSize
+        size: CGSize,
+        zoom: CGFloat = 1
     ) -> WatchGreenViewport {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         let contentRect = CGRect(
@@ -35,10 +36,11 @@ enum WatchGreenPreviewLayout {
         let longestSide = max(focus.width, focus.height, 1)
         let padding = max(5, longestSide * 0.16)
         let padded = focus.insetBy(dx: -padding, dy: -padding)
-        let scale = max(
+        let fittedScale = max(
             0.01,
             min(contentRect.width / max(padded.width, 1), contentRect.height / max(padded.height, 1))
         )
+        let scale = fittedScale * min(max(zoom, 1), 2)
         let origin = CGPoint(
             x: contentRect.midX - padded.midX * scale,
             y: contentRect.midY - padded.midY * scale
@@ -64,6 +66,33 @@ enum WatchGreenPreviewLayout {
             previous = current
         }
         return inside
+    }
+
+    /// The downloaded green boundary is intentionally lightweight and commonly contains only six to
+    /// ten points. A midpoint-quadratic path preserves those measured points while removing the
+    /// angular "hexagon" appearance that the raw line segments produced.
+    static func smoothPath(
+        polygon: [CGPoint],
+        transform: (CGPoint) -> CGPoint = { $0 }
+    ) -> Path {
+        let points = polygon
+            .filter { $0.x.isFinite && $0.y.isFinite }
+            .map(transform)
+        guard points.count >= 3 else { return Path() }
+
+        func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
+            CGPoint(x: (lhs.x + rhs.x) * 0.5, y: (lhs.y + rhs.y) * 0.5)
+        }
+
+        var path = Path()
+        path.move(to: midpoint(points[points.count - 1], points[0]))
+        for index in points.indices {
+            let current = points[index]
+            let next = points[(index + 1) % points.count]
+            path.addQuadCurve(to: midpoint(current, next), control: current)
+        }
+        path.closeSubpath()
+        return path
     }
 
     private static func focusBounds(geometry: WatchHoleMapGeometry) -> CGRect {
@@ -106,6 +135,7 @@ public struct WatchGreenPreviewView: View {
     public let onBack: () -> Void
 
     @State private var temporaryPin: CGPoint?
+    @State private var zoomScale = 1.0
 
     public init(
         geometry: WatchHoleMapGeometry,
@@ -119,7 +149,11 @@ public struct WatchGreenPreviewView: View {
 
     public var body: some View {
         GeometryReader { proxy in
-            let viewport = WatchGreenPreviewLayout.viewport(geometry: geometry, size: proxy.size)
+            let viewport = WatchGreenPreviewLayout.viewport(
+                geometry: geometry,
+                size: proxy.size,
+                zoom: CGFloat(zoomScale)
+            )
             let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
             ZStack {
                 Canvas { context, size in
@@ -138,6 +172,19 @@ public struct WatchGreenPreviewView: View {
                 WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
                     .position(x: safeRect.minX + 22, y: safeRect.maxY - 22)
 
+                if zoomScale > 1.02 {
+                    ZStack(alignment: .bottom) {
+                        Capsule()
+                            .fill(.white.opacity(0.22))
+                            .frame(width: 3, height: min(86, safeRect.height * 0.42))
+                        Capsule()
+                            .fill(.white.opacity(0.9))
+                            .frame(width: 3, height: 24)
+                            .offset(y: -CGFloat((zoomScale - 1) * 36))
+                    }
+                    .position(x: safeRect.maxX - 4, y: safeRect.midY)
+                }
+
                 if !canMoveFlag {
                     Text("无果岭轮廓")
                         .font(.system(size: 9, weight: .medium))
@@ -147,8 +194,23 @@ public struct WatchGreenPreviewView: View {
             }
             .contentShape(Rectangle())
             .gesture(flagGesture(viewport: viewport))
+            .simultaneousGesture(
+                SpatialTapGesture().onEnded { value in
+                    moveFlag(to: value.location, viewport: viewport)
+                }
+            )
         }
         .background(Color.black)
+        .focusable(true)
+        .digitalCrownRotation(
+            $zoomScale,
+            from: 1,
+            through: 2,
+            by: 0.1,
+            sensitivity: .medium,
+            isContinuous: false,
+            isHapticFeedbackEnabled: true
+        )
         .ignoresSafeArea()
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
@@ -198,6 +260,16 @@ public struct WatchGreenPreviewView: View {
             }
     }
 
+    private func moveFlag(to canvasPoint: CGPoint, viewport: WatchGreenViewport) {
+        guard canMoveFlag else { return }
+        let candidate = viewport.imagePoint(canvasPoint)
+        guard WatchGreenPreviewLayout.contains(
+            candidate,
+            polygon: geometry.greenOutlinePx
+        ) else { return }
+        temporaryPin = candidate
+    }
+
     private func drawGreen(
         _ context: inout GraphicsContext,
         size: CGSize,
@@ -206,20 +278,42 @@ public struct WatchGreenPreviewView: View {
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
 
         if geometry.greenOutlinePx.count >= 3 {
-            var outline = Path()
-            outline.move(to: viewport.canvasPoint(geometry.greenOutlinePx[0]))
-            for point in geometry.greenOutlinePx.dropFirst() {
-                outline.addLine(to: viewport.canvasPoint(point))
-            }
-            outline.closeSubpath()
+            let outline = WatchGreenPreviewLayout.smoothPath(
+                polygon: geometry.greenOutlinePx,
+                transform: viewport.canvasPoint
+            )
+            let bounds = outline.boundingRect
             context.fill(
                 outline,
-                with: .color(Color(red: 0.35, green: 0.82, blue: 0.29).opacity(0.98))
+                with: .linearGradient(
+                    Gradient(colors: [
+                        Color(red: 0.43, green: 0.93, blue: 0.22),
+                        Color(red: 0.24, green: 0.78, blue: 0.18),
+                    ]),
+                    startPoint: CGPoint(x: bounds.midX, y: bounds.minY),
+                    endPoint: CGPoint(x: bounds.midX, y: bounds.maxY)
+                )
             )
+            // This is a neutral instrument grid, not invented slope/contour data. It provides the
+            // same move-the-pin spatial cue as S70 while the actual measured outline remains the
+            // only course geometry shown.
+            context.drawLayer { layer in
+                layer.clip(to: outline)
+                var grid = Path()
+                grid.move(to: CGPoint(x: bounds.midX, y: bounds.minY))
+                grid.addLine(to: CGPoint(x: bounds.midX, y: bounds.maxY))
+                grid.move(to: CGPoint(x: bounds.minX, y: bounds.midY))
+                grid.addLine(to: CGPoint(x: bounds.maxX, y: bounds.midY))
+                layer.stroke(
+                    grid,
+                    with: .color(.white.opacity(0.18)),
+                    style: StrokeStyle(lineWidth: 0.8)
+                )
+            }
             context.stroke(
                 outline,
-                with: .color(Color(red: 0.16, green: 0.49, blue: 0.18)),
-                style: StrokeStyle(lineWidth: 1.1, lineJoin: .round)
+                with: .color(.white.opacity(0.28)),
+                style: StrokeStyle(lineWidth: 1.0, lineJoin: .round)
             )
         }
 

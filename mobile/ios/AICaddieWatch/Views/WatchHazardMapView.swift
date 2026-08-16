@@ -1,10 +1,35 @@
 import SwiftUI
 
 enum WatchHazardMapLayout {
-    static let topBoundaryClearance: CGFloat = 42
     /// The real watchOS runtime keeps drawing its clock even when this full-screen map requests
     /// hidden overlays. Reserve that top-right lane instead of centering map copy underneath it.
     static let systemTimeTrailingClearance: CGFloat = 56
+    /// S70's Hazard instrument centres one obstacle rather than shrinking the whole hole until both
+    /// the player and obstacle fit. Target roughly a 38-point measured front/back span, while keeping
+    /// enough surrounding fairway to make the obstacle's location obvious.
+    static let minimumFocusedScale: CGFloat = 0.82
+    static let maximumFocusedScale: CGFloat = 1.80
+    static let targetBoundarySpan: CGFloat = 38
+
+    static func focusPoint(front: CGPoint?, back: CGPoint?, fallback: CGPoint) -> CGPoint {
+        switch (front, back) {
+        case let (.some(front), .some(back)):
+            return CGPoint(x: (front.x + back.x) * 0.5, y: (front.y + back.y) * 0.5)
+        case let (.some(front), .none):
+            return front
+        case let (.none, .some(back)):
+            return back
+        case (.none, .none):
+            return fallback
+        }
+    }
+
+    static func focusedScale(front: CGPoint?, back: CGPoint?) -> CGFloat {
+        guard let front, let back else { return 1.15 }
+        let span = hypot(back.x - front.x, back.y - front.y)
+        guard span.isFinite, span > 1 else { return 1.15 }
+        return min(max(targetBoundarySpan / span, minimumFocusedScale), maximumFocusedScale)
+    }
 
     static func imagePoint(on route: [[Double]], atMetres metres: Double) -> CGPoint? {
         guard metres.isFinite,
@@ -218,17 +243,12 @@ public struct WatchHazardMapView: View {
         let endMetres = WatchHazardMapLayout.alongRouteEndMetres(for: hazard) ?? startMetres
         let startPoint = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
         let endPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
-        let topImageY = [startPoint?.y, endPoint?.y].compactMap { $0 }.min() ?? geometry.pinPx.y
-        let scale = CGFloat(WatchHoleMapViewport.effectiveRestingScale(
-            requestedScale: WatchHoleMapView.maximumCrownScale,
-            viewportHeight: Double(size.height),
-            playerAnchorFraction: 0.80,
-            playerImageY: Double(geometry.youPx.y),
-            pinImageY: Double(topImageY),
-            topClearance: (centerGreenYards ?? 0) > 0
-                ? Double(WatchHazardMapLayout.topBoundaryClearance)
-                : WatchHoleMapViewport.flagTopClearance
-        ))
+        let focusPoint = WatchHazardMapLayout.focusPoint(
+            front: startPoint,
+            back: endPoint,
+            fallback: geometry.pinPx
+        )
+        let scale = WatchHazardMapLayout.focusedScale(front: startPoint, back: endPoint)
 
         return ZStack {
             WatchHoleMapView(
@@ -241,7 +261,8 @@ public struct WatchHazardMapView: View {
                 showHoleIdentity: false,
                 fullMap: true,
                 mapScale: scale,
-                fullMapPlayerAnchorFraction: 0.80,
+                fullMapFocusImagePx: focusPoint,
+                fullMapFocusCanvasFraction: CGPoint(x: 0.52, y: 0.52),
                 geometry: geometry
             )
             .allowsHitTesting(false)
@@ -253,7 +274,8 @@ public struct WatchHazardMapView: View {
                     hazard: hazard,
                     startMetres: startMetres,
                     endMetres: endMetres,
-                    scale: scale
+                    scale: scale,
+                    focusPoint: focusPoint
                 )
             }
 
@@ -267,19 +289,20 @@ public struct WatchHazardMapView: View {
         hazard: WatchHazard,
         startMetres: Double,
         endMetres: Double,
-        scale: CGFloat
+        scale: CGFloat,
+        focusPoint: CGPoint
     ) {
-        let playerCanvas = CGPoint(x: size.width * 0.5, y: size.height * 0.80)
+        let focusCanvas = CGPoint(x: size.width * 0.52, y: size.height * 0.52)
         func canvas(_ point: CGPoint) -> CGPoint {
             CGPoint(
-                x: (point.x - geometry.youPx.x) * scale + playerCanvas.x,
-                y: (point.y - geometry.youPx.y) * scale + playerCanvas.y
+                x: (point.x - focusPoint.x) * scale + focusCanvas.x,
+                y: (point.y - focusPoint.y) * scale + focusCanvas.y
             )
         }
 
         let tint = hazard.kind == "water"
             ? Color(red: 0.20, green: 0.68, blue: 1.0)
-            : Color(red: 1.0, green: 0.76, blue: 0.18)
+            : Color(red: 1.0, green: 0.31, blue: 0.24)
         let hasFrontBack = hazard.kind == "water" || WatchHazardMapLayout.hasMeasuredFrontBack(hazard)
         let frontPoint = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
         let backPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
@@ -296,9 +319,9 @@ public struct WatchHazardMapView: View {
             boundary.addLine(to: canvas(backPoint))
             context.stroke(
                 boundary,
-                with: .color(tint.opacity(0.62)),
+                with: .color(tint.opacity(0.92)),
                 style: StrokeStyle(
-                    lineWidth: hazard.kind == "water" ? 5 : 4,
+                    lineWidth: hazard.kind == "water" ? 4 : 3,
                     lineCap: .round
                 )
             )
@@ -323,7 +346,7 @@ public struct WatchHazardMapView: View {
             context.draw(
                 context.resolve(
                     Text("\(yards)")
-                        .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
                 ),
                 at: labelPoint

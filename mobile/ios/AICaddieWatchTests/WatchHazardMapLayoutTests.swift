@@ -62,8 +62,19 @@ final class WatchHazardMapLayoutTests: XCTestCase {
         XCTAssertEqual(yards, 101) // sqrt(20² + 90²) metres, then metres → yards
     }
 
-    func testFocusedHazardMapReservesACompactHeaderLane() {
-        XCTAssertEqual(WatchHazardMapLayout.topBoundaryClearance, 42, accuracy: 0.0001)
+    func testFocusedHazardMapCentersAndEnlargesTheMeasuredObstacle() {
+        let front = CGPoint(x: 498, y: 317)
+        let back = CGPoint(x: 493, y: 296)
+        let focus = WatchHazardMapLayout.focusPoint(
+            front: front,
+            back: back,
+            fallback: .zero
+        )
+        let scale = WatchHazardMapLayout.focusedScale(front: front, back: back)
+
+        XCTAssertEqual(focus.x, 495.5, accuracy: 0.0001)
+        XCTAssertEqual(focus.y, 306.5, accuracy: 0.0001)
+        XCTAssertEqual(hypot(back.x - front.x, back.y - front.y) * scale, 38, accuracy: 0.0001)
         XCTAssertGreaterThanOrEqual(WatchHazardMapLayout.systemTimeTrailingClearance, 52)
     }
 }

@@ -156,7 +156,10 @@ public struct WatchMenuView: View {
         if hasCaddie { items.append(.caddie) }
         items += [.holeSelect, .scorecard]
         if hasHazards { items.append(.hazards) }
-        items += [.scoreHole, .moreTools, .finish]
+        // S70 edits a hole through Scorecard; a second first-level "本洞成绩" row duplicated that
+        // route and made the Garmin-ordered menu feel like an internal feature inventory. The
+        // automatic hole-end recommendation still opens scoring directly when it is actually due.
+        items += [.moreTools, .finish]
         return items
     }
 

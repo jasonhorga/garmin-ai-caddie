@@ -233,6 +233,11 @@ public struct WatchHoleMapView: View {
     public let fullMap: Bool
     public let mapScale: CGFloat
     public let fullMapPlayerAnchorFraction: CGFloat
+    /// A focused instrument (for example Hazard) can centre a measured image-space object instead
+    /// of keeping the player visible. Hole Root and Touch Target leave this nil and retain the
+    /// ordinary player-anchored viewport.
+    public let fullMapFocusImagePx: CGPoint?
+    public let fullMapFocusCanvasFraction: CGPoint
     // watch P1: the topo image + overlay anchors (image-px). Defaults to the baked sample (snapshots);
     // the real playing view builds it from the fetched /topo.png + holeImageProjection.
     public let geometry: WatchHoleMapGeometry
@@ -265,6 +270,8 @@ public struct WatchHoleMapView: View {
         fullMap: Bool = false,
         mapScale: CGFloat = 0.32,
         fullMapPlayerAnchorFraction: CGFloat = 0.66,
+        fullMapFocusImagePx: CGPoint? = nil,
+        fullMapFocusCanvasFraction: CGPoint = CGPoint(x: 0.5, y: 0.52),
         geometry: WatchHoleMapGeometry = WatchHoleMapSample.geometry,
         measuredPxOverride: CGPoint? = nil,
         interactionMode: WatchHoleMapInteractionMode = .passive,
@@ -294,6 +301,8 @@ public struct WatchHoleMapView: View {
         self.fullMap = fullMap
         self.mapScale = mapScale
         self.fullMapPlayerAnchorFraction = fullMapPlayerAnchorFraction
+        self.fullMapFocusImagePx = fullMapFocusImagePx
+        self.fullMapFocusCanvasFraction = fullMapFocusCanvasFraction
         self.geometry = geometry
         _liveMeasuredPx = State(initialValue: measuredPxOverride)
         self.interactionMode = interactionMode
@@ -446,20 +455,25 @@ public struct WatchHoleMapView: View {
     }
 
     /// Shared transform so the Canvas vectors and the Text overlay agree on where map points land.
-    private func anchors(_ size: CGSize) -> (t: (CGPoint) -> CGPoint, you: CGPoint) {
+    private func anchors(_ size: CGSize) -> (t: (CGPoint) -> CGPoint, you: CGPoint, focus: CGPoint) {
         let mapLeft = fullMap ? 0 : size.width * columnFrac
         let scale = currentScale(size)
-        let youImg = geometry.youPx
-        let horizontalAnchor = fullMap ? 0.5 : mapPanelAnchorFraction
-        let youCanvas = CGPoint(
-            x: mapLeft + (size.width - mapLeft) * horizontalAnchor,
-            y: size.height * (fullMap ? fullMapPlayerAnchorFraction : 0.72)
+        let focusImage = fullMap ? (fullMapFocusImagePx ?? geometry.youPx) : geometry.youPx
+        let focusFraction = fullMap && fullMapFocusImagePx != nil
+            ? fullMapFocusCanvasFraction
+            : CGPoint(
+                x: fullMap ? 0.5 : mapPanelAnchorFraction,
+                y: fullMap ? fullMapPlayerAnchorFraction : 0.72
+            )
+        let focusCanvas = CGPoint(
+            x: mapLeft + (size.width - mapLeft) * focusFraction.x,
+            y: size.height * focusFraction.y
         )
         let t: (CGPoint) -> CGPoint = { p in
-            Self.safe(CGPoint(x: (p.x - youImg.x) * scale + youCanvas.x,
-                              y: (p.y - youImg.y) * scale + youCanvas.y))
+            Self.safe(CGPoint(x: (p.x - focusImage.x) * scale + focusCanvas.x,
+                              y: (p.y - focusImage.y) * scale + focusCanvas.y))
         }
-        return (t, youCanvas)
+        return (t, t(geometry.youPx), focusCanvas)
     }
 
     // MARK: - Text overlay
@@ -656,7 +670,7 @@ public struct WatchHoleMapView: View {
         context.fill(Path(CGRect(origin: .zero, size: size)),
                      with: .radialGradient(
                         Gradient(colors: [.black.opacity(0), .black.opacity(0.05), .black.opacity(0.82)]),
-                        center: player, startRadius: size.height * 0.12, endRadius: size.height * 0.62))
+                        center: a.focus, startRadius: size.height * 0.12, endRadius: size.height * 0.62))
 
         if showReferenceMarkers {
             drawReferenceFacts(&context, size: size, transform: a.t)
@@ -1066,7 +1080,7 @@ public struct WatchHoleMapView: View {
         // open for the persistent system clock. The left data column keeps its HIG margin from the ring.
         for (index, pip) in ringPips.enumerated() {
             let s = perim * Self.scoringRingCenterFraction(index: index, count: count)
-            let segHalf: CGFloat = pip.isCurrent ? 11 : 9.5
+            let segHalf: CGFloat = pip.isCurrent ? 7.5 : 6
             var bar = Path()
             let n = 6
             for k in 0...n {
@@ -1075,13 +1089,13 @@ public struct WatchHoleMapView: View {
                 if k == 0 { bar.move(to: pp) } else { bar.addLine(to: pp) }
             }
             if pip.isCurrent {
-                context.stroke(bar, with: .color(.white), style: StrokeStyle(lineWidth: 5.5, lineCap: .round))
-                context.stroke(bar, with: .color(.black), style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
+                context.stroke(bar, with: .color(.white.opacity(0.92)), style: StrokeStyle(lineWidth: 3.8, lineCap: .round))
+                context.stroke(bar, with: .color(.black), style: StrokeStyle(lineWidth: 1.7, lineCap: .round))
             } else if pip.toPar == nil {
-                context.stroke(bar, with: .color(.white.opacity(0.5)), style: StrokeStyle(lineWidth: 3.4, lineCap: .round))
+                context.stroke(bar, with: .color(.white.opacity(0.28)), style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
             } else {
                 context.stroke(bar, with: .color(AICaddieDesignTokens.scoreColor(toPar: pip.toPar)),
-                               style: StrokeStyle(lineWidth: 4.2, lineCap: .round))
+                               style: StrokeStyle(lineWidth: 3.2, lineCap: .round))
             }
         }
     }
