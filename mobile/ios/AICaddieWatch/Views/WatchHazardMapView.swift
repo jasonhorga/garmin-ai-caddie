@@ -5,11 +5,12 @@ enum WatchHazardMapLayout {
     /// hidden overlays. Reserve that top-right lane instead of centering map copy underneath it.
     static let systemTimeTrailingClearance: CGFloat = 56
     /// S70's Hazard instrument centres one obstacle rather than shrinking the whole hole until both
-    /// the player and obstacle fit. Target roughly a 38-point measured front/back span, while keeping
-    /// enough surrounding fairway to make the obstacle's location obvious.
-    static let minimumFocusedScale: CGFloat = 0.82
-    static let maximumFocusedScale: CGFloat = 1.80
-    static let targetBoundarySpan: CGFloat = 38
+    /// the player and obstacle fit. Target roughly a 26-point measured front/back span (about 52
+    /// physical pixels on current Watches), while retaining enough green/fairway context to show
+    /// where the obstacle actually sits.
+    static let minimumFocusedScale: CGFloat = 0.70
+    static let maximumFocusedScale: CGFloat = 1.30
+    static let targetBoundarySpan: CGFloat = 26
 
     static func focusPoint(front: CGPoint?, back: CGPoint?, fallback: CGPoint) -> CGPoint {
         switch (front, back) {

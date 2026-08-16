@@ -74,7 +74,7 @@ final class WatchHazardMapLayoutTests: XCTestCase {
 
         XCTAssertEqual(focus.x, 495.5, accuracy: 0.0001)
         XCTAssertEqual(focus.y, 306.5, accuracy: 0.0001)
-        XCTAssertEqual(hypot(back.x - front.x, back.y - front.y) * scale, 38, accuracy: 0.0001)
+        XCTAssertEqual(hypot(back.x - front.x, back.y - front.y) * scale, 26, accuracy: 0.0001)
         XCTAssertGreaterThanOrEqual(WatchHazardMapLayout.systemTimeTrailingClearance, 52)
     }
 }
