@@ -4,9 +4,7 @@ import SwiftUI
 /// Apple Watch opens it from the compact Hole Root menu control and keeps a visible Back equivalent.
 public struct WatchMenuView: View {
     enum Item: String, Hashable {
-        case recordShot = "记一杆"
         case viewGreen = "查看果岭"
-        case scoreHole = "本洞成绩"
         case caddie = "球童建议"
         case hazards = "障碍"
         case holeSelect = "选洞"
@@ -21,12 +19,9 @@ public struct WatchMenuView: View {
     public let hasCaddie: Bool
     public let hasViewGreen: Bool
     public let hasHazards: Bool
-    public let canRecordShot: Bool
     public let hasClubStats: Bool
     public let hasFlagDirection: Bool
-    public let onRecordShot: () -> Void
     public let onViewGreen: () -> Void
-    public let onScoreHole: () -> Void
     public let onCaddie: () -> Void
     public let onHazards: () -> Void
     public let onScorecard: () -> Void
@@ -43,12 +38,9 @@ public struct WatchMenuView: View {
         hasCaddie: Bool = false,
         hasViewGreen: Bool = false,
         hasHazards: Bool = false,
-        canRecordShot: Bool = false,
         hasClubStats: Bool = false,
         hasFlagDirection: Bool = false,
-        onRecordShot: @escaping () -> Void = {},
         onViewGreen: @escaping () -> Void = {},
-        onScoreHole: @escaping () -> Void = {},
         onCaddie: @escaping () -> Void = {},
         onHazards: @escaping () -> Void = {},
         onScorecard: @escaping () -> Void = {},
@@ -62,12 +54,9 @@ public struct WatchMenuView: View {
         self.hasCaddie = hasCaddie
         self.hasViewGreen = hasViewGreen
         self.hasHazards = hasHazards
-        self.canRecordShot = canRecordShot
         self.hasClubStats = hasClubStats
         self.hasFlagDirection = hasFlagDirection
-        self.onRecordShot = onRecordShot
         self.onViewGreen = onViewGreen
-        self.onScoreHole = onScoreHole
         self.onCaddie = onCaddie
         self.onHazards = onHazards
         self.onScorecard = onScorecard
@@ -191,20 +180,12 @@ public struct WatchMenuView: View {
             .padding(.vertical, 7)
         }
         .buttonStyle(.plain)
-        .disabled(item == .recordShot && !canRecordShot)
-        .accessibilityHint(
-            item == .recordShot
-                ? (canRecordShot ? "先保存当前位置，再选择实际球杆" : "等待 GPS 定位")
-                : ""
-        )
         .overlay(alignment: .bottom) { Divider() }
     }
 
     private func action(for item: Item) -> () -> Void {
         switch item {
-        case .recordShot: return onRecordShot
         case .viewGreen: return onViewGreen
-        case .scoreHole: return onScoreHole
         case .caddie: return onCaddie
         case .hazards: return onHazards
         case .holeSelect: return onHoleSelect

@@ -72,9 +72,9 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
         XCTAssertEqual(Array(items.prefix(4)), [.viewGreen, .caddie, .holeSelect, .scorecard])
         XCTAssertEqual(items[4], .hazards)
-        XCTAssertFalse(items.contains(.recordShot))
-        XCTAssertFalse(items.contains(.scoreHole))
         XCTAssertFalse(items.map(\.rawValue).contains("本洞击球"))
+        XCTAssertFalse(items.map(\.rawValue).contains("记一杆"))
+        XCTAssertFalse(items.map(\.rawValue).contains("本洞成绩"))
         XCTAssertEqual(items[items.count - 2], .moreTools)
         XCTAssertEqual(items.last, .finish)
         XCTAssertFalse(items.map(\.rawValue).contains("继续打球"))
