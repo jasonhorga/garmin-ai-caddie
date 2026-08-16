@@ -149,7 +149,7 @@ public struct WatchCaddieOptionsView: View {
             .allowsHitTesting(false)
 
             VStack(spacing: 0) {
-                header(option)
+                header(option, compact: size.width < 190)
                 Spacer()
                 HStack(spacing: 4) {
                     Text(strategyLabel(option))
@@ -184,10 +184,10 @@ public struct WatchCaddieOptionsView: View {
         }
     }
 
-    private func header(_ option: WatchCaddieOption) -> some View {
+    private func header(_ option: WatchCaddieOption, compact: Bool) -> some View {
         HStack(spacing: 5) {
             WatchInstrumentBackButton(accessibilityLabel: "返回球洞") { onBack?() }
-            Text(clubChain(option))
+            Text(Self.clubChain(option, compact: compact))
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .lineLimit(1)
@@ -324,10 +324,12 @@ public struct WatchCaddieOptionsView: View {
         option.plan?.first?.carryM ?? option.carryM
     }
 
-    private func clubChain(_ option: WatchCaddieOption) -> String {
+    static func clubChain(_ option: WatchCaddieOption, compact: Bool) -> String {
         let plan = option.plan ?? []
         if !plan.isEmpty {
-            return plan.map { WatchClubDisplay.shortCode($0.clubName) }.joined(separator: " → ")
+            return plan
+                .map { WatchClubDisplay.shortCode($0.clubName) }
+                .joined(separator: compact ? "›" : " → ")
         }
         return option.clubName.map(WatchClubDisplay.shortCode) ?? "—"
     }

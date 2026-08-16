@@ -61,6 +61,21 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
     }
 
+    func testCompactCaddieClubChainKeepsEveryPlannedShotVisible() {
+        let option = WatchCaddieOption(
+            optionId: "stock",
+            label: "推荐",
+            plan: [
+                WatchCaddiePlanStep(clubName: "1W", carryM: 201.2),
+                WatchCaddiePlanStep(clubName: "3W", carryM: 183),
+                WatchCaddiePlanStep(clubName: "8I", carryM: 134.6),
+            ]
+        )
+
+        XCTAssertEqual(WatchCaddieOptionsView.clubChain(option, compact: true), "D›3W›8i")
+        XCTAssertEqual(WatchCaddieOptionsView.clubChain(option, compact: false), "D → 3W → 8i")
+    }
+
     func testGolfMenuKeepsOnlyPrimaryInPlayChoicesAtTheFirstLevel() {
         let items = WatchMenuView.visibleItems(
             hasViewGreen: true,
