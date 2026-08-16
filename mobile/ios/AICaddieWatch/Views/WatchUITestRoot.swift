@@ -1514,10 +1514,14 @@ public struct WatchUITestRoot: View {
         suggestedClub: "1号木",
         selectedClub: nil,
         availableClubs: [
-            WatchClubOption(clubName: "一号木", medianM: 220, source: "course-prep"),
-            WatchClubOption(clubName: "3号木", medianM: 205, source: "course-prep"),
-            WatchClubOption(clubName: "5号铁", medianM: 170, source: "course-prep"),
-            WatchClubOption(clubName: "8号铁", medianM: 143, source: "course-prep"),
+            // Player-facing bag input is yards; the Watch contract stores metres. 201.2 m renders
+            // as the configured 220-yard Driver arc instead of accidentally treating 220 as metres.
+            WatchClubOption(clubName: "一号木", medianM: 201.2, source: "course-prep"),
+            WatchClubOption(clubName: "3号木", medianM: 183, source: "course-prep"),
+            WatchClubOption(clubName: "5号木", medianM: 175, source: "course-prep"),
+            WatchClubOption(clubName: "5号铁", medianM: 155, source: "course-prep"),
+            WatchClubOption(clubName: "7号铁", medianM: 160.8, source: "course-prep"),
+            WatchClubOption(clubName: "8号铁", medianM: 134.6, source: "course-prep"),
             WatchClubOption(clubName: "9号铁", medianM: 128, source: "course-prep"),
             WatchClubOption(clubName: "P杆", medianM: 94, source: "course-prep"),
             WatchClubOption(clubName: "50°", medianM: 76, source: "course-prep"),
@@ -1626,9 +1630,9 @@ public struct WatchUITestRoot: View {
     private static let demoToPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 2, 5: 0, 6: 1]
 
     static let demoOptions: [WatchCaddieOption] = [
-        WatchCaddieOption(optionId: "stock", label: "推荐", clubName: "1号木", carryM: 220, carryP10M: 205, carryP90M: 235, sampleSize: 28, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 220), WatchCaddiePlanStep(clubName: "5I", carryM: 170), WatchCaddiePlanStep(clubName: "9I", carryM: 128)], confidence: "high"),
-        WatchCaddieOption(optionId: "safe", label: "保守", clubName: "3号木", carryM: 205, carryP10M: 190, carryP90M: 218, sampleSize: 31, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 205), WatchCaddiePlanStep(clubName: "5I", carryM: 170), WatchCaddiePlanStep(clubName: "8I", carryM: 143)], confidence: "high"),
-        WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "1号木", carryM: 220, carryP10M: 205, carryP90M: 235, sampleSize: 24, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 220), WatchCaddiePlanStep(clubName: "3W", carryM: 205), WatchCaddiePlanStep(clubName: "PW", carryM: 94)], confidence: "medium"),
+        WatchCaddieOption(optionId: "stock", label: "推荐", clubName: "1号木", carryM: 201.2, carryP10M: 187, carryP90M: 215, sampleSize: 28, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 201.2), WatchCaddiePlanStep(clubName: "3W", carryM: 183), WatchCaddiePlanStep(clubName: "8I", carryM: 134.6)], confidence: "high"),
+        WatchCaddieOption(optionId: "safe", label: "保守", clubName: "3号木", carryM: 183, carryP10M: 170, carryP90M: 195, sampleSize: 31, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 183), WatchCaddiePlanStep(clubName: "5W", carryM: 175), WatchCaddiePlanStep(clubName: "7I", carryM: 160.8)], confidence: "high"),
+        WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "1号木", carryM: 201.2, carryP10M: 187, carryP90M: 215, sampleSize: 24, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 201.2), WatchCaddiePlanStep(clubName: "3W", carryM: 190), WatchCaddiePlanStep(clubName: "9I", carryM: 127.6)], confidence: "medium"),
     ]
 
     private static let demoCaddieRoute = standaloneFullRoute
