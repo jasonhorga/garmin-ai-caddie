@@ -55,20 +55,29 @@ struct WatchRemainingDistanceMarker: Equatable {
 }
 
 enum WatchHoleMapReferenceLayout {
-    static let remainingYards = [100, 150, 200, 250]
+    /// Garmin's red / white / blue course references: each point means this many yards remain to
+    /// the actual pin. A fourth decorative marker made the map look plausible without matching the
+    /// familiar 100 / 150 / 200-yard convention, so keep the fact layer to these three references.
+    static let remainingYards = [100, 150, 200]
     static let metresPerYard = 0.9144
 
     /// Garmin's fixed layup markers are distances remaining to the green, not percentages of the
     /// screen or of the current hole. Resolve them only from the cumulative-metre route.
     static func remainingMarkers(
         route: [[Double]],
-        playerImagePoint: CGPoint
+        playerImagePoint: CGPoint,
+        pinImagePoint: CGPoint? = nil
     ) -> [WatchRemainingDistanceMarker] {
         guard let progress = WatchHazardMapLayout.playerProgressMetres(
             on: route,
             playerImagePoint: playerImagePoint
         ),
-              let total = route.reversed().first(where: validRouteRow).map({ $0[2] }),
+              let total = pinImagePoint.flatMap({
+                  WatchHazardMapLayout.playerProgressMetres(
+                      on: route,
+                      playerImagePoint: $0
+                  )
+              }) ?? route.reversed().first(where: validRouteRow).map({ $0[2] }),
               total > progress else { return [] }
 
         return remainingYards.compactMap { yards in
@@ -219,7 +228,7 @@ public struct WatchHoleMapView: View {
     /// User-configured/measured Driver range. It renders as a fact-layer arc only when the current
     /// route can place that distance before the green.
     public let driverDistanceM: Double?
-    /// Garmin's fixed 100/150/200/250-yard remaining markers. These are route facts, never AI targets.
+    /// Garmin's fixed 100/150/200-yard remaining markers. These are route facts, never AI targets.
     public let showReferenceMarkers: Bool
     /// Route frame used to place factual distance references. Focused obstacle facts live on the
     /// dedicated Hazard instrument, never as text callouts on Hole Root.
@@ -839,7 +848,7 @@ public struct WatchHoleMapView: View {
     /// quieter than recommendation or Touch Target layers and are resolved from the same route frame.
     private func drawReferenceFacts(
         _ context: inout GraphicsContext,
-        size _: CGSize,
+        size: CGSize,
         transform: (CGPoint) -> CGPoint
     ) {
         if let targetImage = WatchHoleMapReferenceLayout.driverTarget(
@@ -865,12 +874,21 @@ public struct WatchHoleMapView: View {
                     with: .color(.white.opacity(0.92)),
                     style: StrokeStyle(lineWidth: 1.25, lineCap: .round)
                 )
+                // The arc is a Tee-only player fact supplied by the synced, user-editable bag. Keep
+                // the configured carry visible as one bare number instead of an unexplained shape.
+                bareDistance(
+                    &context,
+                    text: "\(WatchUnits.yards(driverDistanceM ?? 0))",
+                    at: CGPoint(x: target.x + 11, y: target.y - 7),
+                    viewportSize: size
+                )
             }
         }
 
         for marker in WatchHoleMapReferenceLayout.remainingMarkers(
             route: hazardRoute,
-            playerImagePoint: geometry.youPx
+            playerImagePoint: geometry.youPx,
+            pinImagePoint: geometry.pinPx
         ) {
             let point = transform(marker.imagePoint)
             let tint = remainingMarkerColor(marker.remainingYards)
@@ -895,7 +913,6 @@ public struct WatchHoleMapView: View {
         case 100: return Color(red: 0.96, green: 0.28, blue: 0.24)
         case 150: return .white
         case 200: return Color(red: 0.18, green: 0.56, blue: 1.0)
-        case 250: return Color(red: 1.0, green: 0.80, blue: 0.18)
         default: return .white
         }
     }

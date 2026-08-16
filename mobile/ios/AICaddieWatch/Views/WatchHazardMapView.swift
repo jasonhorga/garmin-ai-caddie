@@ -309,23 +309,28 @@ public struct WatchHazardMapView: View {
         let backPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
 
-        // Precise packages bind both points to the real obstacle boundary. A restrained tint stroke
-        // makes the bunker/water already present in the topo easy to find without inventing a shape.
+        // Precise packages bind both points to the real obstacle boundary. The topo already shows
+        // the bunker/water body, so mark only its near and far edges; a connecting stroke falsely
+        // reads as measured geometry running through the obstacle.
         if WatchHazardMapLayout.point(hazard.frontPx) != nil,
            WatchHazardMapLayout.point(hazard.backPx) != nil,
            let frontPoint,
            let backPoint {
-            var boundary = Path()
-            boundary.move(to: canvas(frontPoint))
-            boundary.addLine(to: canvas(backPoint))
-            context.stroke(
-                boundary,
-                with: .color(tint.opacity(0.92)),
-                style: StrokeStyle(
-                    lineWidth: hazard.kind == "water" ? 4 : 3,
-                    lineCap: .round
+            for point in [canvas(frontPoint), canvas(backPoint)] {
+                let radius: CGFloat = 2.7
+                let marker = Path(ellipseIn: CGRect(
+                    x: point.x - radius,
+                    y: point.y - radius,
+                    width: radius * 2,
+                    height: radius * 2
+                ))
+                context.fill(marker, with: .color(tint.opacity(0.96)))
+                context.stroke(
+                    marker,
+                    with: .color(.white.opacity(0.9)),
+                    style: StrokeStyle(lineWidth: 0.65)
                 )
-            )
+            }
         }
 
         let edges: [(Double, CGPoint?, CGFloat)] = hasFrontBack

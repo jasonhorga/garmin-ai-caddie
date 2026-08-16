@@ -73,7 +73,7 @@ final class WatchHoleMapViewportTests: XCTestCase {
             route: route,
             playerImagePoint: CGPoint(x: 0, y: 400)
         )
-        XCTAssertEqual(all.map(\.remainingYards), [100, 150, 200, 250])
+        XCTAssertEqual(all.map(\.remainingYards), [100, 150, 200])
         XCTAssertEqual(all[0].imagePoint.y, 91.44, accuracy: 0.01)
 
         let late = WatchHoleMapReferenceLayout.remainingMarkers(
@@ -81,6 +81,23 @@ final class WatchHoleMapViewportTests: XCTestCase {
             playerImagePoint: CGPoint(x: 0, y: 150)
         )
         XCTAssertEqual(late.map(\.remainingYards), [100, 150])
+    }
+
+    func testRemainingMarkersMeasureBackFromTheRealPinInsteadOfAnExtendedRouteTail() throws {
+        let route = [
+            [0.0, 500.0, 0.0],
+            [0.0, 100.0, 400.0], // actual pin
+            [0.0, 0.0, 500.0],   // provider route tail beyond the pin
+        ]
+
+        let markers = WatchHoleMapReferenceLayout.remainingMarkers(
+            route: route,
+            playerImagePoint: CGPoint(x: 0, y: 500),
+            pinImagePoint: CGPoint(x: 0, y: 100)
+        )
+
+        XCTAssertEqual(markers.map(\.remainingYards), [100, 150, 200])
+        XCTAssertEqual(try XCTUnwrap(markers.first).imagePoint.y, 191.44, accuracy: 0.01)
     }
 
     func testDriverArcRequiresARealInBoundsBagDistance() throws {
@@ -115,6 +132,29 @@ final class WatchHoleMapViewportTests: XCTestCase {
         ]
         XCTAssertTrue(WatchGreenPreviewLayout.contains(CGPoint(x: 5, y: 5), polygon: outline))
         XCTAssertFalse(WatchGreenPreviewLayout.contains(CGPoint(x: 15, y: 5), polygon: outline))
+    }
+
+    func testGreenPreviewDefaultCropRetainsAnAdjacentBunker() {
+        let base = WatchHoleMapSample.geometry
+        let geometry = WatchHoleMapGeometry(
+            image: base.image,
+            imageSize: base.imageSize,
+            youPx: WatchHoleMapSample.lastShotPx,
+            pinPx: base.pinPx,
+            layupPx: base.layupPx,
+            apexPx: base.apexPx,
+            greenCtrlPx: base.greenCtrlPx,
+            greenOutlinePx: [
+                CGPoint(x: 410, y: 257), CGPoint(x: 452, y: 252),
+                CGPoint(x: 470, y: 281), CGPoint(x: 447, y: 306),
+                CGPoint(x: 408, y: 296), CGPoint(x: 397, y: 274),
+            ]
+        )
+        let size = CGSize(width: 198, height: 242)
+        let viewport = WatchGreenPreviewLayout.viewport(geometry: geometry, size: size)
+        let bunker = viewport.canvasPoint(CGPoint(x: 498, y: 317))
+
+        XCTAssertTrue(WatchDisplayGeometry.contentRect(in: size).contains(bunker))
     }
 
     func testEighteenHoleRingStartsAtThreeAndEndsAtTwelve() {

@@ -88,7 +88,7 @@ public struct WatchUITestRoot: View {
                 par: 5,
                 options: Self.demoOptions,
                 recommendedId: "stock",
-                geometry: WatchHoleMapSample.geometry,
+                geometry: WatchHoleMapSample.teeGeometry,
                 route: Self.demoCaddieRoute
             )
         case "hazards":
@@ -1099,7 +1099,7 @@ public struct WatchUITestRoot: View {
     private var standaloneHomeGreenYards: (front: Int?, center: Int?, back: Int?)? {
         screen == "standalone-course-live-home"
             ? (front: 199, center: 211, back: 223)
-            : (front: 248, center: 262, back: 274)
+            : (front: 552, center: 567, back: 581)
     }
 
     private var standaloneLastShotFix: WatchLocationFix? {
@@ -1486,6 +1486,14 @@ public struct WatchUITestRoot: View {
 
     /// The same real gid31669/hole-4 render already baked for design review. This compact fixture
     /// drives round-state restoration; the later Cypress download is the full 18-hole offline gate.
+    private static let standaloneFullRoute: [[Double]] = [
+        [435, 981, 0],
+        [504, 702, 200],
+        [556, 562, 303],
+        [506, 403, 419],
+        [435, 279, 518.8],
+    ]
+
     private static let standaloneCourseTemplate = WatchCourseTemplate(
         option: standaloneCourseOption,
         courseName: "北京丽宫体育公园高尔夫俱乐部",
@@ -1503,30 +1511,30 @@ public struct WatchUITestRoot: View {
         distanceM: 518.8,
         teeLatitude: 40.0454995,
         teeLongitude: 116.5461531,
-        suggestedClub: "3号木",
+        suggestedClub: "1号木",
         selectedClub: nil,
         availableClubs: [
             WatchClubOption(clubName: "一号木", medianM: 220, source: "course-prep"),
             WatchClubOption(clubName: "3号木", medianM: 205, source: "course-prep"),
             WatchClubOption(clubName: "5号铁", medianM: 170, source: "course-prep"),
+            WatchClubOption(clubName: "8号铁", medianM: 143, source: "course-prep"),
+            WatchClubOption(clubName: "9号铁", medianM: 128, source: "course-prep"),
+            WatchClubOption(clubName: "P杆", medianM: 94, source: "course-prep"),
+            WatchClubOption(clubName: "50°", medianM: 76, source: "course-prep"),
         ],
-        frontGreenM: 227,
-        centerGreenM: 240,
-        backGreenM: 251,
+        frontGreenM: 505,
+        centerGreenM: 518.8,
+        backGreenM: 531,
         globalId: 31669,
         holeMap: WatchHoleMap(
             w: Int(WatchHoleMapSample.imageSize.width),
             h: Int(WatchHoleMapSample.imageSize.height),
-            you: [504, 702],
+            you: [435, 981],
             pin: [435, 279],
             layup: [506, 403],
             apex: [556, 562],
             greenCtrl: [498, 375],
-            route: [
-                [504, 702, 0],
-                [506, 403, 210],
-                [435, 279, 400],
-            ],
+            route: standaloneFullRoute,
             greenOutline: [
                 [410, 257],
                 [452, 252],
@@ -1542,8 +1550,8 @@ public struct WatchUITestRoot: View {
         caddieOptions: demoOptions,
         hazards: [
             WatchHazard(
-                kind: "bunker", label: "右侧果岭沙坑", startM: 340, endM: 360,
-                frontDistanceM: 340, backDistanceM: 360,
+                kind: "bunker", label: "右侧果岭沙坑", startM: 480, endM: 500,
+                frontDistanceM: 480, backDistanceM: 500,
                 frontPx: [498, 317], backPx: [493, 296]
             ),
         ],
@@ -1618,16 +1626,12 @@ public struct WatchUITestRoot: View {
     private static let demoToPars: [Int: Int] = [1: 0, 2: 1, 3: -1, 4: 2, 5: 0, 6: 1]
 
     static let demoOptions: [WatchCaddieOption] = [
-        WatchCaddieOption(optionId: "stock", label: "推荐", clubName: "8号铁", carryM: 192, carryP10M: 176, carryP90M: 208, sampleSize: 28, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "8I", carryM: 142)], confidence: "high"),
-        WatchCaddieOption(optionId: "safe", label: "保守", clubName: "9号铁", carryM: 172, carryP10M: 160, carryP90M: 184, sampleSize: 31, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 172), WatchCaddiePlanStep(clubName: "9I", carryM: 128)], confidence: "high"),
-        WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "7号铁", carryM: 205, carryP10M: 181, carryP90M: 224, sampleSize: 24, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 205), WatchCaddiePlanStep(clubName: "PW", carryM: 118)], confidence: "medium"),
+        WatchCaddieOption(optionId: "stock", label: "推荐", clubName: "1号木", carryM: 220, carryP10M: 205, carryP90M: 235, sampleSize: 28, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 220), WatchCaddiePlanStep(clubName: "5I", carryM: 170), WatchCaddiePlanStep(clubName: "9I", carryM: 128)], confidence: "high"),
+        WatchCaddieOption(optionId: "safe", label: "保守", clubName: "3号木", carryM: 205, carryP10M: 190, carryP90M: 218, sampleSize: 31, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 205), WatchCaddiePlanStep(clubName: "5I", carryM: 170), WatchCaddiePlanStep(clubName: "8I", carryM: 143)], confidence: "high"),
+        WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "1号木", carryM: 220, carryP10M: 205, carryP90M: 235, sampleSize: 24, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 220), WatchCaddiePlanStep(clubName: "3W", carryM: 205), WatchCaddiePlanStep(clubName: "PW", carryM: 94)], confidence: "medium"),
     ]
 
-    private static let demoCaddieRoute: [[Double]] = [
-        [504, 702, 0],
-        [506, 403, 210],
-        [435, 279, 400],
-    ]
+    private static let demoCaddieRoute = standaloneFullRoute
 
     static let demoHazards: [WatchHazard] = [
         WatchHazard(

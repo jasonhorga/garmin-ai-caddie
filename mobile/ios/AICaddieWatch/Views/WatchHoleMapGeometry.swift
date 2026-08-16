@@ -74,6 +74,12 @@ extension WatchHoleMapSample {
             layupPx: layupPx, apexPx: apexPx, greenCtrlPx: greenCtrlPx
         )
     }
+
+    /// The same factual topo viewed from its real Tee origin. Dedicated Tee/Caddie evidence must not
+    /// reuse `youPx`, which intentionally represents the historical second-shot lie in this sample.
+    public static var teeGeometry: WatchHoleMapGeometry {
+        geometry.withYou(lastShotPx)
+    }
 }
 
 extension WatchHoleMapGeometry {
