@@ -136,7 +136,7 @@ AI Caddie 把你的 **Garmin 高尔夫数据**(球局、逐杆、球场几何)�
 
 **后续 backlog(需生产接线或真机验证)**
 - Watch:开局搜索当前只过滤历史/缓存 options；需复用现有 `/api/v2/courses/search` 接入未打过的新球场，再走同一 Tee/package/prep/cache 链。
-- Watch:根页点地图进入独立 Touch Target，并同时显示“当前位置→目标 / 目标→旗”两段距离；View Green 只在真实果岭轮廓内提供明确标注的临时旗位预览。当前 live-round contract 没有独立 `flag_position_set` 事件，因此离开后复原，不能借用击球 `location` 事件伪造可保存旗位；跨端持久化仍需先补该契约。
+- Watch:根页点地图进入独立 Touch Target，并同时显示“当前位置→目标 / 目标→旗”两段距离；View Green 在真实局部 topo 上保留果岭周边球道/沙坑，只允许在真实果岭轮廓内移动临时旗位，并同步刷新腕位→新旗位及旗位→上/右/下/左边界的码数。当前 live-round contract 没有独立 `flag_position_set` 事件，因此离开后复原，不能借用击球 `location` 事件伪造可保存旗位；跨端持久化仍需先补该契约。
 - **AutoShot Beta 软件路径已完成**(watchOS 高频运动 API + GPS + HealthKit workout)；仍需真机完成空挥/推杆/球车误报、漏报、续航和发热验证。
 - 两路(standalone / companion)数据完全统一是更大重构。
 

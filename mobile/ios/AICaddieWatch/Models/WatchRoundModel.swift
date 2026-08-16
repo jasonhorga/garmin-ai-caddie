@@ -22,7 +22,7 @@ public enum WatchRoundScreen: Equatable {
     case holeSelect  // round-13: 选洞
     case menu        // round-13: 菜单 hub(纯文字,S70 式)
     case holeMap     // watch P1b: 全屏球道图(真几何底图 + 事实标记)
-    case viewGreen   // S70 View Green 等价入口；当前仅做诚实的临时旗位预览
+    case viewGreen   // S70 View Green 等价入口；局部 topo + 临时旗位实时距离/四向边距
     case caddie      // S70 式浅层仪表面: 当前洞球童详情
     case hazards     // S70 式浅层仪表面: 当前洞障碍距离
     case clubStats   // 下载球包内的真实球杆 median 距离

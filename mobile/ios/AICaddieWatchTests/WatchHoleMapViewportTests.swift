@@ -167,6 +167,36 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertFalse(WatchGreenPreviewLayout.contains(CGPoint(x: 15, y: 5), polygon: outline))
     }
 
+    func testMovedGreenFlagUpdatesPinDistanceAndFourBoundaryClearances() throws {
+        let outline = [
+            CGPoint(x: 0, y: 0), CGPoint(x: 10, y: 0),
+            CGPoint(x: 10, y: 10), CGPoint(x: 0, y: 10),
+        ]
+        let metrics = try XCTUnwrap(WatchGreenPreviewLayout.pinMetrics(
+            playerImagePoint: CGPoint(x: 5, y: 15),
+            canonicalPinImagePoint: CGPoint(x: 5, y: 5),
+            selectedPinImagePoint: CGPoint(x: 7, y: 4),
+            greenOutline: outline,
+            centerGreenYards: 10
+        ))
+
+        XCTAssertEqual(metrics.playerToPinYards, 11)
+        XCTAssertEqual(metrics.edge(.top)?.yards, 4)
+        XCTAssertEqual(metrics.edge(.right)?.yards, 3)
+        XCTAssertEqual(metrics.edge(.bottom)?.yards, 6)
+        XCTAssertEqual(metrics.edge(.left)?.yards, 7)
+    }
+
+    func testGreenFlagMetricsRejectMissingLiveDistanceAuthority() {
+        XCTAssertNil(WatchGreenPreviewLayout.pinMetrics(
+            playerImagePoint: CGPoint(x: 5, y: 15),
+            canonicalPinImagePoint: CGPoint(x: 5, y: 5),
+            selectedPinImagePoint: CGPoint(x: 5, y: 5),
+            greenOutline: [CGPoint(x: 0, y: 0), CGPoint(x: 10, y: 0), CGPoint(x: 5, y: 10)],
+            centerGreenYards: nil
+        ))
+    }
+
     func testGreenPreviewDefaultCropFillsTheDedicatedFlagInstrument() throws {
         let base = WatchHoleMapSample.geometry
         let geometry = WatchHoleMapGeometry(
@@ -186,12 +216,47 @@ final class WatchHoleMapViewportTests: XCTestCase {
         let size = CGSize(width: 198, height: 242)
         let viewport = WatchGreenPreviewLayout.viewport(geometry: geometry, size: size)
         let outline = geometry.greenOutlinePx.map(viewport.canvasPoint)
+        let adjacentBunker = viewport.canvasPoint(CGPoint(x: 498, y: 317))
         let minX = try XCTUnwrap(outline.map(\.x).min())
         let maxX = try XCTUnwrap(outline.map(\.x).max())
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
 
         XCTAssertTrue(outline.allSatisfy { safeRect.contains($0) })
         XCTAssertGreaterThan(maxX - minX, safeRect.width * 0.55)
+        XCTAssertTrue(safeRect.contains(adjacentBunker))
+    }
+
+    func testGreenPreviewMaximumCrownKeepsTopoUnderTheWholeDisplay() {
+        let base = WatchHoleMapSample.geometry
+        let geometry = WatchHoleMapGeometry(
+            image: base.image,
+            imageSize: base.imageSize,
+            youPx: WatchHoleMapSample.lastShotPx,
+            pinPx: base.pinPx,
+            layupPx: base.layupPx,
+            apexPx: base.apexPx,
+            greenCtrlPx: base.greenCtrlPx,
+            greenOutlinePx: [
+                CGPoint(x: 410, y: 257), CGPoint(x: 452, y: 252),
+                CGPoint(x: 470, y: 281), CGPoint(x: 447, y: 306),
+                CGPoint(x: 408, y: 296), CGPoint(x: 397, y: 274),
+            ]
+        )
+        let size = CGSize(width: 198, height: 242)
+        let viewport = WatchGreenPreviewLayout.viewport(
+            geometry: geometry,
+            size: size,
+            zoom: 2
+        )
+        let imageRect = CGRect(
+            x: viewport.imageOrigin.x,
+            y: viewport.imageOrigin.y,
+            width: geometry.imageSize.width * viewport.scale,
+            height: geometry.imageSize.height * viewport.scale
+        )
+
+        XCTAssertTrue(imageRect.contains(CGPoint(x: 0, y: 0)))
+        XCTAssertTrue(imageRect.contains(CGPoint(x: size.width - 0.01, y: size.height - 0.01)))
     }
 
     func testEighteenHoleRingStartsAtThreeAndEndsAtTwelve() {

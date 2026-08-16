@@ -83,6 +83,12 @@ public struct WatchRoundContainerView: View {
     /// DEBUG runtime evidence may start Touch Target at a deterministic measured point. Production
     /// callers leave it nil, so live target state remains owned by WatchHoleMapView.
     private let measuredPxOverride: CGPoint?
+    /// DEBUG runtime evidence for a user-moved View Green flag. Production starts at the canonical
+    /// centre and lets the user's tap/drag update the same WatchGreenPreviewView state.
+    private let initialGreenPinOverride: CGPoint?
+    /// DEBUG runtime evidence may start View Green at the maximum Crown detent. Production callers
+    /// leave this at 1 and the user owns every subsequent Crown change.
+    private let initialGreenZoomScaleOverride: Double
 
     public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil,
                 watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
@@ -92,7 +98,9 @@ public struct WatchRoundContainerView: View {
                 autoShotStatus: String = "本机不支持",
                 initialHoleMapCrownScale: Double = WatchHoleMapView.restingCrownScale,
                 initialSelectedHazardID: String? = nil,
-                measuredPxOverride: CGPoint? = nil) {
+                measuredPxOverride: CGPoint? = nil,
+                initialGreenPinOverride: CGPoint? = nil,
+                initialGreenZoomScaleOverride: Double = 1) {
         self.model = model
         self.holeGeometry = holeGeometry
         self.watchGreenYards = watchGreenYards
@@ -101,6 +109,8 @@ public struct WatchRoundContainerView: View {
         self.autoShotSupported = autoShotSupported
         self.autoShotStatus = autoShotStatus
         self.measuredPxOverride = measuredPxOverride
+        self.initialGreenPinOverride = initialGreenPinOverride
+        self.initialGreenZoomScaleOverride = initialGreenZoomScaleOverride
         self.initialHazardID = initialSelectedHazardID
         self._holeMapCrownScale = State(initialValue: initialHoleMapCrownScale)
     }
@@ -207,6 +217,8 @@ public struct WatchRoundContainerView: View {
                 WatchGreenPreviewView(
                     geometry: geometry,
                     centerGreenYards: watchGreenYards?.center ?? centerYd(state),
+                    initialPin: initialGreenPinOverride,
+                    initialZoomScale: initialGreenZoomScaleOverride,
                     onBack: { model.backToMenu() }
                 )
             } else {

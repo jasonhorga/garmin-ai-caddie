@@ -38,6 +38,7 @@ public struct WatchUITestRoot: View {
              "standalone-course-map-zoom",
              "standalone-course-near-green",
              "standalone-course-touch-target", "standalone-course-view-green",
+             "standalone-course-view-green-max", "standalone-course-view-green-moved",
              "standalone-course-caddie", "standalone-course-hazards",
              "standalone-course-last-shot", "standalone-course-caddie-last-shot",
              "standalone-course-live-home":
@@ -303,7 +304,13 @@ public struct WatchUITestRoot: View {
                         : nil,
                     measuredPxOverride: screen == "standalone-course-touch-target"
                         ? WatchHoleMapSample.youPx
-                        : nil
+                        : nil,
+                    initialGreenPinOverride: screen == "standalone-course-view-green-moved"
+                        ? CGPoint(x: 447, y: 270)
+                        : nil,
+                    initialGreenZoomScaleOverride: screen == "standalone-course-view-green-max"
+                        ? 2
+                        : 1
                 )
             } else {
                 Text("offline course restore unavailable")
@@ -324,7 +331,9 @@ public struct WatchUITestRoot: View {
                 model.backToHome()
             } else if screen == "standalone-course-touch-target" {
                 model.openHoleMap()
-            } else if screen == "standalone-course-view-green" {
+            } else if screen == "standalone-course-view-green"
+                        || screen == "standalone-course-view-green-max"
+                        || screen == "standalone-course-view-green-moved" {
                 model.openViewGreen()
             } else if screen == "standalone-course-caddie" {
                 model.openCaddie()
@@ -1104,7 +1113,8 @@ public struct WatchUITestRoot: View {
         switch screen {
         case "standalone-course-live-home":
             return (front: 199, center: 211, back: 223)
-        case "standalone-course-near-green", "standalone-course-view-green":
+        case "standalone-course-near-green", "standalone-course-view-green",
+             "standalone-course-view-green-max", "standalone-course-view-green-moved":
             return (front: 41, center: 53, back: 66)
         default:
             return (front: 552, center: 567, back: 581)
@@ -1165,7 +1175,10 @@ public struct WatchUITestRoot: View {
     }
 
     private var standaloneShowsNearGreenGeometry: Bool {
-        screen == "standalone-course-near-green" || screen == "standalone-course-view-green"
+        screen == "standalone-course-near-green"
+            || screen == "standalone-course-view-green"
+            || screen == "standalone-course-view-green-max"
+            || screen == "standalone-course-view-green-moved"
     }
 
     private func installStandaloneFixtureRound() {

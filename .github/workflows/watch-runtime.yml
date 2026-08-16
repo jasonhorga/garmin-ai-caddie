@@ -215,6 +215,8 @@ jobs:
           capture_compact standalone-course-near-green compact-41mm-near-green.png
           capture_compact standalone-course-touch-target compact-41mm-touch-target.png
           capture_compact standalone-course-view-green compact-41mm-view-green.png
+          capture_compact standalone-course-view-green-max compact-41mm-view-green-max.png
+          capture_compact standalone-course-view-green-moved compact-41mm-view-green-moved.png
           capture_compact standalone-course-caddie compact-41mm-caddie.png
           capture_compact standalone-course-hazards compact-41mm-hazard.png
           capture_compact menu compact-41mm-menu.png
@@ -291,6 +293,8 @@ jobs:
           capture_ultra standalone-course-near-green ultra-49mm-near-green.png
           capture_ultra standalone-course-touch-target ultra-49mm-touch-target.png
           capture_ultra standalone-course-view-green ultra-49mm-view-green.png
+          capture_ultra standalone-course-view-green-max ultra-49mm-view-green-max.png
+          capture_ultra standalone-course-view-green-moved ultra-49mm-view-green-moved.png
           capture_ultra standalone-course-caddie ultra-49mm-caddie.png
           capture_ultra standalone-course-hazards ultra-49mm-hazard.png
           capture_ultra menu ultra-49mm-menu.png
@@ -486,6 +490,8 @@ jobs:
           launch_and_capture standalone-course-near-green watch-standalone-course-near-green.png
           launch_and_capture standalone-course-touch-target watch-standalone-course-touch-target.png
           launch_and_capture standalone-course-view-green watch-standalone-course-view-green.png
+          launch_and_capture standalone-course-view-green-max watch-standalone-course-view-green-max.png
+          launch_and_capture standalone-course-view-green-moved watch-standalone-course-view-green-moved.png
           # The same persisted production hole state drives the shallow caddie and hazard surfaces.
           launch_and_capture standalone-course-caddie watch-standalone-course-caddie.png
           launch_and_capture standalone-course-hazards watch-standalone-course-hazards.png

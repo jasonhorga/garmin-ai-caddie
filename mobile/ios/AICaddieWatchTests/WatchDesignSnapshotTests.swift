@@ -1133,7 +1133,11 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 CGPoint(x: 399, y: 283),
             ]
         )
-        let view = WatchGreenPreviewView(geometry: geometry, centerGreenYards: 287)
+        let view = WatchGreenPreviewView(
+            geometry: geometry,
+            centerGreenYards: 287,
+            initialPin: CGPoint(x: 447, y: 270)
+        )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-green-preview")
     }
