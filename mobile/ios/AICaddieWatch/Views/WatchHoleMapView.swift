@@ -19,6 +19,80 @@ enum WatchHoleMapViewport {
         guard fittedScale.isFinite, fittedScale > 0 else { return requestedScale }
         return min(requestedScale, fittedScale)
     }
+
+    /// Touch Target opens with both the player and flag visible, then uses the Crown to zoom from
+    /// that fitted whole-hole scale to the ordinary maximum map scale. Applying the fit only at the
+    /// first Crown detent caused a large visual jump as soon as the Crown moved; interpolate instead.
+    static func touchTargetScale(
+        crownScale: Double,
+        minimumCrownScale: Double,
+        maximumCrownScale: Double,
+        viewportHeight: Double,
+        playerAnchorFraction: Double,
+        playerImageY: Double,
+        pinImageY: Double
+    ) -> Double {
+        let fittedMinimum = effectiveRestingScale(
+            requestedScale: minimumCrownScale,
+            viewportHeight: viewportHeight,
+            playerAnchorFraction: playerAnchorFraction,
+            playerImageY: playerImageY,
+            pinImageY: pinImageY
+        )
+        guard maximumCrownScale > minimumCrownScale else { return fittedMinimum }
+        let progress = min(
+            max((crownScale - minimumCrownScale) / (maximumCrownScale - minimumCrownScale), 0),
+            1
+        )
+        return fittedMinimum + (maximumCrownScale - fittedMinimum) * progress
+    }
+}
+
+struct WatchTouchTargetDistances: Equatable {
+    let playerToTargetYards: Int
+    let targetToPinYards: Int
+}
+
+enum WatchTouchTargetDistanceLayout {
+    /// S70 Touch Target reports two straight-line ranges: player→target and target→flag. The live
+    /// GPS player→flag range calibrates the uniformly projected topo bitmap; route length is not used
+    /// because it would turn the measurement into distance travelled around a dogleg.
+    static func resolve(
+        playerImagePoint: CGPoint,
+        targetImagePoint: CGPoint,
+        pinImagePoint: CGPoint,
+        centerGreenYards: Int?
+    ) -> WatchTouchTargetDistances? {
+        let values = [
+            playerImagePoint.x, playerImagePoint.y,
+            targetImagePoint.x, targetImagePoint.y,
+            pinImagePoint.x, pinImagePoint.y,
+        ]
+        guard values.allSatisfy(\.isFinite),
+              let centerGreenYards,
+              centerGreenYards > 0,
+              centerGreenYards <= WatchGeoMath.maximumUsefulGreenYards else { return nil }
+
+        let playerToPinPixels = hypot(
+            pinImagePoint.x - playerImagePoint.x,
+            pinImagePoint.y - playerImagePoint.y
+        )
+        guard playerToPinPixels > 1 else { return nil }
+        let yardsPerPixel = CGFloat(centerGreenYards) / playerToPinPixels
+        let playerToTarget = hypot(
+            targetImagePoint.x - playerImagePoint.x,
+            targetImagePoint.y - playerImagePoint.y
+        ) * yardsPerPixel
+        let targetToPin = hypot(
+            pinImagePoint.x - targetImagePoint.x,
+            pinImagePoint.y - targetImagePoint.y
+        ) * yardsPerPixel
+        guard playerToTarget.isFinite, targetToPin.isFinite else { return nil }
+        return WatchTouchTargetDistances(
+            playerToTargetYards: Int(playerToTarget.rounded()),
+            targetToPinYards: Int(targetToPin.rounded())
+        )
+    }
 }
 
 enum WatchHoleMapRouteOverlay: Equatable {
@@ -324,18 +398,18 @@ public struct WatchHoleMapView: View {
     private let onOpenMapDetail: () -> Void
     private let onBack: () -> Void
 
-    /// Yards per image-pixel, derived from the known you→green pixel span vs the 中 green yardage — so
-    /// tap-to-measure needs no extra payload. nil if degenerate (no center distance / you==pin).
-    private var yardsPerPx: CGFloat? {
-        let span = hypot(geometry.pinPx.x - geometry.youPx.x, geometry.pinPx.y - geometry.youPx.y)
-        guard let centerGreen,
-              span > 1,
-              centerGreen > 0,
-              centerGreen <= WatchGeoMath.maximumUsefulGreenYards else { return nil }
-        return CGFloat(centerGreen) / span
-    }
-
     private func currentScale(_ size: CGSize) -> CGFloat {
+        if fullMap, interactionMode == .touchTarget {
+            return CGFloat(WatchHoleMapViewport.touchTargetScale(
+                crownScale: Double(mapScale),
+                minimumCrownScale: Self.restingCrownScale,
+                maximumCrownScale: Self.maximumCrownScale,
+                viewportHeight: Double(size.height),
+                playerAnchorFraction: Double(fullMapPlayerAnchorFraction),
+                playerImageY: Double(geometry.youPx.y),
+                pinImageY: Double(geometry.pinPx.y)
+            ))
+        }
         guard !fullMap else { return mapScale }
         return CGFloat(WatchHoleMapViewport.effectiveRestingScale(
             requestedScale: Double(mapScale),
@@ -351,20 +425,6 @@ public struct WatchHoleMapView: View {
         let upper = CGFloat(Self.maximumCrownScale)
         guard upper > lower else { return 0 }
         return min(max((mapScale - lower) / (upper - lower), 0), 1)
-    }
-
-    /// Distance (码) from YOU to an image-px point, via `yardsPerPx`.
-    private func yards(toImagePx px: CGPoint) -> Int? {
-        guard let ypp = yardsPerPx else { return nil }
-        let d = hypot(px.x - geometry.youPx.x, px.y - geometry.youPx.y) * ypp
-        return Int(d.rounded())
-    }
-
-    private func yards(fromImagePx start: CGPoint, toImagePx end: CGPoint) -> Int? {
-        guard let ypp = yardsPerPx else { return nil }
-        let d = hypot(end.x - start.x, end.y - start.y) * ypp
-        guard d.isFinite, d >= 0 else { return nil }
-        return Int(d.rounded())
     }
 
     /// Convert a canvas tap/drag location back to image-px (inverse of `anchors`).
@@ -750,6 +810,12 @@ public struct WatchHoleMapView: View {
         // current→target and target→flag self-evident without giant labelled pills obscuring the hole.
         if let m = measuredPx {
             let mc = a.t(m)
+            let distances = WatchTouchTargetDistanceLayout.resolve(
+                playerImagePoint: geometry.youPx,
+                targetImagePoint: m,
+                pinImagePoint: geometry.pinPx,
+                centerGreenYards: centerGreen
+            )
             let r: CGFloat = 4.5
             var cross = Path()
             cross.move(to: CGPoint(x: mc.x - r, y: mc.y)); cross.addLine(to: CGPoint(x: mc.x + r, y: mc.y))
@@ -757,7 +823,7 @@ public struct WatchHoleMapView: View {
             context.stroke(cross, with: .color(.white), style: StrokeStyle(lineWidth: 1.2))
             context.stroke(Path(ellipseIn: CGRect(x: mc.x - r, y: mc.y - r, width: r * 2, height: r * 2)),
                            with: .color(.white), style: StrokeStyle(lineWidth: 1))
-            if let d = yards(toImagePx: m) {
+            if let d = distances?.playerToTargetYards {
                 bareDistance(
                     &context,
                     text: "\(d)",
@@ -768,7 +834,7 @@ public struct WatchHoleMapView: View {
                     viewportSize: size
                 )
             }
-            if let remaining = yards(fromImagePx: m, toImagePx: geometry.pinPx) {
+            if let remaining = distances?.targetToPinYards {
                 bareDistance(
                     &context,
                     text: "\(remaining)",

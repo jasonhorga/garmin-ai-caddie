@@ -1,7 +1,4 @@
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#endif
 
 struct WatchGreenViewport: Equatable {
     let scale: CGFloat
@@ -37,10 +34,10 @@ enum WatchGreenPreviewLayout {
         )
         let focus = focusBounds(geometry: geometry)
         let longestSide = max(focus.width, focus.height, 1)
-        // View Green is a centred, enlarged topo crop — not a detached green diagram. Leave enough
-        // room around the measured outline for the approach fairway and adjacent bunker/water to
-        // remain recognisable at the default Crown position. Turning the Crown can still zoom closer.
-        let padding = max(18, longestSide * 0.55)
+        // This is the dedicated S70-style flag-placement instrument. The ordinary Hole Root keeps
+        // approach fairway and obstacle context as the player nears the green; View Green itself
+        // deliberately enlarges only the measured green outline.
+        let padding = max(5, longestSide * 0.16)
         let padded = focus.insetBy(dx: -padding, dy: -padding)
         let fittedScale = max(
             0.01,
@@ -131,8 +128,8 @@ enum WatchGreenPreviewLayout {
     }
 }
 
-/// S70-style View Green: centre and enlarge the real green while retaining the surrounding topo,
-/// approach fairway and obstacles. Cards, titles and explanatory copy deliberately disappear.
+/// S70-style View Green: the real green outline is the entire instrument, with one distance and a
+/// draggable temporary flag. Hole topo, cards, titles and explanatory copy deliberately disappear.
 /// The current live-round contract has no independent `flag_position_set` event yet, so leaving this
 /// instrument restores the canonical pin.
 public struct WatchGreenPreviewView: View {
@@ -283,48 +280,23 @@ public struct WatchGreenPreviewView: View {
     ) {
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
 
-        var drewTopo = false
-        #if canImport(UIKit)
-        if let image = geometry.image {
-            let rect = CGRect(
-                x: viewport.imageOrigin.x,
-                y: viewport.imageOrigin.y,
-                width: geometry.imageSize.width * viewport.scale,
-                height: geometry.imageSize.height * viewport.scale
-            )
-            if rect.width.isFinite, rect.height.isFinite, rect.width > 0, rect.height > 0 {
-                context.draw(context.resolve(Image(uiImage: image)), in: rect)
-                drewTopo = true
-            }
-        }
-        #endif
-
         if geometry.greenOutlinePx.count >= 3 {
             let outline = WatchGreenPreviewLayout.smoothPath(
                 polygon: geometry.greenOutlinePx,
                 transform: viewport.canvasPoint
             )
             let bounds = outline.boundingRect
-            if drewTopo {
-                // The bitmap already carries the real fairway/green styling. This restrained wash
-                // only clarifies the movable-flag boundary without erasing nearby course context.
-                context.fill(
-                    outline,
-                    with: .color(Color(red: 0.45, green: 0.95, blue: 0.24).opacity(0.13))
+            context.fill(
+                outline,
+                with: .linearGradient(
+                    Gradient(colors: [
+                        Color(red: 0.43, green: 0.93, blue: 0.22),
+                        Color(red: 0.24, green: 0.78, blue: 0.18),
+                    ]),
+                    startPoint: CGPoint(x: bounds.midX, y: bounds.minY),
+                    endPoint: CGPoint(x: bounds.midX, y: bounds.maxY)
                 )
-            } else {
-                context.fill(
-                    outline,
-                    with: .linearGradient(
-                        Gradient(colors: [
-                            Color(red: 0.43, green: 0.93, blue: 0.22),
-                            Color(red: 0.24, green: 0.78, blue: 0.18),
-                        ]),
-                        startPoint: CGPoint(x: bounds.midX, y: bounds.minY),
-                        endPoint: CGPoint(x: bounds.midX, y: bounds.maxY)
-                    )
-                )
-            }
+            )
             // This is a neutral instrument grid, not invented slope/contour data. It provides the
             // same move-the-pin spatial cue as S70 while the actual measured outline remains the
             // only course geometry shown.

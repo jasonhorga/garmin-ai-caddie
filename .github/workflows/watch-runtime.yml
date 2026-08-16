@@ -212,6 +212,7 @@ jobs:
 
           capture_compact compact-holemap-long-copy compact-41mm-holemap-long-copy.png
           capture_compact standalone-course-seed compact-41mm-hole-root.png
+          capture_compact standalone-course-near-green compact-41mm-near-green.png
           capture_compact standalone-course-touch-target compact-41mm-touch-target.png
           capture_compact standalone-course-view-green compact-41mm-view-green.png
           capture_compact standalone-course-caddie compact-41mm-caddie.png
@@ -287,6 +288,7 @@ jobs:
           capture_ultra gps-acquiring ultra-49mm-gps-acquiring.png
           capture_ultra compact-holemap-long-copy ultra-49mm-holemap.png
           capture_ultra standalone-course-seed ultra-49mm-hole-root.png
+          capture_ultra standalone-course-near-green ultra-49mm-near-green.png
           capture_ultra standalone-course-touch-target ultra-49mm-touch-target.png
           capture_ultra standalone-course-view-green ultra-49mm-view-green.png
           capture_ultra standalone-course-caddie ultra-49mm-caddie.png
@@ -480,6 +482,8 @@ jobs:
           launch_and_capture standalone-course-map-zoom watch-standalone-course-map-zoom.png
           # The home hub must prefer the Watch's live center-green distance over static tee length.
           launch_and_capture standalone-course-live-home watch-standalone-course-live-home.png
+          # Hole Root near the green remains a contextual fairway map; View Green is a separate flag tool.
+          launch_and_capture standalone-course-near-green watch-standalone-course-near-green.png
           launch_and_capture standalone-course-touch-target watch-standalone-course-touch-target.png
           launch_and_capture standalone-course-view-green watch-standalone-course-view-green.png
           # The same persisted production hole state drives the shallow caddie and hazard surfaces.

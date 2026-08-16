@@ -63,6 +63,39 @@ final class WatchHoleMapViewportTests: XCTestCase {
         )
     }
 
+    func testTouchTargetUsesTwoStraightLineRangesCalibratedByLivePinDistance() throws {
+        let distances = try XCTUnwrap(WatchTouchTargetDistanceLayout.resolve(
+            playerImagePoint: WatchHoleMapSample.lastShotPx,
+            targetImagePoint: WatchHoleMapSample.youPx,
+            pinImagePoint: WatchHoleMapSample.pinPx,
+            centerGreenYards: 567
+        ))
+
+        XCTAssertEqual(distances.playerToTargetYards, 232)
+        XCTAssertEqual(distances.targetToPinYards, 346)
+        // This dogleg target sits off the direct player→pin chord. S70-style straight segments can
+        // therefore add up to slightly more than the 567-yard direct green distance.
+        XCTAssertGreaterThan(
+            distances.playerToTargetYards + distances.targetToPinYards,
+            567
+        )
+    }
+
+    func testTouchTargetRejectsMissingOrDegenerateDistanceAuthority() {
+        XCTAssertNil(WatchTouchTargetDistanceLayout.resolve(
+            playerImagePoint: .zero,
+            targetImagePoint: CGPoint(x: 0, y: 50),
+            pinImagePoint: CGPoint(x: 0, y: 100),
+            centerGreenYards: nil
+        ))
+        XCTAssertNil(WatchTouchTargetDistanceLayout.resolve(
+            playerImagePoint: .zero,
+            targetImagePoint: CGPoint(x: 0, y: 50),
+            pinImagePoint: .zero,
+            centerGreenYards: 100
+        ))
+    }
+
     func testFixedRemainingMarkersComeFromRouteMetresRatherThanScreenPercentages() {
         let route = [
             [0.0, 400.0, 0.0],
@@ -134,7 +167,7 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertFalse(WatchGreenPreviewLayout.contains(CGPoint(x: 15, y: 5), polygon: outline))
     }
 
-    func testGreenPreviewDefaultCropRetainsAnAdjacentBunker() {
+    func testGreenPreviewDefaultCropFillsTheDedicatedFlagInstrument() throws {
         let base = WatchHoleMapSample.geometry
         let geometry = WatchHoleMapGeometry(
             image: base.image,
@@ -152,9 +185,13 @@ final class WatchHoleMapViewportTests: XCTestCase {
         )
         let size = CGSize(width: 198, height: 242)
         let viewport = WatchGreenPreviewLayout.viewport(geometry: geometry, size: size)
-        let bunker = viewport.canvasPoint(CGPoint(x: 498, y: 317))
+        let outline = geometry.greenOutlinePx.map(viewport.canvasPoint)
+        let minX = try XCTUnwrap(outline.map(\.x).min())
+        let maxX = try XCTUnwrap(outline.map(\.x).max())
+        let safeRect = WatchDisplayGeometry.contentRect(in: size)
 
-        XCTAssertTrue(WatchDisplayGeometry.contentRect(in: size).contains(bunker))
+        XCTAssertTrue(outline.allSatisfy { safeRect.contains($0) })
+        XCTAssertGreaterThan(maxX - minX, safeRect.width * 0.55)
     }
 
     func testEighteenHoleRingStartsAtThreeAndEndsAtTwelve() {
@@ -258,6 +295,42 @@ final class WatchHoleMapViewportTests: XCTestCase {
         )
 
         XCTAssertEqual(scale, WatchHoleMapView.restingCrownScale, accuracy: 0.0001)
+    }
+
+    func testTouchTargetRestingScaleKeepsPlayerAndFlagVisibleThenZoomsContinuously() {
+        let resting = WatchHoleMapViewport.touchTargetScale(
+            crownScale: WatchHoleMapView.restingCrownScale,
+            minimumCrownScale: WatchHoleMapView.restingCrownScale,
+            maximumCrownScale: WatchHoleMapView.maximumCrownScale,
+            viewportHeight: 242,
+            playerAnchorFraction: 0.66,
+            playerImageY: 981,
+            pinImageY: 279
+        )
+        let middle = WatchHoleMapViewport.touchTargetScale(
+            crownScale: 0.44,
+            minimumCrownScale: WatchHoleMapView.restingCrownScale,
+            maximumCrownScale: WatchHoleMapView.maximumCrownScale,
+            viewportHeight: 242,
+            playerAnchorFraction: 0.66,
+            playerImageY: 981,
+            pinImageY: 279
+        )
+        let maximum = WatchHoleMapViewport.touchTargetScale(
+            crownScale: WatchHoleMapView.maximumCrownScale,
+            minimumCrownScale: WatchHoleMapView.restingCrownScale,
+            maximumCrownScale: WatchHoleMapView.maximumCrownScale,
+            viewportHeight: 242,
+            playerAnchorFraction: 0.66,
+            playerImageY: 981,
+            pinImageY: 279
+        )
+
+        let pinY = 242.0 * 0.66 + (279.0 - 981.0) * resting
+        XCTAssertGreaterThanOrEqual(pinY, WatchHoleMapViewport.flagTopClearance)
+        XCTAssertLessThan(resting, middle)
+        XCTAssertLessThan(middle, maximum)
+        XCTAssertEqual(maximum, WatchHoleMapView.maximumCrownScale, accuracy: 0.0001)
     }
 
 }

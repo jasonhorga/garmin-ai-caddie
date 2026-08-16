@@ -36,6 +36,7 @@ public struct WatchUITestRoot: View {
             milestoneRound
         case "standalone-course-seed", "standalone-course-restore",
              "standalone-course-map-zoom",
+             "standalone-course-near-green",
              "standalone-course-touch-target", "standalone-course-view-green",
              "standalone-course-caddie", "standalone-course-hazards",
              "standalone-course-last-shot", "standalone-course-caddie-last-shot",
@@ -291,7 +292,7 @@ public struct WatchUITestRoot: View {
                     model: model,
                     holeGeometry: standaloneCourseGeometry,
                     watchGreenYards: standaloneHomeGreenYards,
-                    shotLocation: standaloneLastShotFix,
+                    shotLocation: standaloneRuntimeFix,
                     // A reachable mid-Crown detent whose rendered topo occupancy matches approved
                     // state #6; +0.02 only proved mode entry and was not meaningful zoom evidence.
                     initialHoleMapCrownScale: screen == "standalone-course-map-zoom"
@@ -301,7 +302,7 @@ public struct WatchUITestRoot: View {
                         ? model.activeHoleState?.hazards.first?.id
                         : nil,
                     measuredPxOverride: screen == "standalone-course-touch-target"
-                        ? CGPoint(x: 500, y: 470)
+                        ? WatchHoleMapSample.youPx
                         : nil
                 )
             } else {
@@ -318,6 +319,8 @@ public struct WatchUITestRoot: View {
                 // same real "上一杆" fact instead of proving zoom with an artificially empty round.
                 ensureStandaloneLastShot()
                 model.openHoleMap()
+            } else if screen == "standalone-course-near-green" {
+                model.backToHome()
             } else if screen == "standalone-course-touch-target" {
                 model.openHoleMap()
             } else if screen == "standalone-course-view-green" {
@@ -1097,12 +1100,26 @@ public struct WatchUITestRoot: View {
     }
 
     private var standaloneHomeGreenYards: (front: Int?, center: Int?, back: Int?)? {
-        screen == "standalone-course-live-home"
-            ? (front: 199, center: 211, back: 223)
-            : (front: 552, center: 567, back: 581)
+        switch screen {
+        case "standalone-course-live-home":
+            return (front: 199, center: 211, back: 223)
+        case "standalone-course-near-green":
+            return (front: 41, center: 53, back: 66)
+        default:
+            return (front: 552, center: 567, back: 581)
+        }
     }
 
-    private var standaloneLastShotFix: WatchLocationFix? {
+    private var standaloneRuntimeFix: WatchLocationFix? {
+        if screen == "standalone-course-near-green" {
+            // The image-space route point below is about 49 m short of the pin. This separate GPS
+            // coordinate is used only to prove production Tee gating is off in the near-green state.
+            return WatchLocationFix(
+                coordinate: CLLocationCoordinate2D(latitude: 40.0490, longitude: 116.5461531),
+                horizontalAccuracyM: 5,
+                capturedAt: "2026-07-27T00:02:00Z"
+            )
+        }
         return WatchLocationFix(
             coordinate: CLLocationCoordinate2D(latitude: 40.0454995, longitude: 116.5461531),
             horizontalAccuracyM: 5,
@@ -1131,11 +1148,19 @@ public struct WatchUITestRoot: View {
               ) else {
             return nil
         }
-        return WatchHoleMapGeometry.from(
+        guard let geometry = WatchHoleMapGeometry.from(
             holeMap: state.holeMap,
             image: image,
             hazards: state.hazards
-        )
+        ) else { return nil }
+        guard screen == "standalone-course-near-green" else { return geometry }
+        // 470 m along the real 518.8 m route: Hole Root keeps fairway/obstacle context, but its fixed
+        // map scale naturally presents the nearby green larger than the fitted whole-hole Tee view.
+        let nearGreenPoint = WatchHazardMapLayout.imagePoint(
+            on: Self.standaloneFullRoute,
+            atMetres: 470
+        ) ?? CGPoint(x: 470, y: 340)
+        return geometry.withYou(nearGreenPoint)
     }
 
     @MainActor

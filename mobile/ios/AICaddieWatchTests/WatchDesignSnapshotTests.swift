@@ -1100,12 +1100,14 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testRenderWatchHoleMapMeasured() throws {
         // Touch Target owns a focused map and shows both current→target and target→flag ranges.
         let view = WatchHoleMapView(
-            holeNumber: 4, par: 5, frontGreen: 273, centerGreen: 287, backGreen: 300,
+            holeNumber: 4, par: 5, frontGreen: 552, centerGreen: 567, backGreen: 581,
             lastShot: 0,
-            showCaddieRecommendation: true,
-            showPreparedPlan: true,
             ringPips: [],
-            measuredPxOverride: CGPoint(x: 470, y: 470),
+            showTextOverlay: false,
+            showHoleIdentity: false,
+            fullMap: true,
+            geometry: WatchHoleMapSample.teeGeometry,
+            measuredPxOverride: WatchHoleMapSample.youPx,
             interactionMode: .touchTarget
         )
         .watchSnapshotFrame(width: 198, height: 242)
