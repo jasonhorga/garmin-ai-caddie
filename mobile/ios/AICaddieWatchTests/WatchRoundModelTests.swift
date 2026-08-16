@@ -1272,6 +1272,11 @@ final class WatchRoundModelTests: XCTestCase {
             horizontalAccuracyM: 6,
             capturedAt: "2026-06-20T00:00:00Z"
         )))
+        XCTAssertFalse(model.playerAtActiveTee(at: WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.04585, longitude: 116.5462),
+            horizontalAccuracyM: 6,
+            capturedAt: "2026-06-20T00:00:00Z"
+        )))
         XCTAssertFalse(model.preparedRootCaddieLayerAvailable(at: WatchLocationFix(
             coordinate: CLLocationCoordinate2D(latitude: 40.0461, longitude: 116.5462),
             horizontalAccuracyM: 6,

@@ -476,12 +476,16 @@ public final class WatchRoundModel: ObservableObject {
               teeLongitude.isFinite, (-180...180).contains(teeLongitude) else {
             return false
         }
-        return WatchGeoMath.metres(
+        let distanceFromTeeM = WatchGeoMath.metres(
             teeLatitude,
             teeLongitude,
             fix.coordinate.latitude,
             fix.coordinate.longitude
-        ) <= 35 + fix.horizontalAccuracyM
+        )
+        // Keep the arc on the selected Tee box, not the first stretch of fairway. Allow only a
+        // bounded GPS cushion; the former 35 m + full accuracy rule could remain active 55 m away.
+        let teeRadiusM = 25 + min(fix.horizontalAccuracyM, 10)
+        return distanceFromTeeM <= teeRadiusM
     }
 
     /// A downloaded course already contains a real Tee recommendation, landing point, route and the
