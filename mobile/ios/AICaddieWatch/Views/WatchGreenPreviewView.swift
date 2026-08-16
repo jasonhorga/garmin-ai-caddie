@@ -130,12 +130,6 @@ public struct WatchGreenPreviewView: View {
                     Text("查看果岭")
                         .font(.system(size: 13, weight: .bold))
                         .lineLimit(1)
-                    Text("临时")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.88), in: Capsule())
                     Spacer(minLength: 46)
                 }
                 .frame(width: safeRect.width, height: 44)
@@ -151,7 +145,7 @@ public struct WatchGreenPreviewView: View {
                             .padding(.vertical, 4)
                             .background(Color.black.opacity(0.74), in: Capsule())
                     }
-                    Text(canMoveFlag ? "拖动旗位 · 离开后复原" : "当前球包没有果岭轮廓")
+                    Text(canMoveFlag ? "拖动临时旗位 · 离开复原" : "当前球包没有果岭轮廓")
                         .font(.system(size: 8.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.72))
                         .lineLimit(1)

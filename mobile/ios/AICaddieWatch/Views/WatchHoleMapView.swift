@@ -157,6 +157,11 @@ struct WatchRemainingDistanceMarker: Equatable {
     let imagePoint: CGPoint
 }
 
+struct WatchReferenceLabelPlacement: Equatable {
+    let center: CGPoint
+    let rect: CGRect
+}
+
 enum WatchHoleMapReferenceLayout {
     static let remainingYards = [100, 150, 200, 250]
     static let metresPerYard = 0.9144
@@ -209,6 +214,62 @@ enum WatchHoleMapReferenceLayout {
             on: route,
             atMetres: progress + driverDistanceM
         )
+    }
+
+    /// Driver and fixed-distance facts can converge within a few points on the compact map. Keep
+    /// every factual marker, but place its label in the first adjacent lane that does not collide
+    /// with another label or the system clock. If no lane fits, omit only the label.
+    static func labelPlacement(
+        marker: CGPoint,
+        pillSize: CGSize,
+        viewportSize: CGSize,
+        contentMinX: CGFloat,
+        occupiedRects: [CGRect]
+    ) -> WatchReferenceLabelPlacement? {
+        let values = [
+            marker.x, marker.y, pillSize.width, pillSize.height,
+            viewportSize.width, viewportSize.height, contentMinX,
+        ]
+        guard values.allSatisfy(\.isFinite), pillSize.width > 0, pillSize.height > 0 else {
+            return nil
+        }
+
+        let safeRect = WatchDisplayGeometry.contentRect(in: viewportSize)
+        let halfWidth = pillSize.width / 2
+        let halfHeight = pillSize.height / 2
+        let mapMinX = min(max(contentMinX, safeRect.minX), safeRect.maxX)
+        let minX = mapMinX + halfWidth + 2
+        let maxX = safeRect.maxX - halfWidth
+        guard maxX >= minX else { return nil }
+
+        let verticalStep = pillSize.height + 3
+        let verticalOffsets: [CGFloat] = [0, -verticalStep, verticalStep, -2 * verticalStep, 2 * verticalStep]
+        let horizontalOffset = halfWidth + 4
+        let timeRect = WatchHoleMapViewport.systemTimeRect(in: viewportSize).insetBy(dx: -2, dy: -2)
+
+        for verticalOffset in verticalOffsets {
+            for side in [CGFloat(1), CGFloat(-1)] {
+                let center = CGPoint(
+                    x: min(max(marker.x + side * horizontalOffset, minX), maxX),
+                    y: min(
+                        max(marker.y + verticalOffset, safeRect.minY + halfHeight),
+                        safeRect.maxY - halfHeight
+                    )
+                )
+                let rect = CGRect(
+                    x: center.x - halfWidth,
+                    y: center.y - halfHeight,
+                    width: pillSize.width,
+                    height: pillSize.height
+                )
+                guard !rect.intersects(timeRect),
+                      !occupiedRects.contains(where: { rect.intersects($0.insetBy(dx: -2, dy: -2)) }) else {
+                    continue
+                }
+                return WatchReferenceLabelPlacement(center: center, rect: rect)
+            }
+        }
+        return nil
     }
 
     private static func validRouteRow(_ row: [Double]) -> Bool {
@@ -339,13 +400,11 @@ public struct WatchHoleMapView: View {
     // watch P1: the topo image + overlay anchors (image-px). Defaults to the baked sample (snapshots);
     // the real playing view builds it from the fetched /topo.png + holeImageProjection.
     public let geometry: WatchHoleMapGeometry
-    // Touch Target snapshot override; live interaction uses the @State below.
-    public let measuredPxOverride: CGPoint?
     public let interactionMode: WatchHoleMapInteractionMode
     /// 选点测距: the last tapped point in IMAGE-px space (a crosshair + distance-from-you pill).
     @State private var liveMeasuredPx: CGPoint?
 
-    private var measuredPx: CGPoint? { measuredPxOverride ?? liveMeasuredPx }
+    private var measuredPx: CGPoint? { liveMeasuredPx }
 
     public init(
         holeNumber: Int = 4,
@@ -400,7 +459,7 @@ public struct WatchHoleMapView: View {
         self.fullMap = fullMap
         self.mapScale = mapScale
         self.geometry = geometry
-        self.measuredPxOverride = measuredPxOverride
+        _liveMeasuredPx = State(initialValue: measuredPxOverride)
         self.interactionMode = interactionMode
         self.onOpenCaddie = onOpenCaddie
         self.onOpenMapDetail = onOpenMapDetail
@@ -496,7 +555,7 @@ public struct WatchHoleMapView: View {
         case .touchTarget:
             let safeRect = WatchDisplayGeometry.contentRect(in: size)
             let hitsBack = location.x <= safeRect.minX + 50
-                && location.y <= safeRect.minY + 50
+                && location.y >= safeRect.maxY - 50
             let hitsClear = measuredPx != nil
                 && location.x >= safeRect.maxX - 62
                 && location.y >= safeRect.maxY - 48
@@ -546,9 +605,9 @@ public struct WatchHoleMapView: View {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         return ZStack {
             WatchInstrumentBackButton(accessibilityLabel: "返回球洞", onBack: onBack)
-                .position(x: safeRect.minX + 22, y: safeRect.minY + 22)
+                .position(x: safeRect.minX + 22, y: safeRect.maxY - 22)
 
-            if measuredPx != nil && measuredPxOverride == nil {
+            if measuredPx != nil {
                 Button {
                     liveMeasuredPx = nil
                 } label: {
@@ -569,7 +628,7 @@ public struct WatchHoleMapView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(Color.black.opacity(0.68), in: Capsule())
-                    .position(x: safeRect.midX, y: safeRect.maxY - 14)
+                    .position(x: safeRect.maxX - 38, y: safeRect.maxY - 18)
             }
         }
         .frame(width: size.width, height: size.height)
@@ -948,6 +1007,8 @@ public struct WatchHoleMapView: View {
         size: CGSize,
         transform: (CGPoint) -> CGPoint
     ) {
+        var occupiedLabelRects: [CGRect] = []
+        let contentMinX = size.width * columnFrac
         if let targetImage = WatchHoleMapReferenceLayout.driverTarget(
             route: hazardRoute,
             playerImagePoint: geometry.youPx,
@@ -976,7 +1037,9 @@ public struct WatchHoleMapView: View {
                     text: "D \(WatchUnits.yards(driverDistanceM))",
                     at: target,
                     tint: .white,
-                    viewportSize: size
+                    viewportSize: size,
+                    contentMinX: contentMinX,
+                    occupiedRects: &occupiedLabelRects
                 )
             }
         }
@@ -1005,7 +1068,9 @@ public struct WatchHoleMapView: View {
                 text: "\(marker.remainingYards)",
                 at: point,
                 tint: tint,
-                viewportSize: size
+                viewportSize: size,
+                contentMinX: contentMinX,
+                occupiedRects: &occupiedLabelRects
             )
         }
     }
@@ -1025,20 +1090,21 @@ public struct WatchHoleMapView: View {
         text: String,
         at marker: CGPoint,
         tint: Color,
-        viewportSize: CGSize
+        viewportSize: CGSize,
+        contentMinX: CGFloat,
+        occupiedRects: inout [CGRect]
     ) {
         let width = max(18, CGFloat(text.count) * 5.3 + 7)
         let height: CGFloat = 11
-        let safeRect = WatchDisplayGeometry.contentRect(in: viewportSize)
-        let preferredX = marker.x + width * 0.5 + 4
-        let x = min(max(preferredX, safeRect.minX + width * 0.5), safeRect.maxX - width * 0.5)
-        var y = min(max(marker.y, safeRect.minY + height * 0.5), safeRect.maxY - height * 0.5)
-        var rect = CGRect(x: x - width * 0.5, y: y - height * 0.5, width: width, height: height)
-        let timeRect = WatchHoleMapViewport.systemTimeRect(in: viewportSize)
-        if rect.intersects(timeRect) {
-            y = min(timeRect.maxY + height * 0.5 + 2, safeRect.maxY - height * 0.5)
-            rect.origin.y = y - height * 0.5
-        }
+        guard let placement = WatchHoleMapReferenceLayout.labelPlacement(
+            marker: marker,
+            pillSize: CGSize(width: width, height: height),
+            viewportSize: viewportSize,
+            contentMinX: contentMinX,
+            occupiedRects: occupiedLabelRects
+        ) else { return }
+        occupiedLabelRects.append(placement.rect)
+        let rect = placement.rect
         context.fill(Path(roundedRect: rect, cornerRadius: height * 0.5), with: .color(.black.opacity(0.68)))
         context.stroke(
             Path(roundedRect: rect, cornerRadius: height * 0.5),
@@ -1047,7 +1113,7 @@ public struct WatchHoleMapView: View {
         )
         context.draw(
             context.resolve(Text(text).font(.system(size: 6.8, weight: .bold)).foregroundColor(.white)),
-            at: CGPoint(x: x, y: y)
+            at: placement.center
         )
     }
 

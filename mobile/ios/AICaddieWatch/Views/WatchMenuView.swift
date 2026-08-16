@@ -97,9 +97,10 @@ public struct WatchMenuView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(showingMoreTools ? "返回高尔夫菜单" : "返回球洞")
-                    Text(showingMoreTools ? "更多工具" : "高尔夫菜单")
+                    Text(showingMoreTools ? "更多" : "菜单")
                         .font(.system(size: 15, weight: .bold))
                         .lineLimit(1)
+                        .accessibilityLabel(showingMoreTools ? "更多工具" : "高尔夫菜单")
                     Spacer(minLength: 48)
                 }
                 .padding(.bottom, 2)

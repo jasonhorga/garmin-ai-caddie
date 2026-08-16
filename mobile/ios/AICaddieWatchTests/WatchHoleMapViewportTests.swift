@@ -198,6 +198,40 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertEqual(late.map(\.remainingYards), [100, 150])
     }
 
+    func testCompactReferenceLabelsUseSeparateLanesOutsideTheClockAndDataColumn() throws {
+        let viewport = CGSize(width: 176, height: 215)
+        let contentMinX = viewport.width * 0.38
+        let clusteredMarkers = [
+            CGPoint(x: 103, y: 48),
+            CGPoint(x: 106, y: 51),
+            CGPoint(x: 110, y: 57),
+            CGPoint(x: 108, y: 67),
+            CGPoint(x: 111, y: 78),
+        ]
+        let sizes = [
+            CGSize(width: 34, height: 11),
+            CGSize(width: 23, height: 11),
+            CGSize(width: 23, height: 11),
+            CGSize(width: 23, height: 11),
+            CGSize(width: 23, height: 11),
+        ]
+        var occupied: [CGRect] = []
+
+        for (marker, size) in zip(clusteredMarkers, sizes) {
+            let placement = try XCTUnwrap(WatchHoleMapReferenceLayout.labelPlacement(
+                marker: marker,
+                pillSize: size,
+                viewportSize: viewport,
+                contentMinX: contentMinX,
+                occupiedRects: occupied
+            ))
+            XCTAssertGreaterThanOrEqual(placement.rect.minX, contentMinX)
+            XCTAssertFalse(placement.rect.intersects(WatchHoleMapViewport.systemTimeRect(in: viewport)))
+            XCTAssertTrue(occupied.allSatisfy { !$0.intersects(placement.rect) })
+            occupied.append(placement.rect)
+        }
+    }
+
     func testDriverArcRequiresARealInBoundsBagDistance() throws {
         let route = [
             [0.0, 400.0, 0.0],

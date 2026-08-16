@@ -217,6 +217,7 @@ jobs:
           capture_compact standalone-course-caddie compact-41mm-caddie.png
           capture_compact standalone-course-hazards compact-41mm-hazard.png
           capture_compact menu compact-41mm-menu.png
+          capture_compact interaction-current-hole-shots compact-41mm-current-hole-shots.png
           capture_compact compact-score-fairway compact-41mm-score-fairway.png
           capture_compact compact-club-prompt compact-41mm-club-prompt.png
           capture_compact compact-finish compact-41mm-finish.png
@@ -292,6 +293,7 @@ jobs:
           capture_ultra standalone-course-caddie ultra-49mm-caddie.png
           capture_ultra standalone-course-hazards ultra-49mm-hazard.png
           capture_ultra menu ultra-49mm-menu.png
+          capture_ultra interaction-current-hole-shots ultra-49mm-current-hole-shots.png
           capture_ultra finish-actions ultra-49mm-finish-actions.png
           capture_ultra finish-confirmation ultra-49mm-finish-confirmation.png
           capture_ultra resume-round ultra-49mm-resume-round.png

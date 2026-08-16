@@ -39,10 +39,11 @@ public struct WatchCurrentHoleShotsView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             WatchInstrumentHeader(
-                "H\(hole) · 本洞击球",
+                "H\(hole) · P\(par)",
                 backLabel: "返回菜单",
                 onBack: onBack
             )
+            .accessibilityLabel("第 \(hole) 洞，标准杆 \(par)，本洞击球")
 
             if shots.isEmpty {
                 Text("本洞还没有记录击球")
