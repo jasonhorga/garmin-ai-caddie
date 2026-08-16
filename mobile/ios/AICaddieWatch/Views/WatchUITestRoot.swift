@@ -320,6 +320,7 @@ public struct WatchUITestRoot: View {
                 ensureStandaloneLastShot()
                 model.openHoleMap()
             } else if screen == "standalone-course-near-green" {
+                installStandaloneFixtureRound()
                 model.backToHome()
             } else if screen == "standalone-course-touch-target" {
                 model.openHoleMap()
@@ -1103,7 +1104,7 @@ public struct WatchUITestRoot: View {
         switch screen {
         case "standalone-course-live-home":
             return (front: 199, center: 211, back: 223)
-        case "standalone-course-near-green":
+        case "standalone-course-near-green", "standalone-course-view-green":
             return (front: 41, center: 53, back: 66)
         default:
             return (front: 552, center: 567, back: 581)
@@ -1111,7 +1112,7 @@ public struct WatchUITestRoot: View {
     }
 
     private var standaloneRuntimeFix: WatchLocationFix? {
-        if screen == "standalone-course-near-green" {
+        if standaloneShowsNearGreenGeometry {
             // The image-space route point below is about 49 m short of the pin. This separate GPS
             // coordinate is used only to prove production Tee gating is off in the near-green state.
             return WatchLocationFix(
@@ -1153,7 +1154,7 @@ public struct WatchUITestRoot: View {
             image: image,
             hazards: state.hazards
         ) else { return nil }
-        guard screen == "standalone-course-near-green" else { return geometry }
+        guard standaloneShowsNearGreenGeometry else { return geometry }
         // 470 m along the real 518.8 m route: Hole Root keeps fairway/obstacle context, but its fixed
         // map scale naturally presents the nearby green larger than the fitted whole-hole Tee view.
         let nearGreenPoint = WatchHazardMapLayout.imagePoint(
@@ -1161,6 +1162,21 @@ public struct WatchUITestRoot: View {
             atMetres: 470
         ) ?? CGPoint(x: 470, y: 340)
         return geometry.withYou(nearGreenPoint)
+    }
+
+    private var standaloneShowsNearGreenGeometry: Bool {
+        screen == "standalone-course-near-green" || screen == "standalone-course-view-green"
+    }
+
+    private func installStandaloneFixtureRound() {
+        let prepared = Self.standaloneCourseTemplate.makeRound(
+            roundId: "ci-watch-offline-course-round"
+        )
+        model.seedRound(
+            prepared.holeStates,
+            activeHole: prepared.holeStates.first?.hole,
+            courseName: prepared.courseName
+        )
     }
 
     @MainActor
@@ -1175,14 +1191,7 @@ public struct WatchUITestRoot: View {
         // This focused fixture proves round + active-map restoration only. It intentionally does not
         // advertise a one-image template as a downloaded 18-hole course; the credentialed Cypress
         // journey below is the full production course-library/offline authority gate.
-        let prepared = Self.standaloneCourseTemplate.makeRound(
-            roundId: "ci-watch-offline-course-round"
-        )
-        model.seedRound(
-            prepared.holeStates,
-            activeHole: prepared.holeStates.first?.hole,
-            courseName: prepared.courseName
-        )
+        installStandaloneFixtureRound()
     }
 
     private var milestoneRound: some View {
