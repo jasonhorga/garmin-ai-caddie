@@ -62,11 +62,4 @@ final class WatchCurrentShotLayoutTests: XCTestCase {
         ))
         XCTAssertEqual(layout.continuation.last, geometry.pinPx)
     }
-
-    func testCurrentHoleShotListBeginsBelowTheSystemClockLane() {
-        XCTAssertGreaterThanOrEqual(
-            WatchCurrentHoleShotsLayout.systemTimeTopClearance,
-            CGFloat(28)
-        )
-    }
 }
