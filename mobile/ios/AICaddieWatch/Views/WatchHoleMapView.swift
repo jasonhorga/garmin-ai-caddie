@@ -1101,9 +1101,9 @@ public struct WatchHoleMapView: View {
             pillSize: CGSize(width: width, height: height),
             viewportSize: viewportSize,
             contentMinX: contentMinX,
-            occupiedRects: occupiedLabelRects
+            occupiedRects: occupiedRects
         ) else { return }
-        occupiedLabelRects.append(placement.rect)
+        occupiedRects.append(placement.rect)
         let rect = placement.rect
         context.fill(Path(roundedRect: rect, cornerRadius: height * 0.5), with: .color(.black.opacity(0.68)))
         context.stroke(
