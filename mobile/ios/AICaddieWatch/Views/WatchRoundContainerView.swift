@@ -198,7 +198,6 @@ public struct WatchRoundContainerView: View {
                 onCaddie: { model.openCaddie() },
                 onHazards: { model.openHazards() },
                 onScorecard: { model.openScorecard() },
-                onCurrentHoleShots: { model.openCurrentHoleShots() },
                 onHoleSelect: { model.openHoleSelect() },
                 onClubStats: { model.openClubStats() },
                 onSettings: { model.openSettings() },
@@ -288,23 +287,6 @@ public struct WatchRoundContainerView: View {
                     onSelectHole: { model.startEditingHole($0) },
                     onBack: { model.closeScorecard() }
                 )
-            }
-        case .currentHoleShots:
-            if let state = model.activeHoleState {
-                ScrollView {
-                    WatchCurrentHoleShotsView(
-                        hole: state.hole,
-                        par: state.par,
-                        shots: model.currentHoleShots,
-                        latestShotDistanceM: latestShotDistanceM(state),
-                        canAddShot: shotLocation != nil,
-                        onAddShot: { recordManualShot() },
-                        onBack: { model.backToMenu() }
-                    )
-                }
-                .ignoresSafeArea(edges: .top)
-            } else {
-                Color.black.onAppear { model.backToMenu() }
             }
         case .holeSelect:
             ScrollView {
@@ -502,7 +484,6 @@ public struct WatchRoundContainerView: View {
             showPreparedPlan: preparedRootCaddieLayerAvailable,
             driverDistanceM: model.playerAtActiveTee(at: shotLocation) ? driverDistanceM(s) : nil,
             showReferenceMarkers: true,
-            hazards: s.hazards,
             hazardRoute: s.holeMap?.route ?? [],
             // owner 2026-07-08 (Fable audit): KEEP the scoring ring — real per-hole scores, current hole hi.
             ringPips: model.allHoleStates.map {
@@ -539,7 +520,6 @@ public struct WatchRoundContainerView: View {
             showCaddieRecommendation: false,
             showPreparedPlan: false,
             showReferenceMarkers: false,
-            hazards: [],
             hazardRoute: s.holeMap?.route ?? [],
             ringPips: [],
             showTextOverlay: false,

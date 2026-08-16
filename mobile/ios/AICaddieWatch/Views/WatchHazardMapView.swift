@@ -1,34 +1,10 @@
 import SwiftUI
 
 enum WatchHazardMapLayout {
-    static let markerDiameter: CGFloat = 6
-    static let markerToPillCenterOffset: CGFloat = 11
-    static let topPillLaneCenterY: CGFloat = 42
-    static let topBoundaryClearance: CGFloat = 56
+    static let topBoundaryClearance: CGFloat = 42
     /// The real watchOS runtime keeps drawing its clock even when this full-screen map requests
     /// hidden overlays. Reserve that top-right lane instead of centering map copy underneath it.
     static let systemTimeTrailingClearance: CGFloat = 56
-    static let topSummaryLeadingInset: CGFloat = WatchDisplayGeometry.minimumContentInset
-
-    static func topSummaryWidth(viewportWidth: CGFloat) -> CGFloat {
-        max(0, viewportWidth - topSummaryLeadingInset - systemTimeTrailingClearance)
-    }
-
-    static func distancePillSize(for text: String) -> CGSize {
-        CGSize(width: CGFloat(text.count) * 6 + 14, height: 15)
-    }
-
-    static func distancePillCenterX(
-        markerX: CGFloat,
-        pillWidth: CGFloat,
-        viewportWidth: CGFloat
-    ) -> CGFloat {
-        let halfWidth = max(pillWidth, 0) / 2
-        let safeInset = WatchDisplayGeometry.horizontalContentInset(forWidth: viewportWidth)
-        let minimumX = halfWidth + safeInset
-        let maximumX = max(minimumX, viewportWidth - halfWidth - safeInset)
-        return min(max(markerX, minimumX), maximumX)
-    }
 
     static func imagePoint(on route: [[Double]], atMetres metres: Double) -> CGPoint? {
         guard metres.isFinite,
@@ -144,33 +120,6 @@ enum WatchHazardMapLayout {
         point(hazard.backPx) ?? alongRouteEndMetres(for: hazard).flatMap { imagePoint(on: route, atMetres: $0) }
     }
 
-    /// Keep the farther-edge (过) label above the nearer-edge (到) label when viewport clamping
-    /// would otherwise collapse both compact pills onto one row.
-    static func separatedPillCenterYs(
-        frontPreferredY: CGFloat,
-        backPreferredY: CGFloat,
-        minimumY: CGFloat,
-        maximumY: CGFloat,
-        minimumSpacing: CGFloat
-    ) -> (front: CGFloat, back: CGFloat) {
-        guard frontPreferredY.isFinite, backPreferredY.isFinite,
-              minimumY.isFinite, maximumY.isFinite, minimumSpacing.isFinite,
-              maximumY >= minimumY else {
-            return (frontPreferredY, backPreferredY)
-        }
-        let available = maximumY - minimumY
-        let spacing = min(max(minimumSpacing, 0), available)
-        let clamp: (CGFloat) -> CGFloat = { min(max($0, minimumY), maximumY) }
-        let front = clamp(frontPreferredY)
-        let back = clamp(backPreferredY)
-        if front >= back + spacing {
-            return (front, back)
-        }
-
-        let resolvedBack = min(max(min(front, back), minimumY), maximumY - spacing)
-        return (resolvedBack + spacing, resolvedBack)
-    }
-
     private static func valid(_ row: [Double]) -> Bool {
         row.count >= 3 && row[0].isFinite && row[1].isFinite && row[2].isFinite
     }
@@ -273,7 +222,7 @@ public struct WatchHazardMapView: View {
         let scale = CGFloat(WatchHoleMapViewport.effectiveRestingScale(
             requestedScale: WatchHoleMapView.maximumCrownScale,
             viewportHeight: Double(size.height),
-            playerAnchorFraction: 0.66,
+            playerAnchorFraction: 0.80,
             playerImageY: Double(geometry.youPx.y),
             pinImageY: Double(topImageY),
             topClearance: (centerGreenYards ?? 0) > 0
@@ -292,6 +241,7 @@ public struct WatchHazardMapView: View {
                 showHoleIdentity: false,
                 fullMap: true,
                 mapScale: scale,
+                fullMapPlayerAnchorFraction: 0.80,
                 geometry: geometry
             )
             .allowsHitTesting(false)
@@ -319,7 +269,7 @@ public struct WatchHazardMapView: View {
         endMetres: Double,
         scale: CGFloat
     ) {
-        let playerCanvas = CGPoint(x: size.width * 0.5, y: size.height * 0.66)
+        let playerCanvas = CGPoint(x: size.width * 0.5, y: size.height * 0.80)
         func canvas(_ point: CGPoint) -> CGPoint {
             CGPoint(
                 x: (point.x - geometry.youPx.x) * scale + playerCanvas.x,
@@ -333,27 +283,31 @@ public struct WatchHazardMapView: View {
         let hasFrontBack = hazard.kind == "water" || WatchHazardMapLayout.hasMeasuredFrontBack(hazard)
         let frontPoint = WatchHazardMapLayout.frontImagePoint(for: hazard, on: route)
         let backPoint = WatchHazardMapLayout.backImagePoint(for: hazard, on: route)
-        let pillHeight = WatchHazardMapLayout.distancePillSize(for: "到 000").height
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
-        let minimumPillCenterY: CGFloat = (centerGreenYards ?? 0) > 0
-            ? WatchHazardMapLayout.topPillLaneCenterY
-            : safeRect.minY + pillHeight * 0.5
-        let maximumPillCenterY = max(minimumPillCenterY, safeRect.maxY - pillHeight * 0.5)
-        let frontCanvasPoint = frontPoint.map(canvas)
-        let backCanvasPoint = backPoint.map(canvas)
-        let lanes = WatchHazardMapLayout.separatedPillCenterYs(
-            frontPreferredY: (frontCanvasPoint?.y ?? minimumPillCenterY)
-                + WatchHazardMapLayout.markerToPillCenterOffset,
-            backPreferredY: (backCanvasPoint?.y ?? minimumPillCenterY)
-                - WatchHazardMapLayout.markerToPillCenterOffset,
-            minimumY: minimumPillCenterY,
-            maximumY: maximumPillCenterY,
-            minimumSpacing: pillHeight + 3
-        )
-        let edges: [(String, Double, CGPoint?, CGFloat?)] = hasFrontBack
-            ? [("到", startMetres, frontPoint, lanes.front), ("过", endMetres, backPoint, lanes.back)]
-            : [("距", startMetres, frontPoint, nil)]
-        for (label, metres, imagePoint, fixedCenterY) in edges {
+
+        // Precise packages bind both points to the real obstacle boundary. A restrained tint stroke
+        // makes the bunker/water already present in the topo easy to find without inventing a shape.
+        if WatchHazardMapLayout.point(hazard.frontPx) != nil,
+           WatchHazardMapLayout.point(hazard.backPx) != nil,
+           let frontPoint,
+           let backPoint {
+            var boundary = Path()
+            boundary.move(to: canvas(frontPoint))
+            boundary.addLine(to: canvas(backPoint))
+            context.stroke(
+                boundary,
+                with: .color(tint.opacity(0.62)),
+                style: StrokeStyle(
+                    lineWidth: hazard.kind == "water" ? 5 : 4,
+                    lineCap: .round
+                )
+            )
+        }
+
+        let edges: [(Double, CGPoint?, CGFloat)] = hasFrontBack
+            ? [(startMetres, frontPoint, 9), (endMetres, backPoint, -9)]
+            : [(startMetres, frontPoint, 0)]
+        for (metres, imagePoint, verticalOffset) in edges {
             guard let imagePoint else {
                 continue
             }
@@ -362,49 +316,17 @@ public struct WatchHazardMapView: View {
             ) ?? WatchHazardMapLayout.remainingYards(to: metres, after: playerProgressMetres)
             guard let yards = WatchGeoMath.usefulGolfYards(yards) else { continue }
             let point = canvas(imagePoint)
-            let markerDiameter = WatchHazardMapLayout.markerDiameter
-            let markerRect = CGRect(
-                x: point.x - markerDiameter * 0.5,
-                y: point.y - markerDiameter * 0.5,
-                width: markerDiameter,
-                height: markerDiameter
-            )
-            context.fill(Path(ellipseIn: markerRect), with: .color(tint))
-            context.stroke(
-                Path(ellipseIn: markerRect),
-                with: .color(.black),
-                style: StrokeStyle(lineWidth: 1)
-            )
-
-            let text = "\(label) \(yards)"
-            let pillSize = WatchHazardMapLayout.distancePillSize(for: text)
-            let pillCenter = CGPoint(
-                x: WatchHazardMapLayout.distancePillCenterX(
-                    markerX: point.x,
-                    pillWidth: pillSize.width,
-                    viewportWidth: size.width
-                ),
-                y: fixedCenterY
-                    ?? min(max(point.y, minimumPillCenterY), maximumPillCenterY)
-            )
-            let rect = CGRect(
-                x: pillCenter.x - pillSize.width * 0.5,
-                y: pillCenter.y - pillSize.height * 0.5,
-                width: pillSize.width,
-                height: pillSize.height
-            )
-            context.fill(
-                Path(roundedRect: rect, cornerRadius: pillSize.height * 0.5),
-                with: .color(.black.opacity(0.72))
-            )
-            context.stroke(
-                Path(roundedRect: rect, cornerRadius: pillSize.height * 0.5),
-                with: .color(tint),
-                style: StrokeStyle(lineWidth: 0.8)
+            let labelPoint = CGPoint(
+                x: min(max(point.x, safeRect.minX + 17), safeRect.maxX - 17),
+                y: min(max(point.y + verticalOffset, safeRect.minY + 30), safeRect.maxY - 12)
             )
             context.draw(
-                context.resolve(Text(text).font(.system(size: 8.5, weight: .semibold)).foregroundColor(.white)),
-                at: pillCenter
+                context.resolve(
+                    Text("\(yards)")
+                        .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                ),
+                at: labelPoint
             )
         }
     }
@@ -424,20 +346,14 @@ public struct WatchHazardMapView: View {
                         .font(.system(size: 12, weight: .bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(.black.opacity(0.72)))
                     Spacer(minLength: WatchHazardMapLayout.systemTimeTrailingClearance)
                 }
                 .padding(.leading, max(0, safeInset - 6))
                 Spacer()
                 if upcoming.count > 1 {
-                    Text("\(index + 1)/\(upcoming.count) · 转表冠")
+                    Text("\(index + 1)/\(upcoming.count)")
                         .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(.white.opacity(0.72))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(.black.opacity(0.62)))
                 }
             }
             .padding(.top, safeInset)
@@ -463,8 +379,6 @@ public struct WatchHazardMapView: View {
 
     private func shortHazardTitle(_ hazard: WatchHazard) -> String {
         if hazard.kind == "water" { return "水障碍" }
-        if hazard.label.contains("果岭") { return "果岭沙坑" }
-        if hazard.label.contains("球道") { return "球道沙坑" }
         return "沙坑"
     }
 

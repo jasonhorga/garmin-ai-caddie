@@ -107,7 +107,7 @@ public struct WatchCaddieOptionsView: View {
                 playerAnchorFraction: 0.66,
                 playerImageY: Double($0.youPx.y),
                 pinImageY: Double(focusY),
-                topClearance: 52
+                topClearance: 42
             ))
         } ?? CGFloat(WatchHoleMapView.restingCrownScale)
 
@@ -125,7 +125,6 @@ public struct WatchCaddieOptionsView: View {
                     showCaddieRecommendation: true,
                     currentShotLayout: shotLayout,
                     showPreparedPlan: shotLayout == nil && firstCarry(option) != nil,
-                    hazards: [],
                     hazardRoute: route,
                     ringPips: [],
                     showTextOverlay: false,
@@ -143,7 +142,7 @@ public struct WatchCaddieOptionsView: View {
             }
 
             LinearGradient(
-                colors: [.black.opacity(0.76), .clear, .clear, .black.opacity(0.88)],
+                colors: [.black.opacity(0.62), .clear, .clear, .black.opacity(0.58)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -152,7 +151,18 @@ public struct WatchCaddieOptionsView: View {
             VStack(spacing: 0) {
                 header(option)
                 Spacer()
-                footer(option)
+                HStack(spacing: 4) {
+                    Text(strategyLabel(option))
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(AICaddieDesignTokens.strategyColor(Self.strategyKey(option.optionId)))
+                    Spacer()
+                    if orderedOptions.count > 1 {
+                        Text("\(selectedIndex + 1)/\(orderedOptions.count)")
+                            .font(.system(size: 8.5, weight: .medium, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                }
             }
             .padding(.horizontal, safeInset)
             .padding(.top, safeInset)
@@ -177,37 +187,13 @@ public struct WatchCaddieOptionsView: View {
     private func header(_ option: WatchCaddieOption) -> some View {
         HStack(spacing: 5) {
             WatchInstrumentBackButton(accessibilityLabel: "返回球洞") { onBack?() }
-            Text(strategyLabel(option))
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(AICaddieDesignTokens.strategyColor(Self.strategyKey(option.optionId)))
+            Text(clubChain(option))
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
                 .lineLimit(1)
+                .minimumScaleFactor(0.78)
             Spacer(minLength: 48)
         }
-    }
-
-    private func footer(_ option: WatchCaddieOption) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(clubChain(option))
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-            HStack(spacing: 5) {
-                Text(carrySummary(option))
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.82))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                Spacer(minLength: 2)
-                Text("\(selectedIndex + 1)/\(orderedOptions.count)")
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.62))
-            }
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 5)
-        .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 
     private func emptyState(size: CGSize) -> some View {
@@ -346,21 +332,6 @@ public struct WatchCaddieOptionsView: View {
         return option.clubName.map(WatchClubDisplay.shortCode) ?? "—"
     }
 
-    private func carrySummary(_ option: WatchCaddieOption) -> String {
-        if let p10 = option.carryP10M,
-           let p90 = option.carryP90M,
-           p10.isFinite, p90.isFinite, p10 > 0, p90 >= p10 {
-            return "实测 \(Self.yards(p10))–\(Self.yards(p90))码"
-        }
-        if let fallback = option.optionId == recommendedId ? rootRecommendation : nil {
-            return "实测 \(Self.yards(fallback.carryP10M))–\(Self.yards(fallback.carryP90M))码"
-        }
-        if let carry = firstCarry(option), carry.isFinite, carry > 0 {
-            return "目标 \(Self.yards(carry))码"
-        }
-        return "暂无落点范围"
-    }
-
     private func strategyLabel(_ option: WatchCaddieOption) -> String {
         switch Self.strategyKey(option.optionId) {
         case "stock": return "推荐"
@@ -396,8 +367,6 @@ public struct WatchCaddieOptionsView: View {
         default: return "stock"
         }
     }
-
-    static func yards(_ metres: Double) -> Int { Int((metres * 1.09361).rounded()) }
 }
 
 /// Opening the recommendation from Hole Root goes to the focused route instrument. Older payloads

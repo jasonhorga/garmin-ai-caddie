@@ -27,13 +27,13 @@ enum WatchGreenPreviewLayout {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         let contentRect = CGRect(
             x: safeRect.minX,
-            y: safeRect.minY + 34,
+            y: safeRect.minY + 26,
             width: safeRect.width,
-            height: max(44, safeRect.height - 66)
+            height: max(44, safeRect.height - 70)
         )
         let focus = focusBounds(geometry: geometry)
         let longestSide = max(focus.width, focus.height, 1)
-        let padding = max(8, longestSide * 0.38)
+        let padding = max(5, longestSide * 0.16)
         let padded = focus.insetBy(dx: -padding, dy: -padding)
         let scale = max(
             0.01,
@@ -96,9 +96,10 @@ enum WatchGreenPreviewLayout {
     }
 }
 
-/// Honest first step toward S70 View Green. It magnifies the real topo/green outline and lets the
-/// player inspect a temporary flag position. The current live-round contract has no independent
-/// `flag_position_set` event yet, so leaving this instrument deliberately restores the canonical pin.
+/// S70-style View Green: the real green outline is the entire instrument, with one distance and a
+/// draggable temporary flag. Hole topo, cards, titles and explanatory copy deliberately disappear.
+/// The current live-round contract has no independent `flag_position_set` event yet, so leaving this
+/// instrument restores the canonical pin.
 public struct WatchGreenPreviewView: View {
     public let geometry: WatchHoleMapGeometry
     public let centerGreenYards: Int?
@@ -122,36 +123,27 @@ public struct WatchGreenPreviewView: View {
             let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
             ZStack {
                 Canvas { context, size in
-                    drawMap(&context, size: size, viewport: viewport)
+                    drawGreen(&context, size: size, viewport: viewport)
                 }
 
-                HStack(spacing: 0) {
-                    WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
-                    Text("查看果岭")
-                        .font(.system(size: 13, weight: .bold))
-                        .lineLimit(1)
-                    Spacer(minLength: 46)
+                if let distanceText {
+                    Text(distanceText)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .position(x: safeRect.midX, y: safeRect.minY + 13)
+                        .accessibilityLabel("到旗 \(distanceText) 码")
                 }
-                .frame(width: safeRect.width, height: 44)
-                .position(x: safeRect.midX, y: safeRect.minY + 22)
 
-                VStack(spacing: 2) {
-                    Spacer()
-                    if let distanceText {
-                        Text(distanceText)
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 4)
-                            .background(Color.black.opacity(0.74), in: Capsule())
-                    }
-                    Text(canMoveFlag ? "拖动临时旗位 · 离开复原" : "当前球包没有果岭轮廓")
-                        .font(.system(size: 8.5, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.72))
-                        .lineLimit(1)
+                WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
+                    .position(x: safeRect.minX + 22, y: safeRect.maxY - 22)
+
+                if !canMoveFlag {
+                    Text("无果岭轮廓")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .position(x: safeRect.midX, y: safeRect.midY)
                 }
-                .frame(width: safeRect.width, height: safeRect.height)
-                .position(x: safeRect.midX, y: safeRect.midY)
             }
             .contentShape(Rectangle())
             .gesture(flagGesture(viewport: viewport))
@@ -185,7 +177,7 @@ public struct WatchGreenPreviewView: View {
         guard referenceSpan > 1 else { return nil }
         let yardsPerPixel = CGFloat(centerGreenYards) / referenceSpan
         let yards = Int((hypot(pin.x - geometry.youPx.x, pin.y - geometry.youPx.y) * yardsPerPixel).rounded())
-        return "到旗 \(yards) 码"
+        return "\(yards)"
     }
 
     private func flagGesture(viewport: WatchGreenViewport) -> some Gesture {
@@ -206,31 +198,12 @@ public struct WatchGreenPreviewView: View {
             }
     }
 
-    private func drawMap(
+    private func drawGreen(
         _ context: inout GraphicsContext,
         size: CGSize,
         viewport: WatchGreenViewport
     ) {
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
-
-        #if canImport(UIKit)
-        if let image = geometry.image {
-            let rect = CGRect(
-                x: viewport.imageOrigin.x,
-                y: viewport.imageOrigin.y,
-                width: geometry.imageSize.width * viewport.scale,
-                height: geometry.imageSize.height * viewport.scale
-            )
-            context.draw(context.resolve(Image(uiImage: image)), in: rect)
-        }
-        #endif
-
-        if geometry.image == nil {
-            context.fill(
-                Path(CGRect(origin: .zero, size: size)),
-                with: .color(Color(red: 0.08, green: 0.22, blue: 0.11))
-            )
-        }
 
         if geometry.greenOutlinePx.count >= 3 {
             var outline = Path()
@@ -239,21 +212,19 @@ public struct WatchGreenPreviewView: View {
                 outline.addLine(to: viewport.canvasPoint(point))
             }
             outline.closeSubpath()
-            if geometry.image == nil {
-                context.fill(
-                    outline,
-                    with: .color(Color(red: 0.28, green: 0.68, blue: 0.34).opacity(0.96))
-                )
-            }
+            context.fill(
+                outline,
+                with: .color(Color(red: 0.35, green: 0.82, blue: 0.29).opacity(0.98))
+            )
             context.stroke(
                 outline,
-                with: .color(.white.opacity(0.72)),
-                style: StrokeStyle(lineWidth: 1.4, lineJoin: .round)
+                with: .color(Color(red: 0.16, green: 0.49, blue: 0.18)),
+                style: StrokeStyle(lineWidth: 1.1, lineJoin: .round)
             )
         }
 
         let flagPoint = viewport.canvasPoint(pin)
-        let radius: CGFloat = 6
+        let radius: CGFloat = 5
         let marker = CGRect(
             x: flagPoint.x - radius,
             y: flagPoint.y - radius,
@@ -261,19 +232,14 @@ public struct WatchGreenPreviewView: View {
             height: radius * 2
         )
         context.fill(Path(ellipseIn: marker), with: .color(.white))
-        context.stroke(
-            Path(ellipseIn: marker),
-            with: .color(Color(red: 0.94, green: 0.28, blue: 0.24)),
-            style: StrokeStyle(lineWidth: 2)
-        )
         var pole = Path()
-        pole.move(to: CGPoint(x: flagPoint.x, y: flagPoint.y - radius))
-        pole.addLine(to: CGPoint(x: flagPoint.x, y: flagPoint.y - radius - 16))
-        context.stroke(pole, with: .color(.white), style: StrokeStyle(lineWidth: 1.4))
+        pole.move(to: CGPoint(x: flagPoint.x - 1, y: flagPoint.y + 3))
+        pole.addLine(to: CGPoint(x: flagPoint.x - 1, y: flagPoint.y - 4))
+        context.stroke(pole, with: .color(Color(red: 0.94, green: 0.20, blue: 0.18)), style: StrokeStyle(lineWidth: 1))
         var flag = Path()
-        flag.move(to: CGPoint(x: flagPoint.x, y: flagPoint.y - radius - 16))
-        flag.addLine(to: CGPoint(x: flagPoint.x + 9, y: flagPoint.y - radius - 13))
-        flag.addLine(to: CGPoint(x: flagPoint.x, y: flagPoint.y - radius - 10))
+        flag.move(to: CGPoint(x: flagPoint.x - 1, y: flagPoint.y - 4))
+        flag.addLine(to: CGPoint(x: flagPoint.x + 4, y: flagPoint.y - 2.5))
+        flag.addLine(to: CGPoint(x: flagPoint.x - 1, y: flagPoint.y - 1))
         flag.closeSubpath()
         context.fill(flag, with: .color(Color(red: 0.94, green: 0.28, blue: 0.24)))
     }

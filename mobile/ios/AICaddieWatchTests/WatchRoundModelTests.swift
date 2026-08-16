@@ -659,8 +659,6 @@ final class WatchRoundModelTests: XCTestCase {
             accuracy: 0.01
         )
         XCTAssertNil(shots.last?.distanceToNextM)
-        model.openCurrentHoleShots()
-        XCTAssertEqual(model.screen, .currentHoleShots)
         XCTAssertEqual(model.activeHole, 1)
     }
 

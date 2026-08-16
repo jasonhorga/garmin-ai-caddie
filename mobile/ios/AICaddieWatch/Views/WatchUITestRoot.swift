@@ -72,7 +72,7 @@ public struct WatchUITestRoot: View {
             )
         case "interaction-club-seed", "interaction-club-restore",
              "interaction-score-seed", "interaction-score-restore",
-             "interaction-current-hole-shots", "interaction-gps-acquiring",
+             "interaction-gps-acquiring",
              "interaction-club-stats", "interaction-settings",
              "interaction-flag-direction":
             interactionRound
@@ -101,16 +101,6 @@ public struct WatchUITestRoot: View {
             WatchScorecardView(holes: Self.demoScorecard, totalToPar: 2)
         case "hole-select":
             WatchHoleSelectView(holes: Array(1...18), activeHole: 7)
-        case "current-hole-shots":
-            ScrollView {
-                WatchCurrentHoleShotsView(
-                    hole: 7,
-                    par: 4,
-                    shots: Self.demoRecordedShots,
-                    latestShotDistanceM: 38,
-                    canAddShot: true
-                )
-            }
         case "always-on-distance":
             WatchAlwaysOnDistanceView(hole: 4, par: 5, centerYd: 262)
         case "distance-hero-big":
@@ -431,7 +421,11 @@ public struct WatchUITestRoot: View {
               ) else {
             return nil
         }
-        return WatchHoleMapGeometry.from(holeMap: state.holeMap, image: image)
+        return WatchHoleMapGeometry.from(
+            holeMap: state.holeMap,
+            image: image,
+            hazards: state.hazards
+        )
     }
 
     private var realCourseMeasuredPoint: CGPoint? {
@@ -1137,7 +1131,11 @@ public struct WatchUITestRoot: View {
               ) else {
             return nil
         }
-        return WatchHoleMapGeometry.from(holeMap: state.holeMap, image: image)
+        return WatchHoleMapGeometry.from(
+            holeMap: state.holeMap,
+            image: image,
+            hazards: state.hazards
+        )
     }
 
     @MainActor
@@ -1204,8 +1202,6 @@ public struct WatchUITestRoot: View {
                     horizontalAccuracyM: 5,
                     capturedAt: "2026-07-26T12:10:00Z"
                 )
-            case "interaction-current-hole-shots":
-                seedInteractionCurrentHoleShots()
             case "interaction-gps-acquiring":
                 replaceFixtureRound(with: Self.interactionGPSAcquiringSeed)
                 model.backToHome()
@@ -1310,7 +1306,6 @@ public struct WatchUITestRoot: View {
 
     private var interactionShotLocation: WatchLocationFix? {
         switch screen {
-        case "interaction-current-hole-shots": return Self.interactionCurrentHoleFix
         case "interaction-flag-direction": return Self.interactionFlagFix
         default: return nil
         }
@@ -1323,30 +1318,6 @@ public struct WatchUITestRoot: View {
             accuracyDegrees: 6,
             capturedAt: Date()
         )
-    }
-
-    /// Runtime approval evidence must exercise the production model/container path, not mount the
-    /// list view directly. The eastward points are spaced at roughly 245 yd, 152 yd and 42 yd so the
-    /// rendered facts remain easy to compare with the approved design while still being calculated.
-    private func seedInteractionCurrentHoleShots() {
-        replaceFixtureRound(with: Self.interactionCurrentHoleShotsSeed)
-        if model.recordedShotCount == 0 {
-            let shots: [(longitude: Double, club: String?, capturedAt: String)] = [
-                (116.00000, "一号木", "2026-07-26T08:00:00Z"),
-                (116.00263, "七号铁", "2026-07-26T08:05:00Z"),
-                (116.00426, nil, "2026-07-26T08:10:00Z"),
-            ]
-            for shot in shots {
-                model.beginManualShot(
-                    latitude: 40.0,
-                    longitude: shot.longitude,
-                    horizontalAccuracyM: 4,
-                    capturedAt: shot.capturedAt
-                )
-                model.completePendingManualShot(clubName: shot.club)
-            }
-        }
-        model.openCurrentHoleShots()
     }
 
     /// Every named DEBUG fixture is an explicit new-round authority. Runtime capture intentionally
@@ -1571,8 +1542,9 @@ public struct WatchUITestRoot: View {
         caddieOptions: demoOptions,
         hazards: [
             WatchHazard(
-                kind: "bunker", label: "沙坑", startM: 170, endM: 190,
-                frontDistanceM: 168, backDistanceM: 184
+                kind: "bunker", label: "右侧果岭沙坑", startM: 340, endM: 360,
+                frontDistanceM: 340, backDistanceM: 360,
+                frontPx: [498, 317], backPx: [493, 296]
             ),
         ],
         score: 0,
@@ -1622,24 +1594,11 @@ public struct WatchUITestRoot: View {
         holes: interactionClubSeed.holes
     )
 
-    private static let interactionCurrentHoleShotsSeed = WatchRoundSeed(
-        roundId: "ci-interaction-current-hole-shots-round",
-        courseName: "北京丽宫 · 前九",
-        activeHole: 7,
-        holes: interactionClubSeed.holes
-    )
-
     private static let interactionGPSAcquiringSeed = WatchRoundSeed(
         roundId: "ci-interaction-gps-acquiring-round",
         courseName: "北京丽宫 · 前九",
         activeHole: 7,
         holes: interactionClubSeed.holes
-    )
-
-    private static let interactionCurrentHoleFix = WatchLocationFix(
-        coordinate: CLLocationCoordinate2D(latitude: 40.0, longitude: 116.00471),
-        horizontalAccuracyM: 4,
-        capturedAt: "2026-07-26T08:11:00Z"
     )
 
     private static let interactionFlagFix = WatchLocationFix(
@@ -1691,24 +1650,6 @@ public struct WatchUITestRoot: View {
         WatchScorecardRow(hole: 3, par: 3, score: 2),
         WatchScorecardRow(hole: 4, par: 4, score: 5),
         WatchScorecardRow(hole: 5, par: 4, score: 0),
-    ]
-
-    static let demoRecordedShots: [WatchRecordedShot] = [
-        WatchRecordedShot(
-            eventId: "shot-1", hole: 7, number: 1, clubName: "一号木", shotType: "tee",
-            location: WatchShotLocationValue(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 4)!,
-            capturedAt: "2026-07-26T08:00:00Z", distanceToNextM: 224
-        ),
-        WatchRecordedShot(
-            eventId: "shot-2", hole: 7, number: 2, clubName: "七号铁", shotType: "approach",
-            location: WatchShotLocationValue(latitude: 40.001, longitude: 116.0, horizontalAccuracyM: 4)!,
-            capturedAt: "2026-07-26T08:05:00Z", distanceToNextM: 139
-        ),
-        WatchRecordedShot(
-            eventId: "shot-3", hole: 7, number: 3, clubName: nil, shotType: "recovery",
-            location: WatchShotLocationValue(latitude: 40.002, longitude: 116.0, horizontalAccuracyM: 4)!,
-            capturedAt: "2026-07-26T08:10:00Z", distanceToNextM: nil
-        ),
     ]
 
     static let demoState = WatchRoundState(

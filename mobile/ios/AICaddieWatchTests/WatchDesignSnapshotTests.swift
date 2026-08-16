@@ -48,13 +48,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(WatchClubDisplay.shortCode("putter"), "PT")
     }
 
-    func testWatchHoleRootShowsOnlyCompactCurrentShotFacts() {
-        XCTAssertEqual(WatchHoleMapView.rootCaddieFact("188码"), "188码")
-        XCTAssertEqual(WatchHoleMapView.rootCaddieFact("留 100 码"), "留100码")
-        XCTAssertEqual(WatchHoleMapView.rootCaddieFact("攻果岭"), "攻果岭")
-        XCTAssertNil(WatchHoleMapView.rootCaddieFact("推进 · 后接九号铁并避开右沙坑"))
-    }
-
     func testCaddieOrderStaysRecommendationSafeAttackRegardlessOfPayloadOrder() {
         let options = [
             WatchCaddieOption(optionId: "attack", label: "进攻"),
@@ -80,7 +73,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(Array(items.prefix(4)), [.viewGreen, .caddie, .holeSelect, .scorecard])
         XCTAssertEqual(items[4], .hazards)
         XCTAssertFalse(items.contains(.recordShot))
-        XCTAssertFalse(items.contains(.currentHoleShots))
+        XCTAssertFalse(items.map(\.rawValue).contains("本洞击球"))
         XCTAssertEqual(items[items.count - 2], .moreTools)
         XCTAssertEqual(items.last, .finish)
         XCTAssertFalse(items.map(\.rawValue).contains("继续打球"))
@@ -88,7 +81,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
         XCTAssertEqual(
             WatchMenuView.moreToolItems(hasClubStats: true, hasFlagDirection: true),
-            [.currentHoleShots, .flagDirection, .clubStats, .settings]
+            [.flagDirection, .clubStats, .settings]
         )
     }
 
@@ -271,36 +264,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
             .frame(width: 198)
             .background(Color.black)
         try render(view, named: "watch-hole-select")
-    }
-
-    @MainActor
-    func testRenderWatchCurrentHoleShots() throws {
-        let shots = [
-            WatchRecordedShot(
-                eventId: "shot-1", hole: 7, number: 1, clubName: "一号木", shotType: "tee",
-                location: WatchShotLocationValue(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 4)!,
-                capturedAt: "2026-07-26T08:00:00Z", distanceToNextM: 224
-            ),
-            WatchRecordedShot(
-                eventId: "shot-2", hole: 7, number: 2, clubName: "七号铁", shotType: "approach",
-                location: WatchShotLocationValue(latitude: 40.001, longitude: 116.0, horizontalAccuracyM: 4)!,
-                capturedAt: "2026-07-26T08:05:00Z", distanceToNextM: 139
-            ),
-            WatchRecordedShot(
-                eventId: "shot-3", hole: 7, number: 3, clubName: nil, shotType: "recovery",
-                location: WatchShotLocationValue(latitude: 40.002, longitude: 116.0, horizontalAccuracyM: 4)!,
-                capturedAt: "2026-07-26T08:10:00Z", distanceToNextM: nil
-            ),
-        ]
-        let view = WatchCurrentHoleShotsView(
-            hole: 7,
-            par: 4,
-            shots: shots,
-            latestShotDistanceM: 38,
-            canAddShot: true
-        )
-        .watchSnapshotFrame(width: 198, height: 242)
-        try render(view, named: "watch-current-hole-shots")
     }
 
     @MainActor
@@ -904,30 +867,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
             WatchFlagDirectionView(state: .blocked(.tooFarFromHole))
                 .watchSnapshotFrame(width: 176, height: 215),
             named: "watch-flag-direction-off-course"
-        )
-
-        let shots = [
-            WatchRecordedShot(
-                eventId: "shot-off-course", hole: 7, number: 1, clubName: "一号木", shotType: "tee",
-                location: WatchShotLocationValue(
-                    latitude: 40.0,
-                    longitude: 116.0,
-                    horizontalAccuracyM: 4
-                )!,
-                capturedAt: "2026-08-08T00:00:00Z",
-                distanceToNextM: nil
-            ),
-        ]
-        try render(
-            WatchCurrentHoleShotsView(
-                hole: 7,
-                par: 4,
-                shots: shots,
-                latestShotDistanceM: 16_800,
-                canAddShot: true
-            )
-            .watchSnapshotFrame(width: 176, height: 215),
-            named: "watch-current-hole-shots-off-course"
         )
 
         let glanceState = WatchRoundState(

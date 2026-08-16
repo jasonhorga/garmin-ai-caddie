@@ -8,8 +8,7 @@ public struct WatchMenuView: View {
         case viewGreen = "查看果岭"
         case scoreHole = "本洞成绩"
         case caddie = "球童建议"
-        case hazards = "障碍与铺垫"
-        case currentHoleShots = "本洞击球"
+        case hazards = "障碍"
         case holeSelect = "选洞"
         case scorecard = "计分卡"
         case flagDirection = "旗向指引"
@@ -31,7 +30,6 @@ public struct WatchMenuView: View {
     public let onCaddie: () -> Void
     public let onHazards: () -> Void
     public let onScorecard: () -> Void
-    public let onCurrentHoleShots: () -> Void
     public let onHoleSelect: () -> Void
     public let onClubStats: () -> Void
     public let onSettings: () -> Void
@@ -54,7 +52,6 @@ public struct WatchMenuView: View {
         onCaddie: @escaping () -> Void = {},
         onHazards: @escaping () -> Void = {},
         onScorecard: @escaping () -> Void = {},
-        onCurrentHoleShots: @escaping () -> Void = {},
         onHoleSelect: @escaping () -> Void = {},
         onClubStats: @escaping () -> Void = {},
         onSettings: @escaping () -> Void = {},
@@ -74,7 +71,6 @@ public struct WatchMenuView: View {
         self.onCaddie = onCaddie
         self.onHazards = onHazards
         self.onScorecard = onScorecard
-        self.onCurrentHoleShots = onCurrentHoleShots
         self.onHoleSelect = onHoleSelect
         self.onClubStats = onClubStats
         self.onSettings = onSettings
@@ -168,7 +164,7 @@ public struct WatchMenuView: View {
         hasClubStats: Bool,
         hasFlagDirection: Bool
     ) -> [Item] {
-        var items: [Item] = [.currentHoleShots]
+        var items: [Item] = []
         if hasFlagDirection { items.append(.flagDirection) }
         if hasClubStats { items.append(.clubStats) }
         items.append(.settings)
@@ -208,7 +204,6 @@ public struct WatchMenuView: View {
         case .scoreHole: return onScoreHole
         case .caddie: return onCaddie
         case .hazards: return onHazards
-        case .currentHoleShots: return onCurrentHoleShots
         case .holeSelect: return onHoleSelect
         case .scorecard: return onScorecard
         case .flagDirection: return onFlagDirection

@@ -49,121 +49,6 @@ final class WatchHoleMapViewportTests: XCTestCase {
         ))
     }
 
-    func testDistancePillMovesBelowMarkerWhenClockWouldCoverItsPreferredPosition() {
-        let viewport = CGSize(width: 208, height: 248)
-        let marker = CGPoint(x: 159.5, y: 40)
-        let pillSize = CGSize(width: 68, height: 18)
-
-        let center = WatchHoleMapViewport.distancePillCenter(
-            marker: marker,
-            pillSize: pillSize,
-            viewportSize: viewport,
-            preferredOffset: 20
-        )
-
-        let pillRect = CGRect(
-            x: center.x - pillSize.width / 2,
-            y: center.y - pillSize.height / 2,
-            width: pillSize.width,
-            height: pillSize.height
-        )
-        XCTAssertGreaterThan(center.y, marker.y)
-        XCTAssertFalse(pillRect.intersects(WatchHoleMapViewport.systemTimeRect(in: viewport)))
-    }
-
-    func testDistancePillStaysOutOfTheMaskedHoleRootDataColumn() {
-        // SwiftUI lays out the 41 mm Watch in logical points; its screenshot is 352x430 pixels.
-        // Testing with screenshot pixels would falsely allow a label twice as wide as the product.
-        let viewport = CGSize(width: 176, height: 215)
-        let dataColumnMaxX = viewport.width * 0.38
-        let text = WatchHoleMapViewport.hazardDistanceText(
-            kind: "沙",
-            toYards: 999,
-            overYards: 999,
-            fullMap: false
-        )
-        let pillSize = WatchHoleMapViewport.distancePillSize(for: text)
-
-        XCTAssertEqual(text, "沙 到999 过999")
-        XCTAssertLessThanOrEqual(
-            pillSize.width,
-            viewport.width - dataColumnMaxX - 8,
-            "the longest useful compact hazard label must fit the 41 mm split-map panel"
-        )
-
-        let center = WatchHoleMapViewport.distancePillCenter(
-            marker: CGPoint(x: 85, y: 120),
-            pillSize: pillSize,
-            viewportSize: viewport,
-            preferredOffset: 24,
-            contentMinX: dataColumnMaxX
-        )
-        let pillRect = CGRect(
-            x: center.x - pillSize.width / 2,
-            y: center.y - pillSize.height / 2,
-            width: pillSize.width,
-            height: pillSize.height
-        )
-
-        XCTAssertGreaterThanOrEqual(pillRect.minX, dataColumnMaxX + 4)
-        XCTAssertLessThanOrEqual(
-            pillRect.maxX,
-            WatchDisplayGeometry.contentRect(in: viewport).maxX
-        )
-    }
-
-    func testMapPillsStayInsideRoundedFaceGuideAtEveryViewportEdge() {
-        for viewport in [
-            CGSize(width: 176, height: 215),
-            CGSize(width: 198, height: 242),
-            CGSize(width: 205, height: 251),
-        ] {
-            let safeRect = WatchDisplayGeometry.contentRect(in: viewport)
-            let pillSize = CGSize(width: 68, height: 18)
-            for marker in [CGPoint.zero, CGPoint(x: viewport.width, y: viewport.height)] {
-                let center = WatchHoleMapViewport.distancePillCenter(
-                    marker: marker,
-                    pillSize: pillSize,
-                    viewportSize: viewport,
-                    preferredOffset: 20
-                )
-                let rect = CGRect(
-                    x: center.x - pillSize.width / 2,
-                    y: center.y - pillSize.height / 2,
-                    width: pillSize.width,
-                    height: pillSize.height
-                )
-                XCTAssertGreaterThanOrEqual(rect.minX, safeRect.minX)
-                XCTAssertLessThanOrEqual(rect.maxX, safeRect.maxX)
-                XCTAssertGreaterThanOrEqual(rect.minY, safeRect.minY)
-                XCTAssertLessThanOrEqual(rect.maxY, safeRect.maxY)
-            }
-        }
-    }
-
-    func testFullMapHazardLabelRetainsExplicitNearAndFarGrammar() {
-        XCTAssertEqual(
-            WatchHoleMapViewport.hazardDistanceText(
-                kind: "水",
-                toYards: 37,
-                overYards: 54,
-                fullMap: true
-            ),
-            "水 · 到 37 / 过 54"
-        )
-    }
-
-    func testDistancePillConnectorBindsTheCalloutToItsMarker() {
-        let connector = WatchHoleMapViewport.distancePillConnector(
-            marker: CGPoint(x: 100, y: 100),
-            pillCenter: CGPoint(x: 100, y: 80),
-            pillSize: CGSize(width: 68, height: 18)
-        )
-
-        XCTAssertEqual(connector?.start, CGPoint(x: 100, y: 89))
-        XCTAssertEqual(connector?.end, CGPoint(x: 100, y: 100))
-    }
-
     func testFreeMeasurementOwnsTheVisibleRouteInsteadOfLeavingASecondCaddieTarget() {
         let measured = CGPoint(x: 470, y: 470)
 
@@ -198,40 +83,6 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertEqual(late.map(\.remainingYards), [100, 150])
     }
 
-    func testCompactReferenceLabelsUseSeparateLanesOutsideTheClockAndDataColumn() throws {
-        let viewport = CGSize(width: 176, height: 215)
-        let contentMinX = viewport.width * 0.38
-        let clusteredMarkers = [
-            CGPoint(x: 103, y: 48),
-            CGPoint(x: 106, y: 51),
-            CGPoint(x: 110, y: 57),
-            CGPoint(x: 108, y: 67),
-            CGPoint(x: 111, y: 78),
-        ]
-        let sizes = [
-            CGSize(width: 34, height: 11),
-            CGSize(width: 23, height: 11),
-            CGSize(width: 23, height: 11),
-            CGSize(width: 23, height: 11),
-            CGSize(width: 23, height: 11),
-        ]
-        var occupied: [CGRect] = []
-
-        for (marker, size) in zip(clusteredMarkers, sizes) {
-            let placement = try XCTUnwrap(WatchHoleMapReferenceLayout.labelPlacement(
-                marker: marker,
-                pillSize: size,
-                viewportSize: viewport,
-                contentMinX: contentMinX,
-                occupiedRects: occupied
-            ))
-            XCTAssertGreaterThanOrEqual(placement.rect.minX, contentMinX)
-            XCTAssertFalse(placement.rect.intersects(WatchHoleMapViewport.systemTimeRect(in: viewport)))
-            XCTAssertTrue(occupied.allSatisfy { !$0.intersects(placement.rect) })
-            occupied.append(placement.rect)
-        }
-    }
-
     func testDriverArcRequiresARealInBoundsBagDistance() throws {
         let route = [
             [0.0, 400.0, 0.0],
@@ -264,24 +115,6 @@ final class WatchHoleMapViewportTests: XCTestCase {
         ]
         XCTAssertTrue(WatchGreenPreviewLayout.contains(CGPoint(x: 5, y: 5), polygon: outline))
         XCTAssertFalse(WatchGreenPreviewLayout.contains(CGPoint(x: 15, y: 5), polygon: outline))
-    }
-
-    func testRootHazardOverlayUsesOnlyTheNearestUpcomingMeasuredObstacle() throws {
-        let route = [[0.0, 200.0, 0.0], [0.0, 100.0, 100.0], [0.0, 0.0, 200.0]]
-        let passed = WatchHazard(kind: "bunker", label: "已过沙坑", startM: 10, endM: 20,
-                                 frontPx: [0, 190], backPx: [0, 180])
-        let nearest = WatchHazard(kind: "water", label: "前方水障碍", startM: 80, endM: 110,
-                                  frontPx: [0, 120], backPx: [0, 90])
-        let farther = WatchHazard(kind: "bunker", label: "果岭沙坑", startM: 150, endM: 170,
-                                  frontPx: [0, 50], backPx: [0, 30])
-
-        let selected = try XCTUnwrap(WatchHoleMapView.nearestUpcomingHazard(
-            [farther, passed, nearest],
-            route: route,
-            playerImagePoint: CGPoint(x: 0, y: 150)
-        ))
-
-        XCTAssertEqual(selected.id, nearest.id)
     }
 
     func testEighteenHoleRingStartsAtThreeAndEndsAtTwelve() {

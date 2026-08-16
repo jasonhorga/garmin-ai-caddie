@@ -19,7 +19,6 @@ public enum WatchRoundScreen: Equatable {
     case finishConfirmation
     case abandonConfirmation
     case scorecard   // round-13: 计分卡逐洞列表
-    case currentHoleShots // 当前洞已记录的 GPS 击球事实与手动补杆入口
     case holeSelect  // round-13: 选洞
     case menu        // round-13: 菜单 hub(纯文字,S70 式)
     case holeMap     // watch P1b: 全屏球道图(真几何底图 + 事实标记)
@@ -519,7 +518,6 @@ public final class WatchRoundModel: ObservableObject {
         guard screen == .scorecard else { return }
         screen = scorecardReturnScreen
     }
-    public func openCurrentHoleShots() { screen = .currentHoleShots }
     public func openHoleSelect() { screen = .holeSelect }
     public func openMenu() { screen = .menu }
     public func openSettings() { screen = .settings }
