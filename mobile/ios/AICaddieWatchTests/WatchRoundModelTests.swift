@@ -163,6 +163,26 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertNil(WatchRoundStore(directoryURL: directory).load())
     }
 
+    func testDeferredFinishDoesNotArchiveRoundScopedGreenPlacement() throws {
+        let store = makeStore()
+        let round = WatchRoundStore.PersistedRound(
+            roundId: "r1",
+            greenPlacements: [
+                WatchGreenPlacement(
+                    hole: 1,
+                    globalId: 31669,
+                    normalizedPinX: 0.5,
+                    normalizedPinY: 0.5,
+                    rotationDegrees: 12
+                ),
+            ]
+        )
+
+        _ = try store.deferFinish(round, savedAt: "2026-08-17T00:00:00Z")
+
+        XCTAssertNil(store.loadDeferredFinishes().first?.round.greenPlacements)
+    }
+
     func testLegacyPersistedRoundWithoutGreenPlacementsStillDecodes() throws {
         let data = try XCTUnwrap(
             """

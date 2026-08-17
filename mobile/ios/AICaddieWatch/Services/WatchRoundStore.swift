@@ -180,7 +180,11 @@ public final class WatchRoundStore {
     public func deferFinish(_ round: PersistedRound, savedAt: String) throws -> WatchRoundClosure {
         var deferred = loadDeferredFinishes()
         deferred.removeAll { $0.round.roundId == round.roundId }
-        deferred.append(DeferredFinish(round: round, savedAt: savedAt))
+        // View Green placement has no backend materialization and is scoped only to the active game.
+        // Keep every unresolved scoring fact, but do not carry presentation state into the retry archive.
+        var uploadRound = round
+        uploadRound.greenPlacements = nil
+        deferred.append(DeferredFinish(round: uploadRound, savedAt: savedAt))
         try write(deferred, to: deferredFinishesURL)
         return try closeActiveRound(
             roundId: round.roundId,
