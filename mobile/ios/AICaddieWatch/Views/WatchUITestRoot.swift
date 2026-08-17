@@ -1206,13 +1206,14 @@ public struct WatchUITestRoot: View {
     private func saveStandaloneReviewGreenPlacement() {
         let pin = CGPoint(x: 447, y: 270)
         guard let state = model.activeHoleState,
-              standaloneCourseGeometry.imageSize.width > 0,
-              standaloneCourseGeometry.imageSize.height > 0 else { return }
+              let geometry = standaloneCourseGeometry,
+              geometry.imageSize.width > 0,
+              geometry.imageSize.height > 0 else { return }
         model.saveGreenPlacement(
             hole: state.hole,
             globalId: state.globalId,
-            normalizedPinX: pin.x / standaloneCourseGeometry.imageSize.width,
-            normalizedPinY: pin.y / standaloneCourseGeometry.imageSize.height,
+            normalizedPinX: pin.x / geometry.imageSize.width,
+            normalizedPinY: pin.y / geometry.imageSize.height,
             rotationDegrees: 35
         )
     }

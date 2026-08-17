@@ -575,7 +575,7 @@ public struct WatchRoundContainerView: View {
         _ geometry: WatchHoleMapGeometry
     ) -> some View {
         let selectedPin = selectedGreenPin(for: s, geometry: geometry)
-        WatchHoleMapView(
+        return WatchHoleMapView(
             holeNumber: s.hole,
             par: s.par,
             frontGreen: frontYd(s),
