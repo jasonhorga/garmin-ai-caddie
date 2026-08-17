@@ -27,6 +27,43 @@ public struct WatchRoundClosure: Codable, Equatable, Identifiable {
     }
 }
 
+/// A player-selected flag position for one hole of one active round. The point is normalized to the
+/// downloaded hole image so a later bitmap refresh can change pixel dimensions without moving the
+/// flag. Rotation is presentation state for View Green only; Hole Root and Touch Target consume the
+/// canonical image-space flag point.
+public struct WatchGreenPlacement: Codable, Equatable {
+    public let hole: Int
+    /// `globalId` identifies the course package in the current protocol; pair it with `hole` rather
+    /// than treating it as a globally unique hole id.
+    public let globalId: Int?
+    public let normalizedPinX: Double
+    public let normalizedPinY: Double
+    public let rotationDegrees: Double
+
+    public init(
+        hole: Int,
+        globalId: Int? = nil,
+        normalizedPinX: Double,
+        normalizedPinY: Double,
+        rotationDegrees: Double
+    ) {
+        self.hole = hole
+        self.globalId = globalId
+        self.normalizedPinX = normalizedPinX
+        self.normalizedPinY = normalizedPinY
+        self.rotationDegrees = rotationDegrees
+    }
+
+    public func matches(hole: Int, globalId: Int?) -> Bool {
+        guard self.hole == hole else { return false }
+        // Old/offline rounds may not know the package id. Reject only a real authority conflict.
+        if let stored = self.globalId, let requested = globalId {
+            return stored == requested
+        }
+        return true
+    }
+}
+
 /// round-12 P3.2 (Watch standalone): on-watch persistence so a round survives an app relaunch and so
 /// events recorded with no network are queued for later upload. Deliberately simpler than the iOS
 /// `OfflineStore` — it persists the per-hole `WatchRoundState` snapshots + a pending-event queue (not
@@ -54,6 +91,9 @@ public final class WatchRoundStore {
         public var pendingManualShot: WatchPendingManualShot?
         public var pendingAutoShotCandidate: WatchPendingAutoShotCandidate?
         public var scoreDraft: WatchScoreDraft?
+        /// Round-scoped View Green choices. Optional keeps rounds written by older builds decodable.
+        /// Terminal round closure removes the containing round, so these never leak into a new game.
+        public var greenPlacements: [WatchGreenPlacement]?
 
         public init(
             roundId: String,
@@ -63,7 +103,8 @@ public final class WatchRoundStore {
             courseName: String? = nil,
             pendingManualShot: WatchPendingManualShot? = nil,
             pendingAutoShotCandidate: WatchPendingAutoShotCandidate? = nil,
-            scoreDraft: WatchScoreDraft? = nil
+            scoreDraft: WatchScoreDraft? = nil,
+            greenPlacements: [WatchGreenPlacement]? = nil
         ) {
             self.roundId = roundId
             self.activeHole = activeHole
@@ -73,6 +114,7 @@ public final class WatchRoundStore {
             self.pendingManualShot = pendingManualShot
             self.pendingAutoShotCandidate = pendingAutoShotCandidate
             self.scoreDraft = scoreDraft
+            self.greenPlacements = greenPlacements
         }
     }
 

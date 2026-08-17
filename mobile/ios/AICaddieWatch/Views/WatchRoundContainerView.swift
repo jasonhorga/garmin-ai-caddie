@@ -89,6 +89,8 @@ public struct WatchRoundContainerView: View {
     /// DEBUG runtime evidence may start View Green at the maximum Crown detent. Production callers
     /// leave this at 1 and the user owns every subsequent Crown change.
     private let initialGreenZoomScaleOverride: Double
+    /// DEBUG-only paper-alignment evidence. Production restores the round-scoped saved rotation.
+    private let initialGreenRotationOverride: Double?
 
     public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil,
                 watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
@@ -100,7 +102,8 @@ public struct WatchRoundContainerView: View {
                 initialSelectedHazardID: String? = nil,
                 measuredPxOverride: CGPoint? = nil,
                 initialGreenPinOverride: CGPoint? = nil,
-                initialGreenZoomScaleOverride: Double = 1) {
+                initialGreenZoomScaleOverride: Double = 1,
+                initialGreenRotationOverride: Double? = nil) {
         self.model = model
         self.holeGeometry = holeGeometry
         self.watchGreenYards = watchGreenYards
@@ -111,6 +114,7 @@ public struct WatchRoundContainerView: View {
         self.measuredPxOverride = measuredPxOverride
         self.initialGreenPinOverride = initialGreenPinOverride
         self.initialGreenZoomScaleOverride = initialGreenZoomScaleOverride
+        self.initialGreenRotationOverride = initialGreenRotationOverride
         self.initialHazardID = initialSelectedHazardID
         self._holeMapCrownScale = State(initialValue: initialHoleMapCrownScale)
     }
@@ -124,8 +128,44 @@ public struct WatchRoundContainerView: View {
         Self.effectiveGreenYards(live: watchGreenYards?.front, fallbackMetres: s.frontGreenM)
     }
 
-    private func centerYd(_ s: WatchRoundState) -> Int? {
+    private func canonicalCenterYd(_ s: WatchRoundState) -> Int? {
         Self.effectiveGreenYards(live: watchGreenYards?.center, fallbackMetres: s.centerGreenM)
+    }
+
+    private func selectedGreenPin(
+        for state: WatchRoundState,
+        geometry: WatchHoleMapGeometry
+    ) -> CGPoint? {
+        guard let placement = model.greenPlacement(forHole: state.hole, globalId: state.globalId),
+              geometry.imageSize.width > 0,
+              geometry.imageSize.height > 0 else { return nil }
+        let candidate = CGPoint(
+            x: placement.normalizedPinX * geometry.imageSize.width,
+            y: placement.normalizedPinY * geometry.imageSize.height
+        )
+        let boundary = WatchGreenPreviewLayout.boundaryPolygon(geometry.greenOutlinePx)
+        return WatchGreenPreviewLayout.contains(candidate, polygon: boundary) ? candidate : nil
+    }
+
+    private func greenRotation(for state: WatchRoundState) -> Double {
+        model.greenPlacement(forHole: state.hole, globalId: state.globalId)?.rotationDegrees ?? 0
+    }
+
+    /// Hole Root's middle value follows the moved flag. The canonical centre range remains the sole
+    /// pixel calibration authority, so repeatedly entering View Green cannot compound rounding error.
+    private func centerYd(_ s: WatchRoundState) -> Int? {
+        guard let canonical = canonicalCenterYd(s),
+              let geometry = holeGeometry,
+              let selectedPin = selectedGreenPin(for: s, geometry: geometry) else {
+            return canonicalCenterYd(s)
+        }
+        return WatchGreenPreviewLayout.pinMetrics(
+            playerImagePoint: geometry.youPx,
+            canonicalPinImagePoint: geometry.pinPx,
+            selectedPinImagePoint: selectedPin,
+            greenOutline: geometry.greenOutlinePx,
+            centerGreenYards: canonical
+        )?.playerToPinYards ?? canonical
     }
 
     private func backYd(_ s: WatchRoundState) -> Int? {
@@ -149,7 +189,7 @@ public struct WatchRoundContainerView: View {
             WatchAlwaysOnDistanceView(
                 hole: state.hole,
                 par: state.par,
-                centerYd: watchGreenYards?.center
+                centerYd: centerYd(state)
             )
         } else {
             activeScreen
@@ -214,11 +254,23 @@ public struct WatchRoundContainerView: View {
             )
         case .viewGreen:
             if let state = model.activeHoleState, let geometry = holeGeometry {
+                let savedPin = selectedGreenPin(for: state, geometry: geometry)
                 WatchGreenPreviewView(
                     geometry: geometry,
-                    centerGreenYards: watchGreenYards?.center ?? centerYd(state),
-                    initialPin: initialGreenPinOverride,
+                    centerGreenYards: canonicalCenterYd(state),
+                    initialPin: initialGreenPinOverride ?? savedPin,
                     initialZoomScale: initialGreenZoomScaleOverride,
+                    initialRotationDegrees: initialGreenRotationOverride ?? greenRotation(for: state),
+                    onPlacementChange: { pin, rotation in
+                        guard geometry.imageSize.width > 0, geometry.imageSize.height > 0 else { return }
+                        model.saveGreenPlacement(
+                            hole: state.hole,
+                            globalId: state.globalId,
+                            normalizedPinX: pin.x / geometry.imageSize.width,
+                            normalizedPinY: pin.y / geometry.imageSize.height,
+                            rotationDegrees: rotation
+                        )
+                    },
                     onBack: { model.backToMenu() }
                 )
             } else {
@@ -247,7 +299,7 @@ public struct WatchRoundContainerView: View {
                         geometry: geometry,
                         route: route,
                         hazards: state.hazards,
-                        centerGreenYards: watchGreenYards?.center ?? centerYd(state),
+                        centerGreenYards: canonicalCenterYd(state),
                         initialHazardID: initialHazardID,
                         onBack: { model.backToMenu() }
                     )
@@ -471,6 +523,7 @@ public struct WatchRoundContainerView: View {
 
     @ViewBuilder
     private func holeMapView(_ s: WatchRoundState, _ geometry: WatchHoleMapGeometry) -> some View {
+        let selectedPin = selectedGreenPin(for: s, geometry: geometry)
         let currentShot = currentShotLayout(for: s, geometry: geometry)
         let preparedGeometry = currentShot == nil
             && model.preparedRootCaddieLayerAvailable(at: shotLocation)
@@ -484,6 +537,7 @@ public struct WatchRoundContainerView: View {
             frontGreen: frontYd(s),
             centerGreen: centerYd(s),
             backGreen: backYd(s),
+            canonicalCenterGreen: canonicalCenterYd(s),
             playsLikeDelta: model.activePlaysLikeDeltaYards,
             lastShot: latestShotDistanceM(s).map(WatchUnits.yards) ?? 0,
             caddieClub: caddieClub(s),
@@ -505,6 +559,7 @@ public struct WatchRoundContainerView: View {
             fullMap: false,
             mapScale: CGFloat(WatchHoleMapView.restingCrownScale),
             geometry: renderedGeometry,
+            pinImagePoint: selectedPin,
             measuredPxOverride: measuredPxOverride,
             interactionMode: .root,
             onOpenCaddie: { model.openCaddie() },
@@ -519,12 +574,14 @@ public struct WatchRoundContainerView: View {
         _ s: WatchRoundState,
         _ geometry: WatchHoleMapGeometry
     ) -> some View {
+        let selectedPin = selectedGreenPin(for: s, geometry: geometry)
         WatchHoleMapView(
             holeNumber: s.hole,
             par: s.par,
             frontGreen: frontYd(s),
             centerGreen: centerYd(s),
             backGreen: backYd(s),
+            canonicalCenterGreen: canonicalCenterYd(s),
             lastShot: 0,
             showCaddieRecommendation: false,
             showPreparedPlan: false,
@@ -536,6 +593,7 @@ public struct WatchRoundContainerView: View {
             fullMap: true,
             mapScale: CGFloat(holeMapCrownScale),
             geometry: geometry,
+            pinImagePoint: selectedPin,
             measuredPxOverride: measuredPxOverride,
             interactionMode: .touchTarget,
             onBack: { model.backToHome() }
@@ -632,7 +690,7 @@ public struct WatchRoundContainerView: View {
             || model.preparedRootCaddieLayerAvailable(at: shotLocation)
         return WatchDistanceHero(
             frontYd: watchGreenYards?.front,
-            centerYd: watchGreenYards?.center,
+            centerYd: centerYd(s),
             backYd: watchGreenYards?.back,
             caddieLine: showCaddie ? caddieLine(s) : nil,
             bigText: big

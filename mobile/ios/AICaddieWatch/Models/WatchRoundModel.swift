@@ -296,6 +296,62 @@ public final class WatchRoundModel: ObservableObject {
         return round.holeStates.first { $0.hole == round.activeHole } ?? round.holeStates.first
     }
 
+    /// The current round's saved View Green choice for one hole. Corrupt/out-of-frame values fail
+    /// closed to the package's canonical pin instead of sending a marker off the visible course.
+    public func greenPlacement(forHole hole: Int, globalId: Int?) -> WatchGreenPlacement? {
+        round?.greenPlacements?.last(where: { placement in
+            placement.matches(hole: hole, globalId: globalId)
+                && placement.normalizedPinX.isFinite
+                && placement.normalizedPinY.isFinite
+                && (0...1).contains(placement.normalizedPinX)
+                && (0...1).contains(placement.normalizedPinY)
+                && placement.rotationDegrees.isFinite
+        })
+    }
+
+    /// Persist a moved flag and the player's paper-alignment rotation as one per-hole fact. This is
+    /// intentionally local round state, not a backend scoring event and not immutable course data.
+    public func saveGreenPlacement(
+        hole: Int,
+        globalId: Int?,
+        normalizedPinX: Double,
+        normalizedPinY: Double,
+        rotationDegrees: Double
+    ) {
+        guard var current = round,
+              current.holeStates.contains(where: { $0.hole == hole }),
+              normalizedPinX.isFinite,
+              normalizedPinY.isFinite,
+              (0...1).contains(normalizedPinX),
+              (0...1).contains(normalizedPinY),
+              rotationDegrees.isFinite else { return }
+
+        let wrappedRotation = Self.wrappedGreenRotation(rotationDegrees)
+        let placement = WatchGreenPlacement(
+            hole: hole,
+            globalId: globalId,
+            normalizedPinX: normalizedPinX,
+            normalizedPinY: normalizedPinY,
+            rotationDegrees: wrappedRotation
+        )
+        var placements = current.greenPlacements ?? []
+        placements.removeAll { $0.hole == hole }
+        placements.append(placement)
+        placements.sort { $0.hole < $1.hole }
+        current.greenPlacements = placements
+        do {
+            try store.save(current)
+            round = current
+        } catch {
+            return
+        }
+    }
+
+    static func wrappedGreenRotation(_ degrees: Double) -> Double {
+        let positive = (degrees + 180).truncatingRemainder(dividingBy: 360)
+        return (positive < 0 ? positive + 360 : positive) - 180
+    }
+
     public var scoringHoleState: WatchRoundState? {
         guard let round, let scoringHole else { return nil }
         return round.holeStates.first { $0.hole == scoringHole }
@@ -720,6 +776,11 @@ public final class WatchRoundModel: ObservableObject {
             guard let candidateFromHole = shot.candidateFromHole else { return shot }
             return holeNumbers.contains(candidateFromHole) ? shot : nil
         }
+        let retainedGreenPlacements = existing?.greenPlacements?.filter { placement in
+            states.contains { state in
+                placement.matches(hole: state.hole, globalId: state.globalId)
+            }
+        }
         let persisted = WatchRoundStore.PersistedRound(
             roundId: seed.roundId,
             activeHole: activeHole,
@@ -728,7 +789,8 @@ public final class WatchRoundModel: ObservableObject {
             courseName: seed.courseName,
             pendingManualShot: retainedManualShot,
             pendingAutoShotCandidate: existing?.pendingAutoShotCandidate,
-            scoreDraft: retainedScoreDraft
+            scoreDraft: retainedScoreDraft,
+            greenPlacements: retainedGreenPlacements
         )
         try? store.save(persisted)
         round = persisted
@@ -752,6 +814,7 @@ public final class WatchRoundModel: ObservableObject {
             && current.pendingManualShot == nil
             && current.pendingAutoShotCandidate == nil
             && current.scoreDraft == nil
+            && (current.greenPlacements?.isEmpty ?? true)
     }
 
     /// Merge the richer live snapshot for one hole without dropping the seeded course or other holes.

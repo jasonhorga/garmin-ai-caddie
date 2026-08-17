@@ -39,6 +39,8 @@ public struct WatchUITestRoot: View {
              "standalone-course-near-green",
              "standalone-course-touch-target", "standalone-course-view-green",
              "standalone-course-view-green-max", "standalone-course-view-green-moved",
+             "standalone-course-view-green-rotated", "standalone-course-pin-root",
+             "standalone-course-pin-touch-target",
              "standalone-course-caddie", "standalone-course-hazards",
              "standalone-course-last-shot", "standalone-course-caddie-last-shot",
              "standalone-course-live-home":
@@ -303,14 +305,19 @@ public struct WatchUITestRoot: View {
                         ? model.activeHoleState?.hazards.first?.id
                         : nil,
                     measuredPxOverride: screen == "standalone-course-touch-target"
+                        || screen == "standalone-course-pin-touch-target"
                         ? WatchHoleMapSample.youPx
                         : nil,
                     initialGreenPinOverride: screen == "standalone-course-view-green-moved"
+                        || screen == "standalone-course-view-green-rotated"
                         ? CGPoint(x: 447, y: 270)
                         : nil,
                     initialGreenZoomScaleOverride: screen == "standalone-course-view-green-max"
                         ? 2
-                        : 1
+                        : 1,
+                    initialGreenRotationOverride: screen == "standalone-course-view-green-rotated"
+                        ? 35
+                        : nil
                 )
             } else {
                 Text("offline course restore unavailable")
@@ -333,8 +340,18 @@ public struct WatchUITestRoot: View {
                 model.openHoleMap()
             } else if screen == "standalone-course-view-green"
                         || screen == "standalone-course-view-green-max"
-                        || screen == "standalone-course-view-green-moved" {
+                        || screen == "standalone-course-view-green-moved"
+                        || screen == "standalone-course-view-green-rotated" {
                 model.openViewGreen()
+            } else if screen == "standalone-course-pin-root"
+                        || screen == "standalone-course-pin-touch-target" {
+                installStandaloneFixtureRound()
+                saveStandaloneReviewGreenPlacement()
+                if screen == "standalone-course-pin-touch-target" {
+                    model.openHoleMap()
+                } else {
+                    model.backToHome()
+                }
             } else if screen == "standalone-course-caddie" {
                 model.openCaddie()
             } else if screen == "standalone-course-hazards" {
@@ -1114,7 +1131,9 @@ public struct WatchUITestRoot: View {
         case "standalone-course-live-home":
             return (front: 199, center: 211, back: 223)
         case "standalone-course-near-green", "standalone-course-view-green",
-             "standalone-course-view-green-max", "standalone-course-view-green-moved":
+             "standalone-course-view-green-max", "standalone-course-view-green-moved",
+             "standalone-course-view-green-rotated", "standalone-course-pin-root",
+             "standalone-course-pin-touch-target":
             return (front: 41, center: 53, back: 66)
         default:
             return (front: 552, center: 567, back: 581)
@@ -1179,6 +1198,23 @@ public struct WatchUITestRoot: View {
             || screen == "standalone-course-view-green"
             || screen == "standalone-course-view-green-max"
             || screen == "standalone-course-view-green-moved"
+            || screen == "standalone-course-view-green-rotated"
+            || screen == "standalone-course-pin-root"
+            || screen == "standalone-course-pin-touch-target"
+    }
+
+    private func saveStandaloneReviewGreenPlacement() {
+        let pin = CGPoint(x: 447, y: 270)
+        guard let state = model.activeHoleState,
+              standaloneCourseGeometry.imageSize.width > 0,
+              standaloneCourseGeometry.imageSize.height > 0 else { return }
+        model.saveGreenPlacement(
+            hole: state.hole,
+            globalId: state.globalId,
+            normalizedPinX: pin.x / standaloneCourseGeometry.imageSize.width,
+            normalizedPinY: pin.y / standaloneCourseGeometry.imageSize.height,
+            rotationDegrees: 35
+        )
     }
 
     private func installStandaloneFixtureRound() {

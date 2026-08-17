@@ -106,6 +106,76 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(relaunched.screen, .resume)
     }
 
+    func testGreenPlacementPersistsPerHoleAcrossRelaunchAndSeedRefresh() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("green-placement-\(UUID().uuidString)", isDirectory: true)
+        let first = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
+        first.seedRound([hole(1, globalId: 31669), hole(2, globalId: 31669)])
+
+        first.saveGreenPlacement(
+            hole: 1,
+            globalId: 31669,
+            normalizedPinX: 0.42,
+            normalizedPinY: 0.31,
+            rotationDegrees: 450
+        )
+
+        let relaunched = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
+        let restored = try XCTUnwrap(relaunched.greenPlacement(forHole: 1, globalId: 31669))
+        XCTAssertEqual(restored.normalizedPinX, 0.42, accuracy: 0.000_001)
+        XCTAssertEqual(restored.normalizedPinY, 0.31, accuracy: 0.000_001)
+        XCTAssertEqual(restored.rotationDegrees, 90, accuracy: 0.000_001)
+        XCTAssertNil(relaunched.greenPlacement(forHole: 2, globalId: 31669))
+        XCTAssertNil(relaunched.greenPlacement(forHole: 1, globalId: 99999))
+
+        relaunched.applyRoundSeed(WatchRoundSeed(
+            roundId: "r1",
+            courseName: "刷新后的同一球局",
+            activeHole: 1,
+            holes: [
+                WatchRoundSeedHole(hole: 1, par: 4, distanceM: 360, globalId: 31669),
+                WatchRoundSeedHole(hole: 2, par: 4, distanceM: 350, globalId: 31669),
+            ]
+        ))
+        XCTAssertEqual(
+            relaunched.greenPlacement(forHole: 1, globalId: 31669)?.rotationDegrees,
+            90
+        )
+    }
+
+    func testGreenPlacementIsClearedWithTerminalRoundClosure() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("green-placement-close-\(UUID().uuidString)", isDirectory: true)
+        let model = WatchRoundModel(store: WatchRoundStore(directoryURL: directory))
+        model.seedRound([hole(1, globalId: 31669)])
+        model.saveGreenPlacement(
+            hole: 1,
+            globalId: 31669,
+            normalizedPinX: 0.5,
+            normalizedPinY: 0.5,
+            rotationDegrees: 12
+        )
+
+        model.requestAbandon()
+        model.confirmAbandon()
+
+        XCTAssertNil(model.round)
+        XCTAssertNil(WatchRoundStore(directoryURL: directory).load())
+    }
+
+    func testLegacyPersistedRoundWithoutGreenPlacementsStillDecodes() throws {
+        let data = try XCTUnwrap(
+            """
+            {"roundId":"legacy","activeHole":1,"holeStates":[],"pendingEvents":[]}
+            """.data(using: .utf8)
+        )
+
+        let decoded = try JSONDecoder().decode(WatchRoundStore.PersistedRound.self, from: data)
+
+        XCTAssertEqual(decoded.roundId, "legacy")
+        XCTAssertNil(decoded.greenPlacements)
+    }
+
     func testRestoredScoreDraftWaitsAtResumeGateUntilPlayerContinues() {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("resume-round-\(UUID().uuidString)", isDirectory: true)

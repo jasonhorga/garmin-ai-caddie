@@ -81,6 +81,19 @@ final class WatchHoleMapViewportTests: XCTestCase {
         )
     }
 
+    func testTouchTargetUsesMovedPinButKeepsCanonicalCalibration() throws {
+        let distances = try XCTUnwrap(WatchTouchTargetDistanceLayout.resolve(
+            playerImagePoint: CGPoint(x: 0, y: 10),
+            targetImagePoint: CGPoint(x: 0, y: 5),
+            pinImagePoint: CGPoint(x: 3, y: 0),
+            canonicalPinImagePoint: CGPoint(x: 0, y: 0),
+            centerGreenYards: 10
+        ))
+
+        XCTAssertEqual(distances.playerToTargetYards, 5)
+        XCTAssertEqual(distances.targetToPinYards, 6)
+    }
+
     func testTouchTargetRejectsMissingOrDegenerateDistanceAuthority() {
         XCTAssertNil(WatchTouchTargetDistanceLayout.resolve(
             playerImagePoint: .zero,
@@ -187,6 +200,35 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertEqual(metrics.edge(.left)?.yards, 7)
     }
 
+    func testRotatingGreenChangesScreenAxisClearancesWithoutChangingFlagRange() throws {
+        let outline = [
+            CGPoint(x: 0, y: 0), CGPoint(x: 20, y: 0),
+            CGPoint(x: 20, y: 10), CGPoint(x: 0, y: 10),
+        ]
+        let unrotated = try XCTUnwrap(WatchGreenPreviewLayout.pinMetrics(
+            playerImagePoint: CGPoint(x: 10, y: 15),
+            canonicalPinImagePoint: CGPoint(x: 10, y: 5),
+            selectedPinImagePoint: CGPoint(x: 10, y: 5),
+            greenOutline: outline,
+            centerGreenYards: 10,
+            rotationDegrees: 0
+        ))
+        let quarterTurn = try XCTUnwrap(WatchGreenPreviewLayout.pinMetrics(
+            playerImagePoint: CGPoint(x: 10, y: 15),
+            canonicalPinImagePoint: CGPoint(x: 10, y: 5),
+            selectedPinImagePoint: CGPoint(x: 10, y: 5),
+            greenOutline: outline,
+            centerGreenYards: 10,
+            rotationDegrees: 90
+        ))
+
+        XCTAssertEqual(unrotated.playerToPinYards, quarterTurn.playerToPinYards)
+        XCTAssertEqual(unrotated.edge(.top)?.yards, 5)
+        XCTAssertEqual(unrotated.edge(.right)?.yards, 10)
+        XCTAssertEqual(quarterTurn.edge(.top)?.yards, 10)
+        XCTAssertEqual(quarterTurn.edge(.right)?.yards, 5)
+    }
+
     func testGreenFlagMetricsRejectMissingLiveDistanceAuthority() {
         XCTAssertNil(WatchGreenPreviewLayout.pinMetrics(
             playerImagePoint: CGPoint(x: 5, y: 15),
@@ -257,6 +299,49 @@ final class WatchHoleMapViewportTests: XCTestCase {
 
         XCTAssertTrue(imageRect.contains(CGPoint(x: 0, y: 0)))
         XCTAssertTrue(imageRect.contains(CGPoint(x: size.width - 0.01, y: size.height - 0.01)))
+    }
+
+    func testGreenPreviewRotationKeepsRealTopoUnderEveryWatchCorner() {
+        let base = WatchHoleMapSample.geometry
+        let geometry = WatchHoleMapGeometry(
+            image: base.image,
+            imageSize: base.imageSize,
+            youPx: WatchHoleMapSample.lastShotPx,
+            pinPx: base.pinPx,
+            layupPx: base.layupPx,
+            apexPx: base.apexPx,
+            greenCtrlPx: base.greenCtrlPx,
+            greenOutlinePx: [
+                CGPoint(x: 410, y: 257), CGPoint(x: 452, y: 252),
+                CGPoint(x: 470, y: 281), CGPoint(x: 447, y: 306),
+                CGPoint(x: 408, y: 296), CGPoint(x: 397, y: 274),
+            ]
+        )
+        let sizes = [
+            CGSize(width: 176, height: 215),
+            CGSize(width: 184, height: 224),
+            CGSize(width: 198, height: 242),
+        ]
+        for size in sizes {
+            for degrees in stride(from: -180.0, through: 180.0, by: 30.0) {
+                let viewport = WatchGreenPreviewLayout.viewport(
+                    geometry: geometry,
+                    size: size,
+                    zoom: 1,
+                    rotationDegrees: degrees
+                )
+                for corner in [
+                    CGPoint(x: 0, y: 0), CGPoint(x: size.width, y: 0),
+                    CGPoint(x: size.width, y: size.height), CGPoint(x: 0, y: size.height),
+                ] {
+                    let imagePoint = viewport.imagePoint(corner)
+                    XCTAssertGreaterThanOrEqual(imagePoint.x, -0.01, "\(size), \(degrees)°")
+                    XCTAssertLessThanOrEqual(imagePoint.x, geometry.imageSize.width + 0.01, "\(size), \(degrees)°")
+                    XCTAssertGreaterThanOrEqual(imagePoint.y, -0.01, "\(size), \(degrees)°")
+                    XCTAssertLessThanOrEqual(imagePoint.y, geometry.imageSize.height + 0.01, "\(size), \(degrees)°")
+                }
+            }
+        }
     }
 
     func testEighteenHoleRingStartsAtThreeAndEndsAtTwelve() {

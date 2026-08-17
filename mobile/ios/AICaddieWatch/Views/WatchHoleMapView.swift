@@ -61,12 +61,15 @@ enum WatchTouchTargetDistanceLayout {
         playerImagePoint: CGPoint,
         targetImagePoint: CGPoint,
         pinImagePoint: CGPoint,
+        canonicalPinImagePoint: CGPoint? = nil,
         centerGreenYards: Int?
     ) -> WatchTouchTargetDistances? {
+        let calibrationPin = canonicalPinImagePoint ?? pinImagePoint
         let values = [
             playerImagePoint.x, playerImagePoint.y,
             targetImagePoint.x, targetImagePoint.y,
             pinImagePoint.x, pinImagePoint.y,
+            calibrationPin.x, calibrationPin.y,
         ]
         guard values.allSatisfy(\.isFinite),
               let centerGreenYards,
@@ -74,8 +77,8 @@ enum WatchTouchTargetDistanceLayout {
               centerGreenYards <= WatchGeoMath.maximumUsefulGreenYards else { return nil }
 
         let playerToPinPixels = hypot(
-            pinImagePoint.x - playerImagePoint.x,
-            pinImagePoint.y - playerImagePoint.y
+            calibrationPin.x - playerImagePoint.x,
+            calibrationPin.y - playerImagePoint.y
         )
         guard playerToPinPixels > 1 else { return nil }
         let yardsPerPixel = CGFloat(centerGreenYards) / playerToPinPixels
@@ -255,8 +258,8 @@ public struct WatchCurrentShotLayout: Equatable {
 ///
 /// This snapshot is a par-5 SECOND shot (gid31669 h4). Layout after the "太挤" review:
 ///  • Left column shows only the essentials: 第N洞·P and the green distance block 后/中/前, with
-///    **中 = distance to the canonical pin**. Green Preview is temporary until a dedicated flag event
-///    exists. The recommendation chip and current-shot
+///    **中 = distance to the current round's selected pin** (or canonical centre before it is moved).
+///    The recommendation chip and current-shot
 ///    overlay appear together only after the complete D02 evidence/freshness/location gate passes.
 ///  • The distance block is a **TOGGLE**: default shows the raw yardage; `showPlaysLike` flips it to the
 ///    slope/elevation-adjusted **实打** values with a ↑/↓ arrow (Garmin taps the distance for this).
@@ -287,6 +290,11 @@ public struct WatchHoleMapView: View {
     public let frontGreen: Int?
     public let centerGreen: Int?
     public let backGreen: Int?
+    /// Canonical player→green-centre range used only to calibrate topo pixels. `centerGreen` may be
+    /// the round's moved-flag distance and must never be fed back as a second calibration authority.
+    public let canonicalCenterGreen: Int?
+    /// Round-scoped selected flag in canonical image coordinates. Map orientation remains unchanged.
+    public let pinImagePoint: CGPoint
     /// 实打 adjustment (yards). +N ⇒ plays longer uphill. Shown when `showPlaysLike` is on.
     public let playsLikeDelta: Int
     public let lastShot: Int
@@ -336,6 +344,7 @@ public struct WatchHoleMapView: View {
         frontGreen: Int? = 273,
         centerGreen: Int? = 287,
         backGreen: Int? = 300,
+        canonicalCenterGreen: Int? = nil,
         playsLikeDelta: Int = 8,
         lastShot: Int = 200,
         caddieClub: String = "3号木",
@@ -356,6 +365,7 @@ public struct WatchHoleMapView: View {
         fullMapFocusImagePx: CGPoint? = nil,
         fullMapFocusCanvasFraction: CGPoint = CGPoint(x: 0.5, y: 0.52),
         geometry: WatchHoleMapGeometry = WatchHoleMapSample.geometry,
+        pinImagePoint: CGPoint? = nil,
         measuredPxOverride: CGPoint? = nil,
         interactionMode: WatchHoleMapInteractionMode = .passive,
         onOpenCaddie: @escaping () -> Void = {},
@@ -367,6 +377,8 @@ public struct WatchHoleMapView: View {
         self.frontGreen = frontGreen
         self.centerGreen = centerGreen
         self.backGreen = backGreen
+        self.canonicalCenterGreen = canonicalCenterGreen ?? centerGreen
+        self.pinImagePoint = pinImagePoint ?? geometry.pinPx
         self.playsLikeDelta = playsLikeDelta
         self.lastShot = lastShot
         self.caddieClub = caddieClub
@@ -407,7 +419,7 @@ public struct WatchHoleMapView: View {
                 viewportHeight: Double(size.height),
                 playerAnchorFraction: Double(fullMapPlayerAnchorFraction),
                 playerImageY: Double(geometry.youPx.y),
-                pinImageY: Double(geometry.pinPx.y)
+                pinImageY: Double(pinImagePoint.y)
             ))
         }
         guard !fullMap else { return mapScale }
@@ -416,7 +428,7 @@ public struct WatchHoleMapView: View {
             viewportHeight: Double(size.height),
             playerAnchorFraction: 0.72,
             playerImageY: Double(geometry.youPx.y),
-            pinImageY: Double(geometry.pinPx.y)
+            pinImageY: Double(pinImagePoint.y)
         ))
     }
 
@@ -714,7 +726,7 @@ public struct WatchHoleMapView: View {
         let scale = currentScale(size)
         let a = anchors(size)
         let player = a.you
-        let green = a.t(geometry.pinPx)
+        let green = a.t(pinImagePoint)
 
         var drew = false
         #if canImport(UIKit)
@@ -813,8 +825,9 @@ public struct WatchHoleMapView: View {
             let distances = WatchTouchTargetDistanceLayout.resolve(
                 playerImagePoint: geometry.youPx,
                 targetImagePoint: m,
-                pinImagePoint: geometry.pinPx,
-                centerGreenYards: centerGreen
+                pinImagePoint: pinImagePoint,
+                canonicalPinImagePoint: geometry.pinPx,
+                centerGreenYards: canonicalCenterGreen
             )
             let r: CGFloat = 4.5
             var cross = Path()

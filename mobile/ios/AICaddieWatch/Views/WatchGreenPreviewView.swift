@@ -6,18 +6,32 @@ import UIKit
 struct WatchGreenViewport: Equatable {
     let scale: CGFloat
     let imageOrigin: CGPoint
+    let rotationCenterCanvas: CGPoint
+    let rotationRadians: CGFloat
 
-    func canvasPoint(_ imagePoint: CGPoint) -> CGPoint {
-        CGPoint(
-            x: imageOrigin.x + imagePoint.x * scale,
-            y: imageOrigin.y + imagePoint.y * scale
+    private func rotated(_ point: CGPoint, radians: CGFloat) -> CGPoint {
+        let dx = point.x - rotationCenterCanvas.x
+        let dy = point.y - rotationCenterCanvas.y
+        let cosine = cos(radians)
+        let sine = sin(radians)
+        return CGPoint(
+            x: rotationCenterCanvas.x + dx * cosine - dy * sine,
+            y: rotationCenterCanvas.y + dx * sine + dy * cosine
         )
     }
 
+    func canvasPoint(_ imagePoint: CGPoint) -> CGPoint {
+        rotated(CGPoint(
+            x: imageOrigin.x + imagePoint.x * scale,
+            y: imageOrigin.y + imagePoint.y * scale
+        ), radians: rotationRadians)
+    }
+
     func imagePoint(_ canvasPoint: CGPoint) -> CGPoint {
-        CGPoint(
-            x: (canvasPoint.x - imageOrigin.x) / scale,
-            y: (canvasPoint.y - imageOrigin.y) / scale
+        let unrotated = rotated(canvasPoint, radians: -rotationRadians)
+        return CGPoint(
+            x: (unrotated.x - imageOrigin.x) / scale,
+            y: (unrotated.y - imageOrigin.y) / scale
         )
     }
 }
@@ -48,7 +62,8 @@ enum WatchGreenPreviewLayout {
     static func viewport(
         geometry: WatchHoleMapGeometry,
         size: CGSize,
-        zoom: CGFloat = 1
+        zoom: CGFloat = 1,
+        rotationDegrees: Double = 0
     ) -> WatchGreenViewport {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         let contentRect = CGRect(
@@ -68,35 +83,57 @@ enum WatchGreenPreviewLayout {
             0.01,
             min(contentRect.width / max(padded.width, 1), contentRect.height / max(padded.height, 1))
         )
-        let scale = fittedScale * min(max(zoom, 1), 2)
-        let desiredOrigin = CGPoint(
-            x: contentRect.midX - padded.midX * scale,
-            y: contentRect.midY - padded.midY * scale
-        )
-        // Keep the real topo under the whole rounded display even when the green sits close to an
-        // image edge. A centered crop alone can expose the Canvas' black fallback at high Crown
-        // detents; clamp each axis whenever the downloaded image is large enough to cover it.
-        func coveredOrigin(_ desired: CGFloat, imageLength: CGFloat, canvasLength: CGFloat) -> CGFloat {
-            let renderedLength = imageLength * scale
-            guard renderedLength.isFinite, renderedLength > 0 else { return desired }
-            if renderedLength >= canvasLength {
-                return min(max(desired, canvasLength - renderedLength), 0)
-            }
-            return (canvasLength - renderedLength) * 0.5
+        let rotationRadians = CGFloat(rotationDegrees * .pi / 180)
+        let rotationCenterCanvas = CGPoint(x: contentRect.midX, y: contentRect.midY)
+        let rotationCenterImage = CGPoint(x: padded.midX, y: padded.midY)
+
+        // Rotation must never reveal synthetic black wedges. Keep the real green centred, inverse-
+        // rotate all four display corners, and increase only the minimum fill scale needed for those
+        // corners to remain inside the downloaded image. Crown zoom then remains a pure magnification.
+        let corners = [
+            CGPoint(x: 0, y: 0), CGPoint(x: size.width, y: 0),
+            CGPoint(x: size.width, y: size.height), CGPoint(x: 0, y: size.height),
+        ]
+        func inverseRotatedOffset(_ point: CGPoint) -> CGPoint {
+            let dx = point.x - rotationCenterCanvas.x
+            let dy = point.y - rotationCenterCanvas.y
+            let cosine = cos(rotationRadians)
+            let sine = sin(rotationRadians)
+            return CGPoint(x: dx * cosine + dy * sine, y: -dx * sine + dy * cosine)
         }
-        let origin = CGPoint(
-            x: coveredOrigin(
-                desiredOrigin.x,
-                imageLength: geometry.imageSize.width,
-                canvasLength: size.width
-            ),
-            y: coveredOrigin(
-                desiredOrigin.y,
-                imageLength: geometry.imageSize.height,
-                canvasLength: size.height
-            )
+        var coverageScale: CGFloat = 0.01
+        for corner in corners.map(inverseRotatedOffset) {
+            if corner.x < 0, rotationCenterImage.x > 0 {
+                coverageScale = max(coverageScale, -corner.x / rotationCenterImage.x)
+            } else if corner.x > 0, geometry.imageSize.width > rotationCenterImage.x {
+                coverageScale = max(
+                    coverageScale,
+                    corner.x / (geometry.imageSize.width - rotationCenterImage.x)
+                )
+            }
+            if corner.y < 0, rotationCenterImage.y > 0 {
+                coverageScale = max(coverageScale, -corner.y / rotationCenterImage.y)
+            } else if corner.y > 0, geometry.imageSize.height > rotationCenterImage.y {
+                coverageScale = max(
+                    coverageScale,
+                    corner.y / (geometry.imageSize.height - rotationCenterImage.y)
+                )
+            }
+        }
+        let scale = max(
+            fittedScale * min(max(zoom, 1), 2),
+            coverageScale * 1.002
         )
-        return WatchGreenViewport(scale: scale, imageOrigin: origin)
+        let origin = CGPoint(
+            x: rotationCenterCanvas.x - rotationCenterImage.x * scale,
+            y: rotationCenterCanvas.y - rotationCenterImage.y * scale
+        )
+        return WatchGreenViewport(
+            scale: scale,
+            imageOrigin: origin,
+            rotationCenterCanvas: rotationCenterCanvas,
+            rotationRadians: rotationRadians
+        )
     }
 
     static func contains(_ point: CGPoint, polygon: [CGPoint]) -> Bool {
@@ -119,6 +156,75 @@ enum WatchGreenPreviewLayout {
         return inside
     }
 
+    /// Sample the same midpoint-quadratic boundary that is displayed. Hit testing, four-axis rays and
+    /// drawing all consume this polygon, eliminating the old raw-polygon/smoothed-outline mismatch.
+    static func boundaryPolygon(
+        _ polygon: [CGPoint],
+        samplesPerCurve: Int = 12
+    ) -> [CGPoint] {
+        let points = polygon.filter { $0.x.isFinite && $0.y.isFinite }
+        guard points.count >= 3 else { return points }
+        let samples = max(samplesPerCurve, 2)
+        func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
+            CGPoint(x: (lhs.x + rhs.x) * 0.5, y: (lhs.y + rhs.y) * 0.5)
+        }
+        func quadratic(_ start: CGPoint, _ control: CGPoint, _ end: CGPoint, _ t: CGFloat) -> CGPoint {
+            let inverse = 1 - t
+            return CGPoint(
+                x: inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * end.x,
+                y: inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * end.y
+            )
+        }
+
+        var sampled: [CGPoint] = []
+        sampled.reserveCapacity(points.count * samples)
+        for index in points.indices {
+            let previous = points[(index + points.count - 1) % points.count]
+            let current = points[index]
+            let next = points[(index + 1) % points.count]
+            let start = midpoint(previous, current)
+            let end = midpoint(current, next)
+            if sampled.isEmpty { sampled.append(start) }
+            for sample in 1...samples {
+                sampled.append(quadratic(start, current, end, CGFloat(sample) / CGFloat(samples)))
+            }
+        }
+        // The last sample closes onto the first. Path and intersection code close explicitly.
+        if let first = sampled.first, let last = sampled.last,
+           hypot(first.x - last.x, first.y - last.y) < 0.000_1 {
+            sampled.removeLast()
+        }
+        return sampled
+    }
+
+    static func rotationCenter(polygon: [CGPoint]) -> CGPoint {
+        let points = polygon.filter { $0.x.isFinite && $0.y.isFinite }
+        guard let first = points.first else { return .zero }
+        var minX = first.x
+        var maxX = first.x
+        var minY = first.y
+        var maxY = first.y
+        for point in points.dropFirst() {
+            minX = min(minX, point.x)
+            maxX = max(maxX, point.x)
+            minY = min(minY, point.y)
+            maxY = max(maxY, point.y)
+        }
+        return CGPoint(x: (minX + maxX) * 0.5, y: (minY + maxY) * 0.5)
+    }
+
+    static func rotated(_ point: CGPoint, around center: CGPoint, degrees: Double) -> CGPoint {
+        let radians = CGFloat(degrees * .pi / 180)
+        let cosine = cos(radians)
+        let sine = sin(radians)
+        let dx = point.x - center.x
+        let dy = point.y - center.y
+        return CGPoint(
+            x: center.x + dx * cosine - dy * sine,
+            y: center.y + dx * sine + dy * cosine
+        )
+    }
+
     /// Resolve the selected flag's live distance plus its four directional clearances to the real
     /// downloaded green boundary. The current wrist→canonical-centre GPS range calibrates topo px to
     /// yards; all five values then update from the same selected flag point.
@@ -127,7 +233,8 @@ enum WatchGreenPreviewLayout {
         canonicalPinImagePoint: CGPoint,
         selectedPinImagePoint: CGPoint,
         greenOutline: [CGPoint],
-        centerGreenYards: Int?
+        centerGreenYards: Int?,
+        rotationDegrees: Double = 0
     ) -> WatchGreenPinMetrics? {
         let scalarValues = [
             playerImagePoint.x, playerImagePoint.y,
@@ -150,12 +257,28 @@ enum WatchGreenPreviewLayout {
         ) * yardsPerPixel
         guard playerToSelected.isFinite else { return nil }
 
-        let edges = contains(selectedPinImagePoint, polygon: greenOutline)
+        let boundary = boundaryPolygon(greenOutline)
+        let center = rotationCenter(polygon: boundary)
+        let rotatedPin = rotated(selectedPinImagePoint, around: center, degrees: rotationDegrees)
+        let rotatedBoundary = boundary.map {
+            rotated($0, around: center, degrees: rotationDegrees)
+        }
+        let edges = contains(selectedPinImagePoint, polygon: boundary)
             ? edgeMeasurements(
-                pin: selectedPinImagePoint,
-                polygon: greenOutline,
+                pin: rotatedPin,
+                polygon: rotatedBoundary,
                 yardsPerPixel: yardsPerPixel
-            )
+            ).map { measurement in
+                WatchGreenEdgeMeasurement(
+                    direction: measurement.direction,
+                    yards: measurement.yards,
+                    edgeImagePoint: rotated(
+                        measurement.edgeImagePoint,
+                        around: center,
+                        degrees: -rotationDegrees
+                    )
+                )
+            }
             : []
         return WatchGreenPinMetrics(
             playerToPinYards: Int(playerToSelected.rounded()),
@@ -216,28 +339,16 @@ enum WatchGreenPreviewLayout {
     }
 
     /// The downloaded green boundary is intentionally lightweight and commonly contains only six to
-    /// ten points. A midpoint-quadratic path preserves those measured points while removing the
-    /// angular "hexagon" appearance that the raw line segments produced.
+    /// ten points. Render the sampled measurement boundary rather than a second geometric authority.
     static func smoothPath(
         polygon: [CGPoint],
         transform: (CGPoint) -> CGPoint = { $0 }
     ) -> Path {
-        let points = polygon
-            .filter { $0.x.isFinite && $0.y.isFinite }
-            .map(transform)
+        let points = boundaryPolygon(polygon).map(transform)
         guard points.count >= 3 else { return Path() }
-
-        func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
-            CGPoint(x: (lhs.x + rhs.x) * 0.5, y: (lhs.y + rhs.y) * 0.5)
-        }
-
         var path = Path()
-        path.move(to: midpoint(points[points.count - 1], points[0]))
-        for index in points.indices {
-            let current = points[index]
-            let next = points[(index + 1) % points.count]
-            path.addQuadCurve(to: midpoint(current, next), control: current)
-        }
+        path.move(to: points[0])
+        for point in points.dropFirst() { path.addLine(to: point) }
         path.closeSubpath()
         return path
     }
@@ -272,33 +383,72 @@ enum WatchGreenPreviewLayout {
     }
 }
 
+private struct WatchGreenCrownModifier: ViewModifier {
+    @Binding var zoomScale: Double
+    @Binding var rotationDegrees: Double
+    let rotatesGreen: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if rotatesGreen {
+            content.digitalCrownRotation(
+                $rotationDegrees,
+                from: -180,
+                through: 180,
+                by: 1,
+                sensitivity: .medium,
+                isContinuous: true,
+                isHapticFeedbackEnabled: true
+            )
+        } else {
+            content.digitalCrownRotation(
+                $zoomScale,
+                from: 1,
+                through: 2,
+                by: 0.1,
+                sensitivity: .medium,
+                isContinuous: false,
+                isHapticFeedbackEnabled: true
+            )
+        }
+    }
+}
+
 /// S70-style View Green: enlarge the real green within its nearby topo context, with a live distance,
-/// four flag-to-edge clearances and a draggable temporary flag. Cards, titles and explanatory copy
-/// disappear, but the approach apron and adjacent hazards remain visible around the green.
-/// The current live-round contract has no independent `flag_position_set` event yet, so leaving this
-/// instrument restores the canonical pin.
+/// four flag-to-edge clearances and a draggable round-scoped flag. Cards, titles and explanatory copy
+/// disappear, but the approach apron and adjacent hazards remain visible around the green. Crown zoom
+/// is the default; the compact rotate control temporarily maps Crown input to paper-pin-sheet alignment.
 public struct WatchGreenPreviewView: View {
     public let geometry: WatchHoleMapGeometry
     public let centerGreenYards: Int?
     public let onBack: () -> Void
+    public let onPlacementChange: (CGPoint, Double) -> Void
 
-    @State private var temporaryPin: CGPoint?
+    @State private var selectedPin: CGPoint?
     @State private var zoomScale = 1.0
+    @State private var rotationDegrees = 0.0
+    @State private var rotatesGreen = false
+    @State private var persistenceTask: Task<Void, Never>?
 
     public init(
         geometry: WatchHoleMapGeometry,
         centerGreenYards: Int? = nil,
         initialPin: CGPoint? = nil,
         initialZoomScale: Double = 1,
+        initialRotationDegrees: Double = 0,
+        onPlacementChange: @escaping (CGPoint, Double) -> Void = { _, _ in },
         onBack: @escaping () -> Void = {}
     ) {
         self.geometry = geometry
         self.centerGreenYards = centerGreenYards
+        self.onPlacementChange = onPlacementChange
         self.onBack = onBack
-        _temporaryPin = State(initialValue: initialPin.flatMap {
-            WatchGreenPreviewLayout.contains($0, polygon: geometry.greenOutlinePx) ? $0 : nil
+        let boundary = WatchGreenPreviewLayout.boundaryPolygon(geometry.greenOutlinePx)
+        _selectedPin = State(initialValue: initialPin.flatMap {
+            WatchGreenPreviewLayout.contains($0, polygon: boundary) ? $0 : nil
         })
         _zoomScale = State(initialValue: min(max(initialZoomScale, 1), 2))
+        _rotationDegrees = State(initialValue: WatchRoundModel.wrappedGreenRotation(initialRotationDegrees))
     }
 
     public var body: some View {
@@ -306,7 +456,8 @@ public struct WatchGreenPreviewView: View {
             let viewport = WatchGreenPreviewLayout.viewport(
                 geometry: geometry,
                 size: proxy.size,
-                zoom: CGFloat(zoomScale)
+                zoom: CGFloat(zoomScale),
+                rotationDegrees: rotationDegrees
             )
             let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
             ZStack {
@@ -326,7 +477,7 @@ public struct WatchGreenPreviewView: View {
                 WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
                     .position(x: safeRect.minX + 22, y: safeRect.maxY - 22)
 
-                if zoomScale > 1.02 {
+                if !rotatesGreen, zoomScale > 1.02 {
                     ZStack(alignment: .bottom) {
                         Capsule()
                             .fill(.white.opacity(0.22))
@@ -338,6 +489,34 @@ public struct WatchGreenPreviewView: View {
                     }
                     .position(x: safeRect.maxX - 4, y: safeRect.midY)
                 }
+
+                Button {
+                    rotatesGreen.toggle()
+                } label: {
+                    Group {
+                        if rotatesGreen {
+                            Text("\(Int(rotationDegrees.rounded()))°")
+                                .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                        } else {
+                            Image(systemName: "rotate.right")
+                                .font(.system(size: 11, weight: .bold))
+                        }
+                    }
+                    .foregroundStyle(rotatesGreen ? Color.black : Color.white)
+                    .frame(width: 26, height: 26)
+                    .background(
+                        rotatesGreen ? Color.yellow : Color.black.opacity(0.72),
+                        in: Circle()
+                    )
+                    .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 0.8))
+                    .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .position(x: safeRect.maxX - 22, y: safeRect.maxY - 22)
+                .accessibilityLabel(rotatesGreen ? "旋转果岭，当前 \(Int(rotationDegrees.rounded())) 度" : "旋转果岭")
+                .accessibilityHint(rotatesGreen ? "转动数码表冠调整方向，再点按返回缩放" : "点按后转动数码表冠")
 
                 if !canMoveFlag {
                     Text("无果岭轮廓")
@@ -356,15 +535,18 @@ public struct WatchGreenPreviewView: View {
         }
         .background(Color.black)
         .focusable(true)
-        .digitalCrownRotation(
-            $zoomScale,
-            from: 1,
-            through: 2,
-            by: 0.1,
-            sensitivity: .medium,
-            isContinuous: false,
-            isHapticFeedbackEnabled: true
+        .modifier(
+            WatchGreenCrownModifier(
+                zoomScale: $zoomScale,
+                rotationDegrees: $rotationDegrees,
+                rotatesGreen: rotatesGreen
+            )
         )
+        .onChange(of: rotationDegrees) { _ in schedulePlacementPersistence() }
+        .onDisappear {
+            persistenceTask?.cancel()
+            persistPlacement()
+        }
         .ignoresSafeArea()
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)
@@ -379,7 +561,7 @@ public struct WatchGreenPreviewView: View {
         .accessibilityAction(named: Text("返回菜单"), onBack)
     }
 
-    private var pin: CGPoint { temporaryPin ?? geometry.pinPx }
+    private var pin: CGPoint { selectedPin ?? geometry.pinPx }
     private var canMoveFlag: Bool { geometry.greenOutlinePx.count >= 3 }
 
     private var pinMetrics: WatchGreenPinMetrics? {
@@ -388,7 +570,8 @@ public struct WatchGreenPreviewView: View {
             canonicalPinImagePoint: geometry.pinPx,
             selectedPinImagePoint: pin,
             greenOutline: geometry.greenOutlinePx,
-            centerGreenYards: centerGreenYards
+            centerGreenYards: centerGreenYards,
+            rotationDegrees: rotationDegrees
         )
     }
 
@@ -421,9 +604,22 @@ public struct WatchGreenPreviewView: View {
                 let candidate = viewport.imagePoint(value.location)
                 guard WatchGreenPreviewLayout.contains(
                     candidate,
-                    polygon: geometry.greenOutlinePx
+                    polygon: WatchGreenPreviewLayout.boundaryPolygon(geometry.greenOutlinePx)
                 ) else { return }
-                temporaryPin = candidate
+                selectedPin = candidate
+            }
+            .onEnded { value in
+                guard canMoveFlag else { return }
+                let candidate = viewport.imagePoint(value.location)
+                if WatchGreenPreviewLayout.contains(
+                    candidate,
+                    polygon: WatchGreenPreviewLayout.boundaryPolygon(geometry.greenOutlinePx)
+                ) {
+                    selectedPin = candidate
+                    persistPlacement(pin: candidate)
+                } else {
+                    persistPlacement()
+                }
             }
     }
 
@@ -432,9 +628,25 @@ public struct WatchGreenPreviewView: View {
         let candidate = viewport.imagePoint(canvasPoint)
         guard WatchGreenPreviewLayout.contains(
             candidate,
-            polygon: geometry.greenOutlinePx
+            polygon: WatchGreenPreviewLayout.boundaryPolygon(geometry.greenOutlinePx)
         ) else { return }
-        temporaryPin = candidate
+        selectedPin = candidate
+        persistPlacement(pin: candidate)
+    }
+
+    private func schedulePlacementPersistence() {
+        persistenceTask?.cancel()
+        persistenceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            persistPlacement()
+        }
+    }
+
+    private func persistPlacement(pin selectedPin: CGPoint? = nil) {
+        let selectedPin = selectedPin ?? pin
+        guard selectedPin.x.isFinite, selectedPin.y.isFinite else { return }
+        onPlacementChange(selectedPin, rotationDegrees)
     }
 
     private func drawGreen(
@@ -454,7 +666,18 @@ public struct WatchGreenPreviewView: View {
                 height: geometry.imageSize.height * viewport.scale
             )
             if rect.width.isFinite, rect.height.isFinite, rect.width > 0, rect.height > 0 {
-                context.draw(context.resolve(Image(uiImage: image)), in: rect)
+                context.drawLayer { layer in
+                    layer.translateBy(
+                        x: viewport.rotationCenterCanvas.x,
+                        y: viewport.rotationCenterCanvas.y
+                    )
+                    layer.rotate(by: .radians(Double(viewport.rotationRadians)))
+                    layer.translateBy(
+                        x: -viewport.rotationCenterCanvas.x,
+                        y: -viewport.rotationCenterCanvas.y
+                    )
+                    layer.draw(layer.resolve(Image(uiImage: image)), in: rect)
+                }
                 drewTopo = true
             }
         }
