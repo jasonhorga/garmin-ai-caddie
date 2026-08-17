@@ -429,6 +429,8 @@ public struct WatchGreenPreviewView: View {
     @State private var rotationDegrees = 0.0
     @State private var rotatesGreen = false
     @State private var persistenceTask: Task<Void, Never>?
+    @State private var placementChanged = false
+    @State private var isDraggingFlag = false
 
     public init(
         geometry: WatchHoleMapGeometry,
@@ -545,7 +547,7 @@ public struct WatchGreenPreviewView: View {
         .onChange(of: rotationDegrees) { _ in schedulePlacementPersistence() }
         .onDisappear {
             persistenceTask?.cancel()
-            persistPlacement()
+            if placementChanged { persistPlacement() }
         }
         .ignoresSafeArea()
         .simultaneousGesture(
@@ -596,20 +598,25 @@ public struct WatchGreenPreviewView: View {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
                 guard canMoveFlag else { return }
-                let flagCanvas = viewport.canvasPoint(pin)
-                guard hypot(
-                    value.startLocation.x - flagCanvas.x,
-                    value.startLocation.y - flagCanvas.y
-                ) <= 36 else { return }
+                if !isDraggingFlag {
+                    let flagCanvas = viewport.canvasPoint(pin)
+                    guard hypot(
+                        value.startLocation.x - flagCanvas.x,
+                        value.startLocation.y - flagCanvas.y
+                    ) <= 36 else { return }
+                    isDraggingFlag = true
+                }
                 let candidate = viewport.imagePoint(value.location)
                 guard WatchGreenPreviewLayout.contains(
                     candidate,
                     polygon: WatchGreenPreviewLayout.boundaryPolygon(geometry.greenOutlinePx)
                 ) else { return }
                 selectedPin = candidate
+                placementChanged = true
             }
             .onEnded { value in
-                guard canMoveFlag else { return }
+                guard canMoveFlag, isDraggingFlag else { return }
+                isDraggingFlag = false
                 let candidate = viewport.imagePoint(value.location)
                 if WatchGreenPreviewLayout.contains(
                     candidate,
@@ -631,10 +638,12 @@ public struct WatchGreenPreviewView: View {
             polygon: WatchGreenPreviewLayout.boundaryPolygon(geometry.greenOutlinePx)
         ) else { return }
         selectedPin = candidate
+        placementChanged = true
         persistPlacement(pin: candidate)
     }
 
     private func schedulePlacementPersistence() {
+        placementChanged = true
         persistenceTask?.cancel()
         persistenceTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 350_000_000)
@@ -645,7 +654,8 @@ public struct WatchGreenPreviewView: View {
 
     private func persistPlacement(pin selectedPin: CGPoint? = nil) {
         let selectedPin = selectedPin ?? pin
-        guard selectedPin.x.isFinite, selectedPin.y.isFinite else { return }
+        guard placementChanged, selectedPin.x.isFinite, selectedPin.y.isFinite else { return }
+        placementChanged = false
         onPlacementChange(selectedPin, rotationDegrees)
     }
 
