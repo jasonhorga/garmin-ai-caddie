@@ -54,6 +54,25 @@ struct WatchTouchTargetDistances: Equatable {
 }
 
 enum WatchTouchTargetDistanceLayout {
+    /// Keep the two Touch Target labels legible when a selected point is close to the flag.  Labels
+    /// sit on opposite normals of their respective segments instead of fixed horizontal offsets;
+    /// this remains stable when the target is above, below or beside the player.
+    static func segmentLabelPoint(
+        from: CGPoint,
+        to: CGPoint,
+        normalOffset: CGFloat
+    ) -> CGPoint {
+        let dx = to.x - from.x
+        let dy = to.y - from.y
+        let length = max(hypot(dx, dy), 1)
+        let midpoint = CGPoint(x: (from.x + to.x) * 0.5, y: (from.y + to.y) * 0.5)
+        let normal = CGPoint(x: -dy / length, y: dx / length)
+        return CGPoint(
+            x: midpoint.x + normal.x * normalOffset,
+            y: midpoint.y + normal.y * normalOffset
+        )
+    }
+
     /// S70 Touch Target reports two straight-line ranges: player→target and target→flag. The live
     /// GPS player→flag range calibrates the uniformly projected topo bitmap; route length is not used
     /// because it would turn the measurement into distance travelled around a dogleg.
@@ -840,9 +859,10 @@ public struct WatchHoleMapView: View {
                 bareDistance(
                     &context,
                     text: "\(d)",
-                    at: CGPoint(
-                        x: (player.x + mc.x) * 0.5 - 9,
-                        y: (player.y + mc.y) * 0.5
+                    at: WatchTouchTargetDistanceLayout.segmentLabelPoint(
+                        from: player,
+                        to: mc,
+                        normalOffset: 9
                     ),
                     viewportSize: size
                 )
@@ -851,9 +871,10 @@ public struct WatchHoleMapView: View {
                 bareDistance(
                     &context,
                     text: "\(remaining)",
-                    at: CGPoint(
-                        x: (mc.x + green.x) * 0.5 + 9,
-                        y: (mc.y + green.y) * 0.5
+                    at: WatchTouchTargetDistanceLayout.segmentLabelPoint(
+                        from: mc,
+                        to: green,
+                        normalOffset: -9
                     ),
                     viewportSize: size
                 )

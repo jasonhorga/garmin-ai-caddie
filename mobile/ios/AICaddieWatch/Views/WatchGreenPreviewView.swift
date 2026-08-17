@@ -283,18 +283,37 @@ enum WatchGreenPreviewLayout {
 
         let minimumFlagGap: CGFloat = 14
         if hypot(point.x - flagCanvasPoint.x, point.y - flagCanvasPoint.y) < minimumFlagGap {
-            let tangent: CGPoint = (direction == .top || direction == .bottom)
-                ? CGPoint(x: 1, y: 0)
-                : CGPoint(x: 0, y: 1)
-            let shift = minimumFlagGap + 2
-            let candidates = [
-                CGPoint(x: point.x + tangent.x * shift, y: point.y + tangent.y * shift),
-                CGPoint(x: point.x - tangent.x * shift, y: point.y - tangent.y * shift),
-            ]
-            point = candidates.max {
-                hypot($0.x - flagCanvasPoint.x, $0.y - flagCanvasPoint.y)
-                    < hypot($1.x - flagCanvasPoint.x, $1.y - flagCanvasPoint.y)
-            } ?? point
+            let outward: CGPoint
+            switch direction {
+            case .top: outward = CGPoint(x: 0, y: -1)
+            case .right: outward = CGPoint(x: 1, y: 0)
+            case .bottom: outward = CGPoint(x: 0, y: 1)
+            case .left: outward = CGPoint(x: -1, y: 0)
+            }
+            let outside = CGPoint(
+                x: edgeCanvasPoint.x + outward.x * 7,
+                y: edgeCanvasPoint.y + outward.y * 7
+            )
+            // Prefer the outside of the corresponding boundary.  Four short clearances then stay
+            // on four distinct screen axes instead of two tangent nudges colliding on 41 mm.
+            if safeRect.insetBy(dx: 11, dy: 31).contains(outside),
+               hypot(outside.x - flagCanvasPoint.x, outside.y - flagCanvasPoint.y)
+                    >= minimumFlagGap {
+                point = outside
+            } else {
+                let tangent: CGPoint = (direction == .top || direction == .bottom)
+                    ? CGPoint(x: 1, y: 0)
+                    : CGPoint(x: 0, y: 1)
+                let shift = minimumFlagGap + 2
+                let candidates = [
+                    CGPoint(x: point.x + tangent.x * shift, y: point.y + tangent.y * shift),
+                    CGPoint(x: point.x - tangent.x * shift, y: point.y - tangent.y * shift),
+                ]
+                point = candidates.max {
+                    hypot($0.x - flagCanvasPoint.x, $0.y - flagCanvasPoint.y)
+                        < hypot($1.x - flagCanvasPoint.x, $1.y - flagCanvasPoint.y)
+                } ?? point
+            }
         }
 
         // Reserve roughly half a 9-pt label on each side.  The extra top/bottom inset leaves the
@@ -802,7 +821,19 @@ public struct WatchGreenPreviewView: View {
             if drewTopo {
                 context.fill(
                     outline,
-                    with: .color(Color(red: 0.45, green: 0.95, blue: 0.24).opacity(0.18))
+                    // The downloaded full-hole bitmap has limited pixels at maximum Crown zoom.
+                    // Reconstruct the known green polygon as a crisp vector surface while leaving
+                    // the surrounding fairway/bunkers in their factual topo context.  This adds no
+                    // invented contour or slope data; it only prevents the core green from becoming
+                    // a magnified JPEG patch.
+                    with: .linearGradient(
+                        Gradient(colors: [
+                            Color(red: 0.46, green: 0.96, blue: 0.26).opacity(0.50),
+                            Color(red: 0.28, green: 0.80, blue: 0.18).opacity(0.42),
+                        ]),
+                        startPoint: CGPoint(x: bounds.midX, y: bounds.minY),
+                        endPoint: CGPoint(x: bounds.midX, y: bounds.maxY)
+                    )
                 )
             } else {
                 context.fill(

@@ -112,6 +112,26 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertGreaterThan(distances.targetToPinYards, 0)
     }
 
+    func testTouchTargetLabelsUseOppositeSegmentNormals() {
+        let player = CGPoint(x: 100, y: 180)
+        let target = CGPoint(x: 100, y: 150)
+        let pin = CGPoint(x: 100, y: 120)
+        let first = WatchTouchTargetDistanceLayout.segmentLabelPoint(
+            from: player,
+            to: target,
+            normalOffset: 9
+        )
+        let second = WatchTouchTargetDistanceLayout.segmentLabelPoint(
+            from: target,
+            to: pin,
+            normalOffset: -9
+        )
+
+        XCTAssertGreaterThan(hypot(first.x - second.x, first.y - second.y), 18)
+        XCTAssertEqual(first.y, 165, accuracy: 0.0001)
+        XCTAssertEqual(second.y, 135, accuracy: 0.0001)
+    }
+
     func testTouchTargetRejectsMissingOrDegenerateDistanceAuthority() {
         XCTAssertNil(WatchTouchTargetDistanceLayout.resolve(
             playerImagePoint: .zero,
