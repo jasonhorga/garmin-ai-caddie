@@ -94,6 +94,24 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertEqual(distances.targetToPinYards, 6)
     }
 
+    func testReviewTouchTargetIsARealIntermediateLieAndEndsAtMovedFlag() throws {
+        let player = CGPoint(x: 469.7174, y: 339.6333)
+        let target = CGPoint(x: 458, y: 318)
+        let movedPin = CGPoint(x: 447, y: 270)
+        let distances = try XCTUnwrap(WatchTouchTargetDistanceLayout.resolve(
+            playerImagePoint: player,
+            targetImagePoint: target,
+            pinImagePoint: movedPin,
+            canonicalPinImagePoint: WatchHoleMapSample.pinPx,
+            centerGreenYards: 53
+        ))
+
+        XCTAssertEqual(distances.playerToTargetYards, 19)
+        XCTAssertEqual(distances.targetToPinYards, 37)
+        XCTAssertGreaterThan(distances.playerToTargetYards, 0)
+        XCTAssertGreaterThan(distances.targetToPinYards, 0)
+    }
+
     func testTouchTargetRejectsMissingOrDegenerateDistanceAuthority() {
         XCTAssertNil(WatchTouchTargetDistanceLayout.resolve(
             playerImagePoint: .zero,
@@ -198,6 +216,53 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertEqual(metrics.edge(.right)?.yards, 3)
         XCTAssertEqual(metrics.edge(.bottom)?.yards, 6)
         XCTAssertEqual(metrics.edge(.left)?.yards, 7)
+    }
+
+    func testGreenViewportAndPinMetricsShareTheSampledBoundaryRotationCentre() throws {
+        let base = WatchHoleMapSample.geometry
+        let geometry = WatchHoleMapGeometry(
+            image: base.image,
+            imageSize: base.imageSize,
+            youPx: WatchHoleMapSample.lastShotPx,
+            pinPx: base.pinPx,
+            layupPx: base.layupPx,
+            apexPx: base.apexPx,
+            greenCtrlPx: base.greenCtrlPx,
+            greenOutlinePx: [
+                CGPoint(x: 410, y: 257), CGPoint(x: 452, y: 252),
+                CGPoint(x: 470, y: 281), CGPoint(x: 447, y: 306),
+                CGPoint(x: 408, y: 296), CGPoint(x: 397, y: 274),
+            ]
+        )
+        let boundary = try XCTUnwrap(
+            WatchGreenPreviewLayout.boundaryGeometry(geometry.greenOutlinePx)
+        )
+        let viewport = WatchGreenPreviewLayout.viewport(
+            geometry: geometry,
+            size: CGSize(width: 198, height: 242),
+            rotationDegrees: 35
+        )
+        let renderedCentre = viewport.canvasPoint(boundary.center)
+
+        XCTAssertEqual(renderedCentre.x, viewport.rotationCenterCanvas.x, accuracy: 0.0001)
+        XCTAssertEqual(renderedCentre.y, viewport.rotationCenterCanvas.y, accuracy: 0.0001)
+    }
+
+    func testShortRightClearanceLabelMovesAwayFromFlagAndStaysVisible() {
+        let safeRect = CGRect(x: 0, y: 0, width: 198, height: 242)
+        let flag = CGPoint(x: 120, y: 120)
+        let label = WatchGreenPreviewLayout.edgeLabelPoint(
+            direction: .right,
+            edgeCanvasPoint: CGPoint(x: 110, y: 120),
+            flagCanvasPoint: flag,
+            safeRect: safeRect
+        )
+
+        XCTAssertGreaterThanOrEqual(label.x, safeRect.minX + 11)
+        XCTAssertLessThanOrEqual(label.x, safeRect.maxX - 11)
+        XCTAssertGreaterThanOrEqual(label.y, safeRect.minY + 31)
+        XCTAssertLessThanOrEqual(label.y, safeRect.maxY - 31)
+        XCTAssertGreaterThanOrEqual(hypot(label.x - flag.x, label.y - flag.y), 14)
     }
 
     func testRotatingGreenChangesScreenAxisClearancesWithoutChangingFlagRange() throws {

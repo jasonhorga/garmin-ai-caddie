@@ -16,6 +16,11 @@ public struct WatchUITestRoot: View {
 
     private static let realCourseGlobalId = 3881
 
+    /// Review-only Touch Target point: a plausible intermediate lie between the simulated wrist
+    /// position and the moved flag.  The old fixture reused `youPx`, which made the first segment
+    /// zero yards and placed the crosshair nowhere a golfer would actually tap.
+    private static let standaloneTouchTargetReviewPx = CGPoint(x: 458, y: 318)
+
     public init(screen: String, model: WatchRoundModel) {
         self.screen = screen
         self.model = model
@@ -306,7 +311,9 @@ public struct WatchUITestRoot: View {
                         : nil,
                     measuredPxOverride: screen == "standalone-course-touch-target"
                         || screen == "standalone-course-pin-touch-target"
-                        ? WatchHoleMapSample.youPx
+                        ? (screen == "standalone-course-pin-touch-target"
+                            ? Self.standaloneTouchTargetReviewPx
+                            : WatchHoleMapSample.youPx)
                         : nil,
                     initialGreenPinOverride: screen == "standalone-course-view-green-moved"
                         || screen == "standalone-course-view-green-rotated"

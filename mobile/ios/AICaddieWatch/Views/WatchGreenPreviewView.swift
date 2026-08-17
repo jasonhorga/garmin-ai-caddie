@@ -49,6 +49,16 @@ struct WatchGreenEdgeMeasurement: Equatable {
     let edgeImagePoint: CGPoint
 }
 
+/// One geometry authority for the enlarged-green instrument.  The raw outline is intentionally
+/// sparse, so the displayed curve, the hit-test, the four edge rays and the image rotation must all
+/// use the same sampled polygon and the same centre.  Keeping this as a value also makes it harder
+/// for a future caller to accidentally mix a raw-outline bounding box with a smoothed-outline one.
+struct WatchGreenBoundaryGeometry: Equatable {
+    let polygon: [CGPoint]
+    let bounds: CGRect
+    let center: CGPoint
+}
+
 struct WatchGreenPinMetrics: Equatable {
     let playerToPinYards: Int
     let edges: [WatchGreenEdgeMeasurement]
@@ -59,6 +69,36 @@ struct WatchGreenPinMetrics: Equatable {
 }
 
 enum WatchGreenPreviewLayout {
+    static func boundaryGeometry(
+        _ polygon: [CGPoint],
+        samplesPerCurve: Int = 12
+    ) -> WatchGreenBoundaryGeometry? {
+        let sampled = boundaryPolygon(polygon, samplesPerCurve: samplesPerCurve)
+        guard sampled.count >= 3,
+              let first = sampled.first else { return nil }
+        var minX = first.x
+        var maxX = first.x
+        var minY = first.y
+        var maxY = first.y
+        for point in sampled.dropFirst() {
+            minX = min(minX, point.x)
+            maxX = max(maxX, point.x)
+            minY = min(minY, point.y)
+            maxY = max(maxY, point.y)
+        }
+        let bounds = CGRect(
+            x: minX,
+            y: minY,
+            width: max(maxX - minX, 1),
+            height: max(maxY - minY, 1)
+        )
+        return WatchGreenBoundaryGeometry(
+            polygon: sampled,
+            bounds: bounds,
+            center: CGPoint(x: bounds.midX, y: bounds.midY)
+        )
+    }
+
     static func viewport(
         geometry: WatchHoleMapGeometry,
         size: CGSize,
@@ -72,12 +112,16 @@ enum WatchGreenPreviewLayout {
             width: safeRect.width,
             height: max(44, safeRect.height - 70)
         )
-        let focus = focusBounds(geometry: geometry)
+        let boundary = boundaryGeometry(geometry.greenOutlinePx)
+        let focus = boundary?.bounds ?? focusBounds(geometry: geometry)
         let longestSide = max(focus.width, focus.height, 1)
         // View Green is a tighter level than Hole Root, but Garmin still keeps the approach apron and
         // adjacent hazards around the enlarged green. This crop includes the real nearby bunker at
         // the default Crown detent; zooming never turns the surrounding map into a black cut-out.
-        let padding = max(12, longestSide * 0.40)
+        // Keep a little more of the approach apron than the old raw-bbox crop.  Sampling the
+        // rounded outline moves its centre by a pixel or two; the 0.50 apron preserves the nearby
+        // bunker/context at that shared centre on 41 mm as well as 45/49 mm.
+        let padding = max(12, longestSide * 0.50)
         let padded = focus.insetBy(dx: -padding, dy: -padding)
         let fittedScale = max(
             0.01,
@@ -85,7 +129,11 @@ enum WatchGreenPreviewLayout {
         )
         let rotationRadians = CGFloat(rotationDegrees * .pi / 180)
         let rotationCenterCanvas = CGPoint(x: contentRect.midX, y: contentRect.midY)
-        let rotationCenterImage = CGPoint(x: padded.midX, y: padded.midY)
+        // Use the exact same sampled-boundary centre as pinMetrics/drawing.  The old viewport used
+        // the raw outline bbox while metrics used the sampled bbox; after rotation that made the
+        // rendered flag and the right/left labels drift by a few pixels (most noticeable for a
+        // short "10" clearance).
+        let rotationCenterImage = boundary?.center ?? CGPoint(x: padded.midX, y: padded.midY)
 
         // Rotation must never reveal synthetic black wedges. Keep the real green centred, inverse-
         // rotate all four display corners, and increase only the minimum fill scale needed for those
@@ -213,6 +261,51 @@ enum WatchGreenPreviewLayout {
         return CGPoint(x: (minX + maxX) * 0.5, y: (minY + maxY) * 0.5)
     }
 
+    /// Place a bare edge number without allowing a short clearance to collide with the flag marker.
+    /// The first candidate remains on the corresponding screen axis; a small tangent nudge is used
+    /// only when the number would otherwise sit under the flag.  This preserves the Garmin/S70
+    /// uncluttered labels while making values such as a right-side 10 reliably legible.
+    static func edgeLabelPoint(
+        direction: WatchGreenEdgeDirection,
+        edgeCanvasPoint: CGPoint,
+        flagCanvasPoint: CGPoint,
+        safeRect: CGRect
+    ) -> CGPoint {
+        let dx = flagCanvasPoint.x - edgeCanvasPoint.x
+        let dy = flagCanvasPoint.y - edgeCanvasPoint.y
+        let length = max(hypot(dx, dy), 1)
+        let inset = min(12, max(5, length * 0.42))
+        let inward = CGPoint(x: dx / length, y: dy / length)
+        var point = CGPoint(
+            x: edgeCanvasPoint.x + inward.x * inset,
+            y: edgeCanvasPoint.y + inward.y * inset
+        )
+
+        let minimumFlagGap: CGFloat = 14
+        if hypot(point.x - flagCanvasPoint.x, point.y - flagCanvasPoint.y) < minimumFlagGap {
+            let tangent: CGPoint = (direction == .top || direction == .bottom)
+                ? CGPoint(x: 1, y: 0)
+                : CGPoint(x: 0, y: 1)
+            let shift = minimumFlagGap + 2
+            let candidates = [
+                CGPoint(x: point.x + tangent.x * shift, y: point.y + tangent.y * shift),
+                CGPoint(x: point.x - tangent.x * shift, y: point.y - tangent.y * shift),
+            ]
+            point = candidates.max {
+                hypot($0.x - flagCanvasPoint.x, $0.y - flagCanvasPoint.y)
+                    < hypot($1.x - flagCanvasPoint.x, $1.y - flagCanvasPoint.y)
+            } ?? point
+        }
+
+        // Reserve roughly half a 9-pt label on each side.  The extra top/bottom inset leaves the
+        // watchOS clock lane and the back control unobstructed.
+        let labelRect = safeRect.insetBy(dx: 11, dy: 31)
+        return CGPoint(
+            x: min(max(point.x, labelRect.minX), labelRect.maxX),
+            y: min(max(point.y, labelRect.minY), labelRect.maxY)
+        )
+    }
+
     static func rotated(_ point: CGPoint, around center: CGPoint, degrees: Double) -> CGPoint {
         let radians = CGFloat(degrees * .pi / 180)
         let cosine = cos(radians)
@@ -257,8 +350,9 @@ enum WatchGreenPreviewLayout {
         ) * yardsPerPixel
         guard playerToSelected.isFinite else { return nil }
 
-        let boundary = boundaryPolygon(greenOutline)
-        let center = rotationCenter(polygon: boundary)
+        guard let boundaryGeometry = boundaryGeometry(greenOutline) else { return nil }
+        let boundary = boundaryGeometry.polygon
+        let center = boundaryGeometry.center
         let rotatedPin = rotated(selectedPinImagePoint, around: center, degrees: rotationDegrees)
         let rotatedBoundary = boundary.map {
             rotated($0, around: center, degrees: rotationDegrees)
@@ -677,6 +771,12 @@ public struct WatchGreenPreviewView: View {
             )
             if rect.width.isFinite, rect.height.isFinite, rect.width > 0, rect.height > 0 {
                 context.drawLayer { layer in
+                    // View Green enlarges a small portion of the downloaded topo.  Request the
+                    // highest available interpolation so edges stay smooth while vector overlays
+                    // (green outline, flag and measurements) remain pixel-crisp.  This does not
+                    // invent detail; a future high-resolution green asset can plug into the same
+                    // path without changing the coordinate model.
+                    let source = Image(uiImage: image).interpolation(.high)
                     layer.translateBy(
                         x: viewport.rotationCenterCanvas.x,
                         y: viewport.rotationCenterCanvas.y
@@ -686,7 +786,7 @@ public struct WatchGreenPreviewView: View {
                         x: -viewport.rotationCenterCanvas.x,
                         y: -viewport.rotationCenterCanvas.y
                     )
-                    layer.draw(layer.resolve(Image(uiImage: image)), in: rect)
+                    layer.draw(layer.resolve(source), in: rect)
                 }
                 drewTopo = true
             }
@@ -791,17 +891,11 @@ public struct WatchGreenPreviewView: View {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         for measurement in metrics.edges {
             let edge = viewport.canvasPoint(measurement.edgeImagePoint)
-            let dx = flagCanvas.x - edge.x
-            let dy = flagCanvas.y - edge.y
-            let length = max(hypot(dx, dy), 1)
-            let inset = min(10, length * 0.36)
-            let rawPoint = CGPoint(
-                x: edge.x + dx / length * inset,
-                y: edge.y + dy / length * inset
-            )
-            let point = CGPoint(
-                x: min(max(rawPoint.x, safeRect.minX + 12), safeRect.maxX - 14),
-                y: min(max(rawPoint.y, safeRect.minY + 31), safeRect.maxY - 32)
+            let point = WatchGreenPreviewLayout.edgeLabelPoint(
+                direction: measurement.direction,
+                edgeCanvasPoint: edge,
+                flagCanvasPoint: flagCanvas,
+                safeRect: safeRect
             )
             let black = context.resolve(
                 Text("\(measurement.yards)")
