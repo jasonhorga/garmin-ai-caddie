@@ -16,10 +16,10 @@ public struct WatchUITestRoot: View {
 
     private static let realCourseGlobalId = 3881
 
-    /// Review-only Touch Target point: a plausible intermediate lie between the simulated wrist
-    /// position and the moved flag.  The old fixture reused `youPx`, which made the first segment
-    /// zero yards and placed the crosshair nowhere a golfer would actually tap.
-    private static let standaloneTouchTargetReviewPx = CGPoint(x: 458, y: 318)
+    /// Review-only Touch Target point on the same real hole's fairway. Keep the moved-pin review at
+    /// the ordinary whole-hole scale: a second-shot lie makes both S70 ranges meaningful instead
+    /// of putting the test crosshair a few yards from the green just to fit a near-green crop.
+    private static let standaloneMovedPinTouchTargetReviewPx = WatchHoleMapSample.youPx
 
     public init(screen: String, model: WatchRoundModel) {
         self.screen = screen
@@ -312,7 +312,7 @@ public struct WatchUITestRoot: View {
                     measuredPxOverride: screen == "standalone-course-touch-target"
                         || screen == "standalone-course-pin-touch-target"
                         ? (screen == "standalone-course-pin-touch-target"
-                            ? Self.standaloneTouchTargetReviewPx
+                            ? Self.standaloneMovedPinTouchTargetReviewPx
                             : WatchHoleMapSample.youPx)
                         : nil,
                     initialGreenPinOverride: screen == "standalone-course-view-green-moved"
@@ -1139,8 +1139,7 @@ public struct WatchUITestRoot: View {
             return (front: 199, center: 211, back: 223)
         case "standalone-course-near-green", "standalone-course-view-green",
              "standalone-course-view-green-max", "standalone-course-view-green-moved",
-             "standalone-course-view-green-rotated", "standalone-course-pin-root",
-             "standalone-course-pin-touch-target":
+             "standalone-course-view-green-rotated", "standalone-course-pin-root":
             return (front: 41, center: 53, back: 66)
         default:
             return (front: 552, center: 567, back: 581)
@@ -1207,7 +1206,6 @@ public struct WatchUITestRoot: View {
             || screen == "standalone-course-view-green-moved"
             || screen == "standalone-course-view-green-rotated"
             || screen == "standalone-course-pin-root"
-            || screen == "standalone-course-pin-touch-target"
     }
 
     private func saveStandaloneReviewGreenPlacement() {
