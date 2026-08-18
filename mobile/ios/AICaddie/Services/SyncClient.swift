@@ -133,6 +133,9 @@ public final class SyncClient {
     /// Renderer contract shared with the phone's on-disk topo cache and Watch transfer metadata.
     /// Bump this whenever existing rendered pixels must be invalidated on installed devices.
     public static let topoStyleVersion = "topo-v8"
+    /// Version only the focused View Green asset; changing it must not invalidate every course topo.
+    public static let greenDetailStyleVersion = "green-v2"
+    public static let greenDetailImageSize = 1024
     static let courseReleaseTimeoutInterval: TimeInterval = 180
     static let coursePackageTimeoutInterval: TimeInterval = 180
     static let courseReleaseMaximumAttempts = 3
@@ -574,7 +577,7 @@ public final class SyncClient {
         globalId: Int,
         localHole: Int,
         crop: GreenDetailCrop,
-        size: Int = 640,
+        size: Int = SyncClient.greenDetailImageSize,
         geometryRevision: String? = nil
     ) async throws -> Data {
         guard let url = Self.greenDetailImageURL(
@@ -734,7 +737,7 @@ public final class SyncClient {
         globalId: Int,
         localHole: Int,
         crop: GreenDetailCrop,
-        size: Int = 640,
+        size: Int = SyncClient.greenDetailImageSize,
         geometryRevision: String? = nil
     ) -> URL? {
         guard globalId != 0, localHole > 0 else { return nil }
@@ -752,6 +755,7 @@ public final class SyncClient {
             URLQueryItem(name: "height", value: number(crop.height)),
             URLQueryItem(name: "size", value: String(size)),
             URLQueryItem(name: "v", value: topoStyleVersion),
+            URLQueryItem(name: "g", value: greenDetailStyleVersion),
         ]
         if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
            !revision.isEmpty {

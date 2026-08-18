@@ -2019,13 +2019,28 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(phone_version.group(1), watch_version.group(1))
         self.assertEqual(phone_version.group(1), "topo-v8")
 
+        phone_green_version = re.search(
+            r'public static let greenDetailStyleVersion = "([^"]+)"', sync_client
+        )
+        watch_green_version = re.search(
+            r'public static let greenDetailStyleVersion = "([^"]+)"', watch_backend
+        )
+        self.assertIsNotNone(phone_green_version)
+        self.assertIsNotNone(watch_green_version)
+        assert phone_green_version is not None and watch_green_version is not None
+        self.assertEqual(phone_green_version.group(1), watch_green_version.group(1))
+        self.assertEqual(phone_green_version.group(1), "green-v2")
+
         self.assertIn("SyncClient.topoStyleVersion", offline_store)
         self.assertIn('"styleVersion": SyncClient.topoStyleVersion', bridge)
+        self.assertIn('"assetStyleVersion": assetKind == "green-detail"', bridge)
         self.assertIn("WatchBackendClient.topoStyleVersion", watch_store)
+        self.assertIn("WatchBackendClient.greenDetailStyleVersion", watch_store)
         self.assertIn(
             'meta["styleVersion"] as? String == WatchBackendClient.topoStyleVersion',
             watch_sync,
         )
+        self.assertIn("WatchBackendClient.greenDetailStyleVersion", watch_sync)
 
     def test_ios_topo_map_distinguishes_loading_ready_and_failure(self) -> None:
         topo_base = _read_required_source(self, IOS_DIR / "Views" / "TopoHoleBaseImage.swift")

@@ -776,7 +776,8 @@ def course_hole_green_detail_png(
     y: float = Query(..., ge=-1000, le=10000),
     width: float = Query(..., ge=20, le=1000),
     height: float = Query(..., ge=20, le=1000),
-    size: int = Query(640, ge=320, le=1024),
+    size: int = Query(1024, ge=320, le=1280),
+    g: str | None = Query(default=None, max_length=32),
     r: str | None = Query(default=None, max_length=128),
 ) -> Response:
     """High-resolution View Green bitmap in the shared whole-hole pixel frame.
@@ -788,6 +789,12 @@ def course_hole_green_detail_png(
     """
     from ai_caddie.geometry import topo_render
     from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
+
+    # ``g`` is a URL/cache-busting contract for installed clients.  Older apps omitted it and are
+    # still allowed to receive the current renderer; a newer app naming an unknown style must not
+    # cache today's pixels under a future contract it assumes the server already understands.
+    if g is not None and g != topo_render.GREEN_DETAIL_STYLE_VERSION:
+        raise HTTPException(status_code=409, detail="green detail renderer version changed")
 
     geometry_evidence = geometry_coverage_for_hole(
         global_id,

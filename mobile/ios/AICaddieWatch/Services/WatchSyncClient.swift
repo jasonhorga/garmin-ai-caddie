@@ -745,12 +745,23 @@ extension WatchSyncClient: WCSessionDelegate {
         guard meta["styleVersion"] as? String == WatchBackendClient.topoStyleVersion else {
             return false
         }
+        let detail = (meta["assetKind"] as? String) == "green-detail"
+        let expectedAssetStyle = detail
+            ? WatchBackendClient.greenDetailStyleVersion
+            : WatchBackendClient.topoStyleVersion
+        if let receivedAssetStyle = meta["assetStyleVersion"] as? String {
+            guard receivedAssetStyle == expectedAssetStyle else { return false }
+        } else if detail {
+            // A queued green-v1 transfer can arrive after an app upgrade.  It shares topo-v8 but
+            // does not contain the enlarged/feathered context, so it must never repopulate v2's
+            // versioned file after the new asset has been requested.
+            return false
+        }
         guard let gid = (meta["globalId"] as? Int) ?? (meta["globalId"] as? NSNumber)?.intValue,
               let hole = (meta["hole"] as? Int) ?? (meta["hole"] as? NSNumber)?.intValue else {
             return false
         }
         do {
-            let detail = (meta["assetKind"] as? String) == "green-detail"
             try holeImageStore.store(
                 fileURL: fileURL,
                 globalId: gid,

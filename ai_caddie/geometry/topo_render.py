@@ -59,10 +59,13 @@ from ai_caddie.geometry.geometry_authority import authority_path, cache_token
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
 STYLE_VERSION = "topo-v8"  # v8: bounded coast plus every route-visible water component
-GREEN_DETAIL_STYLE_VERSION = "green-v1"
-GREEN_DETAIL_DEFAULT_SIZE = 640
+# The focused asset is a separate cache contract from the whole-hole bitmap.  Bump this when its
+# crop/compositing treatment changes; otherwise an installed Watch can keep the old, green-only
+# tile forever even though the server has learned to render a sharp surrounding apron.
+GREEN_DETAIL_STYLE_VERSION = "green-v2"
+GREEN_DETAIL_DEFAULT_SIZE = 1024
 GREEN_DETAIL_MIN_SIZE = 320
-GREEN_DETAIL_MAX_SIZE = 1024
+GREEN_DETAIL_MAX_SIZE = 1280
 
 # PhysicsMesh is clipped to the same route corridor used by the renderer.  Unlike the decoded
 # material layers, it is a continuous terrain authority and therefore cannot add TreeArea spikes.
@@ -807,6 +810,27 @@ def _validated_green_detail_crop(crop: tuple[float, float, float, float]) -> tup
     return tuple(round(value, 1) for value in (x, y, width, height))
 
 
+def _feather_green_detail_edges(image: Image.Image) -> Image.Image:
+    """Fade a focused render into the continuous whole-hole bitmap at its crop boundary.
+
+    The source alpha already encodes the factual route/course envelope.  Multiplying it by a short
+    edge ramp preserves that authority while preventing the client from exposing an opaque square
+    when its high-resolution crop is rotated over a separately rendered base image.
+    """
+    rendered = image.convert("RGBA")
+    out_w, out_h = rendered.size
+    if out_w <= 1 or out_h <= 1:
+        return rendered
+    edge = max(8, min(out_w, out_h) // 16)
+    yy, xx = np.mgrid[0:out_h, 0:out_w]
+    distance = np.minimum.reduce((xx, yy, out_w - 1 - xx, out_h - 1 - yy))
+    edge_alpha = np.clip(distance.astype(np.float32) / float(edge), 0.0, 1.0)
+    source_alpha = np.asarray(rendered.getchannel("A"), dtype=np.float32) / 255.0
+    alpha = np.clip(source_alpha * edge_alpha * 255.0, 0, 255).astype(np.uint8)
+    rendered.putalpha(Image.fromarray(alpha, mode="L"))
+    return rendered
+
+
 def render_hole_green_detail_image(
     gid: int,
     hole: int,
@@ -858,7 +882,15 @@ def render_hole_green_detail_image(
             gid,
             hole,
         )
-        return image.resize((out_w, out_h), Image.Resampling.LANCZOS)
+        rendered = image.resize((out_w, out_h), Image.Resampling.LANCZOS).convert("RGBA")
+
+        # The Watch composites this focused window over the normal whole-hole image.  The two
+        # renders have the same geometry but their texture rasters have different pixel densities,
+        # so an opaque crop edge reads as a square seam (and a rotated transparent corner can read
+        # as a black wedge).  Fade only the *outer crop edge*; the factual course alpha produced by
+        # ``_build`` is retained inside the window.  This lets the old continuous topo show through
+        # at the edge while the enlarged fairway/rough/bunker context remains genuinely detailed.
+        return _feather_green_detail_edges(rendered)
     except TopoGeometryUnavailable:
         raise
     except ValueError:

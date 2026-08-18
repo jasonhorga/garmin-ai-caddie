@@ -49,8 +49,11 @@ public final class WatchHoleImageStore {
         detail: Bool = false
     ) -> URL {
         let suffix = Self.normalizedRevision(geometryRevision).map { "_\($0)" } ?? ""
+        let assetSuffix = detail
+            ? "_green-\(WatchBackendClient.greenDetailStyleVersion)"
+            : ""
         return directory.appendingPathComponent(
-            "\(Self.key(globalId: globalId, hole: hole))\(suffix)\(detail ? "_green" : "").img"
+            "\(Self.key(globalId: globalId, hole: hole))\(suffix)\(assetSuffix).img"
         )
     }
 

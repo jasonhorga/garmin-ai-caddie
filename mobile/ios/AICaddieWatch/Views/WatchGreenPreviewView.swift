@@ -846,10 +846,11 @@ public struct WatchGreenPreviewView: View {
         // bitmap sits above it in the exact source-pixel window used by the phone request, so the
         // enlarged green is genuinely sharp rather than a resampled handful of topo pixels.
         //
-        // The focused asset is clipped to the factual green contour. The surrounding fairway and
-        // bunkers stay on the continuous whole-hole layer, so View Green never exposes a square tile
-        // seam or a rotated black corner. The putting surface itself still receives genuine pixels
-        // from the geometry render instead of a magnified handful of whole-hole pixels.
+        // Draw the entire focused context window, not only the putting surface.  The user's blur
+        // report was correct: clipping this asset to the green left the approach apron, bunkers and
+        // trees enlarged from the low-resolution whole-hole bitmap.  green-v2 is a larger geometry
+        // render whose alpha fades at the crop edge, so it preserves genuine context detail while
+        // blending back into the continuous base without a square seam or rotated black corner.
         if let detail = geometry.greenDetailImage,
            let sourceRect = geometry.greenDetailRectPx,
            sourceRect.width > 0, sourceRect.height > 0 {
@@ -861,13 +862,7 @@ public struct WatchGreenPreviewView: View {
             )
             if [detailRect.minX, detailRect.minY, detailRect.width, detailRect.height]
                 .allSatisfy({ $0.isFinite && $0 > -10_000 }) {
-                let greenMask = WatchGreenPreviewLayout.smoothPath(
-                    polygon: geometry.greenOutlinePx,
-                    transform: viewport.canvasPoint
-                )
                 context.drawLayer { layer in
-                    guard !greenMask.isEmpty else { return }
-                    layer.clip(to: greenMask)
                     layer.translateBy(
                         x: viewport.rotationCenterCanvas.x,
                         y: viewport.rotationCenterCanvas.y

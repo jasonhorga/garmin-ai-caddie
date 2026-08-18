@@ -860,6 +860,9 @@ public final class WatchEventBridge: NSObject {
                 "hole": hole,
                 "styleVersion": SyncClient.topoStyleVersion,
                 "assetKind": assetKind,
+                "assetStyleVersion": assetKind == "green-detail"
+                    ? SyncClient.greenDetailStyleVersion
+                    : SyncClient.topoStyleVersion,
             ]
             if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
                !revision.isEmpty {

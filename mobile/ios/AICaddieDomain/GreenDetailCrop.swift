@@ -27,10 +27,12 @@ public struct GreenDetailCrop: Codable, Equatable {
 
     public static let empty = GreenDetailCrop(x: 0, y: 0, width: 1, height: 1)
 
-    /// Build a square-ish crop around the factual green outline in the full-hole topo pixel frame.
-    /// The extra apron is intentional: S70's enlarged green view retains the approach and nearby
-    /// bunkers.  The crop is clamped to the source image so rotation never asks the detail asset
-    /// to invent pixels outside its rendered frame.
+    /// Build a context crop around the factual green outline in the full-hole topo pixel frame.
+    /// View Green is not a floating green tile: S70 keeps the approach apron, fairway and nearby
+    /// hazards visible while the green is enlarged.  The crop therefore has a generous, bounded
+    /// minimum side so the Watch does not fall back to a low-resolution whole-hole bitmap around
+    /// the putting surface.  The server feather-blends this window at its outer edge, so the larger
+    /// context can be composited without a square seam when the user rotates the green.
     public static func around(
         points: [[Double]],
         imageWidth: Double,
@@ -56,10 +58,15 @@ public struct GreenDetailCrop: Codable, Equatable {
         }
 
         let longest = max(max(maxX - minX, maxY - minY), 1)
-        // 0.55 on each side leaves roughly the same approach context as View Green's default
-        // detent, while still yielding a >3× source resolution on a normal Watch crop.
-        let padding = max(18, longest * 0.55)
-        let side = min(max(longest + padding * 2, 48), min(imageWidth, imageHeight))
+        // Keep enough real course context for the 2× Crown detent and for a rotated square viewport.
+        // The minimum side is deliberately in source pixels (not a device-specific point value),
+        // which keeps phone and Watch requests on one affine crop contract.
+        let padding = max(72, longest * 2.0)
+        let minimumContextSide = 420.0
+        let side = min(
+            max(longest + padding * 2, minimumContextSide),
+            min(imageWidth, imageHeight)
+        )
         guard side.isFinite, side > 1 else { return nil }
 
         let centerX = (minX + maxX) * 0.5

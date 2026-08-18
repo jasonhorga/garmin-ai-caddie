@@ -268,6 +268,27 @@ final class WatchBackendClientTests: XCTestCase {
             "aaaaaaaaaaaaaaaa"
         )
         XCTAssertNil(topo.value(forHTTPHeaderField: "Authorization"))
+
+        let green = try client.makeCourseGreenDetailRequest(
+            globalId: 31669,
+            localHole: 4,
+            crop: GreenDetailCrop(x: 220, y: 80, width: 420, height: 420),
+            geometryRevision: "aaaaaaaaaaaaaaaa"
+        )
+        XCTAssertEqual(green.url?.path, "/api/v2/courses/31669/holes/4/green.png")
+        let greenQuery = try XCTUnwrap(URLComponents(
+            url: try XCTUnwrap(green.url),
+            resolvingAgainstBaseURL: false
+        ))
+        XCTAssertEqual(
+            greenQuery.queryItems?.first(where: { $0.name == "size" })?.value,
+            "1024"
+        )
+        XCTAssertEqual(
+            greenQuery.queryItems?.first(where: { $0.name == "g" })?.value,
+            "green-v2"
+        )
+        XCTAssertNil(green.value(forHTTPHeaderField: "Authorization"))
     }
 
     func testCourseReleaseRetryPolicyIsBoundedAndCancellationSafe() {

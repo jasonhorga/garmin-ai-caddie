@@ -13,7 +13,7 @@ final class GreenDetailCropTests: XCTestCase {
         ))
 
         XCTAssertEqual(crop.width, crop.height)
-        XCTAssertGreaterThan(crop.width, 140)
+        XCTAssertEqual(crop.width, 420)
         XCTAssertLessThanOrEqual(crop.x + crop.width, 720)
         XCTAssertLessThanOrEqual(crop.y + crop.height, 1120)
         XCTAssertLessThan(crop.x, 397)

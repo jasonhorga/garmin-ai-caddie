@@ -57,6 +57,41 @@ final class WatchSyncClientTests: XCTestCase {
         ), image)
     }
 
+    func testGreenDetailTransferRequiresCurrentFocusedAssetVersion() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let imageStore = WatchHoleImageStore(directoryURL: directory)
+        let client = WatchSyncClient(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            holeImageStore: imageStore
+        )
+        let imageURL = directory.appendingPathComponent("received-green.img")
+        let image = try XCTUnwrap(WatchHoleMapSample.greenDetailImage?.pngData())
+        try image.write(to: imageURL, options: .atomic)
+
+        let base: [String: Any] = [
+            "globalId": 31833,
+            "hole": 1,
+            "styleVersion": WatchBackendClient.topoStyleVersion,
+            "assetKind": "green-detail",
+        ]
+        XCTAssertFalse(client.receiveHoleImage(fileURL: imageURL, metadata: base))
+        XCTAssertFalse(client.receiveHoleImage(
+            fileURL: imageURL,
+            metadata: base.merging(["assetStyleVersion": "green-v1"]) { _, new in new }
+        ))
+        XCTAssertTrue(client.receiveHoleImage(
+            fileURL: imageURL,
+            metadata: base.merging([
+                "assetStyleVersion": WatchBackendClient.greenDetailStyleVersion,
+            ]) { _, new in new }
+        ))
+        XCTAssertEqual(
+            imageStore.data(globalId: 31833, hole: 1, detail: true),
+            image
+        )
+    }
+
     func testReceiveRoundSeedPublishesRealRoundForTheAppModel() throws {
         let client = WatchSyncClient(queueURL: tempQueueURL())
         let seed = WatchRoundSeed(

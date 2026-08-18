@@ -77,6 +77,10 @@ extension WatchBackendClientError: LocalizedError {
 public final class WatchBackendClient {
     /// Must match the phone renderer/cache version; the cross-target contract test locks equality.
     public static let topoStyleVersion = "topo-v8"
+    /// Focused View Green pixels have their own cache contract so an improved context render does
+    /// not force every whole-hole topo to download again.
+    public static let greenDetailStyleVersion = "green-v2"
+    public static let greenDetailImageSize = 1024
     static let maximumCoursePrepHolesPerRequest = 3
     static let courseReleaseTimeoutInterval: TimeInterval = 180
     static let coursePackageTimeoutInterval: TimeInterval = 180
@@ -349,7 +353,7 @@ public final class WatchBackendClient {
         globalId: Int,
         localHole: Int,
         crop: GreenDetailCrop,
-        size: Int = 640,
+        size: Int = WatchBackendClient.greenDetailImageSize,
         geometryRevision: String? = nil
     ) throws -> URLRequest {
         guard var components = URLComponents(
@@ -366,6 +370,7 @@ public final class WatchBackendClient {
             URLQueryItem(name: "height", value: number(crop.height)),
             URLQueryItem(name: "size", value: String(size)),
             URLQueryItem(name: "v", value: Self.topoStyleVersion),
+            URLQueryItem(name: "g", value: Self.greenDetailStyleVersion),
         ]
         if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
            !revision.isEmpty {
@@ -475,7 +480,7 @@ public final class WatchBackendClient {
         globalId: Int,
         localHole: Int,
         crop: GreenDetailCrop,
-        size: Int = 640,
+        size: Int = WatchBackendClient.greenDetailImageSize,
         geometryRevision: String? = nil
     ) async throws -> Data {
         try await sendForData(

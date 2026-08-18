@@ -31,6 +31,27 @@ def _test_png() -> bytes:
 
 
 class TopoRenderModuleTests(unittest.TestCase):
+    def test_green_v2_focuses_a_large_feathered_context_window(self) -> None:
+        from PIL import Image
+
+        self.assertEqual(topo_render.GREEN_DETAIL_STYLE_VERSION, "green-v2")
+        self.assertEqual(topo_render.GREEN_DETAIL_DEFAULT_SIZE, 1024)
+
+        source = Image.new("RGBA", (64, 64), (30, 180, 60, 255))
+        rendered = topo_render._feather_green_detail_edges(source)
+
+        self.assertEqual(rendered.mode, "RGBA")
+        self.assertEqual(rendered.getpixel((0, 32))[3], 0)
+        self.assertEqual(rendered.getpixel((32, 0))[3], 0)
+        self.assertEqual(rendered.getpixel((32, 32))[3], 255)
+        self.assertGreater(rendered.getpixel((4, 32))[3], 0)
+        self.assertLess(rendered.getpixel((4, 32))[3], 255)
+
+        # Existing factual transparency is never made opaque by the crop-edge blend.
+        source.putpixel((32, 32), (30, 180, 60, 0))
+        rendered = topo_render._feather_green_detail_edges(source)
+        self.assertEqual(rendered.getpixel((32, 32))[3], 0)
+
     def test_topo_v8_starts_overlays_on_a_transparent_course_canvas(self) -> None:
         from PIL import Image
 
@@ -364,6 +385,39 @@ class TopoEndpointTests(unittest.TestCase):
         self.assertEqual(resp.headers["cache-control"], "public, no-cache")
         self.assertIn(topo_render.STYLE_VERSION, resp.headers.get("etag", ""))
         self.assertEqual(resp.content, canned)
+
+    def test_green_detail_endpoint_uses_v2_style_and_1024_default(self) -> None:
+        canned = _PNG_MAGIC + b"green-detail"
+        with (
+            patch.object(
+                topo_render,
+                "render_hole_green_detail_cached",
+                return_value=canned,
+            ) as render,
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready"},
+            ),
+        ):
+            response = self.client.get(
+                "/api/v2/courses/31795/holes/1/green.png"
+                "?x=100&y=200&width=420&height=420&g=green-v2"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "image/png")
+        self.assertIn("-green-", response.headers["etag"])
+        render.assert_called_once_with(31795, 1, (100.0, 200.0, 420.0, 420.0), size=1024)
+
+    def test_green_detail_endpoint_rejects_unknown_client_style(self) -> None:
+        with patch.object(topo_render, "render_hole_green_detail_cached") as render:
+            response = self.client.get(
+                "/api/v2/courses/31795/holes/1/green.png"
+                "?x=100&y=200&width=420&height=420&g=green-v99"
+            )
+
+        self.assertEqual(response.status_code, 409)
+        render.assert_not_called()
 
     def test_endpoint_returns_304_for_current_geometry_etag(self) -> None:
         canned = _PNG_MAGIC + b"endpoint-topo"
