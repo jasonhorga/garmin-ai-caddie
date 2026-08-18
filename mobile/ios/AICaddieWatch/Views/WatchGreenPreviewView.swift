@@ -879,10 +879,10 @@ public struct WatchGreenPreviewView: View {
                         y: -viewport.rotationCenterCanvas.y
                     )
                     layer.draw(
-                        // The source is already a focused 640px render. Medium interpolation keeps
-                        // its fine texture legible at the watch's downsampled display size without
-                        // turning it into the soft square produced by the old `.high` path.
-                        layer.resolve(Image(uiImage: detail).interpolation(.medium)),
+                        // This is a geometry-rendered focused asset, not a crop enlarged from the
+                        // low-resolution whole-hole bitmap. Use high-quality resampling so the
+                        // genuine detail remains crisp at both Crown detents.
+                        layer.resolve(Image(uiImage: detail).interpolation(.high)),
                         in: detailRect
                     )
                 }
@@ -896,14 +896,12 @@ public struct WatchGreenPreviewView: View {
                 transform: viewport.canvasPoint
             )
             let bounds = outline.boundingRect
-            if drewTopo {
+            if drewTopo, geometry.greenDetailImage == nil {
                 context.fill(
                     outline,
-                    // The downloaded full-hole bitmap has limited pixels at maximum Crown zoom.
-                    // Reconstruct the known green polygon as a crisp vector surface while leaving
-                    // the surrounding fairway/bunkers in their factual topo context.  This adds no
-                    // invented contour or slope data; it only prevents the core green from becoming
-                    // a magnified JPEG patch.
+                    // Keep this synthetic vector only as the no-detail fallback. Painting a
+                    // mostly-opaque gradient over the real focused bitmap flattens its texture and
+                    // was the reason View Green looked like a blurry neon oval.
                     with: .linearGradient(
                         Gradient(colors: [
                             Color(red: 0.46, green: 0.96, blue: 0.26).opacity(0.72),
