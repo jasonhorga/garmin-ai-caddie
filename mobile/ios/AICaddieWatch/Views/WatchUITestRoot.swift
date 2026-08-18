@@ -1643,14 +1643,9 @@ public struct WatchUITestRoot: View {
             apex: [556, 562],
             greenCtrl: [498, 375],
             route: standaloneFullRoute,
-            greenOutline: [
-                [410, 257],
-                [452, 252],
-                [470, 281],
-                [447, 306],
-                [408, 296],
-                [397, 274],
-            ]
+            greenOutline: WatchHoleMapSample.greenOutlinePx.map {
+                [Double($0.x), Double($0.y)]
+            }
         ),
         playsLikeDistanceM: 525.8,
         elevationDeltaM: 7,

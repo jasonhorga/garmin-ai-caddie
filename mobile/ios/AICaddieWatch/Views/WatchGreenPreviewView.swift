@@ -51,14 +51,11 @@ struct WatchGreenEdgeMeasurement: Equatable {
 
 /// Geometry for the enlarged-green instrument.
 ///
-/// `polygon` is the factual boundary delivered in the shared topo pixel frame. It is deliberately
-/// kept separate from `displayPolygon`: the latter is only a rounded, through-the-source-points
-/// presentation path. Distances, hit testing, flag placement and rotation are never allowed to use
-/// a visually convenient inset/ellipse. This distinction matters on small watches, where the old
-/// midpoint curve moved every corner inward and made a flag-to-edge number look plausible but wrong.
+/// `polygon` is the factual boundary delivered in the shared topo pixel frame. Distances, hit
+/// testing, flag placement, rotation and the visible outline all use this same boundary; there is
+/// no display-only ellipse or inset curve that can make a number look plausible but wrong.
 struct WatchGreenBoundaryGeometry: Equatable {
     let polygon: [CGPoint]
-    let displayPolygon: [CGPoint]
     let bounds: CGRect
     let center: CGPoint
 }
@@ -74,8 +71,7 @@ struct WatchGreenPinMetrics: Equatable {
 
 enum WatchGreenPreviewLayout {
     static func boundaryGeometry(
-        _ polygon: [CGPoint],
-        samplesPerCurve: Int = 12
+        _ polygon: [CGPoint]
     ) -> WatchGreenBoundaryGeometry? {
         let factual = boundaryPolygon(polygon)
         guard factual.count >= 3,
@@ -98,7 +94,6 @@ enum WatchGreenPreviewLayout {
         )
         return WatchGreenBoundaryGeometry(
             polygon: factual,
-            displayPolygon: displayBoundaryPolygon(factual, samplesPerCurve: samplesPerCurve),
             bounds: bounds,
             center: CGPoint(x: bounds.midX, y: bounds.midY)
         )
@@ -227,52 +222,6 @@ enum WatchGreenPreviewLayout {
             result.removeLast()
         }
         return result
-    }
-
-    /// Build a rounded presentation path that passes through every factual outline point.
-    ///
-    /// The previous midpoint-quadratic construction started and ended every segment halfway between
-    /// source points. On a six-point green that systematically contracted the outline into an oval.
-    /// Catmull–Rom converted to cubic Beziers keeps the source points on the path while rounding only
-    /// the joins. It is presentation-only; all facts continue to use `boundaryPolygon(_:)` above.
-    static func displayBoundaryPolygon(
-        _ polygon: [CGPoint],
-        samplesPerCurve: Int = 12
-    ) -> [CGPoint] {
-        let points = boundaryPolygon(polygon)
-        guard points.count >= 3 else { return points }
-        let samples = max(samplesPerCurve, 2)
-        var sampled: [CGPoint] = []
-        sampled.reserveCapacity(points.count * samples)
-        for index in points.indices {
-            let p0 = points[(index + points.count - 1) % points.count]
-            let p1 = points[index]
-            let p2 = points[(index + 1) % points.count]
-            let p3 = points[(index + 2) % points.count]
-            let c1 = CGPoint(
-                x: p1.x + (p2.x - p0.x) / 6,
-                y: p1.y + (p2.y - p0.y) / 6
-            )
-            let c2 = CGPoint(
-                x: p2.x - (p3.x - p1.x) / 6,
-                y: p2.y - (p3.y - p1.y) / 6
-            )
-            for sample in 0..<samples {
-                let t = CGFloat(sample) / CGFloat(samples)
-                let inverse = 1 - t
-                sampled.append(CGPoint(
-                    x: inverse * inverse * inverse * p1.x
-                        + 3 * inverse * inverse * t * c1.x
-                        + 3 * inverse * t * t * c2.x
-                        + t * t * t * p2.x,
-                    y: inverse * inverse * inverse * p1.y
-                        + 3 * inverse * inverse * t * c1.y
-                        + 3 * inverse * t * t * c2.y
-                        + t * t * t * p2.y
-                ))
-            }
-        }
-        return sampled
     }
 
     static func rotationCenter(polygon: [CGPoint]) -> CGPoint {
@@ -481,13 +430,14 @@ enum WatchGreenPreviewLayout {
         }
     }
 
-    /// Render the rounded presentation path. It contains every source point, while measurement and
-    /// hit testing continue to use the factual polygon returned by `boundaryPolygon(_:)`.
+    /// Render the factual boundary path. The mesh/CourseView points are already sampled along the
+    /// real putting-surface edge; adding a fitted curve here would move the visible edge away from
+    /// the edge used for four-way measurements.
     static func smoothPath(
         polygon: [CGPoint],
         transform: (CGPoint) -> CGPoint = { $0 }
     ) -> Path {
-        let points = displayBoundaryPolygon(polygon).map(transform)
+        let points = boundaryPolygon(polygon).map(transform)
         guard points.count >= 3 else { return Path() }
         var path = Path()
         path.move(to: points[0])

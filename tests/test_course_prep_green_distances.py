@@ -39,6 +39,26 @@ ROUTE = [(0.0, 0.0), (0.0, 201.0)]  # tee at local (0,0), green endpoint at loca
 
 
 class CoursePrepGreenDistancesTest(unittest.TestCase):
+    def test_selected_green_boundary_is_the_ordered_mesh_edge(self):
+        boundary = course_prep._selected_green_boundary(BY, ROUTE)
+
+        self.assertEqual(len(boundary), 4)
+        self.assertEqual(
+            set(boundary),
+            {(-3.0, 196.0), (3.0, 196.0), (3.0, 206.0), (-3.0, 206.0)},
+        )
+        self.assertTrue(all(abs(point[0]) < 10 for point in boundary))
+        exterior = {
+            tuple(sorted(edge))
+            for edge in course_prep._component_boundary_edges(
+                course_prep.selected_green_component(BY, ROUTE)["triangles"]
+            )
+        }
+        self.assertTrue(all(
+            tuple(sorted((first, second))) in exterior
+            for first, second in zip(boundary, boundary[1:] + boundary[:1])
+        ))
+
     def test_front_middle_back_from_tee(self):
         out = course_prep._green_distances(BY, ROUTE)
         self.assertTrue(out["available"])

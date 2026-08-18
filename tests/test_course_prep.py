@@ -198,7 +198,16 @@ class PureLogicTests(unittest.TestCase):
             "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],
             "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 320.0}]}],
         }}
-        with patch.object(cp.hole_render, "load_mesh", return_value=(md, {})), \
+        by = {
+            "Green.drc": {
+                "positions": [
+                    [4.0, 0.0, 314.0], [-4.0, 0.0, 314.0],
+                    [-4.0, 0.0, 326.0], [4.0, 0.0, 326.0],
+                ],
+                "faces": [[0, 1, 2], [0, 2, 3]],
+            }
+        }
+        with patch.object(cp.hole_render, "load_mesh", return_value=(md, by)), \
                 patch("ai_caddie.courses.course_prep.geometry_coverage_for_hole", return_value={
                     "coverage": "ready",
                     "evidence": [{"label": "hazards", "ref": "output/prodgeometry_hazards/gid99999_h01_hazards.json"}],
@@ -221,6 +230,9 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(row["missingData"], [])
         self.assertEqual(row["route"][0], [0.0, 0.0, 0.0])
         self.assertEqual(row["route"][-1], [0.0, 320.0, 320.0])
+        self.assertTrue(row["greenOutline"]["available"])
+        self.assertEqual(row["greenOutline"]["source"], "prodgeometry.Green.drc.boundary")
+        self.assertEqual(len(row["greenOutline"]["pointsPx"]), 4)
         self.assertEqual([row["id"] for row in row["candidateRoutes"]], ["safe", "stock", "attack"])
         self.assertTrue(any(target["kind"] == "landing" for target in row["carryTargets"]))
 

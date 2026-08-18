@@ -335,9 +335,9 @@ enum CoursePrepHazardNaming {
     }
 }
 
-/// Garmin CourseView's lightweight 30-direction green shape. `pointsPx` is drawing-only in the
-/// same affine frame as `resolvedMapOverlay`; the source values are intentionally not exposed as
-/// measured front/middle/back distances.
+/// Putting-surface boundary in the same affine frame as `resolvedMapOverlay`. Precise prep uses the
+/// selected `Green.drc` mesh exterior; lightweight prep retains Garmin CourseView's 30-direction
+/// outline while geometry is downloading. `source` tells consumers which authority supplied it.
 public struct CoursePrepGreenOutline: Codable, Equatable {
     public let available: Bool
     public let source: String?
@@ -381,7 +381,7 @@ public struct CoursePrepHole: Codable, Equatable {
     public let playsLike: CoursePrepPlaysLike?
     // watch P0.1: geo→px anchors so a client can place its GPS/pin/landings on the topo map.
     public let holeImageProjection: CoursePrepHoleImageProjection?
-    /// Drawing-only outline available while precise prodgeometry is still downloading.
+    /// Factual putting-surface outline from precise Green.drc, with CourseView radii as fallback.
     public let greenOutline: CoursePrepGreenOutline?
 
     private enum CodingKeys: String, CodingKey {

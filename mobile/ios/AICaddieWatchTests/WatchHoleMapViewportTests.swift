@@ -261,19 +261,13 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertEqual(metrics.edge(.left)?.yards, 5)
     }
 
-    func testDisplayBoundaryPassesThroughEverySourcePoint() {
+    func testDisplayBoundaryIsTheFactualSourcePolygon() {
         let outline = [
             CGPoint(x: 410, y: 257), CGPoint(x: 452, y: 252),
             CGPoint(x: 470, y: 281), CGPoint(x: 447, y: 306),
             CGPoint(x: 408, y: 296), CGPoint(x: 397, y: 274),
         ]
-        let display = WatchGreenPreviewLayout.displayBoundaryPolygon(outline)
-        for source in outline {
-            XCTAssertTrue(
-                display.contains { hypot($0.x - source.x, $0.y - source.y) < 0.0001 },
-                "rounded presentation path must retain source point \(source)"
-            )
-        }
+        XCTAssertEqual(WatchGreenPreviewLayout.boundaryPolygon(outline), outline)
     }
 
     func testGreenViewportAndPinMetricsShareTheSampledBoundaryRotationCentre() throws {

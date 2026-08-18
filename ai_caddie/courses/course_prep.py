@@ -239,6 +239,81 @@ def _component_boundary_edges(triangles) -> list[tuple[tuple[float, float], tupl
     return [edge for edge, count in edge_counts.items() if count == 1]
 
 
+def _ordered_component_boundary(triangles) -> list[tuple[float, float]]:
+    """Return the largest closed exterior boundary loop of a triangulated surface.
+
+    ``Green.drc`` is a filled triangle mesh, not a display ellipse.  Its factual edge is the set of
+    triangle edges that occurs only once.  Keep those edges in their mesh order so the phone and
+    Watch can draw and measure the same irregular outline.  A component can contain an interior
+    hole (or a malformed non-manifold seam); in that case choose the largest closed loop, which is
+    the outside of the putting surface.  The helper is deliberately geometry-only and deterministic
+    so a changed triangle ordering cannot make the UI jump between equivalent outlines.
+    """
+    edges = _component_boundary_edges(triangles)
+    if not edges:
+        return []
+
+    adjacency: dict[tuple[float, float], list[tuple[float, float]]] = {}
+    unused: set[tuple[tuple[float, float], tuple[float, float]]] = set()
+    for first, second in edges:
+        adjacency.setdefault(first, []).append(second)
+        adjacency.setdefault(second, []).append(first)
+        unused.add((first, second) if first <= second else (second, first))
+
+    def edge_key(first, second):
+        return (first, second) if first <= second else (second, first)
+
+    def signed_area(loop: list[tuple[float, float]]) -> float:
+        return 0.5 * sum(
+            first[0] * second[1] - second[0] * first[1]
+            for first, second in zip(loop, loop[1:] + loop[:1])
+        )
+
+    loops: list[list[tuple[float, float]]] = []
+    # Every regular boundary vertex has degree two.  Sorting the seed and each adjacency list makes
+    # the fallback on a malformed/non-manifold mesh stable as well.
+    while unused:
+        seed = min(unused)
+        start = seed[0]
+        current = start
+        previous: tuple[float, float] | None = None
+        loop = [start]
+        closed = False
+        for _ in range(len(edges) + 1):
+            candidates = sorted(
+                neighbour
+                for neighbour in adjacency.get(current, [])
+                if edge_key(current, neighbour) in unused
+            )
+            if previous is not None and len(candidates) > 1:
+                non_backtracking = [candidate for candidate in candidates if candidate != previous]
+                if non_backtracking:
+                    candidates = non_backtracking
+            if not candidates:
+                break
+            next_point = candidates[0]
+            unused.discard(edge_key(current, next_point))
+            if next_point == start:
+                closed = True
+                break
+            loop.append(next_point)
+            previous, current = current, next_point
+        if closed and len(loop) >= 3 and abs(signed_area(loop)) > 1e-6:
+            loops.append(loop)
+
+    if not loops:
+        return []
+    return max(loops, key=lambda loop: (abs(signed_area(loop)), tuple(loop)))
+
+
+def _selected_green_boundary(by: dict, route) -> list[tuple[float, float]]:
+    """The real selected ``Green.drc`` boundary in the shared local metre frame."""
+    component = selected_green_component(by, route)
+    if not component:
+        return []
+    return _ordered_component_boundary(component.get("triangles") or [])
+
+
 def _closest_point_on_segment(point, start, end):
     dx, dy = end[0] - start[0], end[1] - start[1]
     length_squared = dx * dx + dy * dy
@@ -783,7 +858,7 @@ class HolePrep:
     greenDistances: dict = field(default_factory=dict)  # round-13 E3: {available, front/middle/back M+Yd}
     greenSlope: dict = field(default_factory=dict)  # {available, magnitudePct, directionDeg (break dir), flat}
     holeImageProjection: dict = field(default_factory=dict)  # watch P0.1: geo→px anchors for the topo map
-    greenOutline: dict | None = None  # CourseView lightweight outline in the same display frame
+    greenOutline: dict | None = None  # selected Green.drc/CourseView boundary in the display frame
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -1550,6 +1625,12 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
 
     hazards = route_hazards(by, route, to_px=to_px)
     steps, cautions, landing, tee_club = _strategy(par, route_len, hazards, ladder)
+    # Precise prodgeometry has a filled Green.drc mesh, so expose its actual exterior boundary to
+    # clients.  The previous contract only attached the 30-radius CourseView outline on the
+    # lightweight fallback; precise holes consequently rendered a synthetic/oversized ellipse in
+    # View Green and measured distances to that ellipse instead of to the putting surface.
+    green_boundary = _selected_green_boundary(by, route)
+    green_outline_px = [to_px(point) for point in green_boundary]
     missing_data = [
         row
         for row in coverage.get("missingData", [])
@@ -1576,6 +1657,15 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         greenDistances=_green_distances(by, route, md),
         greenSlope=_green_slope(by, route),
         holeImageProjection=_hole_image_projection(by, route, md, frame=frame),
+        greenOutline={
+            "available": bool(green_outline_px),
+            "source": "prodgeometry.Green.drc.boundary",
+            "distanceUnit": None,
+            "pointsPx": [
+                [round(point[0], 1), round(point[1], 1)]
+                for point in green_outline_px
+            ],
+        },
     )
     result = prep.to_dict()
     scatter_overlay = {

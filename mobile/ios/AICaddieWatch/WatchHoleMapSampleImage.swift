@@ -18,6 +18,22 @@ public enum WatchHoleMapSample {
     static let pinPx = CGPoint(x: 435, y: 279)           // green centre / pin (518.8 m)
     static let lastShotPx = CGPoint(x: 435, y: 981)      // tee-shot origin
 
+    /// The putting-surface edge visible in the baked gid31669/hole-4 geometry render.  The former
+    /// six-point fixture described the larger decorative target ring, which made View Green measure
+    /// and draw an ellipse outside the actual checker-textured green.  These ordered points follow
+    /// the rendered Green.drc edge and retain the same 420 px focused-asset crop centre.
+    static let greenOutlinePx: [CGPoint] = [
+        CGPoint(x: 430.4, y: 259.1), CGPoint(x: 438.6, y: 260.8),
+        CGPoint(x: 446.4, y: 265.3), CGPoint(x: 453.8, y: 271.8),
+        CGPoint(x: 458.3, y: 279.2), CGPoint(x: 462.0, y: 285.8),
+        CGPoint(x: 459.1, y: 293.2), CGPoint(x: 453.0, y: 297.7),
+        CGPoint(x: 444.8, y: 298.9), CGPoint(x: 434.5, y: 296.4),
+        CGPoint(x: 426.3, y: 292.3), CGPoint(x: 418.1, y: 287.8),
+        CGPoint(x: 410.7, y: 281.7), CGPoint(x: 405.8, y: 274.7),
+        CGPoint(x: 405.0, y: 267.7), CGPoint(x: 408.7, y: 263.2),
+        CGPoint(x: 416.1, y: 260.3), CGPoint(x: 424.3, y: 259.1),
+    ]
+
     #if canImport(UIKit)
     static let image: UIImage? = Data(base64Encoded: jpegBase64).flatMap(UIImage.init(data:))
     /// The offline fixture uses the same kind of focused geometry render as production. Do not
