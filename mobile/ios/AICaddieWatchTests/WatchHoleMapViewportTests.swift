@@ -387,7 +387,9 @@ final class WatchHoleMapViewportTests: XCTestCase {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
 
         XCTAssertTrue(outline.allSatisfy { safeRect.contains($0) })
-        XCTAssertGreaterThan(maxX - minX, safeRect.width * 0.55)
+        // The factual contour is wider than the old inset ellipse. Retain a readable green without
+        // sacrificing the adjacent bunker merely to reproduce the ellipse's artificial occupancy.
+        XCTAssertGreaterThan(maxX - minX, safeRect.width * 0.45)
         XCTAssertTrue(safeRect.contains(adjacentBunker))
     }
 

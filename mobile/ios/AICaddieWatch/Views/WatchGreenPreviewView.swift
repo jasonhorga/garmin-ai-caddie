@@ -123,11 +123,10 @@ enum WatchGreenPreviewLayout {
         // View Green is a tighter level than Hole Root, but Garmin still keeps the approach apron and
         // adjacent hazards around the enlarged green. This crop includes the real nearby bunker at
         // the default Crown detent; zooming never turns the surrounding map into a black cut-out.
-        // Keep a factual approach apron without letting the former inset ellipse dictate the zoom.
-        // The raw contour is wider/taller than its old midpoint curve, so the old 0.50 padding made
-        // the real green occupy too little of the watch. 0.30 retains the nearby bunker while
-        // keeping the source boundary large enough to read on 41 mm.
-        let padding = max(12, longestSide * 0.30)
+        // Keep enough real approach apron for the adjacent bunker. The old inset ellipse occupied
+        // more of the display only because it discarded the source contour's outer points; fitting
+        // the factual outline plus a 0.50 apron gives the real green and its context equal authority.
+        let padding = max(12, longestSide * 0.50)
         let padded = focus.insetBy(dx: -padding, dy: -padding)
         let fittedScale = max(
             0.01,
