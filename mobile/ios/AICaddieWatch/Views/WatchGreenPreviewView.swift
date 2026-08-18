@@ -846,11 +846,11 @@ public struct WatchGreenPreviewView: View {
         // bitmap sits above it in the exact source-pixel window used by the phone request, so the
         // enlarged green is genuinely sharp rather than a resampled handful of topo pixels.
         //
-        // The detail asset is intentionally clipped to the factual green contour. It is not a
-        // second opaque map tile: an opaque square would expose a visible seam whenever the focused
-        // render and the older whole-hole cache differ by even one colour/noise sample. Nearby
-        // fairway and hazards continue to come from the whole-hole context layer; only the putting
-        // surface receives the high-resolution pass.
+        // Draw the whole focused window, not only the putting surface. View Green deliberately keeps
+        // the approach apron and nearby bunkers on screen, and those pixels become just as soft as the
+        // green when they are enlarged from the whole-hole bitmap. The focused render uses the same
+        // geometry, projection and style as the base image; its padded crop covers the visible window
+        // at both Crown detents, while transparent pixels leave the base context intact.
         if let detail = geometry.greenDetailImage,
            let sourceRect = geometry.greenDetailRectPx,
            sourceRect.width > 0, sourceRect.height > 0 {
@@ -862,13 +862,7 @@ public struct WatchGreenPreviewView: View {
             )
             if [detailRect.minX, detailRect.minY, detailRect.width, detailRect.height]
                 .allSatisfy({ $0.isFinite && $0 > -10_000 }) {
-                let greenMask = WatchGreenPreviewLayout.smoothPath(
-                    polygon: geometry.greenOutlinePx,
-                    transform: viewport.canvasPoint
-                )
                 context.drawLayer { layer in
-                    guard !greenMask.isEmpty else { return }
-                    layer.clip(to: greenMask)
                     layer.translateBy(
                         x: viewport.rotationCenterCanvas.x,
                         y: viewport.rotationCenterCanvas.y
@@ -896,29 +890,24 @@ public struct WatchGreenPreviewView: View {
                 transform: viewport.canvasPoint
             )
             let bounds = outline.boundingRect
-            if drewTopo, geometry.greenDetailImage == nil {
-                context.fill(
-                    outline,
-                    // Keep this synthetic vector only as the no-detail fallback. Painting a
-                    // mostly-opaque gradient over the real focused bitmap flattens its texture and
-                    // was the reason View Green looked like a blurry neon oval.
-                    with: .linearGradient(
-                        Gradient(colors: [
-                            Color(red: 0.46, green: 0.96, blue: 0.26).opacity(0.72),
-                            Color(red: 0.28, green: 0.80, blue: 0.18).opacity(0.62),
-                        ]),
-                        startPoint: CGPoint(x: bounds.midX, y: bounds.minY),
-                        endPoint: CGPoint(x: bounds.midX, y: bounds.maxY)
-                    )
-                )
-            } else {
+            // Never paint over a real focused bitmap. The previous branch accidentally sent
+            // `greenDetailImage != nil` through the opaque fallback and hid every high-resolution
+            // pixel we had just drawn. Synthetic colour is only for old/offline caches that do not
+            // have the focused asset yet.
+            if geometry.greenDetailImage == nil {
+                let colors = drewTopo
+                    ? [
+                        Color(red: 0.46, green: 0.96, blue: 0.26).opacity(0.72),
+                        Color(red: 0.28, green: 0.80, blue: 0.18).opacity(0.62),
+                    ]
+                    : [
+                        Color(red: 0.43, green: 0.93, blue: 0.22),
+                        Color(red: 0.24, green: 0.78, blue: 0.18),
+                    ]
                 context.fill(
                     outline,
                     with: .linearGradient(
-                        Gradient(colors: [
-                            Color(red: 0.43, green: 0.93, blue: 0.22),
-                            Color(red: 0.24, green: 0.78, blue: 0.18),
-                        ]),
+                        Gradient(colors: colors),
                         startPoint: CGPoint(x: bounds.midX, y: bounds.minY),
                         endPoint: CGPoint(x: bounds.midX, y: bounds.maxY)
                     )
