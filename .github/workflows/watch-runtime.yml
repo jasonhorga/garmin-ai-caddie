@@ -217,6 +217,11 @@ jobs:
           capture_compact standalone-course-view-green compact-41mm-view-green.png
           capture_compact standalone-course-view-green-max compact-41mm-view-green-max.png
           capture_compact standalone-course-view-green-moved compact-41mm-view-green-moved.png
+          if cmp -s watch-runtime-artifacts/compact-41mm-view-green.png \
+            watch-runtime-artifacts/compact-41mm-view-green-moved.png; then
+            echo "::error::41mm moved-flag evidence is identical to the canonical flag"
+            exit 1
+          fi
           capture_compact standalone-course-view-green-rotated compact-41mm-view-green-rotated.png
           capture_compact standalone-course-pin-root compact-41mm-pin-root.png
           capture_compact standalone-course-pin-touch-target compact-41mm-pin-touch-target.png
@@ -298,6 +303,11 @@ jobs:
           capture_ultra standalone-course-view-green ultra-49mm-view-green.png
           capture_ultra standalone-course-view-green-max ultra-49mm-view-green-max.png
           capture_ultra standalone-course-view-green-moved ultra-49mm-view-green-moved.png
+          if cmp -s watch-runtime-artifacts/ultra-49mm-view-green.png \
+            watch-runtime-artifacts/ultra-49mm-view-green-moved.png; then
+            echo "::error::49mm moved-flag evidence is identical to the canonical flag"
+            exit 1
+          fi
           capture_ultra standalone-course-view-green-rotated ultra-49mm-view-green-rotated.png
           capture_ultra standalone-course-pin-root ultra-49mm-pin-root.png
           capture_ultra standalone-course-pin-touch-target ultra-49mm-pin-touch-target.png
@@ -498,6 +508,11 @@ jobs:
           launch_and_capture standalone-course-view-green watch-standalone-course-view-green.png
           launch_and_capture standalone-course-view-green-max watch-standalone-course-view-green-max.png
           launch_and_capture standalone-course-view-green-moved watch-standalone-course-view-green-moved.png
+          if cmp -s watch-runtime-artifacts/watch-standalone-course-view-green.png \
+            watch-runtime-artifacts/watch-standalone-course-view-green-moved.png; then
+            echo "::error::45mm moved-flag evidence is identical to the canonical flag"
+            exit 1
+          fi
           launch_and_capture standalone-course-view-green-rotated watch-standalone-course-view-green-rotated.png
           launch_and_capture standalone-course-pin-root watch-standalone-course-pin-root.png
           launch_and_capture standalone-course-pin-touch-target watch-standalone-course-pin-touch-target.png

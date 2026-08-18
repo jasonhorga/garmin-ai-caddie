@@ -317,7 +317,7 @@ public struct WatchUITestRoot: View {
                         : nil,
                     initialGreenPinOverride: screen == "standalone-course-view-green-moved"
                         || screen == "standalone-course-view-green-rotated"
-                        ? CGPoint(x: 447, y: 270)
+                        ? WatchHoleMapSample.movedPinPx
                         : nil,
                     initialGreenZoomScaleOverride: screen == "standalone-course-view-green-max"
                         ? 2
@@ -1216,7 +1216,7 @@ public struct WatchUITestRoot: View {
     }
 
     private func saveStandaloneReviewGreenPlacement() {
-        let pin = CGPoint(x: 447, y: 270)
+        let pin = WatchHoleMapSample.movedPinPx
         guard let state = model.activeHoleState,
               let geometry = standaloneCourseGeometry,
               geometry.imageSize.width > 0,

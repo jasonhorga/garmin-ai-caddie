@@ -16,6 +16,10 @@ public enum WatchHoleMapSample {
     static let layupPx = CGPoint(x: 506, y: 403)         // lay-up target (419 m ≈ 100 m short)
     static let greenCtrlPx = CGPoint(x: 498, y: 375)     // control for lay-up→green dashed curve
     static let pinPx = CGPoint(x: 435, y: 279)           // green centre / pin (518.8 m)
+    /// A visibly moved but safely interior flag for runtime/design evidence. Keep this shared with
+    /// the factual outline so a tighter fixture cannot silently turn the moved screenshot into the
+    /// canonical-centre screenshot again.
+    static let movedPinPx = CGPoint(x: 447, y: 285)
     static let lastShotPx = CGPoint(x: 435, y: 981)      // tee-shot origin
 
     /// The putting-surface edge visible in the baked gid31669/hole-4 geometry render. The former

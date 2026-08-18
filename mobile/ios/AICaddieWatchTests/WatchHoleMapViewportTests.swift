@@ -97,7 +97,12 @@ final class WatchHoleMapViewportTests: XCTestCase {
     func testReviewTouchTargetIsARealIntermediateLieAndEndsAtMovedFlag() throws {
         let player = CGPoint(x: 469.7174, y: 339.6333)
         let target = CGPoint(x: 458, y: 318)
-        let movedPin = CGPoint(x: 447, y: 270)
+        let movedPin = WatchHoleMapSample.movedPinPx
+        XCTAssertTrue(WatchGreenPreviewLayout.contains(
+            movedPin,
+            polygon: WatchHoleMapSample.greenOutlinePx
+        ))
+        XCTAssertNotEqual(movedPin, WatchHoleMapSample.pinPx)
         let distances = try XCTUnwrap(WatchTouchTargetDistanceLayout.resolve(
             playerImagePoint: player,
             targetImagePoint: target,
@@ -107,7 +112,7 @@ final class WatchHoleMapViewportTests: XCTestCase {
         ))
 
         XCTAssertEqual(distances.playerToTargetYards, 19)
-        XCTAssertEqual(distances.targetToPinYards, 37)
+        XCTAssertEqual(distances.targetToPinYards, 26)
         XCTAssertGreaterThan(distances.playerToTargetYards, 0)
         XCTAssertGreaterThan(distances.targetToPinYards, 0)
     }
