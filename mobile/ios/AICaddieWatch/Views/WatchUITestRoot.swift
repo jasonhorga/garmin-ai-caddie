@@ -1247,7 +1247,7 @@ public struct WatchUITestRoot: View {
         guard let imageData = Data(base64Encoded: WatchHoleMapSample.jpegBase64) else { return }
         do {
             try imageStore.store(data: imageData, globalId: 31669, hole: 4)
-            if let detailData = Data(base64Encoded: WatchHoleMapSample.greenDetailPNGBase64) {
+            if let detailData = WatchHoleMapSample.greenDetailImage?.pngData() {
                 try imageStore.store(
                     data: detailData,
                     globalId: 31669,

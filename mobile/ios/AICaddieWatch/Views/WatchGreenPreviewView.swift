@@ -842,9 +842,15 @@ public struct WatchGreenPreviewView: View {
         #endif
 
         #if canImport(UIKit)
-        // The whole-hole topo remains the context layer.  A dedicated geometry-rendered detail
+        // The whole-hole topo remains the context layer. A dedicated geometry-rendered detail
         // bitmap sits above it in the exact source-pixel window used by the phone request, so the
         // enlarged green is genuinely sharp rather than a resampled handful of topo pixels.
+        //
+        // The detail asset is intentionally clipped to the factual green contour. It is not a
+        // second opaque map tile: an opaque square would expose a visible seam whenever the focused
+        // render and the older whole-hole cache differ by even one colour/noise sample. Nearby
+        // fairway and hazards continue to come from the whole-hole context layer; only the putting
+        // surface receives the high-resolution pass.
         if let detail = geometry.greenDetailImage,
            let sourceRect = geometry.greenDetailRectPx,
            sourceRect.width > 0, sourceRect.height > 0 {
@@ -856,7 +862,13 @@ public struct WatchGreenPreviewView: View {
             )
             if [detailRect.minX, detailRect.minY, detailRect.width, detailRect.height]
                 .allSatisfy({ $0.isFinite && $0 > -10_000 }) {
+                let greenMask = WatchGreenPreviewLayout.smoothPath(
+                    polygon: geometry.greenOutlinePx,
+                    transform: viewport.canvasPoint
+                )
                 context.drawLayer { layer in
+                    guard !greenMask.isEmpty else { return }
+                    layer.clip(to: greenMask)
                     layer.translateBy(
                         x: viewport.rotationCenterCanvas.x,
                         y: viewport.rotationCenterCanvas.y
@@ -867,7 +879,10 @@ public struct WatchGreenPreviewView: View {
                         y: -viewport.rotationCenterCanvas.y
                     )
                     layer.draw(
-                        layer.resolve(Image(uiImage: detail).interpolation(.high)),
+                        // The source is already a focused 640px render. Medium interpolation keeps
+                        // its fine texture legible at the watch's downsampled display size without
+                        // turning it into the soft square produced by the old `.high` path.
+                        layer.resolve(Image(uiImage: detail).interpolation(.medium)),
                         in: detailRect
                     )
                 }
