@@ -1074,7 +1074,7 @@ public struct CurrentHoleView: View {
             localHole: sourceLocalHole,
             crop: crop,
             geometryRevision: prep.geometryRevision
-        ), WatchHoleImageStore.isValidImageData(data) else { return }
+        ), OfflineStore.isValidCourseTopoImageData(data) else { return }
         watchBridge.pushHoleImage(
             globalId: globalId,
             hole: watchHole,
