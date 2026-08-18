@@ -49,12 +49,16 @@ struct WatchGreenEdgeMeasurement: Equatable {
     let edgeImagePoint: CGPoint
 }
 
-/// One geometry authority for the enlarged-green instrument.  The raw outline is intentionally
-/// sparse, so the displayed curve, the hit-test, the four edge rays and the image rotation must all
-/// use the same sampled polygon and the same centre.  Keeping this as a value also makes it harder
-/// for a future caller to accidentally mix a raw-outline bounding box with a smoothed-outline one.
+/// Geometry for the enlarged-green instrument.
+///
+/// `polygon` is the factual boundary delivered in the shared topo pixel frame. It is deliberately
+/// kept separate from `displayPolygon`: the latter is only a rounded, through-the-source-points
+/// presentation path. Distances, hit testing, flag placement and rotation are never allowed to use
+/// a visually convenient inset/ellipse. This distinction matters on small watches, where the old
+/// midpoint curve moved every corner inward and made a flag-to-edge number look plausible but wrong.
 struct WatchGreenBoundaryGeometry: Equatable {
     let polygon: [CGPoint]
+    let displayPolygon: [CGPoint]
     let bounds: CGRect
     let center: CGPoint
 }
@@ -73,14 +77,14 @@ enum WatchGreenPreviewLayout {
         _ polygon: [CGPoint],
         samplesPerCurve: Int = 12
     ) -> WatchGreenBoundaryGeometry? {
-        let sampled = boundaryPolygon(polygon, samplesPerCurve: samplesPerCurve)
-        guard sampled.count >= 3,
-              let first = sampled.first else { return nil }
+        let factual = boundaryPolygon(polygon)
+        guard factual.count >= 3,
+              let first = factual.first else { return nil }
         var minX = first.x
         var maxX = first.x
         var minY = first.y
         var maxY = first.y
-        for point in sampled.dropFirst() {
+        for point in factual.dropFirst() {
             minX = min(minX, point.x)
             maxX = max(maxX, point.x)
             minY = min(minY, point.y)
@@ -93,7 +97,8 @@ enum WatchGreenPreviewLayout {
             height: max(maxY - minY, 1)
         )
         return WatchGreenBoundaryGeometry(
-            polygon: sampled,
+            polygon: factual,
+            displayPolygon: displayBoundaryPolygon(factual, samplesPerCurve: samplesPerCurve),
             bounds: bounds,
             center: CGPoint(x: bounds.midX, y: bounds.midY)
         )
@@ -129,10 +134,9 @@ enum WatchGreenPreviewLayout {
         )
         let rotationRadians = CGFloat(rotationDegrees * .pi / 180)
         let rotationCenterCanvas = CGPoint(x: contentRect.midX, y: contentRect.midY)
-        // Use the exact same sampled-boundary centre as pinMetrics/drawing.  The old viewport used
-        // the raw outline bbox while metrics used the sampled bbox; after rotation that made the
-        // rendered flag and the right/left labels drift by a few pixels (most noticeable for a
-        // short "10" clearance).
+        // Use the factual boundary's centre as the shared rotation/calibration centre. The rendered
+        // curve may round joins, but it must never move the map or the labels away from the source
+        // geometry.
         let rotationCenterImage = boundary?.center ?? CGPoint(x: padded.midX, y: padded.midY)
 
         // Rotation must never reveal synthetic black wedges. Keep the real green centred, inverse-
@@ -204,43 +208,69 @@ enum WatchGreenPreviewLayout {
         return inside
     }
 
-    /// Sample the same midpoint-quadratic boundary that is displayed. Hit testing, four-axis rays and
-    /// drawing all consume this polygon, eliminating the old raw-polygon/smoothed-outline mismatch.
-    static func boundaryPolygon(
+    /// Return the factual green outline after dropping invalid and consecutive duplicate points.
+    ///
+    /// These points are the measurement authority. Do not replace them with a bounding ellipse or a
+    /// midpoint curve: the four values in View Green mean distance to this actual course boundary.
+    static func boundaryPolygon(_ polygon: [CGPoint]) -> [CGPoint] {
+        let finite = polygon.filter { $0.x.isFinite && $0.y.isFinite }
+        guard finite.count > 1 else { return finite }
+        var result: [CGPoint] = []
+        result.reserveCapacity(finite.count)
+        for point in finite where result.last.map({ hypot($0.x - point.x, $0.y - point.y) > 0.000_1 }) ?? true {
+            result.append(point)
+        }
+        if result.count > 1,
+           let first = result.first,
+           let last = result.last,
+           hypot(first.x - last.x, first.y - last.y) <= 0.000_1 {
+            result.removeLast()
+        }
+        return result
+    }
+
+    /// Build a rounded presentation path that passes through every factual outline point.
+    ///
+    /// The previous midpoint-quadratic construction started and ended every segment halfway between
+    /// source points. On a six-point green that systematically contracted the outline into an oval.
+    /// Catmull–Rom converted to cubic Beziers keeps the source points on the path while rounding only
+    /// the joins. It is presentation-only; all facts continue to use `boundaryPolygon(_:)` above.
+    static func displayBoundaryPolygon(
         _ polygon: [CGPoint],
         samplesPerCurve: Int = 12
     ) -> [CGPoint] {
-        let points = polygon.filter { $0.x.isFinite && $0.y.isFinite }
+        let points = boundaryPolygon(polygon)
         guard points.count >= 3 else { return points }
         let samples = max(samplesPerCurve, 2)
-        func midpoint(_ lhs: CGPoint, _ rhs: CGPoint) -> CGPoint {
-            CGPoint(x: (lhs.x + rhs.x) * 0.5, y: (lhs.y + rhs.y) * 0.5)
-        }
-        func quadratic(_ start: CGPoint, _ control: CGPoint, _ end: CGPoint, _ t: CGFloat) -> CGPoint {
-            let inverse = 1 - t
-            return CGPoint(
-                x: inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * end.x,
-                y: inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * end.y
-            )
-        }
-
         var sampled: [CGPoint] = []
         sampled.reserveCapacity(points.count * samples)
         for index in points.indices {
-            let previous = points[(index + points.count - 1) % points.count]
-            let current = points[index]
-            let next = points[(index + 1) % points.count]
-            let start = midpoint(previous, current)
-            let end = midpoint(current, next)
-            if sampled.isEmpty { sampled.append(start) }
-            for sample in 1...samples {
-                sampled.append(quadratic(start, current, end, CGFloat(sample) / CGFloat(samples)))
+            let p0 = points[(index + points.count - 1) % points.count]
+            let p1 = points[index]
+            let p2 = points[(index + 1) % points.count]
+            let p3 = points[(index + 2) % points.count]
+            let c1 = CGPoint(
+                x: p1.x + (p2.x - p0.x) / 6,
+                y: p1.y + (p2.y - p0.y) / 6
+            )
+            let c2 = CGPoint(
+                x: p2.x - (p3.x - p1.x) / 6,
+                y: p2.y - (p3.y - p1.y) / 6
+            )
+            for sample in 0..<samples {
+                let t = CGFloat(sample) / CGFloat(samples)
+                let inverse = 1 - t
+                sampled.append(CGPoint(
+                    x: inverse * inverse * inverse * p1.x
+                        + 3 * inverse * inverse * t * c1.x
+                        + 3 * inverse * t * t * c2.x
+                        + t * t * t * p2.x,
+                    y: inverse * inverse * inverse * p1.y
+                        + 3 * inverse * inverse * t * c1.y
+                        + 3 * inverse * t * t * c2.y
+                        + t * t * t * p2.y
+                ))
             }
-        }
-        // The last sample closes onto the first. Path and intersection code close explicitly.
-        if let first = sampled.first, let last = sampled.last,
-           hypot(first.x - last.x, first.y - last.y) < 0.000_1 {
-            sampled.removeLast()
         }
         return sampled
     }
@@ -451,13 +481,13 @@ enum WatchGreenPreviewLayout {
         }
     }
 
-    /// The downloaded green boundary is intentionally lightweight and commonly contains only six to
-    /// ten points. Render the sampled measurement boundary rather than a second geometric authority.
+    /// Render the rounded presentation path. It contains every source point, while measurement and
+    /// hit testing continue to use the factual polygon returned by `boundaryPolygon(_:)`.
     static func smoothPath(
         polygon: [CGPoint],
         transform: (CGPoint) -> CGPoint = { $0 }
     ) -> Path {
-        let points = boundaryPolygon(polygon).map(transform)
+        let points = displayBoundaryPolygon(polygon).map(transform)
         guard points.count >= 3 else { return Path() }
         var path = Path()
         path.move(to: points[0])
@@ -790,12 +820,11 @@ public struct WatchGreenPreviewView: View {
             )
             if rect.width.isFinite, rect.height.isFinite, rect.width > 0, rect.height > 0 {
                 context.drawLayer { layer in
-                    // View Green enlarges a small portion of the downloaded topo.  Request the
-                    // highest available interpolation so edges stay smooth while vector overlays
-                    // (green outline, flag and measurements) remain pixel-crisp.  This does not
-                    // invent detail; a future high-resolution green asset can plug into the same
-                    // path without changing the coordinate model.
-                    let source = Image(uiImage: image).interpolation(.high)
+                    // View Green enlarges a small portion of the downloaded topo. `.high` made the
+                    // low-resolution context look washed out on the watch after a 2× crop. Medium
+                    // interpolation keeps the factual texture legible; the known green boundary,
+                    // flag and measurements are vector layers and remain pixel-crisp.
+                    let source = Image(uiImage: image).interpolation(.medium)
                     layer.translateBy(
                         x: viewport.rotationCenterCanvas.x,
                         y: viewport.rotationCenterCanvas.y
@@ -828,8 +857,8 @@ public struct WatchGreenPreviewView: View {
                     // a magnified JPEG patch.
                     with: .linearGradient(
                         Gradient(colors: [
-                            Color(red: 0.46, green: 0.96, blue: 0.26).opacity(0.50),
-                            Color(red: 0.28, green: 0.80, blue: 0.18).opacity(0.42),
+                            Color(red: 0.46, green: 0.96, blue: 0.26).opacity(0.72),
+                            Color(red: 0.28, green: 0.80, blue: 0.18).opacity(0.62),
                         ]),
                         startPoint: CGPoint(x: bounds.midX, y: bounds.minY),
                         endPoint: CGPoint(x: bounds.midX, y: bounds.maxY)

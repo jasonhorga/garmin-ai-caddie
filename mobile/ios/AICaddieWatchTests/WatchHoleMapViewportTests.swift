@@ -238,6 +238,44 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertEqual(metrics.edge(.left)?.yards, 7)
     }
 
+    func testGreenEdgeMetricsUseSourceBoundaryInsteadOfInsetDisplayCurve() throws {
+        // The old midpoint curve would move the top/left intersections inward. The source outline
+        // is intentionally asymmetric so an oval/bounding-box shortcut cannot produce the same hit.
+        let outline = [
+            CGPoint(x: 0, y: 0), CGPoint(x: 20, y: 0),
+            CGPoint(x: 24, y: 9), CGPoint(x: 12, y: 18),
+            CGPoint(x: 0, y: 11),
+        ]
+        let metrics = try XCTUnwrap(WatchGreenPreviewLayout.pinMetrics(
+            playerImagePoint: CGPoint(x: 5, y: 23),
+            canonicalPinImagePoint: CGPoint(x: 5, y: 5),
+            selectedPinImagePoint: CGPoint(x: 5, y: 5),
+            greenOutline: outline,
+            centerGreenYards: 18
+        ))
+
+        // 18 yd / 18 px = 1 yd/px. The ray must hit the factual top and left edges at x/y = 0.
+        XCTAssertEqual(try XCTUnwrap(metrics.edge(.top)?.edgeImagePoint.y), 0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(metrics.edge(.left)?.edgeImagePoint.x), 0, accuracy: 0.0001)
+        XCTAssertEqual(metrics.edge(.top)?.yards, 5)
+        XCTAssertEqual(metrics.edge(.left)?.yards, 5)
+    }
+
+    func testDisplayBoundaryPassesThroughEverySourcePoint() {
+        let outline = [
+            CGPoint(x: 410, y: 257), CGPoint(x: 452, y: 252),
+            CGPoint(x: 470, y: 281), CGPoint(x: 447, y: 306),
+            CGPoint(x: 408, y: 296), CGPoint(x: 397, y: 274),
+        ]
+        let display = WatchGreenPreviewLayout.displayBoundaryPolygon(outline)
+        for source in outline {
+            XCTAssertTrue(
+                display.contains { hypot($0.x - source.x, $0.y - source.y) < 0.0001 },
+                "rounded presentation path must retain source point \(source)"
+            )
+        }
+    }
+
     func testGreenViewportAndPinMetricsShareTheSampledBoundaryRotationCentre() throws {
         let base = WatchHoleMapSample.geometry
         let geometry = WatchHoleMapGeometry(
