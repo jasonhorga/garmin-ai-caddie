@@ -18,20 +18,30 @@ public enum WatchHoleMapSample {
     static let pinPx = CGPoint(x: 435, y: 279)           // green centre / pin (518.8 m)
     static let lastShotPx = CGPoint(x: 435, y: 981)      // tee-shot origin
 
-    /// The putting-surface edge visible in the baked gid31669/hole-4 geometry render.  The former
+    /// The putting-surface edge visible in the baked gid31669/hole-4 geometry render. The former
     /// six-point fixture described the larger decorative target ring, which made View Green measure
-    /// and draw an ellipse outside the actual checker-textured green.  These ordered points follow
-    /// the rendered Green.drc edge and retain the same 420 px focused-asset crop centre.
+    /// and draw an ellipse outside the actual checker-textured green. These points are sampled from
+    /// the focused Green render's connected Green mask (not its decorative target ring), so the
+    /// fixture's line and four-way measurements use the same visible edge as production Green.drc.
     static let greenOutlinePx: [CGPoint] = [
-        CGPoint(x: 430.4, y: 259.1), CGPoint(x: 438.6, y: 260.8),
-        CGPoint(x: 446.4, y: 265.3), CGPoint(x: 453.8, y: 271.8),
-        CGPoint(x: 458.3, y: 279.2), CGPoint(x: 462.0, y: 285.8),
-        CGPoint(x: 459.1, y: 293.2), CGPoint(x: 453.0, y: 297.7),
-        CGPoint(x: 444.8, y: 298.9), CGPoint(x: 434.5, y: 296.4),
-        CGPoint(x: 426.3, y: 292.3), CGPoint(x: 418.1, y: 287.8),
-        CGPoint(x: 410.7, y: 281.7), CGPoint(x: 405.8, y: 274.7),
-        CGPoint(x: 405.0, y: 267.7), CGPoint(x: 408.7, y: 263.2),
-        CGPoint(x: 416.1, y: 260.3), CGPoint(x: 424.3, y: 259.1),
+        CGPoint(x: 434.2, y: 262.4), CGPoint(x: 436.9, y: 263.6),
+        CGPoint(x: 439.0, y: 265.6), CGPoint(x: 441.1, y: 266.9),
+        CGPoint(x: 442.9, y: 268.6), CGPoint(x: 444.6, y: 270.2),
+        CGPoint(x: 446.0, y: 272.1), CGPoint(x: 448.1, y: 273.9),
+        CGPoint(x: 450.1, y: 276.1), CGPoint(x: 452.6, y: 278.9),
+        CGPoint(x: 455.0, y: 282.6), CGPoint(x: 457.1, y: 287.2),
+        CGPoint(x: 457.1, y: 292.1), CGPoint(x: 454.6, y: 296.0),
+        CGPoint(x: 450.3, y: 298.1), CGPoint(x: 445.5, y: 298.5),
+        CGPoint(x: 440.6, y: 296.4), CGPoint(x: 436.8, y: 293.5),
+        CGPoint(x: 434.2, y: 292.3), CGPoint(x: 432.1, y: 291.1),
+        CGPoint(x: 430.2, y: 289.9), CGPoint(x: 428.3, y: 289.0),
+        CGPoint(x: 426.4, y: 288.2), CGPoint(x: 424.5, y: 287.0),
+        CGPoint(x: 422.2, y: 285.8), CGPoint(x: 419.8, y: 284.2),
+        CGPoint(x: 416.9, y: 282.0), CGPoint(x: 413.6, y: 278.9),
+        CGPoint(x: 410.3, y: 274.7), CGPoint(x: 409.9, y: 270.1),
+        CGPoint(x: 412.0, y: 266.1), CGPoint(x: 415.5, y: 263.2),
+        CGPoint(x: 420.0, y: 262.0), CGPoint(x: 424.0, y: 261.2),
+        CGPoint(x: 427.6, y: 260.7), CGPoint(x: 431.1, y: 261.6),
     ]
 
     #if canImport(UIKit)
