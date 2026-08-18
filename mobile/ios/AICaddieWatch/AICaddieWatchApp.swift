@@ -297,10 +297,19 @@ public struct AICaddieWatchApp: App {
                 geometryRevision: s.geometryRevision
             )
         }
+        let greenDetail = s.globalId.flatMap { gid in
+            syncClient.holeImageStore.image(
+                globalId: gid,
+                hole: s.hole,
+                geometryRevision: s.geometryRevision,
+                detail: true
+            )
+        }
         guard let geo = WatchHoleMapGeometry.from(
             holeMap: hm,
             image: img,
-            hazards: s.hazards
+            hazards: s.hazards,
+            greenDetailImage: greenDetail
         ) else { return nil }
         // watch P3: if the watch has its OWN fix + this hole's projection refs, place YOU from the wrist GPS
         // (else keep the phone-pushed you = tee/phone-GPS). Pin/lay-up/route anchors are unchanged.

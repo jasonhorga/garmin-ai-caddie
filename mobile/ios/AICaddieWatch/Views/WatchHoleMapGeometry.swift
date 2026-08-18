@@ -1,4 +1,5 @@
 import CoreGraphics
+import AICaddieDomain
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -22,6 +23,10 @@ public struct WatchHoleMapHazardGeometry {
 /// image px), while snapshots keep using `WatchHoleMapSample.geometry`.
 public struct WatchHoleMapGeometry {
     public let image: UIImage?
+    /// High-resolution green-focused bitmap, rendered in the same full-hole pixel frame as `image`.
+    /// It is optional so older course caches continue to render from the whole-hole topo.
+    public let greenDetailImage: UIImage?
+    public let greenDetailRectPx: CGRect?
     public let imageSize: CGSize
     public let youPx: CGPoint
     public let pinPx: CGPoint
@@ -34,6 +39,8 @@ public struct WatchHoleMapGeometry {
 
     public init(
         image: UIImage?,
+        greenDetailImage: UIImage? = nil,
+        greenDetailRectPx: CGRect? = nil,
         imageSize: CGSize,
         youPx: CGPoint,
         pinPx: CGPoint,
@@ -45,6 +52,8 @@ public struct WatchHoleMapGeometry {
         hazardSpans: [WatchHoleMapHazardGeometry] = []
     ) {
         self.image = image
+        self.greenDetailImage = greenDetailImage
+        self.greenDetailRectPx = greenDetailRectPx
         self.imageSize = imageSize
         self.youPx = youPx
         self.pinPx = pinPx
@@ -59,7 +68,8 @@ public struct WatchHoleMapGeometry {
     /// watch P3: a copy with YOU relocated — used when the watch's own GPS places the player (the pin /
     /// lay-up / route anchors are unchanged, only where "you" stand).
     public func withYou(_ px: CGPoint) -> WatchHoleMapGeometry {
-        WatchHoleMapGeometry(image: image, imageSize: imageSize, youPx: px, pinPx: pinPx,
+        WatchHoleMapGeometry(image: image, greenDetailImage: greenDetailImage,
+                             greenDetailRectPx: greenDetailRectPx, imageSize: imageSize, youPx: px, pinPx: pinPx,
                              layupPx: layupPx, apexPx: apexPx, greenCtrlPx: greenCtrlPx,
                              routePx: routePx, greenOutlinePx: greenOutlinePx,
                              hazardSpans: hazardSpans)
@@ -89,7 +99,8 @@ extension WatchHoleMapGeometry {
     public static func from(
         holeMap: WatchHoleMap?,
         image: UIImage?,
-        hazards: [WatchHazard] = []
+        hazards: [WatchHazard] = [],
+        greenDetailImage: UIImage? = nil
     ) -> WatchHoleMapGeometry? {
         guard let hm = holeMap, hm.w > 0, hm.h > 0 else { return nil }
         func point(_ a: [Double]) -> CGPoint {
@@ -99,8 +110,15 @@ extension WatchHoleMapGeometry {
             guard a.count >= 2, a[0].isFinite, a[1].isFinite else { return nil }
             return CGPoint(x: a[0], y: a[1])
         }
+        let detailCrop = GreenDetailCrop.around(
+            points: hm.greenOutline ?? [],
+            imageWidth: Double(hm.w),
+            imageHeight: Double(hm.h)
+        )
         return WatchHoleMapGeometry(
             image: image,
+            greenDetailImage: greenDetailImage,
+            greenDetailRectPx: detailCrop?.rect,
             imageSize: CGSize(width: hm.w, height: hm.h),
             youPx: point(hm.you),
             pinPx: point(hm.pin),

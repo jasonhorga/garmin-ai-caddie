@@ -1184,10 +1184,17 @@ public struct WatchUITestRoot: View {
               ) else {
             return nil
         }
+        let greenDetail = WatchHoleImageStore().image(
+            globalId: globalId,
+            hole: state.hole,
+            geometryRevision: state.geometryRevision,
+            detail: true
+        )
         guard let geometry = WatchHoleMapGeometry.from(
             holeMap: state.holeMap,
             image: image,
-            hazards: state.hazards
+            hazards: state.hazards,
+            greenDetailImage: greenDetail
         ) else { return nil }
         guard standaloneShowsNearGreenGeometry else { return geometry }
         // 470 m along the real 518.8 m route: Hole Root keeps fairway/obstacle context, but its fixed
@@ -1240,6 +1247,14 @@ public struct WatchUITestRoot: View {
         guard let imageData = Data(base64Encoded: WatchHoleMapSample.jpegBase64) else { return }
         do {
             try imageStore.store(data: imageData, globalId: 31669, hole: 4)
+            if let detailData = Data(base64Encoded: WatchHoleMapSample.greenDetailPNGBase64) {
+                try imageStore.store(
+                    data: detailData,
+                    globalId: 31669,
+                    hole: 4,
+                    detail: true
+                )
+            }
         } catch {
             return
         }

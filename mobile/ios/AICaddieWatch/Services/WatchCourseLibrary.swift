@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import AICaddieDomain
 
 /// Owns the Watch's small, user-visible course library. Remote options are ephemeral; only a course
 /// that has completed package + prep download is advertised as cached and can start with no config.
@@ -423,26 +424,63 @@ public final class WatchCourseLibrary: ObservableObject {
                         && ($0.sourceLocalHole ?? $0.number) == localHole
                 }
                 let geometryRevision = prepHole?.geometryRevision ?? packageHole?.geometryRevision
-                if let cached = imageStore.data(
+                var topoData: Data? = imageStore.data(
                     globalId: globalId,
                     hole: displayHole,
                     geometryRevision: geometryRevision
-                ) {
-                    topoImages[globalId, default: [:]][localHole] = cached
-                    continue
+                )
+                if topoData == nil {
+                    do {
+                        let data = try await client.fetchCourseTopo(
+                            globalId: globalId,
+                            localHole: localHole,
+                            geometryRevision: geometryRevision
+                        )
+                        if WatchHoleImageStore.isValidImageData(data) {
+                            topoData = data
+                        }
+                    } catch {
+                        // The builder marks this exact display hole partial. The caller may begin with
+                        // vector facts while the bounded background recovery retries only missing maps.
+                    }
                 }
-                do {
-                    let data = try await client.fetchCourseTopo(
+                if let topoData {
+                    topoImages[globalId, default: [:]][localHole] = topoData
+                }
+
+                // View Green has its own geometry-rendered detail asset. It is independent of the
+                // whole-hole readiness branch: a cached topo must still be upgraded if an earlier
+                // build predates the focused bitmap.
+                if let prepHole,
+                   let projection = prepHole.holeImageProjection,
+                   let width = projection.widthPx,
+                   let height = projection.heightPx,
+                   let outline = prepHole.greenOutline,
+                   let crop = GreenDetailCrop.around(
+                       points: outline.pointsPx,
+                       imageWidth: Double(width),
+                       imageHeight: Double(height)
+                   ),
+                   !imageStore.hasImage(
+                       globalId: globalId,
+                       hole: displayHole,
+                       geometryRevision: geometryRevision,
+                       detail: true
+                   ) {
+                    if let detail = try? await client.fetchGreenDetailImage(
                         globalId: globalId,
                         localHole: localHole,
+                        crop: crop,
                         geometryRevision: geometryRevision
-                    )
-                    guard WatchHoleImageStore.isValidImageData(data) else { continue }
-                    topoImages[globalId, default: [:]][localHole] = data
-                } catch {
-                    // The builder marks this exact display hole partial. The caller may begin with
-                    // vector facts while the bounded background recovery retries only missing maps.
-                    continue
+                    ), WatchHoleImageStore.isValidImageData(detail) {
+                        try? imageStore.store(
+                            data: detail,
+                            globalId: globalId,
+                            hole: displayHole,
+                            geometryRevision: geometryRevision,
+                            detail: true
+                        )
+                    }
                 }
             }
         }

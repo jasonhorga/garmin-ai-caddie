@@ -36,6 +36,7 @@ Pure rendering — no network, no AI. PIL + numpy only (no scipy / cv2).
 from __future__ import annotations
 
 import gc
+import hashlib
 import io
 import math
 import os
@@ -58,6 +59,10 @@ from ai_caddie.geometry.geometry_authority import authority_path, cache_token
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
 STYLE_VERSION = "topo-v8"  # v8: bounded coast plus every route-visible water component
+GREEN_DETAIL_STYLE_VERSION = "green-v1"
+GREEN_DETAIL_DEFAULT_SIZE = 640
+GREEN_DETAIL_MIN_SIZE = 320
+GREEN_DETAIL_MAX_SIZE = 1024
 
 # PhysicsMesh is clipped to the same route corridor used by the renderer.  Unlike the decoded
 # material layers, it is a continuous terrain authority and therefore cannot add TreeArea spikes.
@@ -782,6 +787,99 @@ def render_hole_topo(gid: int, hole: int) -> bytes:
     return buf.getvalue()
 
 
+def _validated_green_detail_crop(crop: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    """Validate and canonicalise a client-requested full-topo crop.
+
+    The crop is expressed in the display-pixel frame returned by ``holeImageProjection``.  Keeping
+    it client-supplied means the phone and the Watch can use the exact same rectangle without adding
+    another metadata sidecar to every course package.  Bounds are deliberately tight: this endpoint
+    is public course imagery and must not become an unbounded render-size oracle.
+    """
+    if len(crop) != 4 or not all(math.isfinite(float(value)) for value in crop):
+        raise ValueError("green detail crop must contain four finite values")
+    x, y, width, height = (float(value) for value in crop)
+    if width < 20 or height < 20 or width > 1000 or height > 1000:
+        raise ValueError("green detail crop has an invalid size")
+    if x < -1000 or y < -1000 or x > 10000 or y > 10000:
+        raise ValueError("green detail crop origin is out of range")
+    # One decimal is enough for a projection pixel and keeps cache keys stable across JSON/Swift
+    # floating-point formatting differences.
+    return tuple(round(value, 1) for value in (x, y, width, height))
+
+
+def render_hole_green_detail_image(
+    gid: int,
+    hole: int,
+    crop: tuple[float, float, float, float],
+    *,
+    size: int = GREEN_DETAIL_DEFAULT_SIZE,
+) -> Image.Image:
+    """Render a high-resolution, green-focused bitmap in the shared topo coordinate frame.
+
+    ``/topo.png`` is framed for an entire hole, so a putting surface can be only a few source
+    pixels wide.  Re-rendering the decoded Garmin geometry into the requested local window keeps
+    the fairway/bunker context but gives the green genuine pixels; interpolation of the old bitmap
+    can never do that.  The output is transparent outside the factual course corridor and therefore
+    can be composited over the normal whole-hole image while rotating the green.
+    """
+    gid = int(gid)
+    hole = int(hole)
+    x, y, width, height = _validated_green_detail_crop(crop)
+    size = int(size)
+    if not GREEN_DETAIL_MIN_SIZE <= size <= GREEN_DETAIL_MAX_SIZE:
+        raise ValueError("green detail output size is out of range")
+    if not mesh_path(gid, hole).exists():
+        raise TopoGeometryUnavailable(f"no geometry mesh for gid{gid} hole{hole}")
+    try:
+        md, by = hole_render.load_mesh(gid, hole)
+        route, route_len = course_prep.derive_route(md)
+        if not route or not route_len:
+            raise TopoGeometryUnavailable(f"no derivable route for gid{gid} hole{hole}")
+        base_project, base_sc, _base_w, _base_h, _margin = hole_render._frame(by, route)
+        # Preserve the requested aspect ratio while keeping the long side at the requested detail
+        # resolution.  The shared client crop is square today, but accepting a rectangle keeps the
+        # endpoint useful to iOS layouts without changing the coordinate contract.
+        detail_scale = float(size) / max(width, height)
+        out_w = max(1, int(round(width * detail_scale)))
+        out_h = max(1, int(round(height * detail_scale)))
+
+        def detail_project(point):
+            px, py = base_project(point)
+            return ((px - x) * detail_scale, (py - y) * detail_scale)
+
+        image = _build(
+            md,
+            by,
+            route,
+            detail_project,
+            base_sc * detail_scale,
+            out_w,
+            out_h,
+            gid,
+            hole,
+        )
+        return image.resize((out_w, out_h), Image.Resampling.LANCZOS)
+    except TopoGeometryUnavailable:
+        raise
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise TopoRenderError(f"green detail render failed for gid{gid} hole{hole}: {exc}") from exc
+
+
+def render_hole_green_detail(
+    gid: int,
+    hole: int,
+    crop: tuple[float, float, float, float],
+    *,
+    size: int = GREEN_DETAIL_DEFAULT_SIZE,
+) -> bytes:
+    image = render_hole_green_detail_image(gid, hole, crop, size=size)
+    buf = io.BytesIO()
+    image.save(buf, "PNG", optimize=False)
+    return buf.getvalue()
+
+
 # ---------------------------------------------------------------------------
 # Render-once-then-cache: keyed by gid / hole / STYLE_VERSION on disk. First hit renders
 # (~seconds), later hits read the cached bytes. Override the directory with
@@ -807,6 +905,22 @@ def cache_identity(gid: int, hole: int) -> str:
 
 def cache_path(gid: int, hole: int) -> Path:
     return cache_dir() / f"gid{int(gid)}_h{int(hole):02d}_{cache_identity(gid, hole)}.png"
+
+
+def green_detail_cache_path(
+    gid: int,
+    hole: int,
+    crop: tuple[float, float, float, float],
+    *,
+    size: int = GREEN_DETAIL_DEFAULT_SIZE,
+) -> Path:
+    canonical = _validated_green_detail_crop(crop)
+    key = hashlib.sha256(
+        (repr(canonical) + f"|{int(size)}|{GREEN_DETAIL_STYLE_VERSION}").encode("ascii")
+    ).hexdigest()[:20]
+    return cache_dir() / "green-detail" / (
+        f"gid{int(gid)}_h{int(hole):02d}_{cache_identity(gid, hole)}_{key}.png"
+    )
 
 
 _cache_lock = threading.Lock()
@@ -918,4 +1032,63 @@ def render_hole_topo_cached(gid: int, hole: int) -> bytes:
     finally:
         with _cache_lock:
             _cache_inflight.pop(path, None)
+            waiter.set()
+
+
+_green_cache_lock = threading.Lock()
+_green_cache_inflight: dict[Path, threading.Event] = {}
+
+
+def render_hole_green_detail_cached(
+    gid: int,
+    hole: int,
+    crop: tuple[float, float, float, float],
+    *,
+    size: int = GREEN_DETAIL_DEFAULT_SIZE,
+) -> bytes:
+    """Render/cache one bounded high-resolution green window.
+
+    This intentionally has its own cache namespace.  A normal topo style bump invalidates both
+    images through ``cache_identity``; ``GREEN_DETAIL_STYLE_VERSION`` also lets us change crop
+    treatment without serving a stale focused asset.
+    """
+    canonical = _validated_green_detail_crop(crop)
+    path = green_detail_cache_path(gid, hole, canonical, size=size)
+    if cached := _read_cached_topo(path):
+        return cached
+
+    with _green_cache_lock:
+        if cached := _read_cached_topo(path):
+            return cached
+        waiter = _green_cache_inflight.get(path)
+        if waiter is None:
+            waiter = threading.Event()
+            _green_cache_inflight[path] = waiter
+            is_leader = True
+        else:
+            is_leader = False
+
+    if not is_leader:
+        waiter.wait()
+        if cached := _read_cached_topo(path):
+            return cached
+        return render_hole_green_detail_cached(gid, hole, canonical, size=size)
+
+    try:
+        with _cold_render_slot:
+            try:
+                png = render_hole_green_detail(gid, hole, canonical, size=size)
+            finally:
+                _release_cold_render_working_set()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".png.tmp")
+            tmp.write_bytes(png)
+            os.replace(tmp, path)
+        except OSError:
+            pass
+        return png
+    finally:
+        with _green_cache_lock:
+            _green_cache_inflight.pop(path, None)
             waiter.set()

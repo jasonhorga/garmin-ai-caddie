@@ -750,11 +750,13 @@ extension WatchSyncClient: WCSessionDelegate {
             return false
         }
         do {
+            let detail = (meta["assetKind"] as? String) == "green-detail"
             try holeImageStore.store(
                 fileURL: fileURL,
                 globalId: gid,
                 hole: hole,
-                geometryRevision: meta["geometryRevision"] as? String
+                geometryRevision: meta["geometryRevision"] as? String,
+                detail: detail
             )
             let key = WatchHoleImageStore.key(globalId: gid, hole: hole)
             DispatchQueue.main.async { self.lastHoleImageKey = key }

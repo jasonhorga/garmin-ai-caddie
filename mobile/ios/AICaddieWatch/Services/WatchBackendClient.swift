@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieDomain
 
 /// round-12 P3 (Watch standalone): the Apple Watch talking to the AI Caddie backend DIRECTLY over
 /// HTTP, so a round can be recorded on the watch without the phone relaying. This is the network
@@ -344,6 +345,39 @@ public final class WatchBackendClient {
         return request
     }
 
+    public func makeCourseGreenDetailRequest(
+        globalId: Int,
+        localHole: Int,
+        crop: GreenDetailCrop,
+        size: Int = 640,
+        geometryRevision: String? = nil
+    ) throws -> URLRequest {
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("api/v2/courses/\(globalId)/holes/\(localHole)/green.png"),
+            resolvingAgainstBaseURL: false
+        ) else { throw URLError(.badURL) }
+        func number(_ value: Double) -> String {
+            String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), value)
+        }
+        var queryItems = [
+            URLQueryItem(name: "x", value: number(crop.x)),
+            URLQueryItem(name: "y", value: number(crop.y)),
+            URLQueryItem(name: "width", value: number(crop.width)),
+            URLQueryItem(name: "height", value: number(crop.height)),
+            URLQueryItem(name: "size", value: String(size)),
+            URLQueryItem(name: "v", value: Self.topoStyleVersion),
+        ]
+        if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !revision.isEmpty {
+            queryItems.append(URLQueryItem(name: "r", value: revision))
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.courseReleaseTimeoutInterval
+        return request
+    }
+
     public func decodeCourseOptions(_ data: Data) throws -> [WatchCourseOption] {
         try JSONDecoder().decode(WatchCourseOptionsEnvelope.self, from: data).courses
     }
@@ -431,6 +465,25 @@ public final class WatchBackendClient {
             makeCourseTopoRequest(
                 globalId: globalId,
                 localHole: localHole,
+                geometryRevision: geometryRevision
+            ),
+            retryingTransientFailures: true
+        )
+    }
+
+    public func fetchGreenDetailImage(
+        globalId: Int,
+        localHole: Int,
+        crop: GreenDetailCrop,
+        size: Int = 640,
+        geometryRevision: String? = nil
+    ) async throws -> Data {
+        try await sendForData(
+            makeCourseGreenDetailRequest(
+                globalId: globalId,
+                localHole: localHole,
+                crop: crop,
+                size: size,
                 geometryRevision: geometryRevision
             ),
             retryingTransientFailures: true

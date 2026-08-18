@@ -42,10 +42,15 @@ public final class WatchHoleImageStore {
 
     public static func key(globalId: Int, hole: Int) -> String { "\(globalId)_\(hole)" }
 
-    private func url(globalId: Int, hole: Int, geometryRevision: String? = nil) -> URL {
+    private func url(
+        globalId: Int,
+        hole: Int,
+        geometryRevision: String? = nil,
+        detail: Bool = false
+    ) -> URL {
         let suffix = Self.normalizedRevision(geometryRevision).map { "_\($0)" } ?? ""
         return directory.appendingPathComponent(
-            "\(Self.key(globalId: globalId, hole: hole))\(suffix).img"
+            "\(Self.key(globalId: globalId, hole: hole))\(suffix)\(detail ? "_green" : "").img"
         )
     }
 
@@ -61,7 +66,8 @@ public final class WatchHoleImageStore {
         data: Data,
         globalId: Int,
         hole: Int,
-        geometryRevision: String? = nil
+        geometryRevision: String? = nil,
+        detail: Bool = false
     ) throws {
         guard Self.isValidImageData(data) else {
             throw WatchHoleImageStoreError.invalidImageData
@@ -69,7 +75,8 @@ public final class WatchHoleImageStore {
         let target = url(
             globalId: globalId,
             hole: hole,
-            geometryRevision: geometryRevision
+            geometryRevision: geometryRevision,
+            detail: detail
         )
         // Data's atomic write replaces only after the new bytes have been written successfully. Do
         // not remove the old map first: a truncated transfer must leave the last good offline map.
@@ -94,25 +101,29 @@ public final class WatchHoleImageStore {
         fileURL: URL,
         globalId: Int,
         hole: Int,
-        geometryRevision: String? = nil
+        geometryRevision: String? = nil,
+        detail: Bool = false
     ) throws {
         try store(
             data: Data(contentsOf: fileURL),
             globalId: globalId,
             hole: hole,
-            geometryRevision: geometryRevision
+            geometryRevision: geometryRevision,
+            detail: detail
         )
     }
 
     public func data(
         globalId: Int,
         hole: Int,
-        geometryRevision: String? = nil
+        geometryRevision: String? = nil,
+        detail: Bool = false
     ) -> Data? {
         guard let data = try? Data(contentsOf: url(
                   globalId: globalId,
                   hole: hole,
-                  geometryRevision: geometryRevision
+                  geometryRevision: geometryRevision,
+                  detail: detail
               )),
               Self.isValidImageData(data) else { return nil }
         return data
@@ -121,9 +132,10 @@ public final class WatchHoleImageStore {
     public func hasImage(
         globalId: Int,
         hole: Int,
-        geometryRevision: String? = nil
+        geometryRevision: String? = nil,
+        detail: Bool = false
     ) -> Bool {
-        data(globalId: globalId, hole: hole, geometryRevision: geometryRevision) != nil
+        data(globalId: globalId, hole: hole, geometryRevision: geometryRevision, detail: detail) != nil
     }
 
     /// A non-empty response is not necessarily a map (the previous cache accepted 1–4 bytes and
@@ -160,12 +172,14 @@ public final class WatchHoleImageStore {
     public func image(
         globalId: Int,
         hole: Int,
-        geometryRevision: String? = nil
+        geometryRevision: String? = nil,
+        detail: Bool = false
     ) -> UIImage? {
         let target = url(
             globalId: globalId,
             hole: hole,
-            geometryRevision: geometryRevision
+            geometryRevision: geometryRevision,
+            detail: detail
         )
         let key = target.path as NSString
         if let cached = Self.decodedImageCache.object(forKey: key) {
@@ -174,7 +188,8 @@ public final class WatchHoleImageStore {
         guard let encoded = data(
             globalId: globalId,
             hole: hole,
-            geometryRevision: geometryRevision
+            geometryRevision: geometryRevision,
+            detail: detail
         ), let decoded = UIImage(data: encoded) else {
             return nil
         }

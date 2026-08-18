@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieDomain
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -569,6 +570,30 @@ public final class SyncClient {
         return data
     }
 
+    public func fetchGreenDetailImage(
+        globalId: Int,
+        localHole: Int,
+        crop: GreenDetailCrop,
+        size: Int = 640,
+        geometryRevision: String? = nil
+    ) async throws -> Data {
+        guard let url = Self.greenDetailImageURL(
+            baseURL: baseURL,
+            globalId: globalId,
+            localHole: localHole,
+            crop: crop,
+            size: size,
+            geometryRevision: geometryRevision
+        ) else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        guard data.starts(with: pngSignature) else { throw URLError(.cannotDecodeContentData) }
+        return data
+    }
+
     public func postEventBatch(
         _ events: [LiveRoundEvent],
         roundId: String,
@@ -693,6 +718,41 @@ public final class SyncClient {
         // Separate renderer styles at the URL layer. The server ETag also binds the current
         // Garmin geometry asset, so an updated course cannot reuse an older topo bitmap.
         var queryItems = [URLQueryItem(name: "v", value: topoStyleVersion)]
+        if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !revision.isEmpty {
+            queryItems.append(URLQueryItem(name: "r", value: revision))
+        }
+        components.queryItems = queryItems
+        return components.url
+    }
+
+    /// Public high-resolution View Green window. The crop is in the same full-hole display-pixel
+    /// frame as `holeImageProjection`; the server re-renders that window from decoded geometry
+    /// instead of enlarging a few pixels from `topo.png`.
+    public static func greenDetailImageURL(
+        baseURL: URL,
+        globalId: Int,
+        localHole: Int,
+        crop: GreenDetailCrop,
+        size: Int = 640,
+        geometryRevision: String? = nil
+    ) -> URL? {
+        guard globalId != 0, localHole > 0 else { return nil }
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("api/v2/courses/\(globalId)/holes/\(localHole)/green.png"),
+            resolvingAgainstBaseURL: false
+        ) else { return nil }
+        func number(_ value: Double) -> String {
+            String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), value)
+        }
+        var queryItems = [
+            URLQueryItem(name: "x", value: number(crop.x)),
+            URLQueryItem(name: "y", value: number(crop.y)),
+            URLQueryItem(name: "width", value: number(crop.width)),
+            URLQueryItem(name: "height", value: number(crop.height)),
+            URLQueryItem(name: "size", value: String(size)),
+            URLQueryItem(name: "v", value: topoStyleVersion),
+        ]
         if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
            !revision.isEmpty {
             queryItems.append(URLQueryItem(name: "r", value: revision))

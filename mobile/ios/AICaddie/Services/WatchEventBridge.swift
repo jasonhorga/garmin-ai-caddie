@@ -842,7 +842,8 @@ public final class WatchEventBridge: NSObject {
         globalId: Int,
         hole: Int,
         imageData: Data,
-        geometryRevision: String? = nil
+        geometryRevision: String? = nil,
+        assetKind: String = "topo"
     ) {
         guard WCSession.isSupported(), WCSession.default.activationState == .activated else {
             return
@@ -858,6 +859,7 @@ public final class WatchEventBridge: NSObject {
                 "globalId": globalId,
                 "hole": hole,
                 "styleVersion": SyncClient.topoStyleVersion,
+                "assetKind": assetKind,
             ]
             if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
                !revision.isEmpty {

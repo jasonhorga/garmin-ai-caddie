@@ -34,6 +34,9 @@ _KNOWN_PUBLIC = {
     # The realistic-topo base bitmap is pure course geometry (no source_ref, no owner data), public
     # exactly like /geometry/hole/.../map and /courses/{id}/prep — a hole with no geometry 404s.
     ("GET", "/api/v2/courses/{global_id}/holes/{hole}/topo.png"),
+    # Focused View Green imagery is still pure course geometry; the crop is bounded and contains no
+    # player/round data, so it shares the public policy of the whole-hole topo endpoint.
+    ("GET", "/api/v2/courses/{global_id}/holes/{hole}/green.png"),
     # The pre-round tee picker's list (colours + total yards + default) is pure course knowledge —
     # no player data, no source_ref — public exactly like /topo.png and /geometry/hole/{}/coverage.
     ("GET", "/api/v2/courses/{global_id}/tees"),

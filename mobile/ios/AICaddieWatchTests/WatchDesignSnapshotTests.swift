@@ -2,6 +2,7 @@ import CoreLocation
 import ImageIO
 import SwiftUI
 import XCTest
+import AICaddieDomain
 @testable import AICaddieWatch
 
 /// round-12 P3 (Watch standalone): render watch SwiftUI surfaces to PNGs in the watchOS SIMULATOR so
@@ -1117,21 +1118,29 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testRenderWatchGreenPreview() throws {
         let base = WatchHoleMapSample.geometry
+        let outline = [
+            CGPoint(x: 410, y: 256),
+            CGPoint(x: 458, y: 252),
+            CGPoint(x: 472, y: 289),
+            CGPoint(x: 428, y: 307),
+            CGPoint(x: 399, y: 283),
+        ]
+        let detailCrop = GreenDetailCrop.around(
+            points: outline.map { [Double($0.x), Double($0.y)] },
+            imageWidth: Double(base.imageSize.width),
+            imageHeight: Double(base.imageSize.height)
+        )
         let geometry = WatchHoleMapGeometry(
             image: base.image,
+            greenDetailImage: WatchHoleMapSample.greenDetailImage,
+            greenDetailRectPx: detailCrop?.rect,
             imageSize: base.imageSize,
             youPx: base.youPx,
             pinPx: base.pinPx,
             layupPx: base.layupPx,
             apexPx: base.apexPx,
             greenCtrlPx: base.greenCtrlPx,
-            greenOutlinePx: [
-                CGPoint(x: 410, y: 256),
-                CGPoint(x: 458, y: 252),
-                CGPoint(x: 472, y: 289),
-                CGPoint(x: 428, y: 307),
-                CGPoint(x: 399, y: 283),
-            ]
+            greenOutlinePx: outline
         )
         let view = WatchGreenPreviewView(
             geometry: geometry,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import hmac
 import logging
 import os
@@ -764,6 +765,71 @@ def course_hole_topo_png(
         media_type="image/png",
         headers=headers,
     )
+
+
+@app.get("/api/v2/courses/{global_id}/holes/{hole}/green.png")
+def course_hole_green_detail_png(
+    request: Request,
+    global_id: int,
+    hole: int = Path(ge=1, le=36),
+    x: float = Query(..., ge=-1000, le=10000),
+    y: float = Query(..., ge=-1000, le=10000),
+    width: float = Query(..., ge=20, le=1000),
+    height: float = Query(..., ge=20, le=1000),
+    size: int = Query(640, ge=320, le=1024),
+    r: str | None = Query(default=None, max_length=128),
+) -> Response:
+    """High-resolution View Green bitmap in the shared whole-hole pixel frame.
+
+    The client supplies the crop it already computed from ``greenOutline``.  This keeps the image
+    and the Watch's offline placement on exactly the same affine frame, while the server re-renders
+    the decoded geometry into that small window instead of magnifying a few pixels from ``topo.png``.
+    It is public course imagery and follows the same current-authority/revision gate as ``topo.png``.
+    """
+    from ai_caddie.geometry import topo_render
+    from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
+
+    geometry_evidence = geometry_coverage_for_hole(
+        global_id,
+        hole,
+        require_current_authority=True,
+        refresh_release=True,
+    )
+    if geometry_evidence.get("coverage") != "ready":
+        raise HTTPException(status_code=404, detail="current topo geometry is still preparing")
+    requested_revision = str(r or "").strip().lower()
+    current_revision = str(geometry_evidence.get("geometryRevision") or "").strip().lower()
+    if requested_revision and requested_revision != current_revision:
+        raise HTTPException(status_code=409, detail="topo geometry revision changed; refresh course facts")
+
+    try:
+        crop = topo_render._validated_green_detail_crop((x, y, width, height))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    identity = topo_render.cache_identity(global_id, hole)
+    crop_key = hashlib.sha256(
+        (repr(crop) + f"|{int(size)}|{topo_render.GREEN_DETAIL_STYLE_VERSION}").encode("ascii")
+    ).hexdigest()[:20]
+    etag = f'"{identity}-green-{crop_key}"'
+    headers = {
+        "Cache-Control": _TOPO_CACHE_CONTROL,
+        "ETag": etag,
+        "X-Green-Detail-Crop": ",".join(str(value) for value in crop),
+    }
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    try:
+        png = topo_render.render_hole_green_detail_cached(
+            global_id,
+            hole,
+            crop,
+            size=size,
+        )
+    except (topo_render.TopoGeometryUnavailable, topo_render.TopoRenderError):
+        raise HTTPException(status_code=404, detail="green detail render unavailable for this hole")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return Response(content=png, media_type="image/png", headers=headers)
 
 
 def _prewarm_course_topo(global_id: int, holes: list[int]) -> None:

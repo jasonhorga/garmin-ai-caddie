@@ -1,6 +1,7 @@
 import CoreLocation
 import Foundation
 import SwiftUI
+import AICaddieDomain
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -950,6 +951,12 @@ public struct CurrentHoleView: View {
                 watchHole: watchHole,
                 geometryRevision: prep.geometryRevision
             )
+            await pushGreenDetailToWatch(
+                globalId: globalId,
+                sourceLocalHole: sourceLocalHole,
+                watchHole: watchHole,
+                prep: prep
+            )
             onRetainReadyHolePrep(package.roundId, hole.number, prep)
         }
         holePrep = prep
@@ -1033,6 +1040,48 @@ public struct CurrentHoleView: View {
                 geometryRevision: geometryRevision
             )
         }
+    }
+
+    /// Relay the focused View Green bitmap after the normal topo. The crop is derived from the same
+    /// prep outline that becomes `WatchHoleMap.greenOutline`, so the Watch can place it without a
+    /// second server manifest. A missing detail asset never blocks the round or the whole-hole map.
+    private func pushGreenDetailToWatch(
+        globalId: Int,
+        sourceLocalHole: Int,
+        watchHole: Int,
+        prep: CoursePrepHole
+    ) async {
+        guard globalId != 0, let watchBridge, let caddieBaseURL,
+              let projection = prep.holeImageProjection,
+              let width = projection.widthPx,
+              let height = projection.heightPx,
+              let outline = prep.greenOutline,
+              let crop = GreenDetailCrop.around(
+                  points: outline.pointsPx,
+                  imageWidth: Double(width),
+                  imageHeight: Double(height)
+              ) else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return
+        }
+        #endif
+        guard let data = try? await SyncClient(
+            baseURL: caddieBaseURL,
+            adminToken: adminToken
+        ).fetchGreenDetailImage(
+            globalId: globalId,
+            localHole: sourceLocalHole,
+            crop: crop,
+            geometryRevision: prep.geometryRevision
+        ), WatchHoleImageStore.isValidImageData(data) else { return }
+        watchBridge.pushHoleImage(
+            globalId: globalId,
+            hole: watchHole,
+            imageData: data,
+            geometryRevision: prep.geometryRevision,
+            assetKind: "green-detail"
+        )
     }
 
     /// round-13 LIVE: 本洞前/中/后果岭(F/M/B)prep 数据,仅在 prep 几何可用时。distances 是 tee→green

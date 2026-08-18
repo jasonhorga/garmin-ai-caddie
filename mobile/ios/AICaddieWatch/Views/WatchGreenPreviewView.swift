@@ -841,6 +841,40 @@ public struct WatchGreenPreviewView: View {
         }
         #endif
 
+        #if canImport(UIKit)
+        // The whole-hole topo remains the context layer.  A dedicated geometry-rendered detail
+        // bitmap sits above it in the exact source-pixel window used by the phone request, so the
+        // enlarged green is genuinely sharp rather than a resampled handful of topo pixels.
+        if let detail = geometry.greenDetailImage,
+           let sourceRect = geometry.greenDetailRectPx,
+           sourceRect.width > 0, sourceRect.height > 0 {
+            let detailRect = CGRect(
+                x: viewport.imageOrigin.x + sourceRect.minX * viewport.scale,
+                y: viewport.imageOrigin.y + sourceRect.minY * viewport.scale,
+                width: sourceRect.width * viewport.scale,
+                height: sourceRect.height * viewport.scale
+            )
+            if [detailRect.minX, detailRect.minY, detailRect.width, detailRect.height]
+                .allSatisfy({ $0.isFinite && $0 > -10_000 }) {
+                context.drawLayer { layer in
+                    layer.translateBy(
+                        x: viewport.rotationCenterCanvas.x,
+                        y: viewport.rotationCenterCanvas.y
+                    )
+                    layer.rotate(by: .radians(Double(viewport.rotationRadians)))
+                    layer.translateBy(
+                        x: -viewport.rotationCenterCanvas.x,
+                        y: -viewport.rotationCenterCanvas.y
+                    )
+                    layer.draw(
+                        layer.resolve(Image(uiImage: detail).interpolation(.high)),
+                        in: detailRect
+                    )
+                }
+            }
+        }
+        #endif
+
         if geometry.greenOutlinePx.count >= 3 {
             let outline = WatchGreenPreviewLayout.smoothPath(
                 polygon: geometry.greenOutlinePx,
