@@ -14,6 +14,7 @@ Run:  ``uv run python -m ai_caddie.pipeline [--shots] [--refresh-auth] [--geomet
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 
 from ai_caddie.courses import course_reference
 from ai_caddie.core.data import ROOT, SCORECARD_DIR, SHOT_DIR
@@ -33,6 +34,53 @@ class SyncResult:
     course_reference_missing: int = 0
     course_reference_coverage_pct: float = 0.0
     notes: list[str] = field(default_factory=list)
+
+
+def _sync_snapshot_id() -> str:
+    return "garmin_cn_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _persist_sync_observability(result: SyncResult, *, root=ROOT) -> bool:
+    """Persist the same small manifest/status contract used by API-triggered Garmin sync.
+
+    The cron entrypoint historically called this module directly, so scorecards and shots were
+    refreshed while ``/sync/status`` kept serving the previous run's metadata. Keep the legacy
+    fetch path, but close that observability gap without copying the potentially large durable
+    snapshot on every cron run.
+    """
+    from ai_caddie.connectors.snapshot import (
+        build_snapshot_manifest,
+        write_connector_status,
+        write_snapshot_manifest,
+    )
+
+    if not result.auth_ok:
+        write_connector_status(
+            root=root,
+            state="reauth_required",
+            detail="Garmin CN web session is unavailable. Reconnect Garmin and retry.",
+            snapshot_id=None,
+            error_code="auth_failed",
+        )
+        return True
+
+    snapshot_id = _sync_snapshot_id()
+    manifest = build_snapshot_manifest(root=root, snapshot_id=snapshot_id)
+    write_snapshot_manifest(root=root, manifest=manifest)
+    state = "ready" if manifest.scorecard_count else "no_data"
+    detail = (
+        f"Synced {manifest.scorecard_count} scorecards and {manifest.shot_file_count} shot files."
+        if state == "ready"
+        else "Garmin sync completed, but no scorecards were returned."
+    )
+    write_connector_status(
+        root=root,
+        state=state,
+        detail=detail,
+        snapshot_id=snapshot_id,
+        error_code=None,
+    )
+    return True
 
 
 def _ensure_auth(force_refresh: bool) -> bool:
@@ -141,6 +189,10 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     geometry_limit = _int_arg(argv, "--geometry-limit")
     result = sync(with_shots="--shots" in argv, force_refresh="--refresh-auth" in argv, geometry_limit=geometry_limit)
+    try:
+        _persist_sync_observability(result)
+    except Exception:  # noqa: BLE001 - status persistence must not hide the sync result
+        result.notes.append("sync status persistence failed (data sync result is still valid)")
     print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
     return 0 if result.auth_ok else 1
 

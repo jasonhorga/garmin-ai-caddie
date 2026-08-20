@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from contextlib import redirect_stdout
 import io
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -123,12 +126,34 @@ class PipelineSyncTests(unittest.TestCase):
     def test_main_parses_refresh_auth_shots_and_geometry_limit(self) -> None:
         stdout = io.StringIO()
         with patch.object(pipeline, "sync", return_value=pipeline.SyncResult(auth_ok=True, rounds=1)) as sync_call, \
+                patch.object(pipeline, "_persist_sync_observability") as persist, \
                 redirect_stdout(stdout):
             code = pipeline.main(["--shots", "--refresh-auth", "--geometry-limit", "50"])
 
         self.assertEqual(code, 0)
         self.assertIn('"auth_ok": true', stdout.getvalue())
         sync_call.assert_called_once_with(with_shots=True, force_refresh=True, geometry_limit=50)
+        persist.assert_called_once()
+
+    def test_persist_sync_observability_writes_manifest_and_status(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "data" / "scorecards").mkdir(parents=True)
+            (root / "data" / "shots").mkdir(parents=True)
+            (root / "data" / "summary.json").write_text("{}", encoding="utf-8")
+            (root / "data" / "scorecards" / "1.json").write_text("{}", encoding="utf-8")
+            (root / "data" / "shots" / "1.json").write_text("{}", encoding="utf-8")
+
+            result = pipeline.SyncResult(auth_ok=True, scorecards=1, shots=1)
+            self.assertTrue(pipeline._persist_sync_observability(result, root=root))
+
+            manifests = list((root / "data" / "snapshots").glob("*.json"))
+            self.assertEqual(len(manifests), 1)
+            manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+            self.assertEqual(manifest["scorecardCount"], 1)
+            status = json.loads((root / "data" / "sync" / "garmin_cn_status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status["state"], "ready")
+            self.assertEqual(status["snapshotId"], manifest["snapshotId"])
 
 
 class PipelineRunsAllStepsTests(unittest.TestCase):
