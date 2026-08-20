@@ -1,7 +1,7 @@
 # Garmin 新球局同步与备战下载方案
 
 日期：2026-08-20 UTC
-状态：`IMPLEMENTED IN WORKTREE / PYTHON + IOS + WATCH CI VERIFIED / NOT DEPLOYED`。本稿不改变已批准的 Watch View Green（`779b31c`），也不执行生产发布。
+状态：`BACKEND/SYNC DEPLOYED / PYTHON + IOS + WATCH CI VERIFIED / TESTFLIGHT NOT UPLOADED`。本稿不改变已批准的 Watch View Green（`779b31c`）。
 
 本轮实际落地范围：
 
@@ -14,15 +14,15 @@
 - 服务端仍保留旧 `_upgrade_course_geometry` 作为兼容内部调用，但 package 新路径不再把它挂到 FastAPI `BackgroundTasks`。
 - `/prep`、coverage、topo 的 iOS GET 采用短超时和 transient-only 有限重试；备战整包使用受限两路吞吐，不再为不可见的“首洞优先”额外串行等待。
 
-远程定向验证（homeserver Docker + GitHub Actions）：Python/backend 回归、iOS Xcode/UI flow 和 Watch runtime 均已取得通过结果；未做真实冷 18 洞 benchmark；未部署、未上传 TestFlight。
+远程定向验证（homeserver Docker + GitHub Actions）：Python/backend 回归、iOS Xcode/UI flow 和 Watch runtime 均已取得通过结果；后端/sync 已于 2026-08-20 部署；未做真实冷 18 洞 benchmark，未上传 TestFlight。
 
 ## 结论先行
 
 这次反馈包含两个互相独立的问题：
 
-1. **新球局没有同步**：已找到确定的生产故障。homeserver 的小时 cron 依赖
-   `aicaddie-sync:latest`，但该镜像不存在；8 月 18–19 日每次运行都以 Docker exit 125 失败。
-   生产 owner scorecard 最新文件仍是 2026-07-24，因此新球局根本没有进入服务端数据卷。
+1. **新球局没有同步（部署前故障，已修复）**：homeserver 的小时 cron 依赖
+   `aicaddie-sync:latest`，该镜像缺失导致 8 月 18–19 日每次运行都以 Docker exit 125 失败。
+   现已安装并验证同 revision sync 镜像，生产同步恢复。
 2. **备战下载慢/后台停/简化地图难看**：代码有可复用的断点队列，但不是系统级后台下载；冷球场的主要耗时在 Garmin geometry 获取、mesh 计算和逐洞 topo 渲染，不是单纯网络带宽。
 
 因此不能只调一个超时或把客户端并发盲目调大；先恢复同步，再把“选择球场”和“查看攻略”拆成清晰的下载状态机。
@@ -39,7 +39,7 @@ Fable 另外指出：S70 的洞图固定任务朝向并没有可靠证据支持�
 
 本轮联合审查还确认了一个与本次“复盘没有落点”直接相关、但不属于下载的独立问题：历史 shot 数据本身大多完整，当前 geometry-authority 硬门会把已有 GPS 清成空数组；9+9 合并局还存在后九杆未重映射的问题。该项必须列入 P0/P1，不能等下载系统改完才处理。
 
-## 证据
+## 部署前证据
 
 | 结论 | 证据 |
 |---|---|
@@ -115,14 +115,25 @@ Fable 另外指出：S70 的洞图固定任务朝向并没有可靠证据支持�
 
 ## 当前验收顺序
 
-1. `aicaddie-sync:<sha>` 存在，手动 cron exit 0；新 scorecard/shot mtime 更新。
-2. 认证请求能在 `/history/rounds`、round detail、shotmap 看到新球局；iOS 成绩页下拉刷新显示同一场。
+1. **已完成**：`aicaddie-sync:<sha>` 存在，手动 sync exit 0；485 份 scorecard 与 485 份 shot 文件刷新。
+2. **已完成**：认证请求能在 `/history/rounds`、round detail、shotmap 读取新数据；生产公开健康和 sync status 返回目标 revision。
 3. 设置中的“立即同步 Garmin”不会只显示“本机事件已同步”。
-4. 选择备战球场后始终停留在下载库；下载中没有备战地图或简化地图；返回/重启 App 后进度仍在；完整 bundle 校验通过后才出现“进入备战”。Python contract tests 覆盖状态机；iOS 真机/模拟器仍需 GitHub Actions 编译与 UI 验证。
+4. 选择备战球场后始终停留在下载库；下载中没有备战地图或简化地图；返回/重启 App 后进度仍在；完整 bundle 校验通过后才出现“进入备战”。Python contract tests 与 iOS simulator CI 已覆盖；实体设备闭环仍待验证。
 5. 历史复盘：一个 geometry authority stale 但有 GPS 的洞仍显示杆数/落点数量并标注“地图数据待更新”；一个 9+9 合并局的后九洞能显示第二段球场的杆。
 6. App 被挂起/重启后下载任务恢复；备战地图（完成后）旋转时底图和所有 overlay 同步旋转，重置后恢复默认方向。
 
-纯 Fable xhigh 已于 2026-08-19 完成（无 fallback；远程运行目录 `/home/jason/codex-runs/aicaddie-fable-sync-download-20260819`）。本工作树改动仍未部署；生产同步镜像缺失问题仍需单独确定目标 release SHA 后处理，不能用本地 journal 改动替代部署修复。
+纯 Fable xhigh 已于 2026-08-19 完成（无 fallback；远程运行目录 `/home/jason/codex-runs/aicaddie-fable-sync-download-20260819`）。本轮后端/sync 已按下列 revision 部署；iOS 设置页的 Garmin 主动同步动作仍是后续任务。
+
+## 2026-08-20 生产部署记录
+
+- API 与 sync 源 revision：`28a9d1899ccce8293cb79011c98de68f7b0f05eb`。
+- API 运行端口：`39051`；旧 `39049`、`39047` 保留作回滚，未删除数据。
+- 公网 `/api/v2/health` 返回目标 revision；`/api/v2/sync/status` 返回 `ready`、485/485 和本轮同步时间。
+- 历史 smoke：458 个合并后球局、18 洞详情、shotmap `prodgeometry`；备战 smoke：18 洞、13 支球杆、18 洞击球散点。
+- cron `/home/jason/aicaddie-sync.sh` 已加入缺失镜像保护、`--pull=never` 和 image revision 日志；`aicaddie-sync:latest` 已固定到同 revision。
+- 发布前焦点备份：`/home/jason/aicaddie-production-backups/pre-cceeed8-20260820T215139Z`。
+
+本记录只覆盖后端/sync；没有上传 TestFlight，也不替代实体 iPhone/Apple Watch 闭环验证。
 
 ## Opus 5 独立代码审查（2026-08-20）
 
@@ -184,7 +195,7 @@ GitHub Actions 验证（均为 workflow dispatch，未使用生产部署）：
 ### 仍然不能宣称完成的事项
 
 1. 已在 GitHub Actions/macOS 执行并通过 `xcodebuild test`、iOS review-scope simulator flow、Watch XCTest/runtime capture；尚未完成用户实体设备上的真机闭环验证。
-2. 尚未部署 API/sync 镜像，也没有上传 TestFlight；homeserver 生产 cron 的 `aicaddie-sync:latest` 缺失仍是独立 P0 运维问题。
+2. API/sync 已部署，但尚未上传 TestFlight；iOS 设置页主动 Garmin sync 动作仍需单独收口。
 3. 尚未做冷球场 18 洞实际下载 benchmark，也没有证明 `M6` 的 release revalidation 和 H1 unknown 终态在真机上完整闭环。
 
-因此当前准确结论仍是：Python/backend 状态机和跨端契约回归已通过，代码可以进入下一轮修复与 CI 验证；不能把这次 Opus 审查结果写成“已发布”或“TestFlight ready”。
+因此当前准确结论是：Python/backend 状态机和跨端契约回归已通过，后端/sync 已发布；不能把这次 Opus 审查结果写成“TestFlight ready”，剩余工作是 iOS 主动同步动作、实体设备闭环和冷球场 benchmark。
