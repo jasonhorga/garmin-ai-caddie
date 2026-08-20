@@ -67,6 +67,7 @@ class GeometryEvidenceTests(unittest.TestCase):
                 )
 
         self.assertEqual(evidence["coverage"], "ready")
+        self.assertEqual(evidence["authorityObservation"], "current")
         self.assertRegex(evidence["geometryRevision"], r"^[0-9a-f]{16}$")
         self.assertTrue(any(row["label"] == "geometry_authority" for row in evidence["evidence"]))
 
@@ -112,7 +113,33 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertEqual(unbound["coverage"], "partial")
         self.assertIsNone(unbound["geometryRevision"])
         self.assertEqual(stale["coverage"], "partial")
+        self.assertEqual(stale["authorityObservation"], "stale")
         self.assertIsNone(stale["geometryRevision"])
+
+    def test_authority_probe_error_is_unknown_not_stale(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h02_hazards.json"
+            mesh = root / "gid31795_h02_meshes.json"
+            hazard.write_text("{}", encoding="utf-8")
+            mesh.write_text("{}", encoding="utf-8")
+            with (
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
+                patch(
+                    "ai_caddie.courses.course_reference.courseview_release_info",
+                    side_effect=OSError("temporary read failure"),
+                ),
+            ):
+                evidence = geometry_coverage_for_hole(
+                    31795,
+                    2,
+                    require_current_authority=True,
+                )
+
+        self.assertEqual(evidence["coverage"], "partial")
+        self.assertEqual(evidence["authorityObservation"], "unknown")
+        self.assertIsNone(evidence["geometryRevision"])
 
     def test_no_cached_release_keeps_last_precise_map_playable_offline(self) -> None:
         with TemporaryDirectory() as tmp:

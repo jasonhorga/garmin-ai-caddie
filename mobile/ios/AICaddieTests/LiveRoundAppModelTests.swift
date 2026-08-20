@@ -481,6 +481,139 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
+    func testPrepDownloadWaitsForServerTopoReadyBeforeFetchingTopoBytes() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let revision = "status-revision"
+        let holes = (1...2).map { number in
+            Hole(
+                number: number,
+                par: number == 1 ? 4 : 3,
+                yards: 330 + number * 10,
+                geometryCoverage: .ready,
+                geometryRevision: revision,
+                sourceGlobalId: source.course.globalId,
+                sourceLocalHole: number
+            )
+        }
+        let online = package(
+            source,
+            roundId: "prep-status-gate",
+            recentRounds: [],
+            holes: holes
+        ).replacingCoursePrep(nil)
+        let packageData = try JSONEncoder().encode(online)
+        let png = minimalPNGData()
+        let requestLock = NSLock()
+        var installStatusRequestCount = 0
+        var topoRequestedBeforeReady = false
+        var topoRequestCount = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let body: Data
+            let contentType: String
+            switch url.path {
+            case "/api/v2/mobile/courses/\(online.course.globalId)/package":
+                body = packageData
+                contentType = "application/json"
+            case "/api/v2/courses/\(online.course.globalId)/install/status":
+                let statusNumber = requestLock.withLock {
+                    installStatusRequestCount += 1
+                    return installStatusRequestCount
+                }
+                let topoState = statusNumber == 1 ? "queued" : "ready"
+                let phase = statusNumber == 1 ? "running" : "ready"
+                let topoRevisionJSON = topoState == "ready" ? "\"\(revision)\"" : "null"
+                body = Data(
+                    """
+                    {"schema":"ai-caddie-course-install-v1","jobId":"status-gate",
+                     "globalId":\(online.course.globalId),"teeBox":"blue","nine":"all",
+                     "phase":"\(phase)","stage":"topo","totalHoles":2,"geometryReady":2,
+                     "topoReady":\(topoState == "ready" ? 2 : 0),"updatedAt":null,"error":null,
+                     "holes":[
+                       {"globalId":\(online.course.globalId),"localHole":1,"displayHole":1,
+                        "geometry":"ready","geometryRevision":"\(revision)","topo":"\(topoState)","topoRevision":\(topoRevisionJSON),"error":null},
+                       {"globalId":\(online.course.globalId),"localHole":2,"displayHole":2,
+                        "geometry":"ready","geometryRevision":"\(revision)","topo":"\(topoState)","topoRevision":\(topoRevisionJSON),"error":null}
+                     ]}
+                    """.utf8
+                )
+                contentType = "application/json"
+            case "/api/v2/courses/\(online.course.globalId)/prep":
+                let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .filter { $0.name == "holes" }
+                    .compactMap { $0.value.flatMap(Int.init) } ?? []
+                body = try self.offlinePrepResponseData(
+                    for: online,
+                    localHoles: requested,
+                    geometryRevision: revision
+                )
+                contentType = "application/json"
+            case let path where path.hasSuffix("/topo.png"):
+                requestLock.withLock {
+                    topoRequestCount += 1
+                    if installStatusRequestCount < 2 {
+                        topoRequestedBeforeReady = true
+                    }
+                }
+                body = png
+                contentType = "image/png"
+            default:
+                throw URLError(.unsupportedURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": contentType]
+                )!,
+                body
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://status-gate.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+        let course = MobileCourseOption(
+            globalId: online.course.globalId,
+            name: online.course.name,
+            holes: online.holes.count,
+            teeBox: online.course.teeBox
+        )
+
+        model.downloadPrepCourse(course)
+        await model.waitForPrepCourseDownloadForTesting()
+
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready)
+        XCTAssertGreaterThanOrEqual(requestLock.withLock { installStatusRequestCount }, 2)
+        XCTAssertFalse(
+            requestLock.withLock { topoRequestedBeforeReady },
+            "a running install journal with queued topo must gate PNG requests"
+        )
+        XCTAssertEqual(requestLock.withLock { topoRequestCount }, 2)
+        XCTAssertTrue(try XCTUnwrap(store.loadCourseTemplate(
+            globalId: online.course.globalId,
+            teeBox: online.course.teeBox,
+            nine: "all"
+        )).hasCompleteOfflineCoursePrep)
+    }
+
     func testReadyForegroundPrepIsDurablePreservesOtherHolesAndRenumbersCompositeBackNine() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

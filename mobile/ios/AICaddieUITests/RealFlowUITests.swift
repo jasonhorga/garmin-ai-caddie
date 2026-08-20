@@ -297,21 +297,16 @@ final class RealFlowUITests: XCTestCase {
         )
         prepResult.tap()
         XCTAssertTrue(
-            app.navigationBars["赛前球场攻略"].waitForExistence(timeout: 20),
-            "selecting a pre-round search result must navigate directly to its per-hole prep cards"
+            app.navigationBars["备战球场"].waitForExistence(timeout: 8),
+            "selecting a pre-round search result must stay in the download library"
+        )
+        XCTAssertFalse(
+            app.navigationBars["赛前球场攻略"].exists,
+            "an incomplete course package must never open the prep map"
         )
 
-        // The course download belongs to the app, not to this detail screen. Leave immediately,
-        // prove the durable row remains visible, then kill and relaunch the process before opening
-        // the same row again. Model/store tests cover exact per-hole counters; this real UI journey
-        // proves those counters remain reachable through the player-facing navigation lifecycle.
-        let prepBack = app.navigationBars.buttons["备战球场"].firstMatch
-        XCTAssertTrue(
-            prepBack.waitForExistence(timeout: 5) && prepBack.isHittable,
-            "course prep must allow leaving while its app-owned download continues"
-        )
-        prepBack.tap()
-        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 8))
+        // The course download belongs to the app, not to a detail screen. The retained row stays
+        // visible immediately, then survives a process relaunch before the player opens it.
         let retainedDownload = app.buttons[
             "prep-download-row-\(approvedJourneyCourseGlobalId)"
         ]
@@ -338,6 +333,10 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             nonEmptyAccessibilityValue(relaunchedDownload),
             "process relaunch must restore a visible queued, active, ready, or retryable state"
+        )
+        XCTAssertTrue(
+            waitForValue("已完整下载到本机", on: relaunchedDownload, timeout: 240),
+            "the prep map must remain locked until all local facts and topo assets are installed"
         )
         relaunchedDownload.tap()
         XCTAssertTrue(
@@ -1318,6 +1317,15 @@ final class RealFlowUITests: XCTestCase {
         if element.exists, element.isEnabled { return true }
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == true AND enabled == true"),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForValue(_ expected: String, on element: XCUIElement, timeout: TimeInterval) -> Bool {
+        if element.exists, (element.value as? String) == expected { return true }
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND value == %@", expected),
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed

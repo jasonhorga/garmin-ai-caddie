@@ -6,9 +6,11 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 import json
+import logging
 import math
 from pathlib import Path
-from typing import Any
+import time
+from typing import Any, Callable
 
 from ai_caddie.courses import course_prep
 from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
@@ -52,6 +54,7 @@ _GEOMETRY_INSTALL_POOL = ThreadPoolExecutor(
     max_workers=2,
     thread_name_prefix="course-geometry-install",
 )
+logger = logging.getLogger(__name__)
 
 
 def _format_time(value: datetime) -> str:
@@ -616,7 +619,11 @@ def _round_hole_geometry_ref(round_row: dict[str, Any], hole: int) -> tuple[int 
 def _geometry_evidence_for_package_hole(round_row: dict[str, Any], hole: int) -> dict[str, Any]:
     global_id, local_hole = _round_hole_geometry_ref(round_row, hole)
     if global_id is None:
-        return {"coverage": "missing", "geometryRevision": None}
+        return {
+            "coverage": "missing",
+            "geometryRevision": None,
+            "authorityObservation": "unknown",
+        }
     try:
         return geometry_coverage_for_hole(
             global_id,
@@ -624,7 +631,11 @@ def _geometry_evidence_for_package_hole(round_row: dict[str, Any], hole: int) ->
             require_current_authority=True,
         )
     except Exception:
-        return {"coverage": "missing", "geometryRevision": None}
+        return {
+            "coverage": "missing",
+            "geometryRevision": None,
+            "authorityObservation": "unknown",
+        }
 
 
 def _geometry_ensure_source_ref(global_id: int, local_hole: int) -> str:
@@ -728,22 +739,37 @@ def _ensure_geometry_for_package_holes(round_row: dict[str, Any], hole_numbers: 
     return _geometry_ensure_summary(results, requested=True)
 
 
-def _ensure_geometry_for_course(global_id: int, holes: list[int] | None = None) -> dict[str, Any]:
+def _ensure_geometry_for_course(
+    global_id: int,
+    holes: list[int] | None = None,
+    *,
+    on_hole_complete: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     from ai_caddie.geometry.geometry_sync import ensure_prodgeometry
 
     requested_holes = [int(local_hole) for local_hole in (holes or list(range(1, 19)))]
 
     def ensure_one(local_hole: int) -> dict[str, Any]:
+        started = time.perf_counter()
         try:
             result = ensure_prodgeometry(int(global_id), int(local_hole))
         except Exception:
             result = {"status": "failed", "ok": False, "globalId": int(global_id), "localHole": int(local_hole)}
-        return _compact_geometry_ensure_result(
+        row = _compact_geometry_ensure_result(
             hole=int(local_hole),
             global_id=int(global_id),
             local_hole=int(local_hole),
             result=result,
         )
+        logger.info(
+            "course_install stage=geometry gid=%s hole=%s status=%s ok=%s duration_ms=%s",
+            int(global_id),
+            int(local_hole),
+            row.get("status"),
+            bool(row.get("ok")),
+            int((time.perf_counter() - started) * 1000),
+        )
+        return row
 
     # Do not enqueue an entire 18-hole course at once. The executor is process-wide, so the former
     # eager submission let one background download put 18 jobs ahead of the first playing hole of
@@ -765,6 +791,17 @@ def _ensure_geometry_for_course(global_id: int, holes: list[int] | None = None) 
         for future in ordered_completed:
             index = pending.pop(future)
             results_by_index[index] = future.result()
+            # A caller can feed the completed hole into the next bounded pipeline stage without
+            # changing the public result ordering.  Keep the callback outside the geometry worker
+            # itself: it runs on this coordinator thread and must never block the shared install
+            # pool from admitting the next two-hole window.
+            if on_hole_complete is not None:
+                try:
+                    on_hole_complete(results_by_index[index])
+                except Exception:
+                    # Preparation/rendering is best effort.  A callback failure must not turn a
+                    # successfully installed geometry hole into a failed course install.
+                    pass
         for _ in ordered_completed:
             try:
                 index, local_hole = next(iterator)
@@ -868,6 +905,9 @@ def _package_holes(
             "yards": yards,
             "geometryCoverage": coverage or "missing",
             "geometryRevision": str(geometry_revision) if geometry_revision else None,
+            "geometryAuthorityObservation": str(
+                geometry_evidence.get("authorityObservation") or "unknown"
+            ),
             "sourceGlobalId": int(source_gid) if source_gid else None,
             "sourceLocalHole": int(source_local) if source_local else number,
             "teeLatitude": tee_latitude,
@@ -2324,7 +2364,11 @@ def _geometry_only_course_template(
             )
             state = str(coverage.get("coverage") or "missing")
         except Exception:
-            coverage = {"coverage": "missing", "geometryRevision": None}
+            coverage = {
+                "coverage": "missing",
+                "geometryRevision": None,
+                "authorityObservation": "unknown",
+            }
             state = "missing"
         if state != "missing":
             has_geometry_source = True
@@ -2388,6 +2432,9 @@ def _geometry_only_course_template(
                 str(coverage.get("geometryRevision"))
                 if coverage.get("geometryRevision")
                 else None
+            ),
+            "geometryAuthorityObservation": str(
+                coverage.get("authorityObservation") or "unknown"
             ),
         })
     # Anchor the course on EITHER geometry OR a CourseView par table. Geometry being

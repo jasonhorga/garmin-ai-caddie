@@ -958,6 +958,72 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(archive.availableCourses.first?.key, "hmb")
     }
 
+    func testFetchCourseInstallStatusDecodesHoleStagesAndSendsCompositeBackGlobalID() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let payload = Data(
+            """
+            {
+              "schema":"ai-caddie-course-install-v1",
+              "jobId":"install-1",
+              "globalId":31870,
+              "teeBox":"blue",
+              "nine":"all",
+              "phase":"running",
+              "stage":"topo",
+              "totalHoles":18,
+              "geometryReady":18,
+              "topoReady":7,
+              "updatedAt":"2026-08-20T10:00:00Z",
+              "error":null,
+              "holes":[
+                {"globalId":31870,"localHole":1,"displayHole":1,"geometry":"ready","geometryRevision":"rev-a","topo":"ready","topoRevision":"rev-a","error":null},
+                {"globalId":31871,"localHole":1,"displayHole":10,"geometry":"ready","geometryRevision":"rev-b","topo":"queued","topoRevision":null,"error":null}
+              ]
+            }
+            """.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v2/courses/31870/install/status")
+            let queryItems = URLComponents(
+                url: try XCTUnwrap(request.url),
+                resolvingAgainstBaseURL: false
+            )?.queryItems ?? []
+            let values = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name, $0.value ?? "") })
+            XCTAssertEqual(values["tee_box"], "blue")
+            XCTAssertEqual(values["nine"], "all")
+            XCTAssertEqual(values["back_global_id"], "31871")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            adminToken: "admin-secret",
+            session: session
+        )
+
+        let status = try await client.fetchCourseInstallStatus(
+            globalId: 31870,
+            teeBox: "blue",
+            nine: "all",
+            backGlobalId: 31871
+        )
+
+        XCTAssertEqual(status?.phase, "running")
+        XCTAssertEqual(status?.topoReady, 7)
+        XCTAssertEqual(status?.holes.last?.displayHole, 10)
+        XCTAssertEqual(status?.holes.last?.geometryRevision, "rev-b")
+        XCTAssertEqual(status?.holes.last?.topo, "queued")
+    }
+
     func testNonSuccessResponseThrowsTypedErrorWithStatusAndBody() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]

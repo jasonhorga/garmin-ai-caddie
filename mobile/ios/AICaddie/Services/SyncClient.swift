@@ -115,6 +115,35 @@ public struct CourseGeometryCoverageResponse: Codable, Equatable {
     public let holes: [CourseGeometryHoleCoverage]
 }
 
+/// Public, player-scoped progress for the server-side course asset preparation journal. It contains
+/// only course/hole stages; no player identity, club distances, GPS or provider credentials.
+public struct CourseInstallHoleStatus: Codable, Equatable {
+    public let globalId: Int
+    public let localHole: Int
+    public let displayHole: Int
+    public let geometry: String
+    public let geometryRevision: String?
+    public let topo: String
+    public let topoRevision: String?
+    public let error: String?
+}
+
+public struct CourseInstallStatus: Codable, Equatable {
+    public let schema: String
+    public let jobId: String
+    public let globalId: Int
+    public let teeBox: String
+    public let nine: String
+    public let phase: String
+    public let stage: String
+    public let totalHoles: Int
+    public let geometryReady: Int
+    public let topoReady: Int
+    public let updatedAt: String?
+    public let error: String?
+    public let holes: [CourseInstallHoleStatus]
+}
+
 private struct MobileRoundFinishRequest: Codable {
     let meta: MobileRoundFinishMetadata
 }
@@ -137,8 +166,12 @@ public final class SyncClient {
     public static let greenDetailStyleVersion = "green-v2"
     public static let greenDetailImageSize = 1024
     static let courseReleaseTimeoutInterval: TimeInterval = 180
-    static let coursePackageTimeoutInterval: TimeInterval = 180
+    static let coursePackageTimeoutInterval: TimeInterval = 120
+    static let coursePrepTimeoutInterval: TimeInterval = 90
+    static let courseTopoTimeoutInterval: TimeInterval = 60
+    static let courseCoverageTimeoutInterval: TimeInterval = 15
     static let courseReleaseMaximumAttempts = 3
+    static let courseAssetMaximumAttempts = 2
     static let nearbyDiscoveryTimeoutInterval: TimeInterval = 30
     static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
 
@@ -237,8 +270,47 @@ public final class SyncClient {
         // the completed server cache.
         request.timeoutInterval = ensureGeometry ? 900 : Self.coursePackageTimeoutInterval
         applyAuth(to: &request)
-        let data = try await fetchRetriableGetData(request)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseAssetMaximumAttempts
+        )
         return try decoder.decode(LiveRoundPackage.self, from: data)
+    }
+
+    /// Read the durable server preparation journal. A missing row is normal for older servers or
+    /// before the first package enqueue, so it returns nil rather than turning the download into a
+    /// hard failure. The local OfflineStore remains the final install authority.
+    public func fetchCourseInstallStatus(
+        globalId: Int,
+        teeBox: String,
+        nine: String = "all",
+        backGlobalId: Int? = nil
+    ) async throws -> CourseInstallStatus? {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/\(globalId)/install/status"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        var queryItems = [
+            URLQueryItem(name: "tee_box", value: teeBox),
+            URLQueryItem(name: "nine", value: nine),
+        ]
+        if let backGlobalId, backGlobalId > 0 {
+            queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
+        applyAuth(to: &request)
+        do {
+            let data = try await fetchRetriableGetData(request)
+            return try decoder.decode(CourseInstallStatus.self, from: data)
+        } catch let error as SyncClientError {
+            if case .http(status: 404, body: _) = error { return nil }
+            throw error
+        }
     }
 
     public func fetchCourseOptions() async throws -> MobileCourseOptionsResponse {
@@ -489,12 +561,14 @@ public final class SyncClient {
         var request = URLRequest(url: url)
         // Multi-hole lightweight prep drives both progressive 备战 and the whole-course offline
         // installer. Three real Garmin meshes can legitimately exceed URLSession's 60-second
-        // default while the shared server is finishing cold geometry. Let the bounded request
-        // finish once instead of repeating the same expensive batch and delaying every topo.
-        request.timeoutInterval = 180
+        // default while the shared server is finishing cold geometry. Keep one transient retry,
+        // but do not multiply a cold batch into the generic three-attempt metadata budget.
+        request.timeoutInterval = Self.coursePrepTimeoutInterval
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseAssetMaximumAttempts
+        )
         // Offline course installation intentionally issues a few bounded prep batches in parallel.
         // JSONDecoder has mutable decoding state and is not documented as safe for concurrent use;
         // keep this read path local rather than sharing the client's general-purpose decoder.
@@ -518,8 +592,10 @@ public final class SyncClient {
             URLQueryItem(name: "holes", value: String($0))
         }
         guard let url = components.url else { throw URLError(.badURL) }
-        let (data, response) = try await session.data(for: URLRequest(url: url))
-        try validate(response: response, data: data)
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.courseCoverageTimeoutInterval
+        applyAuth(to: &request)
+        let data = try await fetchRetriableGetData(request)
         return try JSONDecoder().decode(CourseGeometryCoverageResponse.self, from: data)
     }
 
@@ -540,9 +616,12 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
+        request.timeoutInterval = Self.coursePrepTimeoutInterval
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseAssetMaximumAttempts
+        )
         let prep = try decoder.decode(CoursePrepResponse.self, from: data)
         return prep.holes.first { $0.hole == localHole } ?? prep.holes.first
     }
@@ -563,9 +642,12 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
+        request.timeoutInterval = Self.courseTopoTimeoutInterval
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseAssetMaximumAttempts
+        )
         let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
         guard data.starts(with: pngSignature) else {
             throw URLError(.cannotDecodeContentData)
@@ -589,9 +671,12 @@ public final class SyncClient {
             geometryRevision: geometryRevision
         ) else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
+        request.timeoutInterval = Self.courseTopoTimeoutInterval
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseAssetMaximumAttempts
+        )
         let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
         guard data.starts(with: pngSignature) else { throw URLError(.cannotDecodeContentData) }
         return data
@@ -777,7 +862,10 @@ public final class SyncClient {
         }
     }
 
-    private func fetchRetriableGetData(_ request: URLRequest) async throws -> Data {
+    private func fetchRetriableGetData(
+        _ request: URLRequest,
+        maximumAttempts: Int = Self.courseReleaseMaximumAttempts
+    ) async throws -> Data {
         var attempt = 1
         while true {
             try Task.checkCancellation()
@@ -789,7 +877,7 @@ public final class SyncClient {
                 if Task.isCancelled || error is CancellationError {
                     throw CancellationError()
                 }
-                guard attempt < Self.courseReleaseMaximumAttempts,
+                guard attempt < max(1, maximumAttempts),
                       Self.isTransientCourseReleaseError(error) else {
                     throw error
                 }

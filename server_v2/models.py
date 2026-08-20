@@ -657,6 +657,7 @@ class GeometryEvidenceResponse(BaseModel):
     localHole: int
     coverage: GeometryCoverageState
     geometryRevision: str | None = None
+    authorityObservation: Literal["not_required", "current", "stale", "unknown"] | None = None
     hasHazards: bool
     hasMeshes: bool
     sourceRef: str | None = None
@@ -677,6 +678,42 @@ class CourseGeometryCoverageResponse(BaseModel):
     partialHoles: int
     totalHoles: int
     holes: list[dict[str, Any]]
+
+
+class CourseInstallHoleStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    globalId: int
+    localHole: int
+    displayHole: int
+    geometry: Literal["queued", "running", "ready", "failed"]
+    geometryRevision: str | None = None
+    topo: Literal["queued", "running", "ready", "failed"]
+    topoRevision: str | None = None
+    error: str | None = None
+
+
+class CourseInstallStatusResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
+        extra="forbid",
+        strict=True,
+    )
+
+    schema_: Literal["ai-caddie-course-install-v1"] = Field(alias="schema")
+    jobId: str
+    globalId: int
+    teeBox: str
+    nine: Literal["all", "front", "back"]
+    phase: Literal["queued", "running", "ready", "failed"]
+    stage: str
+    totalHoles: int
+    geometryReady: int
+    topoReady: int
+    updatedAt: str | None = None
+    error: str | None = None
+    holes: list[CourseInstallHoleStatus] = Field(default_factory=list)
 
 
 class GeometryEnsureResponse(BaseModel):
@@ -964,6 +1001,9 @@ class LiveRoundPackageResponse(BaseModel):
     recentHistory: dict[str, Any]
     cachedCaddieRules: dict[str, Any]
     generatedAt: str
+    # Present when the caller requested a background course install. Older iOS/Watch clients ignore
+    # unknown JSON keys; the field is intentionally public-progress only (no player data).
+    courseInstallJob: dict[str, Any] | None = None
 
 
 class MobileCourseOption(BaseModel):

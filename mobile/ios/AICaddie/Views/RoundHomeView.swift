@@ -54,6 +54,9 @@ public struct RoundHomeView: View {
     public let onNearbyCourses: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     public let onDownloadPrepCourse: (MobileCourseOption) -> Void
     public let onRetryPrepCourseDownload: (String) -> Void
+    /// Re-check a locally complete prep package against the current Garmin release before opening it.
+    /// A transport failure is handled by the model as a deferred check, so offline use remains valid.
+    public let onValidateReadyPrepCourse: (PrepCourseDownloadRecord) async -> Bool
     /// Set to a hole number right after a fresh round is prepared → auto-navigate into that hole.
     public let pendingLiveHole: Int?
     public let onConsumePendingLiveHole: () -> Void
@@ -100,6 +103,7 @@ public struct RoundHomeView: View {
         onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
         onDownloadPrepCourse: @escaping (MobileCourseOption) -> Void = { _ in },
         onRetryPrepCourseDownload: @escaping (String) -> Void = { _ in },
+        onValidateReadyPrepCourse: @escaping (PrepCourseDownloadRecord) async -> Bool = { _ in true },
         pendingLiveHole: Int? = nil,
         onConsumePendingLiveHole: @escaping () -> Void = {},
         onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
@@ -141,6 +145,7 @@ public struct RoundHomeView: View {
         self.onNearbyCourses = onNearbyCourses
         self.onDownloadPrepCourse = onDownloadPrepCourse
         self.onRetryPrepCourseDownload = onRetryPrepCourseDownload
+        self.onValidateReadyPrepCourse = onValidateReadyPrepCourse
         self.pendingLiveHole = pendingLiveHole
         self.onConsumePendingLiveHole = onConsumePendingLiveHole
         self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
@@ -385,7 +390,8 @@ public struct RoundHomeView: View {
                         adminToken: adminToken,
                         offlineStore: offlineStore,
                         onDownload: onDownloadPrepCourse,
-                        onRetryDownload: onRetryPrepCourseDownload
+                        onRetryDownload: onRetryPrepCourseDownload,
+                        onValidateReadyDownload: onValidateReadyPrepCourse
                     )
                 } label: {
                     HubTile(icon: "scope", title: "备战", subtitle: "搜索 · 球童试算")

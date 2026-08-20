@@ -613,25 +613,26 @@ class ServerV2MobileTests(unittest.TestCase):
                 },
             ],
         )
-        tasks = BackgroundTasks()
         with patch.object(
             server_main,
             "build_mobile_course_package_response",
             return_value=package,
-        ):
+        ), patch.object(
+            server_main.course_install,
+            "enqueue",
+            return_value={"schema": "ai-caddie-course-install-v1", "phase": "queued"},
+        ) as enqueue:
             actual = server_main.mobile_course_package(
                 31796,
-                background_tasks=tasks,
+                background_tasks=BackgroundTasks(),
                 background_geometry=True,
                 player_id="owner",
             )
 
         self.assertIs(actual, package)
-        self.assertEqual(len(tasks.tasks), 2)
-        self.assertIs(tasks.tasks[0].func, server_main._upgrade_course_geometry)
-        self.assertEqual(tasks.tasks[0].args, ({31796: [1], 31797: [1]},))
-        self.assertIs(tasks.tasks[1].func, server_main._prewarm_course_topo)
-        self.assertEqual(tasks.tasks[1].args, (31796, [2]))
+        enqueue.assert_called_once()
+        self.assertEqual(enqueue.call_args.kwargs["requested"], {31796: [1], 31797: [1]})
+        self.assertEqual(enqueue.call_args.kwargs["ready"], {31796: [2]})
 
     def test_course_package_revalidates_first_playing_hole_even_when_marked_ready(self) -> None:
         from server_v2 import main as server_main
@@ -653,24 +654,25 @@ class ServerV2MobileTests(unittest.TestCase):
                 },
             ],
         )
-        tasks = BackgroundTasks()
         with patch.object(
             server_main,
             "build_mobile_course_package_response",
             return_value=package,
-        ):
+        ), patch.object(
+            server_main.course_install,
+            "enqueue",
+            return_value={"schema": "ai-caddie-course-install-v1", "phase": "queued"},
+        ) as enqueue:
             server_main.mobile_course_package(
                 31796,
-                background_tasks=tasks,
+                background_tasks=BackgroundTasks(),
                 background_geometry=True,
                 player_id="owner",
             )
 
-        self.assertEqual(len(tasks.tasks), 2)
-        self.assertIs(tasks.tasks[0].func, server_main._upgrade_course_geometry)
-        self.assertEqual(tasks.tasks[0].args, ({31796: [1]},))
-        self.assertIs(tasks.tasks[1].func, server_main._prewarm_course_topo)
-        self.assertEqual(tasks.tasks[1].args, (31796, [2]))
+        enqueue.assert_called_once()
+        self.assertEqual(enqueue.call_args.kwargs["requested"], {})
+        self.assertEqual(enqueue.call_args.kwargs["ready"], {31796: [1, 2]})
 
     def test_background_geometry_upgrade_prewarms_topo_for_background_resume(self) -> None:
         from server_v2 import main as server_main

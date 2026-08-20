@@ -11,20 +11,21 @@ func coursePrepParSourceLabel(_ source: String) -> String {
     }
 }
 
-/// Pre-round course review: browse every hole of a course with its styled map, par
-/// (labelled source), and the club-based strategy — fed by `/api/v2/courses/{gid}/prep`.
+/// Pre-round course review for a fully installed local package. Network preparation belongs to the
+/// app-owned download library; this screen only browses verified maps and club-based strategy.
 public struct CourseReviewView: View {
     private let client: SyncClient
     private let globalId: Int
     private let holeCount: Int
     private let teeBox: String
+    private let nine: String
     private let offlineStore: OfflineStore?
     private let download: PrepCourseDownloadRecord?
     @State private var holes: [CoursePrepHole] = []
+    @State private var packageHoles: [Hole] = []
     @State private var isLoading = false
     @State private var errorText: String?
     @State private var selectedHoleNumber: Int?
-    @State private var foregroundLoadErrors: [Int: String] = [:]
 
     public init(
         client: SyncClient,
@@ -37,8 +38,12 @@ public struct CourseReviewView: View {
         self.client = client
         self.globalId = globalId
         self.holeCount = max(1, min(holeCount, 36))
-        let trimmedTeeBox = (teeBox ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTeeBox = (download?.teeBox ?? teeBox ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         self.teeBox = trimmedTeeBox.isEmpty ? "blue" : trimmedTeeBox
+        let trimmedNine = (download?.nine ?? "all")
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        self.nine = trimmedNine.isEmpty ? "all" : trimmedNine
         self.offlineStore = offlineStore
         self.download = download
     }
@@ -49,29 +54,36 @@ public struct CourseReviewView: View {
                 if let download {
                     downloadBanner(download)
                 }
-                if isLoading {
-                    ProgressView("加载中…")
-                }
-                if let errorText {
-                    Text("加载失败：\(errorText)").foregroundColor(.red).font(.callout)
-                }
-                if download != nil || !holes.isEmpty || isLoading {
-                    holeNavigator
-                    if let hole = selectedHole {
-                        CourseReviewHoleCard(
-                            client: client,
-                            globalId: globalId,
-                            initialHole: hole,
-                            offlineStore: offlineStore,
-                            managedDownload: download != nil,
-                            managedDownloadFailed: download?.phase == .failed
-                        )
-                        .id("\(globalId):\(hole.hole)")
-                    } else {
-                        pendingHoleCard(currentHoleNumber)
-                            .task(id: currentHoleNumber) {
-                                await loadSelectedHoleIfNeeded(currentHoleNumber)
-                            }
+                // The prep contract is intentionally all-or-nothing: a download row may be
+                // observed from an older navigation state or a deep link, but it must never expose
+                // a partial CourseView outline as if it were the approved prep map.
+                if let download, download.phase != .ready {
+                    incompleteDownloadState(download)
+                } else {
+                    if isLoading {
+                        ProgressView("加载中…")
+                    }
+                    if let errorText {
+                        Text("加载失败：\(errorText)").foregroundColor(.red).font(.callout)
+                    }
+                    if !holes.isEmpty || isLoading {
+                        holeNavigator
+                        if let hole = selectedHole {
+                            CourseReviewHoleCard(
+                                client: client,
+                                globalId: sourceGlobalId(for: hole.hole),
+                                localHole: sourceLocalHole(for: hole.hole),
+                                initialHole: hole,
+                                offlineStore: offlineStore,
+                                managedDownload: download != nil,
+                                managedDownloadFailed: download?.phase == .failed
+                            )
+                            .id("\(globalId):\(hole.hole)")
+                        } else {
+                            pendingHoleCard(currentHoleNumber)
+                        }
+                    } else if errorText == nil {
+                        missingLocalPackageState
                     }
                 }
             }
@@ -81,12 +93,9 @@ public struct CourseReviewView: View {
         .navigationTitle("赛前球场攻略")
         .task(id: download?.updatedAt) {
             loadCachedFacts()
-            guard download == nil else { return }
-            // Compatibility for standalone previews. The real prep picker queues an app-owned,
-            // durable download before navigation, so leaving this view never owns/cancels that job.
-            async let preciseUpgrade: Void = requestPreciseCourseMaps()
-            await load()
-            _ = await preciseUpgrade
+            // Prep is an installed-package surface. It intentionally has no page-scoped network
+            // loader or partial CourseView fallback: returning to the picker is the only way to
+            // retry a queued/failed download, and a ready row reads facts/assets from OfflineStore.
         }
     }
 
@@ -94,10 +103,27 @@ public struct CourseReviewView: View {
         holes.first(where: { $0.hole == currentHoleNumber })
     }
 
-    /// Course metadata owns navigation. Incremental download progress must never make an 18-hole
-    /// course look like a one-hole course merely because only the first factual row is cached yet.
+    private func sourceGlobalId(for displayHole: Int) -> Int {
+        packageHoles.first(where: { $0.number == displayHole })?.sourceGlobalId ?? globalId
+    }
+
+    private func sourceLocalHole(for displayHole: Int) -> Int {
+        packageHoles.first(where: { $0.number == displayHole })?.sourceLocalHole ?? displayHole
+    }
+
+    private var navigationHoleNumbers: [Int] {
+        let installed = holes.map(\.hole).sorted()
+        return installed.isEmpty ? Array(1...holeCount) : installed
+    }
+
+    /// The installed template owns navigation after the all-or-nothing package gate. Provider
+    /// metadata remains only a fallback for the missing-package state.
     private var currentHoleNumber: Int {
-        min(max(selectedHoleNumber ?? holes.first?.hole ?? 1, 1), holeCount)
+        let available = navigationHoleNumbers
+        guard let requested = selectedHoleNumber, available.contains(requested) else {
+            return available.first ?? 1
+        }
+        return requested
     }
 
     /// One map at a time keeps preparation spatial. Hole navigation is a compact control, not an
@@ -111,12 +137,12 @@ public struct CourseReviewView: View {
                     .frame(width: 34, height: 34)
             }
             .buttonStyle(.bordered)
-            .disabled(currentHoleNumber <= 1)
+            .disabled(currentHoleNumber == navigationHoleNumbers.first)
             .accessibilityLabel("上一洞")
             .accessibilityIdentifier("prep-previous-hole")
 
             Menu {
-                ForEach(Array(1...holeCount), id: \.self) { holeNumber in
+                ForEach(navigationHoleNumbers, id: \.self) { holeNumber in
                     Button(holeMenuLabel(holeNumber)) {
                         selectedHoleNumber = holeNumber
                     }
@@ -125,7 +151,7 @@ public struct CourseReviewView: View {
                 VStack(spacing: 1) {
                     Text("第 \(currentHoleNumber) 洞")
                         .font(.headline.weight(.bold))
-                    Text("共 \(holeCount) 洞 · 点此选洞")
+                    Text("共 \(navigationHoleNumbers.count) 洞 · 点此选洞")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -141,7 +167,7 @@ public struct CourseReviewView: View {
                     .frame(width: 34, height: 34)
             }
             .buttonStyle(.bordered)
-            .disabled(currentHoleNumber >= holeCount)
+            .disabled(currentHoleNumber == navigationHoleNumbers.last)
             .accessibilityLabel("下一洞")
             .accessibilityIdentifier("prep-next-hole")
         }
@@ -150,7 +176,12 @@ public struct CourseReviewView: View {
     }
 
     private func moveHole(by delta: Int) {
-        selectedHoleNumber = min(max(currentHoleNumber + delta, 1), holeCount)
+        let available = navigationHoleNumbers
+        guard let index = available.firstIndex(of: currentHoleNumber) else {
+            selectedHoleNumber = available.first
+            return
+        }
+        selectedHoleNumber = available[min(max(index + delta, 0), available.count - 1)]
     }
 
     private func holeMenuLabel(_ holeNumber: Int) -> String {
@@ -158,32 +189,6 @@ public struct CourseReviewView: View {
             return "第 \(holeNumber) 洞 · 准备中"
         }
         return "第 \(holeNumber) 洞 · Par \(hole.par)"
-    }
-
-    /// The app-owned queue protects whole-course durability. This foreground request is deliberately
-    /// limited to the one hole the player selected so navigation remains useful while that queue is
-    /// still preparing the other 17 holes. It does not own or cancel the durable download.
-    @MainActor
-    private func loadSelectedHoleIfNeeded(_ holeNumber: Int) async {
-        guard holes.first(where: { $0.hole == holeNumber }) == nil else { return }
-        foregroundLoadErrors[holeNumber] = nil
-        do {
-            let response = try await client.fetchCoursePrep(
-                globalId: globalId,
-                holes: [holeNumber],
-                render: false
-            )
-            guard !Task.isCancelled else { return }
-            guard let fetched = response.holes.first(where: { $0.hole == holeNumber }) else {
-                foregroundLoadErrors[holeNumber] = "本洞资料仍在后台准备"
-                return
-            }
-            mergeHoles([fetched])
-        } catch is CancellationError {
-            return
-        } catch {
-            foregroundLoadErrors[holeNumber] = "本洞资料仍在后台准备"
-        }
     }
 
     private func mergeHoles(_ incoming: [CoursePrepHole]) {
@@ -206,9 +211,10 @@ public struct CourseReviewView: View {
                     .fill(Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255))
                     .frame(maxWidth: .infinity, minHeight: 420)
                 VStack(spacing: 10) {
-                    ProgressView()
-                        .tint(.white)
-                    Text(foregroundLoadErrors[holeNumber] ?? "正在优先准备第 \(holeNumber) 洞地图…")
+                    Image(systemName: "arrow.down.circle")
+                        .font(.title2)
+                        .foregroundStyle(.white)
+                    Text("完整球场包安装后显示第 \(holeNumber) 洞")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
                 }
@@ -221,6 +227,23 @@ public struct CourseReviewView: View {
                 .accessibilityIdentifier("prep-hole-header-\(holeNumber)")
         }
         .hubCard()
+    }
+
+    private var missingLocalPackageState: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: "externaldrive.badge.xmark")
+                .font(.title2)
+                .foregroundStyle(.orange)
+            Text("本地球场包不完整")
+                .font(.headline.weight(.semibold))
+            Text("请返回下载库，完成全部洞的地图与策略数据安装后再进入备战。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityIdentifier("prep-local-package-missing")
     }
 
     @ViewBuilder
@@ -239,7 +262,7 @@ public struct CourseReviewView: View {
                 ProgressView(value: value)
                     .tint(LiveHoleStyle.green)
             }
-            Text("可以返回备战首页；下载会继续，每完成一洞就保存在本机。")
+            Text("服务器会继续准备；iOS 若被系统挂起，回到前台会从已保存的洞继续。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -249,69 +272,50 @@ public struct CourseReviewView: View {
     private func downloadStatus(_ download: PrepCourseDownloadRecord) -> String {
         switch download.phase {
         case .queued: return "等待下载"
-        case .preparing: return "准备精确地图 \(download.preparedHoles)/\(download.totalHoles) 洞"
+        case .preparing: return "准备地图 \(download.preparedHoles)/\(download.totalHoles) 洞"
         case .downloading: return "保存到本机 \(download.downloadedHoles)/\(download.totalHoles) 洞"
         case .ready: return "球场已完整保存在本机"
         case .failed: return download.errorText ?? "下载中断，返回上一页可继续"
         }
     }
 
+    private func incompleteDownloadState(_ download: PrepCourseDownloadRecord) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: download.phase == .failed ? "exclamationmark.triangle" : "arrow.down.circle")
+                .font(.title2)
+                .foregroundStyle(download.phase == .failed ? .orange : LiveHoleStyle.green)
+            Text(download.phase == .failed ? "球场包还没有完成" : "球场包正在准备")
+                .font(.headline.weight(.semibold))
+            Text("完整的 18 洞地形、障碍物和策略数据安装完成后，才能进入备战地图。请返回下载库查看进度。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityIdentifier("prep-download-incomplete")
+    }
+
     private func loadCachedFacts() {
+        // Re-check the package at the destination boundary.  The picker normally enforces this
+        // gate, but a restored NavigationStack, deep link, or files removed after a previous ready
+        // state must not expose a partial prep surface.
+        holes = []
+        packageHoles = []
+        isLoading = false
+        errorText = nil
         guard let offlineStore,
               let template = try? offlineStore.loadCourseTemplate(
                   globalId: globalId,
                   teeBox: teeBox,
-                  nine: "all"
-              ), let prep = template.coursePrep else { return }
+                  nine: nine
+              ), template.hasCompleteOfflineCoursePrep,
+              offlineStore.hasCourseTopoImages(for: template),
+              let prep = template.coursePrep else { return }
+        packageHoles = template.holes
         mergeHoles(prep.holes)
-        isLoading = false
-        errorText = nil
     }
 
-    private func requestPreciseCourseMaps() async {
-        do {
-            _ = try await client.fetchCoursePackage(
-                globalId: globalId,
-                roundId: "prep-preview-\(globalId)",
-                teeBox: teeBox,
-                nine: "all",
-                ensureGeometry: false,
-                backgroundGeometry: true,
-                includeEventCursor: false
-            )
-        } catch {
-            // The lightweight rows remain useful and each visible card exposes a precise-map retry.
-            // Never replace already-loaded prep facts with a package-kickoff error.
-        }
-    }
-
-    private func load() async {
-        isLoading = true
-        errorText = nil
-        defer { isLoading = false }
-
-        // An all-hole cold build can exceed URLSession's request timeout. Load three factual rows at
-        // a time so the first screen appears quickly and every later hole is published progressively;
-        // rendered maps remain lazy in CourseReviewHoleCard below.
-        for start in stride(from: 1, through: holeCount, by: 3) {
-            guard !Task.isCancelled else { return }
-            let batch = Array(start...min(start + 2, holeCount))
-            do {
-                let response = try await client.fetchCoursePrep(
-                    globalId: globalId,
-                    holes: batch,
-                    render: false
-                )
-                mergeHoles(response.holes)
-                isLoading = false
-            } catch {
-                // Keep already-loaded holes usable. Only replace the empty screen with an error.
-                if holes.isEmpty {
-                    errorText = error.localizedDescription
-                }
-            }
-        }
-    }
 }
 
 /// A lightweight CourseView route can resolve a perfectly drawable overlay, but it is still only a
@@ -323,127 +327,60 @@ enum CourseReviewMapPolicy {
             && hole.resolvedMapOverlay != nil
     }
 
+    /// Compatibility predicate for callers/tests that classify a partial row. It is descriptive
+    /// only; CourseReviewView no longer starts a page-scoped upgrade task from this value.
     static func requiresPreciseUpgrade(_ hole: CoursePrepHole) -> Bool {
-        !hasPreciseFacts(hole) && !hole.route.isEmpty
+        !hasPreciseFacts(hole)
     }
 }
 
-/// Shows the lightweight factual row immediately and requests a rendered map only after this card
-/// appears. A failed optional bitmap never erases distances or advice.
+/// Shows only a verified precise prep map. A partial CourseView row is never promoted to the prep
+/// surface; it remains a download/coverage state in the library until the complete bundle exists.
 private struct CourseReviewHoleCard: View {
     let client: SyncClient
     let globalId: Int
+    let localHole: Int
     let initialHole: CoursePrepHole
     let offlineStore: OfflineStore?
     let managedDownload: Bool
     let managedDownloadFailed: Bool
 
-    @State private var renderedHole: CoursePrepHole?
-    @State private var isLoadingMap = false
-    @State private var didTryMap = false
-    @State private var mapUnavailable = false
-
-    private var hole: CoursePrepHole { renderedHole ?? initialHole }
+    private var hole: CoursePrepHole { initialHole }
 
     var body: some View {
         HolePrepCard(
             hole: hole,
             topoURL: topoURL,
-            isLoadingMap: isLoadingMap || (
-                managedDownload
-                    && !managedDownloadFailed
-                    && !CourseReviewMapPolicy.hasPreciseFacts(hole)
-            ),
-            mapUnavailable: mapUnavailable || managedDownloadFailed,
-            onRetryMap: retryPreciseMap
+            isLoadingMap: false,
+            mapUnavailable: managedDownloadFailed || topoURL == nil,
+            onRetryMap: nil
         )
-        .task(id: initialHole.hole) {
-            await loadMapIfNeeded()
-        }
     }
 
     private var topoURL: URL? {
         if let local = offlineStore?.loadCourseTopoImageURL(
             globalId: globalId,
-            localHole: initialHole.hole,
+            localHole: localHole,
             geometryRevision: hole.geometryRevision
         ) {
             return local
         }
-        return SyncClient.topoImageURL(
-            baseURL: client.baseURL,
-            globalId: globalId,
-            localHole: initialHole.hole,
-            geometryRevision: hole.geometryRevision
-        )
-    }
-
-    @MainActor
-    private func loadMapIfNeeded() async {
-        guard CourseReviewMapPolicy.requiresPreciseUpgrade(hole), !didTryMap else { return }
-        didTryMap = true
-        isLoadingMap = true
-        mapUnavailable = false
-        defer { isLoadingMap = false }
-
-        // Prodgeometry installation is asynchronous. Probe cheap file authority first and pay for a
-        // precise prep rebuild only after this exact hole reports ready. The delays cover an ordinary
-        // cold install without repeatedly rebuilding the same partial payload.
-        for delaySeconds in [0, 2, 5, 10, 20, 30] {
-            do {
-                if delaySeconds > 0 {
-                    try await Task.sleep(nanoseconds: UInt64(delaySeconds) * 1_000_000_000)
-                }
-                guard !Task.isCancelled else { throw CancellationError() }
-
-                let coverage = try await client.fetchCourseGeometryCoverage(
-                    globalId: globalId,
-                    holes: [initialHole.hole]
-                )
-                guard coverage.holes.contains(where: {
-                    $0.localHole == initialHole.hole
-                        && $0.coverage.caseInsensitiveCompare("ready") == .orderedSame
-                }) else { continue }
-
-                guard let precise = try await client.fetchHolePrep(
-                    globalId: globalId,
-                    localHole: initialHole.hole
-                ), CourseReviewMapPolicy.hasPreciseFacts(precise) else { continue }
-                renderedHole = precise
-                return
-            } catch is CancellationError {
-                // Lazy rows are cancelled when scrolled off-screen; allow their next appearance to
-                // resume rather than permanently recording a failed attempt.
-                didTryMap = false
-                return
-            } catch {
-                // A transient coverage/prep failure consumes this bounded attempt; later attempts use
-                // the same exact geometry authority and never fall back to a different data source.
-                continue
-            }
-        }
-        mapUnavailable = true
-    }
-
-    private func retryPreciseMap() {
-        didTryMap = false
-        mapUnavailable = false
-        Task { await loadMapIfNeeded() }
+        return nil
     }
 }
 
 struct HolePrepCard: View {
     let hole: CoursePrepHole
-    /// 本洞真实地形底图 URL(有几何 + 已知 gid 时);nil → 回退 payload flat 渲染图。
+    /// 本洞已安装的真实地形底图 URL。备战不再把 nil 当作可进入的简化地图状态。
     var topoURL: URL? = nil
     var isLoadingMap = false
     var mapUnavailable = false
     var onRetryMap: (() -> Void)? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // CourseView facts are useful immediately. Keep that lightweight map visible while the
-            // optional precise topo is prepared, then upgrade the same card in place when ready.
-            if hole.resolvedMapOverlay != nil {
+            // This card is reached only after the complete local package gate. A missing local PNG
+            // is therefore an installation error, never an invitation to show a partial outline.
+            if CourseReviewMapPolicy.hasPreciseFacts(hole), topoURL != nil {
                 HoleImageMapView(
                     hole: hole,
                     topoURL: topoURL,
@@ -454,6 +391,10 @@ struct HolePrepCard: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("prep-hole-map-\(hole.hole)")
                 preciseMapStatus
+            } else if CourseReviewMapPolicy.hasPreciseFacts(hole) {
+                Label("本地地图文件缺失，请返回下载库重试", systemImage: "externaldrive.badge.xmark")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             } else if isLoadingMap {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -467,12 +408,18 @@ struct HolePrepCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if hole.resolvedMapOverlay == nil { header }
-            if hole.resolvedMapOverlay == nil { fallbackFacts }
+            if !CourseReviewMapPolicy.hasPreciseFacts(hole) { header }
+            if !CourseReviewMapPolicy.hasPreciseFacts(hole) { pendingPreciseFacts }
             if !hole.steps.isEmpty { strategyDisclosure }
             if !cautionSummaries.isEmpty { cautionDisclosure }
         }
         .hubCard()
+    }
+
+    private var pendingPreciseFacts: some View {
+        Label("完整地图准备中，当前不会显示简化轮廓", systemImage: "map")
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     @ViewBuilder
@@ -481,14 +428,14 @@ struct HolePrepCard: View {
             HStack(spacing: 7) {
                 if mapUnavailable, let onRetryMap {
                     Button(action: onRetryMap) {
-                        Label("简化地图 · 精确地图暂不可用 · 重试", systemImage: "arrow.clockwise")
+                        Label("精确地图暂不可用 · 重试", systemImage: "arrow.clockwise")
                             .font(.caption.weight(.semibold))
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("prep-hole-map-precise-retry")
                 } else {
                     if isLoadingMap { ProgressView().controlSize(.small) }
-                    Text("简化地图 · 精确地图准备中")
+                    Text("精确地图准备中")
                         .font(.caption.weight(.semibold))
                         .accessibilityIdentifier("prep-hole-map-precise-loading")
                 }

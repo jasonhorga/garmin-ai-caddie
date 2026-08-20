@@ -142,6 +142,9 @@ public struct AICaddieApp: App {
                         onRetryPrepCourseDownload: { id in
                             model.retryPrepCourseDownload(id: id)
                         },
+                        onValidateReadyPrepCourse: { record in
+                            await model.validateReadyPrepCourse(record)
+                        },
                         pendingLiveHole: model.pendingLiveHole,
                         onConsumePendingLiveHole: {
                             model.consumePendingLiveHole()
@@ -407,8 +410,9 @@ public final class LiveRoundAppModel: ObservableObject {
         preferredRoundId: String? = nil,
         syncClient: SyncClient? = nil,
         offlineGeometryRetryDelaysNanoseconds: [UInt64] = [
-            5_000_000_000, 10_000_000_000, 20_000_000_000, 40_000_000_000,
-            60_000_000_000, 60_000_000_000, 60_000_000_000,
+            2_000_000_000, 3_000_000_000, 5_000_000_000, 8_000_000_000,
+            12_000_000_000, 20_000_000_000, 30_000_000_000, 45_000_000_000,
+            60_000_000_000, 60_000_000_000,
         ]
     ) {
         self.init(
@@ -432,8 +436,9 @@ public final class LiveRoundAppModel: ObservableObject {
         preferredRoundId: String? = nil,
         syncClient: SyncClient? = nil,
         offlineGeometryRetryDelaysNanoseconds: [UInt64] = [
-            5_000_000_000, 10_000_000_000, 20_000_000_000, 40_000_000_000,
-            60_000_000_000, 60_000_000_000, 60_000_000_000,
+            2_000_000_000, 3_000_000_000, 5_000_000_000, 8_000_000_000,
+            12_000_000_000, 20_000_000_000, 30_000_000_000, 45_000_000_000,
+            60_000_000_000, 60_000_000_000,
         ]
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
@@ -977,6 +982,13 @@ public final class LiveRoundAppModel: ObservableObject {
         "\(globalId):\(localHole)"
     }
 
+    private func courseInstallBackGlobalId(for snapshot: LiveRoundPackage) -> Int? {
+        let primaryGlobalId = snapshot.course.globalId
+        return snapshot.holes
+            .map { $0.sourceGlobalId ?? primaryGlobalId }
+            .first { $0 != primaryGlobalId }
+    }
+
     private func offlinePrepIsPrecise(_ prep: CoursePrepHole?) -> Bool {
         guard let prep, prep.resolvedMapOverlay != nil else { return false }
         return prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
@@ -998,10 +1010,7 @@ public final class LiveRoundAppModel: ObservableObject {
         using syncClient: SyncClient
     ) async -> LiveRoundPackage? {
         let frontGlobalId = cached.course.globalId
-        let backGlobalId = cached.holes
-            .filter { $0.number > 9 }
-            .compactMap { $0.sourceGlobalId }
-            .first { $0 != frontGlobalId }
+        let backGlobalId = courseInstallBackGlobalId(for: cached)
         let remote: LiveRoundPackage
         do {
             remote = try await syncClient.fetchCoursePackage(
@@ -1365,6 +1374,11 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
 
+        var serverInstallStatusAvailable = false
+        var serverGeometryReadyKeys = Set<String>()
+        var serverTopoReadyKeys = Set<String>()
+        var serverInstallPhase: String?
+
         /// Geometry installation and topo rendering are independent stages. Download every hole
         /// whose precise facts have just become available instead of waiting for the slowest of all
         /// 18 holes. Each successful bitmap is revision-keyed and atomically durable, so a later
@@ -1375,7 +1389,11 @@ public final class LiveRoundAppModel: ObservableObject {
                 let localHole = roundHole.sourceLocalHole ?? roundHole.number
                 let prep = prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]
                 let revision = prep?.geometryRevision ?? roundHole.geometryRevision
+                let key = offlinePrepKey(globalId: globalId, localHole: localHole)
                 guard offlinePrepIsPrecise(prep),
+                      (prepDownloadID == nil
+                        || !serverInstallStatusAvailable
+                        || serverTopoReadyKeys.contains(key)),
                       offlineStore.loadCourseTopoImageURL(
                           globalId: globalId,
                           localHole: localHole,
@@ -1387,7 +1405,7 @@ public final class LiveRoundAppModel: ObservableObject {
             // 2 concurrently made the second request win the scheduler occasionally, so a wholly
             // cold course gets one priority bitmap first. Once any map is durable, later incremental
             // passes use the bounded two-hole window immediately instead of serialising a new hole.
-            let needsPriorityLane = downloadedHoleCount() == 0
+            let needsPriorityLane = prepDownloadID == nil && downloadedHoleCount() == 0
             var readyIndex = 0
             while readyIndex < ready.count {
                 guard !Task.isCancelled else { return }
@@ -1449,6 +1467,39 @@ public final class LiveRoundAppModel: ObservableObject {
         var geometryReadyKeys = Set(prepBySource.compactMap { key, prep in
             offlinePrepIsPrecise(prep) ? key : nil
         })
+        // New servers expose a durable per-hole install journal. When it is available, use it as
+        // the geometry scheduler instead of repeatedly rebuilding partial prep payloads while the
+        // server is still decoding Garmin ZIPs. Older servers simply fall back to the existing
+        // coverage probe path.
+        func refreshServerInstallStatus() async {
+            let status: CourseInstallStatus?
+            let primaryGlobalId = snapshot.course.globalId
+            let backGlobalId = courseInstallBackGlobalId(for: snapshot)
+            do {
+                status = try await syncClient.fetchCourseInstallStatus(
+                    globalId: primaryGlobalId,
+                    teeBox: snapshot.course.teeBox,
+                    nine: snapshot.nine ?? "all",
+                    backGlobalId: backGlobalId
+                )
+            } catch {
+                return
+            }
+            guard let status else { return }
+            serverInstallStatusAvailable = true
+            serverInstallPhase = status.phase.lowercased()
+            serverGeometryReadyKeys = Set(status.holes.compactMap { row in
+                row.geometry.caseInsensitiveCompare("ready") == .orderedSame
+                    ? offlinePrepKey(globalId: row.globalId, localHole: row.localHole)
+                    : nil
+            })
+            serverTopoReadyKeys = Set(status.holes.compactMap { row in
+                row.topo.caseInsensitiveCompare("ready") == .orderedSame
+                    ? offlinePrepKey(globalId: row.globalId, localHole: row.localHole)
+                    : nil
+            })
+        }
+        await refreshServerInstallStatus()
         // A lightweight package deliberately embeds the first hole as a fast partial seed even
         // when that hole's Garmin geometry is already installed. The authoritative per-hole
         // revision on `snapshot.holes` is the stronger readiness fact. Promote those keys before
@@ -1476,20 +1527,31 @@ public final class LiveRoundAppModel: ObservableObject {
                 let requested = localHoles.filter { localHole in
                     let key = offlinePrepKey(globalId: globalId, localHole: localHole)
                     let prep = prepBySource[key]
+                    let geometryReady = geometryReadyKeys.contains(key)
+                        || serverGeometryReadyKeys.contains(key)
                     // Fetch missing lightweight facts immediately.  Once a partial response exists,
                     // wait on the cheap coverage endpoint and rebuild it exactly once when geometry
                     // becomes ready instead of repeatedly paying for the same partial prep.
+                    // The durable journal is a prep-throughput scheduler only. Live play must still
+                    // fetch its first factual row immediately while server geometry is cold.
+                    if prepDownloadID != nil && serverInstallStatusAvailable && !geometryReady {
+                        return false
+                    }
                     return prep?.resolvedMapOverlay == nil
-                        || (geometryReadyKeys.contains(key) && !offlinePrepIsPrecise(prep))
+                        || (geometryReady && !offlinePrepIsPrecise(prep))
                 }
                 guard !requested.isEmpty else { continue }
-                // The playing group's first hole is deliberately a singleton. Remaining requests
-                // use three-hole batches: production measurements were ~7s/3 holes versus ~138s/18.
-                batchRequests.append(OfflinePrepBatchRequest(
-                    globalId: globalId,
-                    localHoles: [requested[0]]
-                ))
-                var index = 1
+                // Live play keeps its first hole as a latency-critical singleton. Pre-round prep
+                // cannot be opened until all holes are installed, so it uses the bounded two-lane
+                // throughput path from the beginning instead of serialising a map nobody can view.
+                var index = 0
+                if prepDownloadID == nil {
+                    batchRequests.append(OfflinePrepBatchRequest(
+                        globalId: globalId,
+                        localHoles: [requested[0]]
+                    ))
+                    index = 1
+                }
                 while index < requested.count {
                     let end = min(index + 3, requested.count)
                     batchRequests.append(OfflinePrepBatchRequest(
@@ -1503,7 +1565,7 @@ public final class LiveRoundAppModel: ObservableObject {
             // Fetch the first playing hole to completion before starting the throughput batches.
             // Merely putting its singleton at the front of one task group still made it wait for
             // every other group result before the UI could persist and draw it.
-            if let priorityRequest = batchRequests.first {
+            if prepDownloadID == nil, let priorityRequest = batchRequests.first {
                 let priorityResults = await fetchOfflinePrepBatches(
                     [priorityRequest],
                     using: syncClient,
@@ -1556,6 +1618,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
             }
             guard !unresolvedByGlobalId.isEmpty, attempt < retryDelays.count else { break }
+            await refreshServerInstallStatus()
             do {
                 try await Task.sleep(nanoseconds: retryDelays[attempt])
             } catch {
@@ -1618,9 +1681,14 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
 
-        let topoRetryDelays: [UInt64] = [5, 10, 20]
+        let topoRetryDelays: [UInt64] = prepDownloadID == nil
+            ? [5_000_000_000, 10_000_000_000, 20_000_000_000]
+            : retryDelays
         for attempt in 0...topoRetryDelays.count {
             guard !Task.isCancelled else { return }
+            if prepDownloadID != nil {
+                await refreshServerInstallStatus()
+            }
             let missingTopoHoles = snapshot.holes.compactMap { roundHole -> (globalId: Int, localHole: Int, geometryRevision: String?)? in
                 let globalId = roundHole.sourceGlobalId ?? snapshot.course.globalId
                 let localHole = roundHole.sourceLocalHole ?? roundHole.number
@@ -1636,19 +1704,30 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             guard !missingTopoHoles.isEmpty else { break }
 
+            // A prep download is invisible until the whole course is installed, so let the durable
+            // server worker finish its single-flight render and fetch only immutable ready bytes.
+            // Live play keeps the direct request path so its first visible hole is never held back.
+            let fetchableTopoHoles = missingTopoHoles.filter { hole in
+                prepDownloadID == nil
+                    || !serverInstallStatusAvailable
+                    || serverTopoReadyKeys.contains(
+                        offlinePrepKey(globalId: hole.globalId, localHole: hole.localHole)
+                    )
+            }
+
             // Persist each hole as soon as it arrives. The previous all-course task group returned
             // only after every cold render completed, so killing the app on hole 1 discarded even a
             // successfully downloaded first bitmap and four renders could starve foreground APIs.
             // As above, the first still-missing map owns the foreground lane only while this course
             // has no durable topo yet; a resumed/partially complete course starts at two-wide.
-            let needsPriorityLane = downloadedHoleCount() == 0
+            let needsPriorityLane = prepDownloadID == nil && downloadedHoleCount() == 0
             var missingIndex = 0
-            while missingIndex < missingTopoHoles.count {
+            while missingIndex < fetchableTopoHoles.count {
                 guard !Task.isCancelled else { return }
                 let window = missingIndex == 0 && needsPriorityLane ? 1 : 2
-                let end = min(missingIndex + window, missingTopoHoles.count)
+                let end = min(missingIndex + window, fetchableTopoHoles.count)
                 let downloads = await fetchOfflineTopoImages(
-                    Array(missingTopoHoles[missingIndex..<end]),
+                    Array(fetchableTopoHoles[missingIndex..<end]),
                     using: syncClient
                 )
                 guard !Task.isCancelled else { return }
@@ -1694,9 +1773,12 @@ public final class LiveRoundAppModel: ObservableObject {
                     geometryRevision: hole.geometryRevision
                 ) == nil
             }
+            if serverInstallStatusAvailable && serverInstallPhase == "failed" {
+                break
+            }
             guard stillMissing, attempt < topoRetryDelays.count else { break }
             do {
-                try await Task.sleep(nanoseconds: topoRetryDelays[attempt] * 1_000_000_000)
+                try await Task.sleep(nanoseconds: topoRetryDelays[attempt])
             } catch {
                 return
             }
@@ -2544,10 +2626,18 @@ public final class LiveRoundAppModel: ObservableObject {
     private func restorePrepCourseDownloadsFromDisk() {
         let restored = (try? offlineStore.loadPrepCourseDownloads()) ?? []
         prepCourseDownloads = restored.map { record in
-            guard record.isActive else { return record }
             var resumable = record
-            resumable.phase = .queued
-            resumable.errorText = nil
+            // A ready row is only a convenience index; the revision-bound facts and every topo
+            // file remain the install authority. Reconcile stale rows at launch so the library
+            // never advertises files that were evicted, cleaned up, or invalidated by a renderer
+            // revision as ready.
+            if record.phase == .ready, readyPrepTemplate(for: record) == nil {
+                resumable.phase = .queued
+                resumable.errorText = nil
+            } else if record.isActive {
+                resumable.phase = .queued
+                resumable.errorText = nil
+            }
             return resumable
         }
         persistPrepCourseDownloads()
@@ -2592,11 +2682,12 @@ public final class LiveRoundAppModel: ObservableObject {
         prepCourseDownloadPresentation.retainSelection(course)
         let teeBox = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTee = teeBox?.isEmpty == false ? teeBox! : "blue"
-        let id = PrepCourseDownloadRecord.key(
-            globalId: course.globalId,
+        let candidate = PrepCourseDownloadRecord(
+            course: course,
             teeBox: resolvedTee,
-            nine: "all"
+            totalHoles: course.resolvedHoles
         )
+        let id = candidate.id
         if let existing = prepCourseDownloads.first(where: { $0.id == id }) {
             if readyPrepTemplate(for: existing) != nil {
                 updatePrepCourseDownload(id: id) { record in
@@ -2618,12 +2709,17 @@ public final class LiveRoundAppModel: ObservableObject {
                 record.phase = .queued
                 record.errorText = nil
             }
+        } else if let installed = readyPrepTemplate(for: candidate) {
+            var ready = candidate
+            ready.phase = .ready
+            ready.totalHoles = max(1, installed.holes.count)
+            ready.preparedHoles = ready.totalHoles
+            ready.downloadedHoles = ready.totalHoles
+            prepCourseDownloads.append(ready)
+            persistPrepCourseDownloads()
+            return
         } else {
-            prepCourseDownloads.append(PrepCourseDownloadRecord(
-                course: course,
-                teeBox: resolvedTee,
-                totalHoles: course.resolvedHoles
-            ))
+            prepCourseDownloads.append(candidate)
             persistPrepCourseDownloads()
         }
         startPrepCourseDownloadQueueIfNeeded()
@@ -2637,6 +2733,74 @@ public final class LiveRoundAppModel: ObservableObject {
         startPrepCourseDownloadQueueIfNeeded()
     }
 
+    /// Verify a locally complete prep package against the server's release-bound install journal
+    /// before opening the map. A missing/temporarily unreachable status endpoint is deliberately
+    /// non-blocking: the local package is internally consistent and remains usable offline. A
+    /// positive revision mismatch, however, invalidates the row and queues a fresh install so an
+    /// old Garmin bitmap is never presented as current.
+    public func validateReadyPrepCourse(_ record: PrepCourseDownloadRecord) async -> Bool {
+        guard record.phase == .ready else { return false }
+        guard let template = try? offlineStore.loadCourseTemplate(
+            globalId: record.course.globalId,
+            teeBox: record.teeBox,
+            nine: record.nine
+        ), template.hasCompleteOfflineCoursePrep,
+              offlineStore.hasCourseTopoImages(for: template) else {
+            updatePrepCourseDownload(id: record.id) { state in
+                state.phase = .queued
+                state.errorText = nil
+            }
+            startPrepCourseDownloadQueueIfNeeded()
+            return false
+        }
+        guard let syncClient else { return true }
+
+        let status: CourseInstallStatus?
+        do {
+            status = try await syncClient.fetchCourseInstallStatus(
+                globalId: record.course.globalId,
+                teeBox: record.teeBox,
+                nine: record.nine,
+                backGlobalId: courseInstallBackGlobalId(for: template)
+            )
+        } catch {
+            AICaddieLog.network.info(
+                "Prep release revalidation deferred for \(record.course.globalId, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+            return true
+        }
+        // A pruned/legacy journal is not evidence that the local package is stale. The next
+        // explicit download will recreate it, while this open remains available offline.
+        guard let status else { return true }
+
+        let localRevisions: [String: String] = template.holes.reduce(into: [:]) { result, hole in
+            let sourceGlobalId = hole.sourceGlobalId ?? template.course.globalId
+            let sourceLocalHole = hole.sourceLocalHole ?? hole.number
+            let prepRevision = template.coursePrep?.holes.first(where: { $0.hole == hole.number })?.geometryRevision
+            let revision = (prepRevision ?? hole.geometryRevision)?
+                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard let revision, !revision.isEmpty else { return }
+            result[offlinePrepKey(globalId: sourceGlobalId, localHole: sourceLocalHole)] = revision
+        }
+        let revisionMismatch = status.holes.contains { row in
+            guard let remote = row.geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  !remote.isEmpty else { return false }
+            let key = offlinePrepKey(globalId: row.globalId, localHole: row.localHole)
+            guard let local = localRevisions[key] else { return true }
+            return local != remote
+        }
+        guard revisionMismatch else { return true }
+
+        updatePrepCourseDownload(id: record.id) { state in
+            state.phase = .queued
+            state.preparedHoles = 0
+            state.downloadedHoles = 0
+            state.errorText = nil
+        }
+        startPrepCourseDownloadQueueIfNeeded()
+        return false
+    }
+
     private func resumePrepCourseDownloads(retryFailed: Bool) {
         guard syncClient != nil else { return }
         var changed = false
@@ -2646,7 +2810,12 @@ public final class LiveRoundAppModel: ObservableObject {
                 continue
             }
             let phase = prepCourseDownloads[index].phase
-            if phase == .preparing || phase == .downloading || (retryFailed && phase == .failed) {
+            let staleReady = phase == .ready
+                && readyPrepTemplate(for: prepCourseDownloads[index]) == nil
+            if staleReady
+                || phase == .preparing
+                || phase == .downloading
+                || (retryFailed && phase == .failed) {
                 prepCourseDownloads[index].phase = .queued
                 prepCourseDownloads[index].errorText = nil
                 changed = true
@@ -2766,9 +2935,47 @@ public final class LiveRoundAppModel: ObservableObject {
                     state.errorText = nil
                 }
             } else {
-                updatePrepCourseDownload(id: id, generation: generation) { state in
-                    state.phase = .failed
-                    state.errorText = "精确地图仍在准备，点下载可继续"
+                let serverStatus: CourseInstallStatus?
+                let statusProbeFailed: Bool
+                do {
+                    serverStatus = try await syncClient.fetchCourseInstallStatus(
+                        globalId: record.course.globalId,
+                        teeBox: record.teeBox,
+                        nine: record.nine,
+                        backGlobalId: courseInstallBackGlobalId(for: fetched)
+                    )
+                    statusProbeFailed = false
+                } catch {
+                    serverStatus = nil
+                    statusProbeFailed = true
+                    AICaddieLog.network.info(
+                        "Course install status deferred for \(record.course.globalId, privacy: .public): \(String(describing: error), privacy: .public)"
+                    )
+                }
+                let serverIsProgressing = serverStatus.map {
+                    $0.phase.caseInsensitiveCompare("queued") == .orderedSame
+                        || $0.phase.caseInsensitiveCompare("running") == .orderedSame
+                } ?? statusProbeFailed
+                if serverIsProgressing {
+                    // The server is still making durable progress; do not turn an ordinary cold
+                    // 18-hole render into a red failure row. Keep the app-scoped worker attached and
+                    // retry at a low cadence, resuming only missing revision-keyed files.
+                    updatePrepCourseDownload(id: id, generation: generation) { state in
+                        state.phase = state.downloadedHoles > 0 ? .downloading : .preparing
+                        state.errorText = nil
+                    }
+                    try await Task.sleep(nanoseconds: 15_000_000_000)
+                    guard !Task.isCancelled,
+                          prepCourseDownloadGeneration == generation else { throw CancellationError() }
+                    updatePrepCourseDownload(id: id, generation: generation) { state in
+                        state.phase = .queued
+                        state.errorText = nil
+                    }
+                } else {
+                    updatePrepCourseDownload(id: id, generation: generation) { state in
+                        state.phase = .failed
+                        state.errorText = "下载未完成，点下载继续"
+                    }
                 }
             }
         } catch is CancellationError {

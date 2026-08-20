@@ -101,7 +101,9 @@ def geometry_coverage_for_hole(
         missing_data.append({"label": "meshes", "reason": "prodgeometry mesh file missing"})
 
     current_authority: bool | None = None
+    authority_observation = "not_required"
     if require_current_authority and has_hazards and has_meshes:
+        authority_observation = "unknown"
         try:
             from ai_caddie.courses.course_reference import courseview_release_info
             from ai_caddie.geometry.geometry_authority import (
@@ -129,8 +131,10 @@ def geometry_coverage_for_hole(
                     release=release,
                 )
                 if current_authority:
+                    authority_observation = "current"
                     evidence.append({"label": "geometry_authority", "ref": _display_path(sidecar)})
                 else:
+                    authority_observation = "stale"
                     missing_data.append(
                         {
                             "label": "geometry_authority",
@@ -139,6 +143,7 @@ def geometry_coverage_for_hole(
                     )
         except (OSError, TypeError, ValueError, OverflowError):
             current_authority = False
+            authority_observation = "unknown"
             missing_data.append(
                 {
                     "label": "geometry_authority",
@@ -174,6 +179,10 @@ def geometry_coverage_for_hole(
         "localHole": int(local_hole),
         "coverage": coverage,
         "geometryRevision": geometry_revision,
+        # A failed observation is not proof that installed bytes belong to an old Garmin release.
+        # Durable installers use this tri-state signal to preserve an existing ready row on
+        # transient IO/parser errors while still invalidating an explicitly stale binding.
+        "authorityObservation": authority_observation,
         "hasHazards": has_hazards,
         "hasMeshes": has_meshes,
         "evidence": evidence,

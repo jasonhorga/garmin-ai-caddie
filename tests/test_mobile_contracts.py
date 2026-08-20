@@ -1511,6 +1511,11 @@ class MobileContractTests(unittest.TestCase):
         # competing whole-course server prewarm while the same holes are being fetched for offline use.
         self.assertIn("beginOfflineCourseDownload()", app_swift)
         self.assertIn("fetchOfflineTopoImages", app_swift)
+        self.assertIn(
+            "if prepDownloadID != nil && serverInstallStatusAvailable && !geometryReady",
+            app_swift,
+        )
+        self.assertIn("serverTopoReadyKeys.contains", app_swift)
         self.assertNotIn("prewarmRoundTopo()", app_swift)
         self.assertNotIn("prewarmCourseTopo(globalId:", app_swift)
         self.assertIn("enum HubRoute", round_home)
@@ -2179,7 +2184,7 @@ class MobileContractTests(unittest.TestCase):
         prep_picker = _read_required_source(self, IOS_DIR / "Views" / "PrepCoursePickerView.swift")
         course_search = _read_required_source(self, IOS_DIR / "Views" / "MobileCourseSearchView.swift")
 
-        # 备战支持明确的城市/名称搜索，也按本轮真机反馈提供附近球场；选中后进攻略。
+        # 备战支持明确的城市/名称搜索和附近球场；选择只加入下载库，完整后才进攻略。
         self.assertIn('title: "备战"', round_home)
         self.assertIn('subtitle: "搜索 · 球童试算"', round_home)
         self.assertIn("PrepCoursePickerView(", round_home)
@@ -2197,11 +2202,20 @@ class MobileContractTests(unittest.TestCase):
         # “已准备” is derived from both the ordinary downloaded-course library and a durable prep
         # job whose on-disk template/topos have reached ready.  The retained rows must also be wired
         # into the search screen so leaving the detail page does not erase the selected course.
-        self.assertIn("installedGlobalIds: Set(", prep_picker)
-        self.assertIn("downloadedCourseOptions.map(\\.globalId)", prep_picker)
-        self.assertIn("visibleDownloads.filter { $0.phase == .ready }", prep_picker)
+        # Readiness is keyed by the exact tee/nine tuple; the legacy global-id-only list is
+        # intentionally empty so a different tee cannot be opened as an installed package.
+        self.assertIn("installedGlobalIds: [],", prep_picker)
+        self.assertIn("installedCourseKeys: installedCourseKeys", prep_picker)
+        self.assertIn("let optionKeys = downloadedCourseOptions.filter(isReady).map", prep_picker)
+        self.assertNotIn("downloadedCourseOptions.map(\\.globalId)", prep_picker)
+        self.assertIn("visibleDownloads.filter(locallyReady)", prep_picker)
         self.assertIn("retainedDownloads: visibleDownloads", prep_picker)
+        self.assertIn("retainedDownloadKey: { match in", prep_picker)
+        self.assertIn("return downloadID(for: course)", prep_picker)
         self.assertIn("onDownload(course)", prep_picker)
+        self.assertIn("if isReady(course)", prep_picker)
+        self.assertIn("template.hasCompleteOfflineCoursePrep", prep_picker)
+        self.assertIn("offlineStore.hasCourseTopoImages(for: template)", prep_picker)
         self.assertIn("onNearby: nearbyCourses", prep_picker)
         self.assertIn("requestAuthorization()", prep_picker)
         self.assertIn("startUpdatingLocation()", prep_picker)
@@ -2218,6 +2232,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let queued = queuedDownloadIntent(for: course)", prep_picker)
         self.assertIn("$0.id == queued.id", prep_picker)
         self.assertIn("phase: .queued", prep_picker)
+        # Search metadata has no tee/nine fields. The search row must therefore resolve through the
+        # parent picker before matching a durable row; a global-id-only lookup can open the wrong tee.
+        self.assertIn("private func retainedDownload(for match: MobileCourseSearchMatch)", course_search)
+        self.assertIn("return retainedDownloads.first { $0.id == key }", course_search)
+        self.assertNotIn("$0.course.globalId == match.globalId", course_search)
 
     def test_ios_course_review_product_copy_and_route_yardage_contract(self) -> None:
         course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
@@ -2231,27 +2250,29 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn('.navigationTitle("赛前球场攻略")', course_review)
         self.assertIn('Text("蓝T \\(hole.blueYards)y")', course_review)
-        # Opening the review must not synchronously render and embed every hole image. Factual rows
-        # arrive in small ordered batches, while the selected-hole map upgrades in place.
-        self.assertIn("stride(from: 1, through: holeCount, by: 3)", course_review)
-        self.assertIn("let batch = Array(start...min(start + 2, holeCount))", course_review)
-        self.assertIn("holes: batch", course_review)
-        self.assertIn("render: false", course_review)
+        # Prep is now an installed-package surface. Search selection stays in the durable download
+        # library, and this destination has no page-owned fetch/coverage/partial-map lifecycle.
+        self.assertNotIn("stride(from: 1, through: holeCount, by: 3)", course_review)
+        self.assertNotIn("fetchCoursePrep(", course_review)
+        self.assertNotIn("fetchCoursePackage(", course_review)
+        self.assertNotIn("fetchCourseGeometryCoverage", course_review)
+        self.assertIn("offlineStore.loadCourseTemplate(", course_review)
+        self.assertIn("nine: nine", course_review)
+        self.assertIn("template.hasCompleteOfflineCoursePrep", course_review)
+        self.assertIn("offlineStore.hasCourseTopoImages(for: template)", course_review)
         self.assertIn("holes = merged.values.sorted { $0.hole < $1.hole }", course_review)
         self.assertIn("if let hole = selectedHole", course_review)
         self.assertIn("private var holeNavigator: some View", course_review)
         self.assertIn('accessibilityIdentifier("prep-hole-menu")', course_review)
         self.assertIn("showsPrepFactOverlays: true", course_review)
-        self.assertIn("fetchHolePrep(", course_review)
-        # Prep selection starts precise geometry installation, but the factual CourseView outline is
-        # useful immediately and remains visible while the card upgrades to precise topo in place.
-        self.assertIn("backgroundGeometry: true", course_review)
+        self.assertIn("if let download, download.phase != .ready", course_review)
+        self.assertIn('accessibilityIdentifier("prep-download-incomplete")', course_review)
+        self.assertIn('accessibilityIdentifier("prep-local-package-missing")', course_review)
         self.assertIn("CourseReviewMapPolicy.hasPreciseFacts", course_review)
         self.assertNotIn("requiresPreciseMap", course_review)
-        self.assertIn("简化地图 · 精确地图准备中", course_review)
-        self.assertIn("简化地图 · 精确地图暂不可用 · 重试", course_review)
-        self.assertNotIn("地图完成前不显示简化轮廓", course_review)
-        self.assertIn("fetchCourseGeometryCoverage", course_review)
+        self.assertNotIn("简化地图 · 精确地图准备中", course_review)
+        self.assertNotIn("简化地图 · 精确地图暂不可用 · 重试", course_review)
+        self.assertIn("完整地图准备中，当前不会显示简化轮廓", course_review)
         # De-engineered: the "Par 来源：…" provenance label is hidden from the consumer course review.
         self.assertNotIn("Par 来源", course_review)
         # Course review and the full caddie plan share one measured hazard projection.  On a
@@ -3476,18 +3497,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("hasLiveCenterDistance:", container) # root degrades map → distances → score honestly
         self.assertIn(".onTapGesture", container)      # hero tap ↔ map
         # Garmin-style map interactions are separated: root tap opens focused Touch Target; flag
-        # movement exists only in explicit Green Preview and never masquerades as a saved shot event.
+        # movement exists only in explicit Green Preview, persists through its dedicated placement
+        # callback, and never masquerades as a saved shot event.
         map_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift")
         green_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchGreenPreviewView.swift")
         self.assertIn("measuredPxOverride", map_view)
         self.assertIn("case touchTarget", map_view)
         self.assertIn("SpatialTapGesture", map_view)
         self.assertNotIn("pinDragOverride", map_view)
-        self.assertIn("temporaryPin", green_view)
-        self.assertIn("离开后复原", green_view)
+        self.assertIn("selectedPin", green_view)
+        self.assertIn("onPlacementChange", green_view)
+        self.assertIn("persistPlacement", green_view)
         self.assertNotIn("onLongPressGesture", map_view)
         self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }", container)
-        self.assertIn("func yards(toImagePx", map_view) # derived px→码, no extra payload
+        self.assertIn("let yardsPerPixel", map_view) # derived px→码, no extra payload
         self.assertIn(".onTapGesture { holeMapBigText.toggle() }", container)
 
     def test_watch_native_gps_wiring(self) -> None:

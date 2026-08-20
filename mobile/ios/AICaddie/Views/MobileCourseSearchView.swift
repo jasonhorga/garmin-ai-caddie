@@ -16,12 +16,18 @@ public struct MobileCourseSearchView: View {
     public let title: String
     public let dismissAfterSelection: Bool
     public let installedGlobalIds: Set<Int>
+    public let installedCourseKeys: Set<String>?
     public let retainedDownloads: [PrepCourseDownloadRecord]
     public let onSearch: (String, String?) async throws -> [MobileCourseSearchMatch]
     public let onNearby: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     public let onSelect: (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
     public let onOpenRetainedDownload: (PrepCourseDownloadRecord) -> Void
     public let onRetryRetainedDownload: (String) -> Void
+    /// Resolves a search row to the exact durable download identity selected by its parent.
+    /// Search metadata intentionally does not contain a tee/nine choice, while one Garmin
+    /// globalId can have several installed tee variants. A nil resolver falls back to the
+    /// catalogue row's explicit tee (or the documented blue/all default).
+    public let retainedDownloadKey: ((MobileCourseSearchMatch) -> String?)?
 
     private enum SearchKind: Equatable {
         case nearby
@@ -50,24 +56,28 @@ public struct MobileCourseSearchView: View {
         title: String? = nil,
         dismissAfterSelection: Bool = true,
         installedGlobalIds: Set<Int> = [],
+        installedCourseKeys: Set<String>? = nil,
         retainedDownloads: [PrepCourseDownloadRecord] = [],
         onSearch: @escaping (String, String?) async throws -> [MobileCourseSearchMatch],
         onNearby: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
         onSelect: @escaping (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void,
         onOpenRetainedDownload: @escaping (PrepCourseDownloadRecord) -> Void = { _ in },
-        onRetryRetainedDownload: @escaping (String) -> Void = { _ in }
+        onRetryRetainedDownload: @escaping (String) -> Void = { _ in },
+        retainedDownloadKey: ((MobileCourseSearchMatch) -> String?)? = nil
     ) {
         self.locationProvider = locationProvider
         self.mode = mode
         self.title = title ?? (mode == .nameOnly ? "搜索备战球场" : "找球场")
         self.dismissAfterSelection = dismissAfterSelection
         self.installedGlobalIds = installedGlobalIds
+        self.installedCourseKeys = installedCourseKeys
         self.retainedDownloads = retainedDownloads
         self.onSearch = onSearch
         self.onNearby = onNearby
         self.onSelect = onSelect
         self.onOpenRetainedDownload = onOpenRetainedDownload
         self.onRetryRetainedDownload = onRetryRetainedDownload
+        self.retainedDownloadKey = retainedDownloadKey
     }
 
     public var body: some View {
@@ -154,6 +164,8 @@ public struct MobileCourseSearchView: View {
                     }
                 } header: {
                     Text("最近选择")
+                } footer: {
+                    Text("服务器会继续准备；iOS 若被系统挂起，回到前台会从已保存的洞继续。")
                 }
             }
 
@@ -172,10 +184,8 @@ public struct MobileCourseSearchView: View {
             if !matches.isEmpty {
                 Section(lastSearch == .nearby ? "附近结果" : "搜索结果") {
                     ForEach(matches) { match in
-                        let isInstalled = installedGlobalIds.contains(match.globalId)
-                        let download = retainedDownloads.first {
-                            $0.course.globalId == match.globalId
-                        }
+                        let isInstalled = courseIsInstalled(match.courseOption)
+                        let download = retainedDownload(for: match)
                         Button {
                             guard match.courseOption != nil else { return }
                             onSelect(match, matches)
@@ -232,18 +242,20 @@ public struct MobileCourseSearchView: View {
 
     @ViewBuilder
     private func retainedDownloadRow(_ download: PrepCourseDownloadRecord) -> some View {
+        let verifiedReady = download.phase == .ready
+            && courseIsInstalled(download.course)
         HStack(spacing: 10) {
             Button {
                 onOpenRetainedDownload(download)
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: download.phase == .ready ? "checkmark.circle.fill" : "flag.fill")
-                        .foregroundStyle(download.phase == .ready ? .secondary : LiveHoleStyle.green)
+                    Image(systemName: verifiedReady ? "checkmark.circle.fill" : "flag.fill")
+                        .foregroundStyle(verifiedReady ? .secondary : LiveHoleStyle.green)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(download.course.name)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
-                        Text(downloadStatus(download))
+                        Text(downloadStatus(download, verifiedReady: verifiedReady))
                             .font(.caption)
                             .foregroundStyle(download.phase == .failed ? .orange : .secondary)
                         if download.phase == .downloading || download.phase == .preparing {
@@ -258,10 +270,10 @@ public struct MobileCourseSearchView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("prep-download-open-\(download.course.globalId)")
-            .accessibilityValue(downloadStatus(download))
+            .accessibilityValue(downloadStatus(download, verifiedReady: verifiedReady))
 
             Spacer(minLength: 4)
-            if download.phase == .failed {
+            if download.phase == .failed || (download.phase == .ready && !verifiedReady) {
                 Button {
                     onRetryRetainedDownload(download.id)
                 } label: {
@@ -283,7 +295,10 @@ public struct MobileCourseSearchView: View {
         .accessibilityIdentifier("prep-download-row-\(download.course.globalId)")
     }
 
-    private func downloadStatus(_ download: PrepCourseDownloadRecord) -> String {
+    private func downloadStatus(
+        _ download: PrepCourseDownloadRecord,
+        verifiedReady: Bool
+    ) -> String {
         switch download.phase {
         case .queued:
             return "等待下载"
@@ -292,7 +307,7 @@ public struct MobileCourseSearchView: View {
         case .downloading:
             return "已保存 \(download.downloadedHoles)/\(download.totalHoles) 洞"
         case .ready:
-            return "已完整下载到本机"
+            return verifiedReady ? "已完整下载到本机" : "本地文件不完整，可继续下载"
         case .failed:
             return download.errorText ?? "下载中断，可继续"
         }
@@ -302,19 +317,42 @@ public struct MobileCourseSearchView: View {
         isInstalled: Bool,
         download: PrepCourseDownloadRecord?
     ) -> String {
-        if isInstalled || download?.phase == .ready { return "已准备" }
+        if isInstalled { return "已准备" }
         guard let download else { return "选择后下载" }
         switch download.phase {
         case .queued: return "等待下载"
         case .preparing: return "准备中 \(download.preparedHoles)/\(download.totalHoles)"
         case .downloading: return "下载中 \(download.downloadedHoles)/\(download.totalHoles)"
-        case .ready: return "已准备"
+        case .ready: return "需要重新下载"
         case .failed: return "可继续下载"
         }
     }
 
     private var trimmedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func courseIsInstalled(_ course: MobileCourseOption?) -> Bool {
+        guard let course else { return false }
+        if let installedCourseKeys {
+            let tee = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return installedCourseKeys.contains(PrepCourseDownloadRecord.key(
+                globalId: course.globalId,
+                teeBox: tee?.isEmpty == false ? tee! : "blue",
+                nine: "all"
+            ))
+        }
+        return installedGlobalIds.contains(course.globalId)
+    }
+
+    private func retainedDownload(for match: MobileCourseSearchMatch) -> PrepCourseDownloadRecord? {
+        guard let course = match.courseOption else { return nil }
+        let key = retainedDownloadKey?(match) ?? PrepCourseDownloadRecord.key(
+            globalId: course.globalId,
+            teeBox: course.teeBox ?? "blue",
+            nine: "all"
+        )
+        return retainedDownloads.first { $0.id == key }
     }
 
     private var trimmedCity: String {

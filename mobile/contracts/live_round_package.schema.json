@@ -263,6 +263,10 @@
             "type": ["string", "null"],
             "pattern": "^[0-9a-f]{16}$"
           },
+          "geometryAuthorityObservation": {
+            "type": "string",
+            "enum": ["current", "stale", "unknown"]
+          },
           "sourceGlobalId": {
             "type": ["integer", "null"]
           },
@@ -311,6 +315,10 @@
               "geometryRevision": {
                 "type": ["string", "null"],
                 "pattern": "^[0-9a-f]{16}$"
+              },
+              "geometryAuthorityObservation": {
+                "type": "string",
+                "enum": ["current", "stale", "unknown"]
               },
               "candidateRoutes": {
                 "type": "array",

@@ -6,7 +6,9 @@ import hmac
 import logging
 import os
 import threading
-from typing import Annotated, Literal
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Annotated, Literal
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -23,6 +25,7 @@ from ai_caddie.connectors.snapshot import snapshot_to_payload
 from ai_caddie.core.data import ROOT
 
 from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
+from . import course_install
 from .caddie import (
     build_caddie_context_response,
     build_caddie_decision_response,
@@ -93,6 +96,7 @@ from .models import (
     ClubBagManualRequest,
     EffectiveClubBagResponse,
     CourseGeometryCoverageResponse,
+    CourseInstallStatusResponse,
     GarminSessionImportRequest,
     GarminSessionImportResponse,
     GeometryEnsureResponse,
@@ -170,6 +174,11 @@ async def _lifespan(_app: FastAPI):
     # before serving any request — the per-request path already fail-closes, this makes it audible at boot.
     assert_admin_security_config()
     warm_stats_cache_in_background()
+    threading.Thread(
+        target=course_install.resume_pending_jobs,
+        name="course-install-resume",
+        daemon=True,
+    ).start()
     # 「打开即用」:启动即在后台准备 owner 最近一盘(预热其 topo,失败 swallow)。
     threading.Thread(target=_prepare_recent_bg, args=(OWNER_ID,), name="prepare-recent-boot", daemon=True).start()
     yield
@@ -289,6 +298,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/package"))
             or path == "/api/v2/mobile/courses/options"
             or (path.startswith("/api/v2/mobile/courses/") and path.endswith("/package"))
+            or (path.startswith("/api/v2/courses/") and path.endswith("/install/status"))
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep"))
             or (path.startswith("/api/v2/courses/") and path.endswith("/prep-tips"))
             or (
@@ -412,6 +422,7 @@ def service_index() -> dict[str, object]:
             "geometryEnsure": "/api/v2/geometry/hole/{global_id}/{local_hole}/ensure",
             "geometryHoleMap": "/api/v2/geometry/hole/{global_id}/{local_hole}/map",
             "courseHoleTopoPng": "/api/v2/courses/{global_id}/holes/{hole}/topo.png",
+            "courseInstallStatus": "/api/v2/courses/{global_id}/install/status",
             "caddieContext": "/api/v2/caddie/context",
             "caddieDecision": "/api/v2/caddie/decision",
             "caddieDecisionAudit": "/api/v2/caddie/decisions/{decision_id}/audit",
@@ -706,10 +717,11 @@ def geometry_hole_map(
     return load_hole_map_response(global_id, local_hole, provider=provider, source_ref=source_ref)
 
 
-# The stable route is cacheable but must revalidate: Garmin can publish a newer
-# geometry asset for the same gid/hole.  Its ETag includes both renderer style
-# and the release-bound prodgeometry identity, so unchanged maps return 304.
+# An unpinned route must revalidate because Garmin can publish new geometry for the same gid/hole.
+# A caller that pins both geometry revision and renderer version names immutable bytes and can skip
+# the home-server round trip entirely after the first download.
 _TOPO_CACHE_CONTROL = "public, no-cache"
+_IMMUTABLE_TOPO_CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 
 @app.get("/api/v2/courses/{global_id}/holes/{hole}/topo.png")
@@ -717,6 +729,7 @@ def course_hole_topo_png(
     request: Request,
     global_id: int,
     hole: int = Path(ge=1, le=36),
+    v: str | None = Query(default=None, max_length=32),
     r: str | None = Query(default=None, max_length=128),
 ) -> Response:
     """The LOCKED realistic-topo base bitmap for a course hole (design-system §九), the base
@@ -728,6 +741,9 @@ def course_hole_topo_png(
     rounds) 404s so the client falls back to its placeholder — it never blocks or 500s."""
     from ai_caddie.geometry import topo_render
     from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
+
+    if v is not None and v != topo_render.STYLE_VERSION:
+        raise HTTPException(status_code=409, detail="topo renderer version changed")
 
     # Do not combine a freshly refreshed course package with pixels decoded from an older
     # Garmin release.  The lightweight vector remains playable while the normal background
@@ -750,7 +766,13 @@ def course_hole_topo_png(
 
     identity = topo_render.cache_identity(global_id, hole)
     etag = f'"{identity}-{int(global_id)}-{int(hole)}"'
-    headers = {"Cache-Control": _TOPO_CACHE_CONTROL, "ETag": etag}
+    immutable_request = bool(requested_revision) and v == topo_render.STYLE_VERSION
+    headers = {
+        "Cache-Control": (
+            _IMMUTABLE_TOPO_CACHE_CONTROL if immutable_request else _TOPO_CACHE_CONTROL
+        ),
+        "ETag": etag,
+    }
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     try:
@@ -777,6 +799,7 @@ def course_hole_green_detail_png(
     width: float = Query(..., ge=20, le=1000),
     height: float = Query(..., ge=20, le=1000),
     size: int = Query(1024, ge=320, le=1280),
+    v: str | None = Query(default=None, max_length=32),
     g: str | None = Query(default=None, max_length=32),
     r: str | None = Query(default=None, max_length=128),
 ) -> Response:
@@ -793,6 +816,8 @@ def course_hole_green_detail_png(
     # ``g`` is a URL/cache-busting contract for installed clients.  Older apps omitted it and are
     # still allowed to receive the current renderer; a newer app naming an unknown style must not
     # cache today's pixels under a future contract it assumes the server already understands.
+    if v is not None and v != topo_render.STYLE_VERSION:
+        raise HTTPException(status_code=409, detail="topo renderer version changed")
     if g is not None and g != topo_render.GREEN_DETAIL_STYLE_VERSION:
         raise HTTPException(status_code=409, detail="green detail renderer version changed")
 
@@ -818,8 +843,15 @@ def course_hole_green_detail_png(
         (repr(crop) + f"|{int(size)}|{topo_render.GREEN_DETAIL_STYLE_VERSION}").encode("ascii")
     ).hexdigest()[:20]
     etag = f'"{identity}-green-{crop_key}"'
+    immutable_request = (
+        bool(requested_revision)
+        and v == topo_render.STYLE_VERSION
+        and g == topo_render.GREEN_DETAIL_STYLE_VERSION
+    )
     headers = {
-        "Cache-Control": _TOPO_CACHE_CONTROL,
+        "Cache-Control": (
+            _IMMUTABLE_TOPO_CACHE_CONTROL if immutable_request else _TOPO_CACHE_CONTROL
+        ),
         "ETag": etag,
         "X-Green-Detail-Crop": ",".join(str(value) for value in crop),
     }
@@ -966,6 +998,7 @@ def course_prep_nine(
     # prep_nine rebuilds all-hole mesh geometry (~19s for a 9-hole course) on every request; cache the
     # response by filesystem fingerprint so 备战 opens instantly until geometry / shots / clubs change.
     def _build() -> dict:
+        build_started = time.perf_counter()
         # Each player reads their OWN model: the owner's history-derived ladder, or a member's
         # ladder blended from their own logged shots + manual bag — no player's distances leak to
         # another (effective_club_ladder + the player-scoped loaders are isolated per player_id).
@@ -974,13 +1007,21 @@ def course_prep_nine(
         # threaded player_id's tree, so a member sees their own shots and never the owner's.
         nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
                                      include_shots=include_shots, player_id=player_id)
-        return {
+        payload = {
             "schema": "ai-caddie-course-prep-v1",
             "globalId": int(global_id),
             "holeCount": len(nine),
             "clubs": [{"name": name, "m": dist, "yd": course_prep.yd(dist)} for name, dist in ladder],
             "holes": nine,
         }
+        logger.info(
+            "course_install stage=prep gid=%s holes=%s render=%s duration_ms=%s",
+            int(global_id),
+            len(requested),
+            bool(render),
+            int((time.perf_counter() - build_started) * 1000),
+        )
+        return payload
 
     return prep_cache.cached_course_prep(
         global_id=global_id, requested=requested, render=render,
@@ -1301,6 +1342,357 @@ _GEOMETRY_UPGRADE_LOCK = threading.Lock()
 _GEOMETRY_UPGRADE_RUNNING: set[int] = set()
 _GEOMETRY_UPGRADE_PENDING: dict[int, set[int]] = {}
 _GEOMETRY_UPGRADE_INFLIGHT: dict[int, set[int]] = {}
+# Geometry installation already has a process-wide two-hole window.  Keep only one heavy topo
+# render in the overlap lane so geometry and rasterisation can make progress together without
+# multiplying the shared homeserver's peak memory.  The renderer itself still single-flights a
+# duplicate path and validates the revision before publishing its PNG.
+_TOPO_PIPELINE_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="course-topo-pipeline")
+
+
+def _normalise_authority_observation(evidence: dict[str, Any]) -> str:
+    """Return the release probe's bounded public state.
+
+    Older cached evidence payloads predate ``authorityObservation``. A ready payload that already
+    carries a revision is safe to treat as current for compatibility; an incomplete payload remains
+    unknown and therefore retryable.
+    """
+    raw = str(evidence.get("authorityObservation") or "").strip().lower()
+    if raw in {"current", "stale", "unknown", "not_required"}:
+        return raw
+    if (
+        str(evidence.get("coverage") or "").strip().lower() == "ready"
+        and str(evidence.get("geometryRevision") or "").strip()
+    ):
+        return "current"
+    return "unknown"
+
+
+def _probe_geometry_revision(global_id: int, hole: int) -> tuple[str | None, str]:
+    """Probe a hole's release identity without collapsing transient errors into stale data.
+
+    The second tuple item is one of ``current``, ``stale`` or ``unknown``. ``unknown`` is an
+    operationally retryable result: the authority sidecar/release document could not be observed,
+    so callers must not overwrite an existing ready row or show a user-facing failure.
+    """
+    from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
+
+    last_observation = "unknown"
+    for delay in (0.0, 0.05, 0.2):
+        if delay:
+            time.sleep(delay)
+        try:
+            evidence = geometry_coverage_for_hole(
+                int(global_id),
+                int(hole),
+                require_current_authority=True,
+                refresh_release=False,
+            )
+        except Exception:  # noqa: BLE001 - transient local/provider observation failure
+            evidence = {"coverage": "partial", "authorityObservation": "unknown"}
+        observation = _normalise_authority_observation(evidence)
+        last_observation = observation
+        coverage = str(evidence.get("coverage") or "").strip().lower()
+        revision = str(evidence.get("geometryRevision") or "").strip().lower() or None
+        if observation == "stale":
+            return None, "stale"
+        if coverage == "ready" and revision:
+            # A cached release may be unavailable while the local derivative identity remains
+            # usable. Keep the revision, but let the caller know that its freshness is uncertain.
+            return revision, observation
+        if observation == "current":
+            # Current authority without a cache token is incomplete, not proof of staleness.
+            last_observation = "unknown"
+    return None, "unknown" if last_observation == "current" else last_observation
+
+
+def _render_course_topo_one(
+    global_id: int,
+    hole: int,
+    expected_revision: str | None = None,
+) -> bool | dict[str, Any]:
+    """Render one immutable topo asset and report whether bytes were actually available.
+
+    The older ``_prewarm_course_topo`` helper intentionally swallowed every error because it was
+    a best-effort HTTP background task.  A durable install journal needs a truthful per-hole result
+    so it can remain retryable instead of claiming a complete course after a silent 404.
+    """
+    from ai_caddie.geometry import topo_render
+
+    expected = str(expected_revision or "").strip().lower() or None
+    before_revision, before_observation = _probe_geometry_revision(global_id, hole)
+    if before_observation == "stale":
+        return {"status": "retryable", "reason": "geometry release changed"}
+    if expected and before_revision and before_revision != expected:
+        return {"status": "retryable", "reason": "geometry release changed"}
+    if expected and not before_revision:
+        return {"status": "retryable", "reason": "geometry revision unavailable"}
+    try:
+        payload = topo_render.render_hole_topo_cached(int(global_id), int(hole))
+        if not payload:
+            return False
+        after_revision, after_observation = _probe_geometry_revision(global_id, hole)
+        if after_observation == "stale":
+            return {"status": "retryable", "reason": "geometry release changed"}
+        if expected and after_revision != expected:
+            return {"status": "retryable", "reason": "geometry revision unavailable"}
+        if expected or after_revision:
+            return {"status": "ready", "revision": after_revision or expected}
+        return {"status": "retryable", "reason": "geometry revision unavailable"}
+    except Exception:  # noqa: BLE001 - the journal records the failed hole, not a request error
+        return False
+
+
+def _current_geometry_revision(global_id: int, hole: int) -> str | None:
+    """Return the release-bound derivative identity after a geometry install.
+
+    ``ensure_prodgeometry`` deliberately returns a compact operational result and does not copy
+    the cache-token implementation into every caller.  Re-reading the cheap local authority probe
+    here gives the journal a stable per-hole binding and makes an unbound/legacy pair ineligible
+    for a supposedly complete install.
+    """
+    revision, observation = _probe_geometry_revision(global_id, hole)
+    return revision if observation != "stale" else None
+
+
+def run_course_install_job(identifier: str) -> None:
+    """Run one durable course-install journal to completion.
+
+    Geometry is downloaded with the existing two-hole bounded window.  Each successful geometry
+    hole is handed to the single topo lane immediately, so the first precise bitmap is not held
+    behind an 18-hole geometry barrier.  The journal is updated after every hole and can therefore
+    resume safely after an API restart or a transient provider failure.
+    """
+    state = course_install.state_for_worker(identifier)
+    if state is None:
+        return
+    rows = [row for row in (state.get("holes") or {}).values() if isinstance(row, dict)]
+    if not rows:
+        course_install.update(identifier, phase="failed", stage="error", error="course has no holes")
+        return
+
+    state = course_install.state_for_worker(identifier) or state
+    rows = [row for row in (state.get("holes") or {}).values() if isinstance(row, dict)]
+    topo_futures: dict[Any, tuple[int, int, str, int]] = {}
+    topo_completion_events: dict[Any, threading.Event] = {}
+
+    def finish_topo_future(
+        future: Any,
+        *,
+        gid: int,
+        hole: int,
+        geometry_revision: str,
+        work_revision: int,
+    ) -> None:
+        try:
+            result = future.result()
+        except Exception:  # noqa: BLE001 - persist a retryable hole state
+            result = False
+        if isinstance(result, dict):
+            result_status = str(result.get("status") or "").strip().lower()
+            ok = result_status == "ready"
+            retryable = result_status in {"retryable", "unknown", "stale"}
+            result_error = str(result.get("reason") or "topo render failed")
+        else:
+            # Keep compatibility with older/test renderers that returned a boolean.
+            ok = bool(result)
+            retryable = False
+            result_error = "topo render failed"
+        topo_state = "ready" if ok else ("queued" if retryable else "failed")
+        course_install.update(
+            identifier,
+            phase="running",
+            stage="topo" if ok or retryable else "error",
+            global_id=gid,
+            local_hole=hole,
+            topo=topo_state,
+            topo_revision=geometry_revision if ok else None,
+            error=None if ok or retryable else result_error,
+            clear_error=ok or retryable,
+            expected_work_revision=work_revision,
+        )
+
+    def queue_topo(row: dict[str, Any]) -> None:
+        gid = int(row.get("globalId") or 0)
+        hole = int(row.get("localHole") or 0)
+        if gid <= 0 or hole <= 0:
+            return
+        current = course_install.state_for_worker(identifier) or {}
+        current_row = (current.get("holes") or {}).get(f"{gid}:{hole}") or {}
+        geometry_revision = str(
+            current_row.get("geometryRevision") or row.get("geometryRevision") or ""
+        ).strip().lower()
+        if not geometry_revision:
+            return
+        if course_install._topo_ready(current_row):
+            return
+        future = _TOPO_PIPELINE_POOL.submit(_render_course_topo_one, gid, hole, geometry_revision)
+        work_revision = int(current_row.get("workRevision") or 1)
+        topo_futures[future] = (gid, hole, geometry_revision, work_revision)
+        completion_event = threading.Event()
+        topo_completion_events[future] = completion_event
+        course_install.update(
+            identifier,
+            phase="running",
+            stage="topo",
+            global_id=gid,
+            local_hole=hole,
+            topo="running",
+            expected_work_revision=work_revision,
+        )
+        def persist_completed_topo(
+            completed: Any,
+            *,
+            gid: int = gid,
+            hole: int = hole,
+            revision: str = geometry_revision,
+            work: int = work_revision,
+            persisted: threading.Event = completion_event,
+        ) -> None:
+            try:
+                finish_topo_future(
+                    completed,
+                    gid=gid,
+                    hole=hole,
+                    geometry_revision=revision,
+                    work_revision=work,
+                )
+            finally:
+                # Future.result() may wake before CPython invokes done callbacks. Signal only after
+                # the durable row write so the final phase decision cannot observe topo="running".
+                persisted.set()
+
+        future.add_done_callback(persist_completed_topo)
+
+    pending_by_gid: dict[int, list[int]] = {}
+    for row in rows:
+        # Revalidate geometry for every hole whose topo is not complete. A package-level ready bit
+        # is only a snapshot; this closes the race where a file is removed/rebound between enqueue
+        # and the worker's render attempt.
+        if course_install._geometry_ready(row) and course_install._topo_ready(row):
+            continue
+        gid = int(row.get("globalId") or 0)
+        hole = int(row.get("localHole") or 0)
+        if gid > 0 and hole > 0:
+            pending_by_gid.setdefault(gid, []).append(hole)
+
+    from ai_caddie.caddie.mobile_live import _ensure_geometry_for_course
+
+    completed_geometry_keys: set[tuple[int, int]] = set()
+    expected_work_revisions = {
+        (
+            int(row.get("globalId") or 0),
+            int(row.get("localHole") or 0),
+        ): int(row.get("workRevision") or 1)
+        for row in rows
+        if int(row.get("globalId") or 0) > 0 and int(row.get("localHole") or 0) > 0
+    }
+
+    def on_geometry_complete(result: dict[str, Any]) -> None:
+        gid = int(result.get("globalId") or 0)
+        hole = int(result.get("localHole") or 0)
+        if gid <= 0 or hole <= 0:
+            return
+        expected_work_revision = expected_work_revisions.get((gid, hole))
+        current = course_install.state_for_worker(identifier) or {}
+        current_row = (current.get("holes") or {}).get(f"{gid}:{hole}") or {}
+        if (
+            expected_work_revision is not None
+            and int(current_row.get("workRevision") or 0) != expected_work_revision
+        ):
+            # A newer package re-bound this hole while the old provider request was in flight.
+            # The next worker pass owns it; this callback must not resurrect stale bytes.
+            return
+        completed_geometry_keys.add((gid, hole))
+        ok = bool(result.get("ok"))
+        revision, observation = _probe_geometry_revision(gid, hole) if ok else (None, "unknown")
+        expected_revision = str(current_row.get("geometryRevision") or "").strip().lower() or None
+        retryable = False
+        if ok and observation == "stale":
+            retryable = True
+            result = {**result, "reason": "geometry release changed"}
+        elif ok and not revision:
+            retryable = True
+            result = {**result, "reason": "geometry revision unavailable"}
+        elif ok and expected_revision and revision != expected_revision:
+            retryable = True
+            result = {**result, "reason": "geometry release changed"}
+        geometry_state = "ready" if ok and not retryable else "queued"
+        course_install.update(
+            identifier,
+            phase="running",
+            stage="geometry" if not ok or retryable else "topo",
+            global_id=gid,
+            local_hole=hole,
+            geometry=geometry_state if (ok or retryable) else "failed",
+            geometry_revision=revision if ok and not retryable else expected_revision,
+            error=None if ok or retryable else str(result.get("reason") or "geometry download failed"),
+            clear_error=ok or retryable,
+            expected_work_revision=expected_work_revision,
+        )
+        if ok and not retryable:
+            queue_topo({
+                "globalId": gid,
+                "localHole": hole,
+                "topo": "queued",
+                "geometryRevision": revision,
+            })
+
+    for gid, holes in sorted(pending_by_gid.items()):
+        try:
+            summary = _ensure_geometry_for_course(
+                gid,
+                holes=sorted(set(holes)),
+                on_hole_complete=on_geometry_complete,
+            )
+            # A legacy/test implementation may omit the callback. Reconcile from its deterministic
+            # result list so the journal never remains permanently queued.
+            for result in summary.get("results") or []:
+                if not isinstance(result, dict):
+                    continue
+                result_key = (int(result.get("globalId") or gid), int(result.get("localHole") or 0))
+                if result_key in completed_geometry_keys:
+                    continue
+                # Real callbacks normally update the row. This branch only fills a missing row
+                # for a legacy/test implementation that does not invoke the optional callback.
+                on_geometry_complete({**result, "globalId": result_key[0]})
+        except Exception as exc:  # noqa: BLE001 - continue other physical loops
+            for hole in sorted(set(holes)):
+                course_install.update(
+                    identifier,
+                    global_id=gid,
+                    local_hole=hole,
+                    geometry="failed",
+                    error="geometry download failed",
+                    expected_work_revision=expected_work_revisions.get((gid, hole)),
+                )
+
+    # Wait for every submitted topo *and its journal callback*. Future.result() alone is not a
+    # callback barrier: CPython notifies result waiters before invoking callbacks.
+    for future, (_gid, _hole, _revision, _work_revision) in list(topo_futures.items()):
+        try:
+            future.result()
+        except Exception:  # noqa: BLE001
+            pass
+        topo_completion_events[future].wait()
+
+    final = course_install.state_for_worker(identifier) or {}
+    final_rows = [row for row in (final.get("holes") or {}).values() if isinstance(row, dict)]
+    if final_rows and course_install._all_assets_ready(final):
+        course_install.update(identifier, phase="ready", stage="complete", clear_error=True)
+    elif any(
+        row.get("geometry") == "failed" or row.get("topo") == "failed"
+        for row in final_rows
+    ):
+        failed = next(
+            (str(row.get("error") or "asset unavailable") for row in final_rows
+             if row.get("geometry") == "failed" or row.get("topo") == "failed"),
+            "asset unavailable",
+        )
+        course_install.update(identifier, phase="failed", stage="error", error=failed)
+    else:
+        # New refs can be merged while this worker is finishing. Leave the durable row queued so
+        # the hand-off in ``course_install._run`` starts another pass instead of stranding it.
+        course_install.update(identifier, phase="queued", stage="queued", error=None, clear_error=True)
 
 
 @app.get("/api/v2/mobile/courses/{global_id}/package", response_model=LiveRoundPackageResponse)
@@ -1330,40 +1722,78 @@ def mobile_course_package(
         back_global_id=back_global_id,
         player_id=player_id,
     )
-    if background_geometry and not ensure_geometry:
-        requested: dict[int, set[int]] = {}
-        ready: dict[int, set[int]] = {}
-        for index, hole in enumerate(package.holes):
-            source_global_id = int(hole.get("sourceGlobalId") or package.course.get("globalId") or global_id)
-            source_local_hole = int(hole.get("sourceLocalHole") or hole.get("number") or 0)
-            if source_global_id > 0 and source_local_hole > 0:
-                # The first visible hole is the latency-critical authority. Revalidate it even when
-                # a lightweight package briefly classifies legacy bytes as ready while the refreshed
-                # Garmin release is being published. A genuinely current hole takes the cheap cached
-                # ensure path; a stale/unbound one cannot be stranded behind a topo-only prewarm.
-                target = (
-                    requested
-                    if index == 0
-                    or str(hole.get("geometryCoverage") or "missing") != "ready"
-                    else ready
-                )
-                target.setdefault(source_global_id, set()).add(source_local_hole)
-        if requested:
-            background_tasks.add_task(
-                _upgrade_course_geometry,
-                {gid: sorted(holes) for gid, holes in requested.items()},
-            )
-        # Ready geometry can still have a cold bitmap cache. Warm that work on the server after the
-        # lightweight package returns, so iOS suspension does not halt the expensive render stage.
-        # Missing geometry goes first because it has no client-side fallback to a precise map;
-        # concurrent phone requests for ready holes join the renderer's per-hole singleflight.
-        for source_global_id, holes in sorted(ready.items()):
-            background_tasks.add_task(
-                _prewarm_course_topo,
-                source_global_id,
-                sorted(holes),
-            )
+    if not background_geometry or ensure_geometry:
+        return package
+
+    # The package response remains lightweight, but the expensive work now belongs to a durable,
+    # idempotent journal rather than FastAPI's process-local BackgroundTasks. A request can safely
+    # finish, the app can be suspended, and an API restart can resume the same course job.
+    refs: list[dict[str, Any]] = []
+    requested: dict[int, list[int]] = {}
+    ready: dict[int, list[int]] = {}
+    for hole in package.holes:
+        source_global_id = int(
+            hole.get("sourceGlobalId") or package.course.get("globalId") or global_id
+        )
+        source_local_hole = int(hole.get("sourceLocalHole") or hole.get("number") or 0)
+        display_hole = int(hole.get("number") or source_local_hole or 0)
+        if source_global_id <= 0 or source_local_hole <= 0:
+            continue
+        refs.append({
+            "globalId": source_global_id,
+            "localHole": source_local_hole,
+            "displayHole": display_hole,
+            "geometryRevision": hole.get("geometryRevision"),
+            "geometryAuthorityObservation": hole.get("geometryAuthorityObservation"),
+        })
+        target = (
+            ready
+            if str(hole.get("geometryCoverage") or "missing").lower() == "ready"
+            else requested
+        )
+        target.setdefault(source_global_id, []).append(source_local_hole)
+
+    if not refs:
+        return package
+    job = course_install.enqueue(
+        global_id=int(global_id),
+        tee_box=str(tee_box or package.course.get("teeBox") or "blue"),
+        nine=nine,
+        player_id=player_id,
+        refs=refs,
+        requested=requested,
+        ready=ready,
+        back_global_id=back_global_id,
+    )
+    # Pydantic response models are mutable in the current contract, but use model_copy when
+    # available so this remains safe if the model becomes frozen later.
+    if hasattr(package, "model_copy"):
+        return package.model_copy(update={"courseInstallJob": job})
+    package.courseInstallJob = job
     return package
+
+
+@app.get(
+    "/api/v2/courses/{global_id}/install/status",
+    response_model=CourseInstallStatusResponse,
+)
+def course_install_status(
+    global_id: int,
+    tee_box: str | None = Query(default=None, alias="tee_box"),
+    nine: str = Query(default="all", pattern="^(all|front|back)$"),
+    back_global_id: int | None = Query(default=None, alias="back_global_id", ge=1),
+    player_id: str = Depends(current_player_id),
+) -> CourseInstallStatusResponse:
+    state = course_install.status(
+        global_id=int(global_id),
+        tee_box=str(tee_box or "blue"),
+        nine=nine,
+        player_id=player_id,
+        back_global_id=back_global_id,
+    )
+    if state is None:
+        raise HTTPException(status_code=404, detail="course install job not found")
+    return CourseInstallStatusResponse(**state)
 
 
 def _upgrade_course_geometry(requested: dict[int, list[int]]) -> None:
@@ -1407,13 +1837,22 @@ def _upgrade_course_geometry(requested: dict[int, list[int]]) -> None:
                     _GEOMETRY_UPGRADE_INFLIGHT[global_id] = set(holes)
                 logger.info("course geometry upgrade started gid=%s holes=%s", global_id, holes)
                 try:
+                    # This legacy helper remains a compatibility path for callers that explicitly
+                    # request the old best-effort upgrade. The durable install worker above owns the
+                    # progressive geometry→topo pipeline; keeping this path simple also preserves
+                    # its injected/test contract and avoids two coordinators doing the same work.
                     _ensure_geometry_for_course(global_id, holes=holes)
+                    topo_started = time.perf_counter()
+                    _prewarm_course_topo(global_id, holes)
+                    logger.info(
+                        "course_install stage=topo gid=%s duration_ms=%s",
+                        global_id,
+                        int((time.perf_counter() - topo_started) * 1000),
+                    )
                 except Exception:
                     # The active lightweight package remains valid; a later request may retry the
                     # precise upgrade without changing the course or round identity.
                     logger.exception("course geometry upgrade failed gid=%s holes=%s", global_id, holes)
-                else:
-                    _prewarm_course_topo(global_id, holes)
                 logger.info("course geometry upgrade finished gid=%s holes=%s", global_id, holes)
         finally:
             # Do not leave a permanently owned GID if the worker is cancelled during shutdown.
