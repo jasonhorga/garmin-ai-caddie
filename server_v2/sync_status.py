@@ -67,6 +67,19 @@ def _snapshot_int(manifest: dict[str, object] | None, key: str) -> int:
         return 0
 
 
+def _parsed_datetime(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def _next_action(state: str) -> str | None:
     return {
         "no_data": "connect_garmin",
@@ -86,18 +99,32 @@ def build_sync_status_response(
     summary = data_dir / "summary.json"
     latest_snapshot = read_latest_snapshot_manifest(root=root)
     has_snapshot_manifest = isinstance(latest_snapshot, dict)
+    persisted = read_connector_status(root=root)
+    persisted_state = persisted.get("state") if persisted else None
+    persisted_at = _parsed_datetime(persisted.get("updatedAt")) if persisted else None
+    snapshot_at = _parsed_datetime(latest_snapshot.get("createdAt")) if has_snapshot_manifest else None
+    # Homeserver cron refreshes the live owner tree without creating an hourly durable copy of all
+    # data and geometry. A newer ready status with no snapshot id therefore means "serve live counts
+    # and freshness, retain the last durable snapshot id". Failed/reauth runs never advance success.
+    live_sync_is_newer = bool(
+        persisted_state == "ready"
+        and not persisted.get("snapshotId")
+        and persisted_at is not None
+        and (snapshot_at is None or persisted_at > snapshot_at)
+    )
     current_scorecard_count = _count_json_files(scorecard_dir)
     current_shot_file_count = _count_json_files(shot_dir)
-    scorecard_count = _snapshot_int(latest_snapshot, "scorecardCount") if has_snapshot_manifest else current_scorecard_count
-    shot_file_count = _snapshot_int(latest_snapshot, "shotFileCount") if has_snapshot_manifest else current_shot_file_count
+    use_manifest_counts = has_snapshot_manifest and not live_sync_is_newer
+    scorecard_count = _snapshot_int(latest_snapshot, "scorecardCount") if use_manifest_counts else current_scorecard_count
+    shot_file_count = _snapshot_int(latest_snapshot, "shotFileCount") if use_manifest_counts else current_shot_file_count
     live_geometry_dependencies = discover_geometry_dependencies(root=root)
     manifest_geometry_dependencies = (
         latest_snapshot.get("geometryDependencies")
         if has_snapshot_manifest and isinstance(latest_snapshot.get("geometryDependencies"), list)
         else []
     )
-    geometry_dependencies = manifest_geometry_dependencies if has_snapshot_manifest else live_geometry_dependencies
-    if has_snapshot_manifest:
+    geometry_dependencies = manifest_geometry_dependencies if use_manifest_counts else live_geometry_dependencies
+    if use_manifest_counts:
         geometry_dependency_count = len(manifest_geometry_dependencies) or _snapshot_int(latest_snapshot, "geometryDependencyCount")
         geometry_ready_count = sum(1 for row in manifest_geometry_dependencies if row.get("status") == "ready") or _snapshot_int(
             latest_snapshot, "geometryReadyCount"
@@ -110,8 +137,6 @@ def build_sync_status_response(
         geometry_ready_count = sum(1 for row in live_geometry_dependencies if row.get("status") == "ready")
         geometry_missing_count = sum(1 for row in live_geometry_dependencies if row.get("status") == "missing")
     has_data = scorecard_count > 0
-    persisted = read_connector_status(root=root)
-    persisted_state = persisted.get("state") if persisted else None
     if persisted_state in {"reauth_required", "error"}:
         state = persisted_state
         detail = sanitize_secret_text(persisted.get("detail") or "Garmin connector needs attention.")
@@ -134,6 +159,8 @@ def build_sync_status_response(
     )
     if not has_snapshot_manifest and last_successful_sync_at is None:
         last_successful_sync_at = _last_sync_at([summary, scorecard_dir, shot_dir])
+    if live_sync_is_newer:
+        last_successful_sync_at = _iso_z(persisted.get("updatedAt"))
     resolved_mode = (
         "fixture"
         if selected_mode == "fixture"
@@ -166,7 +193,7 @@ def build_sync_status_response(
             dataMode=resolved_mode,
             scorecardCount=scorecard_count,
             shotFileCount=shot_file_count,
-            summaryPresent=bool(latest_snapshot.get("summaryPresent")) if has_snapshot_manifest else summary.exists(),
+            summaryPresent=bool(latest_snapshot.get("summaryPresent")) if use_manifest_counts else summary.exists(),
             lastSuccessfulSnapshotId=snapshot_id,
             lastSuccessfulSyncAt=last_successful_sync_at,
             geometryDependencyCount=geometry_dependency_count,

@@ -218,6 +218,59 @@ class ServerV2SyncStatusTests(unittest.TestCase):
         self.assertEqual(payload["lastRun"]["snapshotId"], "snap_123")
         self.assertIsNone(payload["lastRun"]["errorCode"])
 
+    def test_newer_cron_status_uses_live_counts_without_replacing_durable_snapshot(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshot_dir = root / "data" / "snapshots"
+            scorecard_dir = root / "data" / "scorecards"
+            shot_dir = root / "data" / "shots"
+            snapshot_dir.mkdir(parents=True)
+            scorecard_dir.mkdir(parents=True)
+            shot_dir.mkdir(parents=True)
+            (root / "data" / "summary.json").write_text("{}", encoding="utf-8")
+            for name in ("1.json", "2.json"):
+                (scorecard_dir / name).write_text("{}", encoding="utf-8")
+                (shot_dir / name).write_text("{}", encoding="utf-8")
+            (snapshot_dir / "snap_old.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "ai-caddie-raw-snapshot-v1",
+                        "snapshotId": "snap_old",
+                        "createdAt": "2026-05-25T12:00:00Z",
+                        "scorecardCount": 1,
+                        "shotFileCount": 1,
+                        "summaryPresent": True,
+                        "files": ["data/scorecards/1.json", "data/shots/1.json"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            status_dir = root / "data" / "sync"
+            status_dir.mkdir(parents=True)
+            (status_dir / "garmin_cn_status.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "ai-caddie-connector-status-v1",
+                        "connector": "garmin_cn_web_session",
+                        "state": "ready",
+                        "detail": "Cron sync complete.",
+                        "snapshotId": None,
+                        "errorCode": None,
+                        "updatedAt": "2026-06-01T10:30:00Z",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            payload = build_sync_status_response(root=root, data_mode="local").model_dump()
+
+        self.assertEqual(payload["snapshot"]["scorecardCount"], 2)
+        self.assertEqual(payload["snapshot"]["shotFileCount"], 2)
+        self.assertEqual(payload["snapshot"]["lastSuccessfulSnapshotId"], "snap_old")
+        self.assertEqual(payload["snapshot"]["lastSuccessfulSyncAt"], "2026-06-01T10:30:00Z")
+        self.assertEqual(payload["lastRun"]["state"], "ready")
+        self.assertIsNone(payload["lastRun"]["snapshotId"])
+
     def test_persisted_status_detail_is_redacted_before_status_response(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

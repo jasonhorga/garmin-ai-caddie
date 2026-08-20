@@ -14,7 +14,6 @@ Run:  ``uv run python -m ai_caddie.pipeline [--shots] [--refresh-auth] [--geomet
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
 
 from ai_caddie.courses import course_reference
 from ai_caddie.core.data import ROOT, SCORECARD_DIR, SHOT_DIR
@@ -36,23 +35,17 @@ class SyncResult:
     notes: list[str] = field(default_factory=list)
 
 
-def _sync_snapshot_id() -> str:
-    return "garmin_cn_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-
 def _persist_sync_observability(result: SyncResult, *, root=ROOT) -> bool:
-    """Persist the same small manifest/status contract used by API-triggered Garmin sync.
+    """Persist cron outcome without claiming a durable connector snapshot exists.
 
     The cron entrypoint historically called this module directly, so scorecards and shots were
-    refreshed while ``/sync/status`` kept serving the previous run's metadata. Keep the legacy
-    fetch path, but close that observability gap without copying the potentially large durable
-    snapshot on every cron run.
+    refreshed while ``/sync/status`` kept serving the previous run's metadata. A raw-snapshot
+    manifest is intentionally NOT written here: connector snapshots include durable copies of all
+    referenced data/geometry, and copying those every hour would be both expensive and dishonest
+    unless the matching durable tree were created too. ``sync_status`` recognizes a newer ready
+    status without a snapshot id and reports the live files while retaining the last durable id.
     """
-    from ai_caddie.connectors.snapshot import (
-        build_snapshot_manifest,
-        write_connector_status,
-        write_snapshot_manifest,
-    )
+    from ai_caddie.connectors.snapshot import write_connector_status
 
     if not result.auth_ok:
         write_connector_status(
@@ -64,12 +57,9 @@ def _persist_sync_observability(result: SyncResult, *, root=ROOT) -> bool:
         )
         return True
 
-    snapshot_id = _sync_snapshot_id()
-    manifest = build_snapshot_manifest(root=root, snapshot_id=snapshot_id)
-    write_snapshot_manifest(root=root, manifest=manifest)
-    state = "ready" if manifest.scorecard_count else "no_data"
+    state = "ready" if result.scorecards else "no_data"
     detail = (
-        f"Synced {manifest.scorecard_count} scorecards and {manifest.shot_file_count} shot files."
+        f"Synced {result.scorecards} scorecards and {result.shots} shot files."
         if state == "ready"
         else "Garmin sync completed, but no scorecards were returned."
     )
@@ -77,7 +67,7 @@ def _persist_sync_observability(result: SyncResult, *, root=ROOT) -> bool:
         root=root,
         state=state,
         detail=detail,
-        snapshot_id=snapshot_id,
+        snapshot_id=None,
         error_code=None,
     )
     return True
