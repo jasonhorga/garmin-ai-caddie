@@ -1,7 +1,7 @@
 # Garmin 新球局同步与备战下载方案
 
 日期：2026-08-20 UTC
-状态：`IMPLEMENTED IN WORKTREE / REMOTE PYTHON + SWIFT-SOURCE TESTS ADDED / IOS XCODE PENDING / NOT DEPLOYED`。本稿不改变已批准的 Watch View Green（`779b31c`），也不执行生产发布。
+状态：`IMPLEMENTED IN WORKTREE / PYTHON + IOS + WATCH CI VERIFIED / NOT DEPLOYED`。本稿不改变已批准的 Watch View Green（`779b31c`），也不执行生产发布。
 
 本轮实际落地范围：
 
@@ -14,7 +14,7 @@
 - 服务端仍保留旧 `_upgrade_course_geometry` 作为兼容内部调用，但 package 新路径不再把它挂到 FastAPI `BackgroundTasks`。
 - `/prep`、coverage、topo 的 iOS GET 采用短超时和 transient-only 有限重试；备战整包使用受限两路吞吐，不再为不可见的“首洞优先”额外串行等待。
 
-远程定向验证（homeserver Docker）：Python/backend 回归以最后一次实际运行结果为准；iOS Swift 测试已补齐关键状态门控但尚未经过 Xcode 编译。未做真实冷 18 洞 benchmark；未部署、未上传 TestFlight。
+远程定向验证（homeserver Docker + GitHub Actions）：Python/backend 回归、iOS Xcode/UI flow 和 Watch runtime 均已取得通过结果；未做真实冷 18 洞 benchmark；未部署、未上传 TestFlight。
 
 ## 结论先行
 
@@ -138,10 +138,10 @@ Opus 总结为 `READY WITH FOLLOW-UPS`，没有发现 Critical；但指出 H1/H2
 |---|---|---|
 | H1 authority 观测失败与 stale 混淆 | **已修复** | `geometry_evidence` 输出 `current/stale/unknown`；`unknown` 不重绑 ready 行，worker 保持 queued/running 并使用有上限的单 timer 指数退避，不再立即自旋或伪装成用户可见失败。 |
 | H2 lifespan 扫描与 journal 无界增长 | **已修复主要风险** | resume 已移到 daemon 线程；加入 restart backlog、逐个恢复和 terminal retention。`course_install` 回归覆盖恢复、清理和交接。仍建议后续增加跨进程锁/磁盘 fsync。 |
-| H3 iOS journal 行为测试缺失 | **部分修复** | `SyncClientTests` 已覆盖 install/status 解码及 composite `back_global_id`；`LiveRoundAppModelTests` 已覆盖 `running + topo=queued` 不取 PNG、随后 `topo=ready` 才取图。仍需在 GitHub Actions/macOS 上执行 Xcode，补齐探针异常、revision mismatch 和 composite 多源的运行时断言。 |
+| H3 iOS journal 行为测试缺失 | **已验证（仍有后续覆盖空间）** | `SyncClientTests` 已覆盖 install/status 解码及 composite `back_global_id`；`LiveRoundAppModelTests` 已覆盖 `running + topo=queued` 不取 PNG、随后 `topo=ready` 才取图。GitHub Actions/macOS 已执行真实 `xcodebuild test` 和 review-scope iOS simulator flow；探针异常、revision mismatch 和 composite 多源仍可继续补更细的运行时断言。 |
 | M4 composite status 的 back GID 不一致 | **已修复** | iOS 抽出 `courseInstallBackGlobalId(for:)`，刷新和收尾查询共用，并传递 `back_global_id`。 |
 | M5 status 探针异常误报失败 | **已修复** | 收尾查询改为 `do/catch`；网络/5xx 探针异常保持 preparing/downloading 并低频重试，只有明确非进行中状态才标失败。 |
-| M6 ready 包不复核 Garmin 新 release | **已实现，待 Xcode 验证** | `validateReadyPrepCourse` 在进入备战前复核 install/status 的 per-hole revision；本地包不完整会重新排队，status 404/暂时不可达保持离线可用，明确 revision mismatch 才重新下载。 |
+| M6 ready 包不复核 Garmin 新 release | **已实现并经 CI 验证** | `validateReadyPrepCourse` 在进入备战前复核 install/status 的 per-hole revision；本地包不完整会重新排队，status 404/暂时不可达保持离线可用，明确 revision mismatch 才重新下载。 |
 | M7 完成徽标只按 globalId | **已修复** | iOS 改用 `(globalId, teeBox, nine)` 精确 key；不完整的 ready 行重新显示继续下载。 |
 | M8 真实 Pydantic `model_copy` 路径无测试 | **已修复** | 新增真实 `LiveRoundPackageResponse` 分支测试，验证 alias 序列化。 |
 | M9 install/status 无 response model | **已修复** | 新增严格 `CourseInstallStatusResponse` / `CourseInstallHoleStatus` 并挂到路由；本次还把 `geometryAuthorityObservation` 加入严格 live-package schema。 |
@@ -175,9 +175,15 @@ uv run python -m unittest \
 结果：`Ran 221 tests in 9.568s ... OK (skipped=3)`。另行执行
 `tests.test_geometry_evidence`：`Ran 15 tests ... OK`。跳过的 3 项都明确要求 CI 中不存在的真实解码 prodgeometry；没有失败。一次只读挂载导致的 8 个文件锁错误不计入结果，随后已用可写 scratch 目录重跑通过。
 
+GitHub Actions 验证（均为 workflow dispatch，未使用生产部署）：
+
+- iOS Native CI：run `32352452546`，head `9de72b619a0389a47cc8f62974755cbd4b090d0d`。`xcodebuild test`、SwiftJCS consumer boundary、review-scope 的真实 iOS simulator flow、截图/视频 artifact secret scan 均为 success。
+- Watch Runtime Visual Check：run `32351441093`，head `5b245cb1dbac16b53a267368f62294dc92b8a065`。Watch XCTest、41mm/49mm runtime boundary capture、round seed/restore、diagnostic artifact secret scan 均为 success。随后提交的 `9de72b6` 只调整 iOS 测试中的并发完成顺序断言，未改变 Watch target。
+- 本轮为 CI simulator/runtime 证据，不等同于用户的实体 iPhone/Apple Watch 真机闭环，也不等同于生产 API 已更新。
+
 ### 仍然不能宣称完成的事项
 
-1. 尚未在 macOS/GitHub Actions 执行真实 `xcodebuild`、iOS UI 测试或 Watch 编译；Swift 目前有源码契约和新增 XCTest 源码，但未取得编译/运行结果。
+1. 已在 GitHub Actions/macOS 执行并通过 `xcodebuild test`、iOS review-scope simulator flow、Watch XCTest/runtime capture；尚未完成用户实体设备上的真机闭环验证。
 2. 尚未部署 API/sync 镜像，也没有上传 TestFlight；homeserver 生产 cron 的 `aicaddie-sync:latest` 缺失仍是独立 P0 运维问题。
 3. 尚未做冷球场 18 洞实际下载 benchmark，也没有证明 `M6` 的 release revalidation 和 H1 unknown 终态在真机上完整闭环。
 
