@@ -864,7 +864,7 @@ public final class SyncClient {
 
     private func fetchRetriableGetData(
         _ request: URLRequest,
-        maximumAttempts: Int = Self.courseReleaseMaximumAttempts
+        maximumAttempts: Int = SyncClient.courseReleaseMaximumAttempts
     ) async throws -> Data {
         var attempt = 1
         while true {
