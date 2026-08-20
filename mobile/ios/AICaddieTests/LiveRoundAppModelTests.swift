@@ -463,11 +463,14 @@ final class LiveRoundAppModelTests: XCTestCase {
         await model.waitForPrepCourseDownloadForTesting()
 
         XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready)
-        XCTAssertTrue(requestLock.withLock { prepBatches }.contains([1]))
+        XCTAssertTrue(
+            requestLock.withLock { prepBatches }.contains([1, 2, 3]),
+            "pre-round prep should use the bounded whole-course batch"
+        )
         XCTAssertEqual(
             requestLock.withLock { prepBatches }.first,
-            [1],
-            "the first visible hole facts must finish before later prep batches start"
+            [1, 2, 3],
+            "pre-round prep should not serialize an invisible first-hole request"
         )
         XCTAssertEqual(
             requestLock.withLock { topoOrder }.first,
