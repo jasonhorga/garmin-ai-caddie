@@ -336,7 +336,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
-    func testPrepDownloadUpgradesRevisionReadyFirstHoleBeforeLaterTopoAssets() async throws {
+    func testPrepDownloadUsesBoundedBatchAndPersistsAllTopoAssets() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -473,9 +473,9 @@ final class LiveRoundAppModelTests: XCTestCase {
             "pre-round prep should not serialize an invisible first-hole request"
         )
         XCTAssertEqual(
-            requestLock.withLock { topoOrder }.first,
-            1,
-            "the visible first hole must not wait behind topo downloads for later holes"
+            Set(requestLock.withLock { topoOrder }),
+            Set([1, 2, 3]),
+            "pre-round prep must persist every topo asset; network completion order is not semantic"
         )
         XCTAssertEqual(
             requestLock.withLock { coverageRequestCount },
