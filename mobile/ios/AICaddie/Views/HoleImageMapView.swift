@@ -461,8 +461,8 @@ struct RotatableMapViewport<Content: View>: View {
                                 state = value
                             }
                             .onEnded { value in
-                                committedRotation += value
-                                let finalRotation = committedRotation
+                                let finalRotation = committedRotation + value
+                                committedRotation = finalRotation
                                 let finalFitScale = Self.fitScale(width: width, height: height, angle: finalRotation)
                                 offset = Self.clampedOffset(
                                     offset,
@@ -505,7 +505,7 @@ struct RotatableMapViewport<Content: View>: View {
                     } label: {
                         Image(systemName: "arrow.counterclockwise")
                             .font(.caption.weight(.bold))
-                            .frame(width: 32, height: 32)
+                            .frame(width: 42, height: 42)
                             .background(.black.opacity(0.68), in: Circle())
                             .foregroundStyle(.white)
                     }
