@@ -135,6 +135,27 @@ Fable 另外指出：S70 的洞图固定任务朝向并没有可靠证据支持�
 
 本记录只覆盖后端/sync；没有上传 TestFlight，也不替代实体 iPhone/Apple Watch 闭环验证。
 
+## 2026-08-21 验证收口补充
+
+- Native Mobile CI run `32433707710` 已完成且为 `success`。该 run 的 head 是
+  `abec1ee`（当前分支 `93528ce` 只追加了证据文档），已通过 iOS
+  `xcodebuild test`、SwiftJCS 边界、设计快照、真实 iOS simulator flow、截图/视频
+  采集和 secret scan。
+- 同一 run 的 Watch target/runtime 步骤因 `require_live_preflight=false` 被跳过；因此
+  不能把这次结果写成 Watch CI 全绿，也不能替代之前独立的 Watch runtime 证据或实体
+  Apple Watch 验证。
+- 在 homeserver 的冷测 checkout（关键历史复盘文件与当前 `93528ce` 的 SHA 一致）运行
+  `tests.test_round_shot_map`、`tests.test_round_shot_map_corrections`、
+  `tests.test_server_v2_history_round_detail`、`tests.test_garmin_fetch_completed_only`：
+  `Ran 57 tests ... OK`。这覆盖 stale geometry authority 保留 GPS、9+9 后九映射、
+  无几何时保留 GPS 摘要以及 pin-only shot cache 重拉。
+- 曾尝试在 homeserver 跑完整 `unittest discover`（1,936 项）。业务测试没有出现新的
+  断言失败；剩余 3 个失败/错误均来自临时 checkout 的 Git authority 元数据（先是无效
+  worktree 指针，后是缺少历史 pinned commit），不是产品代码。历史 bundle 传输在
+  homeserver SSH listener 暂时超时后已停止，避免继续占用共享资源；该 suite 不标记为
+  全绿，待 SSH 恢复后在带完整 Git 历史的 checkout 重跑。
+- 当前仍未上传 TestFlight、未把 `93528ce` 部署到生产，也未修改生产容器或生产卷。
+
 ## Opus 5 独立代码审查（2026-08-20）
 
 本轮按用户要求在 homeserver 以 `claude-opus-5`、`high`、无 fallback、只读方式完成。Opus 没有读取 token/cookie/`.env` 或生产球局，也没有修改文件、运行服务或构建。审查 session 为
