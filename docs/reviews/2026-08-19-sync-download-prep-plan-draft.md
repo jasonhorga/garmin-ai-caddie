@@ -14,7 +14,7 @@
 - 服务端仍保留旧 `_upgrade_course_geometry` 作为兼容内部调用，但 package 新路径不再把它挂到 FastAPI `BackgroundTasks`。
 - `/prep`、coverage、topo 的 iOS GET 采用短超时和 transient-only 有限重试；备战整包使用受限两路吞吐，不再为不可见的“首洞优先”额外串行等待。
 
-远程定向验证（homeserver Docker + GitHub Actions）：Python/backend 回归、iOS Xcode/UI flow 和 Watch runtime 均已取得通过结果；后端/sync 已于 2026-08-20 部署；未做真实冷 18 洞 benchmark，未上传 TestFlight。
+远程定向验证（homeserver Docker + GitHub Actions）：Python/backend 回归、iOS Xcode/UI flow 和 Watch runtime 均已取得通过结果；后端/sync 已于 2026-08-20 部署；修复后的隔离 candidate 已完成真实冷 18 洞 benchmark；未上传 TestFlight。
 
 ## 结论先行
 
@@ -207,15 +207,34 @@ missing。提交 `d9e27b2` 已改为绑定 release 的精确 URL stem、真实 Z
 SHA-256、提取目录以及 `GlobalId/HoleNumber/内部版本 pair`；没有把校验
 放宽成“文件存在即可”。
 
-因此当前验收状态是：authority 修复有回归测试和真实生产卷只读验证，冷 18
-洞 benchmark 仍待在隔离 candidate 环境用**新的未缓存目标**重跑。不能把旧
-失败运行改写成性能成功，也不能直接复用已经产生中间产物的匿名目标作为
-“冷”测试。
+在修复后的 candidate 冷测前，验收状态曾是：authority 修复有回归测试和
+真实生产卷只读验证，但冷 18 洞 benchmark 尚无合法结果。旧失败运行不能
+被改写成性能成功，也不能直接复用已经产生中间产物的匿名目标作为“冷”
+测试。
+
+随后在独立 candidate（镜像 source revision `abec1ee`、独立可写数据根、
+生产 Garmin 会话材料只读挂载）用另一个未缓存目标完成了修复后的冷测。证据
+文件为 homeserver `/home/jason/codex-runs/aicaddie-cold-candidate-20260821-01/benchmark-22708.json`，
+SHA-256 为
+`b2fdb573ae3b133ff8a69fda303adcde04d3dfbea9ef1436ab17cc39bd382790`；文件只
+包含匿名目标摘要和耗时，不包含球场名、坐标、账号或 Garmin 原始数据。
+
+结果：package 首响 58 ms；服务端从 package 开始到 18 洞 geometry + topo
+全部 ready 为 108,987 ms（约 109 秒）；客户端断开 15 秒期间服务端由 0/0
+推进到 2/2，证明断开后仍继续工作；冷 prep 6 请求窗口 6,337 ms，18 张冷
+topo 186 ms；同一 candidate 的热 prep 2,354 ms、热 topo 179 ms。18 洞
+mesh、hazard 和 authority sidecar 均完整生成。该结果证明持久安装和
+断线续作链路可用，但不等于生产部署后的实体设备体验或 Garmin 服务器在
+所有地区的固定 SLA。
 
 ### 仍然不能宣称完成的事项
 
 1. 已在 GitHub Actions/macOS 执行并通过 `xcodebuild test`、iOS review-scope simulator flow、Watch XCTest/runtime capture；尚未完成用户实体设备上的真机闭环验证。
-2. API/sync 已部署，但尚未上传 TestFlight；iOS 设置页主动 Garmin sync 动作仍需单独收口。
-3. 修复后的冷球场 18 洞实际下载 benchmark 尚未取得完整成功结果，也没有证明 `M6` 的 release revalidation 和 H1 unknown 终态在真机上完整闭环。
+2. API/sync 已部署，iOS 设置页主动 Garmin sync 动作已在 `df291d1` 收口，但尚未上传 TestFlight，也未完成实体设备闭环。
+3. 修复后的冷球场 18 洞 benchmark 已在隔离 candidate 完成；仍没有证明 `M6` 的 release revalidation 和 H1 unknown 终态在实体真机上完整闭环，也没有在生产 API 上重复冷下载。
 
-因此当前准确结论是：`d9e27b2` 的 authority 修复、Python/backend 状态机和跨端契约回归已通过；测试契约陈旧断言已在 `14907de` 修正，新的 CI 正在运行。后端/sync 已发布；不能把这次 Opus 审查结果写成“TestFlight ready”，剩余工作是实体设备闭环和修复后的冷球场 benchmark。
+因此当前准确结论是：`d9e27b2` 的 authority 修复、Python/backend 状态机、
+隔离 candidate 冷 18 洞安装和跨端契约回归已通过；测试契约陈旧断言已在
+`14907de` 修正，后端 CI 已通过。后端/sync 已发布；不能把这次结果写成
+“TestFlight ready”，剩余工作是实体设备闭环、生产发布后的验证，以及在
+确认发布门禁后清理 candidate 临时资源。
