@@ -168,7 +168,7 @@ class GeometryAuthorityTests(unittest.TestCase):
                 legacy_outputs_match(expected, mesh_file=mesh, hazard_file=hazard)
             )
 
-    def test_legacy_pair_must_prove_same_embedded_asset_version(self) -> None:
+    def test_expected_asset_version_must_match_release_path(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             mesh = root / "gid1_h02_meshes.json"
@@ -186,6 +186,37 @@ class GeometryAuthorityTests(unittest.TestCase):
                 legacy_outputs_match(expected, mesh_file=mesh, hazard_file=hazard)
             )
             expected["geometryAssetVersion"] = "220543"
+            self.assertFalse(
+                legacy_outputs_match(expected, mesh_file=mesh, hazard_file=hazard)
+            )
+
+    def test_new_asset_namespace_does_not_concatenate_embedded_version_fields(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mesh = root / "gid1_h02_meshes.json"
+            hazard = root / "gid1_h02_hazards.json"
+            _write_outputs(mesh, hazard, "990542")
+            mesh_payload = json.loads(mesh.read_text(encoding="utf-8"))
+            mesh_payload["hole"]["CourseGenVersion"] = 18
+            mesh.write_text(json.dumps(mesh_payload), encoding="utf-8")
+            hazard_payload = json.loads(hazard.read_text(encoding="utf-8"))
+            hazard_payload["courseGenVersion"] = 18
+            hazard.write_text(json.dumps(hazard_payload), encoding="utf-8")
+            release = _release(version="990542")
+            expected = build_authority(
+                global_id=1,
+                local_hole=2,
+                release=release,
+                hole=release["holes"][0],
+                release_source="live",
+                geometry_zip_sha256="a" * 64,
+            )
+
+            self.assertTrue(
+                legacy_outputs_match(expected, mesh_file=mesh, hazard_file=hazard)
+            )
+            hazard_payload["version"] = 543
+            hazard.write_text(json.dumps(hazard_payload), encoding="utf-8")
             self.assertFalse(
                 legacy_outputs_match(expected, mesh_file=mesh, hazard_file=hazard)
             )

@@ -212,13 +212,22 @@ def authority_matches_release(
     return same_release_binding(value, expected)
 
 
-def _combined_hole_version(hole: Mapping[str, Any]) -> str | None:
+def _embedded_hole_identity(hole: Mapping[str, Any]) -> tuple[int, int] | None:
+    """Return the version pair declared inside one decoded geometry payload.
+
+    Garmin does not use one universal string encoding for this pair in the
+    external ZIP filename. Older assets happened to look like
+    ``CourseGenVersion + zero-padded Version``; newer assets use a different
+    namespace. The exact release URL/extracted directory binds the external
+    asset, while this pair binds the independently generated mesh and hazard
+    projections to each other.
+    """
     try:
         course_gen = int(hole["CourseGenVersion"])
         version = int(hole["Version"])
     except (KeyError, TypeError, ValueError, OverflowError):
         return None
-    return f"{course_gen}{version:04d}"
+    return course_gen, version
 
 
 def legacy_outputs_match(
@@ -227,7 +236,7 @@ def legacy_outputs_match(
     mesh_file: Path,
     hazard_file: Path,
 ) -> bool:
-    """Bind pre-sidecar outputs only when both decoded files prove the asset version."""
+    """Bind decoded outputs to the exact release asset and matching internal identity."""
     if not files_ready(mesh_file, hazard_file):
         return False
     mesh = safe_read_json(mesh_file)
@@ -248,28 +257,26 @@ def legacy_outputs_match(
         return False
     if not ids_match:
         return False
-    version = _combined_hole_version(hole)
-    if version != expected.get("geometryAssetVersion"):
+    mesh_identity = _embedded_hole_identity(hole)
+    hazard_identity = _embedded_hole_identity(
+        {
+            "CourseGenVersion": hazard.get("courseGenVersion"),
+            "Version": hazard.get("version"),
+        }
+    )
+    if mesh_identity is None or hazard_identity != mesh_identity:
         return False
-    if (
-        _combined_hole_version(
-            {
-                "CourseGenVersion": hazard.get("courseGenVersion"),
-                "Version": hazard.get("version"),
-            }
-        )
-        != version
-    ):
-        return False
-    # The extracted directory preserves the complete provider filename stem,
-    # including optional format tags (for example ``Hole01_280661_f3``).  Match
-    # that exact identity case-insensitively instead of requiring the directory
-    # to end at the numeric version, which rejected every tagged Garmin asset
-    # after it had already downloaded and decoded successfully.
+    # The decoder records the directory created directly from the selected
+    # release URL. Match its complete filename stem, including optional format
+    # tags (for example ``Hole01_280661_f3``). This is the external asset
+    # identity; do not derive it from the payload's separate version pair.
     source_name = Path(str(mesh.get("sourceDir") or "")).name
     expected_source_name = Path(str(expected.get("geometryAssetPath") or "")).stem
+    expected_asset_version = asset_version(expected.get("geometryAssetPath"))
     return (
         bool(expected_source_name)
+        and bool(expected_asset_version)
+        and expected.get("geometryAssetVersion") == expected_asset_version
         and source_name.casefold() == expected_source_name.casefold()
     )
 

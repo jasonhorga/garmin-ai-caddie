@@ -154,12 +154,23 @@ binding, field, type-code or geometric drift.
 
 `GreenRadii` is now closed against 166 strictly authority-bound holes. The
 binding chain is `courseData layout + BuildId → release layout + version +
-CourseGenVersion → hole geometry URL stem → extracted asset directory →
-hole.json GlobalId + HoleNumber + Version`; holes are joined by `HoleNumber`,
-because Garmin's `Holes` array order is not stable. The 30 values are sampled
+CourseGenVersion → exact hole geometry URL stem + ZIP digest → extracted asset
+directory → hole.json GlobalId + HoleNumber + internal version pair`; holes are
+joined by `HoleNumber`, because Garmin's `Holes` array order is not stable. The 30 values are sampled
 from north clockwise in 12° steps in an angular coordinate plane before the
 longitude latitude correction. For sample angle `theta` and endpoint latitude
 `lat`, the exact local display offset is:
+
+A 2026-08-21 cold-install check against an anonymized, previously uncached
+18-hole layout corrected one authority assumption in that chain. The external
+ZIP stem is not universally the decimal concatenation of decoded
+`CourseGenVersion` and `Version`: 3 holes in this layout matched that historical
+formula, while 15 used a newer external namespace even though download,
+decryption, Draco decode and every derivative succeeded. Current authority
+therefore binds the exact release URL stem to the exact extracted directory and
+real ZIP SHA-256, then independently requires `GlobalId + HoleNumber` and the
+internal version pair to agree across mesh and hazard outputs. It never invents
+an external asset version by concatenating the two internal fields.
 
 ```text
 east  = rawRadius × sin(theta) × cos(lat)
