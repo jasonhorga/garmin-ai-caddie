@@ -214,7 +214,8 @@ SHA-256、提取目录以及 `GlobalId/HoleNumber/内部版本 pair`；没有把
 
 随后在独立 candidate（镜像 source revision `abec1ee`、独立可写数据根、
 生产 Garmin 会话材料只读挂载）用另一个未缓存目标完成了修复后的冷测。证据
-文件为 homeserver `/home/jason/codex-runs/aicaddie-cold-candidate-20260821-01/benchmark-22708.json`，
+持久证据文件为 homeserver `/home/jason/aicaddie-data/evidence/course-install-benchmark-20260821.json`（candidate 原始副本在
+`/home/jason/codex-runs/aicaddie-cold-candidate-20260821-01/benchmark-22708.json`），
 SHA-256 为
 `b2fdb573ae3b133ff8a69fda303adcde04d3dfbea9ef1436ab17cc39bd382790`；文件只
 包含匿名目标摘要和耗时，不包含球场名、坐标、账号或 Garmin 原始数据。
