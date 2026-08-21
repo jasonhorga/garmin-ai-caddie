@@ -141,6 +141,9 @@ Fable 另外指出：S70 的洞图固定任务朝向并没有可靠证据支持�
   `abec1ee`（当前分支 `93528ce` 只追加了证据文档），已通过 iOS
   `xcodebuild test`、SwiftJCS 边界、设计快照、真实 iOS simulator flow、截图/视频
   采集和 secret scan。
+- Backend/Frontend/Docker CI run `32433471596`（head `14907de`）也为 `success`；其中
+  backend authority gate、Python tests、fixture smoke，以及 API 与 sync 镜像构建/启动
+  smoke 均通过。当前 `93528ce` 没有改动运行时代码。
 - 同一 run 的 Watch target/runtime 步骤因 `require_live_preflight=false` 被跳过；因此
   不能把这次结果写成 Watch CI 全绿，也不能替代之前独立的 Watch runtime 证据或实体
   Apple Watch 验证。
