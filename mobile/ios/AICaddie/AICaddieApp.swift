@@ -50,6 +50,10 @@ public struct AICaddieApp: App {
                         package: package,
                         pendingEventCount: model.pendingEventCount,
                         syncStatus: model.syncStatus,
+                        localEventUploadStatus: model.localEventUploadStatus,
+                        garminSyncStatus: model.garminSyncStatus,
+                        lastGarminSyncAt: model.lastGarminSyncAt,
+                        isGarminSyncing: model.isGarminSyncing,
                         apiBaseURL: model.apiBaseURL,
                         adminToken: model.adminToken,
                         adminTokenConfigured: model.adminTokenConfigured,
@@ -107,8 +111,14 @@ public struct AICaddieApp: App {
                         },
                         onSync: {
                             Task {
-                                await model.syncPendingEvents()
+                                await model.syncGarminData()
                             }
+                        },
+                        onGarminSessionImported: {
+                            await model.syncGarminData()
+                        },
+                        onRefreshGarminSyncStatus: {
+                            await model.refreshGarminSyncPresentation()
                         },
                         onSaveBackendConfiguration: { apiBaseURLText, adminTokenText in
                             Task {
@@ -254,7 +264,12 @@ public struct AICaddieApp: App {
             List {
                 Section {
                     NavigationLink {
-                        GarminSessionView(apiBaseURL: model.apiBaseURL, adminToken: model.adminToken, sessionStore: model.garminSessionStore)
+                        GarminSessionView(
+                            apiBaseURL: model.apiBaseURL,
+                            adminToken: model.adminToken,
+                            sessionStore: model.garminSessionStore,
+                            onSessionImported: { await model.syncGarminData() }
+                        )
                     } label: {
                         Label("连接 Garmin", systemImage: "link")
                     }
@@ -340,6 +355,10 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var package: LiveRoundPackage?
     @Published public private(set) var pendingEventCount: Int = 0
     @Published public private(set) var syncStatus: String = "离线就绪"
+    @Published public private(set) var localEventUploadStatus: String = "自动上传已开启"
+    @Published public private(set) var garminSyncStatus: String = "尚未手动更新"
+    @Published public private(set) var lastGarminSyncAt: Date?
+    @Published public private(set) var isGarminSyncing = false
     @Published public private(set) var apiBaseURL: URL?
     @Published public private(set) var adminToken: String?
     @Published public private(set) var isPreparingRound = false
@@ -548,6 +567,9 @@ public final class LiveRoundAppModel: ObservableObject {
         selectedCourseDisplayNames = [:]
         courseOptionsRefreshSucceeded = false
         syncStatus = "离线就绪"
+        localEventUploadStatus = "自动上传已开启"
+        garminSyncStatus = "尚未手动更新"
+        lastGarminSyncAt = nil
         isBootstrapping = true
         refreshDownloadedCourseOptions()
         restorePrepCourseDownloadsFromDisk()
@@ -657,6 +679,28 @@ public final class LiveRoundAppModel: ObservableObject {
         } catch {
             AICaddieLog.network.error("Course options fetch failed: \(String(describing: error), privacy: .public)")
             courseOptions = []
+        }
+    }
+
+    public func refreshGarminSyncPresentation() async {
+        guard let syncClient,
+              let status = try? await syncClient.fetchGarminSyncStatus(),
+              let lastRun = status.lastRun else { return }
+        if let updatedAt = lastRun.updatedAt,
+           let date = ISO8601DateFormatter().date(from: updatedAt) {
+            lastGarminSyncAt = date
+        }
+        switch lastRun.state {
+        case "ready":
+            garminSyncStatus = "Garmin 数据已更新"
+        case "running", "syncing":
+            garminSyncStatus = "Garmin 同步正在进行"
+        case "reauth_required":
+            garminSyncStatus = "Garmin 登录已过期，请重新连接"
+        case "error":
+            garminSyncStatus = "上次 Garmin 拉取失败"
+        default:
+            break
         }
     }
 
@@ -2276,6 +2320,71 @@ public final class LiveRoundAppModel: ObservableObject {
         await syncPendingEvents(wakeDeferredAfterCompletion: true)
     }
 
+    /// User-initiated data refresh. Phone/watch event upload and Garmin import are deliberately two
+    /// independent stages: a local upload failure must not suppress a Garmin pull, and vice versa.
+    /// The Bool is used by the post-login screen only to choose clear success/failure copy.
+    @discardableResult
+    public func syncGarminData() async -> Bool {
+        guard !isGarminSyncing else { return false }
+        isGarminSyncing = true
+        defer { isGarminSyncing = false }
+
+        if liveRoundState != nil || pendingEventCount > 0 {
+            await syncPendingEvents()
+        } else {
+            localEventUploadStatus = "没有待上传的本机记录"
+        }
+
+        guard let syncClient else {
+            garminSyncStatus = "未联网，Garmin 数据未更新"
+            return false
+        }
+        garminSyncStatus = "正在拉取 Garmin 数据…"
+        do {
+            let result = try await syncClient.runGarminSync(withShots: true)
+            guard !Task.isCancelled else { return false }
+            if result.reauthRequired || result.state == "reauth_required" {
+                garminSyncStatus = "Garmin 登录已过期，请重新连接"
+                return false
+            }
+            guard result.state == "ready" else {
+                garminSyncStatus = "Garmin 拉取失败，请稍后重试"
+                return false
+            }
+
+            await refreshCourseOptions()
+            if liveRoundState == nil, let home = await fetchHomePackage() {
+                try? activateHomePackage(home, status: "Garmin 数据已更新")
+            }
+            if let bag = try? await syncClient.fetchClubBag(), bag.found {
+                let names = resolvedBagNames(bag)
+                if !names.isEmpty {
+                    ClubBagStore.saveRealBag(names)
+                }
+            }
+            let refreshedStatus = try? await syncClient.fetchGarminSyncStatus()
+            let completedAt = refreshedStatus?.lastRun?.updatedAt
+                .flatMap { ISO8601DateFormatter().date(from: $0) }
+                ?? Date()
+            lastGarminSyncAt = completedAt
+            garminSyncStatus = "Garmin 数据已更新"
+            NotificationCenter.default.post(name: .garminDataDidRefresh, object: nil)
+            return true
+        } catch let error as SyncClientError {
+            if case .http(let status, _) = error, status == 409 {
+                garminSyncStatus = "已有一次 Garmin 同步在进行，请稍后再试"
+            } else {
+                garminSyncStatus = "Garmin 拉取失败，请稍后重试"
+            }
+            AICaddieLog.network.error("Garmin pull failed: \(String(describing: error), privacy: .public)")
+            return false
+        } catch {
+            garminSyncStatus = "Garmin 拉取失败，请稍后重试"
+            AICaddieLog.network.error("Garmin pull failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
     private func syncPendingEvents(wakeDeferredAfterCompletion: Bool) async {
         guard !isFinishingRound,
               !isSyncingPendingEvents,
@@ -2290,10 +2399,12 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         guard let package else {
             syncStatus = "没有进行中的球局"
+            localEventUploadStatus = "没有待上传的本机记录"
             return
         }
         guard let syncClient else {
             syncStatus = "未联网,稍后同步"
+            localEventUploadStatus = "等待网络上传"
             return
         }
 
@@ -2305,6 +2416,9 @@ public final class LiveRoundAppModel: ObservableObject {
             pendingEventCount = events.count
             if events.isEmpty {
                 syncStatus = uploadedMediaCount > 0 ? "已同步 \(uploadedMediaCount) 张照片/视频" : "已是最新"
+                localEventUploadStatus = uploadedMediaCount > 0
+                    ? "已上传本机记录和 \(uploadedMediaCount) 个媒体文件"
+                    : "本机记录已上传"
             } else {
                 syncStatus = "同步中…"
                 let result = try await postPendingEventsAndRequireFullAcknowledgement(
@@ -2317,6 +2431,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
                 let mediaSuffix = uploadedMediaCount > 0 ? " · \(uploadedMediaCount) 张照片/视频" : ""
                 syncStatus = result.duplicate ? "已同步" : "已同步\(mediaSuffix)"
+                localEventUploadStatus = pendingEventCount == 0
+                    ? "本机记录已上传"
+                    : "仍有 \(pendingEventCount) 条记录待上传"
             }
             // round-12 sync spine: ALWAYS pull events authored by OTHER clients (runs even with no
             // local pending events) so a round edited on the watch/web shows up here.
@@ -2324,6 +2441,9 @@ public final class LiveRoundAppModel: ObservableObject {
         } catch {
             AICaddieLog.network.error("Pending-event sync failed: \(String(describing: error), privacy: .public)")
             syncStatus = "同步失败,稍后重试"
+            localEventUploadStatus = pendingEventCount > 0
+                ? "\(pendingEventCount) 条记录等待重试"
+                : "本机记录上传失败，稍后重试"
         }
     }
 

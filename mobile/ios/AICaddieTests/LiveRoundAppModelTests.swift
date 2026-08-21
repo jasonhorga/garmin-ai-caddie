@@ -190,6 +190,83 @@ private func capturedRequestBodyData(from request: URLRequest) throws -> Data {
 
 @MainActor
 final class LiveRoundAppModelTests: XCTestCase {
+    func testManualGarminSyncRefreshesSharedDataAndKeepsLocalUploadStatusSeparate() async throws {
+        SessionStore.shared.signOut()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let requestLock = NSLock()
+        var requestedPaths = Set<String>()
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            requestLock.withLock {
+                requestedPaths.insert(url.path)
+            }
+            let payload: Data
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("POST", "/api/v2/sync/garmin"):
+                payload = Data(
+                    #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"ready","detail":"done","reauthRequired":false,"errorCode":null}"#.utf8
+                )
+            case ("GET", "/api/v2/mobile/courses/options"):
+                payload = Data(
+                    #"{"schema":"ai-caddie-mobile-course-options-v1","dataMode":"production","total":0,"courses":[],"generatedAt":"2026-08-20T12:31:00Z"}"#.utf8
+                )
+            case ("GET", "/api/v2/history/clubs/bag"):
+                payload = Data(#"{"found":false,"clubs":[]}"#.utf8)
+            case ("GET", "/api/v2/sync/status"):
+                payload = Data(
+                    #"{"schema":"ai-caddie-sync-status-v2","lastRun":{"state":"ready","detail":"done","updatedAt":"2026-08-20T12:30:00Z"}}"#.utf8
+                )
+            default:
+                XCTFail("unexpected request \(request.httpMethod ?? "GET") \(url.path)")
+                payload = Data(#"{"detail":"unexpected"}"#.utf8)
+            }
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let baseURL = try XCTUnwrap(URL(string: "https://example.test"))
+        let client = SyncClient(baseURL: baseURL, adminToken: "admin-secret", session: session)
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory),
+            apiBaseURL: baseURL,
+            adminToken: "admin-secret",
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client
+        )
+        let refreshed = expectation(description: "Garmin refresh notification")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .garminDataDidRefresh,
+            object: nil,
+            queue: .main
+        ) { _ in
+            refreshed.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let succeeded = await model.syncGarminData()
+        await fulfillment(of: [refreshed], timeout: 1)
+
+        XCTAssertTrue(succeeded)
+        XCTAssertEqual(model.localEventUploadStatus, "没有待上传的本机记录")
+        XCTAssertEqual(model.garminSyncStatus, "Garmin 数据已更新")
+        XCTAssertNotNil(model.lastGarminSyncAt)
+        let paths = requestLock.withLock { requestedPaths }
+        XCTAssertTrue(paths.contains("/api/v2/sync/garmin"))
+        XCTAssertTrue(paths.contains("/api/v2/sync/status"))
+        XCTAssertTrue(paths.contains("/api/v2/mobile/courses/options"))
+        XCTAssertTrue(paths.contains("/api/v2/history/clubs/bag"))
+    }
+
     func testPrepSelectionPublishesThroughStablePresentationBeforeAsyncDownloadRuns() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

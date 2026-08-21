@@ -1686,6 +1686,7 @@ class MobileContractTests(unittest.TestCase):
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         offline_store = _read_required_source(self, IOS_DIR / "Services" / "OfflineStore.swift")
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
 
         self.assertIn("private var syncClient: SyncClient?", app_swift)
         self.assertIn("AI_CADDIE_API_BASE_URL", app_swift)
@@ -1716,7 +1717,19 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("public let onSync", round_home)
         self.assertIn("Button", round_home)
         self.assertIn("onSync()", round_home)
-        self.assertIn('Label("同步"', round_home)
+        self.assertIn('"立即同步 Garmin"', round_home)
+        self.assertIn("localEventUploadStatus", round_home)
+        self.assertIn("garminSyncStatus", round_home)
+        # The manual action has two explicit stages: local event upload remains intact, then a real
+        # Garmin pull runs and refreshes shared history/stats surfaces. It must never regress to merely
+        # relabelling syncPendingEvents as Garmin sync.
+        self.assertIn("func syncGarminData() async -> Bool", app_swift)
+        self.assertIn("await syncPendingEvents()", app_swift)
+        self.assertIn("syncClient.runGarminSync(withShots: true)", app_swift)
+        self.assertIn("NotificationCenter.default.post(name: .garminDataDidRefresh", app_swift)
+        self.assertIn("func runGarminSync(withShots: Bool = true)", sync_client)
+        self.assertIn('endpoint = "/api/v2/sync/garmin"', sync_client)
+        self.assertIn('/api/v2/players/\\(playerId)/sync/garmin', sync_client)
 
     def test_ios_sync_acknowledgement_metadata_is_preserved(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
@@ -2673,7 +2686,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("password", web_capture.lower())
         self.assertNotIn("username", web_capture.lower())
 
-        self.assertIn("GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)", round_home)
+        self.assertIn("GarminSessionView(", round_home)
+        self.assertIn("sessionStore: sessionStore", round_home)
+        self.assertIn("onSessionImported: onGarminSessionImported", round_home)
         self.assertIn('Label("Garmin 账号"', round_home)
 
     def test_ios_garmin_session_material_can_be_stored_in_keychain(self) -> None:
@@ -2719,7 +2734,9 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("public let sessionStore: GarminSessionStore?", round_home)
         self.assertIn("sessionStore: GarminSessionStore? = GarminSessionStore()", round_home)
-        self.assertIn("GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)", round_home)
+        self.assertIn("GarminSessionView(", round_home)
+        self.assertIn("sessionStore: sessionStore", round_home)
+        self.assertIn("onSessionImported: onGarminSessionImported", round_home)
         self.assertIn("public let garminSessionStore: GarminSessionStore?", app_swift)
         self.assertIn("garminSessionStore: GarminSessionStore? = GarminSessionStore()", app_swift)
         self.assertIn("sessionStore: model.garminSessionStore", app_swift)

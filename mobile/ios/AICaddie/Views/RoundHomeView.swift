@@ -18,6 +18,10 @@ public struct RoundHomeView: View {
     public let package: LiveRoundPackage
     public let pendingEventCount: Int
     public let syncStatus: String
+    public let localEventUploadStatus: String
+    public let garminSyncStatus: String
+    public let lastGarminSyncAt: Date?
+    public let isGarminSyncing: Bool
     public let apiBaseURL: URL?
     public let adminToken: String?
     public let adminTokenConfigured: Bool
@@ -44,6 +48,8 @@ public struct RoundHomeView: View {
     public let onSetActiveHole: (Int) -> Void
     public let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
     public let onSync: () -> Void
+    public let onGarminSessionImported: () async -> Bool
+    public let onRefreshGarminSyncStatus: () async -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
     /// 拉取所选球场的可选发球台(供「开始一场」的选台器);仅转发给 StartRoundView。
@@ -70,6 +76,10 @@ public struct RoundHomeView: View {
         package: LiveRoundPackage,
         pendingEventCount: Int = 0,
         syncStatus: String = "Offline ready",
+        localEventUploadStatus: String = "自动上传已开启",
+        garminSyncStatus: String = "尚未手动更新",
+        lastGarminSyncAt: Date? = nil,
+        isGarminSyncing: Bool = false,
         apiBaseURL: URL? = nil,
         adminToken: String? = nil,
         adminTokenConfigured: Bool = false,
@@ -96,6 +106,8 @@ public struct RoundHomeView: View {
         onSetActiveHole: @escaping (Int) -> Void = { _ in },
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
         onSync: @escaping () -> Void = {},
+        onGarminSessionImported: @escaping () async -> Bool = { false },
+        onRefreshGarminSyncStatus: @escaping () async -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
@@ -112,6 +124,10 @@ public struct RoundHomeView: View {
         self.package = package
         self.pendingEventCount = pendingEventCount
         self.syncStatus = syncStatus
+        self.localEventUploadStatus = localEventUploadStatus
+        self.garminSyncStatus = garminSyncStatus
+        self.lastGarminSyncAt = lastGarminSyncAt
+        self.isGarminSyncing = isGarminSyncing
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         self.adminTokenConfigured = adminTokenConfigured
@@ -138,6 +154,8 @@ public struct RoundHomeView: View {
         self.onSetActiveHole = onSetActiveHole
         self.onRetainReadyHolePrep = onRetainReadyHolePrep
         self.onSync = onSync
+        self.onGarminSessionImported = onGarminSessionImported
+        self.onRefreshGarminSyncStatus = onRefreshGarminSyncStatus
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onLoadCourseTees = onLoadCourseTees
@@ -453,38 +471,88 @@ public struct RoundHomeView: View {
         NavigationStack {
             List {
                 Section {
+                    HStack(spacing: 12) {
+                        Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(LiveHoleStyle.green)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(garminSyncStatus)
+                                .font(.subheadline.weight(.semibold))
+                            if let lastGarminSyncAt {
+                                Text(lastGarminSyncAt, format: .dateTime.month().day().hour().minute())
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        if isGarminSyncing {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                    Button {
+                        onSync()
+                    } label: {
+                        Label(
+                            isGarminSyncing ? "正在同步…" : "立即同步 Garmin",
+                            systemImage: "arrow.clockwise"
+                        )
+                    }
+                    .foregroundStyle(LiveHoleStyle.green)
+                    .disabled(isGarminSyncing || apiBaseURL == nil)
+                    .accessibilityIdentifier("settings-sync-garmin")
+                } header: {
+                    Text("Garmin 数据")
+                }
+
+                Section {
+                    HStack(spacing: 12) {
+                        Image(systemName: pendingEventCount > 0 ? "tray.full.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(pendingEventCount > 0 ? Color.orange : LiveHoleStyle.green)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(localEventUploadStatus)
+                                .font(.subheadline)
+                            Text("记分后自动上传")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if pendingEventCount > 0 {
+                            Text("\(pendingEventCount)")
+                                .font(.caption.bold())
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.orange, in: Capsule())
+                        }
+                    }
+                } header: {
+                    Text("本机记分")
+                }
+
+                Section {
+                    NavigationLink {
+                        GarminSessionView(
+                            apiBaseURL: apiBaseURL,
+                            adminToken: adminToken,
+                            sessionStore: sessionStore,
+                            onSessionImported: onGarminSessionImported
+                        )
+                    } label: {
+                        Label("Garmin 账号", systemImage: "link")
+                    }
                     NavigationLink {
                         ClubSettingsView(clubProfiles: package.clubProfiles, apiBaseURL: apiBaseURL, adminToken: adminToken)
                     } label: {
                         Label("球杆设置", systemImage: "bag")
                     }
                 } header: {
-                    Text("球包")
-                } footer: {
-                    Text("默认就是你 Garmin 里在用的那套球杆(真实名字),可手动增减;实战选杆和球童建议只用这些。")
+                    Text("账号与球包")
                 }
-                Section {
-                    NavigationLink {
-                        GarminSessionView(apiBaseURL: apiBaseURL, adminToken: adminToken, sessionStore: sessionStore)
-                    } label: {
-                        Label("Garmin 账号", systemImage: "key")
-                    }
-                    Button {
-                        onSync()
-                    } label: {
-                        Label("同步", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .foregroundStyle(LiveHoleStyle.green)
-                    if pendingEventCount > 0 {
-                        Label("\(pendingEventCount) 条待同步", systemImage: "tray.full")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } header: {
-                    Text("数据")
-                } footer: {
-                    Text("记分时会自动同步到 Garmin / 后端;这里可手动触发或管理账号。")
-                }
+            }
+            .task {
+                await onRefreshGarminSyncStatus()
             }
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)

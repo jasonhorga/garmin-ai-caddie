@@ -48,6 +48,35 @@ public struct SyncResult: Codable, Equatable {
     }
 }
 
+public struct GarminSyncRunResponse: Codable, Equatable {
+    public let schema: String
+    public let connector: String
+    public let state: String
+    public let detail: String
+    public let reauthRequired: Bool
+    public let errorCode: String?
+}
+
+public struct GarminSyncLastRunResponse: Codable, Equatable {
+    public let state: String
+    public let detail: String
+    public let updatedAt: String?
+}
+
+/// Owner responses include connector/snapshot details; member responses intentionally expose only
+/// liveness. The phone only needs the common schema plus the optional authoritative last-run time.
+public struct GarminSyncStatusResponse: Codable, Equatable {
+    public let schema: String
+    public let status: String?
+    public let lastRun: GarminSyncLastRunResponse?
+}
+
+public extension Notification.Name {
+    /// Posted only after a Garmin pull has completed and the app has refreshed its shared home/course
+    /// state. History and stats views use it to replace any payload that was loaded before the pull.
+    static let garminDataDidRefresh = Notification.Name("ai-caddie.garmin-data-did-refresh")
+}
+
 public struct EventReplayItem: Codable, Equatable {
     public let serverSequence: Int
     public let idempotencyKey: String
@@ -319,6 +348,54 @@ public final class SyncClient {
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(MobileCourseOptionsResponse.self, from: data)
+    }
+
+    /// Pull the signed-in player's latest Garmin scorecards, shots and club data into the backend.
+    /// This is intentionally separate from `postEventBatch`: uploading phone/watch events is not a
+    /// Garmin import, and the settings UI reports the two operations independently.
+    public func runGarminSync(withShots: Bool = true) async throws -> GarminSyncRunResponse {
+        let playerId = SessionStore.shared.currentSession?.playerId
+        let endpoint: String
+        if let playerId, playerId != "me" {
+            endpoint = "/api/v2/players/\(playerId)/sync/garmin"
+        } else {
+            endpoint = "/api/v2/sync/garmin"
+        }
+        guard var components = URLComponents(
+            url: endpointURL(endpoint),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [
+            URLQueryItem(name: "with_shots", value: withShots ? "true" : "false"),
+        ]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 300
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+
+        // The backend returns the typed run payload for re-auth and connector failures even though
+        // their HTTP status is non-2xx. Preserve that actionable state for the consumer UI; an
+        // untyped 409 such as "sync already in progress" still goes through the normal HTTP error.
+        if let http = response as? HTTPURLResponse,
+           !(200..<300).contains(http.statusCode),
+           let run = try? decoder.decode(GarminSyncRunResponse.self, from: data),
+           run.state == "reauth_required" || run.state == "error" {
+            return run
+        }
+        try validate(response: response, data: data)
+        return try decoder.decode(GarminSyncRunResponse.self, from: data)
+    }
+
+    public func fetchGarminSyncStatus() async throws -> GarminSyncStatusResponse {
+        var request = URLRequest(url: endpointURL("/api/v2/sync/status"))
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(GarminSyncStatusResponse.self, from: data)
     }
 
     /// Search Garmin's full CourseView catalogue by name. This downloads metadata only; choosing a

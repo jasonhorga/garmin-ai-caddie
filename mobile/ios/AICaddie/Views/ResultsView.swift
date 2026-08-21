@@ -1,4 +1,5 @@
 import Charts
+import Combine
 import Foundation
 import SwiftUI
 
@@ -38,6 +39,9 @@ public struct ResultsView: View {
         .navigationTitle("成绩")
         .task { await load() }
         .refreshable { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
+            Task { await load() }
+        }
     }
 
     @MainActor
@@ -318,6 +322,9 @@ public struct ResultsArchiveView: View {
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
             await load()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
+            Task { await load() }
+        }
     }
 
     private var filterCard: some View {
@@ -527,6 +534,9 @@ public struct ResultsTrendView: View {
         .navigationDestination(item: $destination) { destination in destinationView(destination) }
         .task(id: window) { await load() }
         .onChange(of: window) { _, value in grain = defaultGrain(for: value) }
+        .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
+            Task { await load() }
+        }
     }
 
     @ViewBuilder private func destinationView(_ value: ResultsTrendDestination) -> some View {

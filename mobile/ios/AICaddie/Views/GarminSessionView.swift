@@ -8,6 +8,7 @@ public struct GarminSessionView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
     public let sessionStore: GarminSessionStore?
+    public let onSessionImported: (() async -> Bool)?
 
     @State private var statusText = "未连接"
     @State private var isImporting = false
@@ -17,11 +18,13 @@ public struct GarminSessionView: View {
     public init(
         apiBaseURL: URL? = nil,
         adminToken: String? = nil,
-        sessionStore: GarminSessionStore? = GarminSessionStore()
+        sessionStore: GarminSessionStore? = GarminSessionStore(),
+        onSessionImported: (() async -> Bool)? = nil
     ) {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         self.sessionStore = sessionStore
+        self.onSessionImported = onSessionImported
     }
 
     public var body: some View {
@@ -99,8 +102,16 @@ public struct GarminSessionView: View {
                 )
             )
             connected = hasStoredSession()
-            statusText = "已连接"
             showingWebLogin = false
+            if let onSessionImported {
+                statusText = "已连接，正在拉取 Garmin 数据…"
+                let synced = await onSessionImported()
+                statusText = synced
+                    ? "已连接，Garmin 数据已更新"
+                    : "已连接，数据暂未更新，可在设置中重试"
+            } else {
+                statusText = "已连接"
+            }
         } catch {
             statusText = "连接失败,请重试"
         }

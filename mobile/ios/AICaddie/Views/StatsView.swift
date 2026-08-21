@@ -1,4 +1,5 @@
 import Charts
+import Combine
 import Foundation
 import SwiftUI
 
@@ -53,6 +54,9 @@ public struct StatsView: View {
         .background(mode == .analysis ? Color.white : HubStyle.grouped)
         .navigationTitle(mode == .analysis ? "表现分析" : "成绩统计")
         .task(id: window) { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
+            Task { await load() }
+        }
     }
 
     @MainActor
