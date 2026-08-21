@@ -192,10 +192,30 @@ GitHub Actions 验证（均为 workflow dispatch，未使用生产部署）：
 - Watch Runtime Visual Check：run `32351441093`，head `5b245cb1dbac16b53a267368f62294dc92b8a065`。Watch XCTest、41mm/49mm runtime boundary capture、round seed/restore、diagnostic artifact secret scan 均为 success。随后提交的 `9de72b6` 只调整 iOS 测试中的并发完成顺序断言，未改变 Watch target。
 - 本轮为 CI simulator/runtime 证据，不等同于用户的实体 iPhone/Apple Watch 真机闭环，也不等同于生产 API 已更新。
 
+### 2026-08-21 冷球场基准修正记录
+
+本轮首次运行 `ops/benchmark_course_install.py` 时，使用了一个匿名、此前未
+安装的 18 洞目标。结果**不能作为修复后的性能基准**：服务端在 geometry
+ensure 阶段进入 `failed`，随后 coverage 报告为 18/18 `missing`，因此没有
+合法的冷/热 prep 或 topo 耗时。该运行的持久证据保存在 homeserver 的
+`/home/jason/codex-runs/aicaddie-course-benchmark-20260821`，其退出码为 1。
+
+只读检查确认失败发生在 `d9e27b2` 之前的 authority 规则：真实 Garmin ZIP
+使用了新的外部 asset namespace，旧代码把 `CourseGenVersion + Version`
+硬拼成文件名，导致已经下载、解密、Draco 解码并生成衍生物的洞被误判为
+missing。提交 `d9e27b2` 已改为绑定 release 的精确 URL stem、真实 ZIP
+SHA-256、提取目录以及 `GlobalId/HoleNumber/内部版本 pair`；没有把校验
+放宽成“文件存在即可”。
+
+因此当前验收状态是：authority 修复有回归测试和真实生产卷只读验证，冷 18
+洞 benchmark 仍待在隔离 candidate 环境用**新的未缓存目标**重跑。不能把旧
+失败运行改写成性能成功，也不能直接复用已经产生中间产物的匿名目标作为
+“冷”测试。
+
 ### 仍然不能宣称完成的事项
 
 1. 已在 GitHub Actions/macOS 执行并通过 `xcodebuild test`、iOS review-scope simulator flow、Watch XCTest/runtime capture；尚未完成用户实体设备上的真机闭环验证。
 2. API/sync 已部署，但尚未上传 TestFlight；iOS 设置页主动 Garmin sync 动作仍需单独收口。
-3. 尚未做冷球场 18 洞实际下载 benchmark，也没有证明 `M6` 的 release revalidation 和 H1 unknown 终态在真机上完整闭环。
+3. 修复后的冷球场 18 洞实际下载 benchmark 尚未取得完整成功结果，也没有证明 `M6` 的 release revalidation 和 H1 unknown 终态在真机上完整闭环。
 
-因此当前准确结论是：Python/backend 状态机和跨端契约回归已通过，后端/sync 已发布；不能把这次 Opus 审查结果写成“TestFlight ready”，剩余工作是 iOS 主动同步动作、实体设备闭环和冷球场 benchmark。
+因此当前准确结论是：`d9e27b2` 的 authority 修复、Python/backend 状态机和跨端契约回归已通过；测试契约陈旧断言已在 `14907de` 修正，新的 CI 正在运行。后端/sync 已发布；不能把这次 Opus 审查结果写成“TestFlight ready”，剩余工作是实体设备闭环和修复后的冷球场 benchmark。
