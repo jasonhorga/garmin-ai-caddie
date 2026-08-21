@@ -54,6 +54,7 @@ public struct PrepCoursePickerView: View {
             installedGlobalIds: [],
             installedCourseKeys: installedCourseKeys,
             retainedDownloads: visibleDownloads,
+            validatingDownloadID: validatingDownloadID,
             onSearch: searchCourses,
             onNearby: nearbyCourses,
             onSelect: selectSearchResult,

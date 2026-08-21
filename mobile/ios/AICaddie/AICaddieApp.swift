@@ -1020,6 +1020,14 @@ public final class LiveRoundAppModel: ObservableObject {
     func waitForPrepCourseDownloadForTesting() async {
         await prepCourseDownloadTask?.value
     }
+
+    /// Test-only cleanup for a validation test that deliberately queues a replacement download.
+    /// Production callers use the foreground/background lifecycle methods instead.
+    func cancelPrepCourseDownloadForTesting() async {
+        let task = prepCourseDownloadTask
+        pausePrepCourseDownload()
+        await task?.value
+    }
     #endif
 
     private func offlinePrepKey(globalId: Int, localHole: Int) -> String {
@@ -2877,7 +2885,7 @@ public final class LiveRoundAppModel: ObservableObject {
 
         let status: CourseInstallStatus?
         do {
-            status = try await syncClient.fetchCourseInstallStatus(
+            status = try await syncClient.probeCourseInstallStatusForRevalidation(
                 globalId: record.course.globalId,
                 teeBox: record.teeBox,
                 nine: record.nine,

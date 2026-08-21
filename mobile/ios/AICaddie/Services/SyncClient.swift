@@ -199,6 +199,7 @@ public final class SyncClient {
     static let coursePrepTimeoutInterval: TimeInterval = 90
     static let courseTopoTimeoutInterval: TimeInterval = 60
     static let courseCoverageTimeoutInterval: TimeInterval = 15
+    static let courseInstallRevalidationTimeoutInterval: TimeInterval = 8
     static let courseReleaseMaximumAttempts = 3
     static let courseAssetMaximumAttempts = 2
     static let nearbyDiscoveryTimeoutInterval: TimeInterval = 30
@@ -315,6 +316,44 @@ public final class SyncClient {
         nine: String = "all",
         backGlobalId: Int? = nil
     ) async throws -> CourseInstallStatus? {
+        try await fetchCourseInstallStatus(
+            globalId: globalId,
+            teeBox: teeBox,
+            nine: nine,
+            backGlobalId: backGlobalId,
+            timeoutInterval: Self.nearbyDiscoveryTimeoutInterval,
+            maximumAttempts: Self.courseReleaseMaximumAttempts
+        )
+    }
+
+    /// Fast, best-effort release check used only when opening an already complete local course.
+    /// The local package remains usable offline, so this probe must never turn a transient network
+    /// interruption into a minute-long blocked tap. Ordinary install polling keeps the longer retry
+    /// policy in `fetchCourseInstallStatus` above.
+    public func probeCourseInstallStatusForRevalidation(
+        globalId: Int,
+        teeBox: String,
+        nine: String = "all",
+        backGlobalId: Int? = nil
+    ) async throws -> CourseInstallStatus? {
+        try await fetchCourseInstallStatus(
+            globalId: globalId,
+            teeBox: teeBox,
+            nine: nine,
+            backGlobalId: backGlobalId,
+            timeoutInterval: Self.courseInstallRevalidationTimeoutInterval,
+            maximumAttempts: 1
+        )
+    }
+
+    private func fetchCourseInstallStatus(
+        globalId: Int,
+        teeBox: String,
+        nine: String,
+        backGlobalId: Int?,
+        timeoutInterval: TimeInterval,
+        maximumAttempts: Int
+    ) async throws -> CourseInstallStatus? {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/courses/\(globalId)/install/status"),
             resolvingAgainstBaseURL: false
@@ -331,10 +370,13 @@ public final class SyncClient {
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
-        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
+        request.timeoutInterval = timeoutInterval
         applyAuth(to: &request)
         do {
-            let data = try await fetchRetriableGetData(request)
+            let data = try await fetchRetriableGetData(
+                request,
+                maximumAttempts: maximumAttempts
+            )
             return try decoder.decode(CourseInstallStatus.self, from: data)
         } catch let error as SyncClientError {
             if case .http(status: 404, body: _) = error { return nil }

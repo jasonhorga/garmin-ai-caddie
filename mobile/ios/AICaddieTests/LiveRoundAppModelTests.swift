@@ -998,6 +998,155 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
+    func testReadyPrepRevalidationKeepsReadyWhenInstallRevisionMatches() async throws {
+        let fixture = try readyPrepValidationFixture(revision: "match-revision")
+        let requestLock = NSLock()
+        var statusRequestCount = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(url.path, "/api/v2/courses/\(fixture.course.globalId)/install/status")
+            XCTAssertEqual(request.timeoutInterval, SyncClient.courseInstallRevalidationTimeoutInterval)
+            requestLock.withLock { statusRequestCount += 1 }
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                self.installStatusData(
+                    globalId: fixture.course.globalId,
+                    revision: "match-revision"
+                )
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://revalidation-match.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+
+        let record = try XCTUnwrap(model.prepCourseDownloads.first)
+        let isCurrent = await model.validateReadyPrepCourse(record)
+        XCTAssertTrue(isCurrent)
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready)
+        XCTAssertEqual(requestLock.withLock { statusRequestCount }, 1)
+    }
+
+    func testReadyPrepRevalidationQueuesWhenInstallRevisionMismatches() async throws {
+        let fixture = try readyPrepValidationFixture(revision: "local-revision")
+        let requestLock = NSLock()
+        var statusRequestCount = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path.hasSuffix("/install/status") {
+                requestLock.withLock { statusRequestCount += 1 }
+                return (
+                    HTTPURLResponse(
+                        url: url,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    self.installStatusData(
+                        globalId: fixture.course.globalId,
+                        revision: "remote-revision"
+                    )
+                )
+            }
+            // The replacement queue is intentionally not part of this test. Returning a transient
+            // error lets the test cancel it immediately after asserting the mismatch transition.
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 503,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"detail":"test cleanup"}"#.utf8)
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://revalidation-mismatch.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+
+        let record = try XCTUnwrap(model.prepCourseDownloads.first)
+        let isCurrent = await model.validateReadyPrepCourse(record)
+        XCTAssertFalse(isCurrent)
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .queued)
+        XCTAssertEqual(model.prepCourseDownloads.first?.preparedHoles, 0)
+        XCTAssertEqual(model.prepCourseDownloads.first?.downloadedHoles, 0)
+        XCTAssertEqual(requestLock.withLock { statusRequestCount }, 1)
+        await model.cancelPrepCourseDownloadForTesting()
+    }
+
+    func testReadyPrepRevalidationTreatsUnavailableInstallStatusAsOfflineReady() async throws {
+        let fixture = try readyPrepValidationFixture(revision: "offline-revision")
+        let requestLock = NSLock()
+        var statusRequestCount = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertTrue(url.path.hasSuffix("/install/status"))
+            requestLock.withLock { statusRequestCount += 1 }
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 503,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(#"{"detail":"temporarily unavailable"}"#.utf8))
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://revalidation-unavailable.example.test")!,
+            session: session,
+            retrySleep: { _ in XCTFail("best-effort probe must not retry") }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+
+        let record = try XCTUnwrap(model.prepCourseDownloads.first)
+        let isCurrent = await model.validateReadyPrepCourse(record)
+        XCTAssertTrue(isCurrent)
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready)
+        XCTAssertEqual(requestLock.withLock { statusRequestCount }, 1)
+    }
+
     func testOnlineCourseStartRetainsAllHolePrepAndTopoForLaterOfflineUse() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -3128,6 +3277,58 @@ final class LiveRoundAppModelTests: XCTestCase {
         let fixture = try String(contentsOf: url, encoding: .utf8)
             .replacingOccurrences(of: #""dataMode": "fixture""#, with: #""dataMode": "local""#)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: Data(fixture.utf8))
+    }
+
+    private func readyPrepValidationFixture(
+        revision: String
+    ) throws -> (
+        directory: URL,
+        store: OfflineStore,
+        course: MobileCourseOption,
+        record: PrepCourseDownloadRecord
+    ) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let template = try offlineReadyPackage(source, geometryRevision: revision)
+        try store.saveCourseTemplate(template)
+        for hole in template.holes {
+            _ = try store.saveCourseTopoImage(
+                minimalPNGData(),
+                globalId: hole.sourceGlobalId ?? template.course.globalId,
+                localHole: hole.sourceLocalHole ?? hole.number,
+                geometryRevision: revision
+            )
+        }
+        let course = MobileCourseOption(
+            globalId: template.course.globalId,
+            name: template.course.name,
+            holes: template.holes.count,
+            teeBox: template.course.teeBox
+        )
+        let record = PrepCourseDownloadRecord(
+            course: course,
+            phase: .ready,
+            preparedHoles: template.holes.count,
+            downloadedHoles: template.holes.count,
+            totalHoles: template.holes.count
+        )
+        try store.savePrepCourseDownloads([record])
+        return (directory, store, course, record)
+    }
+
+    private func installStatusData(globalId: Int, revision: String) -> Data {
+        Data(
+            """
+            {"schema":"ai-caddie-course-install-v1","jobId":"revalidation-test",
+             "globalId":\(globalId),"teeBox":"blue","nine":"all","phase":"ready","stage":"ready",
+             "totalHoles":1,"geometryReady":1,"topoReady":1,"updatedAt":null,"error":null,
+             "holes":[{"globalId":\(globalId),"localHole":1,"displayHole":1,
+             "geometry":"ready","geometryRevision":"\(revision)","topo":"ready",
+             "topoRevision":"\(revision)","error":null}]}
+            """.utf8
+        )
     }
 
     private func offlineReadyPackage(

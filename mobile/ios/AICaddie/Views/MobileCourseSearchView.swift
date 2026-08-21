@@ -18,6 +18,7 @@ public struct MobileCourseSearchView: View {
     public let installedGlobalIds: Set<Int>
     public let installedCourseKeys: Set<String>?
     public let retainedDownloads: [PrepCourseDownloadRecord]
+    public let validatingDownloadID: String?
     public let onSearch: (String, String?) async throws -> [MobileCourseSearchMatch]
     public let onNearby: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     public let onSelect: (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
@@ -58,6 +59,7 @@ public struct MobileCourseSearchView: View {
         installedGlobalIds: Set<Int> = [],
         installedCourseKeys: Set<String>? = nil,
         retainedDownloads: [PrepCourseDownloadRecord] = [],
+        validatingDownloadID: String? = nil,
         onSearch: @escaping (String, String?) async throws -> [MobileCourseSearchMatch],
         onNearby: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
         onSelect: @escaping (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void,
@@ -72,6 +74,7 @@ public struct MobileCourseSearchView: View {
         self.installedGlobalIds = installedGlobalIds
         self.installedCourseKeys = installedCourseKeys
         self.retainedDownloads = retainedDownloads
+        self.validatingDownloadID = validatingDownloadID
         self.onSearch = onSearch
         self.onNearby = onNearby
         self.onSelect = onSelect
@@ -242,8 +245,11 @@ public struct MobileCourseSearchView: View {
 
     @ViewBuilder
     private func retainedDownloadRow(_ download: PrepCourseDownloadRecord) -> some View {
-        let verifiedReady = download.phase == .ready
-            && courseIsInstalled(download.course)
+        let verifiedReady = download.phase == .ready && retainedDownloadIsInstalled(download)
+        let isValidating = validatingDownloadID == download.id
+        let status = isValidating
+            ? "正在确认地图版本"
+            : downloadStatus(download, verifiedReady: verifiedReady)
         HStack(spacing: 10) {
             Button {
                 onOpenRetainedDownload(download)
@@ -256,9 +262,10 @@ public struct MobileCourseSearchView: View {
                         Text(download.course.name)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
-                        Text(downloadStatus(download, verifiedReady: verifiedReady))
+                        Text(status)
                             .font(.caption)
                             .foregroundStyle(download.phase == .failed ? .orange : .secondary)
+                            .accessibilityHidden(true)
                         if download.phase == .downloading || download.phase == .preparing {
                             ProgressView(value: download.phase == .preparing
                                 ? Double(download.preparedHoles) / Double(max(download.totalHoles, 1))
@@ -266,17 +273,23 @@ public struct MobileCourseSearchView: View {
                                 .tint(LiveHoleStyle.green)
                         }
                     }
+                    Spacer(minLength: 4)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(download.isActive || isValidating)
             // Keep the stable row id on the actual opening button. Applying it to the wrapping
             // HStack makes SwiftUI expose a synthetic button that can inherit the id but not the
             // opening action when a retry control is present beside it.
             .accessibilityIdentifier("prep-download-row-\(download.course.globalId)")
-            .accessibilityValue(downloadStatus(download, verifiedReady: verifiedReady))
+            .accessibilityLabel(download.course.name)
+            .accessibilityValue(status)
+            .accessibilityHint(download.isActive
+                ? "正在下载，完成后可打开"
+                : (isValidating ? "正在确认本地地图是否为最新版本" : "打开赛前攻略"))
 
-            Spacer(minLength: 4)
             if download.phase == .failed || (download.phase == .ready && !verifiedReady) {
                 Button {
                     onRetryRetainedDownload(download.id)
@@ -286,10 +299,10 @@ public struct MobileCourseSearchView: View {
                 }
                 .buttonStyle(.bordered)
                 .accessibilityIdentifier("prep-download-retry-\(download.course.globalId)")
-            } else if download.isActive {
+            } else if download.isActive || isValidating {
                 ProgressView()
                     .controlSize(.small)
-                    .accessibilityLabel("下载中")
+                    .accessibilityLabel(isValidating ? "正在确认地图版本" : "下载中")
             } else {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
@@ -347,6 +360,13 @@ public struct MobileCourseSearchView: View {
             ))
         }
         return installedGlobalIds.contains(course.globalId)
+    }
+
+    private func retainedDownloadIsInstalled(_ download: PrepCourseDownloadRecord) -> Bool {
+        if let installedCourseKeys {
+            return installedCourseKeys.contains(download.id)
+        }
+        return installedGlobalIds.contains(download.course.globalId)
     }
 
     private func retainedDownload(for match: MobileCourseSearchMatch) -> PrepCourseDownloadRecord? {
