@@ -446,6 +446,41 @@ class CourseInstallJournalTests(unittest.TestCase):
                 course_install._RETRY_ATTEMPTS.pop(state["jobId"], None)
             self.assertIsNotNone(pending)
 
+    def test_persistently_retryable_job_reaches_terminal_failed_state(self) -> None:
+        from server_v2 import course_install
+
+        with TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}
+        ), patch.object(course_install, "_launch"):
+            state = course_install.enqueue(
+                global_id=123,
+                tee_box="blue",
+                nine="all",
+                player_id="owner",
+                refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
+                requested={123: [1]},
+                ready={},
+            )
+            timer = Mock()
+            with patch.object(course_install.threading, "Timer", return_value=timer) as timer_factory:
+                for _ in range(course_install._MAX_RETRY_ATTEMPTS):
+                    course_install._schedule_retry(state["jobId"])
+                    callback = timer_factory.call_args.args[1]
+                    callback()
+                course_install._schedule_retry(state["jobId"])
+            final = course_install.status(
+                global_id=123,
+                tee_box="blue",
+                nine="all",
+                player_id="owner",
+            )
+
+        assert final is not None
+        self.assertEqual(final["phase"], "failed")
+        self.assertEqual(final["stage"], "error")
+        self.assertEqual(final["error"], "asset unavailable")
+        self.assertEqual(final["holes"][0]["topo"], "failed")
+
     def test_repeated_enqueue_promotes_only_ready_holes_for_their_source_course(self) -> None:
         from server_v2 import course_install
 

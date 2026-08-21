@@ -382,6 +382,20 @@ final class RealFlowUITests: XCTestCase {
         settle(2)
         save("07-prep-card"); dump("07-prep-card")
 
+        // The initial viewport must accept a pinch; a reset control proves that the gesture changed
+        // view state rather than merely producing a transient accessibility event.
+        firstPrepMap.pinch(withScale: 2.0, velocity: 1.0)
+        let prepMapReset = app.buttons["prep-map-reset-rotation"]
+        XCTAssertTrue(
+            prepMapReset.waitForExistence(timeout: 3),
+            "the precise prep map must leave its fitted state after a pinch"
+        )
+        prepMapReset.tap()
+        XCTAssertTrue(
+            waitUntilGone(prepMapReset, timeout: 3),
+            "reset must return the prep viewport to its fitted state"
+        )
+
         // I08 now proves the product rule directly: spatial facts stay on the map instead of being
         // repeated as a list below it. Accessibility binds the same measured near/far obstacle to
         // its map annotation, while additional hazards remain available through map navigation.

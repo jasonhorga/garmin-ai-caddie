@@ -1817,7 +1817,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     geometryRevision: hole.geometryRevision
                 ) == nil
             }
-            if serverInstallStatusAvailable && serverInstallPhase == "failed" {
+            if prepDownloadID != nil && serverInstallStatusAvailable && serverInstallPhase == "failed" {
                 break
             }
             guard stillMissing, attempt < topoRetryDelays.count else { break }

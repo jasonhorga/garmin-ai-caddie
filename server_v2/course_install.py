@@ -32,6 +32,9 @@ _RESUME_BACKLOG: list[str] = []
 # perform one normal resume pass before applying the same bounded backoff again.
 _RETRY_TIMERS: dict[str, threading.Timer] = {}
 _RETRY_ATTEMPTS: dict[str, int] = {}
+# A persistent authority/provider outage should become an actionable failed row rather than
+# consuming a worker forever. An explicit enqueue/retry resets this counter below.
+_MAX_RETRY_ATTEMPTS = 8
 # One job coordinator at a time keeps a four-core shared homeserver from multiplying the existing
 # two-hole geometry pool and one-hole topo pipeline across simultaneous course selections.
 _WORKER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="course-install-job")
@@ -262,7 +265,25 @@ def _schedule_retry(identifier: str) -> None:
             return
         if identifier in _RETRY_TIMERS:
             return
-        attempt = min(6, _RETRY_ATTEMPTS.get(identifier, 0))
+        attempt = _RETRY_ATTEMPTS.get(identifier, 0)
+        if attempt >= _MAX_RETRY_ATTEMPTS:
+            for row in (state.get("holes") or {}).values():
+                if not isinstance(row, dict):
+                    continue
+                if row.get("geometry") == "queued":
+                    row["geometry"] = "failed"
+                if row.get("topo") == "queued":
+                    row["topo"] = "failed"
+                if row.get("geometry") == "failed" or row.get("topo") == "failed":
+                    row["error"] = "asset unavailable"
+            state["phase"] = "failed"
+            state["stage"] = "error"
+            state["error"] = "asset unavailable"
+            _recount(state)
+            state["updatedAt"] = _now()
+            _write(state)
+            _RETRY_ATTEMPTS.pop(identifier, None)
+            return
         _RETRY_ATTEMPTS[identifier] = attempt + 1
         delay = min(60.0, float(2 ** attempt))
 
@@ -458,6 +479,8 @@ def enqueue(
             state["ready"] = {str(k): sorted(v) for k, v in merged_ready.items()}
             if work_changed:
                 state["workRevision"] = next_revision
+                # A new enqueue is an explicit retry after a prior terminal or stale attempt.
+                _RETRY_ATTEMPTS.pop(identifier, None)
             if state.get("phase") in {"ready", "failed"} and not _all_assets_ready(state):
                 state["phase"] = "queued"
                 state["stage"] = "queued"

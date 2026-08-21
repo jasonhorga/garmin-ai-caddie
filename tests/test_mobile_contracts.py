@@ -1515,6 +1515,10 @@ class MobileContractTests(unittest.TestCase):
             "if prepDownloadID != nil && serverInstallStatusAvailable && !geometryReady",
             app_swift,
         )
+        self.assertIn(
+            'if prepDownloadID != nil && serverInstallStatusAvailable && serverInstallPhase == "failed"',
+            app_swift,
+        )
         self.assertIn("serverTopoReadyKeys.contains", app_swift)
         self.assertNotIn("prewarmRoundTopo()", app_swift)
         self.assertNotIn("prewarmCourseTopo(globalId:", app_swift)
@@ -2293,6 +2297,12 @@ class MobileContractTests(unittest.TestCase):
         hole_map = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
         self.assertIn("prepHazardAnnotations.prefix(2)", hole_map)
         self.assertIn('Text("到 \\(toYards) · 过 \\(overYards)")', hole_map)
+        self.assertNotIn(
+            "including: zoomScale > 1.01 ? .all : .none",
+            hole_map,
+            "the fitted viewport must not disable its pinch/rotation subtree",
+        )
+        self.assertIn(".clipped()", hole_map)
         self.assertNotIn("private var hazardsSection", course_review)
         self.assertIn("measuredText(frontM: detail.frontM, backM: detail.backM)", caddie_plan)
         self.assertIn('"到 \\(CoursePrepRoute.yards(fromMetres: frontM)) · 过 \\(CoursePrepRoute.yards(fromMetres: backM)) 码"', caddie_plan)

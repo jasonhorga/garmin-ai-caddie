@@ -420,7 +420,11 @@ struct RotatableMapViewport<Content: View>: View {
             let height = width / max(aspectRatio, 0.01)
             let rotation = committedRotation + gestureRotation
             let fitScale = Self.fitScale(width: width, height: height, angle: rotation)
-            let scale = min(max(fitScale * zoomScale * pinchScale, fitScale), 4)
+            let scale = Self.displayScale(
+                fitScale: fitScale,
+                zoomScale: zoomScale,
+                pinchScale: pinchScale
+            )
             let proposedOffset = CGSize(
                 width: offset.width + dragOffset.width,
                 height: offset.height + dragOffset.height
@@ -492,7 +496,10 @@ struct RotatableMapViewport<Content: View>: View {
                                     angle: rotation
                                 )
                             },
-                        including: zoomScale > 1.01 ? .all : .none
+                        // Disable only this added drag while the map is at its fitted scale. The
+                        // pinch/rotation gestures attached to the map must remain enabled so the
+                        // user can leave the initial state with a two-finger gesture.
+                        including: zoomScale > 1.01 ? .all : .subviews
                     )
 
                 if abs(rotation.degrees) > 0.5 || zoomScale > 1.05 || abs(offset.width) > 0.5 || abs(offset.height) > 0.5 {
@@ -516,11 +523,21 @@ struct RotatableMapViewport<Content: View>: View {
                 }
             }
             .frame(width: width, height: height)
+            .clipped()
         }
         .frame(maxWidth: .infinity)
         .aspectRatio(aspectRatio, contentMode: .fit)
         .accessibilityElement(children: .contain)
         .accessibilityHint("双指旋转或缩放地图；放大后拖动，点击复位按钮还原")
+    }
+
+    static func displayScale(
+        fitScale: CGFloat,
+        zoomScale: CGFloat,
+        pinchScale: CGFloat
+    ) -> CGFloat {
+        let relativeZoom = min(max(zoomScale * pinchScale, 1), 4)
+        return fitScale * relativeZoom
     }
 
     /// Scale a rotated rectangle so none of its factual pixels are clipped by the viewport.

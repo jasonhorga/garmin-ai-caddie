@@ -118,6 +118,25 @@ final class CoursePrepTests: XCTestCase {
 
     func testRotatedPrepMapScalesInsideItsOriginalViewport() throws {
         XCTAssertEqual(
+            RotatableMapViewport<EmptyView>.displayScale(
+                fitScale: 0.566,
+                zoomScale: 1,
+                pinchScale: 7
+            ),
+            2.264,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            RotatableMapViewport<EmptyView>.displayScale(
+                fitScale: 0.566,
+                zoomScale: 4,
+                pinchScale: 1
+            ),
+            2.264,
+            accuracy: 0.0001,
+            "a committed pinch must use the same relative zoom scale as the live gesture"
+        )
+        XCTAssertEqual(
             RotatableMapViewport<EmptyView>.fitScale(
                 width: 360,
                 height: 560,
