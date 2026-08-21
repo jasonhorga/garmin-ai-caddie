@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import XCTest
 @testable import AICaddie
 
@@ -113,6 +114,44 @@ final class CoursePrepTests: XCTestCase {
         XCTAssertEqual(coursePrepParSourceLabel("played"), "记分卡")
         XCTAssertEqual(coursePrepParSourceLabel("courseview"), "CourseView")
         XCTAssertEqual(coursePrepParSourceLabel("unknown"), "推算")
+    }
+
+    func testRotatedPrepMapScalesInsideItsOriginalViewport() throws {
+        XCTAssertEqual(
+            RotatableMapViewport<EmptyView>.fitScale(
+                width: 360,
+                height: 560,
+                angle: .zero
+            ),
+            1,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            RotatableMapViewport<EmptyView>.fitScale(
+                width: 360,
+                height: 560,
+                angle: .degrees(90)
+            ),
+            360.0 / 560.0,
+            accuracy: 0.0001
+        )
+        let diagonal = RotatableMapViewport<EmptyView>.fitScale(
+            width: 360,
+            height: 560,
+            angle: .degrees(45)
+        )
+        XCTAssertGreaterThan(diagonal, 0)
+        XCTAssertLessThan(diagonal, 1)
+
+        let rotatedBounds = RotatableMapViewport<EmptyView>.clampedOffset(
+            CGSize(width: 10_000, height: -10_000),
+            width: 360,
+            height: 560,
+            scale: 1,
+            angle: .degrees(90)
+        )
+        XCTAssertEqual(rotatedBounds.width, 100, accuracy: 0.0001)
+        XCTAssertEqual(rotatedBounds.height, -100, accuracy: 0.0001)
     }
 
     func testCoursePrepRouteIntervalReadoutUsesYards() throws {

@@ -27,11 +27,14 @@ public struct HoleImageMapView: View {
     /// Live play supplies current-GPS ranges in `CurrentHoleView`, so its caller leaves this false
     /// and never gets a duplicate or a tee distance disguised as a live distance.
     public let showsPrepFactOverlays: Bool
+    /// Preparation-only viewport rotation. The complete map stack rotates as one unit; live play
+    /// keeps Garmin's fixed orientation and Watch callers never enable this control.
+    public let allowsRotation: Bool
 
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
                 topoURL: URL? = nil, showsCardChrome: Bool = true,
                 showsRecommendedRoute: Bool = true, showsHazards: Bool = true,
-                showsPrepFactOverlays: Bool = false) {
+                showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
@@ -40,6 +43,7 @@ public struct HoleImageMapView: View {
         self.showsRecommendedRoute = showsRecommendedRoute
         self.showsHazards = showsHazards
         self.showsPrepFactOverlays = showsPrepFactOverlays
+        self.allowsRotation = allowsRotation
     }
 
     public var body: some View {
@@ -58,7 +62,17 @@ public struct HoleImageMapView: View {
                 }
             }
             .aspectRatio(CGFloat(overlay.w) / CGFloat(overlay.h), contentMode: .fit)
-            if showsCardChrome {
+            if allowsRotation {
+                RotatableMapViewport(
+                    aspectRatio: CGFloat(overlay.w) / CGFloat(overlay.h)
+                ) {
+                    if showsCardChrome {
+                        map.mapSurface()
+                    } else {
+                        map
+                    }
+                }
+            } else if showsCardChrome {
                 map.mapSurface()
             } else {
                 map
@@ -378,6 +392,168 @@ public struct HoleImageMapView: View {
         }
         path.addLine(to: points[points.count - 1])
         return path
+    }
+}
+
+/// A local preparation viewport for aligning the factual green/topo image with a paper pin sheet.
+/// Rotation is deliberately a view transform: the geometry, distances and overlay remain in the
+/// same coordinate frame, while the transform is never persisted as course truth.
+struct RotatableMapViewport<Content: View>: View {
+    let aspectRatio: CGFloat
+    let content: Content
+
+    @State private var committedRotation = Angle.zero
+    @State private var zoomScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @GestureState private var gestureRotation = Angle.zero
+    @GestureState private var pinchScale: CGFloat = 1
+    @GestureState private var dragOffset: CGSize = .zero
+
+    init(aspectRatio: CGFloat, @ViewBuilder content: () -> Content) {
+        self.aspectRatio = aspectRatio
+        self.content = content()
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = max(proxy.size.width, 1)
+            let height = width / max(aspectRatio, 0.01)
+            let rotation = committedRotation + gestureRotation
+            let fitScale = Self.fitScale(width: width, height: height, angle: rotation)
+            let scale = min(max(fitScale * zoomScale * pinchScale, fitScale), 4)
+            let proposedOffset = CGSize(
+                width: offset.width + dragOffset.width,
+                height: offset.height + dragOffset.height
+            )
+
+            ZStack(alignment: .topTrailing) {
+                content
+                    .frame(width: width, height: height)
+                    .rotationEffect(rotation)
+                    .scaleEffect(scale)
+                    .offset(Self.clampedOffset(
+                        proposedOffset,
+                        width: width,
+                        height: height,
+                        scale: scale,
+                        angle: rotation
+                    ))
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(
+                        MagnificationGesture()
+                            .updating($pinchScale) { value, state, _ in
+                                state = value
+                            }
+                            .onEnded { value in
+                                zoomScale = min(max(zoomScale * value, 1), 4)
+                                offset = Self.clampedOffset(
+                                    offset,
+                                    width: width,
+                                    height: height,
+                                    scale: fitScale * zoomScale,
+                                    angle: rotation
+                                )
+                            }
+                    )
+                    .simultaneousGesture(
+                        RotationGesture()
+                            .updating($gestureRotation) { value, state, _ in
+                                state = value
+                            }
+                            .onEnded { value in
+                                committedRotation += value
+                                let finalRotation = committedRotation
+                                let finalFitScale = Self.fitScale(width: width, height: height, angle: finalRotation)
+                                offset = Self.clampedOffset(
+                                    offset,
+                                    width: width,
+                                    height: height,
+                                    scale: finalFitScale * zoomScale,
+                                    angle: finalRotation
+                                )
+                            }
+                    )
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 8)
+                            .updating($dragOffset) { value, state, _ in
+                                if zoomScale > 1.01 { state = value.translation }
+                            }
+                            .onEnded { value in
+                                guard zoomScale > 1.01 else { return }
+                                let proposed = CGSize(
+                                    width: offset.width + value.translation.width,
+                                    height: offset.height + value.translation.height
+                                )
+                                offset = Self.clampedOffset(
+                                    proposed,
+                                    width: width,
+                                    height: height,
+                                    scale: fitScale * zoomScale,
+                                    angle: rotation
+                                )
+                            },
+                        including: zoomScale > 1.01 ? .all : .none
+                    )
+
+                if abs(rotation.degrees) > 0.5 || zoomScale > 1.05 || abs(offset.width) > 0.5 || abs(offset.height) > 0.5 {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            committedRotation = .zero
+                            zoomScale = 1
+                            offset = .zero
+                        }
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.caption.weight(.bold))
+                            .frame(width: 32, height: 32)
+                            .background(.black.opacity(0.68), in: Circle())
+                            .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(10)
+                    .accessibilityLabel("重置地图视图")
+                    .accessibilityIdentifier("prep-map-reset-rotation")
+                }
+            }
+            .frame(width: width, height: height)
+        }
+        .frame(maxWidth: .infinity)
+        .aspectRatio(aspectRatio, contentMode: .fit)
+        .accessibilityElement(children: .contain)
+        .accessibilityHint("双指旋转或缩放地图；放大后拖动，点击复位按钮还原")
+    }
+
+    /// Scale a rotated rectangle so none of its factual pixels are clipped by the viewport.
+    static func fitScale(width: CGFloat, height: CGFloat, angle: Angle) -> CGFloat {
+        guard width > 0, height > 0 else { return 1 }
+        let radians = angle.radians
+        let cosine = abs(cos(radians))
+        let sine = abs(sin(radians))
+        let boundingWidth = width * cosine + height * sine
+        let boundingHeight = width * sine + height * cosine
+        guard boundingWidth > 0, boundingHeight > 0 else { return 1 }
+        return min(1, min(width / boundingWidth, height / boundingHeight))
+    }
+
+    static func clampedOffset(
+        _ value: CGSize,
+        width: CGFloat,
+        height: CGFloat,
+        scale: CGFloat,
+        angle: Angle
+    ) -> CGSize {
+        guard width > 0, height > 0, scale > 0 else { return .zero }
+        let radians = angle.radians
+        let cosine = abs(cos(radians))
+        let sine = abs(sin(radians))
+        let transformedWidth = width * scale * cosine + height * scale * sine
+        let transformedHeight = width * scale * sine + height * scale * cosine
+        let maxX = max((transformedWidth - width) / 2, 0)
+        let maxY = max((transformedHeight - height) / 2, 0)
+        return CGSize(
+            width: min(max(value.width, -maxX), maxX),
+            height: min(max(value.height, -maxY), maxY)
+        )
     }
 }
 

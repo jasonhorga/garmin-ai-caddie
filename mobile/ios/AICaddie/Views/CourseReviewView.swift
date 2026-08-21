@@ -384,7 +384,8 @@ struct HolePrepCard: View {
                 HoleImageMapView(
                     hole: hole,
                     topoURL: topoURL,
-                    showsPrepFactOverlays: true
+                    showsPrepFactOverlays: true,
+                    allowsRotation: true
                 )
                     // Keep the AsyncImage loading/ready children in the accessibility tree while
                     // retaining this hole-specific container identifier for UI navigation.
