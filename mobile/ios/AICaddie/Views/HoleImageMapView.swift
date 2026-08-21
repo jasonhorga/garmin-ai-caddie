@@ -442,65 +442,6 @@ struct RotatableMapViewport<Content: View>: View {
                         scale: scale,
                         angle: rotation
                     ))
-                    .contentShape(Rectangle())
-                    .simultaneousGesture(
-                        MagnificationGesture()
-                            .updating($pinchScale) { value, state, _ in
-                                state = value
-                            }
-                            .onEnded { value in
-                                zoomScale = min(max(zoomScale * value, 1), 4)
-                                offset = Self.clampedOffset(
-                                    offset,
-                                    width: width,
-                                    height: height,
-                                    scale: fitScale * zoomScale,
-                                    angle: rotation
-                                )
-                            }
-                    )
-                    .simultaneousGesture(
-                        RotationGesture()
-                            .updating($gestureRotation) { value, state, _ in
-                                state = value
-                            }
-                            .onEnded { value in
-                                let finalRotation = committedRotation + value
-                                committedRotation = finalRotation
-                                let finalFitScale = Self.fitScale(width: width, height: height, angle: finalRotation)
-                                offset = Self.clampedOffset(
-                                    offset,
-                                    width: width,
-                                    height: height,
-                                    scale: finalFitScale * zoomScale,
-                                    angle: finalRotation
-                                )
-                            }
-                    )
-                    .highPriorityGesture(
-                        DragGesture(minimumDistance: 8)
-                            .updating($dragOffset) { value, state, _ in
-                                if zoomScale > 1.01 { state = value.translation }
-                            }
-                            .onEnded { value in
-                                guard zoomScale > 1.01 else { return }
-                                let proposed = CGSize(
-                                    width: offset.width + value.translation.width,
-                                    height: offset.height + value.translation.height
-                                )
-                                offset = Self.clampedOffset(
-                                    proposed,
-                                    width: width,
-                                    height: height,
-                                    scale: fitScale * zoomScale,
-                                    angle: rotation
-                                )
-                            },
-                        // Disable only this added drag while the map is at its fitted scale. The
-                        // pinch/rotation gestures attached to the map must remain enabled so the
-                        // user can leave the initial state with a two-finger gesture.
-                        including: zoomScale > 1.01 ? .all : .subviews
-                    )
 
                 if abs(rotation.degrees) > 0.5 || zoomScale > 1.05 || abs(offset.width) > 0.5 || abs(offset.height) > 0.5 {
                     Button {
@@ -522,6 +463,68 @@ struct RotatableMapViewport<Content: View>: View {
                     .accessibilityIdentifier("prep-map-reset-rotation")
                 }
             }
+            // Keep the hit-test surface fixed to the viewport. A transformed child can move its
+            // contentShape outside the clipped frame at high zoom, which would make the next drag
+            // or pinch impossible to start. Simultaneous recognition also prevents a one-finger
+            // drag recognizer from stealing a second pinch/rotation gesture.
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                MagnificationGesture()
+                    .updating($pinchScale) { value, state, _ in
+                        state = value
+                    }
+                    .onEnded { value in
+                        zoomScale = min(max(zoomScale * value, 1), 4)
+                        offset = Self.clampedOffset(
+                            offset,
+                            width: width,
+                            height: height,
+                            scale: fitScale * zoomScale,
+                            angle: rotation
+                        )
+                    }
+            )
+            .simultaneousGesture(
+                RotationGesture()
+                    .updating($gestureRotation) { value, state, _ in
+                        state = value
+                    }
+                    .onEnded { value in
+                        let finalRotation = committedRotation + value
+                        committedRotation = finalRotation
+                        let finalFitScale = Self.fitScale(width: width, height: height, angle: finalRotation)
+                        offset = Self.clampedOffset(
+                            offset,
+                            width: width,
+                            height: height,
+                            scale: finalFitScale * zoomScale,
+                            angle: finalRotation
+                        )
+                    }
+            )
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 8)
+                    .updating($dragOffset) { value, state, _ in
+                        if zoomScale > 1.01 { state = value.translation }
+                    }
+                    .onEnded { value in
+                        guard zoomScale > 1.01 else { return }
+                        let proposed = CGSize(
+                            width: offset.width + value.translation.width,
+                            height: offset.height + value.translation.height
+                        )
+                        offset = Self.clampedOffset(
+                            proposed,
+                            width: width,
+                            height: height,
+                            scale: fitScale * zoomScale,
+                            angle: rotation
+                        )
+                    },
+                // Disable only this added drag while the map is at its fitted scale. The pinch and
+                // rotation gestures above remain enabled from the initial state.
+                including: zoomScale > 1.01 ? .all : .subviews
+            )
             .frame(width: width, height: height)
             .clipped()
         }

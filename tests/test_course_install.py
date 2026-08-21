@@ -417,7 +417,7 @@ class CourseInstallJournalTests(unittest.TestCase):
                 course_install._run(state["jobId"])
 
             schedule.assert_called_once_with(state["jobId"])
-            handoff.assert_not_called()
+            handoff.assert_called_once_with()
 
     def test_retry_backoff_uses_one_timer_per_job_and_is_bounded(self) -> None:
         from server_v2 import course_install

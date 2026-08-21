@@ -621,11 +621,16 @@ def update(
 
 def _run(identifier: str) -> None:
     relaunch = False
+    initial_progress = (0, 0)
     try:
         with _LOCK:
             state = _read(identifier)
             if state is None:
                 return
+            initial_progress = (
+                int(state.get("geometryReady") or 0),
+                int(state.get("topoReady") or 0),
+            )
             state["phase"] = "running"
             state["stage"] = "geometry"
             state["error"] = None
@@ -644,6 +649,14 @@ def _run(identifier: str) -> None:
         with _LOCK:
             _ACTIVE.discard(identifier)
             state = _read(identifier)
+            made_progress = bool(state) and (
+                int(state.get("geometryReady") or 0),
+                int(state.get("topoReady") or 0),
+            ) > initial_progress
+            if made_progress:
+                # A slow course that completes some holes on each pass is healthy progress; do not
+                # spend its entire retry budget merely because other holes are still waiting.
+                _RETRY_ATTEMPTS.pop(identifier, None)
             # ``enqueue`` can append/rebind a hole while the worker is in its final topo wait. It
             # sees the active worker and therefore cannot launch a second one; hand the queued row
             # off after releasing the active slot so it is never stranded.
@@ -653,7 +666,8 @@ def _run(identifier: str) -> None:
         else:
             with _LOCK:
                 _RETRY_ATTEMPTS.pop(identifier, None)
-            _launch_next_resumed_job()
+        # A terminal retry or a delayed retry must not strand other jobs recovered after restart.
+        _launch_next_resumed_job()
 
 
 def _retention_days() -> int:
