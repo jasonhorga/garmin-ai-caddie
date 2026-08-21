@@ -63,6 +63,7 @@ public struct AICaddieApp: App {
                         liveRoundState: model.liveRoundState,
                         courseOptions: model.courseOptions,
                         downloadedCourseOptions: model.downloadedCourseOptions,
+                        downloadedCourseKeys: model.downloadedCourseKeys,
                         prepCourseDownloads: model.prepCourseDownloads,
                         prepCourseDownloadPresentation: model.prepCourseDownloadPresentation,
                         startingNine: model.startingNine,
@@ -377,6 +378,7 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var liveRoundState: LiveRoundStateSnapshot?
     @Published public private(set) var courseOptions: [MobileCourseOption] = []
     @Published public private(set) var downloadedCourseOptions: [MobileCourseOption] = []
+    @Published public private(set) var downloadedCourseKeys: Set<String> = []
     public let prepCourseDownloadPresentation = PrepCourseDownloadPresentationState()
     @Published public private(set) var prepCourseDownloads: [PrepCourseDownloadRecord] = [] {
         didSet {
@@ -490,8 +492,8 @@ public final class LiveRoundAppModel: ObservableObject {
         watchBridge?.activateSession()
         syncConfigToWatch()
         observeSessionForWatch()
-        refreshDownloadedCourseOptions()
         restorePrepCourseDownloadsFromDisk()
+        refreshDownloadedCourseOptions()
     }
 
     /// round-12 P3.4 (Watch standalone): hand the watch this phone's backend config so a standalone
@@ -571,8 +573,8 @@ public final class LiveRoundAppModel: ObservableObject {
         garminSyncStatus = "尚未手动更新"
         lastGarminSyncAt = nil
         isBootstrapping = true
-        refreshDownloadedCourseOptions()
         restorePrepCourseDownloadsFromDisk()
+        refreshDownloadedCourseOptions()
         syncConfigToWatch()
     }
 
@@ -2800,8 +2802,42 @@ public final class LiveRoundAppModel: ObservableObject {
             teeBox: record.teeBox,
             nine: record.nine
         ), template.hasCompleteOfflineCoursePrep,
-              offlineStore.hasCourseTopoImages(for: template) else { return nil }
+              offlineStore.hasCourseTopoImages(for: template),
+              templateSatisfiesRequiredGeometryRevisions(template, record: record) else { return nil }
         return template
+    }
+
+    private func geometryRevisions(in template: LiveRoundPackage) -> [String: String] {
+        template.holes.reduce(into: [:]) { result, hole in
+            let sourceGlobalId = hole.sourceGlobalId ?? template.course.globalId
+            let sourceLocalHole = hole.sourceLocalHole ?? hole.number
+            let prepRevision = template.coursePrep?.holes.first(where: {
+                $0.hole == hole.number
+            })?.geometryRevision
+            let revision = (prepRevision ?? hole.geometryRevision)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard let revision, !revision.isEmpty else { return }
+            result[offlinePrepKey(globalId: sourceGlobalId, localHole: sourceLocalHole)] = revision
+        }
+    }
+
+    private func geometryKeys(in template: LiveRoundPackage) -> Set<String> {
+        Set(template.holes.map { hole in
+            offlinePrepKey(
+                globalId: hole.sourceGlobalId ?? template.course.globalId,
+                localHole: hole.sourceLocalHole ?? hole.number
+            )
+        })
+    }
+
+    private func templateSatisfiesRequiredGeometryRevisions(
+        _ template: LiveRoundPackage,
+        record: PrepCourseDownloadRecord
+    ) -> Bool {
+        guard let required = record.requiredGeometryRevisions, !required.isEmpty else { return true }
+        let installed = geometryRevisions(in: template)
+        return required.allSatisfy { key, revision in installed[key] == revision }
     }
 
     /// Selecting a catalogue result creates/reattaches to one app-owned job before navigation.
@@ -2823,7 +2859,9 @@ public final class LiveRoundAppModel: ObservableObject {
                     record.preparedHoles = record.totalHoles
                     record.downloadedHoles = record.totalHoles
                     record.errorText = nil
+                    record.requiredGeometryRevisions = nil
                 }
+                refreshDownloadedCourseOptions()
                 return
             }
             if existing.id == activePrepCourseDownloadID {
@@ -2837,6 +2875,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 record.phase = .queued
                 record.errorText = nil
             }
+            refreshDownloadedCourseOptions()
         } else if let installed = readyPrepTemplate(for: candidate) {
             var ready = candidate
             ready.phase = .ready
@@ -2845,6 +2884,7 @@ public final class LiveRoundAppModel: ObservableObject {
             ready.downloadedHoles = ready.totalHoles
             prepCourseDownloads.append(ready)
             persistPrepCourseDownloads()
+            refreshDownloadedCourseOptions()
             return
         } else {
             prepCourseDownloads.append(candidate)
@@ -2858,6 +2898,7 @@ public final class LiveRoundAppModel: ObservableObject {
             record.phase = .queued
             record.errorText = nil
         }
+        refreshDownloadedCourseOptions()
         startPrepCourseDownloadQueueIfNeeded()
     }
 
@@ -2868,16 +2909,12 @@ public final class LiveRoundAppModel: ObservableObject {
     /// old Garmin bitmap is never presented as current.
     public func validateReadyPrepCourse(_ record: PrepCourseDownloadRecord) async -> Bool {
         guard record.phase == .ready else { return false }
-        guard let template = try? offlineStore.loadCourseTemplate(
-            globalId: record.course.globalId,
-            teeBox: record.teeBox,
-            nine: record.nine
-        ), template.hasCompleteOfflineCoursePrep,
-              offlineStore.hasCourseTopoImages(for: template) else {
+        guard let template = readyPrepTemplate(for: record) else {
             updatePrepCourseDownload(id: record.id) { state in
                 state.phase = .queued
                 state.errorText = nil
             }
+            refreshDownloadedCourseOptions()
             startPrepCourseDownloadQueueIfNeeded()
             return false
         }
@@ -2895,36 +2932,56 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.network.info(
                 "Prep release revalidation deferred for \(record.course.globalId, privacy: .public): \(String(describing: error), privacy: .public)"
             )
+            guard let current = prepCourseDownloads.first(where: { $0.id == record.id }),
+                  current.phase == .ready,
+                  readyPrepTemplate(for: current) != nil else { return false }
             return true
         }
+        // The app-owned queue may have changed this exact course while the network request was
+        // suspended. Compare against the current durable row/template, never the captured snapshot.
+        guard let current = prepCourseDownloads.first(where: { $0.id == record.id }),
+              current.phase == .ready,
+              let currentTemplate = readyPrepTemplate(for: current) else { return false }
         // A pruned/legacy journal is not evidence that the local package is stale. The next
         // explicit download will recreate it, while this open remains available offline.
         guard let status else { return true }
 
-        let localRevisions: [String: String] = template.holes.reduce(into: [:]) { result, hole in
-            let sourceGlobalId = hole.sourceGlobalId ?? template.course.globalId
-            let sourceLocalHole = hole.sourceLocalHole ?? hole.number
-            let prepRevision = template.coursePrep?.holes.first(where: { $0.hole == hole.number })?.geometryRevision
-            let revision = (prepRevision ?? hole.geometryRevision)?
-                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard let revision, !revision.isEmpty else { return }
-            result[offlinePrepKey(globalId: sourceGlobalId, localHole: sourceLocalHole)] = revision
-        }
-        let revisionMismatch = status.holes.contains { row in
+        let localRevisions = geometryRevisions(in: currentTemplate)
+        let installedKeys = geometryKeys(in: currentTemplate)
+        let requiredRevisions: [String: String] = status.holes.reduce(into: [:]) { result, row in
             guard let remote = row.geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                  !remote.isEmpty else { return false }
+                  !remote.isEmpty else { return }
             let key = offlinePrepKey(globalId: row.globalId, localHole: row.localHole)
-            guard let local = localRevisions[key] else { return true }
-            return local != remote
+            // The server journal can retain rows from another compatible request. Only a positive
+            // mismatch for a hole in this installed template is evidence that this selection is
+            // stale. A missing local revision is also stale; otherwise an older package with a
+            // complete-looking bitmap could bypass the release gate.
+            guard installedKeys.contains(key), localRevisions[key] != remote else { return }
+            result[key] = remote
         }
-        guard revisionMismatch else { return true }
+        guard !requiredRevisions.isEmpty else { return true }
 
+        do {
+            try offlineStore.invalidateCourseTemplate(for: currentTemplate)
+        } catch {
+            updatePrepCourseDownload(id: record.id) { state in
+                state.phase = .failed
+                state.errorText = "地图更新准备失败，请点下载重试"
+            }
+            refreshDownloadedCourseOptions()
+            AICaddieLog.storage.error(
+                "Prep template invalidation failed for \(record.course.globalId, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+            return false
+        }
         updatePrepCourseDownload(id: record.id) { state in
             state.phase = .queued
             state.preparedHoles = 0
             state.downloadedHoles = 0
             state.errorText = nil
+            state.requiredGeometryRevisions = requiredRevisions
         }
+        refreshDownloadedCourseOptions()
         startPrepCourseDownloadQueueIfNeeded()
         return false
     }
@@ -2949,7 +3006,10 @@ public final class LiveRoundAppModel: ObservableObject {
                 changed = true
             }
         }
-        if changed { persistPrepCourseDownloads() }
+        if changed {
+            persistPrepCourseDownloads()
+            refreshDownloadedCourseOptions()
+        }
         startPrepCourseDownloadQueueIfNeeded()
     }
 
@@ -3061,7 +3121,9 @@ public final class LiveRoundAppModel: ObservableObject {
                     state.preparedHoles = state.totalHoles
                     state.downloadedHoles = state.totalHoles
                     state.errorText = nil
+                    state.requiredGeometryRevisions = nil
                 }
+                refreshDownloadedCourseOptions()
             } else {
                 let serverStatus: CourseInstallStatus?
                 let statusProbeFailed: Bool
@@ -3266,6 +3328,28 @@ public final class LiveRoundAppModel: ObservableObject {
                 && package.hasCompleteOfflineCoursePrep
                 && offlineStore.hasCourseTopoImages(for: package)
         }
+        let prepReady = standalone.filter { package in
+            let key = PrepCourseDownloadRecord.key(
+                globalId: package.course.globalId,
+                teeBox: package.course.teeBox,
+                nine: package.nine ?? "all"
+            )
+            guard let pendingRelease = prepCourseDownloads.first(where: { $0.id == key }) else {
+                return true
+            }
+            guard pendingRelease.phase == .ready else { return false }
+            return templateSatisfiesRequiredGeometryRevisions(package, record: pendingRelease)
+        }
+        downloadedCourseKeys = Set(prepReady.map { package in
+            PrepCourseDownloadRecord.key(
+                globalId: package.course.globalId,
+                teeBox: package.course.teeBox,
+                nine: package.nine ?? "all"
+            )
+        })
+        // Keep the ordinary live-round library independent from a prep-release refresh. A complete
+        // local template remains a valid offline start even while its prep row is queued for a newer
+        // Garmin release; only the prep picker consumes the stricter exact-key readiness set above.
         downloadedCourseOptions = Dictionary(grouping: standalone, by: { $0.course.globalId })
             .values
             .compactMap { packages -> MobileCourseOption? in

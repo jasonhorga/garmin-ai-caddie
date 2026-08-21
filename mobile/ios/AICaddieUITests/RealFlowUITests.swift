@@ -307,9 +307,10 @@ final class RealFlowUITests: XCTestCase {
 
         // The course download belongs to the app, not to a detail screen. The retained row stays
         // visible immediately, then survives a process relaunch before the player opens it.
-        let retainedDownload = app.buttons[
-            "prep-download-row-\(approvedJourneyCourseGlobalId)"
-        ]
+        let retainedDownload = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@",
+            "prep-download-row-\(approvedJourneyCourseGlobalId):"
+        )).firstMatch
         XCTAssertTrue(
             scrollTo(retainedDownload, maxSwipes: 12),
             "leaving course prep must retain the selected course in 最近选择"
@@ -323,9 +324,10 @@ final class RealFlowUITests: XCTestCase {
         launchFresh()
         XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]))
         XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 12))
-        let relaunchedDownload = app.buttons[
-            "prep-download-row-\(approvedJourneyCourseGlobalId)"
-        ]
+        let relaunchedDownload = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@",
+            "prep-download-row-\(approvedJourneyCourseGlobalId):"
+        )).firstMatch
         XCTAssertTrue(
             scrollTo(relaunchedDownload, maxSwipes: 12),
             "process relaunch must restore the same selected course instead of restarting search"

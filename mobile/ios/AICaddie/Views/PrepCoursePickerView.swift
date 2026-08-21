@@ -5,6 +5,7 @@ import SwiftUI
 public struct PrepCoursePickerView: View {
     public let courseOptions: [MobileCourseOption]
     public let downloadedCourseOptions: [MobileCourseOption]
+    public let downloadedCourseKeys: Set<String>
     public let apiBaseURL: URL?
     public let adminToken: String?
     public let offlineStore: OfflineStore?
@@ -18,10 +19,12 @@ public struct PrepCoursePickerView: View {
     @ObservedObject private var downloadPresentation: PrepCourseDownloadPresentationState
     @State private var selectedCourse: MobileCourseOption?
     @State private var validatingDownloadID: String?
+    @State private var validationMessage: String?
 
     public init(
         courseOptions: [MobileCourseOption],
         downloadedCourseOptions: [MobileCourseOption] = [],
+        downloadedCourseKeys: Set<String> = [],
         downloads: [PrepCourseDownloadRecord] = [],
         downloadPresentation: PrepCourseDownloadPresentationState? = nil,
         apiBaseURL: URL?,
@@ -33,6 +36,7 @@ public struct PrepCoursePickerView: View {
     ) {
         self.courseOptions = courseOptions
         self.downloadedCourseOptions = downloadedCourseOptions
+        self.downloadedCourseKeys = downloadedCourseKeys
         self._downloadPresentation = ObservedObject(
             wrappedValue: downloadPresentation
                 ?? PrepCourseDownloadPresentationState(downloads: downloads)
@@ -88,6 +92,11 @@ public struct PrepCoursePickerView: View {
                 )
             }
         }
+        .alert("地图正在更新", isPresented: validationAlertPresented) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(validationMessage ?? "地图更新完成后即可进入备战。")
+        }
     }
 
     private var selectedCoursePresented: Binding<Bool> {
@@ -97,6 +106,15 @@ public struct PrepCoursePickerView: View {
                 if !isPresented {
                     selectedCourse = nil
                 }
+            }
+        )
+    }
+
+    private var validationAlertPresented: Binding<Bool> {
+        Binding(
+            get: { validationMessage != nil },
+            set: { isPresented in
+                if !isPresented { validationMessage = nil }
             }
         )
     }
@@ -131,11 +149,12 @@ public struct PrepCoursePickerView: View {
     ) {
         _ = matches
         guard let course = resolvedOption(for: selected) else { return }
+        let wasReady = installedCourseKeys.contains(downloadID(for: course))
         // A catalogue hit is metadata only.  Starting a download must not push a destination that
         // owns a second, page-scoped loader (and could therefore show a partial map or be cancelled
         // when the user navigates back).  Already-installed courses are the sole exception.
         onDownload(course)
-        if isReady(course) {
+        if wasReady {
             let record = visibleDownloads.first(where: { $0.id == downloadID(for: course) })
                 ?? readyDownloadIntent(for: course)
             validateAndOpen(record)
@@ -148,7 +167,7 @@ public struct PrepCoursePickerView: View {
         }
         // Keep queued/preparing/downloading rows in the library.  The only legal route into the
         // prep map is a complete, locally verified course package.
-        if download.phase == .ready, locallyReady(download) {
+        if download.phase == .ready, installedCourseKeys.contains(download.id) {
             validateAndOpen(download)
         } else if download.phase == .ready {
             // A stale row can survive an interrupted file cleanup or a renderer-version change.
@@ -166,36 +185,13 @@ public struct PrepCoursePickerView: View {
             validatingDownloadID = nil
             if isCurrent {
                 selectedCourse = download.course
+            } else if let failed = downloads.first(where: { $0.id == download.id })?.errorText,
+                      !failed.isEmpty {
+                validationMessage = failed
+            } else {
+                validationMessage = "检测到地图有新版本，已开始更新；下载完成后即可进入备战。"
             }
         }
-    }
-
-    private func isReady(_ course: MobileCourseOption) -> Bool {
-        // Readiness is bound to the exact Tee/hole set, not just the physical course id. A single
-        // downloadedCourseOptions row can represent another Tee; opening it optimistically would
-        // route into a missing template and violate the no-partial-prep gate.
-        guard let offlineStore else { return false }
-        let tee = (course.teeBox ?? "blue").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let template = try? offlineStore.loadCourseTemplate(
-            globalId: course.globalId,
-            teeBox: tee.isEmpty ? "blue" : tee,
-            nine: "all"
-        ) else {
-            return false
-        }
-        return template.hasCompleteOfflineCoursePrep
-            && offlineStore.hasCourseTopoImages(for: template)
-    }
-
-    private func locallyReady(_ download: PrepCourseDownloadRecord) -> Bool {
-        guard download.phase == .ready else { return false }
-        guard let offlineStore,
-              let template = try? offlineStore.loadCourseTemplate(
-                  globalId: download.course.globalId,
-                  teeBox: download.teeBox,
-                  nine: download.nine
-              ) else { return false }
-        return template.hasCompleteOfflineCoursePrep && offlineStore.hasCourseTopoImages(for: template)
     }
 
     /// Resolve the durable row when it has propagated, or use an equivalent queued snapshot for
@@ -244,15 +240,7 @@ public struct PrepCoursePickerView: View {
     }
 
     private var installedCourseKeys: Set<String> {
-        let optionKeys = downloadedCourseOptions.filter(isReady).map { option in
-            let tee = option.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return PrepCourseDownloadRecord.key(
-                globalId: option.globalId,
-                teeBox: tee?.isEmpty == false ? tee! : "blue",
-                nine: "all"
-            )
-        }
-        return Set(optionKeys + visibleDownloads.filter(locallyReady).map(\.id))
+        downloadedCourseKeys
     }
 
     private var downloads: [PrepCourseDownloadRecord] {

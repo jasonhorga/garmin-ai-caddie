@@ -283,7 +283,7 @@ public struct MobileCourseSearchView: View {
             // Keep the stable row id on the actual opening button. Applying it to the wrapping
             // HStack makes SwiftUI expose a synthetic button that can inherit the id but not the
             // opening action when a retry control is present beside it.
-            .accessibilityIdentifier("prep-download-row-\(download.course.globalId)")
+            .accessibilityIdentifier("prep-download-row-\(download.id)")
             .accessibilityLabel(download.course.name)
             .accessibilityValue(status)
             .accessibilityHint(download.isActive
@@ -298,7 +298,7 @@ public struct MobileCourseSearchView: View {
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.bordered)
-                .accessibilityIdentifier("prep-download-retry-\(download.course.globalId)")
+                .accessibilityIdentifier("prep-download-retry-\(download.id)")
             } else if download.isActive || isValidating {
                 ProgressView()
                     .controlSize(.small)

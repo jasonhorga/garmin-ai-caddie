@@ -929,24 +929,55 @@ public final class OfflineStore {
     ) throws -> LiveRoundPackage? {
         let requestedTee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let requestedNine = nine.isEmpty ? "all" : nine.lowercased()
-        return try loadCourseTemplates()
-            .filter { package in
-                let packageNine = (package.nine ?? "all").lowercased()
-                let sourceGlobalIds = Set(package.holes.map {
-                    $0.sourceGlobalId ?? package.course.globalId
-                })
-                return package.course.globalId == globalId
-                    && sourceGlobalIds == Set([globalId])
-                    && package.course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == requestedTee
-                    && packageNine == requestedNine
-            }
-            .sorted { lhs, rhs in
-                if lhs.geometryCoverage.state != rhs.geometryCoverage.state {
-                    return lhs.geometryCoverage.state == .ready
-                }
-                return lhs.generatedAt > rhs.generatedAt
-            }
-            .first
+        let url = courseTemplateURL(
+            globalId: globalId,
+            teeBox: requestedTee,
+            nine: requestedNine,
+            sourceGlobalIds: [globalId]
+        )
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey]
+        guard let values = try? url.resourceValues(forKeys: keys),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              let data = try? Data(contentsOf: url),
+              let package = try? decoder.decode(LiveRoundPackage.self, from: data) else {
+            return nil
+        }
+        let packageNine = (package.nine ?? "all").lowercased()
+        let sourceGlobalIds = Set(package.holes.map {
+            $0.sourceGlobalId ?? package.course.globalId
+        })
+        guard package.course.globalId == globalId,
+              sourceGlobalIds == Set([globalId]),
+              package.course.teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == requestedTee,
+              packageNine == requestedNine else {
+            return nil
+        }
+        return package
+    }
+
+    /// Remove only the replaceable standalone course-template pointer. Round packages and immutable
+    /// revision-keyed topo images remain available; a fresh download can now persist partial progress
+    /// without the richer superseded template winning `shouldReplaceCourseTemplate` forever.
+    public func invalidateCourseTemplate(
+        globalId: Int,
+        teeBox: String,
+        nine: String
+    ) throws {
+        let url = courseTemplateURL(
+            globalId: globalId,
+            teeBox: teeBox,
+            nine: nine,
+            sourceGlobalIds: [globalId]
+        )
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try FileManager.default.removeItem(at: url)
+    }
+
+    public func invalidateCourseTemplate(for package: LiveRoundPackage) throws {
+        let url = courseTemplateURL(package)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try FileManager.default.removeItem(at: url)
     }
 
     /// Account-scoped prep library / resumable job list. The selected course metadata is tiny; the
@@ -1732,18 +1763,32 @@ public final class OfflineStore {
     }
 
     private func courseTemplateURL(_ package: LiveRoundPackage) -> URL {
+        courseTemplateURL(
+            globalId: package.course.globalId,
+            teeBox: package.course.teeBox,
+            nine: package.nine ?? "all",
+            sourceGlobalIds: Set(package.holes.map {
+                $0.sourceGlobalId ?? package.course.globalId
+            })
+        )
+    }
+
+    private func courseTemplateURL(
+        globalId: Int,
+        teeBox: String,
+        nine: String,
+        sourceGlobalIds: Set<Int>
+    ) -> URL {
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
         func safe(_ value: String) -> String {
             value.addingPercentEncoding(withAllowedCharacters: allowed)
                 ?? value.replacingOccurrences(of: "/", with: "_")
         }
-        let sources = Set(package.holes.map {
-            $0.sourceGlobalId ?? package.course.globalId
-        }).sorted().map(String.init).joined(separator: "-")
+        let sources = sourceGlobalIds.sorted().map(String.init).joined(separator: "-")
         let signature = [
-            String(package.course.globalId),
-            safe(package.course.teeBox.lowercased()),
-            safe((package.nine ?? "all").lowercased()),
+            String(globalId),
+            safe(teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()),
+            safe((nine.isEmpty ? "all" : nine).lowercased()),
             sources,
         ].joined(separator: "--")
         return courseTemplatesDirectoryURL.appendingPathComponent("\(signature).json")

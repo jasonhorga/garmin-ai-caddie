@@ -2216,23 +2216,21 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("self.title = title ??", course_search)
         self.assertIn('Text(activeSearch == .manual ? "正在搜索" : "搜索")', course_search)
         self.assertNotIn("搜索 Garmin 全部球场", course_search)
-        # “已准备” is derived from both the ordinary downloaded-course library and a durable prep
-        # job whose on-disk template/topos have reached ready.  The retained rows must also be wired
-        # into the search screen so leaving the detail page does not erase the selected course.
-        # Readiness is keyed by the exact tee/nine tuple; the legacy global-id-only list is
-        # intentionally empty so a different tee cannot be opened as an installed package.
+        # The model validates disk readiness once and publishes exact tee/nine keys. SwiftUI render
+        # passes must consume that in-memory set rather than decoding all templates for every row.
         self.assertIn("installedGlobalIds: [],", prep_picker)
         self.assertIn("installedCourseKeys: installedCourseKeys", prep_picker)
-        self.assertIn("let optionKeys = downloadedCourseOptions.filter(isReady).map", prep_picker)
+        self.assertIn("public let downloadedCourseKeys: Set<String>", prep_picker)
+        self.assertIn("downloadedCourseKeys", prep_picker)
         self.assertNotIn("downloadedCourseOptions.map(\\.globalId)", prep_picker)
-        self.assertIn("visibleDownloads.filter(locallyReady)", prep_picker)
+        self.assertNotIn("loadCourseTemplate(", prep_picker)
+        self.assertNotIn("hasCourseTopoImages", prep_picker)
         self.assertIn("retainedDownloads: visibleDownloads", prep_picker)
         self.assertIn("retainedDownloadKey: { match in", prep_picker)
         self.assertIn("return downloadID(for: course)", prep_picker)
         self.assertIn("onDownload(course)", prep_picker)
-        self.assertIn("if isReady(course)", prep_picker)
-        self.assertIn("template.hasCompleteOfflineCoursePrep", prep_picker)
-        self.assertIn("offlineStore.hasCourseTopoImages(for: template)", prep_picker)
+        self.assertIn("let wasReady = installedCourseKeys.contains(downloadID(for: course))", prep_picker)
+        self.assertIn("if wasReady", prep_picker)
         self.assertIn("onNearby: nearbyCourses", prep_picker)
         self.assertIn("requestAuthorization()", prep_picker)
         self.assertIn("startUpdatingLocation()", prep_picker)

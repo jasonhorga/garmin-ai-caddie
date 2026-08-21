@@ -1024,6 +1024,45 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(status?.holes.last?.topo, "queued")
     }
 
+    func testPrepRevalidationProbeMaps404ToMissingWithoutRetry() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let requestLock = NSLock()
+        var requestCount = 0
+        CapturingURLProtocol.requestHandler = { request in
+            requestLock.withLock { requestCount += 1 }
+            XCTAssertEqual(
+                request.timeoutInterval,
+                SyncClient.courseInstallRevalidationTimeoutInterval
+            )
+            let url = try XCTUnwrap(request.url)
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 404,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"detail":"no journal"}"#.utf8)
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { _ in XCTFail("404 probe must not retry") }
+        )
+
+        let status = try await client.probeCourseInstallStatusForRevalidation(
+            globalId: 31870,
+            teeBox: "blue"
+        )
+
+        XCTAssertNil(status)
+        XCTAssertEqual(requestLock.withLock { requestCount }, 1)
+    }
+
     func testRunGarminSyncUsesOwnerRouteAndRequestsShotData() async throws {
         await MainActor.run { SessionStore.shared.signOut() }
         let configuration = URLSessionConfiguration.ephemeral

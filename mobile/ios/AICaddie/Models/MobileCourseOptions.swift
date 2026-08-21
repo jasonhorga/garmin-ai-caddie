@@ -223,6 +223,9 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     public var totalHoles: Int
     public var updatedAt: Date
     public var errorText: String?
+    /// Positive server release revisions that a replacement install must satisfy before this row
+    /// can become ready again. Nil for ordinary downloads and backward-compatible persisted rows.
+    public var requiredGeometryRevisions: [String: String]?
 
     public init(
         course: MobileCourseOption,
@@ -233,7 +236,8 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         downloadedHoles: Int = 0,
         totalHoles: Int? = nil,
         updatedAt: Date = Date(),
-        errorText: String? = nil
+        errorText: String? = nil,
+        requiredGeometryRevisions: [String: String]? = nil
     ) {
         let rawTee = (teeBox ?? course.teeBox ?? "blue")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -249,6 +253,9 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         self.totalHoles = max(1, totalHoles ?? course.resolvedHoles)
         self.updatedAt = updatedAt
         self.errorText = errorText
+        self.requiredGeometryRevisions = requiredGeometryRevisions?.isEmpty == false
+            ? requiredGeometryRevisions
+            : nil
     }
 
     public static func key(globalId: Int, teeBox: String, nine: String = "all") -> String {

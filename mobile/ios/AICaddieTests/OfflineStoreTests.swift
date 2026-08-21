@@ -194,7 +194,8 @@ final class OfflineStoreTests: XCTestCase {
             preparedHoles: 11,
             downloadedHoles: 7,
             totalHoles: 18,
-            errorText: nil
+            errorText: nil,
+            requiredGeometryRevisions: ["778899:1": "release-b"]
         )
 
         try store.savePrepCourseDownloads([record])
@@ -206,6 +207,7 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(restored.preparedHoles, 11)
         XCTAssertEqual(restored.downloadedHoles, 7)
         XCTAssertEqual(restored.course.name, "Resume Course")
+        XCTAssertEqual(restored.requiredGeometryRevisions, ["778899:1": "release-b"])
     }
 
     func testPrepCourseDownloadLRUNeverEvictsUnfinishedIntent() throws {
@@ -466,6 +468,47 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(retained.geometryCoverage.state, .ready)
         XCTAssertEqual(retained.geometryCoverage.readyHoles, ready.holes.count)
         XCTAssertEqual(retained.generatedAt, "2026-08-06T00:00:00Z")
+    }
+
+    func testInvalidatingStandaloneTemplateKeepsRevisionKeyedTopoBytes() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let ready = replacingCoursePrep(
+            in: source,
+            geometryCoverage: "ready",
+            geometryRevision: "release-a"
+        )
+        try store.saveCourseTemplate(ready)
+        for hole in ready.holes {
+            XCTAssertTrue(try store.saveCourseTopoImage(
+                validOnePixelPNGData(),
+                globalId: hole.sourceGlobalId ?? ready.course.globalId,
+                localHole: hole.sourceLocalHole ?? hole.number,
+                geometryRevision: "release-a"
+            ))
+        }
+        XCTAssertNotNil(try store.loadCourseTemplate(
+            globalId: ready.course.globalId,
+            teeBox: ready.course.teeBox,
+            nine: ready.nine ?? "all"
+        ))
+
+        try store.invalidateCourseTemplate(for: ready)
+
+        XCTAssertNil(try store.loadCourseTemplate(
+            globalId: ready.course.globalId,
+            teeBox: ready.course.teeBox,
+            nine: ready.nine ?? "all"
+        ))
+        for hole in ready.holes {
+            XCTAssertNotNil(store.loadCourseTopoImageURL(
+                globalId: hole.sourceGlobalId ?? ready.course.globalId,
+                localHole: hole.sourceLocalHole ?? hole.number,
+                geometryRevision: "release-a"
+            ))
+        }
     }
 
     func testCourseTemplateDoesNotReplaceEighteenPlayableHolesWithANewerSingleHolePackage() throws {

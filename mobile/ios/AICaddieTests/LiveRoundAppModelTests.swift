@@ -1102,8 +1102,173 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.prepCourseDownloads.first?.phase, .queued)
         XCTAssertEqual(model.prepCourseDownloads.first?.preparedHoles, 0)
         XCTAssertEqual(model.prepCourseDownloads.first?.downloadedHoles, 0)
+        XCTAssertEqual(
+            model.prepCourseDownloads.first?.requiredGeometryRevisions,
+            ["\(fixture.course.globalId):1": "remote-revision"]
+        )
+        XCTAssertNil(try fixture.store.loadCourseTemplate(
+            globalId: fixture.course.globalId,
+            teeBox: record.teeBox,
+            nine: record.nine
+        ))
         XCTAssertEqual(requestLock.withLock { statusRequestCount }, 1)
         await model.cancelPrepCourseDownloadForTesting()
+    }
+
+    func testReadyPrepRevalidationQueuesWhenInstalledHoleHasNoRevision() async throws {
+        let fixture = try readyPrepValidationFixture(revision: nil)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path.hasSuffix("/install/status") {
+                return (
+                    HTTPURLResponse(
+                        url: url,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!,
+                    self.installStatusData(
+                        globalId: fixture.course.globalId,
+                        revision: "first-versioned-release"
+                    )
+                )
+            }
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 503,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"detail":"test cleanup"}"#.utf8)
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://revalidation-missing-local.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+
+        let record = try XCTUnwrap(model.prepCourseDownloads.first)
+        let isCurrent = await model.validateReadyPrepCourse(record)
+
+        XCTAssertFalse(isCurrent)
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .queued)
+        XCTAssertEqual(
+            model.prepCourseDownloads.first?.requiredGeometryRevisions,
+            ["\(fixture.course.globalId):1": "first-versioned-release"]
+        )
+        await model.cancelPrepCourseDownloadForTesting()
+    }
+
+    func testRequiredPrepRevisionSurvivesRelaunchAndRejectsStaleReadyTemplate() async throws {
+        let fixture = try readyPrepValidationFixture(revision: "stale-revision")
+        var pending = fixture.record
+        pending.phase = .queued
+        pending.requiredGeometryRevisions = [
+            "\(fixture.course.globalId):1": "fresh-revision",
+        ]
+        try fixture.store.savePrepCourseDownloads([pending])
+
+        let staleModel = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil,
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+        XCTAssertEqual(
+            staleModel.prepCourseDownloads.first?.requiredGeometryRevisions,
+            pending.requiredGeometryRevisions
+        )
+        XCTAssertFalse(staleModel.downloadedCourseKeys.contains(pending.id))
+        XCTAssertTrue(staleModel.downloadedCourseOptions.contains {
+            $0.globalId == fixture.course.globalId
+        })
+        staleModel.downloadPrepCourse(fixture.course)
+        XCTAssertEqual(staleModel.prepCourseDownloads.first?.phase, .queued)
+
+        let source = try localFixturePackage()
+        let fresh = try offlineReadyPackage(source, geometryRevision: "fresh-revision")
+        try fixture.store.saveCourseTemplate(fresh)
+        for hole in fresh.holes {
+            _ = try fixture.store.saveCourseTopoImage(
+                minimalPNGData(),
+                globalId: hole.sourceGlobalId ?? fresh.course.globalId,
+                localHole: hole.sourceLocalHole ?? hole.number,
+                geometryRevision: "fresh-revision"
+            )
+        }
+
+        staleModel.downloadPrepCourse(fixture.course)
+        XCTAssertEqual(staleModel.prepCourseDownloads.first?.phase, .ready)
+        XCTAssertNil(staleModel.prepCourseDownloads.first?.requiredGeometryRevisions)
+        XCTAssertTrue(staleModel.downloadedCourseKeys.contains(pending.id))
+    }
+
+    func testReadyPrepRevalidationIgnoresJournalRowsOutsideInstalledSelection() async throws {
+        let fixture = try readyPrepValidationFixture(revision: "current-revision")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let data = Data(
+                """
+                {"schema":"ai-caddie-course-install-v1","jobId":"merged-journal",
+                 "globalId":\(fixture.course.globalId),"teeBox":"blue","nine":"all",
+                 "phase":"ready","stage":"ready","totalHoles":2,"geometryReady":2,
+                 "topoReady":2,"updatedAt":null,"error":null,"holes":[
+                 {"globalId":\(fixture.course.globalId),"localHole":1,"displayHole":1,
+                  "geometry":"ready","geometryRevision":"current-revision","topo":"ready",
+                  "topoRevision":"current-revision","error":null},
+                 {"globalId":999999,"localHole":1,"displayHole":10,
+                  "geometry":"ready","geometryRevision":"unrelated-revision","topo":"ready",
+                  "topoRevision":"unrelated-revision","error":null}]}
+                """.utf8
+            )
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://revalidation-extra-row.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+
+        let record = try XCTUnwrap(model.prepCourseDownloads.first)
+        let isCurrent = await model.validateReadyPrepCourse(record)
+        XCTAssertTrue(isCurrent)
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready)
     }
 
     func testReadyPrepRevalidationTreatsUnavailableInstallStatusAsOfflineReady() async throws {
@@ -3280,7 +3445,7 @@ final class LiveRoundAppModelTests: XCTestCase {
     }
 
     private func readyPrepValidationFixture(
-        revision: String
+        revision: String?
     ) throws -> (
         directory: URL,
         store: OfflineStore,
