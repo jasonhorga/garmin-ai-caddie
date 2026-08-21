@@ -511,6 +511,37 @@ final class OfflineStoreTests: XCTestCase {
         }
     }
 
+    func testReplacementTemplateCanSupersedeRicherOlderTemplateAtomically() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let old = replacingCoursePrep(
+            in: source,
+            geometryCoverage: "ready",
+            geometryRevision: "release-a"
+        )
+        let replacement = replacingCoursePrep(
+            in: source,
+            geometryCoverage: "partial",
+            geometryRevision: "release-b"
+        )
+
+        try store.saveCourseTemplate(old)
+        try store.saveCourseTemplate(replacement, replacingExisting: true)
+
+        let loaded = try XCTUnwrap(store.loadCourseTemplate(
+            globalId: replacement.course.globalId,
+            teeBox: replacement.course.teeBox,
+            nine: replacement.nine ?? "all"
+        ))
+        XCTAssertEqual(
+            loaded.coursePrep?.holes.first?.geometryRevision,
+            "release-b"
+        )
+        XCTAssertEqual(loaded.coursePrep?.holes.first?.geometryCoverage, "partial")
+    }
+
     func testCourseTemplateDoesNotReplaceEighteenPlayableHolesWithANewerSingleHolePackage() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

@@ -1106,11 +1106,14 @@ final class LiveRoundAppModelTests: XCTestCase {
             model.prepCourseDownloads.first?.requiredGeometryRevisions,
             ["\(fixture.course.globalId):1": "remote-revision"]
         )
-        XCTAssertNil(try fixture.store.loadCourseTemplate(
+        // Revalidation only queues the replacement. The old template remains the live-round
+        // fallback until a fetched replacement is atomically persisted.
+        let retained = try XCTUnwrap(fixture.store.loadCourseTemplate(
             globalId: fixture.course.globalId,
             teeBox: record.teeBox,
             nine: record.nine
         ))
+        XCTAssertEqual(retained.coursePrep?.holes.first?.geometryRevision, "local-revision")
         XCTAssertEqual(requestLock.withLock { statusRequestCount }, 1)
         await model.cancelPrepCourseDownloadForTesting()
     }

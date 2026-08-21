@@ -879,7 +879,13 @@ public final class OfflineStore {
 
     /// Preserve one immutable package per factual course/Tee/hole-set signature after a round ends.
     /// Events are not stored here. A future offline start rebases this template to a new roundId.
-    public func saveCourseTemplate(_ package: LiveRoundPackage) throws {
+    /// Persist a course template atomically. A replacement install may explicitly supersede a
+    /// richer older template once the new package has been fetched; the atomic write keeps the old
+    /// bytes available if encoding or the final file move fails.
+    public func saveCourseTemplate(
+        _ package: LiveRoundPackage,
+        replacingExisting: Bool = false
+    ) throws {
         guard package.course.globalId > 0,
               package.dataMode != "fixture",
               !package.holes.isEmpty else { return }
@@ -888,7 +894,8 @@ public final class OfflineStore {
             withIntermediateDirectories: true
         )
         let url = courseTemplateURL(package)
-        if FileManager.default.fileExists(atPath: url.path),
+        if !replacingExisting,
+           FileManager.default.fileExists(atPath: url.path),
            let data = try? Data(contentsOf: url),
            let existing = try? decoder.decode(LiveRoundPackage.self, from: data),
            !Self.shouldReplaceCourseTemplate(existing, with: package) {

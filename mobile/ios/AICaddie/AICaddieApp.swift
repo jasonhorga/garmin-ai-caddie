@@ -2894,6 +2894,8 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     public func retryPrepCourseDownload(id: String) {
+        guard let existing = prepCourseDownloads.first(where: { $0.id == id }),
+              !existing.isTerminalFailure else { return }
         updatePrepCourseDownload(id: id) { record in
             record.phase = .queued
             record.errorText = nil
@@ -2961,19 +2963,6 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         guard !requiredRevisions.isEmpty else { return true }
 
-        do {
-            try offlineStore.invalidateCourseTemplate(for: currentTemplate)
-        } catch {
-            updatePrepCourseDownload(id: record.id) { state in
-                state.phase = .failed
-                state.errorText = "地图更新准备失败，请点下载重试"
-            }
-            refreshDownloadedCourseOptions()
-            AICaddieLog.storage.error(
-                "Prep template invalidation failed for \(record.course.globalId, privacy: .public): \(String(describing: error), privacy: .public)"
-            )
-            return false
-        }
         updatePrepCourseDownload(id: record.id) { state in
             state.phase = .queued
             state.preparedHoles = 0
@@ -3000,7 +2989,7 @@ public final class LiveRoundAppModel: ObservableObject {
             if staleReady
                 || phase == .preparing
                 || phase == .downloading
-                || (retryFailed && phase == .failed) {
+                || (retryFailed && phase == .failed && !prepCourseDownloads[index].isTerminalFailure) {
                 prepCourseDownloads[index].phase = .queued
                 prepCourseDownloads[index].errorText = nil
                 changed = true
@@ -3102,7 +3091,28 @@ public final class LiveRoundAppModel: ObservableObject {
             ).replacingCourseDisplayName(record.course.name)
             guard !Task.isCancelled,
                   prepCourseDownloadGeneration == generation else { throw CancellationError() }
-            try offlineStore.saveCourseTemplate(fetched)
+            if courseInstallBackGlobalId(for: fetched) != nil {
+                // The prep library currently installs one physical course. A composite 9+9
+                // package belongs to the live-round path; ending this job explicitly avoids a
+                // silent ready/failed/re-download loop while preserving the normal 9+9 scorer.
+                updatePrepCourseDownload(id: id, generation: generation) { state in
+                    state.phase = .failed
+                    state.errorText = "两段 9 洞组合暂不支持备战下载，请在开始一场中使用"
+                }
+                refreshDownloadedCourseOptions()
+                return
+            }
+            // Keep the previous template available for an offline live round until this
+            // replacement package has actually arrived. The atomic write then supersedes it even
+            // when the old package has richer prep coverage than the newly fetched package.
+            let replacingExisting = prepCourseDownloads
+                .first(where: { $0.id == id })?
+                .requiredGeometryRevisions?
+                .isEmpty == false
+            try offlineStore.saveCourseTemplate(
+                fetched,
+                replacingExisting: replacingExisting
+            )
             updatePrepCourseDownload(id: id, generation: generation) { state in
                 state.totalHoles = max(1, fetched.holes.count)
             }

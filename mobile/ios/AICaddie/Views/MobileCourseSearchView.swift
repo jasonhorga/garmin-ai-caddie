@@ -187,7 +187,7 @@ public struct MobileCourseSearchView: View {
             if !matches.isEmpty {
                 Section(lastSearch == .nearby ? "附近结果" : "搜索结果") {
                     ForEach(matches) { match in
-                        let isInstalled = courseIsInstalled(match.courseOption)
+                        let isInstalled = courseIsInstalled(for: match)
                         let download = retainedDownload(for: match)
                         Button {
                             guard match.courseOption != nil else { return }
@@ -247,6 +247,7 @@ public struct MobileCourseSearchView: View {
     private func retainedDownloadRow(_ download: PrepCourseDownloadRecord) -> some View {
         let verifiedReady = download.phase == .ready && retainedDownloadIsInstalled(download)
         let isValidating = validatingDownloadID == download.id
+        let isTerminalFailure = download.isTerminalFailure
         let status = isValidating
             ? "正在确认地图版本"
             : downloadStatus(download, verifiedReady: verifiedReady)
@@ -279,18 +280,20 @@ public struct MobileCourseSearchView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(download.isActive || isValidating)
+            .disabled(download.isActive || isValidating || isTerminalFailure)
             // Keep the stable row id on the actual opening button. Applying it to the wrapping
             // HStack makes SwiftUI expose a synthetic button that can inherit the id but not the
             // opening action when a retry control is present beside it.
             .accessibilityIdentifier("prep-download-row-\(download.id)")
             .accessibilityLabel(download.course.name)
             .accessibilityValue(status)
-            .accessibilityHint(download.isActive
+            .accessibilityHint(isTerminalFailure
+                ? "该球场暂不支持备战，请使用开始一场"
+                : (download.isActive
                 ? "正在下载，完成后可打开"
-                : (isValidating ? "正在确认本地地图是否为最新版本" : "打开赛前攻略"))
+                : (isValidating ? "正在确认本地地图是否为最新版本" : "打开赛前攻略")))
 
-            if download.phase == .failed || (download.phase == .ready && !verifiedReady) {
+            if !isTerminalFailure && (download.phase == .failed || (download.phase == .ready && !verifiedReady)) {
                 Button {
                     onRetryRetainedDownload(download.id)
                 } label: {
@@ -341,7 +344,7 @@ public struct MobileCourseSearchView: View {
         case .preparing: return "准备中 \(download.preparedHoles)/\(download.totalHoles)"
         case .downloading: return "下载中 \(download.downloadedHoles)/\(download.totalHoles)"
         case .ready: return "需要重新下载"
-        case .failed: return "可继续下载"
+        case .failed: return download.isTerminalFailure ? "暂不支持备战" : "可继续下载"
         }
     }
 
@@ -349,17 +352,23 @@ public struct MobileCourseSearchView: View {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func courseIsInstalled(_ course: MobileCourseOption?) -> Bool {
-        guard let course else { return false }
-        if let installedCourseKeys {
-            let tee = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return installedCourseKeys.contains(PrepCourseDownloadRecord.key(
-                globalId: course.globalId,
-                teeBox: tee?.isEmpty == false ? tee! : "blue",
-                nine: "all"
-            ))
+    private func courseIsInstalled(for match: MobileCourseSearchMatch) -> Bool {
+        guard let course = match.courseOption else { return false }
+        guard let installedCourseKeys else {
+            return installedGlobalIds.contains(course.globalId)
         }
-        return installedGlobalIds.contains(course.globalId)
+        // Search results may carry a provider tee label while the app's known option carries the
+        // canonical tee selected for this account. Reuse the parent's exact resolver first so the
+        // badge cannot disagree with the retained-download action for White/Red/custom tees.
+        if let resolvedKey = retainedDownloadKey?(match) {
+            return installedCourseKeys.contains(resolvedKey)
+        }
+        let tee = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return installedCourseKeys.contains(PrepCourseDownloadRecord.key(
+            globalId: course.globalId,
+            teeBox: tee?.isEmpty == false ? tee! : "blue",
+            nine: "all"
+        ))
     }
 
     private func retainedDownloadIsInstalled(_ download: PrepCourseDownloadRecord) -> Bool {

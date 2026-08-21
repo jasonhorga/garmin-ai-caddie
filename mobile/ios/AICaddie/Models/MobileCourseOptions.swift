@@ -268,6 +268,13 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         phase == .queued || phase == .preparing || phase == .downloading
     }
 
+    /// Composite 9+9 packages use the live-round path until prep can install both physical loops.
+    /// Keep this terminal state distinct from a transient network failure so the UI does not offer
+    /// a misleading endless retry action.
+    public var isTerminalFailure: Bool {
+        phase == .failed && errorText?.hasPrefix("两段 9 洞组合暂不支持备战下载") == true
+    }
+
     public var progressFraction: Double {
         guard totalHoles > 0 else { return 0 }
         return min(max(Double(downloadedHoles) / Double(totalHoles), 0), 1)
