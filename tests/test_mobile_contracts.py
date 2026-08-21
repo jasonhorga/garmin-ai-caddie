@@ -2232,6 +2232,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("replacingExisting:", app_source)
         self.assertIn("deferTemplateReplacement", app_source)
         self.assertIn("let replacementCompleted = await downloadOfflineCourseAssets", app_source)
+        self.assertIn("replacementMatchesRequiredRevisions", app_source)
+        self.assertIn("required.merge(fetchedRevisions)", app_source)
         self.assertIn("检测到地图有新版本，正在更新。", app_source)
         self.assertIn("本机地图文件不完整，正在重新下载。", app_source)
         self.assertIn("两段 9 洞组合暂不支持备战下载", app_source)

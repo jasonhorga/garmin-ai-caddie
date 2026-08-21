@@ -1850,8 +1850,20 @@ public final class LiveRoundAppModel: ObservableObject {
         var replacementCompleted = false
         do {
             let durableEnriched = preservingForegroundPrecisePrep(in: enriched)
+            let replacementMatchesRequiredRevisions: Bool
+            if deferTemplateReplacement,
+               let prepDownloadID,
+               let current = prepCourseDownloads.first(where: { $0.id == prepDownloadID }) {
+                replacementMatchesRequiredRevisions = templateSatisfiesRequiredGeometryRevisions(
+                    durableEnriched,
+                    record: current
+                )
+            } else {
+                replacementMatchesRequiredRevisions = !deferTemplateReplacement
+            }
             let replacementIsComplete = durableEnriched.hasCompleteOfflineCoursePrep
                 && offlineStore.hasCourseTopoImages(for: durableEnriched)
+                && replacementMatchesRequiredRevisions
             if !deferTemplateReplacement || replacementIsComplete {
                 try offlineStore.saveCourseTemplate(
                     durableEnriched,
@@ -2853,9 +2865,21 @@ public final class LiveRoundAppModel: ObservableObject {
         _ template: LiveRoundPackage,
         record: PrepCourseDownloadRecord
     ) -> Bool {
-        guard let required = record.requiredGeometryRevisions, !required.isEmpty else { return true }
+        templateSatisfiesRequiredGeometryRevisions(
+            template,
+            required: record.requiredGeometryRevisions
+        )
+    }
+
+    private func templateSatisfiesRequiredGeometryRevisions(
+        _ template: LiveRoundPackage,
+        required: [String: String]?
+    ) -> Bool {
+        guard let required, !required.isEmpty else { return true }
         let installed = geometryRevisions(in: template)
-        return required.allSatisfy { key, revision in installed[key] == revision }
+        return required.allSatisfy { key, revision in
+            installed[key] == revision.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
     }
 
     /// Selecting a catalogue result creates/reattaches to one app-owned job before navigation.
@@ -3140,6 +3164,18 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             updatePrepCourseDownload(id: id, generation: generation) { state in
                 state.totalHoles = max(1, fetched.holes.count)
+                // A Garmin release can move again while the replacement is downloading. Bind this
+                // install to every revision carried by the package we actually fetched, rather
+                // than only the hole that triggered revalidation; mixed old/new topo is not a
+                // coherent offline package.
+                if replacingExisting {
+                    let fetchedRevisions = geometryRevisions(in: fetched)
+                    if !fetchedRevisions.isEmpty {
+                        var required = state.requiredGeometryRevisions ?? [:]
+                        required.merge(fetchedRevisions) { _, fetchedRevision in fetchedRevision }
+                        state.requiredGeometryRevisions = required
+                    }
+                }
             }
             let replacementCompleted = await downloadOfflineCourseAssets(
                 for: fetched,

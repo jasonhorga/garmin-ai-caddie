@@ -700,6 +700,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let store = OfflineStore(directoryURL: directory)
         let source = try localFixturePackage()
         let oldRevision = "old-release"
+        let validationRevision = "validation-release"
         let newRevision = "new-release"
         let oldTemplate = try offlineReadyPackage(source, geometryRevision: oldRevision)
         try store.saveCourseTemplate(oldTemplate)
@@ -743,7 +744,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             totalHoles: fetched.holes.count
         )
         pending.requiredGeometryRevisions = [
-            String(fetched.course.globalId) + ":1": newRevision,
+            String(fetched.course.globalId) + ":1": validationRevision,
         ]
         try store.savePrepCourseDownloads([pending])
 
@@ -757,6 +758,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         let prepPath = "/api/v2/courses/"
             + String(fetched.course.globalId)
             + "/prep"
+        let topoPath = "/api/v2/courses/"
+            + String(fetched.course.globalId)
+            + "/holes/1/topo.png"
+        let requestLock = NSLock()
+        var installationReady = false
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -770,29 +776,31 @@ final class LiveRoundAppModelTests: XCTestCase {
                 statusCode = 200
                 contentType = "application/json"
             } else if url.path == statusPath {
-                let statusJSON = """
-                    {"schema":"ai-caddie-course-install-v1","jobId":"replacement-failed",
-                     "globalId":__GLOBAL_ID__,"teeBox":"blue","nine":"all",
-                     "phase":"failed","stage":"failed","totalHoles":1,"geometryReady":0,
-                     "topoReady":0,"updatedAt":null,"error":"render failed","holes":[
-                     {"globalId":__GLOBAL_ID__,"localHole":1,"displayHole":1,
-                      "geometry":"failed","geometryRevision":"__REVISION__","topo":"failed",
-                      "topoRevision":null,"error":"render failed"}]}
-                    """
-                body = statusJSON
-                    .replacingOccurrences(of: "__GLOBAL_ID__", with: String(fetched.course.globalId))
-                    .replacingOccurrences(of: "__REVISION__", with: newRevision)
-                    .data(using: .utf8)!
+                let ready = requestLock.withLock { installationReady }
+                body = ready
+                    ? self.installStatusData(
+                        globalId: fetched.course.globalId,
+                        revision: newRevision
+                    )
+                    : Data(
+                        #"{"schema":"ai-caddie-course-install-v1","jobId":"replacement-failed","globalId":0,"teeBox":"blue","nine":"all","phase":"failed","stage":"failed","totalHoles":1,"geometryReady":0,"topoReady":0,"updatedAt":null,"error":"render failed","holes":[]}"#.utf8
+                    )
                 statusCode = 200
                 contentType = "application/json"
             } else if url.path == prepPath {
+                let ready = requestLock.withLock { installationReady }
                 body = try self.offlinePrepResponseData(
                     for: fetched,
-                    geometryCoverage: "partial",
+                    geometryCoverage: ready ? "ready" : "partial",
                     geometryRevision: newRevision
                 )
                 statusCode = 200
                 contentType = "application/json"
+            } else if url.path == topoPath,
+                      requestLock.withLock({ installationReady }) {
+                body = self.minimalPNGData()
+                statusCode = 200
+                contentType = "image/png"
             } else {
                 throw URLError(.unsupportedURL)
             }
@@ -826,6 +834,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         await model.waitForPrepCourseDownloadForTesting()
 
         XCTAssertEqual(model.prepCourseDownloads.first?.phase, .failed)
+        XCTAssertEqual(
+            model.prepCourseDownloads.first?.requiredGeometryRevisions,
+            [String(course.globalId) + ":1": newRevision],
+            "the fetched package becomes the replacement authority if Garmin advances again"
+        )
         let retained = try XCTUnwrap(store.loadCourseTemplate(
             globalId: course.globalId,
             teeBox: course.teeBox ?? "blue",
@@ -840,6 +853,24 @@ final class LiveRoundAppModelTests: XCTestCase {
             globalId: course.globalId,
             localHole: 1,
             geometryRevision: oldRevision
+        ))
+
+        requestLock.withLock { installationReady = true }
+        model.retryPrepCourseDownload(id: pending.id)
+        await model.waitForPrepCourseDownloadForTesting()
+
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready)
+        XCTAssertNil(model.prepCourseDownloads.first?.requiredGeometryRevisions)
+        let replacement = try XCTUnwrap(store.loadCourseTemplate(
+            globalId: course.globalId,
+            teeBox: course.teeBox ?? "blue",
+            nine: "all"
+        ))
+        XCTAssertEqual(replacement.coursePrep?.holes.first?.geometryRevision, newRevision)
+        XCTAssertNotNil(store.loadCourseTopoImageURL(
+            globalId: course.globalId,
+            localHole: 1,
+            geometryRevision: newRevision
         ))
     }
 
