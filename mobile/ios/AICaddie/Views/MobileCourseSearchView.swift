@@ -251,6 +251,7 @@ public struct MobileCourseSearchView: View {
                 HStack(spacing: 10) {
                     Image(systemName: verifiedReady ? "checkmark.circle.fill" : "flag.fill")
                         .foregroundStyle(verifiedReady ? .secondary : LiveHoleStyle.green)
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(download.course.name)
                             .font(.subheadline.weight(.semibold))
@@ -269,7 +270,10 @@ public struct MobileCourseSearchView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("prep-download-open-\(download.course.globalId)")
+            // Keep the stable row id on the actual opening button. Applying it to the wrapping
+            // HStack makes SwiftUI expose a synthetic button that can inherit the id but not the
+            // opening action when a retry control is present beside it.
+            .accessibilityIdentifier("prep-download-row-\(download.course.globalId)")
             .accessibilityValue(downloadStatus(download, verifiedReady: verifiedReady))
 
             Spacer(minLength: 4)
@@ -290,9 +294,9 @@ public struct MobileCourseSearchView: View {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
             }
         }
-        .accessibilityIdentifier("prep-download-row-\(download.course.globalId)")
     }
 
     private func downloadStatus(
