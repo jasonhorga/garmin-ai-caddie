@@ -963,9 +963,10 @@ public final class OfflineStore {
         return package
     }
 
-    /// Remove only the replaceable standalone course-template pointer. Round packages and immutable
-    /// revision-keyed topo images remain available; a fresh download can now persist partial progress
-    /// without the richer superseded template winning `shouldReplaceCourseTemplate` forever.
+    /// Explicit maintenance operation for removing a standalone course-template pointer. Release
+    /// revalidation does not call this method: it keeps the old pointer live and uses an atomic
+    /// replacement only after the new facts and revision-keyed topo images are complete. Round
+    /// packages and immutable topo images remain available in either case.
     public func invalidateCourseTemplate(
         globalId: Int,
         teeBox: String,

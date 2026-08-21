@@ -1307,11 +1307,12 @@ public final class LiveRoundAppModel: ObservableObject {
         using syncClient: SyncClient,
         revalidatePackage: Bool = false,
         prepDownloadID: String? = nil,
-        prepDownloadGeneration: UUID? = nil
-    ) async {
+        prepDownloadGeneration: UUID? = nil,
+        deferTemplateReplacement: Bool = false
+    ) async -> Bool {
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
-            return
+            return false
         }
         #endif
         var snapshot = initialSnapshot
@@ -1411,7 +1412,12 @@ public final class LiveRoundAppModel: ObservableObject {
         func persistPrepBatchProgress() {
             guard let prepDownloadID else { return }
             do {
-                try offlineStore.saveCourseTemplate(assembledSnapshot())
+                // During a release replacement the last-known-good template remains the live-round
+                // fallback. The replacement package is staged in memory and written only after all
+                // precise facts and topo bytes have arrived.
+                if !deferTemplateReplacement {
+                    try offlineStore.saveCourseTemplate(assembledSnapshot())
+                }
             } catch {
                 AICaddieLog.storage.error(
                     "Incremental prep facts save failed: \(String(describing: error), privacy: .public)"
@@ -1573,7 +1579,7 @@ public final class LiveRoundAppModel: ObservableObject {
         for attempt in 0...retryDelays.count {
             var batchRequests: [OfflinePrepBatchRequest] = []
             for globalId in orderedGlobalIds {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return false }
                 guard let roundHoles = groups[globalId] else { continue }
                 let localHoles = Array(Set(roundHoles.map {
                     $0.sourceLocalHole ?? $0.number
@@ -1625,7 +1631,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     using: syncClient,
                     maximumConcurrentRequests: 1
                 )
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return false }
                 retainPrepBatchResults(priorityResults)
                 for prep in priorityResults.flatMap(\.holes) where offlinePrepIsPrecise(prep) {
                     geometryReadyKeys.insert(offlinePrepKey(
@@ -1635,12 +1641,12 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
                 persistPrepBatchProgress()
                 await downloadNewlyReadyTopoHoles()
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return false }
                 batchRequests.removeFirst()
             }
 
             let batchResults = await fetchOfflinePrepBatches(batchRequests, using: syncClient)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             retainPrepBatchResults(batchResults)
             for result in batchResults {
                 for prep in result.holes where offlinePrepIsPrecise(prep) {
@@ -1654,7 +1660,7 @@ public final class LiveRoundAppModel: ObservableObject {
             // Do not hold the first finished holes hostage to the slowest geometry install. This
             // is the key latency fix for cold courses: cards become locally usable one by one.
             await downloadNewlyReadyTopoHoles()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             let unresolvedByGlobalId = orderedGlobalIds.reduce(
                 into: [Int: [Int]]()
             ) { unresolved, globalId in
@@ -1676,9 +1682,9 @@ public final class LiveRoundAppModel: ObservableObject {
             do {
                 try await Task.sleep(nanoseconds: retryDelays[attempt])
             } catch {
-                return
+                return false
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             for globalId in orderedGlobalIds {
                 guard let unresolved = unresolvedByGlobalId[globalId] else { continue }
                 do {
@@ -1698,11 +1704,11 @@ public final class LiveRoundAppModel: ObservableObject {
                         "Offline geometry readiness probe deferred for \(globalId, privacy: .public): \(String(describing: error), privacy: .public)"
                     )
                 }
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return false }
             }
         }
 
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return false }
         let enriched = assembledSnapshot()
 
         // Course facts and topo bitmaps have independent durability. Persist the precise per-hole
@@ -1712,7 +1718,9 @@ public final class LiveRoundAppModel: ObservableObject {
         // this early save cannot falsely advertise that the whole course is offline-ready.
         do {
             let durableEnriched = preservingForegroundPrecisePrep(in: enriched)
-            try offlineStore.saveCourseTemplate(durableEnriched)
+            if !deferTemplateReplacement {
+                try offlineStore.saveCourseTemplate(durableEnriched)
+            }
             if package?.roundId == snapshot.roundId, liveRoundState != nil {
                 try offlineStore.saveRoundPackage(durableEnriched)
                 package = durableEnriched
@@ -1739,7 +1747,7 @@ public final class LiveRoundAppModel: ObservableObject {
             ? [5_000_000_000, 10_000_000_000, 20_000_000_000]
             : retryDelays
         for attempt in 0...topoRetryDelays.count {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             if prepDownloadID != nil {
                 await refreshServerInstallStatus()
             }
@@ -1777,14 +1785,14 @@ public final class LiveRoundAppModel: ObservableObject {
             let needsPriorityLane = prepDownloadID == nil && downloadedHoleCount() == 0
             var missingIndex = 0
             while missingIndex < fetchableTopoHoles.count {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return false }
                 let window = missingIndex == 0 && needsPriorityLane ? 1 : 2
                 let end = min(missingIndex + window, fetchableTopoHoles.count)
                 let downloads = await fetchOfflineTopoImages(
                     Array(fetchableTopoHoles[missingIndex..<end]),
                     using: syncClient
                 )
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return false }
                 for download in downloads {
                     guard let data = download.data else {
                         let errorDescription = download.errorDescription ?? "unknown error"
@@ -1834,14 +1842,23 @@ public final class LiveRoundAppModel: ObservableObject {
             do {
                 try await Task.sleep(nanoseconds: topoRetryDelays[attempt])
             } catch {
-                return
+                return false
             }
         }
 
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return false }
+        var replacementCompleted = false
         do {
             let durableEnriched = preservingForegroundPrecisePrep(in: enriched)
-            try offlineStore.saveCourseTemplate(durableEnriched)
+            let replacementIsComplete = durableEnriched.hasCompleteOfflineCoursePrep
+                && offlineStore.hasCourseTopoImages(for: durableEnriched)
+            if !deferTemplateReplacement || replacementIsComplete {
+                try offlineStore.saveCourseTemplate(
+                    durableEnriched,
+                    replacingExisting: deferTemplateReplacement
+                )
+                replacementCompleted = replacementIsComplete
+            }
             if package?.roundId == snapshot.roundId, liveRoundState != nil {
                 try offlineStore.saveRoundPackage(durableEnriched)
                 package = durableEnriched
@@ -1857,6 +1874,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 "Offline course cache save failed: \(String(describing: error), privacy: .public)"
             )
         }
+        return replacementCompleted
     }
 
     /// 组合 18 洞:本环(1–9)+ 第二个环(10–18)。两个环各是独立 CourseView 球场,后端合并成一局。
@@ -2889,6 +2907,7 @@ public final class LiveRoundAppModel: ObservableObject {
         } else {
             prepCourseDownloads.append(candidate)
             persistPrepCourseDownloads()
+            refreshDownloadedCourseOptions()
         }
         startPrepCourseDownloadQueueIfNeeded()
     }
@@ -2910,11 +2929,18 @@ public final class LiveRoundAppModel: ObservableObject {
     /// positive revision mismatch, however, invalidates the row and queues a fresh install so an
     /// old Garmin bitmap is never presented as current.
     public func validateReadyPrepCourse(_ record: PrepCourseDownloadRecord) async -> Bool {
-        guard record.phase == .ready else { return false }
+        guard record.phase == .ready else {
+            updatePrepCourseDownload(id: record.id) { state in
+                state.errorText = state.isActive
+                    ? "地图仍在准备中，完成后即可进入备战。"
+                    : "地图尚未准备完成，请继续下载。"
+            }
+            return false
+        }
         guard let template = readyPrepTemplate(for: record) else {
             updatePrepCourseDownload(id: record.id) { state in
                 state.phase = .queued
-                state.errorText = nil
+                state.errorText = "本机地图文件不完整，正在重新下载。"
             }
             refreshDownloadedCourseOptions()
             startPrepCourseDownloadQueueIfNeeded()
@@ -2967,7 +2993,7 @@ public final class LiveRoundAppModel: ObservableObject {
             state.phase = .queued
             state.preparedHoles = 0
             state.downloadedHoles = 0
-            state.errorText = nil
+            state.errorText = "检测到地图有新版本，正在更新。"
             state.requiredGeometryRevisions = requiredRevisions
         }
         refreshDownloadedCourseOptions()
@@ -3109,22 +3135,23 @@ public final class LiveRoundAppModel: ObservableObject {
                 .first(where: { $0.id == id })?
                 .requiredGeometryRevisions?
                 .isEmpty == false
-            try offlineStore.saveCourseTemplate(
-                fetched,
-                replacingExisting: replacingExisting
-            )
+            if !replacingExisting {
+                try offlineStore.saveCourseTemplate(fetched)
+            }
             updatePrepCourseDownload(id: id, generation: generation) { state in
                 state.totalHoles = max(1, fetched.holes.count)
             }
-            await downloadOfflineCourseAssets(
+            let replacementCompleted = await downloadOfflineCourseAssets(
                 for: fetched,
                 using: syncClient,
                 prepDownloadID: id,
-                prepDownloadGeneration: generation
+                prepDownloadGeneration: generation,
+                deferTemplateReplacement: replacingExisting
             )
             guard !Task.isCancelled,
                   prepCourseDownloadGeneration == generation else { throw CancellationError() }
-            if let current = prepCourseDownloads.first(where: { $0.id == id }),
+            if (!replacingExisting || replacementCompleted),
+               let current = prepCourseDownloads.first(where: { $0.id == id }),
                readyPrepTemplate(for: current) != nil {
                 updatePrepCourseDownload(id: id, generation: generation) { state in
                     state.phase = .ready

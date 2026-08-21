@@ -189,7 +189,7 @@ public struct PrepCoursePickerView: View {
                       !failed.isEmpty {
                 validationMessage = failed
             } else {
-                validationMessage = "检测到地图有新版本，已开始更新；下载完成后即可进入备战。"
+                validationMessage = "地图尚未准备完成，下载完成后即可进入备战。"
             }
         }
     }

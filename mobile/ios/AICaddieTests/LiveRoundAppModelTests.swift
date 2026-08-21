@@ -694,6 +694,155 @@ final class LiveRoundAppModelTests: XCTestCase {
         )).hasCompleteOfflineCoursePrep)
     }
 
+    func testReleaseReplacementKeepsLastKnownGoodTemplateUntilNewAssetsAreComplete() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let oldRevision = "old-release"
+        let newRevision = "new-release"
+        let oldTemplate = try offlineReadyPackage(source, geometryRevision: oldRevision)
+        try store.saveCourseTemplate(oldTemplate)
+        for hole in oldTemplate.holes {
+            _ = try store.saveCourseTopoImage(
+                minimalPNGData(),
+                globalId: hole.sourceGlobalId ?? oldTemplate.course.globalId,
+                localHole: hole.sourceLocalHole ?? hole.number,
+                geometryRevision: oldRevision
+            )
+        }
+
+        let revisedHoles = source.holes.map { hole in
+            Hole(
+                number: hole.number,
+                par: hole.par,
+                yards: hole.yards,
+                geometryCoverage: .ready,
+                geometryRevision: newRevision,
+                sourceGlobalId: hole.sourceGlobalId,
+                sourceLocalHole: hole.sourceLocalHole,
+                teeLatitude: hole.teeLatitude,
+                teeLongitude: hole.teeLongitude
+            )
+        }
+        let fetched = package(
+            source,
+            roundId: "replacement-prep-round",
+            recentRounds: [],
+            holes: revisedHoles
+        ).replacingCoursePrep(nil)
+        let course = MobileCourseOption(
+            globalId: fetched.course.globalId,
+            name: fetched.course.name,
+            holes: fetched.holes.count,
+            teeBox: fetched.course.teeBox
+        )
+        var pending = PrepCourseDownloadRecord(
+            course: course,
+            phase: .queued,
+            totalHoles: fetched.holes.count
+        )
+        pending.requiredGeometryRevisions = [
+            String(fetched.course.globalId) + ":1": newRevision,
+        ]
+        try store.savePrepCourseDownloads([pending])
+
+        let packageData = try JSONEncoder().encode(fetched)
+        let packagePath = "/api/v2/mobile/courses/"
+            + String(fetched.course.globalId)
+            + "/package"
+        let statusPath = "/api/v2/courses/"
+            + String(fetched.course.globalId)
+            + "/install/status"
+        let prepPath = "/api/v2/courses/"
+            + String(fetched.course.globalId)
+            + "/prep"
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let body: Data
+            let statusCode: Int
+            let contentType: String
+            if url.path == packagePath {
+                body = packageData
+                statusCode = 200
+                contentType = "application/json"
+            } else if url.path == statusPath {
+                let statusJSON = """
+                    {"schema":"ai-caddie-course-install-v1","jobId":"replacement-failed",
+                     "globalId":__GLOBAL_ID__,"teeBox":"blue","nine":"all",
+                     "phase":"failed","stage":"failed","totalHoles":1,"geometryReady":0,
+                     "topoReady":0,"updatedAt":null,"error":"render failed","holes":[
+                     {"globalId":__GLOBAL_ID__,"localHole":1,"displayHole":1,
+                      "geometry":"failed","geometryRevision":"__REVISION__","topo":"failed",
+                      "topoRevision":null,"error":"render failed"}]}
+                    """
+                body = statusJSON
+                    .replacingOccurrences(of: "__GLOBAL_ID__", with: String(fetched.course.globalId))
+                    .replacingOccurrences(of: "__REVISION__", with: newRevision)
+                    .data(using: .utf8)!
+                statusCode = 200
+                contentType = "application/json"
+            } else if url.path == prepPath {
+                body = try self.offlinePrepResponseData(
+                    for: fetched,
+                    geometryCoverage: "partial",
+                    geometryRevision: newRevision
+                )
+                statusCode = 200
+                contentType = "application/json"
+            } else {
+                throw URLError(.unsupportedURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: statusCode,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": contentType]
+                )!,
+                body
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let client = SyncClient(
+            baseURL: URL(string: "https://replacement-fallback.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+
+        model.downloadPrepCourse(course)
+        await model.waitForPrepCourseDownloadForTesting()
+
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .failed)
+        let retained = try XCTUnwrap(store.loadCourseTemplate(
+            globalId: course.globalId,
+            teeBox: course.teeBox ?? "blue",
+            nine: "all"
+        ))
+        XCTAssertEqual(
+            retained.coursePrep?.holes.first?.geometryRevision,
+            oldRevision,
+            "a failed replacement must leave the last-known-good template live"
+        )
+        XCTAssertNotNil(store.loadCourseTopoImageURL(
+            globalId: course.globalId,
+            localHole: 1,
+            geometryRevision: oldRevision
+        ))
+    }
+
     func testReadyForegroundPrepIsDurablePreservesOtherHolesAndRenumbersCompositeBackNine() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1103,6 +1252,10 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.prepCourseDownloads.first?.preparedHoles, 0)
         XCTAssertEqual(model.prepCourseDownloads.first?.downloadedHoles, 0)
         XCTAssertEqual(
+            model.prepCourseDownloads.first?.errorText,
+            "检测到地图有新版本，正在更新。"
+        )
+        XCTAssertEqual(
             model.prepCourseDownloads.first?.requiredGeometryRevisions,
             ["\(fixture.course.globalId):1": "remote-revision"]
         )
@@ -1172,6 +1325,10 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(
             model.prepCourseDownloads.first?.requiredGeometryRevisions,
             ["\(fixture.course.globalId):1": "first-versioned-release"]
+        )
+        XCTAssertEqual(
+            model.prepCourseDownloads.first?.errorText,
+            "检测到地图有新版本，正在更新。"
         )
         await model.cancelPrepCourseDownloadForTesting()
     }
