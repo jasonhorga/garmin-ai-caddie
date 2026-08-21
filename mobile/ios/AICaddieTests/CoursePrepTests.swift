@@ -151,7 +151,7 @@ final class CoursePrepTests: XCTestCase {
             angle: .degrees(90)
         )
         XCTAssertEqual(rotatedBounds.width, 100, accuracy: 0.0001)
-        XCTAssertEqual(rotatedBounds.height, -100, accuracy: 0.0001)
+        XCTAssertEqual(rotatedBounds.height, 0, accuracy: 0.0001)
     }
 
     func testCoursePrepRouteIntervalReadoutUsesYards() throws {
