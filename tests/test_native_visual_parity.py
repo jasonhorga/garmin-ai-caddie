@@ -94,8 +94,14 @@ class NativeVisualParityTests(unittest.TestCase):
             )
 
         container = (WATCH_VIEWS / "WatchRoundContainerView.swift").read_text(encoding="utf-8")
-        self.assertIn(top_only, container)
+        # The former current-hole-shots ScrollView was removed with the duplicate
+        # per-shot editing route. The container now owns only full-bleed map roots;
+        # scroll surfaces that reclaim the top edge live in their dedicated views.
         self.assertIn(".ignoresSafeArea()", container)
+        self.assertNotIn(
+            ".ignoresSafeArea(edges: [.top, .leading, .trailing])",
+            container,
+        )
 
         setup = (WATCH_VIEWS / "WatchRoundSetupView.swift").read_text(encoding="utf-8")
         self.assertEqual(setup.count(top_only), 2)
