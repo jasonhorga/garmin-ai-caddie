@@ -7,9 +7,11 @@ enum WatchClubPromptLayout {
     static let topPadding: CGFloat = 8
     static let bottomPadding: CGFloat = 2
     static let stackSpacing: CGFloat = 3
-    static let headerHeight: CGFloat = 34
+    static let headerHeight: CGFloat = 32
     static let footerHeight: CGFloat = 44
-    static let clubRowHeight: CGFloat = 40
+    // Keep three choices visible on the first 45 mm screen; the larger type supplies the game-like
+    // emphasis while the row remains within the approved compact vertical budget.
+    static let clubRowHeight: CGFloat = 36
     static let clubRowSpacing: CGFloat = 5
 
     static func firstScreenClubRows(viewportHeight: CGFloat) -> Int {
