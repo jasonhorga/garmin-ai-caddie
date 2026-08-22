@@ -28,21 +28,21 @@ public struct WatchClubStatsView: View {
 
                 if rows.isEmpty {
                     Text("暂无真实球杆距离")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 8)
                 } else {
                     ForEach(rows) { row in
                         HStack(alignment: .firstTextBaseline, spacing: 5) {
                             Text(row.name)
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: 16, weight: .black))
                                 .lineLimit(1)
                             Spacer(minLength: 4)
                             Text("\(row.yards)")
-                                .font(.system(size: 18, weight: .bold, design: .rounded))
+                                .font(.system(size: 21, weight: .black, design: .rounded))
                                 .monospacedDigit()
                             Text("码")
-                                .font(.system(size: 9, weight: .medium))
+                                .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 6.75)

@@ -533,9 +533,9 @@ public struct WatchHoleMapView: View {
                     liveMeasuredPx = nil
                 } label: {
                     Label("清除", systemImage: "xmark")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 13, weight: .black))
                         .padding(.horizontal, 10)
-                        .frame(minHeight: 44)
+                        .frame(minHeight: 48)
                         .background(Color.black.opacity(0.70), in: Capsule())
                         .contentShape(Capsule())
                 }
@@ -544,7 +544,7 @@ public struct WatchHoleMapView: View {
                 .position(x: safeRect.maxX - 30, y: safeRect.maxY - controlHalf)
             } else if measuredPx == nil {
                 Text("点地图选目标")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 13, weight: .black))
                     .foregroundStyle(.white.opacity(0.82))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -623,15 +623,15 @@ public struct WatchHoleMapView: View {
                     Button(action: onOpenCaddie) {
                         HStack(spacing: 4) {
                             Image(systemName: "figure.golf")
-                                .font(.system(size: 12, weight: .heavy))
+                                .font(.system(size: 15, weight: .black))
                                 .foregroundStyle(.black)
                             Text(WatchClubDisplay.shortCode(caddieClub))
-                                .font(.system(size: 14, weight: .heavy, design: .rounded))
+                                .font(.system(size: 17, weight: .black, design: .rounded))
                                 .foregroundStyle(.black)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         }
-                        .frame(width: 48, height: 48)
+                        .frame(width: 50, height: 50)
                         .background(AICaddieDesignTokens.hudGreen, in: Circle())
                         .overlay(Circle().stroke(Color.white.opacity(0.84), lineWidth: 1.1))
                         .contentShape(Rectangle())
@@ -662,7 +662,7 @@ public struct WatchHoleMapView: View {
         // Keep the identity short on 41 mm. The distance column is the visual hero; a long
         // localized title must not collapse into an ellipsis beside watchOS's clock lane.
         Text("H\(holeNumber) · P\(par)")
-            .font(.system(size: 13, weight: .heavy))
+            .font(.system(size: 15, weight: .black))
             .foregroundStyle(.white)
             .lineLimit(1)
             .minimumScaleFactor(0.72)
@@ -683,7 +683,7 @@ public struct WatchHoleMapView: View {
                             ? "离本洞较远"
                             : "中 \(WatchGeoMath.greenRangeText(centerGreen)) 码 · 到果岭"
                     )
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 16, weight: .black))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
@@ -716,7 +716,7 @@ public struct WatchHoleMapView: View {
 
         VStack {
             Spacer()
-            Text("转表冠缩放").font(.system(size: 10, weight: .bold)).foregroundStyle(.white.opacity(0.72))
+            Text("转表冠缩放").font(.system(size: 12, weight: .bold)).foregroundStyle(.white.opacity(0.72))
                 .padding(.bottom, safeInset)
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -730,18 +730,18 @@ public struct WatchHoleMapView: View {
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 2) {
             Text(WatchGeoMath.greenRangeText(value))
-                .font(.system(size: big ? 34 : 24, weight: .heavy, design: .rounded))
+                .font(.system(size: big ? 38 : 27, weight: .black, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
             if let slopeArrow {
                 Text(slopeArrow)
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: 10, weight: .black))
                     .foregroundStyle(golfYellow.opacity(0.82))
             }
         }
-        .frame(height: big ? 40 : 29, alignment: .leading)
+        .frame(height: big ? 44 : 33, alignment: .leading)
     }
 
     // MARK: - Canvas drawing

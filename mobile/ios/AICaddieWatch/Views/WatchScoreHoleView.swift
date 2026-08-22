@@ -71,8 +71,8 @@ public struct WatchScoreHoleView: View {
             HStack(spacing: 5) {
                 Button(action: onCancel) {
                     Image(systemName: "chevron.backward")
-                        .font(.system(size: 14, weight: .heavy))
-                        .frame(width: 32, height: 32)
+                        .font(.system(size: 17, weight: .black))
+                        .frame(width: WatchDisplayGeometry.instrumentVisualControlSize, height: WatchDisplayGeometry.instrumentVisualControlSize)
                         .frame(
                             width: WatchDisplayGeometry.instrumentControlSize,
                             height: WatchDisplayGeometry.instrumentControlSize
@@ -81,9 +81,9 @@ public struct WatchScoreHoleView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("取消记分")
                 Text("H\(hole) · P\(par)")
-                    .font(.system(size: 16, weight: .heavy))
+                    .font(.system(size: 18, weight: .black))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.70)
+                    .minimumScaleFactor(0.62)
                     .layoutPriority(1)
                 Spacer(minLength: WatchScoreHoleLayout.systemTimeTrailingClearance)
             }
@@ -127,18 +127,18 @@ public struct WatchScoreHoleView: View {
             // rhythm pushed the secondary row roughly 3 pt below the real simulator viewport.
             VStack(spacing: 3) {
                 Text(stepLabel)
-                    .font(.system(size: 13, weight: .heavy))
+                    .font(.system(size: 15, weight: .black))
                     .foregroundStyle(.secondary)
                 VStack(spacing: 0) {
                     Text("\(score)")
-                        .font(.system(size: 44, weight: .heavy, design: .rounded))
+                        .font(.system(size: 48, weight: .black, design: .rounded))
                         .monospacedDigit()
                     Text(diffText)
-                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                    .font(.system(size: 15, weight: .black, design: .rounded))
                         .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: score - par))
                 }
                 Text(recommendationNote)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 12, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(candidateNextHole == nil ? Color.secondary : AICaddieDesignTokens.par)
                 Spacer(minLength: 0)
@@ -164,7 +164,7 @@ public struct WatchScoreHoleView: View {
         case .fairway:
             VStack(spacing: 5) {
                 Text(stepLabel)
-                    .font(.system(size: 14, weight: .heavy))
+                    .font(.system(size: 15, weight: .black))
                     .foregroundStyle(.secondary)
                 HStack(spacing: 5) {
                     fairwayButton("偏左", .left)
@@ -199,11 +199,11 @@ public struct WatchScoreHoleView: View {
                 stepButton("minus") { onDelta(-1) }
                 VStack(spacing: 0) {
                     Text("\(value)")
-                        .font(.system(size: 44, weight: .heavy, design: .rounded))
+                        .font(.system(size: 48, weight: .black, design: .rounded))
                         .monospacedDigit()
                     if let detail {
                         Text(detail)
-                            .font(.system(size: 14, weight: .heavy, design: .rounded))
+                            .font(.system(size: 15, weight: .black, design: .rounded))
                             .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: score - par))
                     }
                 }
@@ -219,14 +219,14 @@ public struct WatchScoreHoleView: View {
     private func fairwayButton(_ label: String, _ result: WatchFairwayResult) -> some View {
         Button(action: { onFairway(result) }) {
             Text(label)
-                .font(.system(size: 15, weight: .heavy))
+                .font(.system(size: 17, weight: .black))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(.plain)
-        .frame(height: 48)
+        .frame(height: 50)
         .background(
             RoundedRectangle(cornerRadius: 15)
                 .fill(fairway == result ? AICaddieDesignTokens.par : Color.white.opacity(0.27))
@@ -254,14 +254,14 @@ public struct WatchScoreHoleView: View {
     ) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 15, weight: .heavy))
+                .font(.system(size: 17, weight: .black))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(.plain)
-        .frame(height: 42)
+        .frame(height: 48)
         .background(
             Capsule()
                 .fill(primary ? AICaddieDesignTokens.par : Color.white.opacity(0.27))
@@ -271,9 +271,9 @@ public struct WatchScoreHoleView: View {
     private func stepButton(_ systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.title2.weight(.heavy))
+                .font(.system(size: 25, weight: .black))
                 .foregroundStyle(.white)
-                .frame(width: 48, height: 48)
+                .frame(width: 50, height: 50)
         }
         .buttonStyle(.plain)
         .background(

@@ -54,12 +54,12 @@ public struct WatchDistanceHero: View {
         VStack(spacing: 1) {
             HStack(alignment: .lastTextBaseline, spacing: 12) {
                 pip("前", frontYd)
-                center(size: 52)
+                center(size: 56)
                 pip("后", backYd)
             }
             if let caddieLine {
                 Text(caddieLine)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -73,7 +73,7 @@ public struct WatchDistanceHero: View {
         VStack(spacing: 2) {
             // Still an arm's-length hero, but leave a real glass margin around three digits. The
             // former 92 pt value visually touched the rounded face on the 45 mm runtime.
-            center(size: 78)
+            center(size: 84)
             HStack(spacing: 16) {
                 pip("前", frontYd, compact: true)
                 pip("后", backYd, compact: true)
@@ -87,13 +87,13 @@ public struct WatchDistanceHero: View {
         if let centerYd {
             VStack(spacing: -1) {
                 Text(WatchGeoMath.greenRangeText(centerYd))
-                    .font(.system(size: size, weight: .heavy, design: .rounded))
+                    .font(.system(size: size, weight: .black, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(AICaddieDesignTokens.par)
                     .minimumScaleFactor(0.5)
                     .lineLimit(1)
                 Text(centerStatus)
-                    .font(.system(size: bigText ? 17 : 12, weight: .bold))
+                    .font(.system(size: bigText ? 19 : 14, weight: .black))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -104,13 +104,13 @@ public struct WatchDistanceHero: View {
     private func pip(_ label: String, _ yd: Int?, compact: Bool = false) -> some View {
         VStack(spacing: 0) {
             Text(WatchGeoMath.greenRangeText(yd))
-                .font(.system(size: compact ? 20 : 22, weight: .heavy, design: .rounded))
+                .font(.system(size: compact ? 23 : 26, weight: .black, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.55)
             Text(label)
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 13, weight: .black))
                 .foregroundStyle(.secondary)
         }
     }

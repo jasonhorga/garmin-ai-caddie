@@ -86,7 +86,17 @@ public enum WatchDisplayGeometry {
     /// A visible control should feel like a physical instrument button, not a text link. Keep the
     /// target large on the 41 mm face while allowing a little more room on Ultra without letting a
     /// button touch the rounded mask.
-    public static let instrumentControlSize: CGFloat = 48
+    public static let instrumentControlSize: CGFloat = 50
+
+    /// Shared instrument typography/control rhythm. These are deliberately a little larger than
+    /// ordinary watchOS list defaults: in a round the watch is read at arm's length and the action
+    /// should feel like a physical game control, not a phone-style table row.
+    public static let instrumentHeaderFontSize: CGFloat = 19
+    public static let instrumentRowFontSize: CGFloat = 18
+    public static let instrumentBodyFontSize: CGFloat = 16
+    public static let instrumentActionHeight: CGFloat = 48
+    public static let instrumentRowHeight: CGFloat = 48
+    public static let instrumentVisualControlSize: CGFloat = 40
 
     public static func instrumentControlSize(for size: CGSize) -> CGFloat {
         min(52, max(instrumentControlSize, min(size.width, size.height) * 0.23))

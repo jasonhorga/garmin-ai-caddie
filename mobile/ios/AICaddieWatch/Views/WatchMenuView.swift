@@ -83,7 +83,7 @@ public struct WatchMenuView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(showingMoreTools ? "返回高尔夫菜单" : "返回球洞")
                     Text(showingMoreTools ? "更多" : "菜单")
-                        .font(.system(size: 18, weight: .heavy))
+                        .font(.system(size: 21, weight: .black))
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                         .accessibilityLabel(showingMoreTools ? "更多工具" : "高尔夫菜单")
@@ -168,7 +168,7 @@ public struct WatchMenuView: View {
         Button(role: item == .finish ? .destructive : nil, action: action(for: item)) {
             HStack {
                 Text(item.rawValue)
-                    .font(.system(size: 17, weight: .heavy))
+                    .font(.system(size: WatchDisplayGeometry.instrumentRowFontSize, weight: .black))
                     .lineLimit(1)
                 Spacer()
                 if item == .moreTools {
@@ -178,8 +178,8 @@ public struct WatchMenuView: View {
                 }
             }
             .contentShape(Rectangle())
-            .padding(.vertical, 9)
-            .frame(minHeight: 44)
+            .padding(.vertical, 10)
+            .frame(minHeight: WatchDisplayGeometry.instrumentRowHeight)
         }
         .buttonStyle(.plain)
         .overlay(alignment: .bottom) { Divider() }

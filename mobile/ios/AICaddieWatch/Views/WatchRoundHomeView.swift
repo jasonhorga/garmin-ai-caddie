@@ -73,23 +73,23 @@ public struct WatchRoundHomeView: View {
             VStack(spacing: 5) {
                 HStack(spacing: 7) {
                     Text("H\(hole) · P\(par)")
-                        .font(.system(size: 16, weight: .heavy))
+                        .font(.system(size: 18, weight: .black))
                         .lineLimit(1)
                     if toPar != nil {
                         Text(toParText)
-                            .font(.system(size: 14, weight: .heavy, design: .rounded))
+                            .font(.system(size: 16, weight: .black, design: .rounded))
                             .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
                     }
                     Spacer(minLength: WatchRoundHomeLayout.systemTimeTrailingClearance)
                 }
                 Spacer(minLength: 2)
                 Text(distanceText ?? "—")
-                    .font(.system(size: distanceText == nil ? 42 : 40, weight: .heavy, design: .rounded))
+                    .font(.system(size: distanceText == nil ? 46 : 45, weight: .black, design: .rounded))
                     .monospacedDigit()
                     .lineLimit(1)
                     .foregroundStyle(distanceText == nil ? Color.secondary : Color.white)
                 Text(distanceText == nil ? "距离不可用" : "到果岭中")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 2)
                 HStack {
@@ -127,9 +127,9 @@ public struct WatchRoundHomeView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 18, weight: .heavy))
+                .font(.system(size: 22, weight: .black))
                 .foregroundStyle(primary ? Color.black : Color.white)
-                .frame(width: 42, height: 42)
+                .frame(width: WatchDisplayGeometry.instrumentVisualControlSize, height: WatchDisplayGeometry.instrumentVisualControlSize)
                 .background(primary ? AICaddieDesignTokens.hudGreen : Color.white.opacity(0.14), in: Circle())
                 .overlay(Circle().stroke(primary ? AICaddieDesignTokens.hudGreen.opacity(0.9) : Color.white.opacity(0.32), lineWidth: 1.2))
                 .frame(

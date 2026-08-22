@@ -352,7 +352,7 @@ public struct WatchHazardMapView: View {
             context.draw(
                 context.resolve(
                     Text("\(yards)")
-                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                        .font(.system(size: 16, weight: .black, design: .rounded))
                         .foregroundColor(.white)
                 ),
                 at: labelPoint
@@ -372,7 +372,7 @@ public struct WatchHazardMapView: View {
                 HStack(spacing: 4) {
                     WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
                     Text(shortHazardTitle(hazard))
-                        .font(.system(size: 15, weight: .heavy))
+                        .font(.system(size: 18, weight: .black))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                     Spacer(minLength: WatchHazardMapLayout.systemTimeTrailingClearance)
@@ -381,7 +381,7 @@ public struct WatchHazardMapView: View {
                 Spacer()
                 if upcoming.count > 1 {
                     Text("\(index + 1)/\(upcoming.count)")
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .font(.system(size: 13, weight: .black, design: .rounded))
                         .foregroundStyle(.white.opacity(0.72))
                 }
             }
@@ -415,7 +415,7 @@ public struct WatchHazardMapView: View {
         VStack(spacing: 12) {
             WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
             Text("前方没有可用障碍")
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -428,9 +428,9 @@ public struct WatchHazardMapView: View {
                 .font(.system(size: 42))
                 .foregroundStyle(.secondary)
             Text("离本洞较远")
-                .font(.system(size: 18, weight: .heavy))
+                .font(.system(size: 20, weight: .black))
             Text("回到本洞后再显示障碍距离")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }

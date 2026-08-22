@@ -38,10 +38,10 @@ public struct WatchScorecardView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 0) {
                 WatchInstrumentBackButton(accessibilityLabel: "返回", onBack: onBack)
-                Text("计分卡").font(.system(size: 17, weight: .heavy))
+                Text("计分卡").font(.system(size: 20, weight: .black))
                 Spacer()
                 Text(totalToParText)
-                    .font(.system(size: 14, weight: .heavy, design: .rounded))
+                    .font(.system(size: 16, weight: .black, design: .rounded))
                     .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: totalToPar))
                 Spacer(minLength: 46)
             }
@@ -49,16 +49,16 @@ public struct WatchScorecardView: View {
             ForEach(holes) { row in
                 Button { onSelectHole(row.hole) } label: {
                     HStack(spacing: 6) {
-                        Text("\(row.hole)").font(.system(size: 14, weight: .heavy, design: .rounded).monospacedDigit())
+                        Text("\(row.hole)").font(.system(size: 16, weight: .black, design: .rounded).monospacedDigit())
                             .frame(width: 24, alignment: .leading).foregroundStyle(.secondary)
-                        Text("Par \(row.par)").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                        Text("Par \(row.par)").font(.system(size: 14, weight: .bold)).foregroundStyle(.secondary)
                         Spacer()
                         Text(row.score > 0 ? "\(row.score)" : "—")
-                            .font(.system(size: 19, weight: .heavy, design: .rounded).monospacedDigit())
+                            .font(.system(size: 22, weight: .black, design: .rounded).monospacedDigit())
                             .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: row.score > 0 ? row.score - row.par : nil))
                     }
                     .contentShape(Rectangle())
-                    .frame(minHeight: 42)
+                    .frame(minHeight: 48)
                 }
                 .buttonStyle(.plain)
                 Divider()

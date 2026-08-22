@@ -113,7 +113,7 @@ public struct WatchStartView: View {
 
                 if let errorMessage {
                     Text(errorMessage)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.orange)
                         .padding(7)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -131,7 +131,7 @@ public struct WatchStartView: View {
                     )
                     Text(phoneReachable ? "iPhone 已连接" : "已下载球场可离线开局")
                 }
-                .font(.system(size: 8, weight: .medium))
+                .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 8)
@@ -155,12 +155,12 @@ public struct WatchStartView: View {
                             ProgressView().controlSize(.small)
                             Text("正在获取球场")
                         }
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(.secondary)
                         .padding(7)
                     } else {
                         Text(hasCurrentLocation ? "附近没有找到球场" : "正在等待 GPS 定位")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(.secondary)
                             .padding(7)
                     }
@@ -186,9 +186,9 @@ public struct WatchStartView: View {
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.secondary)
             }
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: 15, weight: .black))
             .padding(.horizontal, 8)
-            .padding(.vertical, 7)
+            .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8)
@@ -207,9 +207,9 @@ public struct WatchStartView: View {
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "chevron.backward")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.system(size: 14, weight: .black))
                         Text("全部球场")
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.system(size: 17, weight: .black))
                     }
                     .foregroundStyle(.primary)
                     .contentShape(Rectangle())
@@ -217,11 +217,11 @@ public struct WatchStartView: View {
                 .buttonStyle(.plain)
 
                 TextField("输入球场名称", text: $searchText)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 15, weight: .bold))
                     .textFieldStyle(.plain)
                     .submitLabel(.search)
                     .padding(.horizontal, 8)
-                    .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
                     .background(
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
                             .fill(Color.white.opacity(0.06))
@@ -249,8 +249,8 @@ public struct WatchStartView: View {
                         }
                     }
                 }
-                .font(.system(size: 11, weight: .semibold))
-                .padding(7)
+                .font(.system(size: 15, weight: .black))
+                .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
@@ -272,7 +272,7 @@ public struct WatchStartView: View {
 
                 if let errorMessage {
                     Text(errorMessage)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.orange)
                         .padding(7)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -286,7 +286,7 @@ public struct WatchStartView: View {
                     Image(systemName: "arrow.down.circle")
                     Text("只下载选中的球场")
                 }
-                .font(.system(size: 8, weight: .medium))
+                .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 8)
@@ -310,7 +310,7 @@ public struct WatchStartView: View {
     private func sectionHeader(_ title: String, showsRefresh: Bool = false) -> some View {
         HStack(spacing: 6) {
             Text(title)
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 15, weight: .black))
                 .foregroundStyle(.primary)
             if showsRefresh {
                 Button(action: onRefresh) {
@@ -319,7 +319,7 @@ public struct WatchStartView: View {
                             ProgressView().controlSize(.mini)
                         } else {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(.system(size: 13, weight: .black))
                         }
                     }
                     .frame(width: 24, height: 20)
@@ -352,10 +352,10 @@ public struct WatchStartView: View {
                     .frame(width: 6, height: 6)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(match.name)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 15, weight: .black))
                         .lineLimit(2)
                     Text(searchResultSubtitle(match))
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 2)
@@ -366,7 +366,7 @@ public struct WatchStartView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, minHeight: 45, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 9)
                     .fill(Color.white.opacity(0.06))
@@ -405,11 +405,11 @@ public struct WatchStartView: View {
             HStack(alignment: .center, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 16, weight: .black))
                         .lineLimit(2)
                         .minimumScaleFactor(0.72)
                     Text(row.subtitle)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 2)
@@ -418,13 +418,13 @@ public struct WatchStartView: View {
                         .controlSize(.small)
                 } else {
                     Image(systemName: "chevron.forward")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 12, weight: .black))
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 9)
+                .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 9)
                     .fill(

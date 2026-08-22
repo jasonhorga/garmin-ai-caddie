@@ -120,16 +120,16 @@ public struct WatchFlagDirectionView: View {
                 case let .ready(relativeDegrees, distanceYards):
                     VStack(spacing: 6) {
                     Text("旗向指引")
-                        .font(.system(size: 16, weight: .heavy))
+                        .font(.system(size: 18, weight: .black))
                         .foregroundStyle(.secondary)
                     WatchFlagCompassDial(relativeDegrees: relativeDegrees)
-                        .frame(width: 112, height: 112)
+                        .frame(width: 120, height: 120)
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text("\(distanceYards)")
-                            .font(.system(size: 44, weight: .heavy, design: .rounded))
+                            .font(.system(size: 48, weight: .black, design: .rounded))
                             .monospacedDigit()
                         Text("码 · 到旗杆")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(.secondary)
                     }
                     }

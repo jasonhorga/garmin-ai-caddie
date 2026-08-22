@@ -798,11 +798,14 @@ public struct WatchRoundContainerView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 18, weight: .heavy))
+                .font(.system(size: 22, weight: .black))
                 .foregroundStyle(systemName == "plus" ? Color.black : Color.white)
-                .frame(width: 42, height: 42)
+                .frame(
+                    width: WatchDisplayGeometry.instrumentVisualControlSize,
+                    height: WatchDisplayGeometry.instrumentVisualControlSize
+                )
                 .background(systemName == "plus" ? AICaddieDesignTokens.hudGreen : Color.black.opacity(0.72), in: Circle())
-                .overlay(Circle().stroke(systemName == "plus" ? AICaddieDesignTokens.hudGreen.opacity(0.92) : Color.white.opacity(0.34), lineWidth: 1.2))
+                .overlay(Circle().stroke(systemName == "plus" ? AICaddieDesignTokens.hudGreen.opacity(0.92) : Color.white.opacity(0.34), lineWidth: 1.4))
                 .frame(
                     width: WatchDisplayGeometry.instrumentControlSize,
                     height: WatchDisplayGeometry.instrumentControlSize

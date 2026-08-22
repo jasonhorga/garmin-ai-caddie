@@ -37,8 +37,8 @@ public struct WatchHoleSelectView: View {
                     ForEach(row, id: \.self) { hole in
                         Button { onSelect(hole) } label: {
                             Text("\(hole)")
-                                .font(.system(size: 16, weight: .heavy, design: .rounded).monospacedDigit())
-                                .frame(maxWidth: .infinity, minHeight: 42)
+                                .font(.system(size: 19, weight: .black, design: .rounded).monospacedDigit())
+                                .frame(maxWidth: .infinity, minHeight: 48)
                                 .background(hole == activeHole ? AICaddieDesignTokens.par : AICaddieDesignTokens.par.opacity(0.16))
                                 .foregroundStyle(hole == activeHole ? .white : .primary)
                                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))

@@ -27,10 +27,10 @@ public struct WatchHazardView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("障碍")
-                .font(.headline)
+                .font(.system(size: 20, weight: .black))
             if orderedHazards.isEmpty {
                 Text(hazards.isEmpty ? "本洞无障碍数据" : "前方没有障碍")
-                    .font(.caption)
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(orderedHazards) { hazard in
@@ -58,7 +58,7 @@ public struct WatchHazardView: View {
     private func hazardRow(_ hazard: WatchHazard, showsDisclosure: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: hazard.kind == "water" ? "drop.fill" : "oval.fill")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(
                     hazard.kind == "water"
                         ? Color(red: 0.20, green: 0.68, blue: 1.0)
@@ -66,12 +66,12 @@ public struct WatchHazardView: View {
                 )
             VStack(alignment: .leading, spacing: 1) {
                 Text(hazard.label)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 17, weight: .black))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                 if let detail = carryText(hazard) {
                     Text(detail)
-                        .font(.caption2)
+                        .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }

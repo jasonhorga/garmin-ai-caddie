@@ -7,9 +7,9 @@ enum WatchFinishRoundLayout {
 
     /// Keep the result and the two non-destructive choices together. Discard stays visible just
     /// below them, but no longer competes with the primary save action in a three-button row.
-    static let primaryActionHeight: CGFloat = 44
-    static let secondaryActionHeight: CGFloat = 40
-    static let abandonActionHeight: CGFloat = 34
+    static let primaryActionHeight: CGFloat = 48
+    static let secondaryActionHeight: CGFloat = 44
+    static let abandonActionHeight: CGFloat = 38
 }
 
 /// The approved compact end-of-round summary. The richer GIR/fairway facts remain in the model for
@@ -66,13 +66,13 @@ public struct WatchFinishRoundView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Text("结束本场")
-                    .font(.system(size: 17, weight: .heavy))
+                    .font(.system(size: 20, weight: .black))
                     .padding(.trailing, WatchFinishRoundLayout.systemTimeTrailingClearance)
                     .accessibilityLabel("\(courseName)，结束本场")
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(scoreText)
-                        .font(.system(size: 38, weight: .heavy, design: .rounded))
+                        .font(.system(size: 42, weight: .black, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
                         .lineLimit(1)
@@ -80,7 +80,7 @@ public struct WatchFinishRoundView: View {
 
                     VStack(alignment: .leading, spacing: 0) {
                         Text(totalStrokesText)
-                            .font(.system(size: 17, weight: .heavy, design: .rounded))
+                            .font(.system(size: 19, weight: .black, design: .rounded))
                             .monospacedDigit()
                         Text(completionText)
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -94,7 +94,7 @@ public struct WatchFinishRoundView: View {
 
                 Button(action: onConfirmFinish) {
                     Text(primaryActionLabel)
-                        .font(.system(size: 16, weight: .heavy))
+                        .font(.system(size: 18, weight: .black))
                         .foregroundStyle(.white)
                         .frame(
                             maxWidth: .infinity,
@@ -117,7 +117,7 @@ public struct WatchFinishRoundView: View {
 
                 Button(role: .destructive, action: onAbandon) {
                     Text("放弃本场")
-                        .font(.system(size: 14, weight: .heavy))
+                        .font(.system(size: 16, weight: .black))
                         .foregroundStyle(AICaddieDesignTokens.doubleBogey)
                         .frame(
                             maxWidth: .infinity,
@@ -165,7 +165,7 @@ public struct WatchFinishRoundView: View {
     ) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 14, weight: .heavy))
+                .font(.system(size: 16, weight: .black))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
@@ -225,7 +225,7 @@ public struct WatchResumeRoundView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 7) {
                 Text(isFreshRound ? "球局已准备好" : "未结束的球局")
-                    .font(.system(size: 18, weight: .heavy))
+                    .font(.system(size: 20, weight: .black))
                 Text(courseName.isEmpty ? "高尔夫球局" : courseName)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.secondary)
@@ -235,7 +235,7 @@ public struct WatchResumeRoundView: View {
                 Text(isFreshRound
                     ? "从第 \(activeHole) 洞开始 · 共 \(holeCount) 洞"
                     : "第 \(activeHole) 洞 · 已记 \(scoredHoles)/\(holeCount)")
-                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .font(.system(size: 17, weight: .black, design: .rounded))
                     .monospacedDigit()
                 if pendingUploads > 0 {
                     Text("\(pendingUploads) 条记录等待同步")
@@ -265,9 +265,9 @@ public struct WatchResumeRoundView: View {
                 }
                 Button(role: .destructive, action: onAbandon) {
                     Text("放弃本场")
-                        .font(.system(size: 15, weight: .heavy))
+                        .font(.system(size: 16, weight: .black))
                         .foregroundStyle(AICaddieDesignTokens.doubleBogey)
-                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .frame(maxWidth: .infinity, minHeight: 46)
                 }
                 .buttonStyle(.plain)
             }
@@ -286,9 +286,9 @@ public struct WatchResumeRoundView: View {
     ) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 15, weight: .heavy))
+                .font(.system(size: 17, weight: .black))
                 .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: 48)
                 .background(
                     primary
                         ? AICaddieDesignTokens.par
@@ -323,7 +323,7 @@ public struct WatchAbandonConfirmationView: View {
             VStack(spacing: 9) {
                 Spacer(minLength: 8)
                 Text("放弃本场？")
-                    .font(.system(size: 18, weight: .heavy))
+                    .font(.system(size: 20, weight: .black))
                 Text(message)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(errorMessage == nil ? Color.secondary : AICaddieDesignTokens.doubleBogey)
@@ -356,9 +356,9 @@ public struct WatchAbandonConfirmationView: View {
     ) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 14, weight: .heavy))
+                .font(.system(size: 16, weight: .black))
                 .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 40)
+                .frame(maxWidth: .infinity, minHeight: 46)
                 .background(background, in: Capsule())
         }
         .buttonStyle(.plain)
@@ -401,7 +401,7 @@ public struct WatchFinishConfirmationView: View {
                 Spacer(minLength: 4)
 
                 Text(titleText)
-                    .font(.system(size: 18, weight: .heavy))
+                    .font(.system(size: 20, weight: .black))
                     .multilineTextAlignment(.center)
                     .offset(y: 10)
 
@@ -463,9 +463,9 @@ public struct WatchFinishConfirmationView: View {
     ) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 14, weight: .heavy))
+                .font(.system(size: 16, weight: .black))
                 .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 40)
+                .frame(maxWidth: .infinity, minHeight: 46)
                 .background(
                     background,
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous)

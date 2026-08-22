@@ -102,9 +102,9 @@ public struct WatchRoundSetupView: View {
                         HStack(spacing: 7) {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(choice.title)
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.system(size: 16, weight: .black))
                                 Text(choice.detail)
-                                    .font(.system(size: 10, weight: .medium))
+                                    .font(.system(size: 12, weight: .bold))
                                     .foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 2)
@@ -140,7 +140,7 @@ public struct WatchRoundSetupView: View {
                             .controlSize(.small)
                         Text("正在获取真实发球台")
                     }
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.secondary)
                     .padding(7)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -150,7 +150,7 @@ public struct WatchRoundSetupView: View {
                             .foregroundStyle(.orange)
                         Text("暂无可用发球台")
                     }
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 13, weight: .bold))
                     .padding(7)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(
@@ -170,13 +170,13 @@ public struct WatchRoundSetupView: View {
 
                 if teeLoadAttempted, teeChoices.isEmpty, !isLoadingTees {
                     Text("无法取得真实发球台时不会用猜测值开局。")
-                        .font(.system(size: 8, weight: .medium))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.secondary)
                 }
 
                 if let errorMessage {
                     Text(errorMessage)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.orange)
                         .padding(7)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -204,7 +204,7 @@ public struct WatchRoundSetupView: View {
                     .fill(hasCachedVersion ? AICaddieDesignTokens.par : .orange)
                     .frame(width: 5, height: 5)
                 Text("\(availabilityText) · \(availabilityDetail)")
-                    .font(.system(size: 8.5, weight: .medium))
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -231,9 +231,9 @@ public struct WatchRoundSetupView: View {
                 }
                 Text(isPreparing ? "正在准备" : startActionLabel)
             }
-            .font(.system(size: 13, weight: .bold))
+            .font(.system(size: 16, weight: .black))
             .foregroundStyle(.black)
-            .frame(maxWidth: .infinity, minHeight: 34)
+            .frame(maxWidth: .infinity, minHeight: 48)
             .background(
                 AICaddieDesignTokens.par,
                 in: RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -254,21 +254,21 @@ public struct WatchRoundSetupView: View {
                     .fill(teeColor(choice.id))
                     .frame(width: 12, height: 12)
                 Text(choice.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 15, weight: .black))
                     .foregroundStyle(.primary)
                 Spacer(minLength: 0)
                 Text(choice.detail)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .font(.system(size: 13, weight: .black, design: .rounded))
                     .foregroundStyle(.primary)
                     .monospacedDigit()
                 if choice.isSelected {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 13, weight: .black))
                         .foregroundStyle(AICaddieDesignTokens.par)
                 }
             }
             .padding(.horizontal, 9)
-            .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.white.opacity(choice.isSelected ? 0.10 : 0.06))

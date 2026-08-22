@@ -13,8 +13,8 @@ enum WatchEdgeBackGesture {
 }
 
 /// S70 has a physical Back key. Apple Watch does not, so every shallow golf instrument keeps a
-/// visible equivalent while retaining the bezel swipe as a shortcut. The glyph stays visually small;
-/// the transparent 44-point frame is the actual target.
+/// visible equivalent while retaining the bezel swipe as a shortcut. The visual button is intentionally
+/// chunky as well as the hit target: this is an instrument control, not a tiny navigation affordance.
 struct WatchInstrumentBackButton: View {
     let accessibilityLabel: String
     let onBack: () -> Void
@@ -30,11 +30,14 @@ struct WatchInstrumentBackButton: View {
     var body: some View {
         Button(action: onBack) {
             Image(systemName: "chevron.backward")
-                .font(.system(size: 14, weight: .heavy))
+                .font(.system(size: 17, weight: .black))
                 .foregroundStyle(.white)
-                .frame(width: 32, height: 32)
+                .frame(
+                    width: WatchDisplayGeometry.instrumentVisualControlSize,
+                    height: WatchDisplayGeometry.instrumentVisualControlSize
+                )
                 .background(Color.black.opacity(0.68), in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 0.8))
+                .overlay(Circle().stroke(.white.opacity(0.34), lineWidth: 1.1))
                 .frame(
                     width: WatchDisplayGeometry.instrumentControlSize,
                     height: WatchDisplayGeometry.instrumentControlSize
@@ -70,11 +73,11 @@ struct WatchInstrumentHeader: View {
         HStack(spacing: 0) {
             WatchInstrumentBackButton(accessibilityLabel: backLabel, onBack: onBack)
             Text(title)
-                .font(.system(size: 17, weight: .heavy))
+                .font(.system(size: WatchDisplayGeometry.instrumentHeaderFontSize, weight: .black))
                 .lineLimit(1)
-                .minimumScaleFactor(0.85)
-            Spacer(minLength: reserveSystemTime ? 46 : 4)
+                .minimumScaleFactor(0.78)
+            Spacer(minLength: reserveSystemTime ? 48 : 4)
         }
-        .frame(height: 44)
+        .frame(height: WatchDisplayGeometry.instrumentActionHeight)
     }
 }

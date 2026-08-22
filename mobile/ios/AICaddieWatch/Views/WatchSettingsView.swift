@@ -39,13 +39,13 @@ public struct WatchSettingsView: View {
                 WatchInstrumentHeader("设置", backLabel: "返回菜单", onBack: onBack)
 
                 Toggle("GPS 预热", isOn: $gpsPreheatEnabled)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 17, weight: .bold))
                     .toggleStyle(WatchApprovedToggleStyle())
                     .padding(.vertical, 7)
                 Divider()
 
                 Toggle("大字模式", isOn: $bigTextMode)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 17, weight: .bold))
                     .toggleStyle(WatchApprovedToggleStyle())
                     .padding(.vertical, 7)
                 Divider()
@@ -60,7 +60,7 @@ public struct WatchSettingsView: View {
                         }
                     )
                 )
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 17, weight: .bold))
                 .toggleStyle(WatchApprovedToggleStyle())
                 .disabled(!autoShotSupported)
                 .accessibilityHint(autoShotSupported ? autoShotStatus : "本机不支持")
@@ -69,10 +69,10 @@ public struct WatchSettingsView: View {
 
                 HStack(spacing: 6) {
                     Text("佩戴手")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 17, weight: .bold))
                     Spacer(minLength: 4)
                     Text(wristLabel)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 16, weight: .black))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 9)
