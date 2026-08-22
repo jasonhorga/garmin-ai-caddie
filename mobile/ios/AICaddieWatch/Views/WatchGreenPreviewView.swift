@@ -507,6 +507,46 @@ private struct WatchGreenCrownModifier: ViewModifier {
     }
 }
 
+/// The rotate/zoom control is deliberately kept as a small view.  Keeping the conditional label
+/// and its styling out of the green canvas' `GeometryReader` prevents SwiftUI's type checker from
+/// having to infer the entire instrument surface as one expression (which is particularly costly
+/// for the watchOS compiler).
+private struct WatchGreenRotationButton: View {
+    let rotatesGreen: Bool
+    let rotationDegrees: Double
+    let controlSize: CGFloat
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            label
+        }
+        .buttonStyle(.plain)
+        .frame(width: controlSize, height: controlSize)
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if rotatesGreen {
+            Text("\(Int(rotationDegrees.rounded()))°")
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(Color.black)
+                .frame(width: 32, height: 32)
+                .background(Color.yellow, in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 0.8))
+        } else {
+            Image(systemName: "rotate.right")
+                .font(.system(size: 14, weight: .heavy))
+                .foregroundStyle(Color.white)
+                .frame(width: 32, height: 32)
+                .background(Color.black.opacity(0.72), in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 0.8))
+        }
+    }
+}
+
 /// S70-style View Green: enlarge the real green within its nearby topo context, with a live distance,
 /// four flag-to-edge clearances and a draggable round-scoped flag. Cards, titles and explanatory copy
 /// disappear, but the approach apron and adjacent hazards remain visible around the green. Crown zoom
@@ -588,33 +628,12 @@ public struct WatchGreenPreviewView: View {
                     .position(x: safeRect.maxX - 4, y: safeRect.midY)
                 }
 
-                Button {
-                    rotatesGreen.toggle()
-                } label: {
-                    Group {
-                        if rotatesGreen {
-                            Text("\(Int(rotationDegrees.rounded()))°")
-                                .font(.system(size: 11, weight: .heavy, design: .rounded))
-                                .monospacedDigit()
-                        } else {
-                            Image(systemName: "rotate.right")
-                                .font(.system(size: 14, weight: .heavy))
-                        }
-                    }
-                    .foregroundStyle(rotatesGreen ? Color.black : Color.white)
-                    .frame(width: 32, height: 32)
-                    .background(
-                        rotatesGreen ? Color.yellow : Color.black.opacity(0.72),
-                        in: Circle()
-                    )
-                    .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 0.8))
-                    .frame(
-                        width: WatchDisplayGeometry.instrumentControlSize,
-                        height: WatchDisplayGeometry.instrumentControlSize
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                WatchGreenRotationButton(
+                    rotatesGreen: rotatesGreen,
+                    rotationDegrees: rotationDegrees,
+                    controlSize: WatchDisplayGeometry.instrumentControlSize,
+                    action: { rotatesGreen.toggle() }
+                )
                 .position(
                     x: safeRect.maxX - WatchDisplayGeometry.instrumentControlSize / 2,
                     y: safeRect.maxY - WatchDisplayGeometry.instrumentControlSize / 2
