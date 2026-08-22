@@ -243,6 +243,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
 
     private let queueURL: URL
     private let stateURL: URL
+    private let roundStartURL: URL
     private let configStore: WatchConfigPersisting
     private let queueFileLock = NSLock()
     private let encoder = JSONEncoder()
@@ -275,6 +276,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     ) {
         self.queueURL = queueURL
         self.stateURL = stateURL ?? queueURL.deletingLastPathComponent().appendingPathComponent("current_state.json")
+        self.roundStartURL = queueURL.deletingLastPathComponent().appendingPathComponent("pending_round_start.json")
         self.configStore = configStore
         self.holeImageStore = holeImageStore
         super.init()
@@ -357,6 +359,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     /// Clear only facts belonging to the terminal round. A newer in-flight state and its queue must
     /// survive a delayed completion message from either device.
     public func forgetRound(roundId: String, discardQueuedEvents: Bool) throws {
+        clearPendingRoundStart(roundId: roundId)
         let removePersistedState = clearPublishedRoundIdentitySynchronously(roundId: roundId)
         if removePersistedState {
             if FileManager.default.fileExists(atPath: stateURL.path) {
@@ -375,6 +378,7 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     /// `transferUserInfo` provides background delivery when the phone is currently unreachable.
     /// The local tombstone remains the safety authority if WatchConnectivity is unavailable.
     public func sendRoundClosureToPhone(_ closure: WatchRoundClosure) {
+        clearPendingRoundStart(roundId: closure.roundId)
         guard WCSession.isSupported(),
               WCSession.default.activationState == .activated,
               let data = try? encoder.encode(closure),
@@ -382,6 +386,48 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             return
         }
         WCSession.default.transferUserInfo(["roundClosure": object])
+    }
+
+    /// Relay round creation independently of GPS and scoring. `sendMessage` makes the iPhone UI
+    /// react immediately when it is reachable; `transferUserInfo` keeps the same fact queued for
+    /// background delivery when the phone is asleep/out of range. The receiver de-duplicates by
+    /// roundId, so sending both paths is intentional and loss-tolerant.
+    public func sendRoundStart(_ start: WatchRoundStart) {
+        if let data = try? encoder.encode(start) {
+            try? data.write(to: roundStartURL, options: [.atomic])
+        }
+        relayRoundStart(start)
+    }
+
+    private func relayRoundStart(_ start: WatchRoundStart) {
+        guard WCSession.isSupported(),
+              WCSession.default.activationState == .activated,
+              let data = try? encoder.encode(start),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        let message: [String: Any] = ["roundStart": object]
+        if WCSession.default.isReachable {
+            WCSession.default.sendMessage(message, replyHandler: nil) { error in
+                WatchLog.connectivity.error(
+                    "Watch round-start immediate relay failed: \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+        WCSession.default.transferUserInfo(message)
+    }
+
+    private func flushPendingRoundStart() {
+        guard let data = try? Data(contentsOf: roundStartURL),
+              let start = try? decoder.decode(WatchRoundStart.self, from: data) else { return }
+        relayRoundStart(start)
+    }
+
+    private func clearPendingRoundStart(roundId: String) {
+        guard let data = try? Data(contentsOf: roundStartURL),
+              let start = try? decoder.decode(WatchRoundStart.self, from: data),
+              start.roundId == roundId else { return }
+        try? FileManager.default.removeItem(at: roundStartURL)
     }
 
     private func applyingQueuedEdits(to state: WatchRoundState) -> WatchRoundState {
@@ -681,6 +727,7 @@ extension WatchSyncClient: WCSessionDelegate {
             // so config/seed delivered while the app was dead cannot be missed by the eager init read.
             applyApplicationContext(session.receivedApplicationContext)
             requestConfigurationFromPhone()
+            flushPendingRoundStart()
         }
         if activationState == .activated, session.isReachable {
             do {
@@ -695,6 +742,7 @@ extension WatchSyncClient: WCSessionDelegate {
         publishPhoneReachable(session.isReachable)
         if session.isReachable {
             requestConfigurationFromPhone()
+            flushPendingRoundStart()
             do {
                 try flushQueue()
             } catch {

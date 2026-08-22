@@ -74,17 +74,18 @@ public struct WatchMenuView: View {
                 HStack(spacing: 5) {
                     Button(action: navigateBack) {
                         Image(systemName: "chevron.backward")
-                            .font(.system(size: 12, weight: .bold))
-                            .frame(width: 26, height: 26)
+                            .font(.system(size: 14, weight: .heavy))
+                            .frame(width: 30, height: 30)
                             .background(Color.black.opacity(0.68), in: Circle())
-                            .frame(width: 44, height: 44)
+                            .frame(width: WatchDisplayGeometry.instrumentControlSize, height: WatchDisplayGeometry.instrumentControlSize)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(showingMoreTools ? "返回高尔夫菜单" : "返回球洞")
                     Text(showingMoreTools ? "更多" : "菜单")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.system(size: 18, weight: .heavy))
                         .lineLimit(1)
+                        .minimumScaleFactor(0.78)
                         .accessibilityLabel(showingMoreTools ? "更多工具" : "高尔夫菜单")
                     Spacer(minLength: 48)
                 }
@@ -167,7 +168,7 @@ public struct WatchMenuView: View {
         Button(role: item == .finish ? .destructive : nil, action: action(for: item)) {
             HStack {
                 Text(item.rawValue)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 17, weight: .heavy))
                     .lineLimit(1)
                 Spacer()
                 if item == .moreTools {
@@ -177,7 +178,8 @@ public struct WatchMenuView: View {
                 }
             }
             .contentShape(Rectangle())
-            .padding(.vertical, 7)
+            .padding(.vertical, 9)
+            .frame(minHeight: 44)
         }
         .buttonStyle(.plain)
         .overlay(alignment: .bottom) { Divider() }

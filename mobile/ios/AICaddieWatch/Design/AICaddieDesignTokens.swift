@@ -9,6 +9,14 @@ public enum AICaddieDesignTokens {
     public static let neutral = Color(red: 0.36, green: 0.39, blue: 0.43)
     public static let offline = Color(red: 0.56, green: 0.45, blue: 0.18)
 
+    /// High-contrast instrument accents shared by the Watch's in-round HUD. These are intentionally
+    /// stronger than the phone palette: the player should recognize the active action at a glance,
+    /// in sunlight and while moving, without relying on a tiny explanatory label.
+    public static let hudGreen = Color(red: 0.19, green: 0.86, blue: 0.43)
+    public static let hudYellow = Color(red: 1.0, green: 0.82, blue: 0.20)
+    public static let hudBlue = Color(red: 0.18, green: 0.65, blue: 1.0)
+    public static let hudPanel = Color.white.opacity(0.16)
+
     public static func scoreColor(toPar: Int?) -> Color {
         guard let toPar else {
             return neutral
@@ -74,6 +82,15 @@ public enum AICaddieDesignTokens {
 public enum WatchDisplayGeometry {
     public static let minimumContentInset: CGFloat = 10
     public static let cornerRadiusFraction: CGFloat = 0.12
+
+    /// A visible control should feel like a physical instrument button, not a text link. Keep the
+    /// target large on the 41 mm face while allowing a little more room on Ultra without letting a
+    /// button touch the rounded mask.
+    public static let instrumentControlSize: CGFloat = 48
+
+    public static func instrumentControlSize(for size: CGSize) -> CGFloat {
+        min(52, max(instrumentControlSize, min(size.width, size.height) * 0.23))
+    }
 
     public static func cornerRadius(for size: CGSize) -> CGFloat {
         max(0, min(size.width, size.height) * cornerRadiusFraction)

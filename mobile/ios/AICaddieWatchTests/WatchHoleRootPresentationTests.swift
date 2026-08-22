@@ -2,14 +2,14 @@ import XCTest
 @testable import AICaddieWatch
 
 final class WatchHoleRootPresentationTests: XCTestCase {
-    func testMissingWristFixShowsGPSAcquisitionBeforeMapOrPreparedDistances() {
+    func testMissingWristFixKeepsTheMapUsableDuringColdStart() {
         XCTAssertEqual(
             WatchHoleRootPresentation.resolve(
                 hasQualifiedWristFix: false,
                 hasGeometry: true,
                 hasLiveCenterDistance: false
             ),
-            .acquiringGPS
+            .map
         )
     }
 

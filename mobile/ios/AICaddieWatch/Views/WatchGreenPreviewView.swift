@@ -562,7 +562,7 @@ public struct WatchGreenPreviewView: View {
 
                 if let distanceText {
                     Text(distanceText)
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .font(.system(size: 16, weight: .heavy, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.white)
                         .position(x: safeRect.midX, y: safeRect.minY + 13)
@@ -570,7 +570,10 @@ public struct WatchGreenPreviewView: View {
                 }
 
                 WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
-                    .position(x: safeRect.minX + 22, y: safeRect.maxY - 22)
+                    .position(
+                        x: safeRect.minX + WatchDisplayGeometry.instrumentControlSize / 2,
+                        y: safeRect.maxY - WatchDisplayGeometry.instrumentControlSize / 2
+                    )
 
                 if !rotatesGreen, zoomScale > 1.02 {
                     ZStack(alignment: .bottom) {
@@ -591,25 +594,31 @@ public struct WatchGreenPreviewView: View {
                     Group {
                         if rotatesGreen {
                             Text("\(Int(rotationDegrees.rounded()))°")
-                                .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                                .font(.system(size: 11, weight: .heavy, design: .rounded))
                                 .monospacedDigit()
                         } else {
                             Image(systemName: "rotate.right")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: 14, weight: .heavy))
                         }
                     }
                     .foregroundStyle(rotatesGreen ? Color.black : Color.white)
-                    .frame(width: 26, height: 26)
+                    .frame(width: 32, height: 32)
                     .background(
                         rotatesGreen ? Color.yellow : Color.black.opacity(0.72),
                         in: Circle()
                     )
                     .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 0.8))
-                    .frame(width: 40, height: 40)
+                    .frame(
+                        width: WatchDisplayGeometry.instrumentControlSize,
+                        height: WatchDisplayGeometry.instrumentControlSize
+                    )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .position(x: safeRect.maxX - 22, y: safeRect.maxY - 22)
+                .position(
+                    x: safeRect.maxX - WatchDisplayGeometry.instrumentControlSize / 2,
+                    y: safeRect.maxY - WatchDisplayGeometry.instrumentControlSize / 2
+                )
                 .accessibilityLabel(rotatesGreen ? "旋转果岭，当前 \(Int(rotationDegrees.rounded())) 度" : "旋转果岭")
                 .accessibilityHint(rotatesGreen ? "转动数码表冠调整方向，再点按返回缩放" : "点按后转动数码表冠")
 

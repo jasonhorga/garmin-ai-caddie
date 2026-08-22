@@ -8,8 +8,8 @@ enum WatchClubPromptLayout {
     static let bottomPadding: CGFloat = 2
     static let stackSpacing: CGFloat = 3
     static let headerHeight: CGFloat = 32
-    static let footerHeight: CGFloat = 40
-    static let clubRowHeight: CGFloat = 32
+    static let footerHeight: CGFloat = 42
+    static let clubRowHeight: CGFloat = 36
     static let clubRowSpacing: CGFloat = 5
 
     static func firstScreenClubRows(viewportHeight: CGFloat) -> Int {
@@ -88,12 +88,12 @@ public struct WatchClubPromptView: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Text(hole.map { "H\($0) · 第\(shotNumber)杆" } ?? "第\(shotNumber)杆")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 13, weight: .heavy))
                         .foregroundStyle(recommendedGreen)
                     Spacer(minLength: 2)
                     if let distanceToPinYards {
                         Text("到旗 \(WatchGeoMath.greenRangeText(distanceToPinYards))")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
                             .lineLimit(1)
@@ -102,7 +102,7 @@ public struct WatchClubPromptView: View {
                     }
                 }
                 Text("刚才用哪支杆？")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -111,7 +111,7 @@ public struct WatchClubPromptView: View {
             if clubChoices.isEmpty {
                 Spacer(minLength: 4)
                 Text("未同步球杆列表")
-                    .font(.caption)
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 4)
             } else {
@@ -122,11 +122,11 @@ public struct WatchClubPromptView: View {
                             Button(action: { onSelectClub(club.clubName) }) {
                                 HStack(spacing: 4) {
                                     Text(WatchClubDisplay.shortCode(club.clubName))
-                                        .font(.system(size: 15, weight: .semibold))
+                                        .font(.system(size: 17, weight: .heavy))
                                         .lineLimit(1)
                                     if let distance = WatchClubPromptPresentation.distanceText(for: club) {
                                         Text("\(distance)码")
-                                            .font(.system(size: 13, weight: .semibold))
+                                            .font(.system(size: 14, weight: .bold))
                                             .foregroundStyle(
                                                 isRecommended
                                                     ? Color.black.opacity(0.58)
@@ -137,7 +137,7 @@ public struct WatchClubPromptView: View {
                                     Spacer(minLength: 2)
                                     if isRecommended {
                                         Text("建议")
-                                            .font(.system(size: 9, weight: .bold))
+                                            .font(.system(size: 11, weight: .heavy))
                                     }
                                 }
                                 .foregroundStyle(isRecommended ? Color.black : Color.white)
@@ -161,10 +161,10 @@ public struct WatchClubPromptView: View {
             Button(action: onSkipClub) {
                 HStack(spacing: 3) {
                     Image(systemName: "location.fill")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 10, weight: .heavy))
                     Text("只记位置 · 跳过球杆")
                 }
-                    .font(.system(size: 9.5, weight: .semibold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Color.white.opacity(0.76))
                     .frame(maxWidth: .infinity, minHeight: 24)
                     .background(

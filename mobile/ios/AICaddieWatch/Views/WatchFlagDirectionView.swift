@@ -120,16 +120,16 @@ public struct WatchFlagDirectionView: View {
                 case let .ready(relativeDegrees, distanceYards):
                     VStack(spacing: 6) {
                     Text("旗向指引")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 16, weight: .heavy))
                         .foregroundStyle(.secondary)
                     WatchFlagCompassDial(relativeDegrees: relativeDegrees)
-                        .frame(width: 104, height: 104)
+                        .frame(width: 112, height: 112)
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text("\(distanceYards)")
-                            .font(.system(size: 38, weight: .bold, design: .rounded))
+                            .font(.system(size: 44, weight: .heavy, design: .rounded))
                             .monospacedDigit()
                         Text("码 · 到旗杆")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.secondary)
                     }
                     }
@@ -154,7 +154,10 @@ public struct WatchFlagDirectionView: View {
             GeometryReader { proxy in
                 let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
                 WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
-                    .position(x: safeRect.minX + 22, y: safeRect.maxY - 22)
+                    .position(
+                        x: safeRect.minX + WatchDisplayGeometry.instrumentControlSize / 2,
+                        y: safeRect.maxY - WatchDisplayGeometry.instrumentControlSize / 2
+                    )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

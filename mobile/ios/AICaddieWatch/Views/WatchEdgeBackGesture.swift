@@ -30,12 +30,15 @@ struct WatchInstrumentBackButton: View {
     var body: some View {
         Button(action: onBack) {
             Image(systemName: "chevron.backward")
-                .font(.system(size: 11, weight: .bold))
+                .font(.system(size: 14, weight: .heavy))
                 .foregroundStyle(.white)
-                .frame(width: 26, height: 26)
+                .frame(width: 32, height: 32)
                 .background(Color.black.opacity(0.68), in: Circle())
                 .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 0.8))
-                .frame(width: 44, height: 44)
+                .frame(
+                    width: WatchDisplayGeometry.instrumentControlSize,
+                    height: WatchDisplayGeometry.instrumentControlSize
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -67,7 +70,7 @@ struct WatchInstrumentHeader: View {
         HStack(spacing: 0) {
             WatchInstrumentBackButton(accessibilityLabel: backLabel, onBack: onBack)
             Text(title)
-                .font(.system(size: 15, weight: .bold))
+                .font(.system(size: 17, weight: .heavy))
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
             Spacer(minLength: reserveSystemTime ? 46 : 4)

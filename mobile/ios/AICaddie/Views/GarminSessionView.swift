@@ -108,7 +108,7 @@ public struct GarminSessionView: View {
                 let synced = await onSessionImported()
                 statusText = synced
                     ? "已连接，Garmin 数据已更新"
-                    : "已连接，数据暂未更新，可在设置中重试"
+                    : "已连接，但 Garmin 拉取失败，请稍后重试"
             } else {
                 statusText = "已连接"
             }

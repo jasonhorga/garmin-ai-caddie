@@ -39,13 +39,13 @@ public struct WatchSettingsView: View {
                 WatchInstrumentHeader("设置", backLabel: "返回菜单", onBack: onBack)
 
                 Toggle("GPS 预热", isOn: $gpsPreheatEnabled)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: 15, weight: .semibold))
                     .toggleStyle(WatchApprovedToggleStyle())
                     .padding(.vertical, 7)
                 Divider()
 
                 Toggle("大字模式", isOn: $bigTextMode)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: 15, weight: .semibold))
                     .toggleStyle(WatchApprovedToggleStyle())
                     .padding(.vertical, 7)
                 Divider()
@@ -60,7 +60,7 @@ public struct WatchSettingsView: View {
                         }
                     )
                 )
-                .font(.system(size: 13, weight: .regular))
+                .font(.system(size: 15, weight: .semibold))
                 .toggleStyle(WatchApprovedToggleStyle())
                 .disabled(!autoShotSupported)
                 .accessibilityHint(autoShotSupported ? autoShotStatus : "本机不支持")
@@ -69,10 +69,10 @@ public struct WatchSettingsView: View {
 
                 HStack(spacing: 6) {
                     Text("佩戴手")
-                        .font(.system(size: 13, weight: .regular))
+                        .font(.system(size: 15, weight: .semibold))
                     Spacer(minLength: 4)
                     Text(wristLabel)
-                        .font(.system(size: 12, weight: .regular))
+                        .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 9)
@@ -116,7 +116,7 @@ private struct WatchApprovedToggleStyle: ToggleStyle {
                         .fill(.white)
                         .padding(2)
                 }
-                .frame(width: 38, height: 22)
+                .frame(width: 44, height: 26)
             }
             .contentShape(Rectangle())
         }

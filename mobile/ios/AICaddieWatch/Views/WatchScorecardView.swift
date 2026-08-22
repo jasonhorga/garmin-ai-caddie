@@ -38,10 +38,10 @@ public struct WatchScorecardView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 0) {
                 WatchInstrumentBackButton(accessibilityLabel: "返回", onBack: onBack)
-                Text("计分卡").font(.headline.weight(.bold))
+                Text("计分卡").font(.system(size: 17, weight: .heavy))
                 Spacer()
                 Text(totalToParText)
-                    .font(.caption.weight(.bold))
+                    .font(.system(size: 14, weight: .heavy, design: .rounded))
                     .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: totalToPar))
                 Spacer(minLength: 46)
             }
@@ -49,15 +49,16 @@ public struct WatchScorecardView: View {
             ForEach(holes) { row in
                 Button { onSelectHole(row.hole) } label: {
                     HStack(spacing: 6) {
-                        Text("\(row.hole)").font(.caption.monospacedDigit())
-                            .frame(width: 22, alignment: .leading).foregroundStyle(.secondary)
-                        Text("Par \(row.par)").font(.caption2).foregroundStyle(.secondary)
+                        Text("\(row.hole)").font(.system(size: 14, weight: .heavy, design: .rounded).monospacedDigit())
+                            .frame(width: 24, alignment: .leading).foregroundStyle(.secondary)
+                        Text("Par \(row.par)").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
                         Spacer()
                         Text(row.score > 0 ? "\(row.score)" : "—")
-                            .font(.body.monospacedDigit().weight(.semibold))
+                            .font(.system(size: 19, weight: .heavy, design: .rounded).monospacedDigit())
                             .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: row.score > 0 ? row.score - row.par : nil))
                     }
                     .contentShape(Rectangle())
+                    .frame(minHeight: 42)
                 }
                 .buttonStyle(.plain)
                 Divider()

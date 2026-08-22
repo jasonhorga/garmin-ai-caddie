@@ -196,6 +196,30 @@ public struct AICaddieWatchApp: App {
                                 activeHole: prepared.holeStates.first?.hole,
                                 courseName: prepared.courseName
                             )
+                            // Round creation is a first-class sync fact. Do this immediately after
+                            // the durable local seed; GPS quality must never decide whether iPhone
+                            // learns that a round exists.
+                            syncClient.sendRoundStart(
+                                WatchRoundStart(
+                                    roundId: prepared.roundId,
+                                    courseName: prepared.courseName,
+                                    teeBox: selection.teeBox,
+                                    nine: "all",
+                                    globalId: selection.front.globalId,
+                                    backGlobalId: selection.back?.globalId,
+                                    activeHole: prepared.holeStates.first?.hole ?? 1,
+                                    holes: prepared.holeStates.map { state in
+                                        WatchRoundSeedHole(
+                                            hole: state.hole,
+                                            par: state.par,
+                                            distanceM: state.distanceM,
+                                            teeLatitude: state.teeLatitude,
+                                            teeLongitude: state.teeLongitude,
+                                            globalId: state.globalId
+                                        )
+                                    }
+                                )
+                            )
                         }
                     }
                 )

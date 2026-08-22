@@ -13,9 +13,9 @@ public enum WatchHoleRootPresentation: Equatable {
         hasGeometry: Bool,
         hasLiveCenterDistance: Bool
     ) -> Self {
-        guard hasQualifiedWristFix else { return .acquiringGPS }
-        // Geometry is useful on its own. A vector-only CourseView hole must not disappear merely
-        // because F/M/B coordinates are still upgrading; the map renders without a distance overlay.
+        // GPS is a rangefinder input, not a round-entry gate. Keep the course map/score controls
+        // usable during a cold fix (S70 shows 999 until location is ready); the caller supplies that
+        // sentinel only for presentation and never fabricates a coordinate or shot fact.
         if hasGeometry { return .map }
         if hasLiveCenterDistance { return .distances }
         return .scoreOnly
@@ -125,7 +125,8 @@ public struct WatchRoundContainerView: View {
     }
 
     private func frontYd(_ s: WatchRoundState) -> Int? {
-        Self.effectiveGreenYards(live: watchGreenYards?.front, fallbackMetres: s.frontGreenM)
+        guard shotLocation != nil else { return 999 }
+        return Self.effectiveGreenYards(live: watchGreenYards?.front, fallbackMetres: s.frontGreenM)
     }
 
     private func canonicalCenterYd(_ s: WatchRoundState) -> Int? {
@@ -154,6 +155,7 @@ public struct WatchRoundContainerView: View {
     /// Hole Root's middle value follows the moved flag. The canonical centre range remains the sole
     /// pixel calibration authority, so repeatedly entering View Green cannot compound rounding error.
     private func centerYd(_ s: WatchRoundState) -> Int? {
+        guard shotLocation != nil else { return 999 }
         guard let canonical = canonicalCenterYd(s),
               let geometry = holeGeometry,
               let selectedPin = selectedGreenPin(for: s, geometry: geometry) else {
@@ -169,7 +171,8 @@ public struct WatchRoundContainerView: View {
     }
 
     private func backYd(_ s: WatchRoundState) -> Int? {
-        Self.effectiveGreenYards(live: watchGreenYards?.back, fallbackMetres: s.backGreenM)
+        guard shotLocation != nil else { return 999 }
+        return Self.effectiveGreenYards(live: watchGreenYards?.back, fallbackMetres: s.backGreenM)
     }
 
     /// Prefer the Watch's live walk-off distance; retain older server/phone facts as an offline fallback.
@@ -281,9 +284,9 @@ public struct WatchRoundContainerView: View {
                 WatchCaddieScreen(
                     state: state,
                     geometry: holeGeometry,
-                    frontYd: watchGreenYards?.front,
-                    centerYd: watchGreenYards?.center,
-                    backYd: watchGreenYards?.back,
+                    frontYd: frontYd(state),
+                    centerYd: centerYd(state),
+                    backYd: backYd(state),
                     lastShotDistanceM: latestShotDistanceM(state),
                     onBack: { model.backToHome() }
                 )
@@ -363,7 +366,7 @@ public struct WatchRoundContainerView: View {
                 WatchClubPromptView(
                     hole: pending.hole,
                     shotNumber: pending.shotNumber,
-                    distanceToPinYards: watchGreenYards?.center,
+                    distanceToPinYards: model.activeHoleState.flatMap { centerYd($0) } ?? 999,
                     recommendedClub: model.allHoleStates.first(where: { $0.hole == pending.hole })?.suggestedClub,
                     clubs: model.allHoleStates.first(where: { $0.hole == pending.hole })?.availableClubs ?? [],
                     onSelectClub: { model.completePendingManualShot(clubName: $0) },
@@ -431,6 +434,7 @@ public struct WatchRoundContainerView: View {
     }
 
     var distanceText: String? {
+        guard shotLocation != nil else { return "999 码 · 等待定位" }
         guard let center = watchGreenYards?.center else { return nil }
         if WatchGeoMath.isBeyondUsefulGreenRange(center) { return "离本洞较远" }
         return "\(WatchGeoMath.greenRangeText(center)) 码"
@@ -689,11 +693,12 @@ public struct WatchRoundContainerView: View {
         let showCaddie = model.rootCaddieLayerAvailable(at: shotLocation)
             || model.preparedRootCaddieLayerAvailable(at: shotLocation)
         return WatchDistanceHero(
-            frontYd: watchGreenYards?.front,
+            frontYd: frontYd(s),
             centerYd: centerYd(s),
-            backYd: watchGreenYards?.back,
+            backYd: backYd(s),
             caddieLine: showCaddie ? caddieLine(s) : nil,
-            bigText: big
+            bigText: big,
+            gpsUnavailable: shotLocation == nil
         )
     }
 
@@ -705,9 +710,9 @@ public struct WatchRoundContainerView: View {
             hasLiveCenterDistance: watchGreenYards?.center != nil
         ) {
         case .acquiringGPS:
-            currentHoleInstrument {
-                WatchGPSAcquiringView()
-            }
+            // Kept for old deep links/tests; production resolution above deliberately never blocks
+            // a seeded round on GPS.
+            currentHoleInstrument { WatchGPSAcquiringView() }
         case .map:
             currentHoleInstrument {
                 if holeMapBigText, watchGreenYards?.center != nil {
@@ -750,6 +755,7 @@ public struct WatchRoundContainerView: View {
     private var rootControls: some View {
         GeometryReader { proxy in
             let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
+            let controlHalf = WatchDisplayGeometry.instrumentControlSize / 2
             HStack {
                 rootControl(
                     systemName: "line.3.horizontal",
@@ -769,7 +775,7 @@ public struct WatchRoundContainerView: View {
                 }
             }
             .frame(width: safeRect.width)
-            .position(x: safeRect.midX, y: safeRect.maxY - 22)
+            .position(x: safeRect.midX, y: safeRect.maxY - controlHalf)
         }
     }
 
@@ -782,12 +788,15 @@ public struct WatchRoundContainerView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 26, height: 26)
-                .background(Color.black.opacity(0.72), in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.24), lineWidth: 0.8))
-                .frame(width: 40, height: 40)
+                .font(.system(size: 18, weight: .heavy))
+                .foregroundStyle(systemName == "plus" ? Color.black : Color.white)
+                .frame(width: 42, height: 42)
+                .background(systemName == "plus" ? AICaddieDesignTokens.hudGreen : Color.black.opacity(0.72), in: Circle())
+                .overlay(Circle().stroke(systemName == "plus" ? AICaddieDesignTokens.hudGreen.opacity(0.92) : Color.white.opacity(0.34), lineWidth: 1.2))
+                .frame(
+                    width: WatchDisplayGeometry.instrumentControlSize,
+                    height: WatchDisplayGeometry.instrumentControlSize
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

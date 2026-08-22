@@ -523,32 +523,33 @@ public struct WatchHoleMapView: View {
 
     private func touchTargetControls(_ size: CGSize) -> some View {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
+        let controlHalf = WatchDisplayGeometry.instrumentControlSize / 2
         return ZStack {
             WatchInstrumentBackButton(accessibilityLabel: "返回球洞", onBack: onBack)
-                .position(x: safeRect.minX + 22, y: safeRect.maxY - 22)
+                .position(x: safeRect.minX + controlHalf, y: safeRect.maxY - controlHalf)
 
             if measuredPx != nil {
                 Button {
                     liveMeasuredPx = nil
                 } label: {
                     Label("清除", systemImage: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .padding(.horizontal, 8)
-                        .frame(minHeight: 40)
+                        .font(.system(size: 11, weight: .bold))
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 44)
                         .background(Color.black.opacity(0.70), in: Capsule())
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("清除测距目标")
-                .position(x: safeRect.maxX - 28, y: safeRect.maxY - 21)
+                .position(x: safeRect.maxX - 30, y: safeRect.maxY - controlHalf)
             } else if measuredPx == nil {
                 Text("点地图选目标")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.white.opacity(0.82))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(Color.black.opacity(0.68), in: Capsule())
-                    .position(x: safeRect.maxX - 38, y: safeRect.maxY - 18)
+                    .position(x: safeRect.maxX - 42, y: safeRect.maxY - controlHalf)
             }
         }
         .frame(width: size.width, height: size.height)
@@ -622,25 +623,27 @@ public struct WatchHoleMapView: View {
                     Button(action: onOpenCaddie) {
                         HStack(spacing: 4) {
                             Image(systemName: "figure.golf")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(caddieGreen)
+                                .font(.system(size: 12, weight: .heavy))
+                                .foregroundStyle(.black)
                             Text(WatchClubDisplay.shortCode(caddieClub))
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white)
+                                .font(.system(size: 14, weight: .heavy, design: .rounded))
+                                .foregroundStyle(.black)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         }
-                        .frame(width: 44, height: 44)
+                        .frame(width: 48, height: 48)
+                        .background(AICaddieDesignTokens.hudGreen, in: Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.84), lineWidth: 1.1))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("球童建议 \(caddieClub) \(caddieNote)")
-                    .position(x: safeRect.midX, y: safeRect.maxY - 22)
+                    .position(x: safeRect.midX, y: safeRect.maxY - 24)
                 }
             }
             if geometry.image == nil {
                 Text("地图准备中")
-                    .font(.system(size: 8.5, weight: .semibold))
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white.opacity(0.82))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
@@ -657,7 +660,7 @@ public struct WatchHoleMapView: View {
 
     private var holeIdentity: some View {
         Text("#\(holeNumber) Par \(par)")
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: 13, weight: .heavy))
             .foregroundStyle(.white)
             .lineLimit(1)
             .accessibilityLabel("第 \(holeNumber) 洞，标准杆 \(par)")
@@ -676,7 +679,7 @@ public struct WatchHoleMapView: View {
                             ? "离本洞较远"
                             : "中 \(WatchGeoMath.greenRangeText(centerGreen)) 码 · 到果岭"
                     )
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
@@ -709,7 +712,7 @@ public struct WatchHoleMapView: View {
 
         VStack {
             Spacer()
-            Text("转表冠缩放").font(.system(size: 8.5, weight: .medium)).foregroundStyle(.white.opacity(0.6))
+            Text("转表冠缩放").font(.system(size: 10, weight: .bold)).foregroundStyle(.white.opacity(0.72))
                 .padding(.bottom, safeInset)
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -723,7 +726,7 @@ public struct WatchHoleMapView: View {
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 2) {
             Text(WatchGeoMath.greenRangeText(value))
-                .font(.system(size: big ? 29 : 21, weight: big ? .bold : .semibold, design: .rounded))
+                .font(.system(size: big ? 34 : 24, weight: .heavy, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(color)
                 .lineLimit(1)
@@ -734,7 +737,7 @@ public struct WatchHoleMapView: View {
                     .foregroundStyle(golfYellow.opacity(0.82))
             }
         }
-        .frame(height: big ? 34 : 24, alignment: .leading)
+        .frame(height: big ? 40 : 29, alignment: .leading)
     }
 
     // MARK: - Canvas drawing

@@ -395,6 +395,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private var mediaUploadClient: MediaUploadClient?
     private var isSyncingPendingEvents = false
     private var watchFinishedRoundReconciliationTask: Task<Void, Never>?
+    /// Round-start relays can arrive twice (immediate message + background userInfo). Keep only the
+    /// in-flight IDs here so the second delivery does not launch a competing package fetch.
+    private var watchRoundStartInFlight = Set<String>()
     private var deferredRoundFinishTask: Task<Void, Never>?
     private var deferredRoundFinishGeneration: UUID?
     private var deferredRoundFinishRetryRequested = false
@@ -487,6 +490,11 @@ public final class LiveRoundAppModel: ObservableObject {
         watchBridge?.onRoundClosure = { [weak self] closure in
             Task { @MainActor in
                 self?.handleWatchRoundClosure(closure)
+            }
+        }
+        watchBridge?.onRoundStarted = { [weak self] start in
+            Task { @MainActor in
+                await self?.handleWatchRoundStart(start)
             }
         }
         watchBridge?.activateSession()
@@ -685,9 +693,14 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     public func refreshGarminSyncPresentation() async {
+        // A user-initiated pull owns the visible state until it completes. A background status
+        // read can otherwise race the request and put the previous `ready` result back on screen
+        // while the spinner is still running.
+        guard !isGarminSyncing else { return }
         guard let syncClient,
               let status = try? await syncClient.fetchGarminSyncStatus(),
               let lastRun = status.lastRun else { return }
+        guard !isGarminSyncing else { return }
         if let updatedAt = lastRun.updatedAt,
            let date = ISO8601DateFormatter().date(from: updatedAt) {
             lastGarminSyncAt = date
@@ -2156,6 +2169,84 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
+    /// Activate a round created on the Watch even when the phone was asleep or the Watch had no
+    /// qualified GPS fix. The Watch's compact start fact is idempotent; the phone owns the richer
+    /// package and fetches it independently, falling back to a matching offline template first.
+    @MainActor
+    public func handleWatchRoundStart(_ start: WatchRoundStartPayload) async {
+        let roundId = start.roundId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !roundId.isEmpty, !start.holes.isEmpty else { return }
+
+        if package?.roundId == roundId, liveRoundState?.roundId == roundId {
+            pendingLiveHole = start.activeHole
+            return
+        }
+        // Never replace an unrelated active round with a delayed WatchConnectivity delivery.
+        if liveRoundState != nil, liveRoundState?.roundId != roundId {
+            syncStatus = "手表已有新球局，当前球局仍在进行"
+            return
+        }
+        guard watchRoundStartInFlight.insert(roundId).inserted else { return }
+        defer { watchRoundStartInFlight.remove(roundId) }
+
+        let sourceIds = Set(start.holes.compactMap(\.globalId))
+        let frontGlobalId = start.globalId
+            ?? start.holes.compactMap(\.globalId).first
+        let requestedNine = (start.nine?.isEmpty == false ? start.nine : "all") ?? "all"
+
+        do {
+            var nextPackage: LiveRoundPackage?
+            if let frontGlobalId {
+                let templates = (try? offlineStore.loadCourseTemplates()) ?? []
+                nextPackage = templates.first { candidate in
+                    guard candidate.course.globalId == frontGlobalId,
+                          candidate.course.teeBox.caseInsensitiveCompare(start.teeBox) == .orderedSame,
+                          (candidate.nine ?? "all").caseInsensitiveCompare(requestedNine) == .orderedSame else {
+                        return false
+                    }
+                    let candidateSourceIds = Set(candidate.holes.map {
+                        $0.sourceGlobalId ?? candidate.course.globalId
+                    })
+                    return sourceIds.isEmpty || candidateSourceIds == sourceIds
+                }?.rebasedForOfflineStart(roundId: roundId)
+            }
+
+            if nextPackage == nil, let frontGlobalId, let syncClient {
+                nextPackage = try await syncClient.fetchCoursePackage(
+                    globalId: frontGlobalId,
+                    roundId: roundId,
+                    teeBox: start.teeBox,
+                    nine: requestedNine,
+                    ensureGeometry: false,
+                    backgroundGeometry: true,
+                    backGlobalId: start.backGlobalId,
+                    includeEventCursor: false
+                )
+            }
+
+            guard let nextPackage else {
+                syncStatus = "手表已开始，球场数据稍后同步"
+                return
+            }
+            try offlineStore.saveRoundPackage(nextPackage)
+            try activatePackage(nextPackage, status: "手表已开始 · iPhone 已同步")
+            if nextPackage.holes.contains(where: { $0.number == start.activeHole }) {
+                try offlineStore.saveActiveHole(roundId: roundId, hole: start.activeHole)
+                liveRoundState = try offlineStore.restoreLiveRoundState(
+                    roundId: roundId,
+                    package: nextPackage
+                )
+            }
+            pendingLiveHole = start.activeHole
+            signalFreshRoundEntry(revalidatePackage: true)
+        } catch {
+            AICaddieLog.watch.error(
+                "Watch round-start activation failed: \(String(describing: error), privacy: .public)"
+            )
+            syncStatus = "手表已开始，iPhone 正在重试同步"
+        }
+    }
+
     /// A Watch finish already completed the idempotent backend finish transaction. The phone may
     /// still own events that the Watch saw over Bluetooth but the backend never received. Preserve
     /// that complete local round until those events receive explicit server ACKs; abandon/save-
@@ -2367,6 +2458,10 @@ public final class LiveRoundAppModel: ObservableObject {
     public func syncGarminData() async -> Bool {
         guard !isGarminSyncing else { return false }
         isGarminSyncing = true
+        // Publish the in-flight state before uploading local events. The upload can take a while,
+        // and leaving the previous success label visible makes the settings screen claim both
+        // "updated" and "syncing" at once.
+        garminSyncStatus = "正在同步 Garmin 数据…"
         defer { isGarminSyncing = false }
 
         if liveRoundState != nil || pendingEventCount > 0 {

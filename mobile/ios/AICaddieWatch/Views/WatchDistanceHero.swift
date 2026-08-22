@@ -11,19 +11,22 @@ public struct WatchDistanceHero: View {
     public let backYd: Int?
     public let caddieLine: String?
     public let bigText: Bool
+    public let gpsUnavailable: Bool
 
     public init(
         frontYd: Int?,
         centerYd: Int?,
         backYd: Int?,
         caddieLine: String? = nil,
-        bigText: Bool = false
+        bigText: Bool = false,
+        gpsUnavailable: Bool = false
     ) {
         self.frontYd = frontYd
         self.centerYd = centerYd
         self.backYd = backYd
         self.caddieLine = caddieLine
         self.bigText = bigText
+        self.gpsUnavailable = gpsUnavailable
     }
 
     public var body: some View {
@@ -51,12 +54,12 @@ public struct WatchDistanceHero: View {
         VStack(spacing: 1) {
             HStack(alignment: .lastTextBaseline, spacing: 12) {
                 pip("前", frontYd)
-                center(size: 48)
+                center(size: 52)
                 pip("后", backYd)
             }
             if let caddieLine {
                 Text(caddieLine)
-                    .font(.caption2)
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -89,12 +92,8 @@ public struct WatchDistanceHero: View {
                     .foregroundStyle(AICaddieDesignTokens.par)
                     .minimumScaleFactor(0.5)
                     .lineLimit(1)
-                Text(
-                    WatchGeoMath.isBeyondUsefulGreenRange(centerYd)
-                        ? "离本洞较远"
-                        : "中 · 码"
-                )
-                    .font(bigText ? .headline : .caption2)
+                Text(centerStatus)
+                    .font(.system(size: bigText ? 17 : 12, weight: .bold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
@@ -105,15 +104,21 @@ public struct WatchDistanceHero: View {
     private func pip(_ label: String, _ yd: Int?, compact: Bool = false) -> some View {
         VStack(spacing: 0) {
             Text(WatchGeoMath.greenRangeText(yd))
-                .font((compact ? Font.headline : Font.title3).weight(.semibold))
+                .font(.system(size: compact ? 20 : 22, weight: .heavy, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.55)
             Text(label)
-                .font(.caption2)
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var centerStatus: String {
+        if gpsUnavailable { return "等待定位" }
+        if WatchGeoMath.isBeyondUsefulGreenRange(centerYd) { return "离本洞较远" }
+        return "中 · 码"
     }
 }
 

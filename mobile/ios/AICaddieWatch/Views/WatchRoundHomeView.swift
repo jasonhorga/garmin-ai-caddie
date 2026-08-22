@@ -73,23 +73,23 @@ public struct WatchRoundHomeView: View {
             VStack(spacing: 5) {
                 HStack(spacing: 7) {
                     Text("H\(hole) · P\(par)")
-                        .font(.system(size: 13, weight: .bold))
+                        .font(.system(size: 16, weight: .heavy))
                         .lineLimit(1)
                     if toPar != nil {
                         Text(toParText)
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .font(.system(size: 14, weight: .heavy, design: .rounded))
                             .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
                     }
                     Spacer(minLength: WatchRoundHomeLayout.systemTimeTrailingClearance)
                 }
                 Spacer(minLength: 2)
                 Text(distanceText ?? "—")
-                    .font(.system(size: distanceText == nil ? 34 : 30, weight: .bold, design: .rounded))
+                    .font(.system(size: distanceText == nil ? 42 : 40, weight: .heavy, design: .rounded))
                     .monospacedDigit()
                     .lineLimit(1)
                     .foregroundStyle(distanceText == nil ? Color.secondary : Color.white)
                 Text(distanceText == nil ? "距离不可用" : "到果岭中")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 2)
                 HStack {
@@ -97,6 +97,7 @@ public struct WatchRoundHomeView: View {
                         systemName: "line.3.horizontal",
                         label: "球局菜单",
                         isEnabled: true,
+                        primary: false,
                         action: onMenu
                     )
                     Spacer()
@@ -104,6 +105,7 @@ public struct WatchRoundHomeView: View {
                         systemName: "plus",
                         label: "手动记杆",
                         isEnabled: canRecordShot,
+                        primary: true,
                         action: onRecordShot
                     )
                 }
@@ -120,13 +122,20 @@ public struct WatchRoundHomeView: View {
         systemName: String,
         label: String,
         isEnabled: Bool,
+        primary: Bool,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 12, weight: .bold))
-                .frame(width: 34, height: 34)
-                .background(Color.white.opacity(0.12), in: Circle())
+                .font(.system(size: 18, weight: .heavy))
+                .foregroundStyle(primary ? Color.black : Color.white)
+                .frame(width: 42, height: 42)
+                .background(primary ? AICaddieDesignTokens.hudGreen : Color.white.opacity(0.14), in: Circle())
+                .overlay(Circle().stroke(primary ? AICaddieDesignTokens.hudGreen.opacity(0.9) : Color.white.opacity(0.32), lineWidth: 1.2))
+                .frame(
+                    width: WatchDisplayGeometry.instrumentControlSize,
+                    height: WatchDisplayGeometry.instrumentControlSize
+                )
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)

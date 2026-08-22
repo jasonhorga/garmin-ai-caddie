@@ -44,11 +44,11 @@ public struct WatchCaddieGlanceView: View {
                     if let center = displayCenterYd {
                         VStack(spacing: 0) {
                             Text(WatchGeoMath.greenRangeText(center))
-                                .font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit()
-                                .foregroundStyle(AICaddieDesignTokens.bogey)
+                                .font(.system(size: 40, weight: .heavy, design: .rounded)).monospacedDigit()
+                                .foregroundStyle(AICaddieDesignTokens.hudYellow)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.55)
-                            Text("中").font(.caption2).foregroundStyle(.secondary)
+                            Text("中").font(.system(size: 12, weight: .bold)).foregroundStyle(.secondary)
                         }
                     }
                     if let back = displayBackYd { greenPip("后", back) }
@@ -56,7 +56,7 @@ public struct WatchCaddieGlanceView: View {
                 if [displayFrontYd, displayCenterYd, displayBackYd]
                     .contains(where: WatchGeoMath.isBeyondUsefulGreenRange) {
                     Text("离本洞较远")
-                        .font(.caption2.weight(.semibold))
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -66,7 +66,7 @@ public struct WatchCaddieGlanceView: View {
                     Image(systemName: delta > 0 ? "arrow.up.right" : "arrow.down.right")
                     Text("坡度 \(dy > 0 ? "+" : "")\(dy) 码")
                 }
-                .font(.caption2)
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(delta > 0 ? AICaddieDesignTokens.bogey : AICaddieDesignTokens.par)
             }
             if let fromLast = displayLastShotDistanceM {
@@ -79,17 +79,17 @@ public struct WatchCaddieGlanceView: View {
                             : "距上一杆 \(WatchGeoMath.greenRangeText(fromLastYards)) 码"
                     )
                 }
-                .font(.caption2)
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
             }
             HStack {
                 Image(systemName: "scope")
                 Text(WatchClubDisplay.name(state.suggestedClub ?? state.selectedClub ?? "--"))
-                    .font(.headline)
+                    .font(.system(size: 18, weight: .heavy))
             }
             if let targetNote = state.targetNote {
                 Text(targetNote)
-                    .font(.caption2)
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
             if showsTargetStatus {
@@ -98,7 +98,7 @@ public struct WatchCaddieGlanceView: View {
                     Text(state.targetLatitude == nil || state.targetLongitude == nil ? "待选旗位" : "\(WatchCaddieText.targetNoun(state.targetKind))就绪")
                         .lineLimit(1)
                 }
-                .font(.caption2)
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(state.targetLatitude == nil || state.targetLongitude == nil ? AICaddieDesignTokens.confidenceColor("low") : .secondary)
             }
             if let nextShotPrompt = state.nextShotPrompt {
@@ -107,7 +107,7 @@ public struct WatchCaddieGlanceView: View {
                     Text(nextShotPrompt)
                         .lineLimit(2)
                 }
-                .font(.caption.weight(.semibold))
+                .font(.system(size: 14, weight: .heavy))
                 .foregroundStyle(AICaddieDesignTokens.strategyColor("stock"))
             }
             if let holePlanSummary = state.holePlanSummary {
@@ -116,14 +116,14 @@ public struct WatchCaddieGlanceView: View {
                     Text(holePlanSummary)
                         .lineLimit(2)
                 }
-                .font(.caption2.weight(.semibold))
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(AICaddieDesignTokens.strategyColor(state.strategyMode ?? "stock"))
             }
             // De-engineered: the watch glance shows the caddie call + confidence below, not the raw
             // evidence / missing-data provenance strings. (Those fields are still carried in the
             // model for the phone — just no longer surfaced on the watch.)
             Text(WatchCaddieText.confidence(state.caddieConfidence))
-                .font(.caption)
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(AICaddieDesignTokens.confidenceColor(state.caddieConfidence))
         }
     }
@@ -131,10 +131,10 @@ public struct WatchCaddieGlanceView: View {
     private func greenPip(_ label: String, _ yards: Int) -> some View {
         VStack(spacing: 0) {
             Text(WatchGeoMath.greenRangeText(yards))
-                .font(.headline.weight(.semibold)).monospacedDigit()
+                .font(.system(size: 20, weight: .heavy, design: .rounded)).monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.55)
-            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text(label).font(.system(size: 12, weight: .bold)).foregroundStyle(.secondary)
         }
     }
 }

@@ -498,7 +498,7 @@ public struct RoundHomeView: View {
                         onSync()
                     } label: {
                         Label(
-                            isGarminSyncing ? "正在同步…" : "立即同步 Garmin",
+                            "立即同步 Garmin",
                             systemImage: "arrow.clockwise"
                         )
                     }

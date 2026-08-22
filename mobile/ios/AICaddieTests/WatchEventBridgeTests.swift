@@ -54,6 +54,34 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(received, closure)
     }
 
+    func testWatchRoundStartPublishesBeforeAnyScoreEvent() throws {
+        let bridge = WatchEventBridge()
+        var received: WatchRoundStartPayload?
+        bridge.onRoundStarted = { received = $0 }
+        let start = WatchRoundStartPayload(
+            roundId: "watch-start-round",
+            courseName: "Cold GPS Links",
+            teeBox: "blue",
+            globalId: 31795,
+            activeHole: 1,
+            holes: [
+                WatchRoundSeedHolePayload(
+                    hole: 1,
+                    par: 4,
+                    distanceM: 365,
+                    teeLatitude: 40.0,
+                    teeLongitude: -73.0,
+                    globalId: 31795
+                )
+            ]
+        )
+        let object = try XCTUnwrap(try Self.jsonObject(from: start) as? [String: Any])
+
+        bridge.handleWatchRoundStart(object)
+
+        XCTAssertEqual(received, start)
+    }
+
     func testWatchRoundSeedIncludesTeeCoordinateFromRealMapProjection() throws {
         let bridge = WatchEventBridge()
         let package = try fixturePackageWithTeeProjection()

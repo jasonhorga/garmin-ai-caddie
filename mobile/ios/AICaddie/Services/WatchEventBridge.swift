@@ -270,6 +270,43 @@ public struct WatchRoundSeedPayload: Codable, Equatable {
     }
 }
 
+/// Reverse direction of `WatchRoundSeedPayload`: the Watch can create a round while the iPhone is
+/// asleep, out of range, or still waiting for a cold GPS fix. The iPhone uses this compact identity
+/// payload to activate/fetch its own package; scoring events continue to use the existing event queue.
+public struct WatchRoundStartPayload: Codable, Equatable {
+    public let schema: String
+    public let roundId: String
+    public let courseName: String
+    public let teeBox: String
+    public let nine: String?
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let activeHole: Int
+    public let holes: [WatchRoundSeedHolePayload]
+
+    public init(
+        schema: String = "ai-caddie-watch-round-start-v1",
+        roundId: String,
+        courseName: String,
+        teeBox: String,
+        nine: String? = "all",
+        globalId: Int? = nil,
+        backGlobalId: Int? = nil,
+        activeHole: Int,
+        holes: [WatchRoundSeedHolePayload]
+    ) {
+        self.schema = schema
+        self.roundId = roundId
+        self.courseName = courseName
+        self.teeBox = teeBox
+        self.nine = nine
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.activeHole = activeHole
+        self.holes = holes
+    }
+}
+
 public enum WatchRoundDispositionPayload: String, Codable, Equatable {
     case finished
     case savedLocally
@@ -383,6 +420,9 @@ public enum WatchEventBridgeError: Error {
 public final class WatchEventBridge: NSObject {
     public var onAcceptedLiveEvent: ((LiveRoundEvent) async throws -> Void)?
     public var onRoundClosure: ((WatchRoundClosurePayload) -> Void)?
+    /// Fired when the Watch creates a standalone round. This is deliberately separate from scoring
+    /// events: a round must be visible on the phone before the first score/location fact exists.
+    public var onRoundStarted: ((WatchRoundStartPayload) -> Void)?
 
     private let offlineStore: OfflineStore
     private let encoder = JSONEncoder()
@@ -833,6 +873,17 @@ public final class WatchEventBridge: NSObject {
         }
         clearRoundSeed(roundId: closure.roundId)
         onRoundClosure?(closure)
+    }
+
+    public func handleWatchRoundStart(_ object: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let start = try? decoder.decode(WatchRoundStartPayload.self, from: data),
+              !start.roundId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !start.holes.isEmpty else {
+            return
+        }
+        onRoundStarted?(start)
     }
 
     /// watch P0.4: push a hole's topo image to the watch via a guaranteed-delivery file transfer, keyed
@@ -1449,10 +1500,24 @@ extension WatchEventBridge: WCSessionDelegate {
         didReceiveMessage message: [String: Any],
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
+        if let roundStart = message["roundStart"] as? [String: Any] {
+            handleWatchRoundStart(roundStart)
+            replyHandler(["accepted": true, "roundId": roundStart["roundId"] as? String ?? ""])
+            return
+        }
         handleWatchInputMessage(message, replyHandler: replyHandler)
     }
 
+    public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        if let roundStart = message["roundStart"] as? [String: Any] {
+            handleWatchRoundStart(roundStart)
+        }
+    }
+
     public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        if let roundStart = userInfo["roundStart"] as? [String: Any] {
+            handleWatchRoundStart(roundStart)
+        }
         if let closure = userInfo["roundClosure"] as? [String: Any] {
             handleWatchRoundClosure(closure)
         }

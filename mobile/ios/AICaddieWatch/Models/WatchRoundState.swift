@@ -231,6 +231,44 @@ public struct WatchRoundSeed: Codable, Equatable {
     }
 }
 
+/// Durable reverse relay emitted when the Watch creates a standalone round. A seed sent from the
+/// phone to the Watch is not enough here: the wearer may start a downloaded course with the phone
+/// asleep or out of range. The payload contains only factual course identity and hole facts, so the
+/// iPhone can fetch/activate its richer package independently and safely de-duplicate by roundId.
+public struct WatchRoundStart: Codable, Equatable {
+    public let schema: String
+    public let roundId: String
+    public let courseName: String
+    public let teeBox: String
+    public let nine: String?
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let activeHole: Int
+    public let holes: [WatchRoundSeedHole]
+
+    public init(
+        schema: String = "ai-caddie-watch-round-start-v1",
+        roundId: String,
+        courseName: String,
+        teeBox: String,
+        nine: String? = "all",
+        globalId: Int? = nil,
+        backGlobalId: Int? = nil,
+        activeHole: Int,
+        holes: [WatchRoundSeedHole]
+    ) {
+        self.schema = schema
+        self.roundId = roundId
+        self.courseName = courseName
+        self.teeBox = teeBox
+        self.nine = nine
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.activeHole = activeHole
+        self.holes = holes
+    }
+}
+
 /// The complete, fail-closed contract for showing one current-shot recommendation on Hole Root.
 /// Legacy `suggestedClub` / `caddieOptions` remain useful in Caddie detail, but cannot independently
 /// opt the root into an apparently live recommendation. The range is longitudinal only: p10/p90 are

@@ -153,12 +153,12 @@ public struct WatchCaddieOptionsView: View {
                 Spacer()
                 HStack(spacing: 4) {
                     Text(strategyLabel(option))
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: 12, weight: .heavy))
                         .foregroundStyle(AICaddieDesignTokens.strategyColor(Self.strategyKey(option.optionId)))
                     Spacer()
                     if orderedOptions.count > 1 {
                         Text("\(selectedIndex + 1)/\(orderedOptions.count)")
-                            .font(.system(size: 8.5, weight: .medium, design: .rounded))
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(.white.opacity(0.7))
                     }
@@ -188,7 +188,7 @@ public struct WatchCaddieOptionsView: View {
         HStack(spacing: 5) {
             WatchInstrumentBackButton(accessibilityLabel: "返回球洞") { onBack?() }
             Text(Self.clubChain(option, compact: compact))
-                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .font(.system(size: 16, weight: .heavy, design: .rounded))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
@@ -201,12 +201,12 @@ public struct WatchCaddieOptionsView: View {
         return VStack(spacing: 8) {
             HStack {
                 WatchInstrumentBackButton(accessibilityLabel: "返回球洞") { onBack?() }
-                Text("球童建议").font(.system(size: 14, weight: .bold))
+                Text("球童建议").font(.system(size: 17, weight: .heavy))
                 Spacer(minLength: 48)
             }
             Spacer()
             Text("暂无可用方案")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.secondary)
             Spacer()
         }

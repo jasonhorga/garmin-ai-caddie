@@ -352,7 +352,7 @@ public struct WatchHazardMapView: View {
             context.draw(
                 context.resolve(
                     Text("\(yards)")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .font(.system(size: 14, weight: .heavy, design: .rounded))
                         .foregroundColor(.white)
                 ),
                 at: labelPoint
@@ -372,16 +372,16 @@ public struct WatchHazardMapView: View {
                 HStack(spacing: 4) {
                     WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
                     Text(shortHazardTitle(hazard))
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 15, weight: .heavy))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                     Spacer(minLength: WatchHazardMapLayout.systemTimeTrailingClearance)
                 }
-                .padding(.leading, max(0, safeInset - 6))
+                .padding(.leading, safeInset)
                 Spacer()
                 if upcoming.count > 1 {
                     Text("\(index + 1)/\(upcoming.count)")
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.72))
                 }
             }
@@ -394,10 +394,10 @@ public struct WatchHazardMapView: View {
                     ZStack(alignment: .top) {
                         Capsule()
                             .fill(Color.white.opacity(0.22))
-                            .frame(width: 4, height: trackHeight)
+                            .frame(width: 5, height: trackHeight)
                         Capsule()
-                            .fill(Color(red: 0.30, green: 0.86, blue: 0.46))
-                            .frame(width: 4, height: thumbHeight)
+                            .fill(AICaddieDesignTokens.hudGreen)
+                            .frame(width: 5, height: thumbHeight)
                             .offset(y: thumbOffset)
                     }
                     .padding(.trailing, safeInset)
@@ -415,7 +415,7 @@ public struct WatchHazardMapView: View {
         VStack(spacing: 12) {
             WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
             Text("前方没有可用障碍")
-                .font(.caption)
+                .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -428,9 +428,9 @@ public struct WatchHazardMapView: View {
                 .font(.system(size: 42))
                 .foregroundStyle(.secondary)
             Text("离本洞较远")
-                .font(.headline.weight(.bold))
+                .font(.system(size: 18, weight: .heavy))
             Text("回到本洞后再显示障碍距离")
-                .font(.caption2)
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
