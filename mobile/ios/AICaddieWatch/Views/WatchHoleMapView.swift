@@ -659,10 +659,14 @@ public struct WatchHoleMapView: View {
     }
 
     private var holeIdentity: some View {
-        Text("#\(holeNumber) Par \(par)")
+        // Keep the identity short on 41 mm. The distance column is the visual hero; a long
+        // localized title must not collapse into an ellipsis beside watchOS's clock lane.
+        Text("H\(holeNumber) · P\(par)")
             .font(.system(size: 13, weight: .heavy))
             .foregroundStyle(.white)
             .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .layoutPriority(1)
             .accessibilityLabel("第 \(holeNumber) 洞，标准杆 \(par)")
     }
 

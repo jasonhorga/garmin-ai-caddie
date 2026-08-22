@@ -83,6 +83,8 @@ public struct WatchScoreHoleView: View {
                 Text("H\(hole) · P\(par)")
                     .font(.system(size: 16, weight: .heavy))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.70)
+                    .layoutPriority(1)
                 Spacer(minLength: WatchScoreHoleLayout.systemTimeTrailingClearance)
             }
 
