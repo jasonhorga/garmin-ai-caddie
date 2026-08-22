@@ -10,6 +10,16 @@ enum WatchFinishRoundLayout {
     static let primaryActionHeight: CGFloat = 48
     static let secondaryActionHeight: CGFloat = 44
     static let abandonActionHeight: CGFloat = 38
+
+    /// The 41 mm face has only 215 pt of vertical content. Keep the typography enlarged, but use a
+    /// tighter instrument rhythm so all four lifecycle choices remain visible without scrolling.
+    static let compactPrimaryActionHeight: CGFloat = 46
+    static let compactSecondaryActionHeight: CGFloat = 42
+    static let compactAbandonActionHeight: CGFloat = 34
+
+    static func isCompact(_ size: CGSize) -> Bool {
+        size.height <= 220
+    }
 }
 
 /// The approved compact end-of-round summary. The richer GIR/fairway facts remain in the model for
@@ -63,79 +73,92 @@ public struct WatchFinishRoundView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("结束本场")
-                    .font(.system(size: 20, weight: .black))
-                    .padding(.trailing, WatchFinishRoundLayout.systemTimeTrailingClearance)
-                    .accessibilityLabel("\(courseName)，结束本场")
+        GeometryReader { proxy in
+            let compact = WatchFinishRoundLayout.isCompact(proxy.size)
+            let primaryHeight = compact
+                ? WatchFinishRoundLayout.compactPrimaryActionHeight
+                : WatchFinishRoundLayout.primaryActionHeight
+            let secondaryHeight = compact
+                ? WatchFinishRoundLayout.compactSecondaryActionHeight
+                : WatchFinishRoundLayout.secondaryActionHeight
+            let abandonHeight = compact
+                ? WatchFinishRoundLayout.compactAbandonActionHeight
+                : WatchFinishRoundLayout.abandonActionHeight
 
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(scoreText)
-                        .font(.system(size: 42, weight: .black, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("结束本场")
+                        .font(.system(size: compact ? 19 : 20, weight: .black))
+                        .padding(.trailing, WatchFinishRoundLayout.systemTimeTrailingClearance)
+                        .accessibilityLabel("\(courseName)，结束本场")
 
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(totalStrokesText)
-                            .font(.system(size: 19, weight: .black, design: .rounded))
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(scoreText)
+                            .font(.system(size: compact ? 40 : 42, weight: .black, design: .rounded))
                             .monospacedDigit()
-                        Text(completionText)
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
                             .lineLimit(1)
-                            .minimumScaleFactor(0.78)
+                            .minimumScaleFactor(0.72)
+
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(totalStrokesText)
+                                .font(.system(size: compact ? 18 : 19, weight: .black, design: .rounded))
+                                .monospacedDigit()
+                            Text(completionText)
+                                .font(.system(size: compact ? 11 : 12, weight: .semibold, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.78)
+                        }
                     }
-                }
-                .padding(.top, 7)
+                    .padding(.top, compact ? 2 : 7)
 
-                Button(action: onConfirmFinish) {
-                    Text(primaryActionLabel)
-                        .font(.system(size: 18, weight: .black))
-                        .foregroundStyle(.white)
-                        .frame(
-                            maxWidth: .infinity,
-                            minHeight: WatchFinishRoundLayout.primaryActionHeight,
-                            maxHeight: WatchFinishRoundLayout.primaryActionHeight
-                        )
-                        .background(
-                            AICaddieDesignTokens.par,
-                            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        )
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 9)
+                    Button(action: onConfirmFinish) {
+                        Text(primaryActionLabel)
+                            .font(.system(size: 18, weight: .black))
+                            .foregroundStyle(.white)
+                            .frame(
+                                maxWidth: .infinity,
+                                minHeight: primaryHeight,
+                                maxHeight: primaryHeight
+                            )
+                            .background(
+                                AICaddieDesignTokens.par,
+                                in: RoundedRectangle(cornerRadius: 26, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, compact ? 5 : 9)
 
-                HStack(spacing: 6) {
-                    secondaryButton(editScoreActionLabel, action: onEditScore)
-                    secondaryButton(secondaryActionLabel, action: onKeepPlaying)
-                }
-                .padding(.top, 6)
+                    HStack(spacing: 6) {
+                        secondaryButton(editScoreActionLabel, height: secondaryHeight, action: onEditScore)
+                        secondaryButton(secondaryActionLabel, height: secondaryHeight, action: onKeepPlaying)
+                    }
+                    .padding(.top, compact ? 4 : 6)
 
-                Button(role: .destructive, action: onAbandon) {
-                    Text("放弃本场")
-                        .font(.system(size: 16, weight: .black))
-                        .foregroundStyle(AICaddieDesignTokens.doubleBogey)
-                        .frame(
-                            maxWidth: .infinity,
-                            minHeight: WatchFinishRoundLayout.abandonActionHeight,
-                            maxHeight: WatchFinishRoundLayout.abandonActionHeight
-                        )
-                        .contentShape(Rectangle())
+                    Button(role: .destructive, action: onAbandon) {
+                        Text("放弃本场")
+                            .font(.system(size: 16, weight: .black))
+                            .foregroundStyle(AICaddieDesignTokens.doubleBogey)
+                            .frame(
+                                maxWidth: .infinity,
+                                minHeight: abandonHeight,
+                                maxHeight: abandonHeight
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, compact ? 0 : 2)
+                    .id(Self.secondaryActionAnchor)
                 }
-                .buttonStyle(.plain)
-                .padding(.top, 2)
-                .id(Self.secondaryActionAnchor)
+                .padding(.horizontal, WatchDisplayGeometry.minimumContentInset)
+                .padding(.top, compact ? 2 : 4)
+                .padding(.bottom, 2)
             }
-            .padding(.horizontal, WatchDisplayGeometry.minimumContentInset)
-            .padding(.top, 4)
-            .padding(.bottom, 2)
+            .scrollIndicators(.hidden)
+            .defaultScrollAnchor(.top)
         }
-        .scrollIndicators(.hidden)
-        .defaultScrollAnchor(.top)
         .background(Color.black)
         .ignoresSafeArea(edges: .top)
     }
@@ -161,6 +184,7 @@ public struct WatchFinishRoundView: View {
 
     private func secondaryButton(
         _ label: String,
+        height: CGFloat,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -171,8 +195,8 @@ public struct WatchFinishRoundView: View {
                 .minimumScaleFactor(0.78)
                 .frame(
                     maxWidth: .infinity,
-                    minHeight: WatchFinishRoundLayout.secondaryActionHeight,
-                    maxHeight: WatchFinishRoundLayout.secondaryActionHeight
+                    minHeight: height,
+                    maxHeight: height
                 )
                 .background(Color(red: 70 / 255, green: 70 / 255, blue: 73 / 255), in: Capsule())
         }
