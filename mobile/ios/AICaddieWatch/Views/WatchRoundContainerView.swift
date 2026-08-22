@@ -125,7 +125,8 @@ public struct WatchRoundContainerView: View {
     }
 
     private func frontYd(_ s: WatchRoundState) -> Int? {
-        guard shotLocation != nil else { return 999 }
+        if let live = watchGreenYards?.front { return live }
+        guard hasQualifiedRangeFix else { return 999 }
         return Self.effectiveGreenYards(live: watchGreenYards?.front, fallbackMetres: s.frontGreenM)
     }
 
@@ -155,7 +156,7 @@ public struct WatchRoundContainerView: View {
     /// Hole Root's middle value follows the moved flag. The canonical centre range remains the sole
     /// pixel calibration authority, so repeatedly entering View Green cannot compound rounding error.
     private func centerYd(_ s: WatchRoundState) -> Int? {
-        guard shotLocation != nil else { return 999 }
+        guard hasQualifiedRangeFix else { return 999 }
         guard let canonical = canonicalCenterYd(s),
               let geometry = holeGeometry,
               let selectedPin = selectedGreenPin(for: s, geometry: geometry) else {
@@ -171,7 +172,8 @@ public struct WatchRoundContainerView: View {
     }
 
     private func backYd(_ s: WatchRoundState) -> Int? {
-        guard shotLocation != nil else { return 999 }
+        if let live = watchGreenYards?.back { return live }
+        guard hasQualifiedRangeFix else { return 999 }
         return Self.effectiveGreenYards(live: watchGreenYards?.back, fallbackMetres: s.backGreenM)
     }
 
@@ -434,10 +436,18 @@ public struct WatchRoundContainerView: View {
     }
 
     var distanceText: String? {
-        guard shotLocation != nil else { return "999 码 · 等待定位" }
-        guard let center = watchGreenYards?.center else { return nil }
+        guard let center = watchGreenYards?.center else {
+            return shotLocation == nil ? "999 码 · 等待定位" : nil
+        }
         if WatchGeoMath.isBeyondUsefulGreenRange(center) { return "离本洞较远" }
         return "\(WatchGeoMath.greenRangeText(center)) 码"
+    }
+
+    /// A delivered Watch green range is itself proof that a qualified wrist fix was available for
+    /// that calculation. Keep it visible if the independently published location object arrives a
+    /// frame later; only the complete absence of both facts should fall back to Garmin-style 999.
+    private var hasQualifiedRangeFix: Bool {
+        shotLocation != nil || watchGreenYards?.center != nil
     }
 
     private var activeFlagCoordinate: (latitude: Double, longitude: Double)? {
@@ -698,7 +708,7 @@ public struct WatchRoundContainerView: View {
             backYd: backYd(s),
             caddieLine: showCaddie ? caddieLine(s) : nil,
             bigText: big,
-            gpsUnavailable: shotLocation == nil
+            gpsUnavailable: !hasQualifiedRangeFix
         )
     }
 

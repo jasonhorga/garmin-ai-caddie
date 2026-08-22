@@ -837,6 +837,25 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(view.distanceText, "211 码")
     }
 
+    func testRoundHomeDistanceUses999OnlyWithoutLocationOrLiveRange() {
+        let state = WatchRoundState(
+            roundId: "r1",
+            hole: 1,
+            par: 4,
+            distanceM: 365,
+            selectedClub: nil,
+            centerGreenM: 240,
+            score: 0,
+            putts: 0,
+            penaltyCount: 0,
+            caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [state])
+        let view = WatchRoundContainerView(model: model)
+
+        XCTAssertEqual(view.distanceText, "999 码 · 等待定位")
+    }
+
     func testAutoShotIsOptInAndRejectedCandidateWritesNoShotEvent() {
         var savedPreferences: [Bool] = []
         let model = seededModel(
