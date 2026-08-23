@@ -1423,7 +1423,7 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.activePlaysLikeDeltaYards, 8)
     }
 
-    func testPlaysLikeDistanceKeepsStateInMetresBeforeDisplayConversion() {
+    func testPlaysLikeDistanceKeepsStateInMetresBeforeDisplayConversion() throws {
         let playsLikeMetres = try XCTUnwrap(
             WatchUnits.playsLikeMetres(distanceMetres: 369.4176, elevationDeltaMetres: 5)
         )
