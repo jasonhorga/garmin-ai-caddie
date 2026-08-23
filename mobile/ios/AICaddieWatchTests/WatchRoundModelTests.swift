@@ -1424,8 +1424,11 @@ final class WatchRoundModelTests: XCTestCase {
     }
 
     func testPlaysLikeDistanceKeepsStateInMetresBeforeDisplayConversion() {
+        let playsLikeMetres = try XCTUnwrap(
+            WatchUnits.playsLikeMetres(distanceMetres: 369.4176, elevationDeltaMetres: 5)
+        )
         XCTAssertEqual(
-            WatchUnits.playsLikeMetres(distanceMetres: 369.4176, elevationDeltaMetres: 5),
+            playsLikeMetres,
             374.4176,
             accuracy: 0.0001
         )
