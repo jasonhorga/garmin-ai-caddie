@@ -47,7 +47,7 @@ AI_CADDIE_SECURITY_PROFILE=private \
 AI_CADDIE_ADMIN_TOKEN=replace-with-random-admin-token \
 AI_CADDIE_DATA_MODE=local_or_fixture \
 AI_CADDIE_PRIVATE_ROOT=/var/lib/ai-caddie \
-uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000
+PORT=9000 sh ops/start_api.sh
 ```
 
 In another shell, run the protected-route smoke:
