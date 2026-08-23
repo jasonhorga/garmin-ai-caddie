@@ -450,7 +450,7 @@ class TopoEndpointTests(unittest.TestCase):
         self.assertIn(topo_render.STYLE_VERSION, resp.headers.get("etag", ""))
         self.assertEqual(resp.content, canned)
 
-    def test_green_detail_endpoint_uses_v2_style_and_1024_default(self) -> None:
+    def test_green_detail_endpoint_uses_v3_style_and_1280_default(self) -> None:
         canned = _PNG_MAGIC + b"green-detail"
         with (
             patch.object(

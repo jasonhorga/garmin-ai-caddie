@@ -798,7 +798,7 @@ def course_hole_green_detail_png(
     y: float = Query(..., ge=-1000, le=10000),
     width: float = Query(..., ge=20, le=1000),
     height: float = Query(..., ge=20, le=1000),
-    size: int = Query(1024, ge=320, le=1280),
+    size: int = Query(1280, ge=320, le=1280),
     v: str | None = Query(default=None, max_length=32),
     g: str | None = Query(default=None, max_length=32),
     r: str | None = Query(default=None, max_length=128),
