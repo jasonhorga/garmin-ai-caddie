@@ -3062,12 +3062,20 @@ public final class LiveRoundAppModel: ObservableObject {
                 resumable.phase = .queued
                 resumable.errorText = nil
             } else if record.isActive {
-                resumable.phase = .queued
-                resumable.errorText = nil
+                promotePrepCourseDownloadForResume(&resumable)
             }
             return resumable
         }
         persistPrepCourseDownloads()
+    }
+
+    /// Resume rows should keep their durable progress but re-enter the queue as the newest
+    /// in-flight intent. That keeps relaunch truthfully attached to the same course/revision and
+    /// leaves future OS scheduling free to swap the implementation behind this one seam.
+    private func promotePrepCourseDownloadForResume(_ record: inout PrepCourseDownloadRecord) {
+        record.phase = .queued
+        record.errorText = nil
+        record.updatedAt = Date()
     }
 
     private func persistPrepCourseDownloads() {
@@ -3307,8 +3315,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 || phase == .preparing
                 || phase == .downloading
                 || (retryFailed && phase == .failed && !prepCourseDownloads[index].isTerminalFailure) {
-                prepCourseDownloads[index].phase = .queued
-                prepCourseDownloads[index].errorText = nil
+                promotePrepCourseDownloadForResume(&prepCourseDownloads[index])
                 changed = true
             }
         }

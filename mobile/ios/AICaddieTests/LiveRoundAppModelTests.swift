@@ -379,6 +379,100 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(try model.offlineStore.loadPrepCourseDownloads().first?.course.globalId, 31_793)
     }
 
+    func testRelaunchPromotesActivePrepRowAndKeepsPartialProgress() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let activeCourse = MobileCourseOption(
+            globalId: source.course.globalId,
+            name: source.course.name,
+            holes: source.holes.count,
+            teeBox: "blue"
+        )
+        let queuedCourse = MobileCourseOption(
+            globalId: source.course.globalId + 1,
+            name: "\(source.course.name) B",
+            holes: source.holes.count,
+            teeBox: "blue"
+        )
+        let active = PrepCourseDownloadRecord(
+            course: activeCourse,
+            phase: .downloading,
+            preparedHoles: 4,
+            downloadedHoles: 2,
+            totalHoles: source.holes.count,
+            updatedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let queued = PrepCourseDownloadRecord(
+            course: queuedCourse,
+            phase: .queued,
+            preparedHoles: 0,
+            downloadedHoles: 0,
+            totalHoles: source.holes.count,
+            updatedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        try store.savePrepCourseDownloads([active, queued])
+
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil
+        )
+
+        XCTAssertEqual(model.prepCourseDownloads.map(\.id), [active.id, queued.id])
+        let resumed = try XCTUnwrap(model.prepCourseDownloads.first)
+        XCTAssertEqual(resumed.id, active.id)
+        XCTAssertEqual(resumed.phase, .queued)
+        XCTAssertEqual(resumed.preparedHoles, 4)
+        XCTAssertEqual(resumed.downloadedHoles, 2)
+        XCTAssertEqual(try store.loadPrepCourseDownloads().first?.id, active.id)
+    }
+
+    func testFailedPrepRowRetriesInPlaceWithoutDuplicatingTheQueue() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let course = MobileCourseOption(
+            globalId: source.course.globalId,
+            name: source.course.name,
+            holes: source.holes.count,
+            teeBox: "blue"
+        )
+        let failed = PrepCourseDownloadRecord(
+            course: course,
+            phase: .failed,
+            preparedHoles: 3,
+            downloadedHoles: 1,
+            totalHoles: source.holes.count,
+            updatedAt: Date(timeIntervalSince1970: 1_000),
+            errorText: "下载中断，点下载继续"
+        )
+        try store.savePrepCourseDownloads([failed])
+
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil
+        )
+
+        XCTAssertEqual(model.prepCourseDownloads.count, 1)
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .failed)
+        model.retryPrepCourseDownload(id: failed.id)
+        XCTAssertEqual(model.prepCourseDownloads.count, 1)
+        XCTAssertEqual(model.prepCourseDownloads.first?.id, failed.id)
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .queued)
+        XCTAssertEqual(model.prepCourseDownloads.first?.preparedHoles, 3)
+        XCTAssertEqual(model.prepCourseDownloads.first?.downloadedHoles, 1)
+        XCTAssertNil(model.prepCourseDownloads.first?.errorText)
+        XCTAssertEqual(try store.loadPrepCourseDownloads().count, 1)
+    }
+
     func testPersistedPrepDownloadContinuesAcrossFailedRoundStartAndReattachesWithoutRestarting() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
