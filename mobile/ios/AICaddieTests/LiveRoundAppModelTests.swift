@@ -379,40 +379,54 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(try model.offlineStore.loadPrepCourseDownloads().first?.course.globalId, 31_793)
     }
 
-    func testRelaunchPromotesActivePrepRowAndKeepsPartialProgress() throws {
+    func testQueuedPrepRowsKeepOrderWhileInterruptedRowsResumeWithProgress() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
         let source = try localFixturePackage()
-        let activeCourse = MobileCourseOption(
+        let queuedOlderCourse = MobileCourseOption(
             globalId: source.course.globalId,
             name: source.course.name,
             holes: source.holes.count,
             teeBox: "blue"
         )
-        let queuedCourse = MobileCourseOption(
+        let interruptedCourse = MobileCourseOption(
             globalId: source.course.globalId + 1,
             name: "\(source.course.name) B",
             holes: source.holes.count,
             teeBox: "blue"
         )
-        let active = PrepCourseDownloadRecord(
-            course: activeCourse,
-            phase: .downloading,
-            preparedHoles: 4,
-            downloadedHoles: 2,
+        let queuedNewerCourse = MobileCourseOption(
+            globalId: source.course.globalId + 2,
+            name: "\(source.course.name) C",
+            holes: source.holes.count,
+            teeBox: "blue"
+        )
+        let queuedOlder = PrepCourseDownloadRecord(
+            course: queuedOlderCourse,
+            phase: .queued,
+            preparedHoles: 0,
+            downloadedHoles: 0,
             totalHoles: source.holes.count,
             updatedAt: Date(timeIntervalSince1970: 1_000)
         )
-        let queued = PrepCourseDownloadRecord(
-            course: queuedCourse,
+        let interrupted = PrepCourseDownloadRecord(
+            course: interruptedCourse,
+            phase: .preparing,
+            preparedHoles: 4,
+            downloadedHoles: 2,
+            totalHoles: source.holes.count,
+            updatedAt: Date(timeIntervalSince1970: 1_500)
+        )
+        let queuedNewer = PrepCourseDownloadRecord(
+            course: queuedNewerCourse,
             phase: .queued,
             preparedHoles: 0,
             downloadedHoles: 0,
             totalHoles: source.holes.count,
             updatedAt: Date(timeIntervalSince1970: 2_000)
         )
-        try store.savePrepCourseDownloads([active, queued])
+        try store.savePrepCourseDownloads([queuedOlder, interrupted, queuedNewer])
 
         let model = LiveRoundAppModel(
             offlineStore: store,
@@ -422,16 +436,16 @@ final class LiveRoundAppModelTests: XCTestCase {
             syncClient: nil
         )
 
-        XCTAssertEqual(model.prepCourseDownloads.map(\.id), [active.id, queued.id])
+        XCTAssertEqual(model.prepCourseDownloads.map(\.id), [interrupted.id, queuedNewer.id, queuedOlder.id])
         let resumed = try XCTUnwrap(model.prepCourseDownloads.first)
-        XCTAssertEqual(resumed.id, active.id)
+        XCTAssertEqual(resumed.id, interrupted.id)
         XCTAssertEqual(resumed.phase, .queued)
         XCTAssertEqual(resumed.preparedHoles, 4)
         XCTAssertEqual(resumed.downloadedHoles, 2)
-        XCTAssertEqual(try store.loadPrepCourseDownloads().first?.id, active.id)
+        XCTAssertEqual(try store.loadPrepCourseDownloads().map(\.id), [interrupted.id, queuedNewer.id, queuedOlder.id])
     }
 
-    func testFailedPrepRowRetriesInPlaceWithoutDuplicatingTheQueue() throws {
+    func testDownloadingPrepRowRetainsProgressAcrossRelaunch() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -444,12 +458,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
         let failed = PrepCourseDownloadRecord(
             course: course,
-            phase: .failed,
-            preparedHoles: 3,
-            downloadedHoles: 1,
+            phase: .downloading,
+            preparedHoles: 5,
+            downloadedHoles: 3,
             totalHoles: source.holes.count,
-            updatedAt: Date(timeIntervalSince1970: 1_000),
-            errorText: "下载中断，点下载继续"
+            updatedAt: Date(timeIntervalSince1970: 1_000)
         )
         try store.savePrepCourseDownloads([failed])
 
@@ -462,15 +475,67 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
 
         XCTAssertEqual(model.prepCourseDownloads.count, 1)
-        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .failed)
-        model.retryPrepCourseDownload(id: failed.id)
-        XCTAssertEqual(model.prepCourseDownloads.count, 1)
-        XCTAssertEqual(model.prepCourseDownloads.first?.id, failed.id)
         XCTAssertEqual(model.prepCourseDownloads.first?.phase, .queued)
-        XCTAssertEqual(model.prepCourseDownloads.first?.preparedHoles, 3)
-        XCTAssertEqual(model.prepCourseDownloads.first?.downloadedHoles, 1)
-        XCTAssertNil(model.prepCourseDownloads.first?.errorText)
-        XCTAssertEqual(try store.loadPrepCourseDownloads().count, 1)
+        XCTAssertEqual(model.prepCourseDownloads.first?.preparedHoles, 5)
+        XCTAssertEqual(model.prepCourseDownloads.first?.downloadedHoles, 3)
+        XCTAssertEqual(try store.loadPrepCourseDownloads().first?.phase, .queued)
+    }
+
+    func testFailedPrepRowsKeepOrderAndTerminalFailureStaysTerminal() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let retryableCourse = MobileCourseOption(
+            globalId: source.course.globalId,
+            name: source.course.name,
+            holes: source.holes.count,
+            teeBox: "blue"
+        )
+        let terminalCourse = MobileCourseOption(
+            globalId: source.course.globalId + 1,
+            name: "\(source.course.name) terminal",
+            holes: source.holes.count,
+            teeBox: "blue"
+        )
+        let retryable = PrepCourseDownloadRecord(
+            course: retryableCourse,
+            phase: .failed,
+            preparedHoles: 3,
+            downloadedHoles: 1,
+            totalHoles: source.holes.count,
+            updatedAt: Date(timeIntervalSince1970: 1_000),
+            errorText: "下载中断，点下载继续"
+        )
+        let terminal = PrepCourseDownloadRecord(
+            course: terminalCourse,
+            phase: .failed,
+            preparedHoles: 0,
+            downloadedHoles: 0,
+            totalHoles: source.holes.count,
+            updatedAt: Date(timeIntervalSince1970: 2_000),
+            errorText: "两段 9 洞组合暂不支持备战下载，请在开始一场中使用"
+        )
+        try store.savePrepCourseDownloads([terminal, retryable])
+
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil
+        )
+
+        XCTAssertEqual(model.prepCourseDownloads.map(\.id), [terminal.id, retryable.id])
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .failed)
+        XCTAssertTrue(model.prepCourseDownloads.first?.isTerminalFailure == true)
+        model.retryPrepCourseDownload(id: retryable.id)
+        XCTAssertEqual(model.prepCourseDownloads.count, 2)
+        XCTAssertEqual(model.prepCourseDownloads.first?.id, retryable.id)
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .queued)
+        XCTAssertEqual(model.prepCourseDownloads.last?.id, terminal.id)
+        XCTAssertTrue(model.prepCourseDownloads.last?.isTerminalFailure == true)
+        XCTAssertEqual(try store.loadPrepCourseDownloads().count, 2)
     }
 
     func testPersistedPrepDownloadContinuesAcrossFailedRoundStartAndReattachesWithoutRestarting() async throws {

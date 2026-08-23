@@ -3061,18 +3061,18 @@ public final class LiveRoundAppModel: ObservableObject {
             if record.phase == .ready, readyPrepTemplate(for: record) == nil {
                 resumable.phase = .queued
                 resumable.errorText = nil
-            } else if record.isActive {
-                promotePrepCourseDownloadForResume(&resumable)
+            } else if record.phase == .preparing || record.phase == .downloading {
+                promoteInterruptedPrepCourseDownloadForResume(&resumable)
             }
             return resumable
         }
         persistPrepCourseDownloads()
     }
 
-    /// Resume rows should keep their durable progress but re-enter the queue as the newest
-    /// in-flight intent. That keeps relaunch truthfully attached to the same course/revision and
-    /// leaves future OS scheduling free to swap the implementation behind this one seam.
-    private func promotePrepCourseDownloadForResume(_ record: inout PrepCourseDownloadRecord) {
+    /// Interrupted rows should keep their durable progress but re-enter the queue as the newest
+    /// in-flight intent. Queued rows retain their existing order so a relaunch does not invent a
+    /// fresh priority over jobs that were already waiting.
+    private func promoteInterruptedPrepCourseDownloadForResume(_ record: inout PrepCourseDownloadRecord) {
         record.phase = .queued
         record.errorText = nil
         record.updatedAt = Date()
@@ -3311,11 +3311,16 @@ public final class LiveRoundAppModel: ObservableObject {
             let phase = prepCourseDownloads[index].phase
             let staleReady = phase == .ready
                 && readyPrepTemplate(for: prepCourseDownloads[index]) == nil
-            if staleReady
-                || phase == .preparing
-                || phase == .downloading
-                || (retryFailed && phase == .failed && !prepCourseDownloads[index].isTerminalFailure) {
-                promotePrepCourseDownloadForResume(&prepCourseDownloads[index])
+            if staleReady {
+                prepCourseDownloads[index].phase = .queued
+                prepCourseDownloads[index].errorText = nil
+                changed = true
+            } else if phase == .preparing || phase == .downloading {
+                promoteInterruptedPrepCourseDownloadForResume(&prepCourseDownloads[index])
+                changed = true
+            } else if retryFailed && phase == .failed && !prepCourseDownloads[index].isTerminalFailure {
+                prepCourseDownloads[index].phase = .queued
+                prepCourseDownloads[index].errorText = nil
                 changed = true
             }
         }
