@@ -1742,7 +1742,10 @@ public struct CurrentHoleView: View {
             holeImageProjection: watchProj,
             globalId: mapGlobalId,
             holeMap: holeMap,
-            playsLikeDistanceM: slopeM.flatMap { delta in effectiveDistanceToPinMetres.map { $0 + delta } },
+            playsLikeDistanceM: playsLikeMetres(
+                distanceMetres: effectiveDistanceToPinMetres,
+                elevationDeltaMetres: slopeM
+            ),
             elevationDeltaM: slopeM,
             geometryCoverage: holePrep?.geometryCoverage ?? hole.geometryCoverage.rawValue,
             geometryRevision: holePrep?.geometryRevision ?? hole.geometryRevision,
@@ -1751,6 +1754,12 @@ public struct CurrentHoleView: View {
         if let state {
             try? watchBridge?.sendStateToWatch(state)
         }
+    }
+
+    private func playsLikeMetres(distanceMetres: Double?, elevationDeltaMetres: Double?) -> Double? {
+        guard let distanceMetres, distanceMetres.isFinite,
+              let elevationDeltaMetres, elevationDeltaMetres.isFinite else { return nil }
+        return distanceMetres + elevationDeltaMetres
     }
 
     private func applyRestoredStateIfNeeded(_ snapshot: LiveRoundStateSnapshot?) {

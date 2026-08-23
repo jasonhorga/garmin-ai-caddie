@@ -128,6 +128,17 @@ function holeTotals(data: CoursePrepResponse | null): { par: number; yards: numb
   return { par, yards }
 }
 
+// Full prep is a geometry-backed workbench. CourseView-only/partial holes remain in
+// the durable download-progress state until every selected hole is precise.
+export function courseReadyForWorkbench(data: CoursePrepResponse | null): boolean {
+  return Boolean(
+    data &&
+      Array.isArray(data.holes) &&
+      data.holes.length > 0 &&
+      data.holes.every((hole) => hole.geometryCoverage === 'ready'),
+  )
+}
+
 // stats.holes rows that belong to this course (joined via courseOptions courseKey).
 function courseHoleRows(allStats: HistoryStatsResponse | null, courseKey: string | null): StatRow[] {
   if (!allStats || !courseKey) return []
@@ -261,11 +272,7 @@ export function PrepPage({
   }, [globalId, adminToken, prepAttempt])
 
   const installCurrent = prepKey !== null && installDone?.key === prepKey ? installDone.data : null
-  const prepComplete = Boolean(
-    prepData &&
-      prepData.holes.length > 0 &&
-      prepData.holes.every((hole) => hole.geometryCoverage === 'ready'),
-  )
+  const prepComplete = courseReadyForWorkbench(prepData)
 
   // Partial CourseView data is a download state, never a full Web workbench. Poll the durable
   // install journal and refresh factual prep until every selected hole is precise.

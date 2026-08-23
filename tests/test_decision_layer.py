@@ -167,6 +167,18 @@ def long_hole_fixture():
 
 
 class DecisionLayerTests(unittest.TestCase):
+    def test_continuation_never_recommends_driver_after_tee(self) -> None:
+        from ai_caddie.caddie.decision import _sequence_tail
+
+        rows = [
+            {"clubName": "1W", "median_m": 220.0, "sampleSize": 80},
+            {"clubName": "3W", "median_m": 195.0, "sampleSize": 60},
+            {"clubName": "7I", "median_m": 150.0, "sampleSize": 40},
+        ]
+        tail = _sequence_tail(rows, 300.0)
+        self.assertTrue(tail)
+        self.assertTrue(all(str(row["clubName"]).casefold() not in {"1w", "driver"} for row in tail))
+
     def test_decision_payload_uses_v2_contract(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
 

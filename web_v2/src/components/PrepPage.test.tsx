@@ -11,7 +11,7 @@ import type {
   PrepTipsResponse,
 } from '../types'
 import { fetchCoursePrep, fetchMobileCoursePackage, fetchPrepTips } from '../api'
-import { PrepPage } from './PrepPage'
+import { PrepPage, courseReadyForWorkbench } from './PrepPage'
 
 vi.mock('../api', () => ({
   fetchCoursePrep: vi.fn(),
@@ -25,6 +25,15 @@ vi.mock('../api', () => ({
 const fetchCoursePrepMock = vi.mocked(fetchCoursePrep)
 const fetchMobileCoursePackageMock = vi.mocked(fetchMobileCoursePackage)
 const fetchPrepTipsMock = vi.mocked(fetchPrepTips)
+
+describe('courseReadyForWorkbench', () => {
+  it('blocks partial or empty courses and admits only all-ready geometry', () => {
+    expect(courseReadyForWorkbench(null)).toBe(false)
+    expect(courseReadyForWorkbench({ ...prepResponse(1), holes: [] })).toBe(false)
+    expect(courseReadyForWorkbench({ ...prepResponse(1), holes: [prepHole(1, 4, 380, { geometryCoverage: 'partial' })] })).toBe(false)
+    expect(courseReadyForWorkbench(prepResponse(1))).toBe(true)
+  })
+})
 
 function prepHole(hole: number, par: number, blueYards: number, extra: Partial<CoursePrepHole> = {}): CoursePrepHole {
   return {

@@ -149,7 +149,10 @@ public enum WatchCourseTemplateBuilder {
                 holeImageProjection: projection,
                 globalId: globalId,
                 holeMap: holeMap,
-                playsLikeDistanceM: deltaM.flatMap { delta in distanceM.map { $0 + delta } },
+                playsLikeDistanceM: WatchUnits.playsLikeMetres(
+                    distanceMetres: distanceM,
+                    elevationDeltaMetres: deltaM
+                ),
                 elevationDeltaM: deltaM,
                 geometryCoverage: effectiveCoverage,
                 geometryRevision: effectiveCoverage?.caseInsensitiveCompare("ready") == .orderedSame

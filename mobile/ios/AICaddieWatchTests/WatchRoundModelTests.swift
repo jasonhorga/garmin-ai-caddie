@@ -1423,6 +1423,15 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.activePlaysLikeDeltaYards, 8)
     }
 
+    func testPlaysLikeDistanceKeepsStateInMetresBeforeDisplayConversion() {
+        XCTAssertEqual(
+            WatchUnits.playsLikeMetres(distanceMetres: 369.4176, elevationDeltaMetres: 5),
+            374.4176,
+            accuracy: 0.0001
+        )
+        XCTAssertNil(WatchUnits.playsLikeMetres(distanceMetres: nil, elevationDeltaMetres: 5))
+    }
+
     func testNavigationClampsAtBothEnds() {
         let model = seededModel(holes: [
             hole(1, score: 4, putts: 2),
