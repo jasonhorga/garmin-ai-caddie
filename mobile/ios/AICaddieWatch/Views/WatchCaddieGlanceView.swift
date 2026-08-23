@@ -199,7 +199,8 @@ public struct WatchCaddieGlanceView: View {
         let height = max(0, compactHeight ?? Self.compactInstrumentPreferredHeight)
         let density = Self.compactDensity(for: height)
         return compactRows(density: density)
-            .frame(maxWidth: .infinity, height: height, alignment: .topLeading)
+            .frame(maxWidth: .infinity)
+            .frame(height: height, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -327,8 +328,8 @@ public struct WatchCaddieGlanceView: View {
     }
 
     private var compactCue: String? {
-        let values = [state.nextShotPrompt, state.holePlanSummary, state.targetNote]
-            .compactMap { value in
+        let values: [String] = [state.nextShotPrompt, state.holePlanSummary, state.targetNote]
+            .compactMap { value -> String? in
                 guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
                 return value
             }
@@ -344,7 +345,7 @@ public struct WatchCaddieGlanceView: View {
     ) -> some View {
         let centerSize: CGFloat = density == .regular ? 32 : density == .tight ? 28 : 24
         let sideSize: CGFloat = density == .regular ? 18 : density == .tight ? 16 : 15
-        VStack(spacing: 0) {
+        return VStack(spacing: 0) {
             Text(WatchGeoMath.greenRangeText(yards))
                 .font(.system(size: emphasis ? centerSize : sideSize, weight: .black, design: .rounded))
                 .monospacedDigit()
