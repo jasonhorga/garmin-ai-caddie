@@ -1,6 +1,37 @@
 import type { RoundHoleShot } from '../types'
+import { CLUB_CATALOG } from '../clubCatalog'
 
 const M_TO_YD = 1.09361
+const CLUB_ZH_BY_TOKEN = new Map(CLUB_CATALOG.map((club) => [club.token, club.zhName]))
+const GARMIN_CLUB_ZH: Record<string, string> = {
+  '1d': '一号木',
+  '1w': '一号木',
+  d: '一号木',
+  '3w': '三号木',
+  '5w': '五号木',
+  '7w': '七号木',
+  '1h': '一号小鸡腿',
+  '2h': '二号小鸡腿',
+  '3h': '三号小鸡腿',
+  '4h': '四号小鸡腿',
+  '5h': '五号小鸡腿',
+  '6h': '六号小鸡腿',
+  '1i': '一号铁',
+  '2i': '二号铁',
+  '3i': '三号铁',
+  '4i': '四号铁',
+  '5i': '五号铁',
+  '6i': '六号铁',
+  '7i': '七号铁',
+  '8i': '八号铁',
+  '9i': '九号铁',
+  pw: 'P杆',
+  gw: 'A杆',
+  aw: 'A杆',
+  sw: 'S杆',
+  lw: 'L杆',
+  pt: '推杆',
+}
 
 // Shape-coded score chip vocabulary (design system §一): under-par is a circle
 // (birdie ○, eagle ◎ double ring), over-par is a square (bogey □, double ⊡ double
@@ -83,7 +114,9 @@ export function seqLabel(seq: number): string {
 export function clubDisplay(shot: RoundHoleShot): string {
   if (isPuttShot(shot)) return '推杆'
   const club = shot.club?.trim()
-  return club && club.length > 0 ? club : '未知球杆'
+  if (!club) return '未知球杆'
+  const token = club.toLowerCase()
+  return CLUB_ZH_BY_TOKEN.get(token) ?? GARMIN_CLUB_ZH[token] ?? club
 }
 
 // A shot the player edited in the 复盘 correction layer: the backend tags a manually
@@ -122,6 +155,10 @@ export function buildTimeline(shots: RoundHoleShot[], ppm: number | null | undef
       putts += 1
       continue
     }
+    // The backend may add a zero-length synthetic opening anchor only to join the
+    // route geometry. It is not a player-recorded stroke, so exposing it as
+    // “未知球杆” in the timeline creates a fake extra shot.
+    if (shot.synthetic && !shot.club?.trim()) continue
     seq += 1
     const endLie = lieZh(shot.endLie)
     const resultZh = shot.synthetic ? '未记录 · 推算开球' : endLie ? `→ ${endLie}` : ''
@@ -129,7 +166,7 @@ export function buildTimeline(shots: RoundHoleShot[], ppm: number | null | undef
       kind: 'shot',
       seq,
       club: clubDisplay(shot),
-      distanceYd: shotDistanceYd(shot.start, shot.end, ppm),
+      distanceYd: shot.synthetic ? null : shotDistanceYd(shot.start, shot.end, ppm),
       resultZh,
       synthetic: shot.synthetic,
       corrected: isManuallyCorrected(shot),
@@ -145,18 +182,33 @@ export interface ShotLandingLabel {
   text: string
 }
 
-// On-map labels at each full-shot landing: the CLUB ONLY (Garmin's review style —
-// "用什么杆打的", no distance/lie text; that detail lives in the right-column 杆序
-// timeline). Putts, shots missing an endpoint, and the synthetic (推算) drive whose
-// club we don't actually know are skipped so the map stays sparse and every label is
-// a real, known club.
-export function shotLandingLabels(shots: RoundHoleShot[]): ShotLandingLabel[] {
+export function shotLandingOverlayText(
+  shot: RoundHoleShot,
+  ppm: number | null | undefined,
+): string | null {
+  if (isPuttShot(shot) || shot.synthetic || !shot.end) return null
+  const club = shot.club?.trim()
+  if (!club) return null
+  const parts = [clubDisplay(shot)]
+  const distance = shotDistanceYd(shot.start, shot.end, ppm)
+  if (distance !== null) parts.push(`${distance}码`)
+  const lie = lieZh(shot.endLie)
+  if (lie) parts.push(`→${lie}`)
+  if (isManuallyCorrected(shot)) parts.push('已修正')
+  return parts.join(' · ')
+}
+
+// On-map labels at each full-shot landing follow Garmin Golf's shot-map hierarchy: the
+// club and measured distance sit beside the landing. We also retain the factual result
+// lie/correction because this product no longer duplicates a passive 杆序 rail.
+export function shotLandingLabels(shots: RoundHoleShot[], ppm?: number | null): ShotLandingLabel[] {
   const labels: ShotLandingLabel[] = []
   for (const shot of shots) {
     if (isPuttShot(shot) || shot.synthetic || !shot.end) continue
     const club = shot.club?.trim()
     if (!club) continue
-    labels.push({ x: shot.end[0], y: shot.end[1], text: clubDisplay(shot) })
+    const text = shotLandingOverlayText(shot, ppm)
+    if (text) labels.push({ x: shot.end[0], y: shot.end[1], text })
   }
   return labels
 }

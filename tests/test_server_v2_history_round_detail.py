@@ -26,10 +26,10 @@ def round_detail_data() -> HistoryData:
         "par": 16,
         "holePars": "4444",
         "holes": [
-            {"number": 1, "strokes": 4, "par": 4, "putts": 2, "gir": True, "fairway": "hit"},
-            {"number": 2, "strokes": 5, "par": 4, "putts": 2, "gir": False, "fairway": "right"},
-            {"number": 3, "strokes": 3, "par": 4, "putts": 1, "gir": True, "fairway": "hit"},
-            {"number": 4, "strokes": 5, "par": 4, "putts": 3, "gir": False, "fairway": "left"},
+            {"number": 1, "strokes": 4, "par": 4, "putts": 2, "penalties": 1, "gir": True, "fairway": "hit"},
+            {"number": 2, "strokes": 5, "par": 4, "putts": 2, "penalties": 0, "gir": False, "fairway": "right"},
+            {"number": 3, "strokes": 3, "par": 4, "putts": 1, "penalties": 0, "gir": True, "fairway": "hit"},
+            {"number": 4, "strokes": 5, "par": 4, "putts": 3, "penalties": 0, "gir": False, "fairway": "left"},
         ],
         "hasShots": True,
         "shotStatus": "ready",
@@ -68,12 +68,14 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual(payload["scorecard"][1]["className"], "bogey")
         self.assertEqual(payload["scorecard"][2]["className"], "birdie")
         self.assertEqual(payload["scorecard"][3]["putts"], 3)
+        self.assertEqual(payload["scorecard"][0].get("penalties"), 1)
         self.assertEqual(payload["scorecard"][0]["globalId"], 31795)
         self.assertEqual(payload["scorecard"][0]["localHole"], 1)
         self.assertEqual(payload["scorecard"][1]["holeRef"], "700001:2")
         self.assertEqual(payload["scorecard"][1]["shotRefs"], ["700001:2:2", "700001:2:3"])
         self.assertEqual(payload["holeDetails"][1]["globalId"], 31795)
         self.assertEqual(payload["holeDetails"][1]["localHole"], 2)
+        self.assertEqual(payload["holeDetails"][0].get("penalties"), 1)
         self.assertIn("700001:2", payload["relatedRefs"]["holeRefs"])
         self.assertIn("700001:4:4", payload["relatedRefs"]["shotRefs"])
         self.assertIn("garmin:scorecard:700001", payload["relatedRefs"]["sourceRefs"])
@@ -113,6 +115,64 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual(payload["scorecard"][9]["localHole"], 1)
         self.assertEqual(payload["holeDetails"][1]["globalId"], 222222)
         self.assertEqual(payload["holeDetails"][1]["localHole"], 1)
+
+    def test_merged_local_scorecards_remap_member_shots_to_display_holes(self) -> None:
+        merged_id = "merged_710001_710002"
+        row = {
+            "id": merged_id,
+            "ids": [710001, 710002],
+            "merged": True,
+            "date": "2026-05-26",
+            "course": "Two Loop Course",
+            "courseKey": "two_loop",
+            "courseId": 111111,
+            "frontNineGlobalCourseId": 111111,
+            "backNineGlobalCourseId": 222222,
+            "holesCompleted": 18,
+            "strokes": 80,
+            "par": 72,
+            "holePars": "4" * 18,
+            "holes": [
+                {"number": number, "strokes": 4, "par": 4, "putts": 2}
+                for number in range(1, 19)
+            ],
+            "hasShots": True,
+        }
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[row],
+            shots=[
+                {"scorecardId": 710001, "hole": 1, "order": 1, "clubName": "1W"},
+                {"scorecardId": 710002, "hole": 1, "order": 1, "clubName": "3W"},
+            ],
+        )
+
+        payload = build_history_round_detail(data, merged_id)
+
+        self.assertEqual(len(payload["scorecard"][0]["shotRefs"]), 1)
+        self.assertEqual(len(payload["scorecard"][9]["shotRefs"]), 1)
+        self.assertTrue(payload["scorecard"][0]["shotRefs"][0].startswith(f"{merged_id}:1:"))
+        self.assertTrue(payload["scorecard"][9]["shotRefs"][0].startswith(f"{merged_id}:10:"))
+
+        canonical = HistoryData(
+            raw_rounds=[],
+            rounds=[row],
+            shots=[
+                {
+                    "roundId": merged_id,
+                    "scorecardId": 710002,
+                    "hole": 10,
+                    "localHole": 1,
+                    "order": 1,
+                    "clubName": "3W",
+                }
+            ],
+        )
+        canonical_payload = build_history_round_detail(canonical, merged_id)
+        self.assertEqual(len(canonical_payload["scorecard"][9]["shotRefs"]), 1)
+        self.assertTrue(
+            canonical_payload["scorecard"][9]["shotRefs"][0].startswith(f"{merged_id}:10:")
+        )
 
     def test_round_detail_renders_full_18_for_a_9_of_18_round(self) -> None:
         # round-12 bug: playing 9 holes on an 18-hole course (real hole numbers spanning both nines)
@@ -174,6 +234,9 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual(phases["Short Game"]["metrics"]["shots"], 1)
         self.assertEqual(phases["Putting"]["metrics"]["totalPutts"], 8)
         self.assertEqual(phases["Penalty / Damage"]["metrics"]["doubleOrWorseHoles"], 0)
+        self.assertEqual(phases["Penalty / Damage"]["metrics"].get("totalPenalties"), 1)
+        self.assertEqual(phases["Penalty / Damage"]["primary"], "1 罚杆")
+        self.assertEqual(phases["Penalty / Damage"]["state"], "ready")
 
     def test_phase_summary_falls_back_to_round_level_aggregates(self) -> None:
         # round-9 C3: synced rounds carry round-level fh/frec/gir/putts but no per-hole gir/fairway —
@@ -192,6 +255,19 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual(phases["Approach"]["metrics"]["girRecorded"], 9)  # holes played
         self.assertEqual(phases["Putting"]["metrics"]["totalPutts"], 17)
         self.assertIn("GIR", phases["Approach"]["primary"])
+
+    def test_zero_greens_recorded_does_not_fabricate_zero_percent_gir(self) -> None:
+        round_row = {
+            "id": "800002", "date": "2026-06-02", "course": "No Putt Tracking", "courseKey": "c_y",
+            "holesCompleted": 9, "strokes": 46, "par": 36, "holePars": "434444445",
+            "gir": 0, "grec": 0,
+            "holes": [{"number": n, "strokes": 5, "par": 4} for n in range(1, 10)],
+        }
+        data = HistoryData(raw_rounds=[round_row], rounds=[round_row], shots=[])
+        phases = {row["phase"]: row for row in build_history_round_detail(data, "800002")["phaseSummary"]}
+
+        self.assertEqual(phases["Approach"]["metrics"]["girRecorded"], 0)
+        self.assertNotIn("GIR", phases["Approach"]["primary"])
 
     def test_round_detail_accepts_round_alias_and_attaches_round_annotations(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -227,6 +303,27 @@ class ServerV2HistoryRoundDetailTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "ai-caddie-history-round-detail-v1")
         self.assertNotIn("schema_", payload)
         self.assertEqual(payload["roundRef"], "700001")
+
+    def test_shot_map_endpoint_can_omit_embedded_topo_for_native_prefetch(self) -> None:
+        result = {
+            "schema": "ai-caddie-round-hole-shotmap-v1",
+            "found": False,
+            "roundRef": "700001",
+            "hole": 1,
+            "map": None,
+            "shots": [],
+            "missingData": [],
+        }
+        with patch(
+            "server_v2.main.load_round_hole_shot_map_response",
+            return_value=result,
+        ) as loader:
+            response = TestClient(app).get(
+                "/api/v2/history/rounds/700001/holes/1/shotmap?includeImage=false"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(loader.call_args.kwargs["include_image"])
 
 
 if __name__ == "__main__":

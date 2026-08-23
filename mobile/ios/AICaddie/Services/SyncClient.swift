@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieDomain
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -47,6 +48,39 @@ public struct SyncResult: Codable, Equatable {
     }
 }
 
+public struct GarminSyncRunResponse: Codable, Equatable {
+    public let schema: String
+    public let connector: String
+    public let state: String
+    public let detail: String
+    public let reauthRequired: Bool
+    public let errorCode: String?
+}
+
+public struct GarminSyncLastRunResponse: Codable, Equatable {
+    public let state: String
+    public let detail: String
+    public let updatedAt: String?
+    public let remoteRoundCount: Int?
+    public let remoteLatestRoundId: String?
+    public let remoteLatestRoundAt: String?
+    public let newRoundCount: Int?
+}
+
+/// Owner responses include connector/snapshot details; member responses intentionally expose only
+/// liveness. The phone only needs the common schema plus the optional authoritative last-run time.
+public struct GarminSyncStatusResponse: Codable, Equatable {
+    public let schema: String
+    public let status: String?
+    public let lastRun: GarminSyncLastRunResponse?
+}
+
+public extension Notification.Name {
+    /// Posted only after a Garmin pull has completed and the app has refreshed its shared home/course
+    /// state. History and stats views use it to replace any payload that was loaded before the pull.
+    static let garminDataDidRefresh = Notification.Name("ai-caddie.garmin-data-did-refresh")
+}
+
 public struct EventReplayItem: Codable, Equatable {
     public let serverSequence: Int
     public let idempotencyKey: String
@@ -79,6 +113,74 @@ public struct EventCursorAckResponse: Codable, Equatable {
     public let pendingEventCount: Int
 }
 
+public struct MobileRoundFinishMetadata: Codable, Equatable {
+    public let courseName: String
+    public let holePars: [Int]
+    public let holesCompleted: Int
+    public let courseGlobalId: Int?
+
+    public init(
+        courseName: String,
+        holePars: [Int],
+        holesCompleted: Int,
+        courseGlobalId: Int?
+    ) {
+        self.courseName = courseName
+        self.holePars = holePars
+        self.holesCompleted = holesCompleted
+        self.courseGlobalId = courseGlobalId
+    }
+}
+
+public struct CourseGeometryHoleCoverage: Codable, Equatable {
+    public let globalId: Int
+    public let localHole: Int
+    public let coverage: String
+}
+
+public struct CourseGeometryCoverageResponse: Codable, Equatable {
+    public let schema: String
+    public let globalId: Int
+    public let coverage: String
+    public let readyHoles: Int
+    public let partialHoles: Int
+    public let totalHoles: Int
+    public let holes: [CourseGeometryHoleCoverage]
+}
+
+/// Public, player-scoped progress for the server-side course asset preparation journal. It contains
+/// only course/hole stages; no player identity, club distances, GPS or provider credentials.
+public struct CourseInstallHoleStatus: Codable, Equatable {
+    public let globalId: Int
+    public let localHole: Int
+    public let displayHole: Int
+    public let geometry: String
+    public let geometryRevision: String?
+    public let topo: String
+    public let topoRevision: String?
+    public let error: String?
+}
+
+public struct CourseInstallStatus: Codable, Equatable {
+    public let schema: String
+    public let jobId: String
+    public let globalId: Int
+    public let teeBox: String
+    public let nine: String
+    public let phase: String
+    public let stage: String
+    public let totalHoles: Int
+    public let geometryReady: Int
+    public let topoReady: Int
+    public let updatedAt: String?
+    public let error: String?
+    public let holes: [CourseInstallHoleStatus]
+}
+
+private struct MobileRoundFinishRequest: Codable {
+    let meta: MobileRoundFinishMetadata
+}
+
 /// Typed sync transport error. Previously every non-2xx collapsed into a generic
 /// `URLError(.badServerResponse)`, discarding the HTTP status and the server's
 /// error body — useless for diagnosing a failed sync on the course. This keeps
@@ -90,6 +192,23 @@ public enum SyncClientError: Error, Equatable {
 }
 
 public final class SyncClient {
+    /// Renderer contract shared with the phone's on-disk topo cache and Watch transfer metadata.
+    /// Bump this whenever existing rendered pixels must be invalidated on installed devices.
+    public static let topoStyleVersion = "topo-v8"
+    /// Version only the focused View Green asset; changing it must not invalidate every course topo.
+    public static let greenDetailStyleVersion = "green-v2"
+    public static let greenDetailImageSize = 1024
+    static let courseReleaseTimeoutInterval: TimeInterval = 180
+    static let coursePackageTimeoutInterval: TimeInterval = 120
+    static let coursePrepTimeoutInterval: TimeInterval = 90
+    static let courseTopoTimeoutInterval: TimeInterval = 60
+    static let courseCoverageTimeoutInterval: TimeInterval = 15
+    static let courseInstallRevalidationTimeoutInterval: TimeInterval = 8
+    static let courseReleaseMaximumAttempts = 3
+    static let courseAssetMaximumAttempts = 2
+    static let nearbyDiscoveryTimeoutInterval: TimeInterval = 30
+    static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
+
     /// The configured API base (e.g. `https://caddie…ts.net`). Public so views can build the
     /// no-auth topo bitmap URL (see `topoImageURL(baseURL:globalId:localHole:)`).
     public let baseURL: URL
@@ -98,6 +217,7 @@ public final class SyncClient {
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let retrySleep: (UInt64) async throws -> Void
 
     public init(baseURL: URL, adminToken: String? = nil, clientId: String = "ios-phone", session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -106,6 +226,23 @@ public final class SyncClient {
         self.session = session
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
+        self.retrySleep = { try await Task.sleep(nanoseconds: $0) }
+    }
+
+    init(
+        baseURL: URL,
+        adminToken: String? = nil,
+        clientId: String = "ios-phone",
+        session: URLSession = .shared,
+        retrySleep: @escaping (UInt64) async throws -> Void
+    ) {
+        self.baseURL = baseURL
+        self.adminToken = adminToken
+        self.clientId = clientId
+        self.session = session
+        self.encoder = JSONEncoder()
+        self.decoder = JSONDecoder()
+        self.retrySleep = retrySleep
     }
 
     public func fetchRoundPackage(roundId: String, capturedAt: Date = Date(), ensureGeometry: Bool = false) async throws -> LiveRoundPackage {
@@ -124,13 +261,16 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
+        if ensureGeometry {
+            request.timeoutInterval = 900
+        }
         applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         return try decoder.decode(LiveRoundPackage.self, from: data)
     }
 
-    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, nine: String = "all", capturedAt: Date = Date(), ensureGeometry: Bool = false, backGlobalId: Int? = nil) async throws -> LiveRoundPackage {
+    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, nine: String = "all", capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, backGlobalId: Int? = nil, includeEventCursor: Bool = true) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
             resolvingAgainstBaseURL: false
@@ -144,6 +284,8 @@ public final class SyncClient {
             URLQueryItem(name: "captured_at", value: ISO8601DateFormatter().string(from: capturedAt)),
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "ensure_geometry", value: ensureGeometry ? "true" : "false"),
+            URLQueryItem(name: "background_geometry", value: backgroundGeometry ? "true" : "false"),
+            URLQueryItem(name: "include_event_cursor", value: includeEventCursor ? "true" : "false"),
         ]
         if let backGlobalId {
             // Composite 18: play this loop (holes 1–9) + a second loop (holes 10–18).
@@ -154,10 +296,96 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
+        // A first start for an arbitrary Garmin course has to fetch its factual courseData map.
+        // Under concurrent all-hole downloads that cold path has exceeded URLSession's 60-second
+        // default even though the server completed and cached it moments later. Keep the precise
+        // geometry window, and give the lightweight package the same bounded cold-course window as
+        // Tee metadata. This GET is idempotent, so a transient timeout can safely retry and then hit
+        // the completed server cache.
+        request.timeoutInterval = ensureGeometry ? 900 : Self.coursePackageTimeoutInterval
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseAssetMaximumAttempts
+        )
         return try decoder.decode(LiveRoundPackage.self, from: data)
+    }
+
+    /// Read the durable server preparation journal. A missing row is normal for older servers or
+    /// before the first package enqueue, so it returns nil rather than turning the download into a
+    /// hard failure. The local OfflineStore remains the final install authority.
+    public func fetchCourseInstallStatus(
+        globalId: Int,
+        teeBox: String,
+        nine: String = "all",
+        backGlobalId: Int? = nil
+    ) async throws -> CourseInstallStatus? {
+        try await fetchCourseInstallStatus(
+            globalId: globalId,
+            teeBox: teeBox,
+            nine: nine,
+            backGlobalId: backGlobalId,
+            timeoutInterval: Self.nearbyDiscoveryTimeoutInterval,
+            maximumAttempts: Self.courseReleaseMaximumAttempts
+        )
+    }
+
+    /// Fast, best-effort release check used only when opening an already complete local course.
+    /// The local package remains usable offline, so this probe must never turn a transient network
+    /// interruption into a minute-long blocked tap. Ordinary install polling keeps the longer retry
+    /// policy in `fetchCourseInstallStatus` above.
+    public func probeCourseInstallStatusForRevalidation(
+        globalId: Int,
+        teeBox: String,
+        nine: String = "all",
+        backGlobalId: Int? = nil
+    ) async throws -> CourseInstallStatus? {
+        try await fetchCourseInstallStatus(
+            globalId: globalId,
+            teeBox: teeBox,
+            nine: nine,
+            backGlobalId: backGlobalId,
+            timeoutInterval: Self.courseInstallRevalidationTimeoutInterval,
+            maximumAttempts: 1
+        )
+    }
+
+    private func fetchCourseInstallStatus(
+        globalId: Int,
+        teeBox: String,
+        nine: String,
+        backGlobalId: Int?,
+        timeoutInterval: TimeInterval,
+        maximumAttempts: Int
+    ) async throws -> CourseInstallStatus? {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/\(globalId)/install/status"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        var queryItems = [
+            URLQueryItem(name: "tee_box", value: teeBox),
+            URLQueryItem(name: "nine", value: nine),
+        ]
+        if let backGlobalId, backGlobalId > 0 {
+            queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeoutInterval
+        applyAuth(to: &request)
+        do {
+            let data = try await fetchRetriableGetData(
+                request,
+                maximumAttempts: maximumAttempts
+            )
+            return try decoder.decode(CourseInstallStatus.self, from: data)
+        } catch let error as SyncClientError {
+            if case .http(status: 404, body: _) = error { return nil }
+            throw error
+        }
     }
 
     public func fetchCourseOptions() async throws -> MobileCourseOptionsResponse {
@@ -168,14 +396,146 @@ public final class SyncClient {
         return try decoder.decode(MobileCourseOptionsResponse.self, from: data)
     }
 
+    /// Pull the signed-in player's latest Garmin scorecards, shots and club data into the backend.
+    /// This is intentionally separate from `postEventBatch`: uploading phone/watch events is not a
+    /// Garmin import, and the settings UI reports the two operations independently.
+    public func runGarminSync(withShots: Bool = true) async throws -> GarminSyncRunResponse {
+        let playerId = SessionStore.shared.currentSession?.playerId
+        let endpoint: String
+        if let playerId, playerId != "me" {
+            endpoint = "/api/v2/players/\(playerId)/sync/garmin"
+        } else {
+            endpoint = "/api/v2/sync/garmin"
+        }
+        guard var components = URLComponents(
+            url: endpointURL(endpoint),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [
+            URLQueryItem(name: "with_shots", value: withShots ? "true" : "false"),
+        ]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 300
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+
+        // The backend returns the typed run payload for re-auth and connector failures even though
+        // their HTTP status is non-2xx. Preserve that actionable state for the consumer UI; an
+        // untyped 409 such as "sync already in progress" still goes through the normal HTTP error.
+        if let http = response as? HTTPURLResponse,
+           !(200..<300).contains(http.statusCode),
+           let run = try? decoder.decode(GarminSyncRunResponse.self, from: data),
+           run.state == "reauth_required" || run.state == "error" {
+            return run
+        }
+        try validate(response: response, data: data)
+        return try decoder.decode(GarminSyncRunResponse.self, from: data)
+    }
+
+    public func fetchGarminSyncStatus() async throws -> GarminSyncStatusResponse {
+        var request = URLRequest(url: endpointURL("/api/v2/sync/status"))
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        return try decoder.decode(GarminSyncStatusResponse.self, from: data)
+    }
+
+    /// Search Garmin's full CourseView catalogue by name. This downloads metadata only; choosing a
+    /// row later uses `fetchCourseTees` and `fetchCoursePackage` for that one course.
+    public func searchCourses(
+        name: String,
+        city: String? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil
+    ) async throws -> [MobileCourseSearchMatch] {
+        let query = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2 else { return [] }
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/search"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "name", value: query)]
+        if let city = city?.trimmingCharacters(in: .whitespacesAndNewlines),
+           city.count >= 2 {
+            components.queryItems?.append(URLQueryItem(name: "city", value: city))
+        }
+        if let latitude, let longitude,
+           latitude.isFinite, (-90...90).contains(latitude),
+           longitude.isFinite, (-180...180).contains(longitude) {
+            components.queryItems?.append(URLQueryItem(name: "latitude", value: String(latitude)))
+            components.queryItems?.append(URLQueryItem(name: "longitude", value: String(longitude)))
+        }
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        // Catalogue search is a small, idempotent metadata read. Give Funnel/DNS/TLS a bounded
+        // budget and use the same transient-only retry policy as nearby discovery. In particular,
+        // a one-off TLS transport handshake failure may retry; certificate validation failures may
+        // not (see `isTransientCourseReleaseError`).
+        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
+        applyAuth(to: &request)
+        let data = try await fetchRetriableGetData(request)
+        return try decoder.decode(MobileCourseSearchResponse.self, from: data).matches
+    }
+
+    /// Discover every Garmin catalogue row around the current coordinate. Like name search this is
+    /// metadata-only; Tee, holes and maps are fetched only after the player selects one row.
+    public func nearbyCourses(
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Int = 50
+    ) async throws -> [MobileCourseSearchMatch] {
+        guard latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude),
+              (1...200).contains(radiusKm) else {
+            throw URLError(.badURL)
+        }
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/nearby"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [
+            URLQueryItem(name: "latitude", value: String(latitude)),
+            URLQueryItem(name: "longitude", value: String(longitude)),
+            URLQueryItem(name: "radius_km", value: String(radiusKm)),
+        ]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        // The backend bounds its Garmin pagination to 12 s and can return an explicitly marked
+        // partial/cache result. Leave enough transport budget for that response plus Funnel/DNS
+        // latency, then retry the idempotent GET using the transient-only metadata policy.
+        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
+        applyAuth(to: &request)
+        let data = try await fetchRetriableGetData(request)
+        return try decoder.decode(MobileNearbyCoursesResponse.self, from: data).matches
+    }
+
     /// The course's selectable tee boxes (`GET /api/v2/courses/{id}/tees`): colour + total yards +
     /// which is default — the pre-round picker list, same as Garmin's new-round tee chooser. Public
     /// course knowledge (no player data); powers 开始一场's 发球台 selector with real yardage.
     public func fetchCourseTees(globalId: Int) async throws -> CourseTeesResponse {
-        var request = URLRequest(url: endpointURL("/api/v2/courses/\(globalId)/tees"))
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/\(globalId)/tees"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "ensure_release", value: "true")]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        // On the first use of an un-cached course the server may need to fetch and validate Garmin's
+        // CourseView release. Give that explicit download action longer than URLSession's 60 s
+        // default, and retry only failures that are safe for this idempotent GET.
+        request.timeoutInterval = Self.courseReleaseTimeoutInterval
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        let data = try await fetchRetriableGetData(request)
         return try decoder.decode(CourseTeesResponse.self, from: data)
     }
 
@@ -260,10 +620,17 @@ public final class SyncClient {
     private struct ManualBagBody: Encodable { let clubs: [ManualClubInput] }
 
     /// Per-hole 复盘 shot map (`GET /api/v2/history/rounds/{ref}/holes/{hole}/shotmap`): this round's
-    /// actual shots projected onto the hole's 2D render. Fetched on demand when a hole is opened.
+    /// actual shots projected onto the hole's 2D render. The round screen prefetches all holes, so
+    /// omit the duplicate embedded topo; its revision-bound PNG is fetched once through URLCache.
     public func fetchRoundShotMap(roundRef: String, hole: Int) async throws -> RoundHoleShotMap {
         let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
-        var request = URLRequest(url: endpointURL("/api/v2/history/rounds/\(encoded)/holes/\(hole)/shotmap"))
+        let endpoint = endpointURL("/api/v2/history/rounds/\(encoded)/holes/\(hole)/shotmap")
+        guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = [URLQueryItem(name: "includeImage", value: "false")]
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
         applyAuth(to: &request)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
@@ -291,27 +658,73 @@ public final class SyncClient {
         let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
         var request = URLRequest(url: endpointURL("/api/v2/history/rounds/\(encoded)"))
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        // A round review should not become a permanent error screen because its first idempotent
+        // GET crossed a one-off Funnel/DNS/TLS interruption. Reuse the bounded transient-only
+        // policy used by course discovery: 404/auth/certificate failures still fail immediately.
+        let data = try await fetchRetriableGetData(request)
         return try decoder.decode(RoundDetail.self, from: data)
     }
 
-    public func fetchCoursePrep(globalId: Int, render: Bool = true) async throws -> CoursePrepResponse {
+    public func fetchCoursePrep(
+        globalId: Int,
+        holes: [Int]? = nil,
+        render: Bool = true
+    ) async throws -> CoursePrepResponse {
         var url = endpointURL("/api/v2/courses/\(globalId)/prep")
-        if !render {
+        if holes != nil || !render {
             var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            components?.queryItems = [URLQueryItem(name: "render", value: "false")]
+            components?.queryItems = (holes ?? []).map {
+                URLQueryItem(name: "holes", value: String($0))
+            }
+            if !render {
+                components?.queryItems?.append(URLQueryItem(name: "render", value: "false"))
+            }
             url = components?.url ?? url
         }
         var request = URLRequest(url: url)
+        // Multi-hole lightweight prep drives both progressive 备战 and the whole-course offline
+        // installer. Three real Garmin meshes can legitimately exceed URLSession's 60-second
+        // default while the shared server is finishing cold geometry. Keep one transient retry,
+        // but do not multiply a cold batch into the generic three-attempt metadata budget.
+        request.timeoutInterval = Self.coursePrepTimeoutInterval
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
-        return try decoder.decode(CoursePrepResponse.self, from: data)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseAssetMaximumAttempts
+        )
+        // Offline course installation intentionally issues a few bounded prep batches in parallel.
+        // JSONDecoder has mutable decoding state and is not documented as safe for concurrent use;
+        // keep this read path local rather than sharing the client's general-purpose decoder.
+        return try JSONDecoder().decode(CoursePrepResponse.self, from: data)
     }
 
-    /// Prep for a single hole (styled map image + overlay + strategy) — used by the live 2D map.
-    public func fetchHolePrep(globalId: Int, localHole: Int) async throws -> CoursePrepHole? {
+    /// Cheap readiness probe for a background CourseView geometry upgrade.  Unlike `/prep`, this
+    /// reads file presence only, so an offline install can wait for newly-ready holes without
+    /// repeatedly rebuilding the same partial route/hazard payloads.
+    public func fetchCourseGeometryCoverage(
+        globalId: Int,
+        holes: [Int]
+    ) async throws -> CourseGeometryCoverageResponse {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/geometry/course/\(globalId)/coverage"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        components.queryItems = holes.map {
+            URLQueryItem(name: "holes", value: String($0))
+        }
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.courseCoverageTimeoutInterval
+        applyAuth(to: &request)
+        let data = try await fetchRetriableGetData(request)
+        return try JSONDecoder().decode(CourseGeometryCoverageResponse.self, from: data)
+    }
+
+    /// Prep for one hole. The default lightweight response carries factual geometry plus topo
+    /// projection anchors; callers may explicitly request the legacy embedded rendered bitmap.
+    public func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false) async throws -> CoursePrepHole? {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/courses/\(globalId)/prep"),
             resolvingAgainstBaseURL: false
@@ -319,15 +732,77 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         components.queryItems = [URLQueryItem(name: "holes", value: String(localHole))]
+        if !render {
+            components.queryItems?.append(URLQueryItem(name: "render", value: "false"))
+        }
         guard let url = components.url else {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
+        request.timeoutInterval = Self.coursePrepTimeoutInterval
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseAssetMaximumAttempts
+        )
         let prep = try decoder.decode(CoursePrepResponse.self, from: data)
         return prep.holes.first { $0.hole == localHole } ?? prep.holes.first
+    }
+
+    /// Download one public realistic-topo PNG through the client's injected URLSession so offline
+    /// asset caching is deterministic in tests and shares the normal transport/cancellation rules.
+    public func fetchTopoImage(
+        globalId: Int,
+        localHole: Int,
+        geometryRevision: String? = nil
+    ) async throws -> Data {
+        guard let url = Self.topoImageURL(
+            baseURL: baseURL,
+            globalId: globalId,
+            localHole: localHole,
+            geometryRevision: geometryRevision
+        ) else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.courseTopoTimeoutInterval
+        applyAuth(to: &request)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseAssetMaximumAttempts
+        )
+        let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        guard data.starts(with: pngSignature) else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        return data
+    }
+
+    public func fetchGreenDetailImage(
+        globalId: Int,
+        localHole: Int,
+        crop: GreenDetailCrop,
+        size: Int = SyncClient.greenDetailImageSize,
+        geometryRevision: String? = nil
+    ) async throws -> Data {
+        guard let url = Self.greenDetailImageURL(
+            baseURL: baseURL,
+            globalId: globalId,
+            localHole: localHole,
+            crop: crop,
+            size: size,
+            geometryRevision: geometryRevision
+        ) else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.courseTopoTimeoutInterval
+        applyAuth(to: &request)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseAssetMaximumAttempts
+        )
+        let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        guard data.starts(with: pngSignature) else { throw URLError(.cannotDecodeContentData) }
+        return data
     }
 
     public func postEventBatch(
@@ -390,6 +865,19 @@ public final class SyncClient {
         return try decoder.decode(EventCursorAckResponse.self, from: data)
     }
 
+    public func finishRound(
+        roundId: String,
+        metadata: MobileRoundFinishMetadata
+    ) async throws {
+        var request = URLRequest(url: endpointURL("/api/v2/mobile/rounds/\(roundId)/finish"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(to: &request)
+        request.httpBody = try encoder.encode(MobileRoundFinishRequest(meta: metadata))
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+    }
+
     public func postEventBatchWithRetry(
         _ events: [LiveRoundEvent],
         roundId: String,
@@ -425,21 +913,64 @@ public final class SyncClient {
     /// Returns nil for the placeholder gid `0` or a non-positive hole (no real CourseView geometry →
     /// the caller keeps the flat render). The endpoint 404s when the mesh is absent → the base-image
     /// layer degrades to the fallback at load time.
-    public static func topoImageURL(baseURL: URL, globalId: Int, localHole: Int) -> URL? {
+    public static func topoImageURL(
+        baseURL: URL,
+        globalId: Int,
+        localHole: Int,
+        geometryRevision: String? = nil
+    ) -> URL? {
         guard globalId != 0, localHole > 0 else { return nil }
-        return baseURL.appendingPathComponent("api/v2/courses/\(globalId)/holes/\(localHole)/topo.png")
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("api/v2/courses/\(globalId)/holes/\(localHole)/topo.png"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            return nil
+        }
+        // Separate renderer styles at the URL layer. The server ETag also binds the current
+        // Garmin geometry asset, so an updated course cannot reuse an older topo bitmap.
+        var queryItems = [URLQueryItem(name: "v", value: topoStyleVersion)]
+        if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !revision.isEmpty {
+            queryItems.append(URLQueryItem(name: "r", value: revision))
+        }
+        components.queryItems = queryItems
+        return components.url
     }
 
-    /// 开局提前备料:让后端把这个球场每个 geometry 洞的 topo 底图渲好缓存
-    /// (`POST /api/v2/courses/{globalId}/topo/prewarm`),之后逐洞浏览命中热缓存、不用每洞现渲。
-    /// FIRE-AND-FORGET:后端本身是后台任务立即返回;这里吞掉一切错误,**绝不阻塞开局**。
-    /// 镜像网页的开局 prewarm(#231)。gid `0`(占位)跳过。
-    public func prewarmCourseTopo(globalId: Int) async {
-        guard globalId != 0 else { return }
-        var request = URLRequest(url: endpointURL("/api/v2/courses/\(globalId)/topo/prewarm"))
-        request.httpMethod = "POST"
-        applyAuth(to: &request)
-        _ = try? await session.data(for: request)
+    /// Public high-resolution View Green window. The crop is in the same full-hole display-pixel
+    /// frame as `holeImageProjection`; the server re-renders that window from decoded geometry
+    /// instead of enlarging a few pixels from `topo.png`.
+    public static func greenDetailImageURL(
+        baseURL: URL,
+        globalId: Int,
+        localHole: Int,
+        crop: GreenDetailCrop,
+        size: Int = SyncClient.greenDetailImageSize,
+        geometryRevision: String? = nil
+    ) -> URL? {
+        guard globalId != 0, localHole > 0 else { return nil }
+        guard var components = URLComponents(
+            url: baseURL.appendingPathComponent("api/v2/courses/\(globalId)/holes/\(localHole)/green.png"),
+            resolvingAgainstBaseURL: false
+        ) else { return nil }
+        func number(_ value: Double) -> String {
+            String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), value)
+        }
+        var queryItems = [
+            URLQueryItem(name: "x", value: number(crop.x)),
+            URLQueryItem(name: "y", value: number(crop.y)),
+            URLQueryItem(name: "width", value: number(crop.width)),
+            URLQueryItem(name: "height", value: number(crop.height)),
+            URLQueryItem(name: "size", value: String(size)),
+            URLQueryItem(name: "v", value: topoStyleVersion),
+            URLQueryItem(name: "g", value: greenDetailStyleVersion),
+        ]
+        if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !revision.isEmpty {
+            queryItems.append(URLQueryItem(name: "r", value: revision))
+        }
+        components.queryItems = queryItems
+        return components.url
     }
 
     private func validate(response: URLResponse, data: Data) throws {
@@ -451,6 +982,51 @@ public final class SyncClient {
             let body = String(data: data, encoding: .utf8)
             AICaddieLog.network.error("Sync HTTP \(http.statusCode, privacy: .public) at \(http.url?.path ?? "", privacy: .public): \(body ?? "<no body>", privacy: .public)")
             throw SyncClientError.http(status: http.statusCode, body: body)
+        }
+    }
+
+    private func fetchRetriableGetData(
+        _ request: URLRequest,
+        maximumAttempts: Int = SyncClient.courseReleaseMaximumAttempts
+    ) async throws -> Data {
+        var attempt = 1
+        while true {
+            try Task.checkCancellation()
+            do {
+                let (data, response) = try await session.data(for: request)
+                try validate(response: response, data: data)
+                return data
+            } catch {
+                if Task.isCancelled || error is CancellationError {
+                    throw CancellationError()
+                }
+                guard attempt < max(1, maximumAttempts),
+                      Self.isTransientCourseReleaseError(error) else {
+                    throw error
+                }
+                try await retrySleep(Self.courseReleaseRetryDelayNanoseconds(afterAttempt: attempt))
+                attempt += 1
+            }
+        }
+    }
+
+    static func courseReleaseRetryDelayNanoseconds(afterAttempt attempt: Int) -> UInt64 {
+        UInt64(1 << max(0, min(attempt - 1, 4))) * 500_000_000
+    }
+
+    static func isTransientCourseReleaseError(_ error: Error) -> Bool {
+        if error is CancellationError { return false }
+        if let syncError = error as? SyncClientError,
+           case let .http(status, _) = syncError {
+            return transientCourseReleaseHTTPStatuses.contains(status)
+        }
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost,
+             .dnsLookupFailed, .notConnectedToInternet, .secureConnectionFailed:
+            return true
+        default:
+            return false
         }
     }
 }

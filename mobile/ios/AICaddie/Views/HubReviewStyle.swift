@@ -28,6 +28,21 @@ enum HubStyle {
     static let warmBad = double
 }
 
+/// Shared off-course map frame. A realistic topo PNG already owns the exact playable-terrain
+/// silhouette and is transparent everywhere else. Keep that transparency in prep/review instead of
+/// painting a second rectangular "course" behind it; legacy flat fallback images are still rounded
+/// by the shared clip below.
+enum MapSurfaceStyle {
+    static let cornerRadius: CGFloat = 14
+}
+
+private struct MapSurfaceModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .clipShape(RoundedRectangle(cornerRadius: MapSurfaceStyle.cornerRadius, style: .continuous))
+    }
+}
+
 extension View {
     /// White grouped-inset card: generous padding, 18pt continuous radius, a subtle drop shadow and
     /// no hard border — the clean light iOS-native surface used across 首页/复盘. (The dark
@@ -39,6 +54,10 @@ extension View {
             .background(Color.white)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .shadow(color: Color.black.opacity(0.05), radius: 3, x: 0, y: 1)
+    }
+
+    func mapSurface() -> some View {
+        modifier(MapSurfaceModifier())
     }
 }
 
@@ -106,9 +125,10 @@ struct ScoreChip: View {
         ZStack {
             shapeOverlay
             Text(score.map(String.init) ?? "–")
-                .font(.system(size: size * 0.47, weight: .heavy))
+                .font(.system(size: size * (frame == .triangle ? 0.38 : 0.47), weight: .heavy))
                 .monospacedDigit()
                 .foregroundStyle(color)
+                .offset(y: frame == .triangle ? size * 0.07 : 0)
         }
         .frame(width: size, height: size)
     }

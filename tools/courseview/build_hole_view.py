@@ -99,32 +99,39 @@ def stitch_tiles(min_lon: float, min_lat: float, max_lon: float, max_lat: float,
 # Render polygons onto stitched tile
 # ----------------------------------------------------------------------
 
-# Same as render_courseview.py — color by ext_type (empirical mapping)
+# Research palette using the terminal cross-source type classifications.  These
+# coarse vectors remain display fallbacks; prodgeometry is the exact authority.
 TYPE_COLOR = {
-    0x011407: (255, 230, 130),  # Yellow - bunkers/greens?
-    0x01140e: (90, 200, 90),    # OVERVIEW BLOB (exclude)
-    0x011409: (60, 130, 240),   # OVERVIEW BLOB (exclude)
-    0x011604: (60, 130, 240),
-    0x011405: (255, 100, 0),    # Orange
-    0x011403: (0, 255, 0),      # Bright Green - fairways?
-    0x011404: (255, 0, 255),    # Magenta
-    0x010b08: (255, 255, 255),  # White - cart paths
-    0x011402: (0, 255, 255),    # Cyan
-    0x012e00: (200, 80, 255),   # lines
-    0x014103: (80, 200, 255),   # lines
-    0x010202: (50, 50, 50),     # OVERVIEW BLOB (exclude)
-    0x010208: (255, 0, 0),      # point markers
-    0x013801: (0, 255, 0),      # point markers
-    0x013800: (0, 0, 255),      # point markers
+    0x010B01: (50, 110, 190),  # ocean context
+    0x010B08: (130, 130, 130),  # opaque mixed context; not a cart path
+    0x010D01: (75, 75, 75),  # course/complex boundary
+    0x011402: (70, 210, 210),  # tee area
+    0x011403: (80, 190, 90),  # fairway area
+    0x011404: (90, 240, 120),  # green area
+    0x011405: (235, 205, 120),  # bunker area
+    0x011407: (40, 115, 55),  # tree area
+    0x011409: (110, 110, 135),  # inner hole corridor
+    0x01140A: (45, 125, 220),  # stream/water area
+    0x01140B: (70, 180, 165),  # teebox surface
+    0x01140E: (80, 80, 105),  # outer hole domain
+    0x010A00: (45, 125, 220),  # stream/water edge
+    0x012E00: (200, 80, 255),  # hole route
+    0x012E05: (230, 230, 230),  # cart path
+    0x013801: (0, 255, 0),  # tee/route-start anchor
+    0x013800: (0, 0, 255),  # course/layout label anchor
+    0x011604: (60, 130, 240),  # legacy parser-only type; no semantic claim
+    0x014103: (80, 200, 255),  # legacy parser-only type; no semantic claim
+    0x010202: (50, 50, 50),  # legacy parser-only type; no semantic claim
+    0x010208: (255, 0, 0),  # legacy parser-only type; no semantic claim
 }
 DEFAULT_COLOR = (200, 200, 200)
 
-EXCLUDE_TYPES = {0x01140e, 0x011409, 0x010202}
+EXCLUDE_TYPES = {0x010D01, 0x01140E, 0x011409, 0x010202}
 
 def render(img_path: Path, out_path: Path, shots_path: Path | None = None, zoom: int = 18, only_types: set | None = None) -> None:
     tre, polys, lines, points = parse_img_all(img_path)
     
-    # Filter out overview blobs
+    # A per-hole feature view excludes course and nested structural domains.
     polys = [p for p in polys if p.ext_type not in EXCLUDE_TYPES]
     
     if only_types is not None:

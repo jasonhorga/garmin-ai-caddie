@@ -17,12 +17,16 @@ returns the already-stored round instead of writing a duplicate.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import math
+import os
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from ai_caddie.history import history as _history
 from ai_caddie.core.data import deg_to_semicircle, read_json, wgs84_to_local
@@ -58,6 +62,18 @@ def _index_path(player_id: str, root: Path | str | None) -> Path:
     return _player_dir(player_id, root) / "rounds_index.json"
 
 
+@contextmanager
+def _player_ingest_lock(player_id: str, root: Path | str | None) -> Iterator[None]:
+    directory = _player_dir(player_id, root)
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / "rounds_index.lock").open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 # ---------------------------------------------------------------------------
 # Idempotency
 # ---------------------------------------------------------------------------
@@ -75,6 +91,23 @@ def derive_idempotency_key(player_id: str, events: list[dict], meta: dict) -> st
     return "auto:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
+def _event_revision(events: list[dict]) -> str:
+    """Stable authority revision for an append-only live-round event stream."""
+    blob = json.dumps(
+        events,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _public_index_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """Keep materialization bookkeeping private to the on-disk ingest index."""
+    return {key: value for key, value in entry.items() if not key.startswith("_")}
+
+
 def _load_index(player_id: str, root: Path | str | None) -> dict[str, Any]:
     path = _index_path(player_id, root)
     if not path.exists():
@@ -83,15 +116,87 @@ def _load_index(player_id: str, root: Path | str | None) -> dict[str, Any]:
         data = read_json(path)
         if isinstance(data, dict) and isinstance(data.get("entries"), dict):
             return data
-    except Exception:
-        pass
-    return {"schema": _INDEX_SCHEMA, "entries": {}}
+    except Exception as exc:
+        raise RoundIngestError("round ingest index is corrupt") from exc
+    raise RoundIngestError("round ingest index is corrupt")
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except BaseException:
+        try:
+            temporary_path.unlink()
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def _save_index(index: dict[str, Any], player_id: str, root: Path | str | None) -> None:
     path = _index_path(player_id, root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _atomic_write_json(path, index)
+
+
+def _legacy_materialization_meta(
+    player_id: str,
+    existing: dict[str, Any],
+    root: Path | str | None,
+) -> dict[str, Any] | None:
+    """Recover first-finish authority from rows written before revision bookkeeping existed."""
+    round_id = _as_int(existing.get("id"))
+    if round_id is None:
+        return None
+    path = _player_dir(player_id, root) / "scorecards" / f"{round_id}.json"
+    try:
+        raw = read_json(path)
+        details = raw.get("scorecardDetails")
+        snapshots = raw.get("courseSnapshots")
+        detail = details[0] if isinstance(details, list) and details else None
+        snapshot = snapshots[0] if isinstance(snapshots, list) and snapshots else None
+        scorecard = detail.get("scorecard") if isinstance(detail, dict) else None
+        if not isinstance(scorecard, dict) or not isinstance(snapshot, dict):
+            return None
+    except Exception:
+        return None
+
+    def coordinate_degrees(value: Any) -> float | None:
+        numeric = _as_float(value)
+        return None if numeric is None else numeric / 1_000_000.0
+
+    meta = {
+        "courseName": snapshot.get("name") or existing.get("course"),
+        "courseGlobalId": scorecard.get("courseGlobalId") or snapshot.get("courseGlobalId"),
+        "courseSnapshotId": scorecard.get("courseSnapshotId") or snapshot.get("courseSnapshotId"),
+        "frontNineGlobalCourseId": scorecard.get("frontNineGlobalCourseId"),
+        "backNineGlobalCourseId": scorecard.get("backNineGlobalCourseId"),
+        "holePars": snapshot.get("holePars"),
+        "teeTime": scorecard.get("startTime") or scorecard.get("formattedStartTime"),
+        "endTime": scorecard.get("endTime"),
+        "holesCompleted": scorecard.get("holesCompleted") or existing.get("holesCompleted"),
+        "teeBox": scorecard.get("teeBox"),
+        "lat": coordinate_degrees(snapshot.get("lat")),
+        "lon": coordinate_degrees(snapshot.get("lon")),
+        "city": snapshot.get("city"),
+        "country": snapshot.get("country"),
+    }
+    return {key: value for key, value in meta.items() if value is not None}
 
 
 def _allocate_round_id(idempotency_key: str, scorecards_dir: Path) -> int:
@@ -126,18 +231,23 @@ def _as_float(value: Any) -> float | None:
 
 
 class _HoleAccumulator:
-    __slots__ = ("strokes", "putts", "penalties", "shots", "notes")
+    __slots__ = ("strokes", "putts", "penalties", "fairway", "shots", "notes")
 
     def __init__(self) -> None:
         self.strokes: int | None = None
         self.putts: int = 0
         self.penalties: int = 0
+        self.fairway: str | None = None
         self.shots: list[dict[str, Any]] = []
         self.notes: list[str] = []
 
 
 def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
-    """Walk events in order, pairing each ``location`` with the most recent ``club``.
+    """Walk events in order, pairing each shot ``location`` with its actual ``club``.
+
+    Watch/legacy clients emit club then location. iOS deliberately persists location first, then
+    asks for the club; that club carries ``actualShot.sourceLocationEventId``. A plain iOS club event
+    is only a caddie/map selection and must never be promoted into an actual shot.
 
     Returns holes keyed by hole number (insertion-ordered: first appearance wins).
     """
@@ -145,7 +255,9 @@ def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
         raise RoundIngestError("no events to ingest")
 
     holes: dict[int, _HoleAccumulator] = {}
-    pending_club: dict[str, Any] | None = None
+    pending_club_by_hole: dict[int, dict[str, Any]] = {}
+    shots_by_location_event_id: dict[str, dict[str, Any]] = {}
+    deferred_club_by_location_event_id: dict[str, tuple[int, dict[str, Any]]] = {}
     shot_order = 0
 
     for ev in events:
@@ -163,21 +275,59 @@ def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
         if kind == "club":
             if not payload.get("clubName"):
                 raise RoundIngestError("club event missing clubName")
-            pending_club = payload
+            actual_shot = payload.get("actualShot")
+            location_event_id = (
+                str(actual_shot.get("sourceLocationEventId") or "").strip()
+                if isinstance(actual_shot, dict)
+                else ""
+            )
+            if location_event_id:
+                shot = shots_by_location_event_id.get(location_event_id)
+                if shot is not None and shot.get("hole") == hole:
+                    shot["club"] = payload
+                else:
+                    deferred_club_by_location_event_id[location_event_id] = (hole, payload)
+            elif ev.get("clientId") == "ios-phone" and not isinstance(actual_shot, dict):
+                # This is a pre-shot planning selection, not evidence of the club actually used.
+                continue
+            else:
+                # Watch and legacy phone logs retain their established club-before-location order.
+                pending_club_by_hole[hole] = payload
         elif kind == "location":
             lat = _as_float(payload.get("latitude"))
             lon = _as_float(payload.get("longitude"))
             if lat is None or lon is None:
                 raise RoundIngestError("location event missing numeric latitude/longitude")
             shot_order += 1
-            acc.shots.append({"club": pending_club, "lat": lat, "lon": lon,
-                              "target": _target_of(payload), "order": shot_order})
-            pending_club = None
+            location_event_id = str(ev.get("eventId") or "").strip()
+            deferred = deferred_club_by_location_event_id.pop(location_event_id, None)
+            club = (
+                deferred[1]
+                if deferred is not None and deferred[0] == hole
+                else pending_club_by_hole.pop(hole, None)
+            )
+            shot = {
+                "hole": hole,
+                "club": club,
+                "lat": lat,
+                "lon": lon,
+                "target": _target_of(payload),
+                "order": shot_order,
+                "locationEventId": location_event_id or None,
+            }
+            acc.shots.append(shot)
+            if location_event_id:
+                shots_by_location_event_id[location_event_id] = shot
         elif kind == "score":
             strokes = _as_int(payload.get("strokes"))
             if strokes is None or strokes < 1:
                 raise RoundIngestError("score event needs strokes >= 1")
             acc.strokes = strokes  # last score event for the hole wins
+            if "fairway" in payload:
+                fairway = str(payload.get("fairway") or "").strip().lower()
+                if fairway not in {"hit", "left", "right"}:
+                    raise RoundIngestError("score event fairway must be hit, left, or right")
+                acc.fairway = fairway
         elif kind == "putt":
             putts = _as_int(payload.get("putts"))
             if putts is None or putts < 0:
@@ -268,7 +418,14 @@ def _build_scorecard(
         acc = holes[number]
         if acc.strokes is None:
             continue
-        hole_dict: dict[str, Any] = {"number": number, "strokes": acc.strokes}
+        hole_dict: dict[str, Any] = {
+            "number": number,
+            "strokes": acc.strokes,
+            "putts": acc.putts,
+            "penalties": acc.penalties,
+        }
+        if acc.fairway is not None:
+            hole_dict["fairway"] = acc.fairway
         # Manual rounds carry no Garmin gir/fairway -> derive REAL ones from per-shot GPS +
         # hole geometry. Only-when-absent (the helper never overwrites a present value) and
         # undeterminable values are omitted, so this is a pure add for no-Garmin members.
@@ -282,7 +439,10 @@ def _build_scorecard(
             total_strokes=acc.strokes,
         )
         sc_holes.append(hole_dict)
-    holes_completed = _as_int(meta.get("holesCompleted")) or len(sc_holes)
+    # Only explicit score events complete holes. A finishing client can report a stale count in
+    # either direction, so using that projection can create a 9-hole summary backed by only 2 real
+    # hole rows. The folded score stream is the sole completion authority.
+    holes_completed = len(sc_holes)
 
     snapshot: dict[str, Any] = {
         "courseGlobalId": course_gid,
@@ -350,7 +510,7 @@ def _build_shots_file(round_id: int, holes: dict[int, _HoleAccumulator]) -> tupl
             row = {
                 "id": round_id * 1000 + shot["order"],
                 "scorecardId": round_id,
-                "shotOrder": shot["order"],
+                "shotOrder": idx + 1,
                 "clubId": cid,
                 "holeNumber": number,
                 "shotType": _shot_type(club, idx),
@@ -535,17 +695,30 @@ def _now_iso() -> str:
 # ---------------------------------------------------------------------------
 # summary.json (per player)
 # ---------------------------------------------------------------------------
-def _update_summary(player_id: str, root: Path | str | None, scorecard_raw: dict[str, Any]) -> None:
+def _load_summary(player_id: str, root: Path | str | None) -> dict[str, Any]:
     path = _player_dir(player_id, root) / "summary.json"
     summary: dict[str, Any] = {"pageNumber": 1, "rowsPerPage": 10000, "totalRows": 0,
                                "scorecardSummaries": []}
-    if path.exists():
-        try:
-            existing = read_json(path)
-            if isinstance(existing, dict) and isinstance(existing.get("scorecardSummaries"), list):
-                summary = existing
-        except Exception:
-            pass
+    if not path.exists():
+        return summary
+    try:
+        existing = read_json(path)
+        if isinstance(existing, dict) and isinstance(existing.get("scorecardSummaries"), list):
+            return existing
+        raise RoundIngestError("round summary is corrupt")
+    except RoundIngestError:
+        raise
+    except Exception as exc:
+        raise RoundIngestError("round summary is corrupt") from exc
+
+
+def _update_summary(
+    player_id: str,
+    root: Path | str | None,
+    scorecard_raw: dict[str, Any],
+    summary: dict[str, Any],
+) -> None:
+    path = _player_dir(player_id, root) / "summary.json"
 
     sc = scorecard_raw["scorecardDetails"][0]["scorecard"]
     snap = scorecard_raw["courseSnapshots"][0]
@@ -568,8 +741,7 @@ def _update_summary(player_id: str, root: Path | str | None, scorecard_raw: dict
     rows.append(entry)
     summary["scorecardSummaries"] = rows
     summary["totalRows"] = len(rows)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _atomic_write_json(path, summary)
 
 
 def _invalidate_cache() -> None:
@@ -584,20 +756,22 @@ def _invalidate_cache() -> None:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-def ingest_round(
+def _ingest_round_unlocked(
     player_id: str,
     events: list[dict],
     meta: dict | None = None,
     *,
     idempotency_key: str,
     root: Path | str | None = None,
+    refresh_existing_events: bool = False,
 ) -> dict[str, Any]:
     """Translate live capture ``events`` into a Garmin-isomorphic manual round.
 
     Writes ``data/players/<player_id>/scorecards/<rid>.json`` and ``shots/<rid>.json``
     (``source="manual"``), increments that player's ``summary.json`` and invalidates the
     stats cache. Idempotent on ``idempotency_key``: a repeat returns the stored round
-    with ``idempotent=True`` and writes nothing new. Returns the round summary.
+    with ``idempotent=True`` and writes nothing new. The mobile event-log caller may opt into
+    refreshing that same row only when its append-only event revision advances. Returns the summary.
     """
     meta = dict(meta or {})
     if not idempotency_key:
@@ -605,13 +779,50 @@ def ingest_round(
 
     index = _load_index(player_id, root)
     existing = index["entries"].get(idempotency_key)
-    if existing is not None:
-        return {**existing, "playerId": player_id, "source": "manual", "idempotent": True}
+    revision = _event_revision(events)
+    existing_round_id = _as_int(existing.get("id")) if isinstance(existing, dict) else None
+    existing_reservation_id = (
+        _as_int(existing.get("_allocatedId")) if isinstance(existing, dict) else None
+    )
+    existing_is_complete = existing_round_id is not None
+    if existing is not None and not existing_is_complete and existing_reservation_id is None:
+        raise RoundIngestError("round ingest index is corrupt")
+    if existing_is_complete and not refresh_existing_events:
+        return {
+            **_public_index_entry(existing),
+            "playerId": player_id,
+            "source": "manual",
+            "idempotent": True,
+        }
+    if existing_is_complete and existing.get("_eventRevision") == revision:
+        return {
+            **_public_index_entry(existing),
+            "playerId": player_id,
+            "source": "manual",
+            "idempotent": True,
+        }
+
+    # Mobile live rounds are append-only. A phone may finish while an offline Watch still owns
+    # unresolved events; its later retry must update the same history row rather than create a second
+    # round or silently leave the first materialization stale. The first finish's metadata remains the
+    # idempotent authority while only the complete event stream is allowed to advance.
+    materialization_meta = (
+        dict(existing.get("_materializationMeta"))
+        if existing is not None and isinstance(existing.get("_materializationMeta"), dict)
+        else dict(meta)
+    )
 
     holes = _parse_events(events)
-    scored = {n: acc for n, acc in holes.items() if acc.strokes is not None or acc.shots}
+    # GPS shot origins are valuable review facts, but they are not a score. Only an explicit score
+    # confirmation may make a hole count toward history/stats; otherwise one tee location could be
+    # fabricated into a one-stroke completed hole.
+    scored = {n: acc for n, acc in holes.items() if acc.strokes is not None}
     if not scored:
-        raise RoundIngestError("round has no scored holes or shots")
+        raise RoundIngestError("round has no scored holes")
+    # Course identity remains first-finish authority, while completion count always reflects the
+    # complete append-only score stream being materialized. Keeping the private metadata normalized
+    # prevents a later refresh from resurrecting a stale client projection.
+    materialization_meta["holesCompleted"] = len(scored)
 
     player_dir = _player_dir(player_id, root)
     scorecards_dir = player_dir / "scorecards"
@@ -619,29 +830,44 @@ def ingest_round(
     scorecards_dir.mkdir(parents=True, exist_ok=True)
     shots_dir.mkdir(parents=True, exist_ok=True)
 
-    round_id = _allocate_round_id(idempotency_key, scorecards_dir)
+    # Validate the shared summary before writing any scorecard/shot file. A corrupt summary must
+    # fail closed without leaving a new history file that a retry could mistake for an ID collision.
+    summary_file = _load_summary(player_id, root)
 
-    # Derive per-hole totals: explicit score event wins; otherwise count shots + putts + penalties.
-    total_strokes = 0
-    for acc in scored.values():
-        if acc.strokes is None:
-            acc.strokes = len(acc.shots) + acc.putts + acc.penalties
-        total_strokes += acc.strokes
+    if existing_round_id is not None:
+        round_id = existing_round_id
+    elif existing_reservation_id is not None:
+        round_id = existing_reservation_id
+    else:
+        round_id = _allocate_round_id(idempotency_key, scorecards_dir)
+        # Reserve the deterministic ID durably before any materialized file is written. If the
+        # process stops between scorecard/shot/summary and the final index update, the same request
+        # rewrites this ID instead of probing to a duplicate `+1` history round.
+        index["entries"][idempotency_key] = {
+            "_allocatedId": round_id,
+            "_materializationMeta": materialization_meta,
+            "_materializationState": "reserved",
+        }
+        _save_index(index, player_id, root)
 
-    hole_pars = _hole_pars_string(meta, _as_int(meta.get("courseGlobalId")), root)
-    shots_file, longest = _build_shots_file(round_id, scored)
+    total_strokes = sum(acc.strokes for acc in scored.values() if acc.strokes is not None)
+
+    hole_pars = _hole_pars_string(
+        materialization_meta,
+        _as_int(materialization_meta.get("courseGlobalId")),
+        root,
+    )
+    # Keep GPS shots from unconfirmed holes in the shots authority when at least one hole has a real
+    # score. They remain reviewable without appearing as completed holes in scorecards or stats.
+    shots_file, longest = _build_shots_file(round_id, holes)
     scorecard_raw = _build_scorecard(
-        round_id=round_id, holes=scored, meta=meta, hole_pars=hole_pars,
+        round_id=round_id, holes=scored, meta=materialization_meta, hole_pars=hole_pars,
         total_strokes=total_strokes, longest=longest,
     )
 
-    (scorecards_dir / f"{round_id}.json").write_text(
-        json.dumps(scorecard_raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    (shots_dir / f"{round_id}.json").write_text(
-        json.dumps(shots_file, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    _update_summary(player_id, root, scorecard_raw)
+    _atomic_write_json(scorecards_dir / f"{round_id}.json", scorecard_raw)
+    _atomic_write_json(shots_dir / f"{round_id}.json", shots_file)
+    _update_summary(player_id, root, scorecard_raw, summary_file)
 
     sc = scorecard_raw["scorecardDetails"][0]["scorecard"]
     summary = {
@@ -655,8 +881,65 @@ def ingest_round(
         "par": _sum_pars(hole_pars, 0, len(hole_pars)) if hole_pars else None,
         "shotCount": sum(len(h["shots"]) for h in shots_file["holeShots"]),
     }
-    index["entries"][idempotency_key] = dict(summary)
+    index["entries"][idempotency_key] = {
+        **summary,
+        "_eventRevision": revision,
+        "_materializationMeta": materialization_meta,
+    }
     _save_index(index, player_id, root)
     _invalidate_cache()
 
     return {**summary, "idempotent": False}
+
+
+def ingest_round(
+    player_id: str,
+    events: list[dict],
+    meta: dict | None = None,
+    *,
+    idempotency_key: str,
+    root: Path | str | None = None,
+    refresh_existing_events: bool = False,
+) -> dict[str, Any]:
+    """Serialize every materialization that writes one player's shared index and summary."""
+    with _player_ingest_lock(player_id, root):
+        return _ingest_round_unlocked(
+            player_id,
+            events,
+            meta,
+            idempotency_key=idempotency_key,
+            root=root,
+            refresh_existing_events=refresh_existing_events,
+        )
+
+
+def refresh_ingested_round_if_exists(
+    player_id: str,
+    *,
+    load_events: Callable[[], list[dict]],
+    idempotency_key: str,
+    root: Path | str | None = None,
+) -> dict[str, Any] | None:
+    """Refresh an already-finished live round after a late append; never creates a new round."""
+    with _player_ingest_lock(player_id, root):
+        existing = _load_index(player_id, root)["entries"].get(idempotency_key)
+        if existing is None:
+            return None
+        meta = (
+            dict(existing["_materializationMeta"])
+            if isinstance(existing.get("_materializationMeta"), dict)
+            else _legacy_materialization_meta(player_id, existing, root)
+        )
+        # A damaged legacy materialization must not turn a successfully appended event into a 422 or
+        # replace the history row with guessed course identity. The next explicit Finish can repair it.
+        if meta is None:
+            return None
+        events = load_events()
+        return _ingest_round_unlocked(
+            player_id,
+            events,
+            meta,
+            idempotency_key=idempotency_key,
+            root=root,
+            refresh_existing_events=True,
+        )

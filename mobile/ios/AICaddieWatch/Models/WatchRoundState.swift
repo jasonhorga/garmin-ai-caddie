@@ -21,27 +21,68 @@ public struct WatchClubOption: Codable, Equatable, Identifiable {
     }
 }
 
-/// round-13 spec ⑤: a single 障碍 (bunker/water) carry interval to surface on the watch Hazard View.
-/// Distances are along-route metres (start = near edge / 越线前沿, end = far edge / 越线后沿); the watch
-/// converts to 码. Pushed from the phone — mirrors the iPhone CaddiePlanHazard list.
+/// A measured hazard fact for the Watch. New payloads carry true front/back boundary pixels and
+/// straight-line tee distances; legacy bunker payloads may still contain only startM + sideM.
 public struct WatchHazard: Codable, Equatable, Identifiable {
     public var id: String { "\(kind)-\(label)" }
 
     public let kind: String     // "bunker" | "water"
-    public let label: String    // 中文,如「沙坑 1」「水域」
+    public let label: String    // 中文,如「右侧球道沙坑」「前方水障碍」
     public let startM: Double?
     public let endM: Double?
+    /// Bunkers use `[along-route, lateral gap]`, not an enter/clear interval. New payloads keep the
+    /// lateral fact here; old cached bunker payloads are interpreted compatibly at the view boundary.
+    public let sideM: Double?
+    public let frontDistanceM: Double?
+    public let backDistanceM: Double?
+    public let frontPx: [Double]?
+    public let backPx: [Double]?
 
-    public init(kind: String, label: String, startM: Double? = nil, endM: Double? = nil) {
+    /// Older cached course packages used ordinal labels such as "沙坑 1". Keep the
+    /// persisted fact untouched, but never surface that decoder-order label to a player.
+    /// Geometry-backed labels (for example "右侧球道沙坑") remain unchanged.
+    public var displayLabel: String {
+        let value = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let numbered = value.range(of: #"^(沙坑|水障碍|水域|bunker|water)[\s_-]*#?\d+$"#, options: [.regularExpression, .caseInsensitive]) != nil
+        guard numbered else { return value }
+        return kind == "water" ? "水障碍" : "沙坑"
+    }
+
+    public init(
+        kind: String,
+        label: String,
+        startM: Double? = nil,
+        endM: Double? = nil,
+        sideM: Double? = nil,
+        frontDistanceM: Double? = nil,
+        backDistanceM: Double? = nil,
+        frontPx: [Double]? = nil,
+        backPx: [Double]? = nil
+    ) {
         self.kind = kind
         self.label = label
         self.startM = startM
         self.endM = endM
+        self.sideM = sideM
+        self.frontDistanceM = frontDistanceM
+        self.backDistanceM = backDistanceM
+        self.frontPx = frontPx
+        self.backPx = backPx
     }
 }
 
-/// round-13 spec ②: one AI-caddie play option (激进/推荐/保守) to surface on the watch 球童打法 screen.
-/// Pushed from the phone — mirrors the iPhone CaddiePlanOption set. No success-% (intentionally absent).
+public struct WatchCaddiePlanStep: Codable, Equatable {
+    public let clubName: String
+    public let carryM: Double?
+
+    public init(clubName: String, carryM: Double? = nil) {
+        self.clubName = clubName
+        self.carryM = carryM
+    }
+}
+
+/// One AI-caddie route. Longitudinal p10/p90 are measured carry facts, not a fabricated lateral
+/// ellipse. Expected strokes stay absent until the product has a calibrated scoring model.
 public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public var id: String { optionId }
 
@@ -49,7 +90,10 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let label: String             // 稳妥/标准/进攻
     public let clubName: String?
     public let carryM: Double?
-    public let expectedStrokes: Double?
+    public let carryP10M: Double?
+    public let carryP90M: Double?
+    public let sampleSize: Int?
+    public let plan: [WatchCaddiePlanStep]?
     public let confidence: String?
 
     public init(
@@ -57,14 +101,20 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         label: String,
         clubName: String? = nil,
         carryM: Double? = nil,
-        expectedStrokes: Double? = nil,
+        carryP10M: Double? = nil,
+        carryP90M: Double? = nil,
+        sampleSize: Int? = nil,
+        plan: [WatchCaddiePlanStep]? = nil,
         confidence: String? = nil
     ) {
         self.optionId = optionId
         self.label = label
         self.clubName = clubName
         self.carryM = carryM
-        self.expectedStrokes = expectedStrokes
+        self.carryP10M = carryP10M
+        self.carryP90M = carryP90M
+        self.sampleSize = sampleSize
+        self.plan = plan
         self.confidence = confidence
     }
 }
@@ -99,9 +149,9 @@ public struct WatchHoleImageProjection: Codable, Equatable {
 
 // watch P1b: the five overlay anchor points (in /topo.png IMAGE-pixel space, w×h) the phone pre-computes
 // from the hole's centreline route so the watch renders the hole map WITHOUT any projection math — just
-// draws the cached image + these anchors. `you` = tee (pre-GPS start), `pin` = green centre, `layup` =
-// recommended lay-up, `apex`/`greenCtrl` = the you→lay-up / lay-up→green curve controls (on the route,
-// so the play line bends with the dogleg). Each point is `[px, py]`.
+// draws the cached image + these anchors. `you` = tee (pre-GPS start), `pin` = green centre. `layup`
+// may be a historical compatibility anchor; visible advice must rebuild it from an explicit option
+// carry. `apex`/`greenCtrl` are curve-layout controls on the route. Each point is `[px, py]`.
 public struct WatchHoleMap: Codable, Equatable {
     public let w: Int
     public let h: Int
@@ -110,8 +160,24 @@ public struct WatchHoleMap: Codable, Equatable {
     public let layup: [Double]
     public let apex: [Double]
     public let greenCtrl: [Double]
+    /// Original CoursePrep centreline points `[px, py, cumulativeMetres]`. New downloads retain this
+    /// so detail instruments can place measured facts such as hazard edges on the real map. Optional
+    /// keeps rounds cached by older builds readable.
+    public let route: [[Double]]?
+    /// Drawing-only CourseView outline used by a vector map before the precise bitmap arrives.
+    public let greenOutline: [[Double]]?
 
-    public init(w: Int, h: Int, you: [Double], pin: [Double], layup: [Double], apex: [Double], greenCtrl: [Double]) {
+    public init(
+        w: Int,
+        h: Int,
+        you: [Double],
+        pin: [Double],
+        layup: [Double],
+        apex: [Double],
+        greenCtrl: [Double],
+        route: [[Double]]? = nil,
+        greenOutline: [[Double]]? = nil
+    ) {
         self.w = w
         self.h = h
         self.you = you
@@ -119,6 +185,156 @@ public struct WatchHoleMap: Codable, Equatable {
         self.layup = layup
         self.apex = apex
         self.greenCtrl = greenCtrl
+        self.route = route
+        self.greenOutline = greenOutline
+    }
+}
+
+/// Mirrors the phone's compact round seed. It carries only facts needed to enter and restore the real
+/// round UI; richer map/caddie state still arrives through `WatchRoundState` one hole at a time.
+public struct WatchRoundSeedHole: Codable, Equatable {
+    public let hole: Int
+    public let par: Int
+    public let distanceM: Double?
+    public let teeLatitude: Double?
+    public let teeLongitude: Double?
+    /// Optional for seeds written by older phone builds. It lets the Watch immediately resolve its
+    /// downloaded course and upgrade from the compact seed to real hole geometry.
+    public let globalId: Int?
+
+    public init(
+        hole: Int,
+        par: Int,
+        distanceM: Double?,
+        teeLatitude: Double? = nil,
+        teeLongitude: Double? = nil,
+        globalId: Int? = nil
+    ) {
+        self.hole = hole
+        self.par = par
+        self.distanceM = distanceM
+        self.teeLatitude = teeLatitude
+        self.teeLongitude = teeLongitude
+        self.globalId = globalId
+    }
+}
+
+public struct WatchRoundSeed: Codable, Equatable {
+    public let schema: String
+    public let roundId: String
+    public let courseName: String
+    public let activeHole: Int
+    public let holes: [WatchRoundSeedHole]
+
+    public init(
+        schema: String = "ai-caddie-watch-round-seed-v1",
+        roundId: String,
+        courseName: String,
+        activeHole: Int,
+        holes: [WatchRoundSeedHole]
+    ) {
+        self.schema = schema
+        self.roundId = roundId
+        self.courseName = courseName
+        self.activeHole = activeHole
+        self.holes = holes
+    }
+}
+
+/// Durable reverse relay emitted when the Watch creates a standalone round. A seed sent from the
+/// phone to the Watch is not enough here: the wearer may start a downloaded course with the phone
+/// asleep or out of range. The payload contains only factual course identity and hole facts, so the
+/// iPhone can fetch/activate its richer package independently and safely de-duplicate by roundId.
+public struct WatchRoundStart: Codable, Equatable {
+    public let schema: String
+    public let roundId: String
+    public let courseName: String
+    public let teeBox: String
+    public let nine: String?
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let activeHole: Int
+    public let holes: [WatchRoundSeedHole]
+
+    public init(
+        schema: String = "ai-caddie-watch-round-start-v1",
+        roundId: String,
+        courseName: String,
+        teeBox: String,
+        nine: String? = "all",
+        globalId: Int? = nil,
+        backGlobalId: Int? = nil,
+        activeHole: Int,
+        holes: [WatchRoundSeedHole]
+    ) {
+        self.schema = schema
+        self.roundId = roundId
+        self.courseName = courseName
+        self.teeBox = teeBox
+        self.nine = nine
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.activeHole = activeHole
+        self.holes = holes
+    }
+}
+
+/// The complete, fail-closed contract for showing one current-shot recommendation on Hole Root.
+/// Legacy `suggestedClub` / `caddieOptions` remain useful in Caddie detail, but cannot independently
+/// opt the root into an apparently live recommendation. The range is longitudinal only: p10/p90 are
+/// measured carry facts and must never be rendered as a fabricated lateral ellipse.
+public struct WatchRootCaddieRecommendation: Codable, Equatable {
+    public let decisionId: String
+    public let clubName: String
+    public let aimCarryM: Double
+    public let carryP10M: Double
+    public let carryP90M: Double
+    public let sampleSize: Int
+    public let confidence: String
+    public let source: String
+    public let mode: String
+    public let generatedAt: String
+    public let validUntil: String
+    public let originLatitude: Double
+    public let originLongitude: Double
+    public let originAccuracyM: Double
+    public let maximumMovementM: Double
+    public let evidenceCount: Int
+
+    public init(
+        decisionId: String,
+        clubName: String,
+        aimCarryM: Double,
+        carryP10M: Double,
+        carryP90M: Double,
+        sampleSize: Int,
+        confidence: String,
+        source: String,
+        mode: String,
+        generatedAt: String,
+        validUntil: String,
+        originLatitude: Double,
+        originLongitude: Double,
+        originAccuracyM: Double,
+        maximumMovementM: Double,
+        evidenceCount: Int
+    ) {
+        self.decisionId = decisionId
+        self.clubName = clubName
+        self.aimCarryM = aimCarryM
+        self.carryP10M = carryP10M
+        self.carryP90M = carryP90M
+        self.sampleSize = sampleSize
+        self.confidence = confidence
+        self.source = source
+        self.mode = mode
+        self.generatedAt = generatedAt
+        self.validUntil = validUntil
+        self.originLatitude = originLatitude
+        self.originLongitude = originLongitude
+        self.originAccuracyM = originAccuracyM
+        self.maximumMovementM = maximumMovementM
+        self.evidenceCount = evidenceCount
     }
 }
 
@@ -133,6 +349,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let hole: Int
     public let par: Int
     public let distanceM: Double?
+    public let teeLatitude: Double?
+    public let teeLongitude: Double?
     public let targetNote: String?
     public let targetLatitude: Double?
     public let targetLongitude: Double?
@@ -147,7 +365,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let decisionId: String?
     public let nextShotPrompt: String?
     public let holePlanSummary: String?
-    public let expectedStrokes: Double?
     public let expectedRemainingM: Double?
     public let evidenceSummary: String?
     public let missingDataSummary: String?
@@ -163,6 +380,7 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let greenInRegulation: Bool?
     public let fairwayResult: String?
     public let geometryCoverage: String?
+    public let geometryRevision: String?
     // watch P0.2: green Front/Middle/Back WGS84 coords (so the watch recomputes F/M/B from its OWN GPS)
     // + the topo image's geo→px projection (so the watch places its GPS/pin/landings on /topo.png).
     public let frontGreenLat: Double?
@@ -176,10 +394,11 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     // hole-map overlay anchors. Both optional — older payloads (no map) fall back to the text home view.
     public let globalId: Int?
     public let holeMap: WatchHoleMap?
-    // round-13 spec ②⑤: AI-caddie play options (激进/推荐/保守) + 障碍 carry intervals, pushed from
+    // round-13 spec ②⑤: AI-caddie play options (激进/推荐/保守) + measured hazard facts, pushed from
     // the phone. Additive/optional — default [] so older payloads decode unchanged.
     public let caddieOptions: [WatchCaddieOption]
     public let hazards: [WatchHazard]
+    public let rootCaddieRecommendation: WatchRootCaddieRecommendation?
     public let score: Int
     public let putts: Int
     public let penaltyCount: Int
@@ -191,6 +410,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case hole
         case par
         case distanceM
+        case teeLatitude
+        case teeLongitude
         case targetNote
         case targetLatitude
         case targetLongitude
@@ -205,7 +426,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case decisionId
         case nextShotPrompt
         case holePlanSummary
-        case expectedStrokes
         case expectedRemainingM
         case evidenceSummary
         case missingDataSummary
@@ -228,8 +448,10 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case greenInRegulation
         case fairwayResult
         case geometryCoverage
+        case geometryRevision
         case caddieOptions
         case hazards
+        case rootCaddieRecommendation
         case score
         case putts
         case penaltyCount
@@ -241,6 +463,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         hole: Int,
         par: Int,
         distanceM: Double?,
+        teeLatitude: Double? = nil,
+        teeLongitude: Double? = nil,
         targetNote: String? = nil,
         targetLatitude: Double? = nil,
         targetLongitude: Double? = nil,
@@ -255,7 +479,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         decisionId: String? = nil,
         nextShotPrompt: String? = nil,
         holePlanSummary: String? = nil,
-        expectedStrokes: Double? = nil,
         expectedRemainingM: Double? = nil,
         evidenceSummary: String? = nil,
         missingDataSummary: String? = nil,
@@ -278,8 +501,10 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         greenInRegulation: Bool? = nil,
         fairwayResult: String? = nil,
         geometryCoverage: String? = nil,
+        geometryRevision: String? = nil,
         caddieOptions: [WatchCaddieOption] = [],
         hazards: [WatchHazard] = [],
+        rootCaddieRecommendation: WatchRootCaddieRecommendation? = nil,
         score: Int,
         putts: Int,
         penaltyCount: Int,
@@ -289,6 +514,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.hole = hole
         self.par = par
         self.distanceM = distanceM
+        self.teeLatitude = teeLatitude
+        self.teeLongitude = teeLongitude
         self.targetNote = targetNote
         self.targetLatitude = targetLatitude
         self.targetLongitude = targetLongitude
@@ -303,7 +530,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.decisionId = decisionId
         self.nextShotPrompt = nextShotPrompt
         self.holePlanSummary = holePlanSummary
-        self.expectedStrokes = expectedStrokes
         self.expectedRemainingM = expectedRemainingM
         self.evidenceSummary = evidenceSummary
         self.missingDataSummary = missingDataSummary
@@ -326,8 +552,10 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.greenInRegulation = greenInRegulation
         self.fairwayResult = fairwayResult
         self.geometryCoverage = geometryCoverage
+        self.geometryRevision = geometryRevision
         self.caddieOptions = caddieOptions
         self.hazards = hazards
+        self.rootCaddieRecommendation = rootCaddieRecommendation
         self.score = score
         self.putts = putts
         self.penaltyCount = penaltyCount
@@ -340,6 +568,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.hole = try container.decode(Int.self, forKey: .hole)
         self.par = try container.decode(Int.self, forKey: .par)
         self.distanceM = try container.decodeIfPresent(Double.self, forKey: .distanceM)
+        self.teeLatitude = try container.decodeIfPresent(Double.self, forKey: .teeLatitude)
+        self.teeLongitude = try container.decodeIfPresent(Double.self, forKey: .teeLongitude)
         self.targetNote = try container.decodeIfPresent(String.self, forKey: .targetNote)
         self.targetLatitude = try container.decodeIfPresent(Double.self, forKey: .targetLatitude)
         self.targetLongitude = try container.decodeIfPresent(Double.self, forKey: .targetLongitude)
@@ -354,7 +584,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.decisionId = try container.decodeIfPresent(String.self, forKey: .decisionId)
         self.nextShotPrompt = try container.decodeIfPresent(String.self, forKey: .nextShotPrompt)
         self.holePlanSummary = try container.decodeIfPresent(String.self, forKey: .holePlanSummary)
-        self.expectedStrokes = try container.decodeIfPresent(Double.self, forKey: .expectedStrokes)
         self.expectedRemainingM = try container.decodeIfPresent(Double.self, forKey: .expectedRemainingM)
         self.evidenceSummary = try container.decodeIfPresent(String.self, forKey: .evidenceSummary)
         self.missingDataSummary = try container.decodeIfPresent(String.self, forKey: .missingDataSummary)
@@ -377,46 +606,33 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.greenInRegulation = try container.decodeIfPresent(Bool.self, forKey: .greenInRegulation)
         self.fairwayResult = try container.decodeIfPresent(String.self, forKey: .fairwayResult)
         self.geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage)
+        self.geometryRevision = try container.decodeIfPresent(String.self, forKey: .geometryRevision)
         self.caddieOptions = try container.decodeIfPresent([WatchCaddieOption].self, forKey: .caddieOptions) ?? []
         self.hazards = try container.decodeIfPresent([WatchHazard].self, forKey: .hazards) ?? []
+        self.rootCaddieRecommendation = try container.decodeIfPresent(
+            WatchRootCaddieRecommendation.self,
+            forKey: .rootCaddieRecommendation
+        )
         self.score = try container.decode(Int.self, forKey: .score)
         self.putts = try container.decode(Int.self, forKey: .putts)
         self.penaltyCount = try container.decode(Int.self, forKey: .penaltyCount)
         self.caddieConfidence = try container.decode(String.self, forKey: .caddieConfidence)
     }
 
-    public func applying(_ event: WatchInputEvent) -> WatchRoundState {
-        guard event.roundId == roundId, event.hole == hole else {
-            return self
-        }
-        var nextSelectedClub = selectedClub
-        var nextDistanceM = distanceM
-        var nextScore = score
-        var nextPutts = putts
-        var nextPenaltyCount = penaltyCount
-        switch event.kind {
-        case .score:
-            nextScore = Int(event.value) ?? score
-        case .putt:
-            nextPutts = Int(event.value) ?? putts
-        case .penalty:
-            nextPenaltyCount = Int(event.value) ?? penaltyCount
-        case .club:
-            nextSelectedClub = event.value
-        case .distance:
-            nextDistanceM = Double(event.value)
-        }
-        return WatchRoundState(
-            roundId: roundId,
+    public func replacingRoundId(_ newRoundId: String) -> WatchRoundState {
+        WatchRoundState(
+            roundId: newRoundId,
             hole: hole,
             par: par,
-            distanceM: nextDistanceM,
+            distanceM: distanceM,
+            teeLatitude: teeLatitude,
+            teeLongitude: teeLongitude,
             targetNote: targetNote,
             targetLatitude: targetLatitude,
             targetLongitude: targetLongitude,
             targetKind: targetKind,
             suggestedClub: suggestedClub,
-            selectedClub: nextSelectedClub,
+            selectedClub: selectedClub,
             availableClubs: availableClubs,
             shotType: shotType,
             strategyMode: strategyMode,
@@ -425,7 +641,6 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             decisionId: decisionId,
             nextShotPrompt: nextShotPrompt,
             holePlanSummary: holePlanSummary,
-            expectedStrokes: expectedStrokes,
             expectedRemainingM: expectedRemainingM,
             evidenceSummary: evidenceSummary,
             missingDataSummary: missingDataSummary,
@@ -448,8 +663,159 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             greenInRegulation: greenInRegulation,
             fairwayResult: fairwayResult,
             geometryCoverage: geometryCoverage,
+            geometryRevision: geometryRevision,
             caddieOptions: caddieOptions,
             hazards: hazards,
+            rootCaddieRecommendation: rootCaddieRecommendation,
+            score: score,
+            putts: putts,
+            penaltyCount: penaltyCount,
+            caddieConfidence: caddieConfidence
+        )
+    }
+
+    /// Replace only downloaded course/map facts. Scores, penalties, selected club, current decision
+    /// and every other player-owned field stay untouched while a partial CourseView map becomes the
+    /// precise prodgeometry map in the same persisted round.
+    public func applyingCourseMapUpgrade(_ upgraded: WatchRoundState) -> WatchRoundState {
+        guard upgraded.hole == hole else { return self }
+        // A background refresh is not always monotonic: Garmin may have published a new release,
+        // making the formerly precise cache partial until replacement bytes arrive. When the
+        // refresh carries coverage, it owns every geometry-derived optional exactly (including
+        // nil/empty); otherwise old map pixels, slopes or hazards could masquerade as the new map.
+        let replacesGeometryAuthority = upgraded.geometryCoverage != nil
+        return WatchRoundState(
+            roundId: roundId,
+            hole: hole,
+            par: upgraded.par,
+            distanceM: upgraded.distanceM ?? distanceM,
+            teeLatitude: replacesGeometryAuthority ? upgraded.teeLatitude : (upgraded.teeLatitude ?? teeLatitude),
+            teeLongitude: replacesGeometryAuthority ? upgraded.teeLongitude : (upgraded.teeLongitude ?? teeLongitude),
+            targetNote: targetNote,
+            targetLatitude: targetLatitude,
+            targetLongitude: targetLongitude,
+            targetKind: targetKind,
+            suggestedClub: replacesGeometryAuthority ? upgraded.suggestedClub : (suggestedClub ?? upgraded.suggestedClub),
+            selectedClub: selectedClub,
+            availableClubs: upgraded.availableClubs.isEmpty ? availableClubs : upgraded.availableClubs,
+            shotType: shotType,
+            strategyMode: strategyMode,
+            lie: lie,
+            offlineOptionId: offlineOptionId,
+            decisionId: decisionId,
+            nextShotPrompt: nextShotPrompt,
+            holePlanSummary: holePlanSummary,
+            expectedRemainingM: expectedRemainingM,
+            evidenceSummary: evidenceSummary,
+            missingDataSummary: missingDataSummary,
+            frontGreenM: replacesGeometryAuthority ? upgraded.frontGreenM : (upgraded.frontGreenM ?? frontGreenM),
+            centerGreenM: replacesGeometryAuthority ? upgraded.centerGreenM : (upgraded.centerGreenM ?? centerGreenM),
+            backGreenM: replacesGeometryAuthority ? upgraded.backGreenM : (upgraded.backGreenM ?? backGreenM),
+            frontGreenLat: replacesGeometryAuthority ? upgraded.frontGreenLat : (upgraded.frontGreenLat ?? frontGreenLat),
+            frontGreenLon: replacesGeometryAuthority ? upgraded.frontGreenLon : (upgraded.frontGreenLon ?? frontGreenLon),
+            centerGreenLat: replacesGeometryAuthority ? upgraded.centerGreenLat : (upgraded.centerGreenLat ?? centerGreenLat),
+            centerGreenLon: replacesGeometryAuthority ? upgraded.centerGreenLon : (upgraded.centerGreenLon ?? centerGreenLon),
+            backGreenLat: replacesGeometryAuthority ? upgraded.backGreenLat : (upgraded.backGreenLat ?? backGreenLat),
+            backGreenLon: replacesGeometryAuthority ? upgraded.backGreenLon : (upgraded.backGreenLon ?? backGreenLon),
+            holeImageProjection: replacesGeometryAuthority ? upgraded.holeImageProjection : (upgraded.holeImageProjection ?? holeImageProjection),
+            globalId: upgraded.globalId ?? globalId,
+            holeMap: replacesGeometryAuthority ? upgraded.holeMap : (upgraded.holeMap ?? holeMap),
+            playsLikeDistanceM: replacesGeometryAuthority ? upgraded.playsLikeDistanceM : (upgraded.playsLikeDistanceM ?? playsLikeDistanceM),
+            elevationDeltaM: replacesGeometryAuthority ? upgraded.elevationDeltaM : (upgraded.elevationDeltaM ?? elevationDeltaM),
+            lastShotDistanceM: lastShotDistanceM,
+            distanceFromLastShotM: distanceFromLastShotM,
+            greenInRegulation: greenInRegulation,
+            fairwayResult: fairwayResult,
+            geometryCoverage: upgraded.geometryCoverage ?? geometryCoverage,
+            geometryRevision: replacesGeometryAuthority ? upgraded.geometryRevision : (upgraded.geometryRevision ?? geometryRevision),
+            caddieOptions: replacesGeometryAuthority
+                ? upgraded.caddieOptions
+                : (upgraded.caddieOptions.isEmpty ? caddieOptions : upgraded.caddieOptions),
+            hazards: replacesGeometryAuthority
+                ? upgraded.hazards
+                : (upgraded.hazards.isEmpty ? hazards : upgraded.hazards),
+            rootCaddieRecommendation: rootCaddieRecommendation,
+            score: score,
+            putts: putts,
+            penaltyCount: penaltyCount,
+            caddieConfidence: caddieConfidence
+        )
+    }
+
+    public func applying(_ event: WatchInputEvent) -> WatchRoundState {
+        guard event.roundId == roundId, event.hole == hole else {
+            return self
+        }
+        var nextSelectedClub = selectedClub
+        var nextDistanceM = distanceM
+        var nextScore = score
+        var nextPutts = putts
+        var nextPenaltyCount = penaltyCount
+        var nextFairwayResult = fairwayResult
+        switch event.kind {
+        case .score:
+            nextScore = Int(event.value) ?? score
+            if let fairwayResult = event.fairwayResult {
+                nextFairwayResult = fairwayResult
+            }
+        case .putt:
+            nextPutts = Int(event.value) ?? putts
+        case .penalty:
+            nextPenaltyCount = Int(event.value) ?? penaltyCount
+        case .club:
+            nextSelectedClub = event.value
+        case .distance:
+            nextDistanceM = Double(event.value)
+        case .location:
+            break
+        }
+        return WatchRoundState(
+            roundId: roundId,
+            hole: hole,
+            par: par,
+            distanceM: nextDistanceM,
+            teeLatitude: teeLatitude,
+            teeLongitude: teeLongitude,
+            targetNote: targetNote,
+            targetLatitude: targetLatitude,
+            targetLongitude: targetLongitude,
+            targetKind: targetKind,
+            suggestedClub: suggestedClub,
+            selectedClub: nextSelectedClub,
+            availableClubs: availableClubs,
+            shotType: shotType,
+            strategyMode: strategyMode,
+            lie: lie,
+            offlineOptionId: offlineOptionId,
+            decisionId: decisionId,
+            nextShotPrompt: nextShotPrompt,
+            holePlanSummary: holePlanSummary,
+            expectedRemainingM: expectedRemainingM,
+            evidenceSummary: evidenceSummary,
+            missingDataSummary: missingDataSummary,
+            frontGreenM: frontGreenM,
+            centerGreenM: centerGreenM,
+            backGreenM: backGreenM,
+            frontGreenLat: frontGreenLat,
+            frontGreenLon: frontGreenLon,
+            centerGreenLat: centerGreenLat,
+            centerGreenLon: centerGreenLon,
+            backGreenLat: backGreenLat,
+            backGreenLon: backGreenLon,
+            holeImageProjection: holeImageProjection,
+            globalId: globalId,
+            holeMap: holeMap,
+            playsLikeDistanceM: playsLikeDistanceM,
+            elevationDeltaM: elevationDeltaM,
+            lastShotDistanceM: lastShotDistanceM,
+            distanceFromLastShotM: distanceFromLastShotM,
+            greenInRegulation: greenInRegulation,
+            fairwayResult: nextFairwayResult,
+            geometryCoverage: geometryCoverage,
+            geometryRevision: geometryRevision,
+            caddieOptions: caddieOptions,
+            hazards: hazards,
+            rootCaddieRecommendation: rootCaddieRecommendation,
             score: nextScore,
             putts: nextPutts,
             penaltyCount: nextPenaltyCount,

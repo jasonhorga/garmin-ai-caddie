@@ -2,22 +2,27 @@
 
 from __future__ import annotations
 
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import UTC, datetime, timedelta
-import fcntl
+from functools import lru_cache
 import json
+import logging
+import math
 from pathlib import Path
-import re
-from typing import Any
+import time
+from typing import Any, Callable
 
 from ai_caddie.courses import course_prep
+from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.reports.annotations import annotations_for_target, list_annotations
+from ai_caddie.core.data import hazard_path, read_json
 from ai_caddie.core.fixtures import fixture_history_data
-from ai_caddie.geometry.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
+from ai_caddie.geometry.geometry_evidence import build_route_geometry_evidence, geometry_coverage_for_hole
+from ai_caddie.geometry.shot_projection import local_to_world
 from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.history.history_stats import _effective_score_data
 from ai_caddie.reports.report_labels_zh import issue_label_zh
 from ai_caddie.history.stats_cache import cached_build_history_stats
-from ai_caddie.llm.llm_providers import redact_secret_text
 from ai_caddie.llm.weather_context import (
     WeatherTransport,
     build_weather_snapshot,
@@ -33,17 +38,44 @@ OFFLINE_STALE_AFTER_HOURS = 6
 OFFLINE_EXPIRES_AFTER_HOURS = 24
 LIVE_SHOT_TYPES = ["tee", "approach", "recovery"]
 MANUAL_NOTE_KINDS = {"strategy_note", "hole_note", "round_note", "weather_context_note"}
-REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
-REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
 PLAYER_PROFILE_SOURCE_REF_LIMIT = 30
 PLAYER_PROFILE_SIGNAL_REF_LIMIT = 12
+DIAGNOSTIC_SOURCE_REF_LIMIT = 12
 COURSE_OPTION_LIMIT = 24
 OFFLINE_OPTION_STRONG_SAMPLE = 10
 OFFLINE_OPTION_SAMPLE_REF_LIMIT = 6
+MOBILE_CADDIE_RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
+
+# A cold 18-hole course performs independent network/download/Draco jobs per hole.  Keep a little
+# overlap so the precise upgrade completes in the background, but leave half of a four-core shared
+# homeserver available for the API, database, and other users.  This process-wide pool also prevents
+# simultaneous users/courses from multiplying the CPU-heavy Node/Python children without bound.
+_GEOMETRY_INSTALL_POOL = ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="course-geometry-install",
+)
+logger = logging.getLogger(__name__)
 
 
 def _format_time(value: datetime) -> str:
     return value.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+@lru_cache(maxsize=128)
+def _load_mobile_hazards(global_id: int, local_hole: int) -> dict[str, Any]:
+    """Load the small hazard/Tee authority needed by a mobile package.
+
+    ``analysis.load_geometry`` also expands every surface mesh into triangle components for shot
+    classification. A start-round package never consumes those components, but retaining 18 of
+    them pushed one API worker above 700 MB. The release-bound hazard export already carries the
+    selected Tee positions/distances and compact hazard identities needed here.
+    """
+
+    path = hazard_path(int(global_id), int(local_hole))
+    if not path.exists():
+        return {}
+    value = read_json(path)
+    return value if isinstance(value, dict) else {}
 
 
 def _event_cursor(
@@ -56,17 +88,20 @@ def _event_cursor(
     # The event log is now per-player partitioned, so the cursor reads the acting player's OWN
     # partition (owner unchanged) — no short-circuit needed; a member only ever sees their own
     # sequence/pending-count, never the owner's (different path).
-    latest_sequence = _latest_event_sequence(round_id, root=root, player_id=player_id)
-    cursor: dict[str, Any] = {"serverSequence": latest_sequence, "pendingEventCount": 0}
     clean_client_id = _clean_client_id(client_id)
+    path = mobile_event_log(root, player_id=player_id)
+    latest_sequence, pending_count, last_acked = open_mobile_event_store(path.parent).read_round_cursor(
+        str(round_id),
+        clean_client_id,
+    )
+    cursor: dict[str, Any] = {"serverSequence": latest_sequence, "pendingEventCount": 0}
     if not clean_client_id:
         return cursor
-    last_acked = _client_ack_sequence(round_id, clean_client_id, root=root, player_id=player_id)
     cursor.update(
         {
             "clientId": clean_client_id,
             "lastAckedServerSequence": last_acked,
-            "pendingEventCount": _pending_event_count(round_id, after_sequence=last_acked, root=root, player_id=player_id),
+            "pendingEventCount": pending_count,
             "replayEndpoint": f"/api/v2/mobile/rounds/{round_id}/events/replay",
         }
     )
@@ -148,7 +183,7 @@ def _recent_history(source: HistoryData, stats: dict[str, Any], round_row: dict[
                 "sourceRefs": source_refs,
             }
         )
-        if len(recent_rounds) >= 5:
+        if len(recent_rounds) >= 25:
             break
     holes = []
     for hole in round_row.get("holes") or []:
@@ -304,7 +339,7 @@ def _course_location(row: dict[str, Any]) -> tuple[float | None, float | None]:
 def _safe_int(value: Any) -> int | None:
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -581,15 +616,26 @@ def _round_hole_geometry_ref(round_row: dict[str, Any], hole: int) -> tuple[int 
     return global_id, hole
 
 
-def _geometry_coverage_for_package_hole(round_row: dict[str, Any], hole: int) -> str:
+def _geometry_evidence_for_package_hole(round_row: dict[str, Any], hole: int) -> dict[str, Any]:
     global_id, local_hole = _round_hole_geometry_ref(round_row, hole)
     if global_id is None:
-        return "missing"
+        return {
+            "coverage": "missing",
+            "geometryRevision": None,
+            "authorityObservation": "unknown",
+        }
     try:
-        coverage = geometry_coverage_for_hole(global_id, local_hole)
+        return geometry_coverage_for_hole(
+            global_id,
+            local_hole,
+            require_current_authority=True,
+        )
     except Exception:
-        return "missing"
-    return str(coverage.get("coverage") or "missing")
+        return {
+            "coverage": "missing",
+            "geometryRevision": None,
+            "authorityObservation": "unknown",
+        }
 
 
 def _geometry_ensure_source_ref(global_id: int, local_hole: int) -> str:
@@ -684,26 +730,92 @@ def _ensure_geometry_for_package_holes(round_row: dict[str, Any], hole_numbers: 
                 result=result,
             )
         )
+    # Both loaders cache missing files. A successful first download must become visible to the
+    # same process immediately, without requiring an app/server restart.
+    from ai_caddie.caddie.analysis import load_geometry
+
+    load_geometry.cache_clear()
+    _load_mobile_hazards.cache_clear()
     return _geometry_ensure_summary(results, requested=True)
 
 
-def _ensure_geometry_for_course(global_id: int, holes: list[int] | None = None) -> dict[str, Any]:
+def _ensure_geometry_for_course(
+    global_id: int,
+    holes: list[int] | None = None,
+    *,
+    on_hole_complete: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     from ai_caddie.geometry.geometry_sync import ensure_prodgeometry
 
-    results: list[dict[str, Any]] = []
-    for local_hole in holes or list(range(1, 19)):
+    requested_holes = [int(local_hole) for local_hole in (holes or list(range(1, 19)))]
+
+    def ensure_one(local_hole: int) -> dict[str, Any]:
+        started = time.perf_counter()
         try:
             result = ensure_prodgeometry(int(global_id), int(local_hole))
         except Exception:
             result = {"status": "failed", "ok": False, "globalId": int(global_id), "localHole": int(local_hole)}
-        results.append(
-            _compact_geometry_ensure_result(
-                hole=int(local_hole),
-                global_id=int(global_id),
-                local_hole=int(local_hole),
-                result=result,
-            )
+        row = _compact_geometry_ensure_result(
+            hole=int(local_hole),
+            global_id=int(global_id),
+            local_hole=int(local_hole),
+            result=result,
         )
+        logger.info(
+            "course_install stage=geometry gid=%s hole=%s status=%s ok=%s duration_ms=%s",
+            int(global_id),
+            int(local_hole),
+            row.get("status"),
+            bool(row.get("ok")),
+            int((time.perf_counter() - started) * 1000),
+        )
+        return row
+
+    # Do not enqueue an entire 18-hole course at once. The executor is process-wide, so the former
+    # eager submission let one background download put 18 jobs ahead of the first playing hole of
+    # every course selected afterwards. Keep only a two-job window per caller: completed jobs admit
+    # the next hole, while a newly selected course can place its first hole after at most that small
+    # window. Results are restored to request order so the public summary remains deterministic.
+    indexed_holes = list(enumerate(requested_holes))
+    iterator = iter(indexed_holes)
+    pending: dict[Any, int] = {}
+    results_by_index: dict[int, dict[str, Any]] = {}
+
+    for _ in range(min(2, len(indexed_holes))):
+        index, local_hole = next(iterator)
+        pending[_GEOMETRY_INSTALL_POOL.submit(ensure_one, local_hole)] = index
+
+    while pending:
+        completed, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
+        ordered_completed = sorted(completed, key=lambda future: pending[future])
+        for future in ordered_completed:
+            index = pending.pop(future)
+            results_by_index[index] = future.result()
+            # A caller can feed the completed hole into the next bounded pipeline stage without
+            # changing the public result ordering.  Keep the callback outside the geometry worker
+            # itself: it runs on this coordinator thread and must never block the shared install
+            # pool from admitting the next two-hole window.
+            if on_hole_complete is not None:
+                try:
+                    on_hole_complete(results_by_index[index])
+                except Exception:
+                    # Preparation/rendering is best effort.  A callback failure must not turn a
+                    # successfully installed geometry hole into a failed course install.
+                    pass
+        for _ in ordered_completed:
+            try:
+                index, local_hole = next(iterator)
+            except StopIteration:
+                break
+            pending[_GEOMETRY_INSTALL_POOL.submit(ensure_one, local_hole)] = index
+
+    results = [results_by_index[index] for index in range(len(indexed_holes))]
+    # Both loaders cache missing files. A first course download must be visible to the package
+    # response and the next Tee read without requiring an app/server restart.
+    from ai_caddie.caddie.analysis import load_geometry
+
+    load_geometry.cache_clear()
+    _load_mobile_hazards.cache_clear()
     return _geometry_ensure_summary(results, requested=True)
 
 
@@ -713,7 +825,10 @@ def _package_holes(
     *,
     course_key: str,
     hole_numbers: list[int] | None = None,
+    tee_box: str | None = None,
 ) -> list[dict[str, Any]]:
+    from ai_caddie.caddie.analysis import _selected_tee
+
     source_holes: dict[int, dict[str, Any]] = {}
     for index, hole in enumerate(round_row.get("holes") or [], start=1):
         if not isinstance(hole, dict):
@@ -732,20 +847,71 @@ def _package_holes(
             or _hole_par_from_pars(round_row, number)
             or 4
         )
-        yards = _safe_int(source_hole.get("yards") if source_hole.get("yards") is not None else stats_hole.get("yards"))
-        coverage = str(source_hole.get("geometryCoverage") or stats_hole.get("geometryCoverage") or "")
-        if not coverage or coverage == "missing":
-            coverage = _geometry_coverage_for_package_hole(round_row, number)
+        recorded_yards = _safe_int(
+            source_hole.get("yards") if source_hole.get("yards") is not None else stats_hole.get("yards")
+        )
+        # A historical round only supplies the course/hole template. When the player explicitly
+        # chooses today's Tee, its release geometry is authoritative for nominal hole length;
+        # reusing a prior round's yardage could silently show a different Tee. Missing selected-Tee
+        # geometry stays nil rather than being replaced with live distance-to-green.
+        source_gid, source_local = _round_hole_geometry_ref(round_row, number)
+        yards = recorded_yards
+        tee_latitude = _safe_float(source_hole.get("teeLatitude"))
+        tee_longitude = _safe_float(source_hole.get("teeLongitude"))
+        if tee_latitude is not None and not -90 <= tee_latitude <= 90:
+            tee_latitude = None
+        if tee_longitude is not None and not -180 <= tee_longitude <= 180:
+            tee_longitude = None
+        if tee_box:
+            # Historical yardage may belong to a different Tee and is therefore not a safe
+            # fallback. The CourseView route is a current release-bound factual centre distance,
+            # so keep it until the selected-Tee prodgeometry replaces it below.
+            yards = (
+                recorded_yards
+                if source_hole.get("yardageSource") == "courseData-route"
+                else None
+            )
+            try:
+                geometry = {"hazards": _load_mobile_hazards(int(source_gid), int(source_local))}
+                selected_tee = _selected_tee(geometry, tee_box)
+                target_distance_m = float((selected_tee or {}).get("target_distance_m"))
+                if target_distance_m > 0:
+                    yards = int(round(target_distance_m * 1.09361))
+                hazards = geometry.get("hazards") or {}
+                position = (selected_tee or {}).get("position")
+                if isinstance(position, (list, tuple)) and len(position) >= 2:
+                    latitude, longitude = local_to_world(
+                        float(position[0]),
+                        float(position[1]),
+                        ref_lat=float(hazards.get("refLat")),
+                        ref_lon=float(hazards.get("refLon")),
+                    )
+                    if -90 <= latitude <= 90 and -180 <= longitude <= 180:
+                        tee_latitude = latitude
+                        tee_longitude = longitude
+            except (OSError, TypeError, ValueError, OverflowError):
+                pass
+        # A prior round's `ready` describes what existed when that round was ingested; it is not
+        # authority for today's Garmin release.  Always resolve the physical hole against the
+        # current cached release before advertising precise facts to a live client.
+        geometry_evidence = _geometry_evidence_for_package_hole(round_row, number)
+        coverage = str(geometry_evidence.get("coverage") or "missing")
+        geometry_revision = geometry_evidence.get("geometryRevision")
         # Per-hole source course id + local hole, so the live 2D map fetches the RIGHT course's
         # geometry per hole — incl. composite rounds where holes 10–18 live in a second loop's gid.
-        source_gid, source_local = _round_hole_geometry_ref(round_row, number)
         holes.append({
             "number": number,
             "par": par,
             "yards": yards,
             "geometryCoverage": coverage or "missing",
+            "geometryRevision": str(geometry_revision) if geometry_revision else None,
+            "geometryAuthorityObservation": str(
+                geometry_evidence.get("authorityObservation") or "unknown"
+            ),
             "sourceGlobalId": int(source_gid) if source_gid else None,
             "sourceLocalHole": int(source_local) if source_local else number,
+            "teeLatitude": tee_latitude,
+            "teeLongitude": tee_longitude,
         })
     return holes
 
@@ -780,6 +946,48 @@ def _course_prep_package(global_id: int, holes: list[dict[str, Any]], *, player_
         "missingData": _dedupe_missing(
             [row for hole in prep_rows if isinstance(hole, dict) for row in (hole.get("missingData") or []) if isinstance(row, dict)]
         ),
+    }
+
+
+def first_hole_lightweight_course_prep(
+    package: dict[str, Any],
+    *,
+    player_id: str = OWNER_ID,
+) -> dict[str, Any] | None:
+    """Return one immediately drawable, CourseView-only seed for a live course package.
+
+    The full all-hole prep remains excluded from Start Round.  Seeding only the first playable
+    hole closes the cold-install race: background prodgeometry may start after the package response,
+    but the phone/watch already owns a factual route before any precise mesh work can contend with
+    its on-demand request.
+    """
+    holes = package.get("holes") or []
+    first = next((row for row in holes if isinstance(row, dict)), None)
+    if first is None:
+        return None
+    course = package.get("course") or {}
+    round_hole = _safe_int(first.get("number"))
+    source_global_id = _safe_int(first.get("sourceGlobalId") or course.get("globalId"))
+    source_local_hole = _safe_int(first.get("sourceLocalHole") or round_hole)
+    if not round_hole or not source_global_id or not source_local_hole:
+        return None
+    try:
+        prep = course_prep.lightweight_prep_hole(
+            source_global_id,
+            source_local_hole,
+            player_id=player_id,
+        )
+    except Exception:
+        return None
+    if not prep or not prep.get("route") or not prep.get("holeImageProjection"):
+        return None
+    seeded = dict(prep)
+    seeded["hole"] = round_hole
+    return {
+        "schema": "ai-caddie-course-prep-package-v1",
+        "globalId": int(course.get("globalId") or source_global_id),
+        "holes": [seeded],
+        "missingData": list(seeded.get("missingData") or []),
     }
 
 
@@ -856,6 +1064,14 @@ def _diagnostic_row_matches(row: dict[str, Any], relevant_refs: set[str], issue_
     return bool(issue and issue in issue_names)
 
 
+def _diagnostic_ref_fields(row: dict[str, Any]) -> dict[str, Any]:
+    refs = _refs_from_row(row)
+    fields: dict[str, Any] = {"sourceRefs": refs[:DIAGNOSTIC_SOURCE_REF_LIMIT]}
+    if len(refs) > DIAGNOSTIC_SOURCE_REF_LIMIT:
+        fields["sourceRefCount"] = len(refs)
+    return fields
+
+
 def _compact_diagnostic_row(row: dict[str, Any]) -> dict[str, Any]:
     compact = {
         "issue": row.get("issue"),
@@ -864,7 +1080,7 @@ def _compact_diagnostic_row(row: dict[str, Any]) -> dict[str, Any]:
         "estimatedStrokesLost": row.get("estimatedStrokesLost"),
         "actualStrokesLost": row.get("actualStrokesLost"),
         "actualToParImpact": row.get("actualToParImpact"),
-        "sourceRefs": _refs_from_row(row),
+        **_diagnostic_ref_fields(row),
         "coverage": row.get("coverage"),
         "confidence": row.get("confidence"),
     }
@@ -906,7 +1122,7 @@ def _diagnostic_context_for_seed(
             "state": row.get("state"),
             "ready": row.get("ready"),
             "total": row.get("total"),
-            "sourceRefs": _refs_from_row(row),
+            **_diagnostic_ref_fields(row),
         }
         for row in (stats.get("dataQuality") if isinstance(stats.get("dataQuality"), list) else [])
         if isinstance(row, dict) and str(row.get("state") or "").lower() not in {"good", "ready"}
@@ -1001,15 +1217,30 @@ def _option_risks(avoid_zones: list[dict[str, Any]] | None, carry_m: float) -> t
     every option. near = lands by it; line = a carry hazard this carry is near/just clearing."""
     near: list[dict[str, Any]] = []
     line: list[dict[str, Any]] = []
+
+    def _fact(zone: dict[str, Any], *, kind: str, zone_id: str) -> dict[str, Any]:
+        fact: dict[str, Any] = {"kind": kind, "id": zone_id}
+        for key in (
+            "carryToFront_m",
+            "carryToClear_m",
+            "distanceToCenter_m",
+            "landingRadius_m",
+            "overlap_m",
+            "source",
+        ):
+            if zone.get(key) is not None:
+                fact[key] = zone[key]
+        return fact
+
     for zone in avoid_zones or []:
         kind = str(zone.get("kind") or "hazard")
         zone_id = str(zone.get("id") or "hazard")
         center = zone.get("distanceToCenter_m")
         clear = zone.get("carryToClear_m")
         if center is not None and abs(float(center) - carry_m) <= 18.0:
-            near.append({"kind": kind, "id": zone_id})
+            near.append(_fact(zone, kind=kind, zone_id=zone_id))
         elif clear is not None and -10.0 <= (float(clear) - carry_m) <= 30.0:
-            line.append({"kind": kind, "id": zone_id})
+            line.append(_fact(zone, kind=kind, zone_id=zone_id))
     return near, line
 
 
@@ -1176,9 +1407,21 @@ def _geometry_seed(global_id: int, local_hole: int, fallback_coverage: str) -> t
         missing_data.append({"label": "geometry", "reason": "globalId missing from live round package"})
         return {**geometry, "hazards": hazards}, evidence, missing_data
     try:
-        coverage = geometry_coverage_for_hole(global_id, local_hole)
-        hole_map = build_hole_map_dto(global_id, local_hole)
-        hazards = _hazards_from_hole_map(hole_map)
+        # The offline seed only needs compact hazard identity. Building a full WGS84 hole-map DTO
+        # expanded every fairway/rough/green mesh into GeoJSON, then immediately discarded every
+        # non-hazard feature. On a real 18-hole course that made the fast start package take about
+        # 25 seconds on every request. Read the authority-bound compact hazard/Tee export instead.
+        coverage = geometry_coverage_for_hole(
+            global_id,
+            local_hole,
+            require_current_authority=True,
+        )
+        hazard_source = (
+            _load_mobile_hazards(int(global_id), int(local_hole))
+            if coverage.get("coverage") == "ready"
+            else {}
+        )
+        hazards = _hazards_from_geometry(hazard_source)
         geometry = {
             "coverage": str(coverage.get("coverage") or fallback_coverage),
             "hasHazards": bool(coverage.get("hasHazards")),
@@ -1188,7 +1431,8 @@ def _geometry_seed(global_id: int, local_hole: int, fallback_coverage: str) -> t
         }
         evidence.extend(coverage.get("evidence") or [])
         missing_data.extend(coverage.get("missingData") or [])
-        missing_data.extend(hole_map.get("missingData") or [])
+        if hazard_source and (hazard_source.get("refLat") is None or hazard_source.get("refLon") is None):
+            missing_data.append({"label": "geometry_reference", "reason": "hazard geometry missing WGS84 reference"})
     except Exception:
         missing_data.append({"label": "geometry", "reason": "geometry evidence could not be loaded for offline seed"})
         geometry["hazards"] = hazards
@@ -1201,18 +1445,52 @@ def _route_evidence_seed(
     hole: dict[str, Any],
     source_ref: str,
     club_profiles: list[dict[str, Any]],
+    tee_box: str | None = None,
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
     yards = hole.get("yards")
     target_y = _route_target_yards_or_club_m(yards, club_profiles)
     if not global_id or target_y is None:
         return None, [], [{"label": "route_geometry", "reason": "globalId and playable route target are required for offline seed"}]
     try:
+        hazard_source = _load_mobile_hazards(int(global_id), int(local_hole)) or None
+        start = {"x": 0.0, "y": 0.0}
+        target = {"x": 0.0, "y": target_y}
+        if hazard_source:
+            # The compact authority already binds every real Tee and the selected green/dogleg
+            # endpoint in prodgeometry's local frame.  A synthetic (0, 0) -> (0, yardage) line is
+            # not that frame and can miss every real hazard on a rotated hole.  Use the requested
+            # Tee and factual target whenever they are available; keep the old fallback only for
+            # legacy exports that do not carry these anchors.
+            from ai_caddie.caddie.analysis import _selected_tee
+
+            selected_tee = _selected_tee(
+                {"globalId": int(global_id), "hazards": hazard_source},
+                tee_box,
+            )
+            target_position = (hazard_source.get("target") or {}).get("position")
+            tee_position = (selected_tee or {}).get("position")
+            if (
+                isinstance(tee_position, list)
+                and len(tee_position) >= 2
+                and isinstance(target_position, list)
+                and len(target_position) >= 2
+            ):
+                coordinates = [*tee_position[:2], *target_position[:2]]
+                if all(
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(float(value))
+                    for value in coordinates
+                ):
+                    start = {"x": float(tee_position[0]), "y": float(tee_position[1])}
+                    target = {"x": float(target_position[0]), "y": float(target_position[1])}
         route = build_route_geometry_evidence(
             global_id,
             local_hole,
-            start={"x": 0.0, "y": 0.0},
-            target={"x": 0.0, "y": target_y},
+            start=start,
+            target=target,
             landing_radius_m=18.0,
+            _hazards_override=hazard_source,
         )
     except Exception:
         return None, [], [{"label": "route_geometry", "reason": "route geometry evidence could not be loaded for offline seed"}]
@@ -1235,6 +1513,71 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def hydrate_live_caddie_geometry_context(context: dict[str, Any]) -> dict[str, Any]:
+    """Refresh a cold iOS decision seed once precise geometry finishes.
+
+    A new course intentionally starts from the small CourseView package while prodgeometry is
+    generated in the background.  The immutable live-round package therefore contains a degraded
+    caddie seed.  The phone retries its decision after the per-hole precise map arrives; use that
+    request boundary to replace only geometry-derived fields with current server authority, while
+    retaining the round/player/history facts carried by the seed.
+    """
+
+    refreshed = dict(context)
+    if str(context.get("source") or "") != "ios_live":
+        return refreshed
+    global_id = _safe_int(context.get("globalId"))
+    local_hole = _safe_int(context.get("localHole") or context.get("hole"))
+    if not global_id or not local_hole or global_id <= 0 or local_hole <= 0:
+        return refreshed
+
+    fallback_coverage = str((context.get("geometry") or {}).get("coverage") or "missing")
+    geometry, _geometry_evidence, _geometry_missing = _geometry_seed(
+        global_id,
+        local_hole,
+        fallback_coverage,
+    )
+    if str(geometry.get("coverage") or "").lower() != "ready":
+        return refreshed
+
+    raw_profiles = context.get("clubProfiles")
+    if isinstance(raw_profiles, dict):
+        club_profiles = [row for row in raw_profiles.values() if isinstance(row, dict)]
+    elif isinstance(raw_profiles, list):
+        club_profiles = [row for row in raw_profiles if isinstance(row, dict)]
+    else:
+        club_profiles = []
+
+    source_ref = str(context.get("sourceRef") or f"live-course-{global_id}:{local_hole}")
+    route_evidence, _route_evidence_rows, _route_missing = _route_evidence_seed(
+        global_id,
+        local_hole,
+        {"yards": context.get("yards")},
+        source_ref,
+        club_profiles,
+        str(context.get("teeBox") or "unknown"),
+    )
+
+    refreshed["geometry"] = geometry
+    refreshed["hazards"] = geometry.get("hazards") or []
+    if route_evidence:
+        refreshed["routeEvidence"] = route_evidence
+        target_distance_m = float(route_evidence.get("routeLength_m") or 0.0)
+        if target_distance_m > 0:
+            refreshed["holeRemaining_m"] = round(target_distance_m, 1)
+        candidate_routes = _tee_candidate_routes(
+            {"yards": context.get("yards")},
+            club_profiles,
+            geometry.get("hazards") or [],
+            par=_safe_int(context.get("par")) or 4,
+            target_m=target_distance_m,
+            avoid_zones=route_evidence.get("avoidZones") or [],
+        )
+        if candidate_routes:
+            refreshed["candidateRoutes"] = candidate_routes
+    return refreshed
 
 
 def _compact_source_refs(value: Any, *, limit: int) -> list[str]:
@@ -1337,17 +1680,31 @@ def _mobile_player_profile(stats: dict[str, Any]) -> dict[str, Any]:
     return profile
 
 
-def _hazards_from_hole_map(hole_map: dict[str, Any]) -> list[dict[str, Any]]:
-    features = ((hole_map.get("featureCollection") or {}).get("features") or [])
+def _hazards_from_geometry(geometry: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = geometry.get("hazards") if isinstance(geometry.get("hazards"), list) else []
     hazards: list[dict[str, Any]] = []
-    for feature in features:
-        properties = feature.get("properties") if isinstance(feature, dict) else None
-        if not isinstance(properties, dict) or properties.get("layer") != "hazard":
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        kind = str(row.get("kind") or row.get("type") or "hazard")
+        # The compact prodgeometry authority groups every decoded surface under `hazards`, including
+        # fairway, green, rough and Tee boxes.  Only penalty/obstruction surfaces belong in caddie
+        # avoid zones; treating a fairway as a hazard reverses the product recommendation.
+        if kind not in MOBILE_CADDIE_RISK_KINDS:
+            continue
+        ring = row.get("polygon") or row.get("points") or row.get("path")
+        has_polygon = isinstance(ring, list) and len(ring) >= 3
+        has_bound_identity = bool(row.get("id")) and bool(row.get("kind") or row.get("type"))
+        # Current prodgeometry deliberately stores compact authority-bound hazard summaries
+        # (id/kind/centroid/Tee distances) rather than duplicating mesh polygons. They are still
+        # factual hazards and must not collapse the offline context to hazardCount=0. Legacy rows
+        # without either a usable polygon or an explicit bound identity remain excluded.
+        if not has_polygon and not has_bound_identity:
             continue
         hazards.append(
             {
-                "kind": str(properties.get("kind") or "hazard"),
-                "id": str(properties.get("id") or f"hazard-{len(hazards) + 1}"),
+                "kind": kind,
+                "id": str(row.get("id") or f"hazard-{len(hazards) + 1}"),
                 "source": "geometry_map",
             }
         )
@@ -1400,6 +1757,7 @@ def _caddie_context_seeds(
             hole,
             source_ref,
             club_profiles,
+            str(round_row.get("teeBox") or round_row.get("tee") or "unknown"),
         )
         # Distance + distance-aware avoid zones for picking sensible (safe/stock/attack) clubs and
         # per-option risks (instead of "always the longest club" + the hole's one dominant hazard).
@@ -1429,6 +1787,7 @@ def _caddie_context_seeds(
             "hole": number,
             "globalId": geometry_global_id or None,
             "localHole": local_hole,
+            "teeBox": str(round_row.get("teeBox") or round_row.get("tee") or "unknown"),
             "par": hole.get("par"),
             "yards": hole.get("yards"),
             "geometry": geometry,
@@ -1451,6 +1810,8 @@ def _caddie_context_seeds(
             },
             "historicalHoleIssues": hole_stats.get("repeatedIssues") or [],
         }
+        if target_distance_m > 0:
+            context["holeRemaining_m"] = round(target_distance_m, 1)
         if course_form:
             context["courseForm"] = course_form
         if diagnostic_context:
@@ -1721,6 +2082,7 @@ def build_live_round_package(
     ensure_geometry: bool = False,
     geometry_ensure: dict[str, Any] | None = None,
     include_course_prep: bool = True,
+    include_event_cursor: bool = True,
     stats_data: HistoryData | None = None,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
@@ -1767,7 +2129,13 @@ def build_live_round_package(
     hole_numbers = _expected_package_hole_numbers(round_row, stats, course_key=course_key)
     if ensure_geometry and geometry_ensure is None:
         geometry_ensure = _ensure_geometry_for_package_holes(round_row, hole_numbers)
-    holes = _package_holes(round_row, stats, course_key=course_key, hole_numbers=hole_numbers)
+    holes = _package_holes(
+        round_row,
+        stats,
+        course_key=course_key,
+        hole_numbers=hole_numbers,
+        tee_box=tee_box,
+    )
     club_profiles = [
         {
             "clubName": row.get("club"),
@@ -1885,7 +2253,28 @@ def build_live_round_package(
             ]
         )
     package_state = "ready" if not package_missing_data and all(row["state"] == "ready" for row in readiness_checks) else "degraded"
-    course_global_id = int(round_row.get("globalId") or 0)
+    # Garmin's real scorecard rows do not always carry the convenience ``globalId`` field.  In
+    # particular, combined/nine-hole rounds can expose only the physical loop ids.  Every package
+    # hole already resolves that authority through ``_round_hole_geometry_ref``; keep the package's
+    # primary course id on the same authority so a historical round can continue into prep/topo.
+    course_global_id = int(
+        _safe_int(
+            round_row.get("globalId")
+            or round_row.get("courseGlobalId")
+            or round_row.get("courseId")
+            or round_row.get("frontNineGlobalCourseId")
+            or round_row.get("backNineGlobalCourseId")
+        )
+        or next(
+            (
+                source_id
+                for hole in holes
+                if (source_id := _safe_int(hole.get("sourceGlobalId"))) is not None
+                and source_id > 0
+            ),
+            0,
+        )
+    )
     course_prep_package = _course_prep_package(course_global_id, holes, player_id=player_id) if (preparation_mode == "course" and include_course_prep) else None
     return {
         "schema": "ai-caddie-live-round-package-v1",
@@ -1916,7 +2305,14 @@ def build_live_round_package(
                 "expiresAfterHours": OFFLINE_EXPIRES_AFTER_HOURS,
             },
         },
-        "eventCursor": _event_cursor(round_id, root=root, client_id=client_id, player_id=player_id),
+        # One vocabulary for phone, Watch and Web. A degraded package remains useful as a
+        # download/progress state, but is blocked from entering the full prep workbench.
+        "readinessState": "ready" if package_state == "ready" else "blocked",
+        "eventCursor": (
+            _event_cursor(round_id, root=root, client_id=client_id, player_id=player_id)
+            if include_event_cursor
+            else {"serverSequence": 0, "pendingEventCount": 0}
+        ),
         "recentHistory": recent_history,
         "cachedCaddieRules": _cached_caddie_rules(),
         "generatedAt": _format_time(prepared_at),
@@ -1924,39 +2320,145 @@ def build_live_round_package(
 
 
 def _geometry_only_course_template(
-    global_id: int, *, round_id: str, tee_box: str | None = None, course_name: str | None = None
+    global_id: int,
+    *,
+    round_id: str,
+    tee_box: str | None = None,
+    course_name: str | None = None,
+    ensure_lightweight: bool = False,
+    root: Path | str | None = None,
 ) -> dict[str, Any] | None:
-    from ai_caddie.courses import course_reference
+    from ai_caddie.caddie.analysis import _selected_tee
+    from ai_caddie.courses import course_reference, courseview_core
+
     holes = []
     cv_par = course_reference.courseview_par(int(global_id), allow_fetch=False)
+    package_root = Path(root) if root is not None else Path(".")
+    try:
+        lightweight = (
+            courseview_core.ensure_course_data(int(global_id), root=package_root)
+            if ensure_lightweight
+            else courseview_core.load_cached_course_data(int(global_id), root=package_root)
+        )
+    except Exception:
+        lightweight = None
+    lightweight_holes = {
+        int(row["holeNumber"]): row
+        for row in (lightweight or {}).get("holes") or []
+        if isinstance(row, dict) and isinstance(row.get("holeNumber"), int)
+    }
+    try:
+        release = course_reference.courseview_release_info(
+            int(global_id),
+            allow_fetch=ensure_lightweight,
+            root=package_root,
+        )
+    except Exception:
+        release = None
+    resolved_course_name = course_name or str((release or {}).get("course_name") or "").strip() or None
     has_geometry_source = False
-    for local_hole in range(1, 19):
+    hole_numbers = sorted(lightweight_holes) or list(range(1, len(cv_par or []) + 1)) or list(range(1, 19))
+    for local_hole in hole_numbers:
         try:
-            coverage = geometry_coverage_for_hole(int(global_id), local_hole)
+            coverage = geometry_coverage_for_hole(
+                int(global_id),
+                local_hole,
+                require_current_authority=True,
+            )
             state = str(coverage.get("coverage") or "missing")
         except Exception:
+            coverage = {
+                "coverage": "missing",
+                "geometryRevision": None,
+                "authorityObservation": "unknown",
+            }
             state = "missing"
         if state != "missing":
             has_geometry_source = True
-        par = cv_par[local_hole - 1] if (cv_par and local_hole - 1 < len(cv_par)) else 4
-        holes.append({"number": local_hole, "par": par, "yards": None, "geometryCoverage": state})
+        lightweight_hole = lightweight_holes.get(local_hole)
+        route_line = next(
+            (
+                row
+                for row in (lightweight_hole or {}).get("lines") or []
+                if isinstance(row, dict) and row.get("role") == "route"
+            ),
+            None,
+        )
+        if state == "missing" and route_line is not None:
+            state = "partial"
+        par = cv_par[local_hole - 1] if (cv_par and local_hole - 1 < len(cv_par)) else None
+        if par is None and lightweight_hole is not None:
+            male_par = next(
+                (
+                    row.get("par")
+                    for row in lightweight_hole.get("pars") or []
+                    if isinstance(row, dict) and row.get("playerType") == 1
+                ),
+                None,
+            )
+            par = male_par
+        par = int(par or 4)
+        yards = None
+        tee_latitude = None
+        tee_longitude = None
+        yardage_source = None
+        route_points = (route_line or {}).get("points") or []
+        route_length = (route_line or {}).get("lengthMetres")
+        if isinstance(route_length, (int, float)) and not isinstance(route_length, bool) and route_length > 0:
+            yards = int(round(float(route_length) * 1.09361))
+            yardage_source = "courseData-route"
+        if route_points:
+            first = route_points[0]
+            if isinstance(first, dict):
+                tee_latitude = first.get("latitude")
+                tee_longitude = first.get("longitude")
+        try:
+            selected_tee = _selected_tee(
+                {"hazards": _load_mobile_hazards(int(global_id), local_hole)},
+                tee_box,
+            )
+            target_distance_m = float((selected_tee or {}).get("target_distance_m"))
+            if target_distance_m > 0:
+                yards = int(round(target_distance_m * 1.09361))
+                yardage_source = "prodgeometry-selected-tee"
+        except (OSError, TypeError, ValueError, OverflowError):
+            pass
+        holes.append({
+            "number": local_hole,
+            "par": par,
+            "yards": yards,
+            "yardageSource": yardage_source,
+            "teeLatitude": tee_latitude,
+            "teeLongitude": tee_longitude,
+            "geometryCoverage": state,
+            "geometryRevision": (
+                str(coverage.get("geometryRevision"))
+                if coverage.get("geometryRevision")
+                else None
+            ),
+            "geometryAuthorityObservation": str(
+                coverage.get("authorityObservation") or "unknown"
+            ),
+        })
     # Anchor the course on EITHER geometry OR a CourseView par table. Geometry being
     # absent (e.g. a deployment without the geometry bundle) must NOT collapse the whole
     # course to "Unknown course" — the par + name still resolve a usable round; only the
     # hole maps/distances degrade.
-    if not has_geometry_source and not cv_par:
+    if not has_geometry_source and not cv_par and not lightweight_holes:
         return None
     return {
         "id": round_id,
         "ids": [round_id],
         "date": "",
-        "course": course_name or f"Course {int(global_id)}",
+        "course": resolved_course_name or f"Course {int(global_id)}",
         "courseKey": f"gid_{int(global_id)}",
         "globalId": int(global_id),
         "holesCompleted": len(holes),
         "teeBox": tee_box or "unknown",
         "holes": holes,
-        "_source": "geometry_only_course_package",
+        "_source": "course_data_package" if lightweight_holes else "geometry_only_course_package",
+        "_courseDataBuildId": (lightweight or {}).get("buildId"),
+        "_courseDataVariant": (lightweight or {}).get("sourceVariant"),
     }
 
 
@@ -1990,6 +2492,8 @@ def build_live_round_package_for_course(
     nine: str = "all",
     back_global_id: int | None = None,
     include_course_prep: bool = True,
+    include_event_cursor: bool = True,
+    ensure_lightweight: bool = False,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
@@ -2005,14 +2509,20 @@ def build_live_round_package_for_course(
     package_source = source
     geometry_ensure = None
     if selected_round_id is None:
-        if ensure_geometry:
-            geometry_ensure = _ensure_geometry_for_course(int(global_id))
         template_round = _geometry_only_course_template(
             int(global_id),
             round_id=live_round_id,
             tee_box=tee_box,
             course_name=_course_display_name(source, int(global_id)),
+            ensure_lightweight=ensure_lightweight,
+            root=root,
         )
+        # Resolve the release-bound lightweight route before generating precise
+        # derivatives.  On A/B dual greens this is the authority that selects
+        # the played green; reversing this order can permanently export A-target
+        # distances for a B-layout on first download.
+        if ensure_geometry:
+            geometry_ensure = _ensure_geometry_for_course(int(global_id))
         if template_round is not None:
             package_source = HistoryData(
                 raw_rounds=source.raw_rounds,
@@ -2036,6 +2546,7 @@ def build_live_round_package_for_course(
         ensure_geometry=ensure_geometry and selected_round_id is not None,
         geometry_ensure=geometry_ensure,
         include_course_prep=include_course_prep,
+        include_event_cursor=include_event_cursor,
         # Build stats from the ORIGINAL history (not the template-augmented package_source) so the
         # stats cache stays warm across every course/round — see note in build_live_round_package.
         stats_data=source,
@@ -2049,6 +2560,15 @@ def build_live_round_package_for_course(
             "availableRoundCount": len(source.rounds),
             "courseFound": True,
         }
+        if template_round.get("_source") == "course_data_package":
+            package["sourceCoverage"].update(
+                {
+                    "mapSource": "courseData",
+                    "mapBuildId": template_round.get("_courseDataBuildId"),
+                    "mapVariant": template_round.get("_courseDataVariant"),
+                    "preciseGeometryState": package["geometryCoverage"]["state"],
+                }
+            )
     # A 9-hole loop gid (CourseView) must yield only its 9 holes even though its played rounds were
     # 18-hole combos — the loop is the front nine of that combo. Otherwise picking "C 场(9洞)" wrongly
     # opens 18 holes (and holes 10–18 are bogus, which also broke "随便选一个洞进去").
@@ -2095,6 +2615,8 @@ def build_live_round_package_for_course(
         ensure_geometry=ensure_geometry,
         nine="all",
         include_course_prep=include_course_prep,
+        include_event_cursor=include_event_cursor,
+        ensure_lightweight=ensure_lightweight,
         player_id=player_id,
     )
     return _merge_nines(front_package, back_package)
@@ -2124,10 +2646,114 @@ def _shift_hole_number(value: Any, offset: int) -> Any:
         return value
 
 
+def _replace_exact_runtime_refs(value: Any, replacements: dict[str, str]) -> Any:
+    """Rebind composite-round identity without touching historical/provider provenance."""
+    if isinstance(value, str):
+        return replacements.get(value, value)
+    if isinstance(value, list):
+        return [_replace_exact_runtime_refs(item, replacements) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _replace_exact_runtime_refs(item, replacements)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _merge_composite_weather(
+    front: dict[str, Any],
+    back: dict[str, Any],
+    *,
+    offset: int,
+    ref_replacements: dict[str, str],
+    round_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    merged = dict(front)
+    rebound_back = _replace_exact_runtime_refs(back, ref_replacements)
+    front_rows = list(front.get("holeCoverage") or [])
+    back_rows: list[Any] = []
+    for raw in rebound_back.get("holeCoverage") or []:
+        row = dict(raw) if isinstance(raw, dict) else raw
+        if isinstance(row, dict):
+            row["hole"] = _shift_hole_number(row.get("hole"), offset)
+        back_rows.append(row)
+    hole_coverage = [*front_rows, *back_rows]
+    ready = sum(
+        1 for row in hole_coverage
+        if isinstance(row, dict) and row.get("state") == "ready"
+    )
+    total = len(hole_coverage)
+    state = "ready" if total and ready == total else "partial" if ready else "missing"
+    merged["roundId"] = round_id
+    merged["coverage"] = {
+        "ready": ready,
+        "total": total,
+        "pct": round((ready / total) * 100.0, 1) if total else 0.0,
+    }
+    merged["holeCoverage"] = hole_coverage
+    merged["missingData"] = _dedupe_missing(
+        [
+            *list(front.get("missingData") or []),
+            *list(rebound_back.get("missingData") or []),
+        ]
+    )
+    coverage = {
+        "state": state,
+        "readyHoles": ready,
+        "totalHoles": total,
+        "pct": merged["coverage"]["pct"],
+        "holeCoverage": hole_coverage,
+        "sourceRefs": [
+            row.get("sourceRef") for row in hole_coverage
+            if isinstance(row, dict) and row.get("state") == "ready"
+        ],
+        "missingRefs": [
+            row.get("sourceRef") for row in hole_coverage
+            if isinstance(row, dict) and row.get("state") != "ready"
+        ],
+    }
+    return merged, coverage
+
+
+def _shift_composite_seed(
+    raw: Any,
+    *,
+    offset: int,
+    ref_replacements: dict[str, str],
+    round_id: str,
+    course_name: str,
+    merged_weather: dict[str, Any],
+) -> Any:
+    if not isinstance(raw, dict):
+        return raw
+    seed = _replace_exact_runtime_refs(raw, ref_replacements)
+    seed["hole"] = _shift_hole_number(raw.get("hole"), offset)
+    context = dict(seed.get("context") or {})
+    context["roundId"] = round_id
+    context["sourceRef"] = seed.get("sourceRef")
+    context["courseName"] = course_name
+    context["hole"] = seed["hole"]
+    historical = context.get("historicalHole")
+    if isinstance(historical, dict):
+        historical = dict(historical)
+        historical["hole"] = seed["hole"]
+        context["historicalHole"] = historical
+    weather = context.get("weatherSnapshot")
+    if isinstance(weather, dict):
+        weather = dict(weather)
+        if isinstance(weather.get("hole"), int):
+            weather["hole"] = _shift_hole_number(weather.get("hole"), offset)
+        weather["coverage"] = merged_weather.get("coverage")
+        weather["holeCoverage"] = merged_weather.get("holeCoverage")
+        context["weatherSnapshot"] = weather
+    seed["context"] = context
+    return seed
+
+
 def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
     """Merge two 9-hole packages into one 18-hole composite: front loop = holes 1–9, back loop =
-    holes 10–18 (back hole numbers shifted +9). Shared sections (weather / clubs / recentHistory /
-    player) come from the front package; geometry coverage + course name are combined."""
+    holes 10–18 (back hole numbers shifted +9), with one coherent runtime identity and readiness
+    view across both physical loops."""
     offset = len(front.get("holes") or [])
 
     def _shift(rows: Any, key: str) -> list[Any]:
@@ -2140,9 +2766,51 @@ def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
         return out
 
     merged = dict(front)
+    round_id = str(front.get("roundId") or back.get("roundId") or "")
+    course_name = _composite_course_name(
+        str((front.get("course") or {}).get("name") or ""),
+        str((back.get("course") or {}).get("name") or ""),
+    )
+    ref_replacements: dict[str, str] = {}
+    for seed in back.get("caddieContextSeeds") or []:
+        if not isinstance(seed, dict):
+            continue
+        old_ref = str(seed.get("sourceRef") or "")
+        shifted_hole = _shift_hole_number(seed.get("hole"), offset)
+        if old_ref and isinstance(shifted_hole, int):
+            ref_replacements[old_ref] = f"{round_id}:{shifted_hole}"
+
+    merged_weather, weather_coverage = _merge_composite_weather(
+        front.get("weatherSnapshot") or {},
+        back.get("weatherSnapshot") or {},
+        offset=offset,
+        ref_replacements=ref_replacements,
+        round_id=round_id,
+    )
     merged["holes"] = list(front.get("holes") or []) + _shift(back.get("holes"), "number")
     merged["caddieContextSeeds"] = (
-        list(front.get("caddieContextSeeds") or []) + _shift(back.get("caddieContextSeeds"), "hole")
+        [
+            _shift_composite_seed(
+                seed,
+                offset=0,
+                ref_replacements={},
+                round_id=round_id,
+                course_name=course_name,
+                merged_weather=merged_weather,
+            )
+            for seed in front.get("caddieContextSeeds") or []
+        ]
+        + [
+            _shift_composite_seed(
+                seed,
+                offset=offset,
+                ref_replacements=ref_replacements,
+                round_id=round_id,
+                course_name=course_name,
+                merged_weather=merged_weather,
+            )
+            for seed in back.get("caddieContextSeeds") or []
+        ]
     )
     front_prep = dict(front.get("coursePrep") or {})
     front_prep["holes"] = list(front_prep.get("holes") or []) + _shift((back.get("coursePrep") or {}).get("holes"), "hole")
@@ -2150,13 +2818,69 @@ def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
     merged["geometryCoverage"] = _merge_geometry_coverage(
         front.get("geometryCoverage") or {}, back.get("geometryCoverage") or {}
     )
-    course = dict(front.get("course") or {})
-    course["name"] = _composite_course_name(
-        str((front.get("course") or {}).get("name") or ""),
-        str((back.get("course") or {}).get("name") or ""),
+    merged["weatherSnapshot"] = merged_weather
+    source_coverage = dict(front.get("sourceCoverage") or {})
+    source_coverage["holeCount"] = len(merged["holes"])
+    if "preciseGeometryState" in source_coverage:
+        source_coverage["preciseGeometryState"] = merged["geometryCoverage"]["state"]
+    merged["sourceCoverage"] = source_coverage
+
+    recent_history = dict(front.get("recentHistory") or {})
+    back_recent = back.get("recentHistory") or {}
+    recent_history["holes"] = list(recent_history.get("holes") or []) + _shift(
+        back_recent.get("holes"), "number"
     )
+    merged["recentHistory"] = recent_history
+
+    course = dict(front.get("course") or {})
+    course["name"] = course_name
     merged["course"] = course
     merged["nine"] = "all"
+
+    readiness_checks = _package_readiness_checks(
+        source_coverage=source_coverage,
+        geometry_coverage=merged["geometryCoverage"],
+        weather_coverage=weather_coverage,
+        club_profiles=list(merged.get("clubProfiles") or []),
+        recent_history=recent_history,
+        caddie_context_seeds=list(merged.get("caddieContextSeeds") or []),
+        holes=list(merged.get("holes") or []),
+    )
+    merged["readinessChecks"] = readiness_checks
+    derived_labels = {"geometry", "weather", "club_profiles", "recent_history", "caddie_seeds"}
+    base_missing = [
+        row
+        for package in (front, back)
+        for row in package.get("missingData") or []
+        if isinstance(row, dict) and row.get("label") not in derived_labels
+    ]
+    merged["missingData"] = _package_readiness_missing_data(
+        _dedupe_missing(base_missing),
+        geometry_coverage=merged["geometryCoverage"],
+        weather_coverage=weather_coverage,
+        club_profiles=list(merged.get("clubProfiles") or []),
+        recent_history=recent_history,
+    )
+    caddie_check = next(
+        (row for row in readiness_checks if row.get("label") == "caddie_seeds"),
+        None,
+    )
+    if caddie_check and caddie_check.get("state") != "ready":
+        merged["missingData"] = _dedupe_missing(
+            [
+                *merged["missingData"],
+                {"label": "caddie_seeds", "reason": str(caddie_check.get("reason"))},
+            ]
+        )
+    status = dict(merged.get("offlinePackageStatus") or {})
+    status["state"] = (
+        "ready"
+        if not merged["missingData"]
+        and all(row.get("state") == "ready" for row in readiness_checks)
+        else "degraded"
+    )
+    merged["offlinePackageStatus"] = status
+    merged["readinessState"] = "ready" if status["state"] == "ready" else "blocked"
     return merged
 
 
@@ -2164,10 +2888,8 @@ def _filter_package_to_nine(package: dict[str, Any], nine: str) -> dict[str, Any
     """Restrict a course package to a starting nine.
 
     ``front`` keeps holes 1–9, ``back`` keeps holes 10–18; ``all`` (the default,
-    and any unrecognised value) returns the package unchanged. Filters both the
-    ``holes`` list and the ``caddieContextSeeds`` so the live screen and the
-    pre-round caddie seeds agree on which holes are in play. Standard 18-hole
-    courses only — dual-nine / composite layouts are a follow-up.
+    and any unrecognised value) returns the package unchanged. Every hole-indexed summary is
+    filtered with the playable holes so a nine-hole selection cannot advertise 18-hole readiness.
     """
     key = str(nine or "all").strip().lower()
     if key not in {"front", "back"}:
@@ -2197,6 +2919,144 @@ def _filter_package_to_nine(package: dict[str, Any], nine: str) -> dict[str, Any
             seed for seed in seeds
             if not isinstance(seed, dict) or in_range(seed.get("hole"))
         ]
+
+    prep = package.get("coursePrep")
+    if isinstance(prep, dict):
+        prep = dict(prep)
+        prep["holes"] = [
+            row for row in prep.get("holes") or []
+            if not isinstance(row, dict) or in_range(row.get("hole"))
+        ]
+        filtered["coursePrep"] = prep
+
+    recent = package.get("recentHistory")
+    if isinstance(recent, dict):
+        recent = dict(recent)
+        recent["holes"] = [
+            row for row in recent.get("holes") or []
+            if not isinstance(row, dict) or in_range(row.get("number"))
+        ]
+        filtered["recentHistory"] = recent
+
+    weather = dict(package.get("weatherSnapshot") or {})
+    weather_rows = [
+        row for row in weather.get("holeCoverage") or []
+        if not isinstance(row, dict) or in_range(row.get("hole"))
+    ]
+    weather_ready = sum(
+        1 for row in weather_rows
+        if isinstance(row, dict) and row.get("state") == "ready"
+    )
+    weather_total = len(weather_rows)
+    weather_state = (
+        "ready"
+        if weather_total and weather_ready == weather_total
+        else "partial" if weather_ready else "missing"
+    )
+    weather["coverage"] = {
+        "ready": weather_ready,
+        "total": weather_total,
+        "pct": round((weather_ready / weather_total) * 100.0, 1) if weather_total else 0.0,
+    }
+    weather["holeCoverage"] = weather_rows
+    filtered["weatherSnapshot"] = weather
+    weather_coverage = {
+        "state": weather_state,
+        "readyHoles": weather_ready,
+        "totalHoles": weather_total,
+        "pct": weather["coverage"]["pct"],
+        "holeCoverage": weather_rows,
+        "sourceRefs": [
+            row.get("sourceRef") for row in weather_rows
+            if isinstance(row, dict) and row.get("state") == "ready"
+        ],
+        "missingRefs": [
+            row.get("sourceRef") for row in weather_rows
+            if isinstance(row, dict) and row.get("state") != "ready"
+        ],
+    }
+    normalized_seeds: list[Any] = []
+    for raw in filtered.get("caddieContextSeeds") or []:
+        if not isinstance(raw, dict):
+            normalized_seeds.append(raw)
+            continue
+        seed = dict(raw)
+        context = dict(seed.get("context") or {})
+        seed_weather = context.get("weatherSnapshot")
+        if isinstance(seed_weather, dict):
+            seed_weather = dict(seed_weather)
+            seed_weather["coverage"] = weather["coverage"]
+            seed_weather["holeCoverage"] = weather_rows
+            context["weatherSnapshot"] = seed_weather
+        seed["context"] = context
+        normalized_seeds.append(seed)
+    filtered["caddieContextSeeds"] = normalized_seeds
+
+    filtered_holes = list(filtered.get("holes") or [])
+    geometry_ready = sum(
+        1 for row in filtered_holes
+        if isinstance(row, dict) and row.get("geometryCoverage") == "ready"
+    )
+    geometry_total = len(filtered_holes)
+    geometry_coverage = {
+        "state": (
+            "ready"
+            if geometry_total and geometry_ready == geometry_total
+            else "partial" if geometry_ready else "missing"
+        ),
+        "readyHoles": geometry_ready,
+        "totalHoles": geometry_total,
+    }
+    filtered["geometryCoverage"] = geometry_coverage
+    source_coverage = dict(package.get("sourceCoverage") or {})
+    source_coverage["holeCount"] = geometry_total
+    if "preciseGeometryState" in source_coverage:
+        source_coverage["preciseGeometryState"] = geometry_coverage["state"]
+    filtered["sourceCoverage"] = source_coverage
+
+    recent_history = filtered.get("recentHistory") or {}
+    readiness_checks = _package_readiness_checks(
+        source_coverage=source_coverage,
+        geometry_coverage=geometry_coverage,
+        weather_coverage=weather_coverage,
+        club_profiles=list(filtered.get("clubProfiles") or []),
+        recent_history=recent_history,
+        caddie_context_seeds=list(filtered.get("caddieContextSeeds") or []),
+        holes=filtered_holes,
+    )
+    filtered["readinessChecks"] = readiness_checks
+    derived_labels = {"geometry", "weather", "club_profiles", "recent_history", "caddie_seeds"}
+    base_missing = [
+        row for row in package.get("missingData") or []
+        if isinstance(row, dict) and row.get("label") not in derived_labels
+    ]
+    filtered["missingData"] = _package_readiness_missing_data(
+        _dedupe_missing(base_missing),
+        geometry_coverage=geometry_coverage,
+        weather_coverage=weather_coverage,
+        club_profiles=list(filtered.get("clubProfiles") or []),
+        recent_history=recent_history,
+    )
+    caddie_check = next(
+        (row for row in readiness_checks if row.get("label") == "caddie_seeds"),
+        None,
+    )
+    if caddie_check and caddie_check.get("state") != "ready":
+        filtered["missingData"] = _dedupe_missing(
+            [
+                *filtered["missingData"],
+                {"label": "caddie_seeds", "reason": str(caddie_check.get("reason"))},
+            ]
+        )
+    status = dict(filtered.get("offlinePackageStatus") or {})
+    status["state"] = (
+        "ready"
+        if not filtered["missingData"]
+        and all(row.get("state") == "ready" for row in readiness_checks)
+        else "degraded"
+    )
+    filtered["offlinePackageStatus"] = status
+    filtered["readinessState"] = "ready" if status["state"] == "ready" else "blocked"
     return filtered
 
 
@@ -2233,28 +3093,27 @@ def _event_log_rows(
     # evidence_root (which nullifies non-owners to empty): a member now has a real home for their
     # own live events, and never sees the owner's or another member's (different path).
     path = mobile_event_log(root, player_id=player_id)
-    if not path.exists():
-        return []
-    rows: list[dict[str, Any]] = []
-    for fallback_sequence, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue  # tolerate a torn final append; one bad line must not 500 replay
-        if round_id is not None and str(row.get("roundId") or "") != str(round_id):
-            continue
-        if not row.get("serverSequence"):
-            row["serverSequence"] = fallback_sequence
-        rows.append(row)
-    return rows
+    return open_mobile_event_store(path.parent).read_rows(round_id)
+
+
+def round_events(
+    round_id: str,
+    *,
+    root: Path | str | None = None,
+    player_id: str = OWNER_ID,
+) -> list[dict[str, Any]]:
+    """Return one round's complete accepted event stream in server order."""
+    rows = sorted(
+        _event_log_rows(round_id, root=root, player_id=player_id),
+        key=lambda row: _safe_int(row.get("serverSequence")) or 0,
+    )
+    return [row["event"] for row in rows if isinstance(row.get("event"), dict)]
 
 
 def _latest_event_sequence(round_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> int:
     latest = 0
     for row in _event_log_rows(round_id, root=root, player_id=player_id):
-        latest = max(latest, int(row.get("serverSequence") or 0))
+        latest = max(latest, _safe_int(row.get("serverSequence")) or 0)
     return latest
 
 
@@ -2262,93 +3121,13 @@ def _pending_event_count(round_id: str, *, after_sequence: int, root: Path | str
     return sum(
         1
         for row in _event_log_rows(round_id, root=root, player_id=player_id)
-        if int(row.get("serverSequence") or 0) > after_sequence
-    )
-
-
-def _ack_key(round_id: str, client_id: str) -> str:
-    return f"{round_id}\n{client_id}"
-
-
-def _load_client_acks(root: Path | str | None = None, *, player_id: str = OWNER_ID) -> dict[str, dict[str, Any]]:
-    path = mobile_event_ack_store(root, player_id=player_id)
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    if not isinstance(payload, dict):
-        return {}
-    raw_rows = payload.get("acks", {})
-    if not isinstance(raw_rows, dict):
-        return {}
-    return {str(key): value for key, value in raw_rows.items() if isinstance(value, dict)}
-
-
-def _write_client_acks(acks: dict[str, dict[str, Any]], root: Path | str | None = None, *, player_id: str = OWNER_ID) -> None:
-    path = mobile_event_ack_store(root, player_id=player_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "schema": "ai-caddie-mobile-event-acks-v1",
-                "acks": acks,
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
+        if (_safe_int(row.get("serverSequence")) or 0) > after_sequence
     )
 
 
 def _client_ack_sequence(round_id: str, client_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> int:
-    row = _load_client_acks(root, player_id=player_id).get(_ack_key(round_id, client_id), {})
-    try:
-        return max(0, int(row.get("serverSequence") or 0))
-    except (TypeError, ValueError):
-        return 0
-
-
-def _redact_mobile_text(value: str) -> str:
-    redacted = redact_secret_text(value)
-    redacted = re.sub(r"(?i)file://[^\s,)]+", REDACTED_MOBILE_PATH, redacted)
-    redacted = re.sub(r"/(?:home|Users|private|tmp|var)/[^\s,)]+", REDACTED_MOBILE_PATH, redacted)
-    redacted = re.sub(r"[A-Za-z]:\\Users\\[^\s,)]+", REDACTED_MOBILE_PATH, redacted)
-    redacted = re.sub(
-        r"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s*[:=]\s*[^,\s;)]+",
-        r"\1=[REDACTED]",
-        redacted,
-    )
-    redacted = re.sub(
-        r"(?i)\b(password|secret|token|api[_-]?key|authorization|cookie|csrf)\s+[^\s,;)]+",
-        r"\1 [REDACTED]",
-        redacted,
-    )
-    return redacted
-
-
-def _redact_mobile_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): _redact_mobile_value(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_redact_mobile_value(item) for item in value]
-    if isinstance(value, str):
-        return _redact_mobile_text(value)
-    return value
-
-
-def _sanitized_live_event(event: dict[str, Any]) -> dict[str, Any]:
-    sanitized = _redact_mobile_value(dict(event))
-    payload = sanitized.get("payload")
-    if not isinstance(payload, dict):
-        return sanitized
-    sanitized_payload = dict(payload)
-    if str(sanitized.get("kind") or "") in {"photo", "video"} and sanitized_payload.get("fileURL"):
-        sanitized_payload["fileURL"] = REDACTED_LOCAL_MEDIA_URL
-    sanitized["payload"] = sanitized_payload
-    return sanitized
+    path = mobile_event_ack_store(root, player_id=player_id)
+    return open_mobile_event_store(path.parent).read_ack(str(round_id), str(client_id))
 
 
 def append_event_batch(
@@ -2359,90 +3138,23 @@ def append_event_batch(
     root: Path | str | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
-    for event in events:
-        event_round_id = event.get("roundId")
-        if event_round_id is not None and str(event_round_id) != str(round_id):
-            raise ValueError("event roundId does not match path")
     path = mobile_event_log(root, player_id=player_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    round_key = str(round_id)
-    # (eventId, clientId) for each requested event — clientId joins the dedup key so the same eventId
-    # from two different clients is not collapsed (round-12 sync spine; legacy clients send "").
-    requested_events = [
-        (str(event.get("eventId") or ""), str(event.get("clientId") or ""))
-        for event in events
-        if event.get("eventId")
+    store = open_mobile_event_store(path.parent)
+    append_result = store.append_batch(str(round_id), events, request_key=idempotency_key)
+    receipts = append_result.receipts
+    accepted_event_ids = [receipt.event_id for receipt in receipts if receipt.status == "accepted" and receipt.event_id]
+    duplicate_event_ids = [
+        receipt.event_id
+        for receipt in receipts
+        if receipt.status == "duplicate_hash_match" and receipt.event_id
     ]
-    # round-12: the read (server_sequence + dedup sets) and the append MUST be one atomic critical
-    # section. Without it, two concurrent writers both read sequence N and both append rows with the
-    # same serverSequence + double-accept the same eventId (the read-then-write race). An exclusive
-    # flock on a sibling lock file serializes append_event_batch across processes and threads.
-    lock_path = path.with_name(path.name + ".lock")
-    with open(lock_path, "w", encoding="utf-8") as lock_handle:
-        fcntl.flock(lock_handle, fcntl.LOCK_EX)
-        existing_keys = set()
-        existing_event_ids = set()
-        server_sequence = 0
-        if path.exists():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue  # torn final append must not 500 the events POST
-                server_sequence += 1
-                row_round_id = str(row.get("roundId") or "")
-                existing_keys.add((row_round_id, str(row.get("idempotencyKey") or "")))
-                event = row.get("event") or {}
-                if isinstance(event, dict) and event.get("eventId"):
-                    existing_event_ids.add(
-                        (row_round_id, str(event.get("clientId") or ""), str(event.get("eventId")))
-                    )
-        if (round_key, idempotency_key) in existing_keys:
-            return {
-                "accepted": 0,
-                "duplicate": True,
-                "acceptedEventIds": [],
-                "duplicateEventIds": [
-                    event_id
-                    for event_id, client_id in requested_events
-                    if (round_key, client_id, event_id) in existing_event_ids
-                ],
-                "serverSequence": server_sequence,
-            }
-        accepted_event_ids = []
-        duplicate_event_ids = []
-        with path.open("a", encoding="utf-8") as handle:
-            for event in events:
-                event = _sanitized_live_event(event)
-                event_id = str(event.get("eventId") or "")
-                client_id = str(event.get("clientId") or "")
-                event_key = (round_key, client_id, event_id)
-                if event_id and event_key in existing_event_ids:
-                    duplicate_event_ids.append(event_id)
-                    continue
-                server_sequence += 1
-                if event_id:
-                    existing_event_ids.add(event_key)
-                    accepted_event_ids.append(event_id)
-                handle.write(
-                    json.dumps(
-                        {
-                            "roundId": round_id,
-                            "idempotencyKey": idempotency_key,
-                            "serverSequence": server_sequence,
-                            "event": event,
-                        },
-                        sort_keys=True,
-                    ) + "\n"
-                )
+    request_preexisting = bool(receipts and receipts[0].request_preexisting)
     return {
         "accepted": len(accepted_event_ids),
-        "duplicate": False,
+        "duplicate": request_preexisting and not accepted_event_ids,
         "acceptedEventIds": accepted_event_ids,
         "duplicateEventIds": duplicate_event_ids,
-        "serverSequence": server_sequence,
+        "serverSequence": append_result.server_sequence,
     }
 
 
@@ -2457,7 +3169,7 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
     """
     rows = sorted(
         _event_log_rows(round_id, root=root, player_id=player_id),
-        key=lambda row: int(row.get("serverSequence") or 0),
+        key=lambda row: _safe_int(row.get("serverSequence")) or 0,
     )
     holes: dict[int, dict[str, Any]] = {}
     field_clients: dict[tuple[int, str], set[str]] = {}
@@ -2469,11 +3181,11 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
             field_clients.setdefault((hole_no, field), set()).add(client_id)
 
     for row in rows:
-        latest_sequence = max(latest_sequence, int(row.get("serverSequence") or 0))
+        latest_sequence = max(latest_sequence, _safe_int(row.get("serverSequence")) or 0)
         event = row.get("event")
         if not isinstance(event, dict):
             continue
-        hole_no = int(event.get("hole") or 0)
+        hole_no = _safe_int(event.get("hole")) or 0
         if hole_no <= 0:
             continue
         kind = str(event.get("kind") or "")
@@ -2486,6 +3198,10 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
             if value is not None:
                 state["score"] = int(value)
                 mark(hole_no, "score", client_id)
+            fairway = str(payload.get("fairway") or "").strip().lower()
+            if fairway in {"hit", "left", "right"}:
+                state["fairwayResult"] = fairway
+                mark(hole_no, "fairway", client_id)
         elif kind == "putt":
             value = _safe_float(payload.get("putts"))
             if value is not None:
@@ -2557,7 +3273,7 @@ def replay_event_log(
     matching_rows = [
         row
         for row in _event_log_rows(round_id, root=root, player_id=player_id)
-        if int(row.get("serverSequence") or 0) > start_sequence
+        if (_safe_int(row.get("serverSequence")) or 0) > start_sequence
     ]
     selected_rows = matching_rows[:bounded_limit]
     events: list[dict[str, Any]] = []
@@ -2565,7 +3281,7 @@ def replay_event_log(
         event = row.get("event") if isinstance(row.get("event"), dict) else {}
         events.append(
             {
-                "serverSequence": int(row.get("serverSequence") or 0),
+                "serverSequence": _safe_int(row.get("serverSequence")) or 0,
                 "idempotencyKey": str(row.get("idempotencyKey") or ""),
                 "event": event,
             }
@@ -2596,16 +3312,10 @@ def ack_event_cursor(
     clean_client_id = _clean_client_id(client_id)
     if not clean_client_id:
         raise ValueError("clientId is required")
+    path = mobile_event_ack_store(root, player_id=player_id)
+    store = open_mobile_event_store(path.parent)
+    acked_sequence = store.ack(str(round_id), clean_client_id, int(server_sequence))
     latest_sequence = _latest_event_sequence(round_id, root=root, player_id=player_id)
-    acked_sequence = max(0, min(int(server_sequence), latest_sequence))
-    acks = _load_client_acks(root, player_id=player_id)
-    acks[_ack_key(str(round_id), clean_client_id)] = {
-        "roundId": str(round_id),
-        "clientId": clean_client_id,
-        "serverSequence": acked_sequence,
-        "updatedAt": _format_time(datetime.now(UTC)),
-    }
-    _write_client_acks(acks, root, player_id=player_id)
     return {
         "schema": "ai-caddie-mobile-event-ack-v1",
         "roundId": str(round_id),

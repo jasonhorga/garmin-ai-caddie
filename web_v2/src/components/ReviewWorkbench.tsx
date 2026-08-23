@@ -17,6 +17,11 @@ function formatToPar(value: number | null): string {
   return value > 0 ? `+${value}` : String(value)
 }
 
+function toParTone(value: number | null): string {
+  if (value === null || value === 0) return 'score-even'
+  return value < 0 ? 'score-under' : 'score-over'
+}
+
 // The shape-coded score chip (design system §一): the SVG frame encodes the
 // outcome family (circle=under, square=over, triangle=triple+) and the number is
 // the strokes. Colour comes from CSS per shape.
@@ -71,33 +76,44 @@ function ScoreShapeChip({ cell }: { cell: ScoreStripCell }): React.ReactElement 
 }
 
 function deriveShotMapState(
-  done: { key: string; result: { data: RoundHoleShotMapResponse } | { error: string } } | null,
+  cached: RoundHoleShotMapResponse | undefined,
+  failure: ShotMapFailure | null,
   key: string | null,
 ): ReviewShotMapState {
-  const current = done !== null && done.key === key ? done.result : null
-  if (current === null) return { status: 'loading' }
-  if ('error' in current) return { status: 'error', message: current.error }
-  const data = current.data
+  if (cached === undefined) {
+    if (failure !== null && key !== null && failure.key === key) return { status: 'error', message: failure.message }
+    return { status: 'loading' }
+  }
+  const data = cached
   if (data.found && data.map) return { status: 'ready', data }
   const missing = Array.isArray(data.missingData) ? data.missingData : []
   const reason = missing.find((row) => typeof row?.reason === 'string')?.reason
   return { status: 'nogeo', message: typeof reason === 'string' ? reason : '这一洞暂无球场几何,画不了落点图。' }
 }
 
-type ShotMapDone = { key: string; result: { data: RoundHoleShotMapResponse } | { error: string } }
+type ShotMapFailure = { key: string; message: string }
 
 // The 复盘 round-review workbench: a round selector across the top, the round's
 // holes (shape-coded score chips) down the left, the per-hole落点图 in the middle,
 // and the 杆序 timeline on the right. Selection lives here so the three panes stay
-// in sync; the shot map is fetched lazily per hole and re-fetched on switch.
+// in sync; the shot map is fetched lazily per hole and kept per round+hole so
+// stepping back to a visited hole paints its first frame without a refetch.
 export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps): React.ReactElement {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(() => rounds[0]?.id ?? null)
   const [selectedHole, setSelectedHole] = useState<number | null>(null)
-  const [shotMapDone, setShotMapDone] = useState<ShotMapDone | null>(null)
-  // Keep the fetcher in a ref so the shot-map effect keys only off round+hole and
+  // Session cache of shot-map RESPONSES keyed `${roundRef}:${hole}`. Only resolved responses land
+  // here; a rejected fetch is held separately in `shotMapFailure` so returning to a hole that failed
+  // retries instead of pinning a stale error. A response is per (round, hole) immutable evidence, so
+  // reusing it is what makes the hole strip feel instant on the second visit.
+  const [shotMaps, setShotMaps] = useState<Record<string, RoundHoleShotMapResponse>>({})
+  const [shotMapFailure, setShotMapFailure] = useState<ShotMapFailure | null>(null)
+  // Keep the fetcher in a ref so the shot-map effect keys only off round+hole+cache and
   // never refetches just because the parent handed a fresh closure identity.
   const fetchRef = useRef(fetchShotMap)
-  const shotMapSeq = useRef(0)
+  // Keys with a request in the air. The effect re-runs whenever the cache grows (a neighbouring
+  // hole resolved), and this stops that re-run from launching a second request for the hole that
+  // is still loading.
+  const inFlight = useRef<Set<string>>(new Set())
   useEffect(() => {
     fetchRef.current = fetchShotMap
   })
@@ -116,26 +132,32 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
   useEffect(() => {
     if (validRoundId === null || validHole === null) return
     const key = `${validRoundId}:${validHole}`
-    const seq = ++shotMapSeq.current
+    if (shotMaps[key] !== undefined || inFlight.current.has(key)) return
+    inFlight.current.add(key)
     fetchRef
       .current(validRoundId, validHole)
       .then((data) => {
-        if (shotMapSeq.current !== seq) return
-        setShotMapDone({ key, result: { data } })
-        // Prefetch the adjacent holes' topo bitmap so stepping the strip is instant. A single-course
-        // round has localHole tracking the hole number, so localHole±1 warms the neighbours' realistic
-        // base image; a wrong guess (multi-course round) just warms a nearby cached hole, never errors.
+        inFlight.current.delete(key)
+        setShotMaps((previous) => ({ ...previous, [key]: data }))
+        // Prefetch the adjacent holes' topo bitmap so stepping the strip is instant. Revisions are
+        // hole-specific: this response only proves the CURRENT hole's revision, so neighbour warm-up
+        // must use the revision-free URL. The selected neighbour will use its own revision after its
+        // shot-map response arrives. Multi-course guesses remain best-effort cache warm-ups.
         if (data.found && data.map && data.globalId != null && data.localHole != null) {
           for (const local of [data.localHole - 1, data.localHole + 1]) {
-            if (local >= 1) prefetchTopoImage(topoImageUrl(data.globalId, local))
+            if (local >= 1) {
+              prefetchTopoImage(topoImageUrl(data.globalId, local))
+            }
           }
         }
       })
       .catch((error: unknown) => {
-        if (shotMapSeq.current !== seq) return
-        setShotMapDone({ key, result: { error: error instanceof Error ? error.message : '落点图加载失败' } })
+        // Failures are never cached: leaving the key out of `shotMaps` means the next visit to this
+        // hole fetches again.
+        inFlight.current.delete(key)
+        setShotMapFailure({ key, message: error instanceof Error ? error.message : '落点图加载失败' })
       })
-  }, [validRoundId, validHole])
+  }, [validRoundId, validHole, shotMaps])
 
   if (rounds.length === 0 || selectedRound === null) {
     return (
@@ -152,7 +174,9 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
   // A round with no per-hole scorecard (e.g. a bare manual entry) has no hole to
   // draw — say so instead of spinning forever on a shot map that never loads.
   const shotMapState: ReviewShotMapState =
-    validHole === null ? { status: 'nogeo', message: '这局暂无逐洞成绩，无法展示落点图。' } : deriveShotMapState(shotMapDone, shotMapKey)
+    validHole === null
+      ? { status: 'nogeo', message: '这局暂无逐洞成绩，无法展示落点图。' }
+      : deriveShotMapState(shotMapKey === null ? undefined : shotMaps[shotMapKey], shotMapFailure, shotMapKey)
   const activeCell = holes.find((cell) => cell.hole === validHole) ?? null
   const ppm = shotMapState.status === 'ready' ? shotMapState.data.map?.overlay.ppm ?? null : null
   const timeline = shotMapState.status === 'ready' ? buildTimeline(shotMapState.data.shots, ppm) : []
@@ -164,8 +188,8 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
     <section className="review-page review-workbench-page" aria-label="复盘">
       <div className="review-topbar">
         <div className="review-crumb">
-          <h2 className="review-crumb-name">{cleanCourseName(selectedRound.courseName)}</h2>
-          <span className="review-crumb-date">{shortRoundDate(selectedRound.date)}</span>
+          <h2 className="review-crumb-name">逐洞复盘</h2>
+          <span className="review-crumb-date">真实落点与杆序</span>
         </div>
         <label className="review-round-picker">
           <span className="review-round-picker-label">球局</span>
@@ -187,11 +211,13 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
         </label>
         <div className="review-total">
           总杆 <b>{roundScore ?? '—'}</b>
-          {roundToPar !== null ? <span className="review-total-topar"> · {formatToPar(roundToPar)}</span> : null}
+          {roundToPar !== null ? (
+            <span className={`review-total-topar ${toParTone(roundToPar)}`}> · {formatToPar(roundToPar)}</span>
+          ) : null}
         </div>
       </div>
 
-      <div className="review-work">
+      <div className="review-work review-work--map-first">
         <div className="review-holes">
           <div className="review-holes-head">
             <span>球洞 · 成绩</span>
@@ -233,6 +259,7 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
           shotsLoading={shotMapState.status === 'loading'}
           manualPenalty={manualPenalty}
         />
+
       </div>
     </section>
   )

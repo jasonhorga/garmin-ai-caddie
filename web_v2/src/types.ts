@@ -474,6 +474,7 @@ export interface HistoryRoundDetailScorecardCell {
   toPar: number | null
   className: ScoreClass
   putts: number | null
+  penalties?: number | null
   gir: boolean | null
   fairway: string | null
   globalId?: number | null
@@ -537,6 +538,7 @@ export interface RoundHoleShotMapResponse {
   // rendered (map set). Used to fetch the realistic topo base bitmap for the 复盘 canvas.
   globalId?: number | null
   localHole?: number | null
+  geometryRevision?: string | null
   map: { image: string; overlay: CoursePrepOverlay } | null
   shots: RoundHoleShot[]
   // 这一洞用户手填的罚杆数(复盘修改层,默认 0)。只读展示:>0 时在洞信息区显示「本洞手填罚杆 +N」。
@@ -752,6 +754,10 @@ export interface SyncLastRunStatus {
   snapshotId: string | null
   errorCode: string | null
   updatedAt: string | null
+  remoteRoundCount?: number | null
+  remoteLatestRoundId?: string | null
+  remoteLatestRoundAt?: string | null
+  newRoundCount?: number | null
 }
 
 export interface SnapshotStatus {
@@ -954,6 +960,9 @@ export interface LiveRoundPackageResponse {
   clubProfiles: Array<Record<string, unknown>>
   caddieDecisionEndpoint: string
   offlinePackageStatus: OfflinePackageStatus
+  /** Cross-surface gate: only `ready` may enter a full prep/live package surface. */
+  readinessState?: 'ready' | 'blocked' | 'error'
+  courseInstallJob?: CourseInstallStatus | null
   eventCursor: Record<string, unknown>
   recentHistory: Record<string, unknown>
   cachedCaddieRules: Record<string, unknown>
@@ -994,6 +1003,35 @@ export interface MobileCoursePackageParams {
   teeBox?: string
   capturedAt?: string
   ensureGeometry?: boolean
+  backgroundGeometry?: boolean
+  includeEventCursor?: boolean
+}
+
+export interface CourseInstallHoleStatus {
+  globalId: number
+  localHole: number
+  displayHole: number
+  geometry: string
+  geometryRevision?: string | null
+  topo: string
+  topoRevision?: string | null
+  error?: string | null
+}
+
+export interface CourseInstallStatus {
+  schema: 'ai-caddie-course-install-v1'
+  jobId: string
+  globalId: number
+  teeBox: string
+  nine: string
+  phase: string
+  stage: string
+  totalHoles: number
+  geometryReady: number
+  topoReady: number
+  updatedAt?: string | null
+  error?: string | null
+  holes: CourseInstallHoleStatus[]
 }
 
 /// One selectable tee box for the pre-round picker (GET /api/v2/courses/{id}/tees): colour key
@@ -1072,7 +1110,7 @@ export interface AnnotationListResponse {
   target: { targetType: AnnotationTargetType; targetId: string } | null
 }
 
-export type ParSource = 'played' | 'courseview' | 'estimate'
+export type ParSource = 'played' | 'courseview' | 'courseData' | 'estimate'
 
 export interface CoursePrepOverlay {
   w: number
@@ -1080,6 +1118,38 @@ export interface CoursePrepOverlay {
   ppm: number
   ln: number
   route: Array<[number, number, number]> // [px, py, cumMetres]
+}
+
+export interface CoursePrepProjectionRef {
+  lat: number
+  lon: number
+  px: number
+  py: number
+}
+
+export interface CoursePrepHoleImageProjection {
+  available: boolean
+  widthPx?: number | null
+  heightPx?: number | null
+  refs?: CoursePrepProjectionRef[] | null
+}
+
+export interface CoursePrepHazardDetail {
+  kind: 'water' | 'bunker' | string
+  frontM: number
+  backM: number
+  frontRouteM: number
+  backRouteM: number
+  frontPx: number[]
+  backPx: number[]
+  sideM?: number | null
+}
+
+export interface CoursePrepGreenOutline {
+  available: boolean
+  source?: string | null
+  distanceUnit?: string | null
+  pointsPx: number[][]
 }
 
 export interface CoursePrepStep {
@@ -1123,6 +1193,7 @@ export interface CoursePrepHole {
   route_len_m: number
   route: Array<[number, number, number]>
   geometryCoverage: GeometryCoverageState
+  geometryRevision?: string | null
   sourceRefs: string[]
   missingData: CoursePrepMissingData[]
   candidateRoutes: CoursePrepCandidateRoute[]
@@ -1131,9 +1202,19 @@ export interface CoursePrepHole {
   cautions: string[]
   landing_m: number | null
   tee_club: string | null
-  hazards: { water_carry: Array<[number, number]>; bunkers: Array<[number, number]> }
+  hazards: {
+    water_carry: Array<[number, number]>
+    bunkers: Array<[number, number]>
+    details?: CoursePrepHazardDetail[]
+  }
   map?: { image: string; overlay: CoursePrepOverlay }
   yourShots?: CoursePrepShotDot[]
+  greenDistances?: {
+    available: boolean
+    frontM?: number | null
+    middleM?: number | null
+    backM?: number | null
+  } | null
   // round-13: elevation playsLike (tee→green) from the hole mesh; deltaYd>0 = uphill (plays longer).
   // Mirrors the phone/watch caddie glance so slope shows on every surface.
   playsLike?: {
@@ -1143,6 +1224,8 @@ export interface CoursePrepHole {
     teeElevM?: number | null
     greenElevM?: number | null
   }
+  holeImageProjection?: CoursePrepHoleImageProjection | null
+  greenOutline?: CoursePrepGreenOutline | null
 }
 
 export interface CoursePrepClub {
@@ -1171,9 +1254,12 @@ export interface CourseSearchMatch {
 }
 
 export interface CourseSearchResponse {
-  schema: 'ai-caddie-course-search-v1'
-  query: string
+  schema: 'ai-caddie-course-search-v1' | 'ai-caddie-course-nearby-v1'
+  query?: string
   matches: CourseSearchMatch[]
+  radiusKm?: number
+  complete?: boolean
+  partialReason?: string | null
 }
 
 export interface PrepTip {

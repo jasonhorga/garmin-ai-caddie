@@ -1,0 +1,175 @@
+from pathlib import Path
+import unittest
+
+
+IOS_VIEWS = Path("mobile/ios/AICaddie/Views")
+WATCH_VIEWS = Path("mobile/ios/AICaddieWatch/Views")
+
+
+class NativeVisualParityTests(unittest.TestCase):
+    def test_real_native_journeys_fail_closed_instead_of_skipping_missing_surfaces(self) -> None:
+        ui_tests = Path("mobile/ios/AICaddieUITests")
+        real_flow = (ui_tests / "RealFlowUITests.swift").read_text(encoding="utf-8")
+        review_edit = (ui_tests / "ReviewEditUITests.swift").read_text(encoding="utf-8")
+        tee_selection = (ui_tests / "TeeSelectionUITests.swift").read_text(encoding="utf-8")
+
+        for source in (real_flow, review_edit, tee_selection):
+            self.assertIn("continueAfterFailure = false", source)
+            self.assertNotIn("continueAfterFailure = true", source)
+        self.assertIn('let openedResults = tapContaining(["成绩", "球局 · 统计"])', real_flow)
+        self.assertIn("let resultsReady = openedResults", real_flow)
+        self.assertIn("let enteredHistory = resultsReady", real_flow)
+        self.assertIn('&& scrollAndTapContaining(["全部球局", "搜索 · 年份"])', real_flow)
+        self.assertIn(
+            'XCTAssertTrue(enteredHistory, "the real home must expose 成绩 and its complete archive")',
+            real_flow,
+        )
+        self.assertIn("the loaded real shot map must expose a tappable edit action", real_flow)
+        self.assertIn("the real home must expose and open 开始一场", tee_selection)
+        self.assertIn("the selected real course must expose a tappable Tee menu", tee_selection)
+
+    def test_real_review_capture_selects_resolver_verified_spatial_garmin_round(self) -> None:
+        ui_tests = Path("mobile/ios/AICaddieUITests")
+        real_flow = (ui_tests / "RealFlowUITests.swift").read_text(encoding="utf-8")
+        review_edit = (ui_tests / "ReviewEditUITests.swift").read_text(encoding="utf-8")
+
+        for source in (real_flow, review_edit):
+            self.assertNotIn("2026-06-11", source)
+            self.assertNotIn("17534238", source)
+            self.assertIn("RealEvidenceRoundResolver(", source)
+            self.assertIn("resolveReviewEvidence()", source)
+            self.assertIn("reviewEvidence.hole", source)
+            self.assertNotIn("tapFirstRoundRow", source)
+
+    def test_watch_score_header_reserves_system_time_area(self) -> None:
+        source = (WATCH_VIEWS / "WatchScoreHoleView.swift").read_text(encoding="utf-8")
+
+        self.assertIn("WatchScoreHoleLayout.systemTimeTrailingClearance", source)
+        self.assertIn(
+            "Spacer(minLength: WatchScoreHoleLayout.systemTimeTrailingClearance)",
+            source,
+        )
+
+    def test_watch_round_tools_expose_a_visible_menu_and_keep_long_press_as_a_shortcut(self) -> None:
+        source = (WATCH_VIEWS / "WatchRoundContainerView.swift").read_text(encoding="utf-8")
+
+        self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }", source)
+        self.assertIn('accessibilityAction(named: Text("球局工具"))', source)
+        self.assertIn('identifier: "watch-hole-menu"', source)
+        self.assertIn("private var rootControls", source)
+
+    def test_watch_menu_reclaims_only_the_top_edge_and_keeps_rounded_sides_safe(self) -> None:
+        source = (WATCH_VIEWS / "WatchMenuView.swift").read_text(encoding="utf-8")
+
+        self.assertIn(".ignoresSafeArea(edges: .top)", source)
+        self.assertNotIn(".ignoresSafeArea(edges: [.top, .leading, .trailing])", source)
+        self.assertNotIn(".contentMargins(.vertical, 0, for: .scrollContent)", source)
+
+    def test_watch_finish_actions_use_the_shared_rounded_display_inset(self) -> None:
+        source = (WATCH_VIEWS / "WatchFinishRoundView.swift").read_text(encoding="utf-8")
+
+        # Resume, finish, abandon-confirmation and save confirmation share the physical display inset.
+        self.assertEqual(
+            source.count(".padding(.horizontal, WatchDisplayGeometry.minimumContentInset)"),
+            4,
+        )
+        self.assertNotIn(".padding(.horizontal, 10)", source)
+        self.assertNotIn(".padding(.horizontal, 25)", source)
+
+    def test_watch_scroll_surfaces_keep_horizontal_content_inside_the_rounded_display(self) -> None:
+        top_only = ".ignoresSafeArea(edges: .top)"
+
+        for filename in [
+            "WatchMenuView.swift",
+            "WatchClubPromptView.swift",
+            "WatchClubStatsView.swift",
+            "WatchSettingsView.swift",
+        ]:
+            source = (WATCH_VIEWS / filename).read_text(encoding="utf-8")
+            self.assertIn(top_only, source, filename)
+            self.assertNotIn(
+                ".ignoresSafeArea(edges: [.top, .leading, .trailing])",
+                source,
+                filename,
+            )
+
+        container = (WATCH_VIEWS / "WatchRoundContainerView.swift").read_text(encoding="utf-8")
+        # The former current-hole-shots ScrollView was removed with the duplicate
+        # per-shot editing route. The container now owns only full-bleed map roots;
+        # scroll surfaces that reclaim the top edge live in their dedicated views.
+        self.assertIn(".ignoresSafeArea()", container)
+        self.assertNotIn(
+            ".ignoresSafeArea(edges: [.top, .leading, .trailing])",
+            container,
+        )
+
+        setup = (WATCH_VIEWS / "WatchRoundSetupView.swift").read_text(encoding="utf-8")
+        self.assertEqual(setup.count(top_only), 2)
+
+        start = (WATCH_VIEWS / "WatchStartView.swift").read_text(encoding="utf-8")
+        self.assertEqual(start.count(top_only), 2)
+
+        distance = (WATCH_VIEWS / "WatchDistanceHero.swift").read_text(encoding="utf-8")
+        self.assertIn(".ignoresSafeArea()", distance)
+        self.assertIn(".padding(.top, 39)", distance)
+        self.assertNotIn(".padding(.top, 8)", distance)
+
+    def test_live_hole_more_adjust_label_matches_compact_approved_card(self) -> None:
+        source = (IOS_VIEWS / "CurrentHoleView.swift").read_text(encoding="utf-8")
+
+        self.assertNotIn("更多调整(球杆 / 打法 / 球位 / 距离 / 目标 / 备注)", source)
+        self.assertIn('Label("更多调整", systemImage: "slider.horizontal.3")', source)
+        self.assertIn('Text("球杆 · 打法 · 球位 · 距离 · 目标 · 备注")', source)
+
+    def test_cached_watch_course_drives_the_approved_root_caddie_plan(self) -> None:
+        store = Path("mobile/ios/AICaddieWatch/Services/WatchCourseStore.swift").read_text(
+            encoding="utf-8"
+        )
+        container = (WATCH_VIEWS / "WatchRoundContainerView.swift").read_text(encoding="utf-8")
+
+        self.assertIn("preparedCaddieOptions", store)
+        self.assertIn("preparedRootCaddieLayerAvailable", container)
+        self.assertIn("showPreparedPlan:", container)
+
+    def test_real_review_capture_uses_the_same_resolver_verified_hole_as_edit(self) -> None:
+        for relative_path in [
+            "mobile/ios/AICaddieUITests/RealFlowUITests.swift",
+            "mobile/ios/AICaddieUITests/ReviewEditUITests.swift",
+        ]:
+            source = Path(relative_path).read_text(encoding="utf-8")
+            self.assertIn('app.buttons["round-review-hole-\\(reviewEvidence.hole)"]', source)
+            self.assertNotIn('app.buttons["round-review-hole-1"]', source)
+            self.assertNotIn('app.buttons["round-review-hole-4"]', source)
+
+    def test_watch_runtime_captures_caddie_from_the_downloaded_production_course(self) -> None:
+        root = Path("mobile/ios/AICaddieWatch/Views/WatchUITestRoot.swift").read_text(
+            encoding="utf-8"
+        )
+        workflow = Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8")
+
+        self.assertIn('"real-course-download-caddie"', root)
+        self.assertIn('screen == "real-course-download-caddie"', root)
+        self.assertIn(
+            "launch_and_capture real-course-download-caddie watch-real-course-caddie.png",
+            workflow,
+        )
+
+    def test_real_course_visual_player_has_a_measured_bag_before_download(self) -> None:
+        workflow = Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8")
+
+        seed = "seed_isolated_visual_player_bag"
+        setup_exit = 'if [[ "$WATCH_RUNTIME_SCOPE" == "setup-visual" ]]; then'
+        download = "launch_and_capture real-course-download-seed watch-real-course-download.png"
+
+        self.assertIn(seed, workflow)
+        self.assertIn("/api/v2/history/overview", workflow)
+        self.assertIn("/api/v2/players/$CI_PLAYER_ID/clubs/bag", workflow)
+        self.assertIn('"token":"driver","distanceM":220', workflow)
+        self.assertIn('"token":"wood3","distanceM":200', workflow)
+        self.assertIn('"token":"iron8","distanceM":125', workflow)
+        self.assertLess(workflow.index(setup_exit), workflow.index(seed))
+        self.assertLess(workflow.index(seed), workflow.index(download))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react'
 import type { RoundHoleShotMapResponse } from '../types'
 import { topoImageUrl } from '../api'
 import { HoleBaseImage } from './HoleBaseImage'
-import { buildTrajectory, dodgeLabels, shotLandingLabels } from './reviewShotMapLogic'
+import { buildTrajectory, dodgeLabels, isPuttShot, shotLandingLabels } from './reviewShotMapLogic'
 
 // The shot-map fetch state, resolved by the workbench: geometry may be missing
 // for a hole (no course mesh) even when the round itself is found.
@@ -34,23 +34,39 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
   const note = statusNote(state)
   const map = state.status === 'ready' ? state.data.map : null
   const shots = state.status === 'ready' ? state.data.shots : []
+  const manualPenalty = state.status === 'ready' ? state.data.manualPenalty ?? 0 : 0
+  // The overlay is authoritative for coordinate space. A fallback bitmap can be a
+  // placeholder (or have stale intrinsic dimensions), so allowing the image itself
+  // to size this frame stretches every route and landing marker out of alignment.
+  const frameStyle: CSSProperties | undefined = map
+    ? { aspectRatio: `${map.overlay.w} / ${map.overlay.h}` }
+    : undefined
   // Realistic topo base for this exact (physical gid, localHole) when geometry rendered; else the
   // legacy render (map.image). Both share the overlay frame, so the shot vectors align regardless.
   const topoData = state.status === 'ready' ? state.data : null
   const topoSrc =
     map && topoData?.globalId != null && topoData?.localHole != null
-      ? topoImageUrl(topoData.globalId, topoData.localHole)
+      ? topoImageUrl(topoData.globalId, topoData.localHole, topoData.geometryRevision)
       : undefined
 
   let svg: React.ReactElement | null = null
   let chips: React.ReactElement[] = []
   if (map) {
     const { w, h, route } = map.overlay
-    const geo = buildTrajectory(shots)
+    // Garmin Golf keeps putts as one green-side badge rather than drawing several tiny GPS
+    // segments. Keep the full-shot route clean, then attach the putt count to the green.
+    const fullShots = shots.filter((shot) => !isPuttShot(shot))
+    const putts = shots.filter(isPuttShot)
+    const geo = buildTrajectory(fullShots)
     const routePoints = route.map((p) => `${p[0]},${p[1]}`).join(' ')
     const trajPoints = geo.points.map((p) => `${p[0]},${p[1]}`).join(' ')
     // Spread pills off any near-coincident landings so two close shots stay legible.
-    const labels = dodgeLabels(shotLandingLabels(shots), { w, h })
+    const labelRows = shotLandingLabels(shots, map.overlay.ppm)
+    if (putts.length > 0) {
+      const green = [...putts].reverse().find((shot) => shot.end)?.end ?? route[route.length - 1]?.slice(0, 2) ?? null
+      if (green && green.length >= 2) labelRows.push({ x: green[0], y: green[1], text: `推杆 ×${putts.length}` })
+    }
+    const labels = dodgeLabels(labelRows, { w, h })
 
     svg = (
       <svg viewBox={`0 0 ${w} ${h}`} className="review-canvas-svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
@@ -59,7 +75,7 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
           <polyline points={routePoints} fill="none" stroke="#fff" strokeOpacity={0.55} strokeWidth={2.4} strokeDasharray="6 5" strokeLinejoin="round" />
         ) : null}
         {/* Actual shots — per-segment so a synthetic (推算) drive can render faded. */}
-        {shots.map((shot, index) =>
+        {fullShots.map((shot, index) =>
           shot.start && shot.end ? (
             <line
               key={`seg-${index}`}
@@ -96,7 +112,7 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
 
   return (
     <div className="review-canvas" aria-label={`第${hole}洞落点图`}>
-      <div className="review-canvas-frame">
+      <div className="review-canvas-frame" style={frameStyle}>
         {map ? (
           <HoleBaseImage className="review-canvas-img" topoSrc={topoSrc} fallbackSrc={map.image} alt={`第${hole}洞`} />
         ) : (
@@ -104,25 +120,12 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
         )}
         {svg}
         {chips}
+        <div className="review-map-hole-facts">
+          <strong>第 {hole} 洞 · Par {par ?? '—'}</strong>
+          {score !== null ? <span>本洞 {score} 杆</span> : null}
+        </div>
+        {manualPenalty > 0 ? <div className="review-map-penalty">罚杆 +{manualPenalty}</div> : null}
         {note ? <div className={note.tone === 'error' ? 'review-canvas-note error' : 'review-canvas-note'}>{note.text}</div> : null}
-      </div>
-      <div className="review-canvas-meta">
-        <span className="review-canvas-hole">
-          第 {hole} 洞 · Par {par ?? '—'}
-          {score !== null ? ` → ${score}` : ''}
-        </span>
-        {map ? (
-          <div className="review-canvas-legend">
-            <span>
-              <b className="review-legend-actual" />
-              实际打法
-            </span>
-            <span>
-              <b className="review-legend-plan" />
-              球童建议线
-            </span>
-          </div>
-        ) : null}
       </div>
     </div>
   )

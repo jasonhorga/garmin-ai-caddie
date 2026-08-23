@@ -30,6 +30,7 @@ import {
   fetchMobileRoundPackage,
   fetchProductSettings,
   fetchCourseSearch,
+  fetchNearbyCourses,
   fetchCourseReport,
   fetchReportIndex,
   fetchRoundReport,
@@ -1535,7 +1536,8 @@ export default function App() {
           courseOptions={mobileCourseOptionsState.status === 'ready' ? mobileCourseOptionsState.data : null}
           allStats={statsState.status === 'ready' ? statsState.data : null}
           adminToken={currentAdminToken()}
-          onSearchCourses={(name) => fetchCourseSearch(name, currentAdminToken())}
+          onSearchCourses={(name, city) => fetchCourseSearch(name, currentAdminToken(), city)}
+          onNearbyCourses={(latitude, longitude, radiusKm) => fetchNearbyCourses(latitude, longitude, radiusKm, currentAdminToken())}
           onSelectCourse={handlePrepCourse}
           onChangeCourse={() => {
             setPrepGlobalId(null)

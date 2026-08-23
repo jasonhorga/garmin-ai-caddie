@@ -13,7 +13,7 @@ from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_course, g
 from ai_caddie.history.history import HistoryData, OWNER_ID, average, percentile
 from ai_caddie.history.history_drilldown import build_drilldown_index
 from ai_caddie.caddie.issue_taxonomy import issue_record
-from ai_caddie.reports.reports import list_report_records
+from ai_caddie.reports.reports import list_report_stats_records
 from ai_caddie.llm.weather_context import list_weather_snapshots
 
 DataModeName = Literal["local", "fixture"]
@@ -3732,9 +3732,10 @@ def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
       dataset (and cacheable by fingerprint).
 
     ``shots`` and ``raw_rounds`` are filtered to the surviving rounds. Merged rounds
-    (``id="merged_<a>_<b>"``) list their member ids in ``ids`` while their shots and
-    raw_rounds reference the RAW member ids, so the surviving-id set includes both;
-    ids are compared as strings because sources mix ints and strings.
+    (``id="merged_<a>_<b>"``) list their member ids in ``ids``. Current loaded shots
+    use the merged id, while legacy/manually-built inputs and raw_rounds may still use
+    RAW member ids, so the surviving-id set includes both; ids are compared as strings
+    because sources mix ints and strings.
     """
     if window == "all":
         return data
@@ -3838,7 +3839,10 @@ def build_history_stats(
     _clear_effective_shots_cache()  # fresh per build — memo only lives within this pass (see note above)
     annotations = list_annotations(root=annotations_root, player_id=player_id)
     weather_snapshots = list_weather_snapshots(root=weather_root, player_id=player_id)
-    report_records = list_report_records(root=reports_root, player_id=player_id)
+    # Aggregate stats consume only report coverage and explicit suggested-issue labels/refs.  Keep
+    # the complete fact-bound report ledger authoritative for report/review endpoints without
+    # retaining it wholesale in every windowed statistics build.
+    report_records = list_report_stats_records(root=reports_root, player_id=player_id)
     decision_audits = list_decision_audits(root=decision_audit_root, player_id=player_id)
     scored_data = _effective_score_data(data, annotations)
     hole_rows = _holes(scored_data, annotations, report_records)

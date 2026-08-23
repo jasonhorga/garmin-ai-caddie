@@ -34,6 +34,20 @@ final class GeoDistanceTests: XCTestCase {
         XCTAssertNil(GeoDistance.yards(from: 40, 116, to: 40, nil))
     }
 
+    func testGreenRangePresentationRejectsOffCourseValuesWithoutChangingDistanceMath() {
+        XCTAssertEqual(GeoDistance.greenRangeText(nil), "—")
+        XCTAssertEqual(GeoDistance.greenRangeText(0), "0")
+        XCTAssertEqual(GeoDistance.greenRangeText(999), "999")
+        XCTAssertEqual(GeoDistance.greenRangeText(1_000), "—")
+        XCTAssertEqual(GeoDistance.greenRangeText(18_383), "—")
+        XCTAssertTrue(GeoDistance.isBeyondUsefulGreenRange(1_000))
+        XCTAssertFalse(GeoDistance.isBeyondUsefulGreenRange(485))
+
+        let raw = GeoDistance.yards(from: 40, 116, to: 40.2, 116)
+        XCTAssertNotNil(raw)
+        XCTAssertGreaterThan(raw ?? 0, GeoDistance.maximumUsefulGreenYards)
+    }
+
     func testGreenDistancesDecodesLiveLatLon() throws {
         // The backend (course_prep._green_distances) ships these keys when the hole anchor is known.
         let json = """

@@ -3,11 +3,45 @@ import Foundation
 import FoundationNetworking
 #endif
 
+func validOnePixelPNGData() -> Data {
+    // Complete, decoder-valid 1x1 PNG. Signature-only placeholders must never satisfy offline-map
+    // readiness because a real UIImage/CGImage cannot render them.
+    Data(
+        base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )!
+}
+
 /// Shared URLProtocol stub for client tests: install on an ephemeral `URLSessionConfiguration` and
 /// set `requestHandler` to inspect the outgoing request + return a canned response. Used by
 /// `SyncClientTests` and `AppleAuthClientTests` (so it must not be `private` to one file).
 final class CapturingURLProtocol: URLProtocol {
     static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    /// URLSession may hand a custom URLProtocol the encoded request body either as `httpBody` or
+    /// as `httpBodyStream` (the latter is what the GitHub Xcode runner does). Tests that inspect the
+    /// wire payload must accept both representations or they become simulator/runtime dependent.
+    static func requestBodyData(from request: URLRequest) throws -> Data {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            throw URLError(.zeroByteResource)
+        }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 1_024)
+        while true {
+            let readCount = stream.read(&buffer, maxLength: buffer.count)
+            if readCount < 0 {
+                throw stream.streamError ?? URLError(.cannotDecodeContentData)
+            }
+            if readCount == 0 {
+                return data
+            }
+            data.append(buffer, count: readCount)
+        }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool {
         true

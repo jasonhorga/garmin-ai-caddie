@@ -96,18 +96,44 @@ class ServerV2GeometryTests(unittest.TestCase):
 
     def test_course_coverage_endpoint_uses_public_schema_alias(self) -> None:
         client = TestClient(app)
+        coverage = Mock(
+            return_value={
+                "schema": "ai-caddie-course-geometry-coverage-v1",
+                "globalId": 31795,
+                "coverage": "partial",
+                "readyHoles": 1,
+                "partialHoles": 0,
+                "totalHoles": 2,
+                "holes": [
+                    {
+                        "schema": "ai-caddie-geometry-evidence-v1",
+                        "globalId": 31795,
+                        "localHole": 1,
+                        "coverage": "ready",
+                        "geometryRevision": "0000000000000001",
+                        "hasHazards": True,
+                        "hasMeshes": True,
+                        "evidence": [],
+                        "missingData": [],
+                    },
+                    {
+                        "schema": "ai-caddie-geometry-evidence-v1",
+                        "globalId": 31795,
+                        "localHole": 2,
+                        "coverage": "missing",
+                        "geometryRevision": None,
+                        "hasHazards": False,
+                        "hasMeshes": False,
+                        "evidence": [],
+                        "missingData": [{"label": "geometry", "reason": "not installed"}],
+                    },
+                ],
+                "missingData": [{"label": "geometry", "reason": "1/2 holes not ready"}],
+            }
+        )
 
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            hazard = root / "gid31795_h01_hazards.json"
-            mesh = root / "gid31795_h01_meshes.json"
-            hazard.write_text("{}", encoding="utf-8")
-            mesh.write_text("{}", encoding="utf-8")
-            with (
-                patch("ai_caddie.geometry.geometry_evidence.hazard_path", side_effect=lambda _gid, hole: hazard if hole == 1 else root / "missing_hazards.json"),
-                patch("ai_caddie.geometry.geometry_evidence.mesh_path", side_effect=lambda _gid, hole: mesh if hole == 1 else root / "missing_meshes.json"),
-            ):
-                response = client.get("/api/v2/geometry/course/31795/coverage?holes=1&holes=2")
+        with patch("server_v2.geometry.geometry_coverage_for_course", coverage):
+            response = client.get("/api/v2/geometry/course/31795/coverage?holes=1&holes=2")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -116,6 +142,12 @@ class ServerV2GeometryTests(unittest.TestCase):
         self.assertEqual(payload["coverage"], "partial")
         self.assertEqual(payload["readyHoles"], 1)
         self.assertEqual(payload["totalHoles"], 2)
+        coverage.assert_called_once_with(
+            31795,
+            holes=[1, 2],
+            require_current_authority=True,
+            refresh_release=True,
+        )
 
     def test_hole_evidence_endpoint_is_secret_free(self) -> None:
         client = TestClient(app)

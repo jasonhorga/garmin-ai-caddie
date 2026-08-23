@@ -4,6 +4,7 @@ import {
   buildTimeline,
   buildTrajectory,
   chipShape,
+  clubDisplay,
   dodgeLabels,
   isManuallyCorrected,
   isPuttShot,
@@ -78,6 +79,24 @@ describe('isPuttShot', () => {
   })
 })
 
+describe('clubDisplay', () => {
+  it('uses Chinese display names for canonical backend club tokens', () => {
+    expect(clubDisplay(shot({ club: 'wood3' }))).toBe('三号木')
+    expect(clubDisplay(shot({ club: 'wood5' }))).toBe('五号木')
+    expect(clubDisplay(shot({ club: 'hybrid4' }))).toBe('四号小鸡腿')
+    expect(clubDisplay(shot({ club: 'iron9' }))).toBe('九号铁')
+    expect(clubDisplay(shot({ club: 'wedge50' }))).toBe('50°')
+  })
+
+  it('uses the same Chinese names for Garmin shorthand tokens', () => {
+    expect(clubDisplay(shot({ club: '1W' }))).toBe('一号木')
+    expect(clubDisplay(shot({ club: '3W' }))).toBe('三号木')
+    expect(clubDisplay(shot({ club: '5I' }))).toBe('五号铁')
+    expect(clubDisplay(shot({ club: '7I' }))).toBe('七号铁')
+    expect(clubDisplay(shot({ club: 'PW' }))).toBe('P杆')
+  })
+})
+
 describe('isManuallyCorrected', () => {
   it('is true only when the club or lie carries a manual source', () => {
     expect(isManuallyCorrected(shot())).toBe(false)
@@ -117,20 +136,25 @@ describe('buildTimeline', () => {
     expect(rows[1]).toMatchObject({ kind: 'shot', club: '九号铁', corrected: true })
   })
 
-  it('flags the synthetic drive honestly', () => {
-    const rows = buildTimeline([shot({ synthetic: true, club: null })], 1)
-    expect(rows[0]).toMatchObject({ kind: 'shot', club: '未知球杆', resultZh: '未记录 · 推算开球' })
+  it('omits a synthetic route anchor that has no recorded club', () => {
+    const rows = buildTimeline([shot({ synthetic: true, club: null, start: [0, 0], end: [0, 0] })], 1)
+    expect(rows).toEqual([])
   })
 })
 
 describe('shotLandingLabels', () => {
-  it('labels each full-shot landing with the CLUB ONLY (no distance/lie)', () => {
+  it('labels each full-shot landing with club, factual distance, and result lie', () => {
     const labels = shotLandingLabels([
       shot({ club: '一号木', endLie: 'Fairway', end: [30, 40] }),
       shot({ club: '推杆', shotType: 'PUTT' }),
-    ])
+    ], 1)
     expect(labels).toHaveLength(1)
-    expect(labels[0]).toMatchObject({ x: 30, y: 40, text: '一号木' })
+    expect(labels[0]).toMatchObject({ x: 30, y: 40, text: '一号木 · 55码 · →球道' })
+  })
+
+  it('puts the manual-correction fact in the landing pill', () => {
+    const labels = shotLandingLabels([shot({ club: '9I', clubSource: 'manual' })], 1)
+    expect(labels[0].text).toContain('已修正')
   })
 
   it('skips the synthetic drive and shots with no known club', () => {
@@ -140,7 +164,7 @@ describe('shotLandingLabels', () => {
       shot({ club: '7I', end: [30, 30] }),
     ])
     expect(labels).toHaveLength(1)
-    expect(labels[0]).toMatchObject({ x: 30, y: 30, text: '7I' })
+    expect(labels[0]).toMatchObject({ x: 30, y: 30, text: '七号铁 · →球道' })
   })
 })
 

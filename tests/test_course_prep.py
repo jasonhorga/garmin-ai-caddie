@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import unittest
 from pathlib import Path
@@ -30,6 +31,18 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(cp._xy({"X": 1.0, "Y": 2.0}), (1.0, 2.0))
         self.assertEqual(cp._xy([3.0, 4.0]), (3.0, 4.0))
 
+    def test_lightweight_green_outline_applies_latitude_to_east_component(self) -> None:
+        outline = cp._course_data_green_outline(
+            {"greenRadii": [10] * 30},
+            [(0.0, 0.0), (100.0, 200.0)],
+            green_latitude=60.0,
+        )
+
+        self.assertAlmostEqual(outline[0][0], 100.0)
+        self.assertAlmostEqual(outline[0][1], 210.0)
+        self.assertAlmostEqual(outline[5][0], 104.3301270189)
+        self.assertAlmostEqual(outline[5][1], 205.0)
+
     def test_derive_route_from_dogleg(self) -> None:
         md = {"hole": {
             "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}, {"Sets": [5], "X": 0.0, "Y": 10.0}],
@@ -39,6 +52,76 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(route[0], (0.0, 0.0))           # blue tee (Sets=2)
         self.assertEqual(route[-1], (30.0, 200.0))        # green = dogleg end
         self.assertAlmostEqual(length, 100.0 + (30.0 ** 2 + 100.0 ** 2) ** 0.5, places=1)
+
+    def test_derive_route_uses_selected_course_data_route_for_dual_green(self) -> None:
+        ref_lat, ref_lon = 40.0, 116.0
+        selected_local = [(0.0, 0.0), (12.0, 105.0), (30.0, 230.0)]
+        selected_world = [
+            cp.shot_projection.local_to_world(
+                east, north, ref_lat=ref_lat, ref_lon=ref_lon
+            )
+            for east, north in selected_local
+        ]
+        md = {"hole": {
+            "GlobalId": 38059,
+            "HoleNumber": 5,
+            "RefLat": ref_lat,
+            "RefLon": ref_lon,
+            "TeeLocations": [{"Sets": [2], "X": 2.0, "Y": 1.0}],
+            "Doglegs": [{"Line": [
+                {"X": 0.0, "Y": 0.0},
+                {"X": 0.0, "Y": 100.0},
+                {"X": 0.0, "Y": 200.0},
+            ]}],
+        }}
+
+        with patch.object(
+            cp.courseview_core,
+            "load_cached_hole_route",
+            return_value=selected_world,
+        ):
+            route, length = cp.derive_route(md)
+
+        self.assertEqual(route[0], (2.0, 1.0))
+        self.assertAlmostEqual(route[1][0], 12.0, places=5)
+        self.assertAlmostEqual(route[1][1], 105.0, places=5)
+        self.assertAlmostEqual(route[-1][0], 30.0, places=5)
+        self.assertAlmostEqual(route[-1][1], 230.0, places=5)
+        self.assertAlmostEqual(
+            length,
+            math.dist((2.0, 1.0), (12.0, 105.0))
+            + math.dist((12.0, 105.0), (30.0, 230.0)),
+            places=5,
+        )
+
+    def test_derive_route_keeps_precise_dogleg_for_subthreshold_drift(self) -> None:
+        ref_lat, ref_lon = 40.0, 116.0
+        selected_world = [
+            cp.shot_projection.local_to_world(
+                east, north, ref_lat=ref_lat, ref_lon=ref_lon
+            )
+            for east, north in ((0.0, 0.0), (5.0, 204.0))
+        ]
+        md = {"hole": {
+            "GlobalId": 38059,
+            "HoleNumber": 1,
+            "RefLat": ref_lat,
+            "RefLon": ref_lon,
+            "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],
+            "Doglegs": [{"Line": [
+                {"X": 0.0, "Y": 0.0},
+                {"X": 0.0, "Y": 200.0},
+            ]}],
+        }}
+
+        with patch.object(
+            cp.courseview_core,
+            "load_cached_hole_route",
+            return_value=selected_world,
+        ):
+            route, _length = cp.derive_route(md)
+
+        self.assertEqual(route, [(0.0, 0.0), (0.0, 200.0)])
 
     def test_blue_tee_fallback_to_nearest(self) -> None:
         md = {"hole": {
@@ -62,6 +145,37 @@ class PureLogicTests(unittest.TestCase):
         with patch("ai_caddie.courses.course_prep.build_club_profiles", return_value=profiles):
             self.assertEqual(cp.club_ladder(), [("7I", 134), ("PW", 101)])
 
+    def test_club_ladder_collapses_aliases_and_never_recommends_putter(self) -> None:
+        profiles = {
+            "3W": {"median": 175.3, "sampleSize": 4},
+            "三号木杆": {"median": 173.9, "sampleSize": 18},
+            "Putter": {"median": 32.0, "sampleSize": 100},
+            "7I": {"median": 128.0, "sampleSize": 20},
+        }
+        with patch("ai_caddie.courses.course_prep.build_club_profiles", return_value=profiles), \
+                patch.object(cp.club_bag_service, "restrict_to_bag", side_effect=lambda rows, _name: rows):
+            ladder = cp.club_ladder()
+
+        self.assertEqual(ladder, [("三号木杆", 174), ("7I", 128)])
+
+    def test_club_ladder_prefers_nonzero_garmin_advice_distance(self) -> None:
+        profiles = {
+            "3W": {"median": 171.0, "sampleSize": 40},
+            "3H": {"median": 159.0, "sampleSize": 30},
+        }
+        synced = {
+            "clubs": [
+                {"clubTypeId": 2, "adviceDistance": 188, "averageDistance": 181},
+                {"clubTypeId": 6, "adviceDistance": 0, "averageDistance": 0},
+            ]
+        }
+        with patch("ai_caddie.courses.course_prep.build_club_profiles", return_value=profiles), \
+                patch("ai_caddie.courses.course_prep.load_club_bag", return_value=synced), \
+                patch.object(cp.club_bag_service, "restrict_to_bag", side_effect=lambda rows, _name: rows):
+            ladder = cp.club_ladder()
+
+        self.assertEqual(ladder, [("3W", 188), ("3H", 159)])
+
     def test_prep_hole_marks_out_of_range_par_record_as_estimate(self) -> None:
         md = {"hole": {
             "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],
@@ -84,7 +198,16 @@ class PureLogicTests(unittest.TestCase):
             "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],
             "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 320.0}]}],
         }}
-        with patch.object(cp.hole_render, "load_mesh", return_value=(md, {})), \
+        by = {
+            "Green.drc": {
+                "positions": [
+                    [4.0, 0.0, 314.0], [-4.0, 0.0, 314.0],
+                    [-4.0, 0.0, 326.0], [4.0, 0.0, 326.0],
+                ],
+                "faces": [[0, 1, 2], [0, 2, 3]],
+            }
+        }
+        with patch.object(cp.hole_render, "load_mesh", return_value=(md, by)), \
                 patch("ai_caddie.courses.course_prep.geometry_coverage_for_hole", return_value={
                     "coverage": "ready",
                     "evidence": [{"label": "hazards", "ref": "output/prodgeometry_hazards/gid99999_h01_hazards.json"}],
@@ -107,8 +230,79 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(row["missingData"], [])
         self.assertEqual(row["route"][0], [0.0, 0.0, 0.0])
         self.assertEqual(row["route"][-1], [0.0, 320.0, 320.0])
+        self.assertTrue(row["greenOutline"]["available"])
+        self.assertEqual(row["greenOutline"]["source"], "prodgeometry.Green.drc.boundary")
+        self.assertEqual(len(row["greenOutline"]["pointsPx"]), 4)
         self.assertEqual([row["id"] for row in row["candidateRoutes"]], ["safe", "stock", "attack"])
         self.assertTrue(any(target["kind"] == "landing" for target in row["carryTargets"]))
+
+    def test_missing_prodgeometry_uses_cached_course_data_without_guessing_unknown_codes(self) -> None:
+        course_data = {
+            "schema": "garmin-course-data-core-v1",
+            "sourceVariant": "medium-plus",
+            "buildId": 309,
+            "globalLayoutId": 3881,
+            "holes": [
+                {
+                    "holeNumber": 1,
+                    "greenRadii": [12] * 30,
+                    "pars": [{"par": 4, "playerType": 1}],
+                    "lines": [
+                        {
+                            "role": "route",
+                            "surface": None,
+                            "points": [
+                                {"latitude": 36.58, "longitude": -121.97},
+                                {"latitude": 36.581, "longitude": -121.968},
+                            ],
+                        },
+                        {
+                            "role": "hazard-span",
+                            "surface": "water",
+                            "points": [
+                                {"latitude": 36.5804, "longitude": -121.9693},
+                                {"latitude": 36.5805, "longitude": -121.9691},
+                            ],
+                        },
+                        {
+                            "role": "unknown",
+                            "surface": None,
+                            "lineCode": 3243,
+                            "points": [
+                                {"latitude": 36.5806, "longitude": -121.9690},
+                                {"latitude": 36.5807, "longitude": -121.9689},
+                            ],
+                        },
+                    ],
+                }
+            ],
+        }
+        with (
+            patch.object(cp.hole_render, "load_mesh", side_effect=FileNotFoundError),
+            patch.object(cp.courseview_core, "load_cached_course_data", return_value=course_data),
+        ):
+            prep = cp.prep_hole(
+                3881,
+                1,
+                ladder=[("1W", 200), ("7I", 128)],
+                render=False,
+            )
+
+        self.assertIsInstance(prep, cp.HolePrep)
+        row = prep.to_dict()
+        self.assertEqual(row["geometryCoverage"], "partial")
+        self.assertEqual(
+            row["sourceRefs"],
+            ["course:3881", "courseData:3881:309:medium-plus"],
+        )
+        self.assertGreater(row["route_len_m"], 100)
+        self.assertEqual(len(row["hazards"]["details"]), 1)
+        self.assertEqual(row["hazards"]["details"][0]["kind"], "water")
+        self.assertEqual(len(row["greenOutline"]["pointsPx"]), 30)
+        self.assertIsNone(row["greenOutline"]["distanceUnit"])
+        self.assertTrue(row["holeImageProjection"]["available"])
+        self.assertTrue(row["greenDistances"]["available"])
+        self.assertIsNotNone(row["greenDistances"]["middleLat"])
 
     def test_par3_strategy_one_club_to_green(self) -> None:
         ladder = [("1W", 200), ("7I", 128), ("PW", 102)]
@@ -123,6 +317,23 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(len(steps), 2)
         self.assertEqual(tee, "1W")
         self.assertIsNotNone(landing)
+        self.assertNotEqual(cp.club_bag_service.canonical_club_name(steps[1]["club"]), "driver")
+
+    def test_par5_strategy_uses_complete_chain_and_driver_only_from_tee(self) -> None:
+        ladder = [("Driver", 198), ("3W", 175), ("3号铁木杆", 157), ("7I", 128), ("PW", 102)]
+        steps, _cautions, _landing, tee = cp._strategy(
+            5,
+            505,
+            {"water_carry": [], "bunkers": [], "details": []},
+            ladder,
+        )
+
+        self.assertEqual(tee, "Driver")
+        self.assertGreaterEqual(len(steps), 3)
+        self.assertTrue(all(
+            cp.club_bag_service.canonical_club_name(step["club"]) != "driver"
+            for step in steps[1:]
+        ))
 
     def test_in_triangle(self) -> None:
         a, b, c = (0, 0), (10, 0), (0, 10)
@@ -149,6 +360,17 @@ class PureLogicTests(unittest.TestCase):
         _steps, cautions, _landing, _tee = cp._strategy(4, 300, {"water_carry": [[40.0, 60.0]], "bunkers": []}, ladder)
 
         self.assertEqual(cautions, ["水障碍：进水前约 44y，过水需 66y"])
+
+    def test_strategy_collapses_multiple_green_side_bunkers_into_one_caution(self) -> None:
+        ladder = [("1W", 200), ("7I", 128), ("PW", 102)]
+        _steps, cautions, _landing, _tee = cp._strategy(
+            4,
+            410,
+            {"water_carry": [], "bunkers": [[370.0, 12.0], [395.0, 8.0], [405.0, 10.0]]},
+            ladder,
+        )
+
+        self.assertEqual(cautions, ["果岭边有沙坑——别短别偏"])
 
 
 class GeometryBackedTests(unittest.TestCase):
@@ -199,8 +421,18 @@ class AvailablePrepHolesTests(unittest.TestCase):
 
     def test_no_geometry_falls_back_to_front_nine(self) -> None:
         with TemporaryDirectory() as tmp:
-            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)):
+            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)), \
+                    patch("ai_caddie.courses.courseview_core.load_cached_course_data", return_value=None):
                 self.assertEqual(course_prep.available_prep_holes(99999), list(range(1, 10)))
+
+    def test_course_data_exposes_all_holes_before_precise_geometry_arrives(self) -> None:
+        lightweight = {
+            "holes": [{"holeNumber": hole} for hole in range(1, 19)],
+        }
+        with TemporaryDirectory() as tmp:
+            with patch("ai_caddie.core.data.MESH_DIR", Path(tmp)), \
+                    patch("ai_caddie.courses.courseview_core.load_cached_course_data", return_value=lightweight):
+                self.assertEqual(course_prep.available_prep_holes(55123), list(range(1, 19)))
 
     def test_partial_geometry_returns_only_cached_holes_sorted(self) -> None:
         with TemporaryDirectory() as tmp:

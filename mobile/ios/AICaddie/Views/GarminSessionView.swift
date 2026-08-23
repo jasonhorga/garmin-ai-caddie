@@ -8,6 +8,7 @@ public struct GarminSessionView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
     public let sessionStore: GarminSessionStore?
+    public let onSessionImported: (() async -> Bool)?
 
     @State private var statusText = "未连接"
     @State private var isImporting = false
@@ -17,11 +18,13 @@ public struct GarminSessionView: View {
     public init(
         apiBaseURL: URL? = nil,
         adminToken: String? = nil,
-        sessionStore: GarminSessionStore? = GarminSessionStore()
+        sessionStore: GarminSessionStore? = GarminSessionStore(),
+        onSessionImported: (() async -> Bool)? = nil
     ) {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
         self.sessionStore = sessionStore
+        self.onSessionImported = onSessionImported
     }
 
     public var body: some View {
@@ -99,8 +102,17 @@ public struct GarminSessionView: View {
                 )
             )
             connected = hasStoredSession()
-            statusText = "已连接"
             showingWebLogin = false
+            if let onSessionImported {
+                // The parent settings screen is the sole owner of Garmin sync state. Keep this
+                // account page connection-focused while the parent performs its refresh; otherwise
+                // two independent labels briefly report the same operation and can disagree.
+                statusText = "已连接"
+                _ = await onSessionImported()
+                statusText = "已连接 · 返回上一页查看同步状态"
+            } else {
+                statusText = "已连接"
+            }
         } catch {
             statusText = "连接失败,请重试"
         }

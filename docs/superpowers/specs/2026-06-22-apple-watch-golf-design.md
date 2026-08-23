@@ -1,5 +1,7 @@
 # Apple Watch 高尔夫体验 — 设计 Spec (2026-06-22)
 
+> **Status: Historical Input / Superseded.** 本文是早期设计研究，不是现行 Watch 规范。当前 Owner 决策、S70 证据更正与后续任务以 `docs/reviews/2026-07-15-watch-decision-and-task-tracker.md` 为准；保留本文只为追溯，不得用它覆盖 L01–L19 或重新授权旧交互。
+
 > 设计稿(真数据 + 可交互意图):`watch-design8` served at the funnel.
 > 对标 Garmin Approach S70 的打球范式 + 我们的 **AI 球童**差异点。设计阶段产物,尚未落地代码。
 > 关联:`r13-product-redesign` (memory)、`auto-shot-tracking-vision` (memory)。

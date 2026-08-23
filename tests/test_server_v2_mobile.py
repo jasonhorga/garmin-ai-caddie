@@ -3,14 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
 from ai_caddie.history import stats_cache
 from ai_caddie.reports.annotations import add_annotation
-from ai_caddie.caddie.decision import list_decision_audits, store_decision_audit
+from ai_caddie.caddie.decision import list_decision_audits, store_decision, store_decision_audit
 from ai_caddie.history.history import HistoryData
 from ai_caddie.caddie.mobile_live import _hole_issue_label_zh
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
@@ -18,6 +20,288 @@ from server_v2.main import app
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def test_live_package_does_not_trust_historical_ready_geometry(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        round_row = {
+            "globalId": 31795,
+            "holes": [{"number": 1, "par": 4, "geometryCoverage": "ready"}],
+        }
+        with patch.object(
+            mobile_live,
+            "geometry_coverage_for_hole",
+            return_value={"coverage": "partial", "geometryRevision": None},
+        ) as current_coverage:
+            holes = mobile_live._package_holes(
+                round_row,
+                {"holes": []},
+                course_key="",
+                hole_numbers=[1],
+            )
+
+        self.assertEqual(holes[0]["geometryCoverage"], "partial")
+        self.assertIsNone(holes[0]["geometryRevision"])
+        current_coverage.assert_called_once_with(
+            31795,
+            1,
+            require_current_authority=True,
+        )
+
+    def test_mobile_geometry_context_keeps_only_caddie_risk_surfaces(self) -> None:
+        from ai_caddie.caddie.mobile_live import _hazards_from_geometry
+
+        hazards = _hazards_from_geometry(
+            {
+                "hazards": [
+                    {"id": "water-1", "kind": "water", "centroid": [10, 20]},
+                    {"id": "bunker-1", "kind": "bunker", "centroid": [30, 40]},
+                    {"id": "trees-1", "kind": "tree_area", "centroid": [50, 60]},
+                    {"id": "fairway-1", "kind": "fairway", "centroid": [70, 80]},
+                    {"id": "green-1", "kind": "green", "centroid": [90, 100]},
+                    {"id": "tee-1", "kind": "teebox", "centroid": [0, 0]},
+                ]
+            }
+        )
+
+        self.assertEqual([row["id"] for row in hazards], ["water-1", "bunker-1", "trees-1"])
+
+    def test_mobile_route_seed_uses_bound_tee_and_target_instead_of_synthetic_axis(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        hazard_authority = {
+            "globalId": 39271,
+            "target": {"position": [45.25, 315.25]},
+            "tees": [
+                {"tee_index": 2, "sets": [2], "position": [209.25, 48.5], "target_distance_m": 313.1}
+            ],
+            "hazards": [],
+        }
+        route = {
+            "routeLength_m": 313.1,
+            "avoidZones": [],
+            "missingData": [],
+        }
+        with (
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", return_value=hazard_authority),
+            patch("ai_caddie.courses.course_reference.courseview_tees", return_value=[]),
+            patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", return_value=route) as build,
+        ):
+            resolved, _evidence, _missing = mobile_live._route_evidence_seed(
+                39271,
+                1,
+                {"yards": 372},
+                "live-39271:1",
+                [{"clubName": "1W", "median_m": 220.0, "sampleSize": 30}],
+                "blue",
+            )
+
+        self.assertEqual(resolved["routeLength_m"], 313.1)
+        self.assertEqual(build.call_args.kwargs["start"], {"x": 209.25, "y": 48.5})
+        self.assertEqual(build.call_args.kwargs["target"], {"x": 45.25, "y": 315.25})
+
+    def test_live_ios_decision_refresh_replaces_cold_geometry_and_candidate_risks(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        context = {
+            "source": "ios_live",
+            "sourceRef": "live-39271:1",
+            "globalId": 39271,
+            "localHole": 1,
+            "teeBox": "blue",
+            "par": 4,
+            "yards": 372,
+            "geometry": {"coverage": "missing", "hasHazards": False, "hasMeshes": False},
+            "hazards": [],
+            "clubProfiles": {
+                "1W": {"clubName": "1W", "median_m": 190.0, "p10_m": 170.0, "p90_m": 210.0, "sampleSize": 30},
+                "3W": {"clubName": "3W", "median_m": 160.0, "p10_m": 145.0, "p90_m": 175.0, "sampleSize": 30},
+            },
+            "candidateRoutes": [{"id": "stale", "lineRisks": []}],
+        }
+        geometry = {
+            "coverage": "ready",
+            "hasHazards": True,
+            "hasMeshes": True,
+            "hazardCount": 1,
+            "hazards": [{"id": "water-near", "kind": "water"}],
+        }
+        route = {
+            "routeLength_m": 313.1,
+            "avoidZones": [{"id": "water-near", "kind": "water", "carryToClear_m": 200.0}],
+            "missingData": [],
+        }
+        with (
+            patch("ai_caddie.caddie.mobile_live._geometry_seed", return_value=(geometry, [], [])),
+            patch("ai_caddie.caddie.mobile_live._route_evidence_seed", return_value=(route, [], [])),
+        ):
+            refreshed = mobile_live.hydrate_live_caddie_geometry_context(context)
+
+        self.assertEqual(refreshed["geometry"], geometry)
+        self.assertEqual(refreshed["hazards"], geometry["hazards"])
+        self.assertEqual(refreshed["routeEvidence"], route)
+        self.assertEqual(refreshed["holeRemaining_m"], 313.1)
+        self.assertEqual(
+            [row["id"] for row in refreshed["candidateRoutes"]],
+            ["conservative_layup", "stock_line", "aggressive_line"],
+        )
+        self.assertEqual(refreshed["candidateRoutes"][1]["lineRisks"][0]["id"], "water-near")
+        self.assertEqual(refreshed["candidateRoutes"][1]["lineRisks"][0]["carryToClear_m"], 200.0)
+
+    def test_non_live_decision_context_is_not_rehydrated(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        context = {
+            "source": "fixture",
+            "globalId": 39271,
+            "localHole": 1,
+            "geometry": {"coverage": "missing"},
+        }
+        with patch("ai_caddie.caddie.mobile_live._geometry_seed") as geometry_seed:
+            refreshed = mobile_live.hydrate_live_caddie_geometry_context(context)
+
+        self.assertEqual(refreshed, context)
+        self.assertIsNot(refreshed, context)
+        geometry_seed.assert_not_called()
+
+    def test_course_geometry_ensure_invalidates_geometry_loader_cache(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        ready = {
+            "ok": True,
+            "status": "ready",
+            "globalId": 3881,
+            "localHole": 1,
+            "sourceRef": "output/prodgeometry/gid3881_h01_meshes.json",
+        }
+        with (
+            patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", return_value=ready),
+            patch("ai_caddie.caddie.analysis.load_geometry.cache_clear") as clear_cache,
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards.cache_clear") as clear_mobile_cache,
+        ):
+            summary = mobile_live._ensure_geometry_for_course(3881, holes=[1])
+
+        self.assertEqual(summary["state"], "ready")
+        clear_cache.assert_called_once_with()
+        clear_mobile_cache.assert_called_once_with()
+
+    def test_course_geometry_ensure_overlaps_bounded_jobs_and_preserves_hole_order(self) -> None:
+        from threading import Barrier, Lock
+        from time import sleep
+
+        from ai_caddie.caddie import mobile_live
+
+        first_wave = Barrier(2)
+        state_lock = Lock()
+        active = 0
+        max_active = 0
+
+        def ensure(global_id: int, local_hole: int) -> dict[str, object]:
+            nonlocal active, max_active
+            with state_lock:
+                active += 1
+                max_active = max(max_active, active)
+            if local_hole <= 2:
+                first_wave.wait(timeout=2)
+            # Finish deliberately out of order; the returned public summary must still be ordered.
+            sleep((5 - local_hole) * 0.005)
+            with state_lock:
+                active -= 1
+            return {
+                "status": "downloaded",
+                "ok": True,
+                "globalId": global_id,
+                "localHole": local_hole,
+            }
+
+        with (
+            patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", side_effect=ensure),
+            patch("ai_caddie.caddie.analysis.load_geometry.cache_clear"),
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards.cache_clear"),
+        ):
+            summary = mobile_live._ensure_geometry_for_course(31791, holes=[1, 2, 3, 4])
+
+        self.assertEqual(max_active, 2)
+        self.assertEqual([row["localHole"] for row in summary["results"]], [1, 2, 3, 4])
+        self.assertEqual(summary["state"], "ready")
+
+    def test_course_geometry_ensure_keeps_only_a_two_job_window_in_the_shared_pool(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event, Lock, Thread
+
+        from ai_caddie.caddie import mobile_live
+
+        first_pair_started = Event()
+        release = Event()
+        state_lock = Lock()
+        active = 0
+        submitted = 0
+        completed = 0
+        maximum_outstanding = 0
+
+        class RecordingExecutor:
+            def __init__(self) -> None:
+                self.executor = ThreadPoolExecutor(max_workers=2)
+
+            def submit(self, function, *args):
+                nonlocal submitted, completed, maximum_outstanding
+                with state_lock:
+                    submitted += 1
+                    maximum_outstanding = max(maximum_outstanding, submitted - completed)
+
+                def wrapped():
+                    nonlocal completed
+                    try:
+                        return function(*args)
+                    finally:
+                        with state_lock:
+                            completed += 1
+
+                return self.executor.submit(wrapped)
+
+            def shutdown(self) -> None:
+                self.executor.shutdown(wait=True)
+
+        def ensure(global_id: int, local_hole: int) -> dict[str, object]:
+            nonlocal active
+            with state_lock:
+                active += 1
+                if active == 2:
+                    first_pair_started.set()
+            self.assertTrue(release.wait(timeout=5))
+            return {
+                "status": "downloaded",
+                "ok": True,
+                "globalId": global_id,
+                "localHole": local_hole,
+            }
+
+        executor = RecordingExecutor()
+        summary: list[dict[str, object]] = []
+
+        def run_download() -> None:
+            summary.append(mobile_live._ensure_geometry_for_course(31791, holes=list(range(1, 10))))
+
+        try:
+            with (
+                patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", side_effect=ensure),
+                patch.object(mobile_live, "_GEOMETRY_INSTALL_POOL", executor),
+                patch("ai_caddie.caddie.analysis.load_geometry.cache_clear"),
+                patch("ai_caddie.caddie.mobile_live._load_mobile_hazards.cache_clear"),
+            ):
+                worker = Thread(target=run_download)
+                worker.start()
+                self.assertTrue(first_pair_started.wait(timeout=5))
+                with state_lock:
+                    self.assertEqual(maximum_outstanding, 2)
+                release.set()
+                worker.join(timeout=10)
+                self.assertFalse(worker.is_alive())
+        finally:
+            release.set()
+            executor.shutdown()
+
+        self.assertEqual([row["localHole"] for row in summary[0]["results"]], list(range(1, 10)))
+
     def test_recent_history_hole_issue_label_is_chinese_from_token(self) -> None:
         # 复盘 holes 的 repeatedIssues label 必须中文(iOS 直接展示该字符串)。
         self.assertEqual(_hole_issue_label_zh({"issue": "approach_short", "count": 2}), "攻果岭偏短")
@@ -25,6 +309,42 @@ class ServerV2MobileTests(unittest.TestCase):
         # 无 token 的旧/测试行回退到既有 label;未知 token 原样透出(与 web issueLabels 一致)。
         self.assertEqual(_hole_issue_label_zh({"label": "approach short"}), "approach short")
         self.assertEqual(_hole_issue_label_zh({"issue": "weird_unknown_token"}), "weird_unknown_token")
+
+    def test_offline_diagnostic_context_caps_repeated_source_refs(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        refs = [f"round-{index}:1" for index in range(100)]
+        context = mobile_live._diagnostic_context_for_seed(
+            {
+                "diagnosis": {
+                    "topIssue": {
+                        "issue": "approach_short",
+                        "sourceRefs": refs,
+                    }
+                },
+                "dataQuality": [
+                    {
+                        "label": "putts",
+                        "state": "degraded",
+                        "ready": 1,
+                        "total": 100,
+                        "sourceRefs": refs,
+                    }
+                ],
+            },
+            source_ref="new-round:1",
+            round_id="new-round",
+            local_hole=1,
+            hole_stats={},
+            course_form=None,
+        )
+
+        self.assertIsNotNone(context)
+        assert context is not None
+        self.assertEqual(len(context["topIssue"]["sourceRefs"]), 12)
+        self.assertEqual(context["topIssue"]["sourceRefCount"], 100)
+        self.assertEqual(len(context["qualityGaps"][0]["sourceRefs"]), 12)
+        self.assertEqual(context["qualityGaps"][0]["sourceRefCount"], 100)
 
     def test_recent_history_resolves_synthetic_course_key(self) -> None:
         # round-9 C1/C2: a course-mode package carries a synthetic "gid_<id>" courseKey that used to
@@ -121,6 +441,289 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["cachedCaddieRules"]["decisionContract"], "ai-caddie-decision-v2")
         self.assertTrue(payload["cachedCaddieRules"]["offlineCapable"])
 
+    def test_home_package_skips_the_event_store_cursor(self) -> None:
+        """The read-only home preview must not scan the global event log."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.core.fixtures import fixture_history_data
+
+        with TemporaryDirectory() as tmp, patch.object(
+            mobile_live,
+            "_event_cursor",
+            side_effect=AssertionError("home preview touched the event store"),
+        ):
+            package = mobile_live.build_live_round_package(
+                "home-preview",
+                data=fixture_history_data(),
+                data_mode="fixture",
+                root=Path(tmp),
+                annotations_root=Path(tmp),
+                template_round_id="900001",
+                include_course_prep=False,
+                include_event_cursor=False,
+            )
+
+        self.assertEqual(package["eventCursor"], {"serverSequence": 0, "pendingEventCount": 0})
+
+    def test_event_cursor_scans_sequence_metadata_once_and_preserves_client_progress(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.caddie.mobile_event_store import FileEventStore, open_mobile_event_store
+
+        round_id = "live-round-cursor-snapshot"
+        client_id = "ios-phone"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = open_mobile_event_store((root / mobile_live.EVENT_LOG).parent)
+            for sequence in (1, 2):
+                store.append_batch(
+                    round_id,
+                    [
+                        {
+                            "schema": "ai-caddie-live-round-event-v1",
+                            "roundId": round_id,
+                            "clientId": client_id,
+                            "eventId": f"score-{sequence}",
+                            "timestamp": "2026-07-29T00:00:00Z",
+                            "hole": 1,
+                            "kind": "score",
+                            "payload": {"strokes": sequence + 3},
+                        }
+                    ],
+                    request_key=f"cursor-snapshot-{sequence}",
+                )
+            store.ack(round_id, client_id, 1)
+
+            scan_count = 0
+            original_sequence_snapshot = FileEventStore._round_sequence_snapshot
+
+            def counted_sequence_snapshot(event_store: FileEventStore, *args: object, **kwargs: object):
+                nonlocal scan_count
+                scan_count += 1
+                return original_sequence_snapshot(event_store, *args, **kwargs)
+
+            with (
+                patch.object(FileEventStore, "_round_sequence_snapshot", new=counted_sequence_snapshot),
+                patch.object(
+                    FileEventStore,
+                    "_stored_log",
+                    side_effect=AssertionError("cursor materialized replay payloads"),
+                ),
+            ):
+                cursor = mobile_live._event_cursor(round_id, root=root, client_id=client_id)
+
+        self.assertEqual(
+            cursor,
+            {
+                "serverSequence": 2,
+                "pendingEventCount": 1,
+                "clientId": client_id,
+                "lastAckedServerSequence": 1,
+                "replayEndpoint": f"/api/v2/mobile/rounds/{round_id}/events/replay",
+            },
+        )
+        self.assertEqual(scan_count, 1)
+
+    def test_event_cursor_does_not_sanitize_unrelated_event_payloads(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.caddie.mobile_event_store import FileEventStore, open_mobile_event_store
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = open_mobile_event_store((root / mobile_live.EVENT_LOG).parent)
+            store.append_batch(
+                "older-round",
+                [
+                    {
+                        "schema": "ai-caddie-live-round-event-v1",
+                        "roundId": "older-round",
+                        "clientId": "watch",
+                        "eventId": "large-but-unrelated",
+                        "timestamp": "2026-07-29T00:00:00Z",
+                        "hole": 1,
+                        "kind": "score",
+                        "payload": {"diagnosticRows": ["x" * 500 for _ in range(200)]},
+                    }
+                ],
+                request_key="large-but-unrelated",
+            )
+
+            with patch.object(
+                FileEventStore,
+                "_sanitize_event",
+                side_effect=AssertionError("sequence-only cursor touched event payload"),
+            ):
+                cursor = mobile_live._event_cursor(
+                    "brand-new-round",
+                    root=root,
+                    client_id="ios-phone",
+                )
+
+        self.assertEqual(
+            cursor,
+            {
+                "serverSequence": 0,
+                "pendingEventCount": 0,
+                "clientId": "ios-phone",
+                "lastAckedServerSequence": 0,
+                "replayEndpoint": "/api/v2/mobile/rounds/brand-new-round/events/replay",
+            },
+        )
+
+    def test_course_package_route_forwards_event_cursor_opt_out(self) -> None:
+        from server_v2 import main as server_main
+
+        expected = object()
+        with patch.object(
+            server_main,
+            "build_mobile_course_package_response",
+            return_value=expected,
+        ) as build_package:
+            actual = server_main.mobile_course_package(
+                31796,
+                background_tasks=BackgroundTasks(),
+                include_event_cursor=False,
+                player_id="owner",
+            )
+
+        self.assertIs(actual, expected)
+        self.assertFalse(build_package.call_args.kwargs["include_event_cursor"])
+
+    def test_course_package_queues_only_missing_source_holes_for_background_upgrade(self) -> None:
+        from server_v2 import main as server_main
+
+        package = SimpleNamespace(
+            course={"globalId": 31796},
+            holes=[
+                {
+                    "number": 1,
+                    "geometryCoverage": "partial",
+                    "sourceGlobalId": 31796,
+                    "sourceLocalHole": 1,
+                },
+                {
+                    "number": 2,
+                    "geometryCoverage": "ready",
+                    "sourceGlobalId": 31796,
+                    "sourceLocalHole": 2,
+                },
+                {
+                    "number": 10,
+                    "geometryCoverage": "missing",
+                    "sourceGlobalId": 31797,
+                    "sourceLocalHole": 1,
+                },
+            ],
+        )
+        with patch.object(
+            server_main,
+            "build_mobile_course_package_response",
+            return_value=package,
+        ), patch.object(
+            server_main.course_install,
+            "enqueue",
+            return_value={"schema": "ai-caddie-course-install-v1", "phase": "queued"},
+        ) as enqueue:
+            actual = server_main.mobile_course_package(
+                31796,
+                background_tasks=BackgroundTasks(),
+                background_geometry=True,
+                player_id="owner",
+            )
+
+        self.assertIs(actual, package)
+        enqueue.assert_called_once()
+        self.assertEqual(enqueue.call_args.kwargs["requested"], {31796: [1], 31797: [1]})
+        self.assertEqual(enqueue.call_args.kwargs["ready"], {31796: [2]})
+
+    def test_course_package_revalidates_first_playing_hole_even_when_marked_ready(self) -> None:
+        from server_v2 import main as server_main
+
+        package = SimpleNamespace(
+            course={"globalId": 31796},
+            holes=[
+                {
+                    "number": 1,
+                    "geometryCoverage": "ready",
+                    "sourceGlobalId": 31796,
+                    "sourceLocalHole": 1,
+                },
+                {
+                    "number": 2,
+                    "geometryCoverage": "ready",
+                    "sourceGlobalId": 31796,
+                    "sourceLocalHole": 2,
+                },
+            ],
+        )
+        with patch.object(
+            server_main,
+            "build_mobile_course_package_response",
+            return_value=package,
+        ), patch.object(
+            server_main.course_install,
+            "enqueue",
+            return_value={"schema": "ai-caddie-course-install-v1", "phase": "queued"},
+        ) as enqueue:
+            server_main.mobile_course_package(
+                31796,
+                background_tasks=BackgroundTasks(),
+                background_geometry=True,
+                player_id="owner",
+            )
+
+        enqueue.assert_called_once()
+        self.assertEqual(enqueue.call_args.kwargs["requested"], {})
+        self.assertEqual(enqueue.call_args.kwargs["ready"], {31796: [1, 2]})
+
+    def test_background_geometry_upgrade_prewarms_topo_for_background_resume(self) -> None:
+        from server_v2 import main as server_main
+
+        with (
+            patch(
+                "ai_caddie.caddie.mobile_live._ensure_geometry_for_course"
+            ) as ensure_geometry,
+            patch.object(server_main, "_prewarm_course_topo") as prewarm_topo,
+        ):
+            server_main._upgrade_course_geometry({31796: [1, 2], 31797: [4]})
+
+        self.assertEqual(
+            ensure_geometry.call_args_list,
+            [call(31796, holes=[1, 2]), call(31797, holes=[4])],
+        )
+        self.assertEqual(
+            prewarm_topo.call_args_list,
+            [call(31796, [1, 2]), call(31797, [4])],
+        )
+
+    def test_background_geometry_upgrade_singleflights_duplicate_course_requests(self) -> None:
+        from threading import Event, Thread
+
+        from server_v2 import main as server_main
+
+        started = Event()
+        release = Event()
+
+        def ensure_geometry(_global_id: int, *, holes: list[int]) -> None:
+            started.set()
+            self.assertTrue(release.wait(timeout=5))
+
+        with patch(
+            "ai_caddie.caddie.mobile_live._ensure_geometry_for_course",
+            side_effect=ensure_geometry,
+        ) as ensure, patch.object(server_main, "_prewarm_course_topo") as prewarm:
+            owner = Thread(
+                target=server_main._upgrade_course_geometry,
+                args=({19901: [1, 2, 3]},),
+            )
+            owner.start()
+            self.assertTrue(started.wait(timeout=5))
+            server_main._upgrade_course_geometry({19901: [1, 2, 3]})
+            release.set()
+            owner.join(timeout=5)
+
+        self.assertFalse(owner.is_alive())
+        ensure.assert_called_once_with(19901, holes=[1, 2, 3])
+        prewarm.assert_called_once_with(19901, [1, 2, 3])
+
     def test_mobile_round_package_can_prefetch_geometry_for_offline_readiness(self) -> None:
         client = TestClient(app)
         ensured: set[tuple[int, int]] = set()
@@ -135,7 +738,11 @@ class ServerV2MobileTests(unittest.TestCase):
                 "releaseSource": "cache",
             }
 
-        def coverage_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+        def coverage_for_test(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
             ready = (int(global_id), int(local_hole)) in ensured
             return {
                 "schema": "ai-caddie-geometry-evidence-v1",
@@ -148,16 +755,18 @@ class ServerV2MobileTests(unittest.TestCase):
                 "missingData": [] if ready else [{"label": "geometry", "reason": "not prefetched"}],
             }
 
-        def ready_map(global_id: int, local_hole: int) -> dict[str, object]:
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
             return {
-                "schema": "ai-caddie-hole-map-v1",
-                "globalId": int(global_id),
-                "localHole": int(local_hole),
-                "provider": {"coordinateSystem": "local"},
-                "coverage": "ready",
-                "layers": ["hazard"],
-                "featureCollection": {"type": "FeatureCollection", "features": []},
-                "missingData": [],
+                "refLat": 40.0,
+                "refLon": 116.0,
+                "hazards": [
+                    {
+                        "id": f"bunker-{local_hole}",
+                        "kind": "bunker",
+                        "centroid": [12.0, 80.0],
+                        "tee_distances": [],
+                    }
+                ],
             }
 
         def ready_route(global_id: int, local_hole: int, **_kwargs: object) -> dict[str, object]:
@@ -175,8 +784,11 @@ class ServerV2MobileTests(unittest.TestCase):
             patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
             patch("ai_caddie.geometry.geometry_sync.ensure_prodgeometry", side_effect=ensure_for_test),
             patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
-            patch("ai_caddie.caddie.mobile_live.build_hole_map_dto", side_effect=ready_map),
-            patch("ai_caddie.caddie.mobile_live.build_route_geometry_evidence", side_effect=ready_route),
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=ready_geometry),
+            patch(
+                "ai_caddie.caddie.mobile_live.build_route_geometry_evidence",
+                side_effect=ready_route,
+            ) as build_route,
         ):
             response = client.get(
                 "/api/v2/mobile/rounds/900001/package",
@@ -195,6 +807,15 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(ensure["failed"], 0)
         self.assertEqual(len(ensure["results"]), 18)
         self.assertNotIn("geometry", {row["label"] for row in payload["missingData"]})
+        self.assertEqual(
+            payload["caddieContextSeeds"][0]["context"]["geometry"]["hazards"][0],
+            {"kind": "bunker", "id": "bunker-1", "source": "geometry_map"},
+        )
+        self.assertEqual(build_route.call_count, 18)
+        self.assertTrue(
+            all(call.kwargs.get("_hazards_override", {}).get("hazards") for call in build_route.call_args_list),
+            "mobile seeds must reuse bound hazards instead of rebuilding a full hole-map DTO",
+        )
 
     def test_mobile_round_package_carries_player_profile_into_offline_decision_context(self) -> None:
         client = TestClient(app)
@@ -356,6 +977,26 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["course"]["globalId"], 41825)
         self.assertEqual(len(payload["holes"]), 9)
 
+    def test_mobile_round_package_uses_physical_loop_id_when_real_round_omits_global_id(self) -> None:
+        """Real Garmin rows often carry front/back loop ids without the convenience globalId."""
+        from ai_caddie.core.fixtures import fixture_history_data
+
+        data = fixture_history_data()
+        selected = next(row for row in data.rounds if str(row.get("id")) == "900003")
+        selected.pop("globalId")
+        selected["frontNineGlobalCourseId"] = 41825
+
+        with (
+            patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "fixture")),
+            patch("server_v2.mobile._refresh_course_release_authority"),
+        ):
+            response = TestClient(app).get("/api/v2/mobile/rounds/900003/package")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["course"]["globalId"], 41825)
+        self.assertEqual(payload["holes"][0]["sourceGlobalId"], 41825)
+
     def test_mobile_course_package_prepares_round_before_garmin_round_exists(self) -> None:
         client = TestClient(app)
 
@@ -392,7 +1033,11 @@ class ServerV2MobileTests(unittest.TestCase):
         client = TestClient(app)
         data = HistoryData(raw_rounds=[], rounds=[], shots=[])
 
-        def coverage_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+        def coverage_for_test(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
             return {
                 "schema": "ai-caddie-geometry-evidence-v1",
                 "globalId": global_id,
@@ -406,10 +1051,27 @@ class ServerV2MobileTests(unittest.TestCase):
 
         from ai_caddie.courses import course_reference
 
+        def geometry_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "globalId": global_id,
+                "tees": [{
+                    "tee_index": 1,
+                    "sets": [1],
+                    "position": [0.0, 0.0],
+                    "target_distance_m": 300.0 + local_hole,
+                }],
+            }
+
         with (
             patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "fixture")),
             patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
             patch.object(course_reference, "courseview_par", return_value=[4, 5, 3, 4, 3, 4, 4, 5, 4, 4, 5, 3, 4, 3, 4, 4, 5, 4]),
+            patch.object(
+                course_reference,
+                "courseview_tees",
+                return_value=[{"name": "Blue", "gender": "MEN", "index": 1}],
+            ),
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=geometry_for_test),
         ):
             response = client.get(
                 "/api/v2/mobile/courses/55555/package",
@@ -421,6 +1083,8 @@ class ServerV2MobileTests(unittest.TestCase):
         holes = payload["holes"]
         self.assertEqual(holes[0]["par"], 4)
         self.assertEqual(holes[1]["par"], 5)  # would be 4 under the old hardcode
+        self.assertEqual(holes[0]["yards"], round(301.0 * 1.09361))
+        self.assertEqual(holes[1]["yards"], round(302.0 * 1.09361))
         self.assertEqual(payload["roundId"], "live-new-course")
         self.assertEqual(payload["course"], {"globalId": 55555, "name": "Course 55555", "teeBox": "blue"})
         self.assertEqual(payload["sourceCoverage"]["state"], "ready")
@@ -436,6 +1100,113 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertIn("recent_history", {row["label"] for row in payload["missingData"]})
         self.assertEqual(payload["caddieContextSeeds"][0]["sourceRef"], "live-new-course:1")
         self.assertEqual(payload["caddieContextSeeds"][0]["context"]["globalId"], 55555)
+
+    def test_existing_course_package_uses_selected_tee_geometry_yardage(self) -> None:
+        """A prior round is only a course template; today's selected Tee owns nominal hole length."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.core.fixtures import fixture_history_data
+        from ai_caddie.courses import course_reference
+
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "globalId": int(global_id),
+                "tees": [
+                    {
+                        "tee_index": 2,
+                        "sets": [2],
+                        "position": [0.0, 0.0],
+                        # Hole 1 is 401 yards from the selected Blue Tee.
+                        "target_distance_m": 366.7 + local_hole - 1,
+                    }
+                ],
+            }
+
+        def ready_coverage(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "globalId": int(global_id),
+                "localHole": int(local_hole),
+                "coverage": "ready",
+                "hasHazards": True,
+                "hasMeshes": True,
+                "evidence": [],
+                "missingData": [],
+            }
+
+        with (
+            patch.object(mobile_live, "geometry_coverage_for_hole", side_effect=ready_coverage),
+            patch.object(mobile_live, "_load_mobile_hazards", side_effect=ready_geometry),
+            patch.object(
+                course_reference,
+                "courseview_tees",
+                return_value=[{"name": "Blue", "gender": "MEN", "index": 2}],
+            ),
+        ):
+            package = mobile_live.build_live_round_package_for_course(
+                31795,
+                round_id="live-existing-blue",
+                tee_box="blue",
+                data=fixture_history_data(),
+                data_mode="fixture",
+                include_course_prep=False,
+            )
+
+        self.assertEqual(package["sourceCoverage"]["selectedRoundId"], "900001")
+        self.assertEqual(package["course"]["teeBox"], "blue")
+        self.assertEqual(package["holes"][0]["yards"], round(366.7 * 1.09361))
+        self.assertEqual(package["caddieContextSeeds"][0]["context"]["yards"], round(366.7 * 1.09361))
+
+    def test_course_package_exposes_selected_tee_coordinate_without_course_prep(self) -> None:
+        """Fast live packages still carry each selected Tee's real GPS anchor."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.core.fixtures import fixture_history_data
+        from ai_caddie.courses import course_reference
+
+        def ready_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "globalId": int(global_id),
+                "refLat": 40.0 + local_hole / 1000,
+                "refLon": 116.0,
+                "tees": [
+                    {
+                        "tee_index": 1,
+                        "sets": [1],
+                        "position": [900.0, 900.0],
+                        "target_distance_m": 390.0,
+                    },
+                    {
+                        "tee_index": 2,
+                        "sets": [2],
+                        "position": [100.0, 200.0],
+                        "target_distance_m": 366.7,
+                    },
+                ],
+            }
+
+        with (
+            patch.object(mobile_live, "_load_mobile_hazards", side_effect=ready_geometry),
+            patch.object(
+                course_reference,
+                "courseview_tees",
+                return_value=[
+                    {"name": "Gold", "gender": "MEN", "index": 1},
+                    {"name": "Blue", "gender": "MEN", "index": 2},
+                ],
+            ),
+        ):
+            package = mobile_live.build_live_round_package_for_course(
+                31795,
+                round_id="live-existing-blue",
+                tee_box="blue",
+                data=fixture_history_data(),
+                data_mode="fixture",
+                include_course_prep=False,
+            )
+
+        self.assertIsNone(package["coursePrep"])
+        self.assertIn("teeLatitude", package["holes"][0])
+        self.assertIn("teeLongitude", package["holes"][0])
+        self.assertAlmostEqual(package["holes"][0]["teeLatitude"], 40.002796630568234, places=7)
+        self.assertAlmostEqual(package["holes"][0]["teeLongitude"], 116.00117268449421, places=7)
 
     def test_mobile_course_package_resolves_course_without_geometry_bundle(self) -> None:
         # Geometry bundle absent (e.g. homeserver) but CourseView par present → the course
@@ -521,12 +1292,34 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual([hole["number"] for hole in front["holes"]], list(range(1, 10)))
         self.assertTrue(front["caddieContextSeeds"])
         self.assertTrue(all(seed["hole"] <= 9 for seed in front["caddieContextSeeds"]))
+        self.assertEqual(front["sourceCoverage"]["holeCount"], 9)
+        self.assertEqual(front["geometryCoverage"]["totalHoles"], 9)
+        self.assertEqual(front["weatherSnapshot"]["coverage"]["total"], 9)
+        self.assertEqual(
+            [row["number"] for row in front["recentHistory"]["holes"]],
+            list(range(1, 10)),
+        )
+        front_checks = {row["label"]: row for row in front["readinessChecks"]}
+        self.assertEqual(front_checks["geometry"]["total"], 9)
+        self.assertEqual(front_checks["weather"]["total"], 9)
+        self.assertEqual(front_checks["caddie_seeds"]["total"], 9)
 
         back = fetch("back")
         self.assertEqual(back["nine"], "back")
         self.assertEqual([hole["number"] for hole in back["holes"]], list(range(10, 19)))
         self.assertTrue(back["caddieContextSeeds"])
         self.assertTrue(all(seed["hole"] >= 10 for seed in back["caddieContextSeeds"]))
+        self.assertEqual(back["sourceCoverage"]["holeCount"], 9)
+        self.assertEqual(back["geometryCoverage"]["totalHoles"], 9)
+        self.assertEqual(back["weatherSnapshot"]["coverage"]["total"], 9)
+        self.assertEqual(
+            [row["number"] for row in back["recentHistory"]["holes"]],
+            list(range(10, 19)),
+        )
+        back_checks = {row["label"]: row for row in back["readinessChecks"]}
+        self.assertEqual(back_checks["geometry"]["total"], 9)
+        self.assertEqual(back_checks["weather"]["total"], 9)
+        self.assertEqual(back_checks["caddie_seeds"]["total"], 9)
 
         invalid = client.get(
             "/api/v2/mobile/courses/55555/package",
@@ -534,20 +1327,64 @@ class ServerV2MobileTests(unittest.TestCase):
         )
         self.assertEqual(invalid.status_code, 422)
 
-    def test_mobile_course_package_omits_course_prep_for_fast_start(self) -> None:
-        # Live start must open instantly, so the course package no longer embeds the heavy
-        # all-hole course_prep (per-hole route + hazard point-in-polygon over big meshes).
-        # The app fetches each hole's prep on demand via /api/v2/courses/{id}/prep?holes=N.
-        # Guard: prep_nine must NOT be called while building the live course package.
+    def test_mobile_course_package_seeds_only_lightweight_first_hole_for_fast_start(self) -> None:
+        # Live start must not embed the heavy all-hole course_prep.  It does retain one forced
+        # CourseView-only first-hole seed so precise background geometry can never leave an empty
+        # hero while winning the on-demand request race.
         client = TestClient(app)
 
+        seed = {
+            "schema": "ai-caddie-course-prep-package-v1",
+            "globalId": 31795,
+            "holes": [{"hole": 1, "geometryCoverage": "partial"}],
+            "missingData": [],
+        }
+
         with patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}), \
-                patch("ai_caddie.courses.course_prep.prep_nine") as prep_nine:
+                patch("ai_caddie.courses.course_prep.prep_nine") as prep_nine, \
+                patch("server_v2.mobile.first_hole_lightweight_course_prep", return_value=seed) as first_seed:
             response = client.get("/api/v2/mobile/courses/31795/package", params={"round_id": "live-31795"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertIsNone(response.json()["coursePrep"])
+        self.assertEqual(response.json()["coursePrep"], seed)
         prep_nine.assert_not_called()
+        first_seed.assert_called_once()
+
+    def test_first_hole_lightweight_seed_keeps_composite_source_authority(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_prep
+
+        lightweight = {
+            "globalId": 31795,
+            "localHole": 1,
+            "hole": 1,
+            "geometryCoverage": "partial",
+            "route": [[0.0, 0.0, 0.0], [10.0, 20.0, 30.0]],
+            "holeImageProjection": {"available": True, "widthPx": 720, "heightPx": 1120, "refs": []},
+            "missingData": [{"label": "geometry", "reason": "pending"}],
+        }
+        package = {
+            "course": {"globalId": 31794},
+            "holes": [
+                {
+                    "number": 10,
+                    "sourceGlobalId": 31795,
+                    "sourceLocalHole": 1,
+                }
+            ],
+        }
+
+        with patch.object(course_prep, "lightweight_prep_hole", return_value=lightweight) as build:
+            result = mobile_live.first_hole_lightweight_course_prep(
+                package,
+                player_id="member-a",
+            )
+
+        build.assert_called_once_with(31795, 1, player_id="member-a")
+        self.assertEqual(result["globalId"], 31794)
+        self.assertEqual(result["holes"][0]["hole"], 10)
+        self.assertEqual(result["holes"][0]["globalId"], 31795)
+        self.assertEqual(result["holes"][0]["localHole"], 1)
 
     def test_mobile_course_package_caps_nine_hole_loop_to_nine_holes(self) -> None:
         # A 9-hole CourseView loop (黑骑士 C / gid 31796) whose played rounds were 18-hole combos
@@ -624,6 +1461,96 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual([h["number"] for h in pkg["holes"]], list(range(1, 19)))
         self.assertEqual(pkg["course"]["name"], "黑骑士 ~ C/A")
+        self.assertEqual(pkg["sourceCoverage"]["holeCount"], 18)
+        self.assertEqual(
+            [seed["hole"] for seed in pkg["caddieContextSeeds"]],
+            list(range(1, 19)),
+        )
+        self.assertEqual(
+            [seed["sourceRef"] for seed in pkg["caddieContextSeeds"]],
+            [f"live-x:{hole}" for hole in range(1, 19)],
+        )
+        self.assertEqual(
+            [seed["context"]["hole"] for seed in pkg["caddieContextSeeds"]],
+            list(range(1, 19)),
+        )
+        self.assertTrue(
+            all(seed["context"]["roundId"] == "live-x" for seed in pkg["caddieContextSeeds"])
+        )
+        # This fixture deliberately has no scored hole rows, so merging must not invent history.
+        self.assertEqual(pkg["recentHistory"]["holes"], [])
+        self.assertEqual(
+            [row["hole"] for row in pkg["weatherSnapshot"]["holeCoverage"]],
+            list(range(1, 19)),
+        )
+        checks = {row["label"]: row for row in pkg["readinessChecks"]}
+        self.assertEqual(checks["geometry"]["total"], 18)
+        self.assertEqual(checks["weather"]["total"], 18)
+        self.assertEqual(checks["caddie_seeds"]["total"], 18)
+
+    def test_composite_round_can_play_the_same_nine_twice(self) -> None:
+        # A standalone 9-hole venue is still a valid 18-hole choice (A+A). Phone and Watch both
+        # send the same gid as front/back, so the server must preserve two ordered physical laps.
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_reference
+
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[
+                {
+                    "id": "rC",
+                    "course": "黑骑士 ~ C/A",
+                    "courseKey": "c",
+                    "globalId": 31796,
+                    "holesCompleted": 18,
+                    "par": 72,
+                    "holes": [],
+                    "hasShots": True,
+                }
+            ],
+            shots=[],
+        )
+
+        def missing_geometry(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "schema": "ai-caddie-geometry-evidence-v1",
+                "globalId": int(global_id),
+                "localHole": local_hole,
+                "coverage": "missing",
+                "hasHazards": False,
+                "hasMeshes": False,
+                "evidence": [],
+                "missingData": [],
+            }
+
+        with (
+            patch.object(mobile_live, "geometry_coverage_for_hole", side_effect=missing_geometry),
+            patch.object(
+                mobile_live,
+                "_courseview_segment_resolver",
+                return_value=("The Players Club ~ C", 9),
+            ),
+            patch.object(course_reference, "courseview_par", return_value=[4] * 9),
+        ):
+            package = mobile_live.build_live_round_package_for_course(
+                31796,
+                round_id="live-c-twice",
+                data=data,
+                data_mode="local",
+                back_global_id=31796,
+                include_course_prep=False,
+            )
+
+        self.assertEqual(package["course"]["name"], "黑骑士 ~ C/C")
+        self.assertEqual([hole["number"] for hole in package["holes"]], list(range(1, 19)))
+        self.assertEqual(
+            [hole["sourceGlobalId"] for hole in package["holes"]],
+            [31796] * 18,
+        )
+        self.assertEqual(
+            [hole["sourceLocalHole"] for hole in package["holes"]],
+            [*range(1, 10), *range(1, 10)],
+        )
 
     def test_live_course_package_builds_stats_from_unaugmented_history(self) -> None:
         # Never-played courses get a synthetic template round added to the package data so the holes
@@ -919,6 +1846,7 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertEqual(package_response.status_code, 200)
         self.assertEqual(seed["context"]["routeEvidence"]["routeLength_m"], 182.0)
+        self.assertEqual(seed["context"]["holeRemaining_m"], 182.0)
         self.assertIn("route_geometry", {row["label"] for row in seed["evidence"]})
         self.assertEqual(decision_response.status_code, 200)
         decision = decision_response.json()
@@ -1026,7 +1954,15 @@ class ServerV2MobileTests(unittest.TestCase):
                         ],
                     },
                 )
-                log_text = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8")
+                all_duplicate_new_key = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "batch-3"},
+                    json={"roundId": "live-round-1", "events": [event]},
+                )
+                event_root = root / "data" / "mobile_events"
+                log_text = (event_root / "events.jsonl").read_text(encoding="utf-8")
+                log_rows = [json.loads(line) for line in log_text.splitlines()]
+                reservations = json.loads((event_root / "request_reservations.json").read_text(encoding="utf-8"))
 
         self.assertEqual(first.status_code, 200)
         self.assertEqual(
@@ -1061,10 +1997,134 @@ class ServerV2MobileTests(unittest.TestCase):
                 "serverSequence": 2,
             },
         )
+        self.assertEqual(
+            all_duplicate_new_key.json(),
+            {
+                "accepted": 0,
+                "duplicate": False,
+                "acceptedEventIds": [],
+                "duplicateEventIds": ["event-1"],
+                "serverSequence": 2,
+            },
+        )
+        for response in (first, second, mixed, all_duplicate_new_key):
+            self.assertEqual(
+                set(response.json()),
+                {"accepted", "duplicate", "acceptedEventIds", "duplicateEventIds", "serverSequence"},
+            )
         self.assertEqual(log_text.count("event-1"), 1)
         self.assertEqual(log_text.count("event-2"), 1)
         self.assertIn('"schema": "ai-caddie-live-round-event-v1"', log_text)
         self.assertNotIn("schema_", log_text)
+        self.assertEqual(
+            set(log_rows[0]),
+            {"roundId", "idempotencyKey", "serverSequence", "eventHash", "requestHash", "event"},
+        )
+        self.assertNotIn("eventId", log_rows[0])
+        self.assertEqual(log_rows[0]["event"]["eventId"], "event-1")
+        self.assertIn("live-round-1\nbatch-3", reservations["reservations"])
+
+    def test_mobile_event_batch_rejects_request_key_body_mismatch(self) -> None:
+        client = TestClient(app)
+        base_event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "roundId": "live-round-1",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "score",
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                first = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "same-key"},
+                    json={
+                        "roundId": "live-round-1",
+                        "events": [{**base_event, "eventId": "event-1", "payload": {"strokes": 4}}],
+                    },
+                )
+                mismatch = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "same-key"},
+                    json={
+                        "roundId": "live-round-1",
+                        "events": [{**base_event, "eventId": "event-2", "payload": {"strokes": 5}}],
+                    },
+                )
+                rows = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(mismatch.status_code, 422)
+        self.assertEqual(mismatch.json()["detail"], "idempotency_key_body_mismatch")
+        self.assertEqual(len(rows), 1)
+
+    def test_mobile_event_batch_rejects_identity_envelope_mismatch(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "same-event",
+            "roundId": "live-round-1",
+            "clientId": "ios",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "score",
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                first = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "first"},
+                    json={"roundId": "live-round-1", "events": [{**event, "payload": {"strokes": 4}}]},
+                )
+                mismatch = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events",
+                    headers={"Idempotency-Key": "second"},
+                    json={"roundId": "live-round-1", "events": [{**event, "payload": {"strokes": 5}}]},
+                )
+                rows = (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(mismatch.status_code, 422)
+        self.assertEqual(mismatch.json()["detail"], "identity_envelope_mismatch")
+        self.assertEqual(len(rows), 1)
+
+    def test_mobile_event_sanitizer_preserves_exact_identity_fields(self) -> None:
+        client = TestClient(app)
+        round_id = "token=round-secret"
+        event = {
+            "schema": "ai-caddie-live-round-event-v1",
+            "eventId": "token=event-secret",
+            "roundId": round_id,
+            "clientId": "token=client-secret",
+            "timestamp": "2026-05-25T00:00:00Z",
+            "hole": 1,
+            "kind": "note",
+            "payload": {"note": "token=payload-secret", "source": "ios"},
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                response = client.post(
+                    f"/api/v2/mobile/rounds/{round_id}/events",
+                    headers={"Idempotency-Key": "identity-sanitize"},
+                    json={"roundId": round_id, "events": [event]},
+                )
+                row = json.loads(
+                    (root / "data" / "mobile_events" / "events.jsonl").read_text(encoding="utf-8").splitlines()[0]
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["acceptedEventIds"], ["token=event-secret"])
+        self.assertEqual(row["roundId"], round_id)
+        self.assertEqual(row["event"]["roundId"], round_id)
+        self.assertEqual(row["event"]["clientId"], "token=client-secret")
+        self.assertEqual(row["event"]["eventId"], "token=event-secret")
+        self.assertNotIn("payload-secret", json.dumps(row))
 
     def test_mobile_event_batch_dedup_is_scoped_by_client_id(self) -> None:
         # round-12 sync spine: the SAME eventId from two DIFFERENT clients must BOTH be accepted (they
@@ -1245,6 +2305,14 @@ class ServerV2MobileTests(unittest.TestCase):
                     "/api/v2/mobile/rounds/live-round-1/events/ack",
                     json={"clientId": "ios-phone", "serverSequence": 1},
                 )
+                backwards_ack = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events/ack",
+                    json={"clientId": "ios-phone", "serverSequence": 0},
+                )
+                ahead_ack = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events/ack",
+                    json={"clientId": "ios-phone", "serverSequence": 3},
+                )
                 package_after_ack = client.get(
                     "/api/v2/mobile/rounds/live-round-1/package",
                     params={"client_id": "ios-phone"},
@@ -1283,6 +2351,10 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(ack.json()["ackedServerSequence"], 1)
         self.assertEqual(ack.json()["latestServerSequence"], 2)
         self.assertEqual(ack.json()["pendingEventCount"], 1)
+        self.assertEqual(backwards_ack.status_code, 200)
+        self.assertEqual(backwards_ack.json()["ackedServerSequence"], 1)
+        self.assertEqual(ahead_ack.status_code, 409)
+        self.assertEqual(ahead_ack.json()["detail"], "consumer_ack_ahead_of_stream")
 
         self.assertEqual(package_after_ack.status_code, 200)
         self.assertEqual(package_after_ack.json()["eventCursor"]["lastAckedServerSequence"], 1)
@@ -1291,6 +2363,19 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(replay_after_ack.json()["afterSequence"], 1)
         self.assertEqual(replay_after_ack.json()["eventCount"], 1)
         self.assertEqual(replay_after_ack.json()["events"][0]["event"]["eventId"], "club-1")
+
+    def test_mobile_event_ack_other_validation_errors_remain_422(self) -> None:
+        client = TestClient(app)
+
+        with TemporaryDirectory() as tmp:
+            with patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)):
+                response = client.post(
+                    "/api/v2/mobile/rounds/live-round-1/events/ack",
+                    json={"clientId": "", "serverSequence": 0},
+                )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"], "clientId is required")
 
     def test_mobile_event_replay_supports_after_sequence_and_limit(self) -> None:
         client = TestClient(app)
@@ -1489,6 +2574,7 @@ class ServerV2MobileTests(unittest.TestCase):
     def test_mobile_event_batch_rejects_schema_invalid_optional_payload_values_without_writing(self) -> None:
         client = TestClient(app)
         invalid_events = [
+            ("club-empty-name", "club", {"clubName": "   "}),
             ("club-actual-shot", "club", {"clubName": "8I", "actualShot": "not-an-object"}),
             ("club-shot-type", "club", {"clubName": "8I", "shotType": "punch"}),
             ("club-strategy-mode", "club", {"clubName": "8I", "strategyMode": "reckless"}),
@@ -2019,11 +3105,30 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["annotations"][0]["targetId"], "900001:7")
         self.assertEqual(payload["annotations"][0]["payload"]["text"], "Into wind; take one more club.")
 
-    def test_mobile_reconciliation_apply_endpoint_persists_decision_audit(self) -> None:
+    def test_mobile_reconciliation_apply_endpoint_resolves_online_decision_audit(self) -> None:
         client = TestClient(app)
+        decision = {
+            "decisionId": "900001:3:tee",
+            "sourceRef": "900001:3",
+            "shotType": "tee",
+            "phase": "tee_shot",
+            "selectedOptionId": "stock",
+            "selectedOption": {
+                "id": "stock",
+                "carry_m": 145.0,
+                "clubRecommendation": {"clubs": [{"clubName": "9I"}]},
+            },
+            "options": [
+                {"id": "safe", "carry_m": 120.0},
+                {"id": "stock", "carry_m": 145.0},
+                {"id": "attack", "carry_m": 175.0},
+            ],
+            "confidence": {"level": "medium"},
+            "evidenceRefs": ["900001:3"],
+        }
         event = {
             "schema": "ai-caddie-live-round-event-v1",
-            "eventId": "offline-shot-audit",
+            "eventId": "online-shot-audit",
             "roundId": "900001",
             "timestamp": "2026-05-25T00:00:00Z",
             "hole": 3,
@@ -2031,25 +3136,6 @@ class ServerV2MobileTests(unittest.TestCase):
             "payload": {
                 "clubName": "9I",
                 "decisionId": "900001:3:tee",
-                "decision": {
-                    "decisionId": "900001:3:tee",
-                    "sourceRef": "900001:3",
-                    "shotType": "tee",
-                    "phase": "tee_shot",
-                    "selectedOptionId": "stock",
-                    "selectedOption": {
-                        "id": "stock",
-                        "carry_m": 145.0,
-                        "clubRecommendation": {"clubs": [{"clubName": "9I"}]},
-                    },
-                    "options": [
-                        {"id": "safe", "carry_m": 120.0},
-                        {"id": "stock", "carry_m": 145.0},
-                        {"id": "attack", "carry_m": 175.0},
-                    ],
-                    "confidence": {"level": "medium"},
-                    "evidence": [{"sourceRefs": ["900001:3"]}],
-                },
                 "actualShot": {
                     "roundId": "900001",
                     "hole": 3,
@@ -2067,8 +3153,10 @@ class ServerV2MobileTests(unittest.TestCase):
                 patch("server_v2.mobile.MOBILE_ROOT", root),
                 patch("server_v2.mobile.ANNOTATION_ROOT", root),
                 patch("server_v2.mobile.DECISION_AUDIT_ROOT", root),
+                patch("server_v2.mobile.DECISION_LEDGER_ROOT", root, create=True),
                 patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
             ):
+                store_decision(decision, root=root)
                 event_response = client.post(
                     "/api/v2/mobile/rounds/900001/events",
                     headers={"Idempotency-Key": "audit-apply"},
@@ -2076,7 +3164,7 @@ class ServerV2MobileTests(unittest.TestCase):
                 )
                 apply_response = client.post(
                     "/api/v2/mobile/rounds/900001/reconciliation/apply",
-                    json={"suggestionIds": ["offline-shot-audit:caddie-feedback"]},
+                    json={"suggestionIds": ["online-shot-audit:caddie-feedback"]},
                 )
                 audits = list_decision_audits(root=root)
 

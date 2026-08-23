@@ -1,5 +1,7 @@
 # Garmin 球场数据 → 三端产品功能 路线图
 
+> **2026-07-16 AUTHORITY CORRECTION — HISTORICAL ROADMAP：**本文件不再定义当前产品范围。尤其 §第二档的高原/空气密度“待拍板”已被 L18 关闭：v1 PlaysLike 只使用高差；未来加入空气密度或风必须走 E09 的证据先行 Owner 重开。当前权威见[Watch 决策账本](../../reviews/2026-07-15-watch-decision-and-task-tracker.md)与[全仓 Owner-gate 审计](../../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。
+
 2026-07-03 · Fable 设计(基于数据字典 `2026-07-02-garmin-course-data-reference.md` + 统一 spec `2026-07-02-unified-tri-surface-spec.md`)
 
 遵守已定铁律:**零成功率/零百分比、不做风、不做推杆级等高线、坡度补偿(实打)保留并扩展、洞图以官方精绘 raster 为底、离线优先、码 + 简体中文**。

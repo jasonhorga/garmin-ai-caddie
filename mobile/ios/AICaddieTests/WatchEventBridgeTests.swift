@@ -2,6 +2,118 @@ import XCTest
 @testable import AICaddie
 
 final class WatchEventBridgeTests: XCTestCase {
+    func testWatchCanActivelyRequestLatestConfigAfterMissingPhonePush() throws {
+        let bridge = WatchEventBridge()
+        bridge.sendConfigToWatch(
+            apiBaseURL: "https://caddie.example.com",
+            adminToken: nil,
+            sessionToken: "member-session",
+            sessionTokenExpiresAt: nil
+        )
+        var reply: [String: Any]?
+
+        bridge.handleWatchInputMessage(["requestConfiguration": true]) { reply = $0 }
+
+        XCTAssertEqual(reply?["configStatus"] as? String, "available")
+        let config = try XCTUnwrap(reply?["config"] as? [String: Any])
+        XCTAssertEqual(config["apiBaseURL"] as? String, "https://caddie.example.com")
+        XCTAssertEqual(config["sessionToken"] as? String, "member-session")
+    }
+
+    func testWatchRoundSeedUsesRealCourseAndHoleFacts() throws {
+        let bridge = WatchEventBridge()
+        let package = try fixturePackage()
+
+        let seed = bridge.makeWatchRoundSeedPayload(
+            package: package,
+            activeHole: 1
+        )
+
+        XCTAssertEqual(seed.roundId, "live-round-1")
+        XCTAssertEqual(seed.courseName, "Fixture Links")
+        XCTAssertEqual(seed.activeHole, 1)
+        XCTAssertEqual(seed.holes.map(\.hole), [1])
+        XCTAssertEqual(seed.holes.map(\.par), [4])
+        XCTAssertEqual(seed.holes.map(\.globalId), [31795])
+        XCTAssertEqual(try XCTUnwrap(seed.holes.first?.distanceM), 374.904, accuracy: 0.001)
+    }
+
+    func testWatchRoundClosurePublishesTypedDisposition() throws {
+        let bridge = WatchEventBridge()
+        var received: WatchRoundClosurePayload?
+        bridge.onRoundClosure = { received = $0 }
+        let closure = WatchRoundClosurePayload(
+            roundId: "watch-closure-round",
+            disposition: .abandoned,
+            closedAt: "2026-08-09T00:00:00Z"
+        )
+        let object = try XCTUnwrap(try Self.jsonObject(from: closure) as? [String: Any])
+
+        bridge.handleWatchRoundClosure(object)
+
+        XCTAssertEqual(received, closure)
+    }
+
+    func testWatchRoundStartPublishesBeforeAnyScoreEvent() throws {
+        let bridge = WatchEventBridge()
+        var received: WatchRoundStartPayload?
+        bridge.onRoundStarted = { received = $0 }
+        let start = WatchRoundStartPayload(
+            roundId: "watch-start-round",
+            courseName: "Cold GPS Links",
+            teeBox: "blue",
+            globalId: 31795,
+            activeHole: 1,
+            holes: [
+                WatchRoundSeedHolePayload(
+                    hole: 1,
+                    par: 4,
+                    distanceM: 365,
+                    teeLatitude: 40.0,
+                    teeLongitude: -73.0,
+                    globalId: 31795
+                )
+            ]
+        )
+        let object = try XCTUnwrap(try Self.jsonObject(from: start) as? [String: Any])
+
+        bridge.handleWatchRoundStart(object)
+
+        XCTAssertEqual(received, start)
+    }
+
+    func testWatchRoundSeedIncludesTeeCoordinateFromRealMapProjection() throws {
+        let bridge = WatchEventBridge()
+        let package = try fixturePackageWithTeeProjection()
+
+        let seed = bridge.makeWatchRoundSeedPayload(package: package, activeHole: 1)
+
+        XCTAssertEqual(try XCTUnwrap(seed.holes.first?.teeLatitude), 0.8, accuracy: 0.000001)
+        XCTAssertEqual(try XCTUnwrap(seed.holes.first?.teeLongitude), 0.2, accuracy: 0.000001)
+    }
+
+    func testWatchRoundSeedUsesHoleTeeCoordinateWhenFastPackageOmitsCoursePrep() throws {
+        let bridge = WatchEventBridge()
+        let base = try fixturePackage()
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(base)) as? [String: Any]
+        )
+        var holes = try XCTUnwrap(object["holes"] as? [[String: Any]])
+        holes[0]["teeLatitude"] = 40.0454995
+        holes[0]["teeLongitude"] = 116.5461531
+        object["holes"] = holes
+        object["coursePrep"] = NSNull()
+        let package = try JSONDecoder().decode(
+            LiveRoundPackage.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+
+        let seed = bridge.makeWatchRoundSeedPayload(package: package, activeHole: 1)
+
+        XCTAssertEqual(try XCTUnwrap(seed.holes.first?.teeLatitude), 40.0454995, accuracy: 0.000001)
+        XCTAssertEqual(try XCTUnwrap(seed.holes.first?.teeLongitude), 116.5461531, accuracy: 0.000001)
+    }
+
     func testWatchRoundStatePayloadCompactsDecisionEvidenceWithoutDroppingContext() throws {
         let bridge = WatchEventBridge()
         let package = try fixturePackage()
@@ -19,6 +131,9 @@ final class WatchEventBridgeTests: XCTestCase {
                     "label": .string("Center green"),
                     "carryM": .number(142),
                     "clubName": .string("8I"),
+                    "p10M": .number(132),
+                    "p90M": .number(153),
+                    "sampleSize": .number(24),
                 ]
             ],
             selected: nil,
@@ -27,17 +142,25 @@ final class WatchEventBridgeTests: XCTestCase {
             sequences: [
                 [
                     "id": .string("stock"),
-                    "label": .string("1D-3W-58"),
-                    "expectedStrokes": .number(3),
-                    "expectedRemaining_m": .number(-21),
+                    "label": .string("1D-5I-54"),
+                    "expectedRemaining_m": .number(13),
                     "sourceRefs": .array([.string("club-sample-1d-0")]),
+                    "clubs": .array([
+                        .object(["clubName": .string("1D"), "targetCarry_m": .number(245)]),
+                        .object(["clubName": .string("5I"), "targetCarry_m": .number(168)]),
+                        .object(["clubName": .string("54"), "targetCarry_m": .number(94)]),
+                    ]),
                 ]
             ],
             selectedSequence: [
                 "id": .string("stock"),
-                "label": .string("1D-3W-58"),
-                "expectedStrokes": .number(3),
-                "expectedRemaining_m": .number(-21),
+                "label": .string("1D-5I-54"),
+                "expectedRemaining_m": .number(13),
+                "clubs": .array([
+                    .object(["clubName": .string("1D"), "targetCarry_m": .number(245)]),
+                    .object(["clubName": .string("5I"), "targetCarry_m": .number(168)]),
+                    .object(["clubName": .string("54"), "targetCarry_m": .number(94)]),
+                ]),
             ],
             avoidZones: [],
             forbiddenZones: [],
@@ -90,9 +213,16 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(payload.strategyMode, "stock")
         XCTAssertEqual(payload.offlineOptionId, "stock")
         XCTAssertEqual(payload.decisionId, "decision-1")
-        XCTAssertEqual(payload.holePlanSummary, "1D-3W-58 / 3 shots / leave -21m")
-        XCTAssertEqual(payload.expectedStrokes, 3)
-        XCTAssertEqual(payload.expectedRemainingM, -21)
+        XCTAssertEqual(payload.holePlanSummary, "1D → 5I → 54 · 留 14 码")
+        XCTAssertEqual(payload.expectedRemainingM, 13)
+
+        let plans = bridge.makeWatchCaddieOptions(from: decision)
+        let stock = try XCTUnwrap(plans.first { $0.optionId == "stock" })
+        XCTAssertEqual(stock.plan?.map(\.clubName), ["1D", "5I", "54"])
+        XCTAssertEqual(stock.plan?.map(\.carryM), [245, 168, 94])
+        XCTAssertEqual(stock.carryP10M, 132)
+        XCTAssertEqual(stock.carryP90M, 153)
+        XCTAssertEqual(stock.sampleSize, 24)
     }
 
     func testOfflineEvidenceSummaryRedactsPrivateSourceRefs() throws {
@@ -123,6 +253,91 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(payload.evidenceSummary).contains("/Users/"))
     }
 
+    func testLiveDecisionBuildsCompleteRootRecommendationFromItsInputAndMeasuredCarryRange() throws {
+        let bridge = WatchEventBridge()
+        let package = try fixturePackage()
+        let selected: [String: JSONValue] = [
+            "id": .string("stock"),
+            "label": .string("推进"),
+            "carry_m": .number(205),
+            "clubName": .string("3W"),
+            "dispersion": .object([
+                "state": .string("modeled"),
+                "clubName": .string("3W"),
+                "sampleSize": .number(24),
+                "carryP10_m": .number(188),
+                "carryP90_m": .number(220),
+            ]),
+        ]
+        let decision = CaddieDecisionResponse(
+            schema: "ai-caddie-decision-v1",
+            decisionId: "decision-live-1",
+            sourceRef: "round:live-round-1:hole:1",
+            evidenceRefs: ["club-profile:3W", "route:1"],
+            shotType: "tee",
+            phase: "tee",
+            context: [
+                "source": .string("ios_live"),
+                "strategyMode": .string("stock"),
+                "currentLocation": .object([
+                    "latitude": .number(40.0455),
+                    "longitude": .number(116.5462),
+                    "horizontalAccuracyM": .number(5),
+                    "capturedAt": .string("2026-06-20T00:00:00Z"),
+                ]),
+            ],
+            options: [selected],
+            selected: selected,
+            selectedOptionId: "stock",
+            selectedOption: selected,
+            sequences: nil,
+            selectedSequence: nil,
+            avoidZones: [],
+            forbiddenZones: [],
+            acceptableMiss: [:],
+            evidence: [["label": .string("route"), "state": .string("ready")]],
+            confidence: ["level": .string("high"), "source": .string("live_decision")],
+            missingData: [],
+            auditCriteria: []
+        )
+        let holeMap = WatchHoleMap(
+            w: 1000,
+            h: 1000,
+            you: [500, 900],
+            pin: [500, 100],
+            layup: [500, 500],
+            apex: [500, 700],
+            greenCtrl: [500, 300],
+            route: [[500, 900, 0], [500, 500, 200], [500, 100, 400]]
+        )
+
+        let payload = bridge.makeWatchRoundStatePayload(
+            package: package,
+            hole: try XCTUnwrap(package.holes.first),
+            score: 0,
+            putts: 0,
+            penaltyCount: 0,
+            selectedClub: nil,
+            decision: decision,
+            holeMap: holeMap
+        )
+
+        let object = try XCTUnwrap(try Self.jsonObject(from: payload) as? [String: Any])
+        let recommendation = try XCTUnwrap(object["rootCaddieRecommendation"] as? [String: Any])
+        XCTAssertEqual(recommendation["decisionId"] as? String, "decision-live-1")
+        XCTAssertEqual(recommendation["clubName"] as? String, "3W")
+        XCTAssertEqual(recommendation["aimCarryM"] as? Double, 205)
+        XCTAssertEqual(recommendation["carryP10M"] as? Double, 188)
+        XCTAssertEqual(recommendation["carryP90M"] as? Double, 220)
+        XCTAssertEqual(recommendation["sampleSize"] as? Int, 24)
+        XCTAssertEqual(recommendation["source"] as? String, "live")
+        XCTAssertEqual(recommendation["mode"] as? String, "automatic")
+        XCTAssertEqual(recommendation["generatedAt"] as? String, "2026-06-20T00:00:00Z")
+        XCTAssertEqual(recommendation["validUntil"] as? String, "2026-06-20T00:03:00Z")
+        XCTAssertEqual(recommendation["maximumMovementM"] as? Double, 25)
+        XCTAssertEqual(recommendation["evidenceCount"] as? Int, 2)
+    }
+
     func testWatchInputAcknowledgementReportsAcceptedAndDuplicateEventIds() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -134,7 +349,8 @@ final class WatchEventBridgeTests: XCTestCase {
             hole: 4,
             kind: .score,
             value: "5",
-            createdAt: "2026-05-25T00:00:00Z"
+            createdAt: "2026-05-25T00:00:00Z",
+            fairwayResult: "LEFT"
         )
         let message = ["event": try Self.jsonObject(from: event)]
 
@@ -149,6 +365,7 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(acceptedReply?["duplicateEventIds"] as? [String], [])
         XCTAssertEqual(acceptedReply?["rejectedEventIds"] as? [String], [])
         XCTAssertEqual(try store.loadEvents().map(\.eventId), ["watch-event-1"])
+        XCTAssertEqual(try store.loadEvents().first?.payload["fairway"], .string("left"))
 
         var duplicateReply: [String: Any]?
         bridge.handleWatchInputMessage(message) { reply in
@@ -161,6 +378,42 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(duplicateReply?["duplicateEventIds"] as? [String], ["watch-event-1"])
         XCTAssertEqual(duplicateReply?["rejectedEventIds"] as? [String], [])
         XCTAssertEqual(try store.loadEvents().map(\.eventId), ["watch-event-1"])
+    }
+
+    func testDuplicateWatchRetryReentersAsyncAcceptanceBeforeAcknowledgement() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let bridge = WatchEventBridge(offlineStore: store)
+        let event = WatchInputEvent(
+            eventId: "watch-retry-1",
+            roundId: "closed-round",
+            hole: 1,
+            kind: .score,
+            value: "5",
+            createdAt: "2026-08-09T08:00:00Z"
+        )
+        let liveEvent = try bridge.mapWatchInputEvent(event)
+        try store.appendEvent(liveEvent)
+        let callback = expectation(description: "duplicate is offered to the durable acceptance path")
+        let reply = expectation(description: "watch receives duplicate acknowledgement")
+        bridge.onAcceptedLiveEvent = { retried in
+            XCTAssertEqual(retried.eventId, liveEvent.eventId)
+            callback.fulfill()
+        }
+        var replyPayload: [String: Any]?
+
+        bridge.handleWatchInputMessage(
+            ["event": try Self.jsonObject(from: event)]
+        ) { value in
+            replyPayload = value
+            reply.fulfill()
+        }
+
+        await fulfillment(of: [callback, reply], timeout: 2)
+        XCTAssertEqual(replyPayload?["accepted"] as? Bool, true)
+        XCTAssertEqual(replyPayload?["duplicateEventIds"] as? [String], [event.eventId])
+        XCTAssertEqual(try store.loadEvents().map(\.eventId), [event.eventId])
     }
 
     func testWatchInputRejectionReportsRejectedEventIds() throws {
@@ -203,6 +456,26 @@ final class WatchEventBridgeTests: XCTestCase {
         XCTAssertEqual(liveEvent.kind, .club)
         XCTAssertEqual(liveEvent.payload["clubName"], .string("8I"))
         XCTAssertEqual(liveEvent.payload["distanceToPinM"], .number(155))
+        XCTAssertEqual(liveEvent.payload["source"], .string("apple_watch"))
+    }
+
+    func testWatchManualShotLocationMapsToLiveLocationEvent() throws {
+        let bridge = WatchEventBridge()
+        let event = WatchInputEvent(
+            eventId: "watch-location-1",
+            roundId: "round-1",
+            hole: 1,
+            kind: .location,
+            value: "40.0454995,116.5461531,5.0",
+            createdAt: "2026-07-26T08:00:00Z"
+        )
+
+        let liveEvent = try bridge.mapWatchInputEvent(event)
+
+        XCTAssertEqual(liveEvent.kind, .location)
+        XCTAssertEqual(liveEvent.payload["latitude"], .number(40.0454995))
+        XCTAssertEqual(liveEvent.payload["longitude"], .number(116.5461531))
+        XCTAssertEqual(liveEvent.payload["horizontalAccuracyM"], .number(5))
         XCTAssertEqual(liveEvent.payload["source"], .string("apple_watch"))
     }
 
@@ -283,9 +556,11 @@ final class WatchEventBridgeTests: XCTestCase {
         let tee = try XCTUnwrap(WatchEventBridge.makeHoleMap(overlay: overlay, landingM: 240))
         XCTAssertEqual(tee.you, [50, 480])                 // no GPS → tee
         XCTAssertEqual(tee.pin, [200, 100])                // green = route end
+        XCTAssertEqual(tee.route, overlay.route)           // hazard map keeps the real placement line
         let live = try XCTUnwrap(WatchEventBridge.makeHoleMap(overlay: overlay, landingM: 240, youPxOverride: [123, 456]))
         XCTAssertEqual(live.you, [123, 456])               // GPS fix → projected position
         XCTAssertEqual(live.pin, [200, 100])               // pin unchanged
+        XCTAssertEqual(live.route, overlay.route)
     }
 
     private func fixturePackage() throws -> LiveRoundPackage {
@@ -294,6 +569,53 @@ final class WatchEventBridgeTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
         let data = try Data(contentsOf: url)
+        return try JSONDecoder().decode(LiveRoundPackage.self, from: data)
+    }
+
+    private func fixturePackageWithTeeProjection() throws -> LiveRoundPackage {
+        let base = try fixturePackage()
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(base)) as? [String: Any]
+        )
+        object["coursePrep"] = [
+            "schema": "ai-caddie-course-prep-package-v1",
+            "globalId": 31795,
+            "missingData": [],
+            "holes": [[
+                "hole": 1,
+                "par": 4,
+                "par_source": "fixture",
+                "blue_yards": 410,
+                "route_len_m": 375.0,
+                "route": [[20.0, 80.0, 0.0], [80.0, 20.0, 375.0]],
+                "geometryCoverage": "ready",
+                "sourceRefs": [],
+                "missingData": [],
+                "candidateRoutes": [],
+                "carryTargets": [],
+                "steps": [],
+                "cautions": [],
+                "hazards": ["water_carry": [], "bunkers": []],
+                "map": [
+                    "image": "data:image/jpeg;base64,AAAA",
+                    "overlay": [
+                        "w": 100, "h": 100, "ppm": 1.0, "ln": 375.0,
+                        "route": [[20.0, 80.0, 0.0], [80.0, 20.0, 375.0]],
+                    ],
+                ],
+                "holeImageProjection": [
+                    "available": true,
+                    "widthPx": 100,
+                    "heightPx": 100,
+                    "refs": [
+                        ["lat": 0.0, "lon": 0.0, "px": 0.0, "py": 0.0],
+                        ["lat": 0.0, "lon": 1.0, "px": 100.0, "py": 0.0],
+                        ["lat": 1.0, "lon": 0.0, "px": 0.0, "py": 100.0],
+                    ],
+                ],
+            ]],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: object)
         return try JSONDecoder().decode(LiveRoundPackage.self, from: data)
     }
 

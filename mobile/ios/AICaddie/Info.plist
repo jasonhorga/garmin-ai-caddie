@@ -20,8 +20,6 @@
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>AICaddieAPIBaseURL</key>
     <string>$(AI_CADDIE_API_BASE_URL)</string>
-    <key>AICaddieAdminToken</key>
-    <string>$(AI_CADDIE_ADMIN_TOKEN)</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>LSRequiresIPhoneOS</key>

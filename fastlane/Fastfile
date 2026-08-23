@@ -53,6 +53,16 @@ platform :ios do
     Spaceship::ConnectAPI::BundleId.create(identifier: identifier, name: name, platform: "IOS")
   end
 
+  def ensure_bundle_capabilities!(bundle, capabilities)
+    enabled = bundle.get_capabilities
+    capabilities.each do |capability_type|
+      next if enabled.any? { |capability| capability.capability_type == capability_type }
+
+      UI.message("Enabling Apple Developer capability #{capability_type} for #{bundle.identifier}.")
+      bundle.create_capability(capability_type)
+    end
+  end
+
   def ensure_connect_app_record!(bundle)
     return if Spaceship::ConnectAPI::App.find(APP_BUNDLE_ID)
 
@@ -80,11 +90,6 @@ platform :ios do
     ]
     api_base_url = ENV["AI_CADDIE_API_BASE_URL"].to_s.strip
     args << "AI_CADDIE_API_BASE_URL=#{Shellwords.escape(api_base_url)}" unless api_base_url.empty?
-    # Single private owner: bake the admin token so the shipped app authenticates to the
-    # private backend without manual entry. Safe here because every TestFlight tester is
-    # the owner; do NOT enable if this build is ever distributed to third parties.
-    admin_token = ENV["AI_CADDIE_ADMIN_TOKEN"].to_s.strip
-    args << "AI_CADDIE_ADMIN_TOKEN=#{Shellwords.escape(admin_token)}" unless admin_token.empty?
     args.join(" ")
   end
 
@@ -94,7 +99,7 @@ platform :ios do
     ensure_match_env!
     make_keychain!
     app_bundle = ensure_bundle_id!(APP_BUNDLE_ID, APP_NAME)
-    ensure_bundle_id!(WATCH_BUNDLE_ID, "#{APP_NAME} Watch")
+    watch_bundle = ensure_bundle_id!(WATCH_BUNDLE_ID, "#{APP_NAME} Watch")
 
     begin
       ensure_connect_app_record!(app_bundle)
@@ -102,6 +107,18 @@ platform :ios do
     rescue => e
       UI.important("App Store Connect app record was not created (#{e.message}); continuing with signing bootstrap.")
     end
+
+    # Entitlements were added after the original match profiles were created. Keep the
+    # Bundle IDs and profiles in sync before `match(force: true)` regenerates the assets.
+    ensure_bundle_capabilities!(
+      app_bundle,
+      [Spaceship::ConnectAPI::BundleIdCapability::Type::APPLE_ID_AUTH]
+    )
+    ensure_bundle_capabilities!(
+      watch_bundle,
+      [Spaceship::ConnectAPI::BundleIdCapability::Type::HEALTHKIT]
+    )
+
     match(
       api_key: api_key, type: "appstore", readonly: false, storage_mode: "git",
       git_url: ENV["MATCH_GIT_URL"], app_identifier: [APP_BUNDLE_ID, WATCH_BUNDLE_ID],
@@ -143,9 +160,13 @@ platform :ios do
       xcargs: build_xcargs
     )
 
-    upload_to_testflight(
-      api_key: api_key, skip_waiting_for_build_processing: true,
-      distribute_external: false, changelog: ENV.fetch("RELEASE_NOTES", "Automated CI build")
-    )
+    if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
+      upload_to_testflight(
+        api_key: api_key, skip_waiting_for_build_processing: true,
+        distribute_external: false, changelog: ENV.fetch("RELEASE_NOTES", "Automated CI build")
+      )
+    else
+      UI.success("Signed IPA built; TestFlight upload was not requested.")
+    end
   end
 end

@@ -2,11 +2,35 @@ name: Native Mobile CI
 
 on:
   workflow_dispatch:
+    inputs:
+      capture_scope:
+        description: Real-simulator evidence scope
+        type: choice
+        required: true
+        default: full
+        options:
+          - full
+          - review
+          - edit
+      api_base_url:
+        description: Optional public API origin for live simulator capture
+        type: string
+        required: false
+        default: ''
+      require_live_preflight:
+        description: Require the live API revision/catalogue gate before simulator capture
+        type: boolean
+        required: true
+        default: true
   pull_request:
     paths:
       - 'mobile/ios/**'
       - 'Package.swift'
       - 'ops/write_native_build_evidence.py'
+      - '.github/scripts/preflight_live_course_catalogue.py'
+      - '.github/scripts/retry-transient-command.sh'
+      - '.github/scripts/scan_artifacts_for_secrets.py'
+      - '.github/scripts/test-retry-transient-command.sh'
       - '.github/workflows/native-mobile.yml'
 
 concurrency:
@@ -21,6 +45,8 @@ jobs:
       WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
     steps:
       - uses: actions/checkout@v4
+      - name: Test transient-command retry gate
+        run: bash .github/scripts/test-retry-transient-command.sh
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate native project
@@ -28,39 +54,185 @@ jobs:
       - name: Show simulator inventory
         run: xcrun simctl list devices available
       - name: Test iOS app target
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit'
         run: |
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \
             -destination "$IOS_DESTINATION"
+      - name: Verify SwiftJCS consumer boundaries
+        if: always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit')
+        run: |
+          set -euo pipefail
+
+          PACKAGE_CONSUMER="$RUNNER_TEMP/swift-package-consumer"
+          mkdir -p \
+            "$PACKAGE_CONSUMER/Sources/PositiveConsumer" \
+            "$PACKAGE_CONSUMER/Sources/ExplicitSwiftJCSConsumer"
+          cat > "$PACKAGE_CONSUMER/Package.swift" <<SWIFT
+          // swift-tools-version: 5.9
+          import PackageDescription
+          let package = Package(
+              name: "ExternalAICaddieConsumer",
+              platforms: [.iOS(.v17)],
+              dependencies: [
+                  .package(name: "AICaddieSource", path: "$GITHUB_WORKSPACE"),
+              ],
+              targets: [
+                  .executableTarget(
+                      name: "PositiveConsumer",
+                      dependencies: [
+                          .product(
+                              name: "AICaddieDomain",
+                              package: "AICaddieSource"
+                          ),
+                      ]
+                  ),
+                  .executableTarget(
+                      name: "ExplicitSwiftJCSConsumer",
+                      dependencies: [
+                          .product(
+                              name: "AICaddieDomain",
+                              package: "AICaddieSource"
+                          ),
+                      ]
+                  ),
+              ]
+          )
+          SWIFT
+          cat > "$PACKAGE_CONSUMER/Sources/PositiveConsumer/main.swift" <<'SWIFT'
+          import AICaddieDomain
+          let value = JSONValue.null
+          _ = try CanonicalJSON.data(value)
+          _ = try TypedID.make(domain: "VisibilityProbe/v1", value: value)
+          SWIFT
+          cat > "$PACKAGE_CONSUMER/Sources/ExplicitSwiftJCSConsumer/main.swift" <<'SWIFT'
+          import Foundation
+          import SwiftJCS
+          _ = try JSONCanonicalization.data(
+              withJSONObject: NSNumber(value: -0.0)
+          )
+          SWIFT
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          ARCH=$(uname -m)
+          swift build \
+            --package-path "$PACKAGE_CONSUMER" \
+            --triple "$ARCH-apple-ios17.0-simulator" \
+            --sdk "$SDK" \
+            --target PositiveConsumer
+          set +e
+          SWIFTPM_DIAGNOSTIC=$(swift build \
+            --package-path "$PACKAGE_CONSUMER" \
+            --triple "$ARCH-apple-ios17.0-simulator" \
+            --sdk "$SDK" \
+            --target ExplicitSwiftJCSConsumer 2>&1)
+          SWIFTPM_STATUS=$?
+          set -e
+          printf '%s\n' "$SWIFTPM_DIAGNOSTIC"
+          if [ "$SWIFTPM_STATUS" -eq 0 ]; then
+            echo "SwiftPM source-build audit harness exposes transitively reachable SwiftJCS by design"
+          elif grep -F "no such module 'SwiftJCS'" \
+            <<< "$SWIFTPM_DIAGNOSTIC"; then
+            echo "SwiftPM toolchain now isolates SwiftJCS from the source-build audit harness"
+          else
+            echo "::error::SwiftPM negative consumer failed for an unexpected reason"
+            exit 1
+          fi
+
+          DOMAIN_FRAMEWORK=$(find "$HOME/Library/Developer/Xcode/DerivedData" \
+            -type d -path '*/Build/Products/Debug-iphonesimulator/AICaddieDomain.framework' \
+            -print -quit)
+          test -n "$DOMAIN_FRAMEWORK"
+          FRAMEWORK_ARTIFACT="$RUNNER_TEMP/aicaddie-domain-artifact"
+          mkdir -p "$FRAMEWORK_ARTIFACT"
+          ditto \
+            "$DOMAIN_FRAMEWORK" \
+            "$FRAMEWORK_ARTIFACT/AICaddieDomain.framework"
+          test ! -e "$FRAMEWORK_ARTIFACT/SwiftJCS.swiftmodule"
+          test ! -e "$FRAMEWORK_ARTIFACT/libSwiftJCS.a"
+          POSITIVE_CONSUMER="$RUNNER_TEMP/AICaddieDomainPositiveConsumer.swift"
+          cat > "$POSITIVE_CONSUMER" <<'SWIFT'
+          import AICaddieDomain
+          func verifyPublicWrapper() throws {
+              let value = JSONValue.null
+              _ = try CanonicalJSON.data(value)
+              _ = try TypedID.make(domain: "VisibilityProbe/v1", value: value)
+          }
+          SWIFT
+          CONSUMER="$RUNNER_TEMP/AICaddieDomainConsumer.swift"
+          cat > "$CONSUMER" <<'SWIFT'
+          import SwiftJCS
+          _ = try JSONCanonicalization.data(
+              withJSONObject: ["unchecked": -0.0]
+          )
+          SWIFT
+          xcrun swiftc -typecheck \
+            -target "$ARCH-apple-ios17.0-simulator" \
+            -sdk "$SDK" \
+            -F "$FRAMEWORK_ARTIFACT" \
+            "$POSITIVE_CONSUMER"
+          set +e
+          FRAMEWORK_DIAGNOSTIC=$(xcrun swiftc -typecheck \
+            -target "$ARCH-apple-ios17.0-simulator" \
+            -sdk "$SDK" \
+            -F "$FRAMEWORK_ARTIFACT" \
+            "$CONSUMER" 2>&1)
+          FRAMEWORK_STATUS=$?
+          set -e
+          printf '%s\n' "$FRAMEWORK_DIAGNOSTIC"
+          test "$FRAMEWORK_STATUS" -ne 0
+          grep -F "no such module 'SwiftJCS'" <<< "$FRAMEWORK_DIAGNOSTIC"
       - name: Collect design snapshots
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit')
         run: |
           mkdir -p design-snapshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/design-snapshots/*.png" -exec cp {} design-snapshots/ \; 2>/dev/null || true
           ls -la design-snapshots || true
+      - name: Scan design snapshots for secret bytes
+        id: scan_design_snapshots
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit'
+        env:
+          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN design-snapshots
       - name: Upload design snapshots
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_design_snapshots.outcome == 'success'))
         uses: actions/upload-artifact@v4
         with:
           name: design-snapshots
           path: design-snapshots/
           if-no-files-found: warn
+      - name: Preflight live course discovery
+        if: github.event_name == 'workflow_dispatch' && inputs.require_live_preflight
+        env:
+          AI_CADDIE_PREFLIGHT_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          AI_CADDIE_PREFLIGHT_AUTH_MODE: admin
+          AI_CADDIE_PREFLIGHT_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          AI_CADDIE_PREFLIGHT_SEARCH_NAME: 北京丽宫
+          AI_CADDIE_PREFLIGHT_NEARBY_GID: '31793'
+          AI_CADDIE_PREFLIGHT_SEARCH_GID: '31793'
+          AI_CADDIE_PREFLIGHT_EXPECTED_REVISION: ${{ github.sha }}
+        run: python3 .github/scripts/preflight_live_course_catalogue.py
       - name: Real-simulator screenshots (iOS, XCUITest against live backend)
         # On-demand only (XCUITest + live-funnel + watch simctl add ~10min) — trigger with
         # `gh workflow run native-mobile.yml --ref <branch>`; regular PRs stay fast.
         if: github.event_name == 'workflow_dispatch'
+        timeout-minutes: 90
         env:
           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
           # (the plain forms are a fallback in case they propagate too). The test reads both.
           TEST_RUNNER_AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
           TEST_RUNNER_AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
-          TEST_RUNNER_UITEST_GPS_LAT: '40.083'
-          TEST_RUNNER_UITEST_GPS_LON: '116.585'
+          TEST_RUNNER_UITEST_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
+          # 北京丽宫第 1 洞蓝 T (from the decoded CourseView hole anchor + tee coordinates).
+          TEST_RUNNER_UITEST_GPS_LAT: '40.0454995'
+          TEST_RUNNER_UITEST_GPS_LON: '116.5461531'
           AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
           AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
-          UITEST_GPS_LAT: '40.083'
-          UITEST_GPS_LON: '116.585'
+          UITEST_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
+          UITEST_GPS_LAT: '40.0454995'
+          UITEST_GPS_LON: '116.5461531'
+          RETRY_DELAY_SECONDS: '60'
+          RETRY_MAX_ATTEMPTS: '6'
         run: |
           set -x
           # Launches the REAL app in the simulator (not ImageRenderer) pointed at the funnel with the
@@ -71,6 +243,11 @@ jobs:
           echo "iOS sim UDID: $UDID"
           xcrun simctl boot "$UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$UDID" || true
+          # One TeeSelection journey intentionally bypasses UITEST_GPS_* and exercises the actual
+          # Core Location permission callback + simulator location delivery. Keep TCC clean so the
+          # test proves the notDetermined -> authorizedWhenInUse transition on every fresh runner.
+          xcrun simctl privacy "$UDID" reset location com.ai-caddie.mobile
+          xcrun simctl location "$UDID" set 40.0454995,116.5461531
           mkdir -p real-videos
           # Record the simulator screen for the whole XCUITest run (background; SIGINT finalizes the mp4).
           ( xcrun simctl io "$UDID" recordVideo --codec h264 --force real-videos/real-flow.mp4 ) &
@@ -78,29 +255,80 @@ jobs:
           sleep 2
           # -parallel-testing-enabled NO stops Xcode cloning the sim for UI tests, so the app runs on
           # the SAME booted sim we're screen-recording (a clone would leave the recording on home screen).
-          xcodebuild test \
-            -project mobile/ios/AICaddieNative.xcodeproj \
-            -scheme AICaddieUITests \
-            -destination "platform=iOS Simulator,id=$UDID" \
-            -parallel-testing-enabled NO || true
+          set +e
+          ONLY_TESTING=()
+          case "$UITEST_CAPTURE_SCOPE" in
+            review)
+              ONLY_TESTING=(
+                -only-testing:AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow
+                -only-testing:AICaddieUITests/ReviewEditUITests/testCaptureReviewEditFlow
+                -only-testing:AICaddieUITests/TeeSelectionUITests
+              )
+              ;;
+            edit)
+              ONLY_TESTING=(
+                -only-testing:AICaddieUITests/ReviewEditUITests/testCaptureReviewEditFlow
+              )
+              ;;
+          esac
+          .github/scripts/retry-transient-command.sh \
+            "$RUNNER_TEMP/real-xcuitest" \
+            xcodebuild test \
+              -project mobile/ios/AICaddieNative.xcodeproj \
+              -scheme AICaddieUITests \
+              -destination "platform=iOS Simulator,id=$UDID" \
+              -parallel-testing-enabled NO \
+              "${ONLY_TESTING[@]}"
+          TEST_STATUS=$?
+          set -e
           kill -INT "$REC_PID" 2>/dev/null || true
           sleep 4
           ls -la real-videos || true
+          exit "$TEST_STATUS"
       - name: Collect real screenshots
-        if: github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch'
         run: |
           mkdir -p real-screenshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/real-screenshots/*" -exec cp {} real-screenshots/ \; 2>/dev/null || true
+          UDID=$(xcrun simctl list devices available | grep -E "iPhone 16 \(" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          if [ -n "$UDID" ]; then
+            xcrun simctl spawn "$UDID" log show \
+              --style compact \
+              --last 30m \
+              --predicate 'subsystem == "com.ai-caddie.mobile" OR process == "AICaddie"' \
+              > real-screenshots/ios-app.log 2>&1 || true
+            APP_CONTAINER=$(xcrun simctl get_app_container "$UDID" com.ai-caddie.mobile data 2>/dev/null || true)
+            if [ -n "$APP_CONTAINER" ] && [ -d "$APP_CONTAINER/Library/Logs/DiagnosticReports" ]; then
+              mkdir -p real-screenshots/diagnostic-reports
+              find "$APP_CONTAINER/Library/Logs/DiagnosticReports" -maxdepth 1 -type f \
+                -exec cp {} real-screenshots/diagnostic-reports/ \; 2>/dev/null || true
+            fi
+          fi
+          if [ -d "$HOME/Library/Logs/DiagnosticReports" ]; then
+            mkdir -p real-screenshots/runner-diagnostic-reports
+            find "$HOME/Library/Logs/DiagnosticReports" -maxdepth 1 -type f \
+              \( -name 'AICaddie*' -o -name 'AICaddieUITests*' -o -name 'SpringBoard*' \) \
+              -exec cp {} real-screenshots/runner-diagnostic-reports/ \; 2>/dev/null || true
+          fi
           ls -la real-screenshots || true
+      - name: Scan real Native evidence for secret bytes
+        id: scan_real_native_evidence
+        if: always() && github.event_name == 'workflow_dispatch'
+        env:
+          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+        run: >-
+          python3 .github/scripts/scan_artifacts_for_secrets.py
+          --secret-env ARTIFACT_ADMIN_TOKEN
+          real-screenshots real-videos
       - name: Upload real screenshots
-        if: github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: real-screenshots
           path: real-screenshots/
           if-no-files-found: warn
       - name: Upload real video
-        if: github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: real-video
@@ -114,57 +342,149 @@ jobs:
             xcrun simctl terminate "$UDID" com.ai-caddie.mobile 2>/dev/null || true
             xcrun simctl uninstall "$UDID" com.ai-caddie.mobile 2>/dev/null || true
           fi
+      - name: Resolve and boot Watch test simulator
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full'
+        run: |
+          set -euo pipefail
+          WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
+            [.devices | to_entries[]
+              | .key as $runtime
+              | .value[]
+              | select(.isAvailable == true and .name == "Apple Watch Series 10 (46mm)")
+              | {
+                  udid: .udid,
+                  version: ($runtime
+                    | capture("watchOS-(?<major>[0-9]+)-(?<minor>[0-9]+)")
+                    | [(.major | tonumber), (.minor | tonumber)])
+                }]
+            | sort_by(.version)
+            | last')
+          test "$WATCH_DEVICE" != "null"
+          NATIVE_WATCH_UDID=$(jq -r .udid <<< "$WATCH_DEVICE")
+          echo "NATIVE_WATCH_UDID=$NATIVE_WATCH_UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$NATIVE_WATCH_UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$NATIVE_WATCH_UDID" -b
       - name: Test Watch app target
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full'
         run: |
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
-            -destination "$WATCH_DESTINATION"
+            -destination "platform=watchOS Simulator,id=$NATIVE_WATCH_UDID"
       - name: Collect Watch design snapshots
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full')
         run: |
           mkdir -p watch-snapshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/watch-snapshots/*.png" -exec cp {} watch-snapshots/ \; 2>/dev/null || true
           ls -la watch-snapshots || true
+      - name: Scan Watch design snapshots for secret bytes
+        id: scan_watch_snapshots
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full'
+        env:
+          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-snapshots
       - name: Upload Watch design snapshots
-        if: always()
+        if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope == 'full' && steps.scan_watch_snapshots.outcome == 'success'))
         uses: actions/upload-artifact@v4
         with:
           name: watch-snapshots
           path: watch-snapshots/
           if-no-files-found: warn
-      - name: Real-simulator screenshots (watchOS via simctl — no XCUITest on watchOS)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Real Watch round seed and restore screenshots
+        id: capture_watch_real_screenshots
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full'
         run: |
-          set -x
-          WATCH_UDID=$(xcrun simctl list devices available | grep "Apple Watch Series 10 (46mm)" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
-          echo "watch udid: $WATCH_UDID"
-          [ -z "$WATCH_UDID" ] && { echo "no watch sim"; exit 0; }
-          xcrun simctl boot "$WATCH_UDID" 2>/dev/null || true
-          xcrun simctl bootstatus "$WATCH_UDID" || true
-          # Install the Debug watch build (test already built it; install is idempotent + robust).
-          APP=$(find ~/Library/Developer/Xcode/DerivedData -name "AICaddieWatch.app" -path "*Debug-watchsimulator*" 2>/dev/null | head -1)
-          echo "watch app: $APP"
-          [ -n "$APP" ] && xcrun simctl install "$WATCH_UDID" "$APP" || true
+          set -euo pipefail
+          WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
+            [.devices | to_entries[]
+              | .key as $runtime
+              | .value[]
+              | select(.isAvailable == true and .name == "Apple Watch Series 10 (46mm)")
+              | {
+                  udid: .udid,
+                  runtime: $runtime,
+                  version: ($runtime
+                    | capture("watchOS-(?<major>[0-9]+)-(?<minor>[0-9]+)")
+                    | [(.major | tonumber), (.minor | tonumber)])
+                }]
+            | sort_by(.version)
+            | last')
+          test "$WATCH_DEVICE" != "null"
+          WATCH_UDID=$(jq -r .udid <<< "$WATCH_DEVICE")
+          echo "Watch runtime device: $WATCH_DEVICE"
+
+          xcodebuild build \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatch \
+            -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/WatchRuntimeDerivedData"
+
+          APP="$RUNNER_TEMP/WatchRuntimeDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
           BID=com.ai-caddie.mobile.watchkitapp
+          test -d "$APP"
+          # Watch unit tests can leave the system location sheet open. Runtime screenshots need a
+          # fresh simulator so they prove the app UI rather than capturing stale system state.
+          xcrun simctl shutdown "$WATCH_UDID" 2>/dev/null || true
+          xcrun simctl erase "$WATCH_UDID"
+          xcrun simctl boot "$WATCH_UDID"
+          xcrun simctl bootstatus "$WATCH_UDID" -b
+          xcrun simctl uninstall "$WATCH_UDID" "$BID" 2>/dev/null || true
+          xcrun simctl install "$WATCH_UDID" "$APP"
+          xcrun simctl privacy "$WATCH_UDID" grant location "$BID"
           mkdir -p watch-real-screenshots
-          for screen in home caddie-options hazards glance scorecard hole-select menu score finish start; do
-            xcrun simctl terminate "$WATCH_UDID" "$BID" 2>/dev/null || true
-            xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$screen" 2>/dev/null || true
-            sleep 4
-            xcrun simctl io "$WATCH_UDID" screenshot "watch-real-screenshots/watch-$screen.png" 2>/dev/null || true
-          done
-          ls -la watch-real-screenshots || true
+
+          launch_and_capture() {
+            local mode="$1"
+            local screenshot="$2"
+            local launch_output
+            if ! launch_output=$(env \
+              SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
+              SIMCTL_CHILD_UITEST_GPS_LON=116.5461531 \
+              xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$mode" 2>&1); then
+              printf '%s\n' "$launch_output"
+              exit 1
+            fi
+            printf '%s\n' "$launch_output" | tee "watch-real-screenshots/launch-$mode.txt"
+            sleep 5
+            xcrun simctl io "$WATCH_UDID" screenshot "watch-real-screenshots/$screenshot"
+            xcrun simctl terminate "$WATCH_UDID" "$BID"
+          }
+
+          launch_and_capture milestone-seed watch-round-seeded.png
+          launch_and_capture milestone-restore watch-round-resume-gate.png
+          launch_and_capture interaction-club-seed watch-interaction-club-seeded.png
+          launch_and_capture interaction-club-restore watch-interaction-club-resume-gate.png
+          launch_and_capture interaction-score-seed watch-interaction-score-seeded.png
+          launch_and_capture interaction-score-restore watch-interaction-score-resume-gate.png
+          launch_and_capture home watch-round-home.png
+          launch_and_capture score-recommendation watch-score-recommendation.png
+          launch_and_capture score-next-tee-candidate watch-score-next-tee-candidate.png
+          launch_and_capture score-fairway watch-score-fairway.png
+          launch_and_capture club-prompt watch-club-prompt.png
+      - name: Scan Watch runtime screenshots for secret bytes
+        id: scan_watch_real_screenshots
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success'
+        env:
+          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-real-screenshots
       - name: Upload watch real screenshots
-        if: github.event_name == 'workflow_dispatch'
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && steps.scan_watch_real_screenshots.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: watch-real-screenshots
           path: watch-real-screenshots/
-          if-no-files-found: warn
+          if-no-files-found: error
       - name: Write native build evidence
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit'
         run: python3 ops/write_native_build_evidence.py
+      - name: Scan native build evidence for secret bytes
+        id: scan_native_build_evidence
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit'
+        env:
+          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN mobile/ios/native_build_evidence.json
       - name: Upload native build evidence
+        if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_native_build_evidence.outcome == 'success'))
         uses: actions/upload-artifact@v4
         with:
           name: native-build-evidence

@@ -5,6 +5,274 @@ import WatchConnectivity
 @testable import AICaddieWatch
 
 final class WatchSyncClientTests: XCTestCase {
+    func testHoleImageTransferRejectsMissingOrStaleRendererVersion() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let imageStore = WatchHoleImageStore(directoryURL: directory)
+        let client = WatchSyncClient(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            holeImageStore: imageStore
+        )
+        let imageURL = directory.appendingPathComponent("received.img")
+        let image = try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
+        try image.write(to: imageURL, options: .atomic)
+
+        XCTAssertFalse(client.receiveHoleImage(
+            fileURL: imageURL,
+            metadata: ["globalId": 31833, "hole": 1]
+        ))
+        XCTAssertFalse(client.receiveHoleImage(
+            fileURL: imageURL,
+            metadata: ["globalId": 31833, "hole": 1, "styleVersion": "topo-v7"]
+        ))
+        XCTAssertFalse(imageStore.hasImage(globalId: 31833, hole: 1))
+    }
+
+    func testHoleImageTransferAcceptsCurrentRendererVersion() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let imageStore = WatchHoleImageStore(directoryURL: directory)
+        let client = WatchSyncClient(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            holeImageStore: imageStore
+        )
+        let imageURL = directory.appendingPathComponent("received.img")
+        let image = try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
+        try image.write(to: imageURL, options: .atomic)
+
+        XCTAssertTrue(client.receiveHoleImage(
+            fileURL: imageURL,
+            metadata: [
+                "globalId": 31833,
+                "hole": 1,
+                "styleVersion": WatchBackendClient.topoStyleVersion,
+                "geometryRevision": "aaaaaaaaaaaaaaaa",
+            ]
+        ))
+        XCTAssertNil(imageStore.data(globalId: 31833, hole: 1))
+        XCTAssertEqual(imageStore.data(
+            globalId: 31833,
+            hole: 1,
+            geometryRevision: "aaaaaaaaaaaaaaaa"
+        ), image)
+    }
+
+    func testGreenDetailTransferRequiresCurrentFocusedAssetVersion() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let imageStore = WatchHoleImageStore(directoryURL: directory)
+        let client = WatchSyncClient(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            holeImageStore: imageStore
+        )
+        let imageURL = directory.appendingPathComponent("received-green.img")
+        let image = try XCTUnwrap(WatchHoleMapSample.greenDetailImage?.pngData())
+        try image.write(to: imageURL, options: .atomic)
+
+        let base: [String: Any] = [
+            "globalId": 31833,
+            "hole": 1,
+            "styleVersion": WatchBackendClient.topoStyleVersion,
+            "assetKind": "green-detail",
+        ]
+        XCTAssertFalse(client.receiveHoleImage(fileURL: imageURL, metadata: base))
+        XCTAssertFalse(client.receiveHoleImage(
+            fileURL: imageURL,
+            metadata: base.merging(["assetStyleVersion": "green-v1"]) { _, new in new }
+        ))
+        XCTAssertTrue(client.receiveHoleImage(
+            fileURL: imageURL,
+            metadata: base.merging([
+                "assetStyleVersion": WatchBackendClient.greenDetailStyleVersion,
+            ]) { _, new in new }
+        ))
+        XCTAssertEqual(
+            imageStore.data(globalId: 31833, hole: 1, detail: true),
+            image
+        )
+    }
+
+    func testReceiveRoundSeedPublishesRealRoundForTheAppModel() throws {
+        let client = WatchSyncClient(queueURL: tempQueueURL())
+        let seed = WatchRoundSeed(
+            roundId: "round-real-1",
+            courseName: "北京丽宫",
+            activeHole: 2,
+            holes: [
+                WatchRoundSeedHole(hole: 1, par: 4, distanceM: 365),
+                WatchRoundSeedHole(hole: 2, par: 3, distanceM: 148),
+            ]
+        )
+
+        client.receiveRoundSeed(seed)
+
+        XCTAssertEqual(client.roundSeed, seed)
+    }
+
+    func testRoundStartCreatesItsParentDirectoryBeforePersistingOfflineRelay() throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("watch-sync-start-\(UUID().uuidString)", isDirectory: true)
+        let queueURL = parent.appendingPathComponent("queued_events.json")
+        let client = WatchSyncClient(queueURL: queueURL)
+        let start = WatchRoundStart(
+            roundId: "watch-start-1",
+            courseName: "远方球场",
+            teeBox: "Blue",
+            activeHole: 1,
+            holes: [WatchRoundSeedHole(hole: 1, par: 4, distanceM: nil)]
+        )
+
+        // The parent is intentionally absent. This is the first-launch/offline path where a
+        // best-effort `try? data.write` used to lose the only durable round-start fact.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: parent.path))
+        client.sendRoundStart(start)
+
+        let pendingURL = parent.appendingPathComponent("pending_round_start.json")
+        let persisted = try JSONDecoder().decode(
+            WatchRoundStart.self,
+            from: Data(contentsOf: pendingURL)
+        )
+        XCTAssertEqual(persisted, start)
+    }
+
+    func testConfigOnlyApplicationContextRetractsAnOldRoundSeed() {
+        let client = WatchSyncClient(queueURL: tempQueueURL())
+        client.receiveRoundSeed(WatchRoundSeed(
+            roundId: "old-round",
+            courseName: "Old course",
+            activeHole: 1,
+            holes: [WatchRoundSeedHole(hole: 1, par: 4, distanceM: 350)]
+        ))
+
+        client.applyApplicationContext([
+            "config": ["apiBaseURL": "https://caddie.example.com"],
+        ])
+
+        XCTAssertNil(client.roundSeed)
+    }
+
+    func testForgetRoundClearsOnlyMatchingStateAndQueuedEvents() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let queueURL = directory.appendingPathComponent("queued_events.json")
+        let stateURL = directory.appendingPathComponent("current_state.json")
+        let client = WatchSyncClient(queueURL: queueURL, stateURL: stateURL)
+        client.receiveState(WatchRoundState(
+            roundId: "old-round", hole: 1, par: 4, distanceM: 350,
+            selectedClub: nil, score: 0, putts: 0, penaltyCount: 0,
+            caddieConfidence: "offline"
+        ))
+        try client.queueInputEvent(WatchInputEvent(
+            eventId: "old-event", roundId: "old-round", hole: 1,
+            kind: .score, value: "4", createdAt: "2026-08-09T00:00:00Z"
+        ))
+        try client.queueInputEvent(WatchInputEvent(
+            eventId: "new-event", roundId: "new-round", hole: 1,
+            kind: .score, value: "4", createdAt: "2026-08-09T00:01:00Z"
+        ))
+
+        try client.forgetRound(roundId: "old-round", discardQueuedEvents: true)
+
+        XCTAssertNil(client.currentState)
+        XCTAssertNil(try client.loadPersistedState())
+        XCTAssertEqual(try client.loadQueuedEvents().map(\.eventId), ["new-event"])
+    }
+
+    func testForgetRoundFromDelegateQueueSynchronizesPublishedIdentity() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let client = WatchSyncClient(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            stateURL: directory.appendingPathComponent("current_state.json")
+        )
+        client.receiveState(WatchRoundState(
+            roundId: "old-round", hole: 1, par: 4, distanceM: 350,
+            selectedClub: nil, score: 0, putts: 0, penaltyCount: 0,
+            caddieConfidence: "offline"
+        ))
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global().async {
+                do {
+                    try client.forgetRound(roundId: "old-round", discardQueuedEvents: false)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+
+        XCTAssertNil(client.currentState)
+        XCTAssertNil(try client.loadPersistedState())
+    }
+
+    func testPhoneRoundClosureClearsMatchingLegacyStateAndPublishesDisposition() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let client = WatchSyncClient(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            stateURL: directory.appendingPathComponent("current_state.json")
+        )
+        client.receiveState(WatchRoundState(
+            roundId: "done-round", hole: 1, par: 4, distanceM: 350,
+            selectedClub: nil, score: 4, putts: 2, penaltyCount: 0,
+            caddieConfidence: "offline"
+        ))
+        let closure = WatchRoundClosure(
+            roundId: "done-round",
+            disposition: .finished,
+            closedAt: "2026-08-09T00:00:00Z"
+        )
+
+        client.receiveRoundClosure(closure)
+
+        XCTAssertNil(client.currentState)
+        XCTAssertEqual(client.phoneRoundClosure, closure)
+    }
+
+    func testPhoneFinishPreservesLegacyQueueUntilExplicitAbandon() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let client = WatchSyncClient(
+            queueURL: directory.appendingPathComponent("queued_events.json"),
+            stateURL: directory.appendingPathComponent("current_state.json")
+        )
+        let wristEvent = WatchInputEvent(
+            eventId: "wrist-event",
+            roundId: "done-round",
+            hole: 1,
+            kind: .score,
+            value: "4",
+            createdAt: "2026-08-09T00:00:00Z"
+        )
+        let newerEvent = WatchInputEvent(
+            eventId: "newer-event",
+            roundId: "new-round",
+            hole: 1,
+            kind: .score,
+            value: "5",
+            createdAt: "2026-08-09T00:01:00Z"
+        )
+        try client.queueInputEvent(wristEvent)
+        try client.queueInputEvent(newerEvent)
+
+        client.receiveRoundClosure(WatchRoundClosure(
+            roundId: "done-round",
+            disposition: .finished,
+            closedAt: "2026-08-09T00:02:00Z"
+        ))
+
+        XCTAssertEqual(try client.loadQueuedEvents(), [wristEvent, newerEvent])
+
+        client.receiveRoundClosure(WatchRoundClosure(
+            roundId: "done-round",
+            disposition: .abandoned,
+            closedAt: "2026-08-09T00:03:00Z"
+        ))
+
+        XCTAssertEqual(try client.loadQueuedEvents(), [newerEvent])
+    }
+
     func testQueueInputEventSerializesPendingEvents() throws {
         let queueURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -23,6 +291,41 @@ final class WatchSyncClientTests: XCTestCase {
 
         XCTAssertEqual(client.queuedEventCount, 1)
         XCTAssertEqual(try client.loadQueuedEvents(), [event])
+    }
+
+    func testConcurrentLegacyQueueAppendsDoNotLoseEvents() throws {
+        let queueURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("queued_events.json")
+        let client = WatchSyncClient(queueURL: queueURL)
+        let events = (0..<32).map { index in
+            WatchInputEvent(
+                eventId: "event-\(index)",
+                roundId: "round-1",
+                hole: 1,
+                kind: .score,
+                value: "4",
+                createdAt: "2026-08-09T08:00:00Z"
+            )
+        }
+        let errorLock = NSLock()
+        var failures: [Error] = []
+
+        DispatchQueue.concurrentPerform(iterations: events.count) { index in
+            do {
+                try client.queueInputEvent(events[index])
+            } catch {
+                errorLock.lock()
+                failures.append(error)
+                errorLock.unlock()
+            }
+        }
+
+        XCTAssertTrue(failures.isEmpty)
+        XCTAssertEqual(
+            Set(try client.loadQueuedEvents().map(\.eventId)),
+            Set(events.map(\.eventId))
+        )
     }
 
     func testAcknowledgedQueueRemovalKeepsUnconfirmedEvents() throws {
@@ -306,6 +609,43 @@ final class WatchSyncClientTests: XCTestCase {
         ])
         XCTAssertEqual(client.config?.sessionToken, "session-jwt")
         XCTAssertEqual(client.config?.sessionTokenExpiresAt, ISO8601DateFormatter().date(from: expiry))
+    }
+
+    func testValidConfigPersistsAcrossWatchProcessRelaunch() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let queueURL = directory.appendingPathComponent("queued_events.json")
+        let first = WatchSyncClient(queueURL: queueURL)
+        first.applyApplicationContext([
+            "configStatus": "available",
+            "config": [
+                "apiBaseURL": "https://caddie.example.com",
+                "sessionToken": "persisted-watch-token",
+            ],
+        ])
+
+        let relaunched = WatchSyncClient(queueURL: queueURL)
+
+        XCTAssertEqual(relaunched.config?.baseURL.absoluteString, "https://caddie.example.com")
+        XCTAssertEqual(relaunched.config?.sessionToken, "persisted-watch-token")
+    }
+
+    func testExplicitUnavailableConfigClearsPersistedCredential() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let queueURL = directory.appendingPathComponent("queued_events.json")
+        let client = WatchSyncClient(queueURL: queueURL)
+        client.applyApplicationContext([
+            "config": [
+                "apiBaseURL": "https://caddie.example.com",
+                "sessionToken": "old-token",
+            ],
+        ])
+
+        client.applyApplicationContext(["configStatus": "unavailable"])
+
+        XCTAssertNil(client.config)
+        XCTAssertNil(WatchSyncClient(queueURL: queueURL).config)
     }
 
     func testApplyApplicationContextIgnoresInvalidPayload() throws {

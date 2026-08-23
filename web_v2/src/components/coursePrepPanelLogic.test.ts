@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { CoursePrepOverlay } from '../types'
-import { atCum, layoutHazardLabels, nearestCum, routeIntervalReadout, routeYardageReadout } from './coursePrepPanelLogic'
+import type { CoursePrepHole, CoursePrepOverlay } from '../types'
+import { atCum, layoutHazardLabels, nearestCum, resolveCoursePrepOverlay, routeIntervalReadout, routeYardageReadout } from './coursePrepPanelLogic'
 
 const overlay: CoursePrepOverlay = {
   w: 200,
@@ -13,6 +13,33 @@ const overlay: CoursePrepOverlay = {
     [100, 100, 200],
   ],
 }
+
+describe('resolveCoursePrepOverlay', () => {
+  it('projects the CourseView local-metre route into the shared display frame', () => {
+    const hole = {
+      route: [[0, 0, 0], [60, 120, 134]],
+      route_len_m: 134,
+      holeImageProjection: {
+        available: true,
+        widthPx: 360,
+        heightPx: 560,
+        refs: [
+          { lat: 30, lon: 120, px: 10, py: 20 },
+          { lat: 30, lon: 120.001, px: 130, py: 20 },
+          { lat: 30.001, lon: 120, px: 10, py: 140 },
+        ],
+      },
+    } as CoursePrepHole
+
+    expect(resolveCoursePrepOverlay(hole)).toEqual({
+      w: 360,
+      h: 560,
+      ppm: 1,
+      ln: 134,
+      route: [[10, 20, 0], [70, 140, 134]],
+    })
+  })
+})
 
 // Characterization tests for the drag helpers extracted from PrepHoleCard
 // (now shared with the 实战 LiveSandbox map canvas).

@@ -1,11 +1,37 @@
 import CoreLocation
 import Foundation
 import SwiftUI
+import AICaddieDomain
+#if canImport(UIKit)
+import UIKit
+#endif
+
+private struct PendingPhoneShot: Identifiable {
+    let locationEvent: LiveRoundEvent
+    let shotOrder: Int
+
+    var id: String { locationEvent.eventId }
+}
+
+/// One obstacle annotation in the shared topo-pixel frame. Distances and placement always come from
+/// the same boundary facts, so the map never points at one bunker while describing another one.
+private struct LiveMapHazardAnnotation: Identifiable {
+    let id: String
+    let kind: String
+    let label: String
+    let toYards: Int
+    let overYards: Int
+    let frontPx: [Double]
+    let backPx: [Double]
+}
 
 public struct CurrentHoleView: View {
+    @Environment(\.dismiss) private var dismiss
+
     public let package: LiveRoundPackage
     public let hole: Hole
     public let onEvent: (LiveRoundEvent) -> Void
+    private let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
     private let requestBuilder = CaddieDecisionRequestBuilder()
     private let offlineDecisionEvaluator = OfflineCaddieDecisionEvaluator()
     private let caddieClient: CaddieDecisionClient?
@@ -20,16 +46,23 @@ public struct CurrentHoleView: View {
     private let courseOptions: [MobileCourseOption]
     private let startingNine: String?
     private let isPreparingRound: Bool
+    private let pendingEventCount: Int
+    private let isFinishingRound: Bool
+    private let finishErrorMessage: String?
     private let onChangeNine: (String) -> Void
     private let onPrepareCourseRound: (Int, String, String, String) -> Void
     private let onPrepareCompositeRound: (Int, Int, String, String) -> Void
-    private let onDiscard: () -> Void
+    private let onFinishRound: () async -> Bool
+    private let onDiscardRound: () -> Void
+    private let onAdvanceHole: (Int) -> Void
+    private let onLiveHoleInitialLoadDidFinish: () -> Void
 
     @StateObject private var locationProvider = LocationProvider()
     @State private var score: Int
     @State private var puttCount: Int = 2
     @State private var penaltyCount: Int = 0
     @State private var selectedClub: String
+    @State private var hasUserSelectedClub = false
     @State private var selectedShotType: String
     @State private var selectedStrategyMode: String = "stock"
     @State private var holePrep: CoursePrepHole?
@@ -45,8 +78,27 @@ public struct CurrentHoleView: View {
     @State private var visionFindings: [[String: JSONValue]] = []
     @State private var lastAppliedRestoredHoleState: LiveHoleStateSnapshot?
     @State private var showManage = false
-    @State private var showDiscardConfirm = false
+    @State private var showRoundSummary = false
+    @State private var showDiscardConfirmation = false
     @State private var showCaddieDetail = false
+    @State private var scoreDraft: LiveScoreDraft?
+    @State private var showScorecard = false
+    @State private var gpsHoleCandidate: LiveHoleGPSCandidate?
+    @State private var pendingHistoricalScoreHole: Int?
+    @State private var pendingPhoneShot: PendingPhoneShot?
+    @State private var holeRootScrollRequest = 0
+
+    private static let holeRootScrollAnchor = "live-hole-root"
+
+    private var liveHeroHeight: CGFloat {
+        // The previous fixed 360pt card made the factual hole map a thumbnail. Keep the first screen
+        // map-led on every phone while leaving enough of the distance instrument visible below it.
+        #if canImport(UIKit)
+        min(max(UIScreen.main.bounds.height * 0.60, 480), 590)
+        #else
+        520
+        #endif
+    }
 
     public init(
         package: LiveRoundPackage,
@@ -60,10 +112,17 @@ public struct CurrentHoleView: View {
         courseOptions: [MobileCourseOption] = [],
         startingNine: String? = nil,
         isPreparingRound: Bool = false,
+        pendingEventCount: Int = 0,
+        isFinishingRound: Bool = false,
+        finishErrorMessage: String? = nil,
         onChangeNine: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (Int, String, String, String) -> Void = { _, _, _, _ in },
         onPrepareCompositeRound: @escaping (Int, Int, String, String) -> Void = { _, _, _, _ in },
-        onDiscard: @escaping () -> Void = {},
+        onFinishRound: @escaping () async -> Bool = { false },
+        onDiscardRound: @escaping () -> Void = {},
+        onAdvanceHole: @escaping (Int) -> Void = { _ in },
+        onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
+        onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
     ) {
         self.package = package
@@ -79,10 +138,17 @@ public struct CurrentHoleView: View {
         self.courseOptions = courseOptions
         self.startingNine = startingNine
         self.isPreparingRound = isPreparingRound
+        self.pendingEventCount = pendingEventCount
+        self.isFinishingRound = isFinishingRound
+        self.finishErrorMessage = finishErrorMessage
         self.onChangeNine = onChangeNine
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onPrepareCompositeRound = onPrepareCompositeRound
-        self.onDiscard = onDiscard
+        self.onFinishRound = onFinishRound
+        self.onDiscardRound = onDiscardRound
+        self.onAdvanceHole = onAdvanceHole
+        self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
+        self.onRetainReadyHolePrep = onRetainReadyHolePrep
         let seed = package.caddieContextSeeds.first { $0.hole == hole.number }
         let restoredHoleState = liveRoundState?.holeState(for: hole.number)
         self._score = State(initialValue: restoredHoleState?.score ?? hole.par)
@@ -92,10 +158,17 @@ public struct CurrentHoleView: View {
             ?? Self.defaultClub(par: hole.par, holeYards: hole.yards, profiles: package.clubProfiles))
         self._selectedShotType = State(initialValue: restoredHoleState?.selectedShotType ?? seed?.shotTypes.first ?? "approach")
         self._selectedStrategyMode = State(initialValue: restoredHoleState?.selectedStrategyMode ?? "stock")
-        self._distanceToPinText = State(initialValue: restoredHoleState?.distanceToPinM.map(Self.yardsText(fromMetres:)) ?? "")
+        self._distanceToPinText = State(initialValue: Self.validDistanceText(restoredHoleState?.distanceToPinM))
         self._selectedLie = State(initialValue: restoredHoleState?.lie ?? "fairway")
+        self._holePrep = State(
+            initialValue: package.coursePrep?.holes.first { $0.hole == hole.number }
+        )
         self._currentHorizontalAccuracyM = State(initialValue: restoredHoleState?.horizontalAccuracyM)
         self._lastAppliedRestoredHoleState = State(initialValue: restoredHoleState)
+        self._gpsHoleCandidate = State(initialValue: nil)
+        self._scoreDraft = State(
+            initialValue: offlineStore.flatMap { try? $0.loadLiveScoreDraft(roundId: package.roundId) }
+        )
         if let latitude = restoredHoleState?.latitude, let longitude = restoredHoleState?.longitude {
             self._currentCoordinate = State(initialValue: CLLocationCoordinate2D(latitude: latitude, longitude: longitude))
         } else {
@@ -113,55 +186,86 @@ public struct CurrentHoleView: View {
         // bindings / events / GPS / watch / restore wiring is unchanged — only the body's look/layout.
         ZStack {
             LivePlayStyle.base.ignoresSafeArea()
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    heroSection
+            ScrollViewReader { scrollProxy in
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        heroSection
+                            .id(Self.holeRootScrollAnchor)
 
-                    // Dark-glass data panel: distance hero → caddie strip → score steppers → save →
-                    // tab bar. Floats up over the map's lower edge (mirrors the approved mockup).
-                    LivePlayPanel {
-                        LiveDistanceReadout(
-                            greenFrontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
-                            greenCenterYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
-                            greenBackYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
-                            toPinYards: Int(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
-                            isGreenLive: isGreenRangeLive
-                        )
-                        Rectangle().fill(LivePlayStyle.hair).frame(height: 1).padding(.horizontal, 2)
-                        LiveCaddieStrip(
-                            clubs: caddieClubChips,
-                            playsText: caddiePlaysText,
-                            isLoading: isLoadingCaddieDecision,
-                            errorText: caddieErrorMessage,
-                            onExpand: { withAnimation(.easeInOut(duration: 0.2)) { showCaddieDetail.toggle() } },
-                            onSelect: { selectClub($0) }
-                        )
-                        LivePlayScoreSteppers(score: $score, putts: $puttCount)
-                        LiveSaveButton(caption: recordHintText) { submitEvents() }
-                        LivePlayTabBar()
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.top, -22)
+                        // Dark-glass data panel: distance hero → caddie strip → shot/score actions →
+                        // tab bar. Floats up over the map's lower edge (mirrors the approved mockup).
+                        LivePlayPanel {
+                            LiveCaddieStrip(
+                                clubs: caddieClubChips,
+                                playsText: caddiePlaysText,
+                                isLoading: isLoadingCaddieDecision || isPreciseHoleMapPending,
+                                isReady: caddieDecision != nil
+                                    && !isPreciseHoleMapPending
+                                    && !isLoadingCaddieDecision,
+                                errorText: isPreciseHoleMapPending
+                                    ? "精确地图准备中 · 球童建议稍后更新"
+                                    : caddieErrorMessage,
+                                onExpand: { showCaddieDetail = true },
+                                onSelect: { selectClub($0) }
+                            )
+                            LiveHolePrimaryActions(
+                                canRecordShot: currentCoordinate != nil,
+                                recordedShotCount: recordedNonPuttShotCount,
+                                onRecordShot: recordShotLocation,
+                                onConfirmScore: beginScoreConfirmation
+                            )
+                            LiveScorecardButton(onTap: { showScorecard = true })
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.top, -22)
+                        .zIndex(2)
 
-                    // Secondary controls stay on readable light cards below the dark hero: the full
-                    // caddie plan (球童完整方案), 更多调整, 拍照取证, and 球局调整 — all behaviour intact.
-                    VStack(spacing: 12) {
-                        if showCaddieDetail { caddieDetailCard }
-                        moreAdjustCard
-                        mediaCard
-                        manageSection
+                        // Secondary live controls remain part of the dark playing instrument. The full
+                        // caddie plan is a focused light surface so the approved three-card hierarchy is
+                        // not buried beneath a second copy of the rangefinder panel.
+                        VStack(spacing: 12) {
+                            moreAdjustCard
+                            mediaCard
+                            manageSection
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.top, 16)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.top, 16)
+                    .padding(.bottom, 24)
                 }
-                .padding(.bottom, 24)
+                .onChange(of: holeRootScrollRequest) { _, _ in
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        scrollProxy.scrollTo(Self.holeRootScrollAnchor, anchor: .top)
+                    }
+                }
             }
+            #if DEBUG
+            if package.hasCompleteOfflineCoursePrep,
+               offlineStore?.hasCourseTopoImages(for: package) == true {
+                Text("离线地图已准备")
+                    .font(.system(size: 1))
+                    .foregroundStyle(Color.white.opacity(0.02))
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("离线地图已准备")
+                    .accessibilityIdentifier("live-hole-offline-course-ready")
+            }
+            #endif
         }
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
+        // The app shell is intentionally light, but this approved live-play surface is dark.
+        // Request dark system chrome here so the status-bar time, network, and battery stay visible.
+        .preferredColorScheme(.dark)
+        // The map owns the live surface and supplies a stable navigation-style return row. The
+        // inherited NavigationStack label is intentionally hidden because it can expose a stale
+        // greeting from the round home rather than the approved live-play hierarchy.
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
         .onAppear {
+            #if DEBUG
+            UITestEventLatencyTrace.record(
+                "live-hole.appear hole=\(hole.number) course=\(package.course.globalId)"
+            )
+            #endif
             locationProvider.requestAuthorization()
             locationProvider.startUpdatingLocation()
         }
@@ -171,6 +275,11 @@ public struct CurrentHoleView: View {
             }
             currentCoordinate = latestFix.coordinate
             currentHorizontalAccuracyM = latestFix.horizontalAccuracyM
+            gpsHoleCandidate = LiveHoleGPSResolver.candidate(
+                holes: package.holes,
+                coordinate: latestFix.coordinate,
+                horizontalAccuracyM: latestFix.horizontalAccuracyM
+            )
             // watch P1c: push the live position to the watch so its hole-map 「你」 pans as you walk. Only
             // when the hole map is up (holePrep loaded) — avoids chatter before the round view is ready.
             if holePrep != nil {
@@ -178,13 +287,21 @@ public struct CurrentHoleView: View {
             }
         }
         .task(id: hole.number) {
-            // Sync the selected club to the caddie's recommendation on a FRESH hole (so we never sit
-            // on an arbitrary default); a hole the player already recorded keeps their chosen club.
-            let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
-            await loadCaddieDecision(syncClub: !alreadyRecorded)
-        }
-        .task(id: hole.number) {
-            await loadHoleMap()
+            #if DEBUG
+            UITestEventLatencyTrace.record(
+                "live-hole.load.begin hole=\(hole.number) course=\(package.course.globalId)"
+            )
+            #endif
+            // One ordered bootstrap per hole: first establish the real map/F/M/B context, then make
+            // exactly one initial online caddie request from that context. The prior pair of sibling
+            // tasks issued a distance-free request and a replacement request concurrently, allowing
+            // a cancelled stale request to flash a false "联网不可用" state over the good response.
+            await loadCurrentHole()
+            #if DEBUG
+            UITestEventLatencyTrace.record(
+                "live-hole.load.end hole=\(hole.number) course=\(package.course.globalId)"
+            )
+            #endif
         }
         .onChange(of: liveRoundState) { _, newState in
             applyRestoredStateIfNeeded(newState)
@@ -193,6 +310,97 @@ public struct CurrentHoleView: View {
             // Changing strategy re-plans the shot → adopt the new strategy's recommended club so the
             // club strip + landing marker move with it (保守/激进 选不同杆,图上的落点要跟着变).
             Task { await loadCaddieDecision(syncClub: true) }
+        }
+        .fullScreenCover(isPresented: $showCaddieDetail) {
+            caddieDetailSurface
+        }
+        .sheet(item: $scoreDraft) { presentedDraft in
+            LiveScoreConfirmationView(
+                draft: Binding(
+                    get: { scoreDraft ?? presentedDraft },
+                    set: { next in
+                        scoreDraft = next
+                        if let offlineStore {
+                            try? offlineStore.saveLiveScoreDraft(roundId: package.roundId, draft: next)
+                        }
+                    }
+                ),
+                nextHole: presentedDraft.advanceAfterSave ? nextHole(after: presentedDraft.hole) : nil,
+                onAccept: acceptScoreConfirmation,
+                onCancel: cancelScoreConfirmation
+            )
+        }
+        .sheet(item: $pendingPhoneShot, onDismiss: {
+            // Recording starts from the lower action panel. After selecting or skipping the optional
+            // club, restore the S70-style Hole Root instead of leaving the player below the map.
+            holeRootScrollRequest += 1
+        }) { pendingShot in
+            LiveActualClubPromptView(
+                shotNumber: pendingShot.shotOrder,
+                choices: actualClubChoices,
+                onSelect: { club in recordActualClub(club, for: pendingShot) },
+                onSkip: { pendingPhoneShot = nil }
+            )
+        }
+        .sheet(isPresented: $showScorecard, onDismiss: presentPendingHistoricalScoreEdit) {
+            LiveRoundScorecardView(
+                courseName: package.course.name,
+                holes: package.holes,
+                liveRoundState: liveRoundState,
+                recordedScoreHoles: recordedScoreHoles,
+                gpsCandidate: gpsHoleCandidate,
+                onGoToHole: { selectedHole in
+                    showScorecard = false
+                    onAdvanceHole(selectedHole)
+                },
+                onEdit: { selectedHole in
+                    pendingHistoricalScoreHole = selectedHole
+                    showScorecard = false
+                }
+            )
+        }
+        .sheet(isPresented: $showRoundSummary) {
+            LiveRoundFinishSummaryView(
+                courseName: package.course.name,
+                holesCompleted: completedHoleStates.count,
+                holeCount: package.holes.count,
+                totalStrokes: completedHoleStates.reduce(0) { $0 + $1.state.score },
+                toPar: completedHoleStates.isEmpty
+                    ? nil
+                    : completedHoleStates.reduce(0) { $0 + $1.state.score - $1.hole.par },
+                totalPutts: completedHoleStates.reduce(0) { $0 + $1.state.putts },
+                fairwaysHit: completedHoleStates.filter { $0.state.fairwayResult == LiveFairwayResult.hit.rawValue }.count,
+                fairwaysRecorded: completedHoleStates.filter { $0.hole.par != 3 && $0.state.fairwayResult != nil }.count,
+                totalPenalties: completedHoleStates.reduce(0) { $0 + $1.state.penaltyCount },
+                pendingEventCount: pendingEventCount,
+                isFinishingRound: isFinishingRound,
+                finishErrorMessage: finishErrorMessage,
+                onFinish: {
+                    Task {
+                        if await onFinishRound() {
+                            showRoundSummary = false
+                        }
+                    }
+                },
+                onContinue: { showRoundSummary = false },
+                onDiscard: {
+                    showRoundSummary = false
+                    showDiscardConfirmation = true
+                }
+            )
+        }
+        .confirmationDialog(
+            "放弃这场球局？",
+            isPresented: $showDiscardConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("放弃并删除本场记录", role: .destructive) {
+                onDiscardRound()
+                dismiss()
+            }
+            Button("继续打球", role: .cancel) {}
+        } message: {
+            Text("未保存到历史的本场成绩、落点和待上传媒体将被删除。")
         }
     }
 
@@ -207,7 +415,8 @@ public struct CurrentHoleView: View {
     private var heroSection: some View {
         ZStack(alignment: .top) {
             liveMapBackdrop
-                .frame(height: 360)
+                .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
+                .frame(height: liveHeroHeight)
                 .frame(maxWidth: .infinity)
                 .clipped()
             LivePlayStyle.topScrim
@@ -215,35 +424,77 @@ public struct CurrentHoleView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
                 .allowsHitTesting(false)
             GeometryReader { geo in
+                let greenTarget = liveGreenTarget(in: geo.size)
                 ZStack {
                     LivePlayReticle()
-                        .position(x: geo.size.width * 0.55, y: geo.size.height * 0.30)
-                    if let hazardPillText {
-                        LiveHazardPill(text: hazardPillText)
-                            .position(x: geo.size.width * 0.62, y: geo.size.height * 0.45)
+                        .position(
+                            greenTarget ?? LivePlayMapOverlayLayout.fallbackGreenTarget(in: geo.size)
+                        )
+
+                    LiveMapGreenDistanceOverlay(
+                        frontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
+                        middleYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
+                        backYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
+                        toPinYards: Int(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
+                        isLive: isGreenRangeLive
+                    )
+                    .position(x: min(118, geo.size.width * 0.31), y: 137)
+
+                    ForEach(Array(liveMapHazardAnnotations.prefix(2).enumerated()), id: \.element.id) { index, annotation in
+                        if let front = liveMapTarget(annotation.frontPx, in: geo.size),
+                           let back = liveMapTarget(annotation.backPx, in: geo.size) {
+                            LiveMapHazardRangeOverlay(
+                                kind: annotation.kind,
+                                label: annotation.label,
+                                toYards: annotation.toYards,
+                                overYards: annotation.overYards,
+                                front: front,
+                                back: back,
+                                index: index,
+                                viewportSize: geo.size
+                            )
+                        }
+                    }
+                    if isPreciseHoleMapPending {
+                        LiveMapPreparingPill()
+                            .position(x: geo.size.width * 0.5, y: geo.size.height * 0.88)
+                    }
+                    if let player = livePlayerTarget(in: geo.size) {
+                        LivePlayerPositionMarker()
+                            .position(player)
                     }
                 }
             }
-            .frame(height: 360)
+            .frame(height: liveHeroHeight)
             .allowsHitTesting(false)
             LivePlayHeader(
                 holeNumber: hole.number,
                 par: hole.par,
                 yards: hole.yards,
                 teeLabel: teeLabelZh,
-                roundToParText: roundToParText
+                roundToParText: roundToParText,
+                onBack: { dismiss() },
+                onFinishRound: { showRoundSummary = true }
             )
             .padding(.horizontal, 20)
-            .padding(.top, 12)
+            .padding(.top, 4)
         }
-        .frame(height: 360)
+        .frame(height: liveHeroHeight)
     }
 
     /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
     @ViewBuilder private var liveMapBackdrop: some View {
-        if let holePrep, holePrep.map?.overlay != nil {
+        if let holePrep, holePrep.resolvedMapOverlay != nil {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
-                             topoURL: liveTopoURL)
+                             topoURL: liveTopoURL, showsCardChrome: false,
+                             showsRecommendedRoute: true,
+                             showsHazards: true)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(
+                    holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+                        ? "live-hole-map-partial"
+                        : "live-hole-map-\(holePrep.geometryCoverage.lowercased())"
+                )
         } else {
             LinearGradient(
                 colors: [Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255), LivePlayStyle.base],
@@ -252,42 +503,81 @@ public struct CurrentHoleView: View {
         }
     }
 
-    // MARK: - Secondary light cards below the dark hero (behaviour unchanged)
+    // MARK: - Focused caddie plan + secondary dark cards
 
-    /// 球童完整方案:strategy switch (护分/标准/进攻) + the proven CaddiePlanView + refresh.
-    /// Revealed by the caddie strip's 展开; kept on a readable light card.
-    private var caddieDetailCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("球童完整方案").font(.caption).foregroundStyle(.secondary)
-            // 策略开关:护分/标准/进攻直接切,建议随即重算。
-            Picker("策略", selection: $selectedStrategyMode) {
-                ForEach(strategyModeOptions, id: \.self) { Text(strategyModeLabel($0)).tag($0) }
+    /// Approved full-hole plan hierarchy: one light, focused surface containing exactly the three
+    /// complete route cards. It deliberately does not repeat the live distance/actions panel.
+    private var caddieDetailSurface: some View {
+        ZStack {
+            Color.white.ignoresSafeArea()
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("球童完整方案")
+                            .font(.title2.weight(.bold))
+                        Text("第 \(hole.number) 洞 · Par \(hole.par)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        showCaddieDetail = false
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("关闭球童方案")
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+
+                Divider()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let caddieDecision {
+                            CaddiePlanView(
+                                response: caddieDecision,
+                                hazards: caddiePlanHazards,
+                                onSelectStrategyMode: { selectedStrategyMode = $0 }
+                            )
+                        } else {
+                            CaddiePlanView(
+                                seed: caddieContextSeed,
+                                hazards: caddiePlanHazards,
+                                onSelectStrategyMode: { selectedStrategyMode = $0 }
+                            )
+                        }
+                        if isLoadingCaddieDecision {
+                            ProgressView("更新球童建议…")
+                        }
+                        if let caddieErrorMessage {
+                            Text(caddieErrorMessage)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Button {
+                            Task { await loadCaddieDecision() }
+                        } label: {
+                            Label("刷新球童", systemImage: "arrow.clockwise")
+                                .font(.subheadline)
+                        }
+                        .disabled(isLoadingCaddieDecision)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                }
             }
-            .pickerStyle(.segmented)
-            if let caddieDecision {
-                CaddiePlanView(response: caddieDecision, hazards: caddiePlanHazards)
-            } else {
-                CaddiePlanView(seed: caddieContextSeed, hazards: caddiePlanHazards)
-            }
-            if isLoadingCaddieDecision {
-                ProgressView("更新球童建议…")
-            }
-            if let caddieErrorMessage {
-                Text(caddieErrorMessage).font(.caption).foregroundStyle(.secondary)
-            }
-            Button {
-                Task { await loadCaddieDecision() }
-            } label: {
-                Label("刷新球童", systemImage: "arrow.clockwise").font(.subheadline)
-            }
-            .disabled(isLoadingCaddieDecision)
         }
-        .liveCard()
+        .tint(LiveHoleStyle.green)
+        .preferredColorScheme(.light)
     }
 
     /// All the original secondary inputs are preserved, tucked into 更多调整.
     private var moreAdjustCard: some View {
-        DisclosureGroup("更多调整(球杆 / 打法 / 球位 / 距离 / 目标 / 备注)") {
+        DisclosureGroup {
             VStack(spacing: 10) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("选球杆").font(.caption).foregroundStyle(.secondary)
@@ -312,8 +602,18 @@ public struct CurrentHoleView: View {
                 TextField("备注", text: $note)
             }
             .padding(.top, 6)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Label("更多调整", systemImage: "slider.horizontal.3")
+                    .font(.headline)
+                Text("球杆 · 打法 · 球位 · 距离 · 目标 · 备注")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
         }
-        .liveCard()
+        .livePlayAuxiliaryCard()
     }
 
     /// Media capture (unchanged behavior).
@@ -333,7 +633,7 @@ public struct CurrentHoleView: View {
                 }
             )
         }
-        .liveCard()
+        .livePlayAuxiliaryCard()
     }
 
     // MARK: - 打球屏 v2 display values (derived, read-only)
@@ -376,57 +676,412 @@ public struct CurrentHoleView: View {
         guard let playsLike = holePrep?.playsLike, playsLike.available, let deltaYd = playsLike.deltaYd, deltaYd != 0 else {
             return nil
         }
-        return "实打约 \(deltaYd > 0 ? "+" : "")\(deltaYd) 码(\(deltaYd > 0 ? "上坡" : "下坡"))"
+        return "坡度修正 \(deltaYd > 0 ? "+" : "")\(deltaYd) 码 · \(deltaYd > 0 ? "上坡" : "下坡")"
     }
 
-    /// The single hazard carry pill over the map: the nearest water carry (码), when the prep has one.
-    private var hazardPillText: String? {
-        guard let nearest = holePrep?.hazards.waterCarry.compactMap({ $0.first }).min() else {
-            return nil
+    /// At most two upcoming, position-bound obstacles are shown on the large phone map. Live GPS
+    /// ranges win; before the first qualified fix, the same measured edges retain their tee ranges.
+    /// Legacy one-number hazards cannot be placed on an edge and therefore stay out of the overlay.
+    private var liveMapHazardAnnotations: [LiveMapHazardAnnotation] {
+        guard !isPreciseHoleMapPending, let holePrep else { return [] }
+        if let live = liveHazardReadouts {
+            return live.map {
+                LiveMapHazardAnnotation(
+                    id: $0.id,
+                    kind: $0.kind,
+                    label: $0.label,
+                    toYards: $0.toYards,
+                    overYards: $0.overYards,
+                    frontPx: $0.frontPx,
+                    backPx: $0.backPx
+                )
+            }
         }
-        return "过水 \(CoursePrepRoute.yards(fromMetres: nearest))"
+        let route = holePrep.resolvedMapOverlay?.route
+        return holePrep.hazards.details
+            .filter { ($0.kind == "bunker" || $0.kind == "water")
+                && $0.frontPx.count >= 2 && $0.backPx.count >= 2 }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+            .enumerated()
+            .map { index, detail in
+                LiveMapHazardAnnotation(
+                    id: "\(detail.kind)-\(index)",
+                    kind: detail.kind,
+                    label: CoursePrepHazardNaming.label(kind: detail.kind, detail: detail, route: route),
+                    toYards: CoursePrepRoute.yards(fromMetres: detail.frontM),
+                    overYards: CoursePrepRoute.yards(fromMetres: detail.backM),
+                    frontPx: detail.frontPx,
+                    backPx: detail.backPx
+                )
+            }
+    }
+
+    /// CourseView's small package is a factual drawing source, but its hazard spans are not a
+    /// completeness guarantee.  Keep map/distance play available while prodgeometry downloads,
+    /// without presenting that provisional subset as the nearest-hazard or final caddie answer.
+    private var isPreciseHoleMapPending: Bool {
+        holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
     }
 
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
     /// gid)。给 `HoleImageMapView` 当底图;无后端地址/占位球场时为 nil → 回退到 payload flat 渲染图。
     private var liveTopoURL: URL? {
-        guard let caddieBaseURL else { return nil }
+        guard holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
+            return nil
+        }
         let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
         let mapLocalHole = hole.sourceLocalHole ?? hole.number
-        return SyncClient.topoImageURL(baseURL: caddieBaseURL, globalId: mapGlobalId, localHole: mapLocalHole)
+        let geometryRevision = holePrep?.geometryRevision ?? hole.geometryRevision
+        if let local = offlineStore?.loadCourseTopoImageURL(
+            globalId: mapGlobalId,
+            localHole: mapLocalHole,
+            geometryRevision: geometryRevision
+        ) {
+            return local
+        }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return nil
+        }
+        #endif
+        guard let caddieBaseURL else { return nil }
+        return SyncClient.topoImageURL(
+            baseURL: caddieBaseURL,
+            globalId: mapGlobalId,
+            localHole: mapLocalHole,
+            geometryRevision: geometryRevision
+        )
     }
 
-    private func loadHoleMap() async {
-        guard let caddieBaseURL else {
+    /// The route endpoint is the selected green target used by the shared map render. Projecting it
+    /// here keeps the live target ring on that real green instead of at one fixed screen coordinate.
+    private func liveGreenTarget(in heroSize: CGSize) -> CGPoint? {
+        guard let overlay = holePrep?.resolvedMapOverlay,
+              let greenTarget = overlay.route.last else {
+            return nil
+        }
+        return LivePlayMapOverlayLayout.project(
+            overlayPoint: greenTarget,
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            into: heroSize,
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset
+        )
+    }
+
+    /// Project any topo-pixel fact through exactly the same aspect-fit transform as the bitmap.
+    private func liveMapTarget(_ overlayPoint: [Double], in heroSize: CGSize) -> CGPoint? {
+        guard let overlay = holePrep?.resolvedMapOverlay else { return nil }
+        return LivePlayMapOverlayLayout.project(
+            overlayPoint: overlayPoint,
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            into: heroSize,
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset
+        )
+    }
+
+    private func livePlayerTarget(in heroSize: CGSize) -> CGPoint? {
+        guard let currentCoordinate,
+              let overlay = holePrep?.resolvedMapOverlay,
+              let refs = holePrep?.holeImageProjection?.refs,
+              refs.count >= 3,
+              let point = WatchEventBridge.projectToTopoPx(
+                  lat: currentCoordinate.latitude,
+                  lon: currentCoordinate.longitude,
+                  refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+              ) else { return nil }
+        return LivePlayMapOverlayLayout.project(
+            overlayPoint: point,
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            into: heroSize,
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset
+        )
+    }
+
+    @MainActor
+    private func loadCurrentHole() async {
+        isLoadingCaddieDecision = true
+        let canPollForPreciseMap = await loadHoleMap()
+        guard !Task.isCancelled else {
+            isLoadingCaddieDecision = false
             return
+        }
+        // Sync the selected club to the recommendation on a fresh hole; a hole the player already
+        // recorded keeps their actual choice.
+        let alreadyRecorded = liveRoundState?.holeState(for: hole.number)?.selectedClub.isEmpty == false
+        await loadCaddieDecision(
+            syncClub: !alreadyRecorded && !isPreciseHoleMapPending && !hasUserSelectedClub
+        )
+        isLoadingCaddieDecision = false
+        #if DEBUG
+        UITestEventLatencyTrace.record(
+            "live-hole.initial-load-finished hole=\(hole.number) course=\(package.course.globalId)"
+        )
+        #endif
+        onLiveHoleInitialLoadDidFinish()
+
+        // The package request has already queued prodgeometry in the backend. Keep the CourseView
+        // vectors usable now, then replace only this hole's map facts when the precise mesh arrives.
+        // The structured `.task(id: hole.number)` owns this loop, so changing holes or leaving the
+        // screen cancels it without leaving a detached poller behind.
+        if canPollForPreciseMap,
+           holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
+            await waitForPreciseHoleMap(syncClub: !alreadyRecorded)
+        }
+    }
+
+    private func loadHoleMap() async -> Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return false
+        }
+        #endif
+        guard let caddieBaseURL else {
+            return false
         }
         // 每洞用自己的 source 球场 + 本地洞号(组合局后九在第二个环的 gid)。
         let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
         let mapLocalHole = hole.sourceLocalHole ?? hole.number
         guard mapGlobalId != 0 else {
-            return
+            return false
         }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
-        holePrep = try? await client.fetchHolePrep(globalId: mapGlobalId, localHole: mapLocalHole)
-        // Re-push to the watch now that F/M/B + plays-like are available — the first push in
-        // loadCaddieDecision can beat this fetch and would otherwise send nil green distances.
-        if holePrep != nil {
+        let lightweight: CoursePrepHole
+        do {
+            guard let fetched = try await client.fetchHolePrep(
+                globalId: mapGlobalId,
+                localHole: mapLocalHole
+            ) else { return false }
+            lightweight = fetched
+        } catch {
+            // Keep the package's retained prep facts. Returning false prevents the partial-map
+            // upgrade loop from polling forever while the player is offline.
+            return false
+        }
+        // Old cached/server payloads may lack the three topo anchors. Keep that compatibility path,
+        // but never make current geometry pay the cold server-render cost that lost hole 4's facts.
+        var resolved = lightweight
+        if lightweight.resolvedMapOverlay == nil,
+           !lightweight.route.isEmpty,
+           let rendered = try? await client.fetchHolePrep(
+               globalId: mapGlobalId,
+               localHole: mapLocalHole,
+               render: true
+           ) {
+            resolved = rendered
+        }
+        await retainThenPublishHolePrep(
+            resolved,
+            globalId: mapGlobalId,
+            sourceLocalHole: mapLocalHole,
+            watchHole: hole.number
+        )
+        // Re-push to the watch now that F/M/B + plays-like are available. The ordered bootstrap will
+        // fetch and push the matching caddie decision immediately after this map step.
+        if let holePrep {
+            #if DEBUG
+            moveSimulatedLocationToHoleTeeIfRequested(holePrep)
+            #endif
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
-            // watch P1b: relay the clean topo bitmap so the watch renders the hole map offline. Keyed by
-            // the round hole number (what WatchRoundState.hole carries), fetched by the source local hole.
-            await pushTopoToWatch(globalId: mapGlobalId, sourceLocalHole: mapLocalHole, watchHole: hole.number)
+        }
+        return true
+    }
+
+    @MainActor
+    private func waitForPreciseHoleMap(syncClub: Bool) async {
+        guard let caddieBaseURL else { return }
+        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
+        let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        guard mapGlobalId != 0 else { return }
+        let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
+        var delaySeconds: UInt64 = 5
+
+        while !Task.isCancelled {
+            do {
+                try await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            guard let refreshed = try? await client.fetchHolePrep(
+                globalId: mapGlobalId,
+                localHole: mapLocalHole
+            ) else {
+                delaySeconds = min(delaySeconds * 2, 60)
+                continue
+            }
+            guard refreshed.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
+                delaySeconds = min(delaySeconds * 2, 60)
+                continue
+            }
+
+            // Cache the matching bitmap and retain the precise prep before SwiftUI can publish the
+            // ready map. A force-quit immediately after the map appears must therefore reopen the
+            // same factual map instead of the partial package captured when the round started.
+            await retainThenPublishHolePrep(
+                refreshed,
+                globalId: mapGlobalId,
+                sourceLocalHole: mapLocalHole,
+                watchHole: hole.number
+            )
+            // Rehydrate the decision from precise geometry after the durable map state is visible.
+            await loadCaddieDecision(syncClub: syncClub && !hasUserSelectedClub)
+            guard !Task.isCancelled else { return }
+            return
         }
     }
 
-    /// watch P1b: fetch this hole's clean topo bitmap (/topo.png) and relay it to the watch over
-    /// WatchConnectivity (transferFile) so the watch draws the hole map from local storage. Best-effort —
-    /// a missing base URL / watch bridge / failed fetch just leaves the watch on the text hub.
-    private func pushTopoToWatch(globalId: Int, sourceLocalHole: Int, watchHole: Int) async {
-        guard let watchBridge, let caddieBaseURL,
-              globalId != 0,
-              let url = SyncClient.topoImageURL(baseURL: caddieBaseURL, globalId: globalId, localHole: sourceLocalHole),
-              let (data, _) = try? await URLSession.shared.data(from: url), !data.isEmpty else { return }
-        watchBridge.pushHoleImage(globalId: globalId, hole: watchHole, imageData: data)
+    /// A ready prep and its bitmap are one user-visible fact. Make both durable before assigning
+    /// `holePrep`; otherwise the player can see the precise map, kill the app, and resume from the
+    /// older partial round package. Partial CourseView facts remain intentionally immediate.
+    @MainActor
+    private func retainThenPublishHolePrep(
+        _ prep: CoursePrepHole,
+        globalId: Int,
+        sourceLocalHole: Int,
+        watchHole: Int
+    ) async {
+        if prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+           prep.resolvedMapOverlay != nil {
+            await pushTopoToWatch(
+                globalId: globalId,
+                sourceLocalHole: sourceLocalHole,
+                watchHole: watchHole,
+                geometryRevision: prep.geometryRevision
+            )
+            await pushGreenDetailToWatch(
+                globalId: globalId,
+                sourceLocalHole: sourceLocalHole,
+                watchHole: watchHole,
+                prep: prep
+            )
+            onRetainReadyHolePrep(package.roundId, hole.number, prep)
+        }
+        holePrep = prep
+    }
+
+    #if DEBUG
+    /// A simulator cannot physically walk between holes. For the continuous real-course UI journey,
+    /// recover this prep route's Tee GPS from the same calibrated topo projection used by the product.
+    /// The explicit launch flag plus DEBUG compile gate prevent test movement from entering TestFlight.
+    private func moveSimulatedLocationToHoleTeeIfRequested(_ prep: CoursePrepHole) {
+        guard ProcessInfo.processInfo.environment["UITEST_FOLLOW_HOLE_TEE"] == "1",
+              let first = prep.resolvedMapOverlay?.route.first, first.count >= 2,
+              let refs = prep.holeImageProjection?.refs,
+              let tee = WatchEventBridge.projectFromTopoPx(
+                  px: first[0],
+                  py: first[1],
+                  refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+              ) else { return }
+        locationProvider.moveSimulatedFixForUITest(
+            latitude: tee.latitude,
+            longitude: tee.longitude
+        )
+    }
+    #endif
+
+    /// Cache the clean topo independently of Watch availability, then relay the same bytes when a
+    /// bridge exists. Phone durability must not depend on whether WatchConnectivity was created.
+    private func pushTopoToWatch(
+        globalId: Int,
+        sourceLocalHole: Int,
+        watchHole: Int,
+        geometryRevision: String?
+    ) async {
+        guard globalId != 0, offlineStore != nil || watchBridge != nil else { return }
+        if let cached = offlineStore?.loadCourseTopoImage(
+            globalId: globalId,
+            localHole: sourceLocalHole,
+            geometryRevision: geometryRevision
+        ) {
+            if let watchBridge {
+                watchBridge.pushHoleImage(
+                    globalId: globalId,
+                    hole: watchHole,
+                    imageData: cached,
+                    geometryRevision: geometryRevision
+                )
+            }
+            return
+        }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return
+        }
+        #endif
+        guard let caddieBaseURL,
+              let data = try? await SyncClient(
+                  baseURL: caddieBaseURL,
+                  adminToken: adminToken
+              ).fetchTopoImage(
+                  globalId: globalId,
+                  localHole: sourceLocalHole,
+                  geometryRevision: geometryRevision
+              ) else { return }
+        do {
+            try offlineStore?.saveCourseTopoImage(
+                data,
+                globalId: globalId,
+                localHole: sourceLocalHole,
+                geometryRevision: geometryRevision
+            )
+        } catch {
+            AICaddieLog.storage.error(
+                "Live topo cache save failed for \(globalId, privacy: .public)/\(sourceLocalHole, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+        }
+        if let watchBridge {
+            watchBridge.pushHoleImage(
+                globalId: globalId,
+                hole: watchHole,
+                imageData: data,
+                geometryRevision: geometryRevision
+            )
+        }
+    }
+
+    /// Relay the focused View Green bitmap after the normal topo. The crop is derived from the same
+    /// prep outline that becomes `WatchHoleMap.greenOutline`, so the Watch can place it without a
+    /// second server manifest. A missing detail asset never blocks the round or the whole-hole map.
+    private func pushGreenDetailToWatch(
+        globalId: Int,
+        sourceLocalHole: Int,
+        watchHole: Int,
+        prep: CoursePrepHole
+    ) async {
+        guard globalId != 0, let watchBridge, let caddieBaseURL,
+              let projection = prep.holeImageProjection,
+              let width = projection.widthPx,
+              let height = projection.heightPx,
+              let outline = prep.greenOutline,
+              let crop = GreenDetailCrop.around(
+                  points: outline.pointsPx,
+                  imageWidth: Double(width),
+                  imageHeight: Double(height)
+              ) else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return
+        }
+        #endif
+        guard let data = try? await SyncClient(
+            baseURL: caddieBaseURL,
+            adminToken: adminToken
+        ).fetchGreenDetailImage(
+            globalId: globalId,
+            localHole: sourceLocalHole,
+            crop: crop,
+            geometryRevision: prep.geometryRevision
+        ), OfflineStore.isValidCourseTopoImageData(data) else { return }
+        watchBridge.pushHoleImage(
+            globalId: globalId,
+            hole: watchHole,
+            imageData: data,
+            geometryRevision: prep.geometryRevision,
+            assetKind: "green-detail"
+        )
     }
 
     /// round-13 LIVE: 本洞前/中/后果岭(F/M/B)prep 数据,仅在 prep 几何可用时。distances 是 tee→green
@@ -473,67 +1128,121 @@ public struct CurrentHoleView: View {
     /// 实时果岭测距当前是否生效(有 GPS 定位 + 该洞带果岭经纬度)→ 头部显示「实时」标记区分实时/静态。
     private var isGreenRangeLive: Bool { liveGreenYards != nil }
 
-    /// 本洞避开区:取按洞拉取的 prep 的 hazards(沙坑/水域 米区间)供球童方案展示。
+    /// 本洞避开区:取按洞拉取的 prep 水域区间与沙坑路线点/横距供球童方案展示。
     /// (live 包为提速不再内置全洞 coursePrep;按洞 prep 随 2D 图一起加载。)
     private var caddiePlanHazards: [CaddiePlanHazard] {
-        guard let holePrep else {
+        guard let holePrep,
+              holePrep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
             return []
         }
-        return CaddiePlanHazard.from(holePrep.hazards)
+        if let liveHazards = liveHazardReadouts {
+            return liveHazards.map {
+                CaddiePlanHazard(
+                    id: $0.id,
+                    icon: $0.kind == "water" ? "water" : "bunker",
+                    label: $0.label,
+                    detail: $0.detail
+                )
+            }
+        }
+        return CaddiePlanHazard.from(
+            holePrep.hazards,
+            route: holePrep.resolvedMapOverlay?.route
+        )
     }
 
-    /// round-13 spec ②: the AI-caddie play options (激进/推荐/保守) to mirror onto the watch 球童打法 screen.
-    /// Reuses the same CaddiePlanOption extraction the iPhone caddie card renders, so phone/watch agree.
-    private func watchCaddieOptions(_ decision: CaddieDecisionResponse?) -> [WatchCaddieOption] {
-        guard let decision else {
-            return []
+    /// Live-round hazard ranges use the player's current GPS fix and the measured front/back boundary
+    /// pixels. A non-nil empty array means every measured hazard is already behind the player; nil
+    /// means this older prep lacks the projection needed for live ranging and should use static facts.
+    private var liveHazardReadouts: [CoursePrepLiveHazardReadout]? {
+        guard let holePrep,
+              holePrep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+              let fix = locationProvider.latestFix,
+              let route = holePrep.resolvedMapOverlay?.route,
+              let projection = holePrep.holeImageProjection,
+              projection.available,
+              let refs = projection.refs else {
+            return nil
         }
-        return CaddiePlanOption.options(from: decision).map { option in
-            WatchCaddieOption(
-                optionId: option.id,
-                label: zhPlayLabel(id: option.id, fallback: option.label),
-                clubName: option.clubName == "-" ? nil : option.clubName,
-                carryM: option.carryM > 0 ? option.carryM : nil,
-                expectedStrokes: option.expectedStrokes,
-                confidence: option.confidence
-            )
-        }
+        return CoursePrepLiveHazardReadout.upcoming(
+            hazards: holePrep.hazards,
+            route: route,
+            projectionRefs: refs,
+            playerLatitude: fix.coordinate.latitude,
+            playerLongitude: fix.coordinate.longitude
+        )
     }
 
-    /// 稳妥/标准/进攻 label, mapped from the option id (or its label) via the shared route-label dictionary.
-    private func zhPlayLabel(id: String, fallback: String) -> String {
-        let byId = zhCaddieRouteLabel(id)
-        if byId != id {
-            return byId
-        }
-        let byLabel = zhCaddieRouteLabel(fallback)
-        return byLabel != fallback ? byLabel : fallback
-    }
-
-    /// round-13 spec ⑤: 障碍 carry intervals (沙坑/水域 米区间) to mirror onto the watch Hazard View.
-    /// Same source + ordering + numbering as the iPhone CaddiePlanHazard list; distances stay in metres.
+    /// Measured hazard facts mirrored to the Watch. New prep carries true front/back boundary facts;
+    /// old caches fall back to water intervals and a single reliable bunker route point.
     private func watchHazards() -> [WatchHazard] {
-        guard let holePrep else {
+        guard let holePrep,
+              holePrep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
             return []
         }
+        let route = holePrep.resolvedMapOverlay?.route
         var out: [WatchHazard] = []
-        let bunkers = holePrep.hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-        for (index, interval) in bunkers.enumerated() {
-            out.append(WatchHazard(
-                kind: "bunker",
-                label: bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑",
-                startM: interval.first,
-                endM: interval.count >= 2 ? interval[1] : nil
-            ))
+        let bunkerDetails = holePrep.hazards.details
+            .filter { $0.kind == "bunker" }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+        if !bunkerDetails.isEmpty {
+            for detail in bunkerDetails {
+                out.append(WatchHazard(
+                    kind: "bunker",
+                    label: CoursePrepHazardNaming.label(
+                        kind: "bunker", detail: detail, route: route
+                    ),
+                    startM: detail.frontRouteM,
+                    endM: detail.backRouteM,
+                    frontDistanceM: detail.frontM,
+                    backDistanceM: detail.backM,
+                    frontPx: detail.frontPx,
+                    backPx: detail.backPx
+                ))
+            }
+        } else {
+            let bunkers = holePrep.hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            for interval in bunkers {
+                out.append(WatchHazard(
+                    kind: "bunker",
+                    label: CoursePrepHazardNaming.legacyLabel(
+                        kind: "bunker", interval: interval, route: route
+                    ),
+                    startM: interval.first,
+                    sideM: interval.count >= 2 ? interval[1] : nil
+                ))
+            }
         }
-        let water = holePrep.hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-        for (index, interval) in water.enumerated() {
-            out.append(WatchHazard(
-                kind: "water",
-                label: water.count > 1 ? "水域 \(index + 1)" : "水域",
-                startM: interval.first,
-                endM: interval.count >= 2 ? interval[1] : nil
-            ))
+        let waterDetails = holePrep.hazards.details
+            .filter { $0.kind == "water" }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+        if !waterDetails.isEmpty {
+            for detail in waterDetails {
+                out.append(WatchHazard(
+                    kind: "water",
+                    label: CoursePrepHazardNaming.label(
+                        kind: "water", detail: detail, route: route
+                    ),
+                    startM: detail.frontRouteM,
+                    endM: detail.backRouteM,
+                    frontDistanceM: detail.frontM,
+                    backDistanceM: detail.backM,
+                    frontPx: detail.frontPx,
+                    backPx: detail.backPx
+                ))
+            }
+        } else {
+            let water = holePrep.hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            for interval in water {
+                out.append(WatchHazard(
+                    kind: "water",
+                    label: CoursePrepHazardNaming.legacyLabel(
+                        kind: "water", interval: interval, route: route
+                    ),
+                    startM: interval.first,
+                    endM: interval.count >= 2 ? interval[1] : nil
+                ))
+            }
         }
         return out
     }
@@ -566,7 +1275,7 @@ public struct CurrentHoleView: View {
     private var clubNames: [String] {
         let best = bagBest(filterTeeOnly: true)
         let ordered: [String]
-        if let target = distanceToPinMetres {
+        if let target = effectiveDistanceToPinMetres {
             ordered = best.sorted { abs($0.value.medianM - target) < abs($1.value.medianM - target) }.map(\.key)
         } else {
             ordered = best.sorted { $0.value.medianM > $1.value.medianM }.map(\.key)
@@ -622,12 +1331,13 @@ public struct CurrentHoleView: View {
     }
 
     /// Set the selected club (chips + dropdown). round-12「选完即记」: persist the pick immediately as
-    /// a lightweight club event (clubName/打法/球位/距离 — NOT a full shot/GPS record; 保存本洞 still
-    /// records the shot) so the choice survives a quit/restart and drives the map landing marker.
+    /// a lightweight club-selection event (clubName/打法/球位/距离 — NOT a shot/GPS record) so the
+    /// choice survives a quit/restart and drives the map landing marker.
     private func selectClub(_ club: String) {
         let changed = club != selectedClub
         selectedClub = club
         guard changed, !club.isEmpty else { return }
+        hasUserSelectedClub = true
         emit(kind: .club, timestamp: ISO8601DateFormatter().string(from: Date()), payload: [
             "clubName": .string(selectedClub),
             "shotType": .string(selectedShotType),
@@ -705,17 +1415,13 @@ public struct CurrentHoleView: View {
                 nineControl
                 loopAddControl
                 if let live = liveRoundState, package.holes.contains(where: { $0.number == live.activeHole }) {
-                    Button(role: .destructive) {
-                        showDiscardConfirm = true
+                    Button {
+                        showRoundSummary = true
                     } label: {
                         Text("结束本场").font(.subheadline).frame(maxWidth: .infinity).padding(.vertical, 6)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color(red: 185 / 255, green: 50 / 255, blue: 40 / 255))
-                    .confirmationDialog("结束本场?未保存的记录会被丢弃。", isPresented: $showDiscardConfirm, titleVisibility: .visible) {
-                        Button("结束本场", role: .destructive) { onDiscard() }
-                        Button("取消", role: .cancel) {}
-                    }
                 }
             }
             .padding(.top, 8)
@@ -723,7 +1429,7 @@ public struct CurrentHoleView: View {
             Label("球局调整 · 加打 / 结束本场", systemImage: "slider.horizontal.3")
                 .font(.subheadline).foregroundStyle(.secondary)
         }
-        .liveCard()
+        .livePlayAuxiliaryCard()
     }
 
     /// 起始九洞的加打 / 撤销:nine 是对一局 18 洞的视图过滤,已记杆按 roundId 保留。
@@ -831,14 +1537,6 @@ public struct CurrentHoleView: View {
         }
     }
 
-    private var recordHintText: String? {
-        guard currentCoordinate != nil else { return "等待 GPS 定位…" }
-        if let accuracy = currentHorizontalAccuracyM {
-            return "已定位 · 精度 ±\(Int(accuracy.rounded()))m · 球杆 \(selectedClub)"
-        }
-        return "已定位 · 球杆 \(selectedClub)"
-    }
-
     private var shotTypeOptions: [String] {
         let options = caddieContextSeed?.shotTypes ?? []
         return options.isEmpty ? ["tee", "approach", "recovery"] : options
@@ -846,21 +1544,6 @@ public struct CurrentHoleView: View {
 
     private var lieOptions: [String] {
         ["fairway", "rough", "bunker", "green", "tee", "recovery"]
-    }
-
-    private var strategyModeOptions: [String] {
-        ["protect_score", "stock", "attack"]
-    }
-
-    private func strategyModeLabel(_ mode: String) -> String {
-        switch mode {
-        case "protect_score":
-            return "护分"
-        case "attack":
-            return "进攻"
-        default:
-            return "标准"
-        }
     }
 
     /// 击球类型 / 球位的封闭英文枚举 → 中文(更多调整里的选择器)。未知值原样回退。
@@ -908,12 +1591,13 @@ public struct CurrentHoleView: View {
             seed: caddieContextSeed,
             input: LiveCaddieInput(
                 shotType: selectedShotType,
-                distanceToPinM: distanceToPinMetres,
+                distanceToPinM: effectiveDistanceToPinMetres,
                 lie: selectedLie,
                 coordinate: currentCoordinate,
                 targetCoordinate: targetCoordinate,
                 targetKind: targetCoordinate == nil ? nil : "pin",
                 horizontalAccuracyM: currentHorizontalAccuracyM,
+                capturedAt: locationProvider.latestFix?.capturedAt,
                 strategyMode: selectedStrategyMode,
                 visionFindings: visionFindings
             )
@@ -922,7 +1606,14 @@ public struct CurrentHoleView: View {
 
     @MainActor
     private func loadCaddieDecision(syncClub: Bool = false) async {
-        guard let caddieClient else {
+        #if DEBUG
+        let effectiveClient = ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1"
+            ? nil
+            : caddieClient
+        #else
+        let effectiveClient = caddieClient
+        #endif
+        guard let effectiveClient else {
             caddieDecision = makeOfflineCaddieDecision()
             caddieErrorMessage = caddieDecision == nil
                 ? "这一洞暂时无法给建议。"
@@ -937,16 +1628,25 @@ public struct CurrentHoleView: View {
             return
         }
 
+        let requestedBeforePrep = holePrep == nil
         isLoadingCaddieDecision = true
         defer {
             isLoadingCaddieDecision = false
         }
 
         do {
-            caddieDecision = try await caddieClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
+            let response = try await effectiveClient.fetchCaddieDecision(request, endpoint: package.caddieDecisionEndpoint)
+            guard !Task.isCancelled else { return }
+            // If prep arrived while a manual distance-free request was in flight, the ordered hole
+            // bootstrap will launch the context-complete request next. Never let the stale answer
+            // overwrite it.
+            guard !(requestedBeforePrep && holePrep != nil) else { return }
+            caddieDecision = response
             caddieErrorMessage = nil
             if syncClub { syncSelectedClubToRecommendation() }
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+        } catch let error where LiveCaddieLoadFailure.isCancellation(error) {
+            return
         } catch {
             if let offlineDecision = makeOfflineCaddieDecision() {
                 caddieDecision = offlineDecision
@@ -1007,8 +1707,15 @@ public struct CurrentHoleView: View {
                 lat: coord.latitude, lon: coord.longitude,
                 refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) })
         }()
-        let holeMap: WatchHoleMap? = (holePrep?.map?.overlay).flatMap {
-            WatchEventBridge.makeHoleMap(overlay: $0, landingM: holePrep?.landingM, youPxOverride: youPxOverride)
+        let holeMap: WatchHoleMap? = (holePrep?.resolvedMapOverlay).flatMap {
+            WatchEventBridge.makeHoleMap(
+                overlay: $0,
+                landingM: holePrep?.landingM,
+                youPxOverride: youPxOverride,
+                greenOutline: holePrep?.greenOutline?.available == true
+                    ? holePrep?.greenOutline?.pointsPx
+                    : nil
+            )
         }
         let state = watchBridge?.makeWatchRoundStatePayload(
             package: package,
@@ -1019,7 +1726,7 @@ public struct CurrentHoleView: View {
             selectedClub: selectedClub,
             decision: decision,
             offlineOption: offlineOption,
-            distanceToPinM: distanceToPinMetres,
+            distanceToPinM: effectiveDistanceToPinMetres,
             targetLatitude: targetCoordinate?.latitude,
             targetLongitude: targetCoordinate?.longitude,
             targetKind: targetCoordinate == nil ? nil : "pin",
@@ -1035,10 +1742,10 @@ public struct CurrentHoleView: View {
             holeImageProjection: watchProj,
             globalId: mapGlobalId,
             holeMap: holeMap,
-            playsLikeDistanceM: slopeM.flatMap { delta in distanceToPinMetres.map { $0 + delta } },
+            playsLikeDistanceM: slopeM.flatMap { delta in effectiveDistanceToPinMetres.map { $0 + delta } },
             elevationDeltaM: slopeM,
-            geometryCoverage: hole.geometryCoverage.rawValue,
-            caddieOptions: watchCaddieOptions(decision),
+            geometryCoverage: holePrep?.geometryCoverage ?? hole.geometryCoverage.rawValue,
+            geometryRevision: holePrep?.geometryRevision ?? hole.geometryRevision,
             hazards: watchHazards()
         )
         if let state {
@@ -1073,7 +1780,7 @@ public struct CurrentHoleView: View {
         selectedShotType = restoredHoleState.selectedShotType
         selectedStrategyMode = restoredHoleState.selectedStrategyMode
         selectedLie = restoredHoleState.lie
-        distanceToPinText = restoredHoleState.distanceToPinM.map(Self.yardsText(fromMetres:)) ?? ""
+        distanceToPinText = Self.validDistanceText(restoredHoleState.distanceToPinM)
         if let latitude = restoredHoleState.latitude, let longitude = restoredHoleState.longitude {
             currentCoordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         } else {
@@ -1089,57 +1796,196 @@ public struct CurrentHoleView: View {
         sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
     }
 
-    private func submitEvents() {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        if let currentCoordinate {
-            var locationPayload: [String: JSONValue] = [
-                "latitude": .number(currentCoordinate.latitude),
-                "longitude": .number(currentCoordinate.longitude),
-                "source": .string("ios_gps"),
-            ]
-            if let currentHorizontalAccuracyM {
-                locationPayload["horizontalAccuracyM"] = .number(currentHorizontalAccuracyM)
-            }
-            if let targetCoordinate {
-                locationPayload["targetLatitude"] = .number(targetCoordinate.latitude)
-                locationPayload["targetLongitude"] = .number(targetCoordinate.longitude)
-                locationPayload["targetSource"] = .string("ios_target")
-                locationPayload["targetKind"] = .string("pin")
-            }
-            emit(kind: .location, timestamp: timestamp, payload: locationPayload)
+    private func beginScoreConfirmation() {
+        if scoreDraft == nil {
+            let restoredFairway = liveRoundState?.holeState(for: hole.number)?.fairwayResult
+                .flatMap(LiveFairwayResult.init(rawValue:))
+            scoreDraft = LiveScoreDraft(
+                hole: hole.number,
+                par: hole.par,
+                recordedShotCount: recordedNonPuttShotCount,
+                currentScore: score,
+                currentPutts: puttCount,
+                currentPenalty: penaltyCount,
+                currentFairway: restoredFairway
+            )
         }
-        emit(kind: .score, timestamp: timestamp, payload: ["strokes": .number(Double(score))])
-        emit(kind: .putt, timestamp: timestamp, payload: ["putts": .number(Double(puttCount))])
-        emit(kind: .penalty, timestamp: timestamp, payload: ["penalties": .number(Double(penaltyCount))])
-        emit(kind: .club, timestamp: timestamp, payload: clubEventPayload())
-        if !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            emit(kind: .note, timestamp: timestamp, payload: ["note": .string(note)])
+        if let scoreDraft {
+            if let offlineStore {
+                try? offlineStore.saveLiveScoreDraft(roundId: package.roundId, draft: scoreDraft)
+            }
+        }
+    }
+
+    private func acceptScoreConfirmation(_ accepted: LiveScoreDraft) {
+        let events = LiveScoreSubmission.events(
+            roundId: package.roundId,
+            draft: accepted,
+            note: note,
+            timestamp: ISO8601DateFormatter().string(from: Date())
+        )
+        events.forEach(onEvent)
+        if let offlineStore {
+            try? offlineStore.clearLiveScoreDraft(roundId: package.roundId)
+        }
+        scoreDraft = nil
+        if accepted.hole == hole.number {
+            score = accepted.score
+            puttCount = accepted.putts
+            penaltyCount = accepted.penalty
+        }
+        if accepted.advanceAfterSave {
+            if let next = nextHole(after: accepted.hole) {
+                onAdvanceHole(next)
+            } else {
+                showRoundSummary = true
+            }
         }
         sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
     }
 
-    private func clubEventPayload() -> [String: JSONValue] {
-        var payload: [String: JSONValue] = [
-            "clubName": .string(selectedClub),
-            "shotType": .string(selectedShotType),
-            "strategyMode": .string(selectedStrategyMode),
-            "lie": .string(selectedLie),
-        ]
-        payload["distanceToPinM"] = distanceToPinPayload()
-        if let selectedOfflineOptionId = selectedOfflineOption?.optionId ?? caddieContextSeed?.selectedOfflineOptionId {
-            payload["offlineOptionId"] = .string(selectedOfflineOptionId)
+    private func cancelScoreConfirmation() {
+        let draftHole = scoreDraft?.hole
+        let shouldReturnToDraftHole = scoreDraft?.advanceAfterSave == true && draftHole != hole.number
+        if let offlineStore {
+            try? offlineStore.clearLiveScoreDraft(roundId: package.roundId)
         }
-        if let decision = caddieDecision {
-            if let decisionId = decision.decisionId {
-                payload["decisionId"] = .string(decisionId)
+        scoreDraft = nil
+        if shouldReturnToDraftHole, let draftHole {
+            onAdvanceHole(draftHole)
+        }
+    }
+
+    private var recordedScoreHoles: Set<Int> {
+        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return [] }
+        let displayedHoles = Set(package.holes.map(\.number))
+        return Set(events.compactMap { event in
+            guard event.roundId == package.roundId,
+                  displayedHoles.contains(event.hole),
+                  event.kind == .score else {
+                return nil
             }
-            payload["decision"] = .object(decision.auditPayload)
-            payload["actualShot"] = .object(actualShotPayload())
+            return event.hole
+        })
+    }
+
+    private var completedHoleStates: [(hole: Hole, state: LiveHoleStateSnapshot)] {
+        let recorded = recordedScoreHoles
+        return package.holes.compactMap { hole in
+            guard recorded.contains(hole.number),
+                  let state = liveRoundState?.holeState(for: hole.number) else {
+                return nil
+            }
+            return (hole, state)
         }
-        if caddieDecision == nil {
-            payload["actualShot"] = .object(actualShotPayload())
+    }
+
+    private func presentPendingHistoricalScoreEdit() {
+        guard let selectedHoleNumber = pendingHistoricalScoreHole else { return }
+        pendingHistoricalScoreHole = nil
+        guard let selectedHole = package.holes.first(where: { $0.number == selectedHoleNumber }) else {
+            return
         }
-        return payload
+
+        let restored = liveRoundState?.holeState(for: selectedHoleNumber)
+        let draft = LiveScoreDraft(
+            hole: selectedHoleNumber,
+            par: selectedHole.par,
+            recordedShotCount: 0,
+            currentScore: restored?.score ?? selectedHole.par,
+            currentPutts: restored?.putts ?? 2,
+            currentPenalty: restored?.penaltyCount ?? 0,
+            currentFairway: restored?.fairwayResult.flatMap(LiveFairwayResult.init(rawValue:)),
+            offerRecommendation: false,
+            advanceAfterSave: false
+        )
+        scoreDraft = draft
+        if let offlineStore {
+            try? offlineStore.saveLiveScoreDraft(roundId: package.roundId, draft: draft)
+        }
+    }
+
+    private func nextHole(after number: Int) -> Int? {
+        let ordered = package.holes.map(\.number)
+        guard let index = ordered.firstIndex(of: number), ordered.indices.contains(index + 1) else {
+            return nil
+        }
+        return ordered[index + 1]
+    }
+
+    private var recordedNonPuttShotCount: Int {
+        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return 0 }
+        return events.filter { event in
+            event.roundId == package.roundId && event.hole == hole.number && event.kind == .location
+        }.count
+    }
+
+    private var actualClubChoices: [LiveActualClubChoice] {
+        var choices = allBagClubs.map { club in
+            LiveActualClubChoice(
+                name: club.name,
+                yards: CoursePrepRoute.yards(fromMetres: club.metres),
+                isRecommended: club.name == recommendedClub
+            )
+        }
+        if let recommendedClub, !choices.contains(where: { $0.name == recommendedClub }) {
+            choices.insert(
+                LiveActualClubChoice(name: recommendedClub, yards: nil, isRecommended: true),
+                at: 0
+            )
+        }
+        return choices
+    }
+
+    private func recordShotLocation() {
+        guard let currentCoordinate else { return }
+        let shotOrder = recordedNonPuttShotCount + 1
+        let builder = LiveRoundEventBuilder(roundId: package.roundId)
+        let locationEvent = builder.makeLocationEvent(
+            hole: hole.number,
+            coordinate: currentCoordinate,
+            horizontalAccuracyM: currentHorizontalAccuracyM,
+            altitudeM: locationProvider.latestFix?.altitudeM,
+            targetCoordinate: targetCoordinate,
+            targetKind: targetCoordinate == nil ? nil : "pin"
+        )
+        onEvent(locationEvent)
+        pendingPhoneShot = PendingPhoneShot(locationEvent: locationEvent, shotOrder: shotOrder)
+    }
+
+    private func recordActualClub(_ club: String, for pendingShot: PendingPhoneShot) {
+        let trimmedClub = club.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedClub.isEmpty else {
+            pendingPhoneShot = nil
+            return
+        }
+        #if DEBUG
+        UITestEventLatencyTrace.record("actual-club.build.begin hole=\(hole.number)")
+        #endif
+        let event = LiveRoundEventBuilder(roundId: package.roundId).makeActualClubEvent(
+            hole: hole.number,
+            clubName: trimmedClub,
+            sourceLocationEventId: pendingShot.locationEvent.eventId,
+            shotOrder: pendingShot.shotOrder,
+            shotType: selectedShotType,
+            strategyMode: selectedStrategyMode,
+            lie: selectedLie,
+            distanceToPinM: effectiveDistanceToPinMetres,
+            offlineOptionId: selectedOfflineOption?.optionId,
+            decision: caddieDecision
+        )
+        #if DEBUG
+        UITestEventLatencyTrace.record("actual-club.build.end hole=\(hole.number)")
+        UITestEventLatencyTrace.record("actual-club.encode.begin hole=\(hole.number)")
+        let encodedByteCount = (try? JSONEncoder().encode(event).count) ?? -1
+        UITestEventLatencyTrace.record("actual-club.encode.end hole=\(hole.number) bytes=\(encodedByteCount)")
+        UITestEventLatencyTrace.record("actual-club.handle.begin hole=\(hole.number)")
+        #endif
+        onEvent(event)
+        #if DEBUG
+        UITestEventLatencyTrace.record("actual-club.handle.end hole=\(hole.number)")
+        #endif
+        pendingPhoneShot = nil
     }
 
     private func distanceToPinPayload() -> JSONValue {
@@ -1147,34 +1993,6 @@ public struct CurrentHoleView: View {
             return .null
         }
         return .number(metres)
-    }
-
-    private func actualShotPayload() -> [String: JSONValue] {
-        var payload: [String: JSONValue] = [
-            "clubName": .string(selectedClub),
-            "shotOrder": .number(1),
-            "end": .object(["lie": .string(selectedLie)]),
-        ]
-        if let metres = distanceToPinMetres {
-            payload["remainingToTarget_m"] = .number(metres)
-        }
-        if let currentCoordinate {
-            payload["position"] = .object([
-                "latitude": .number(currentCoordinate.latitude),
-                "longitude": .number(currentCoordinate.longitude),
-            ])
-        }
-        if let targetCoordinate {
-            payload["targetPosition"] = .object([
-                "latitude": .number(targetCoordinate.latitude),
-                "longitude": .number(targetCoordinate.longitude),
-                "kind": .string("pin"),
-            ])
-        }
-        if let currentHorizontalAccuracyM {
-            payload["horizontalAccuracyM"] = .number(currentHorizontalAccuracyM)
-        }
-        return payload
     }
 
     private func emit(kind: LiveRoundEventKind, timestamp: String, payload: [String: JSONValue]) {
@@ -1192,14 +2010,36 @@ public struct CurrentHoleView: View {
 
     /// 到旗杆距离在 UI 里以「码」输入/显示;后端事件/球童请求用米,这里在边界换算回米。
     private var distanceToPinMetres: Double? {
-        guard let yards = Double(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+        guard let yards = Double(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              yards.isFinite,
+              yards > 0 else {
             return nil
         }
-        return CoursePrepRoute.metres(fromYards: yards)
+        let metres = CoursePrepRoute.metres(fromYards: yards)
+        return metres <= GeoDistance.maximumUsefulGreenMetres ? metres : nil
+    }
+
+    /// One distance source for club relevance, backend planning, and Watch state. A player's manual
+    /// target wins; otherwise use live GPS→green-middle, then the downloaded tee→middle fallback.
+    private var effectiveDistanceToPinMetres: Double? {
+        LiveCaddieDistance.resolve(
+            manualM: distanceToPinMetres,
+            liveMiddleM: liveGreenMetres?.middle,
+            staticMiddleM: liveGreenDistances?.middleM,
+            holeYards: hole.yards
+        )
     }
 
     /// 后端存的米 → 前端显示的整码(恢复已记距离时用)。
     private static func yardsText(fromMetres metres: Double) -> String {
         String(CoursePrepRoute.yards(fromMetres: metres))
+    }
+
+    private static func validDistanceText(_ metres: Double?) -> String {
+        guard let metres,
+              metres.isFinite,
+              metres > 0,
+              metres <= GeoDistance.maximumUsefulGreenMetres else { return "" }
+        return yardsText(fromMetres: metres)
     }
 }

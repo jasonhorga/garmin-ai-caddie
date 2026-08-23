@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { fetchCoursePrep, fetchPrepTips, prewarmCourseTopo } from '../api'
+import { fetchCourseInstallStatus, fetchCoursePrep, fetchMobileCoursePackage, fetchPrepTips, prewarmCourseTopo } from '../api'
 import type {
   CoursePrepResponse,
   CourseSearchMatch,
   CourseSearchResponse,
+  CourseInstallStatus,
   HistoryStatsResponse,
+  LiveRoundPackageResponse,
   MobileCourseOption,
   MobileCourseOptionsResponse,
   PrepTipsResponse,
@@ -19,7 +21,8 @@ interface PrepPageProps {
   courseOptions: MobileCourseOptionsResponse | null
   allStats: HistoryStatsResponse | null
   adminToken?: string
-  onSearchCourses: (name: string) => Promise<CourseSearchResponse>
+  onSearchCourses: (name: string, city?: string) => Promise<CourseSearchResponse>
+  onNearbyCourses?: (latitude: number, longitude: number, radiusKm: number) => Promise<CourseSearchResponse>
   onSelectCourse: (globalId: number, name?: string) => void
   onChangeCourse: () => void
 }
@@ -29,6 +32,60 @@ interface PrepPageProps {
 // paints the previous course's numbers and effects never set state synchronously.
 type PrepResult<T> = { data: T } | { error: string }
 type PrepDone<T> = { key: string; result: PrepResult<T> }
+
+type InstallDone = { key: string; data: CourseInstallStatus | null }
+
+const PRECISE_MAP_POLL_MS = 30_000
+
+function packageHoleNumbers(data: LiveRoundPackageResponse, globalId: number): number[] {
+  const holes = new Set<number>()
+  for (const row of Array.isArray(data.holes) ? data.holes : []) {
+    if (!row || typeof row !== 'object') continue
+    const sourceGlobalId = asNumber(row.sourceGlobalId)
+    if (sourceGlobalId !== null && sourceGlobalId !== globalId) continue
+    const number = asNumber(row.sourceLocalHole) ?? asNumber(row.number)
+    if (number !== null && Number.isInteger(number) && number > 0 && number <= 36) holes.add(number)
+  }
+  return [...holes].sort((a, b) => a - b)
+}
+
+async function fetchPreparedCourse(
+  globalId: number,
+  adminToken?: string,
+): Promise<{ data: CoursePrepResponse; install: CourseInstallStatus | null }> {
+  let packageError: unknown = null
+  let holes: number[] = []
+  try {
+    const coursePackage = await fetchMobileCoursePackage(
+      globalId,
+      {
+        roundId: `web-prep-${globalId}`,
+        backgroundGeometry: true,
+        includeEventCursor: false,
+      },
+      adminToken,
+    )
+    holes = packageHoleNumbers(coursePackage, globalId)
+  } catch (error: unknown) {
+    // Existing cached prep remains useful during a transient package failure. If it has no map
+    // authority at all, surface the acquisition failure below instead of painting fake readiness.
+    packageError = error
+  }
+
+  const data = await fetchCoursePrep(
+    globalId,
+    { ...(holes.length > 0 ? { holes } : {}), render: false, includeShots: true },
+    adminToken,
+  )
+  if (packageError && !data.holes.some((hole) => hole.geometryCoverage !== 'missing')) throw packageError
+  let install: CourseInstallStatus | null = null
+  try {
+    install = await fetchCourseInstallStatus(globalId, {}, adminToken)
+  } catch {
+    // Older servers and courses without a queued install simply omit progress.
+  }
+  return { data, install }
+}
 
 function findCourseOption(courseOptions: MobileCourseOptionsResponse | null, globalId: number): MobileCourseOption | null {
   if (!courseOptions || !Array.isArray(courseOptions.courses)) return null
@@ -162,10 +219,12 @@ export function PrepPage({
   allStats,
   adminToken,
   onSearchCourses,
+  onNearbyCourses,
   onSelectCourse,
   onChangeCourse,
 }: PrepPageProps) {
   const [prepDone, setPrepDone] = useState<PrepDone<CoursePrepResponse> | null>(null)
+  const [installDone, setInstallDone] = useState<InstallDone | null>(null)
   const [tipsDone, setTipsDone] = useState<PrepDone<PrepTipsResponse> | null>(null)
   const [prepAttempt, setPrepAttempt] = useState(0)
   const [tipsAttempt, setTipsAttempt] = useState(0)
@@ -173,15 +232,27 @@ export function PrepPage({
   // from an earlier course/attempt must never clobber the latest request.
   const prepSeq = useRef(0)
   const tipsSeq = useRef(0)
+  const prepKey = globalId === null ? null : `${globalId}:${prepAttempt}`
+  const prepCurrent = prepKey !== null && prepDone?.key === prepKey ? prepDone.result : null
+  const prepData = prepCurrent !== null && 'data' in prepCurrent ? prepCurrent.data : null
+  const prepError = prepCurrent !== null && 'error' in prepCurrent ? prepCurrent.error : null
+  const prepLoadedKey = prepData === null ? null : prepKey
+  const tipsKey = globalId === null ? null : `${globalId}:${tipsAttempt}`
+  const tipsCurrent = tipsKey !== null && tipsDone?.key === tipsKey ? tipsDone.result : null
+  const tipsData = tipsCurrent !== null && 'data' in tipsCurrent ? tipsCurrent.data : null
+  const tipsError = tipsCurrent !== null && 'error' in tipsCurrent ? tipsCurrent.error : null
 
   useEffect(() => {
     if (globalId === null) return
     const key = `${globalId}:${prepAttempt}`
     const seq = ++prepSeq.current
-    fetchCoursePrep(globalId, { includeShots: true }, adminToken)
+    fetchPreparedCourse(globalId, adminToken)
       .then((data) => {
         if (prepSeq.current !== seq) return
-        setPrepDone({ key, result: { data } })
+        // Keep compatibility with test/adaptor callers that return the prep payload directly.
+        const prepared = data && 'data' in data && data.data ? data : { data: data as unknown as CoursePrepResponse, install: null }
+        setPrepDone({ key, result: { data: prepared.data } })
+        setInstallDone({ key, data: prepared.install })
       })
       .catch((error: unknown) => {
         if (prepSeq.current !== seq) return
@@ -189,16 +260,46 @@ export function PrepPage({
       })
   }, [globalId, adminToken, prepAttempt])
 
+  const installCurrent = prepKey !== null && installDone?.key === prepKey ? installDone.data : null
+  const prepComplete = Boolean(
+    prepData &&
+      prepData.holes.length > 0 &&
+      prepData.holes.every((hole) => hole.geometryCoverage === 'ready'),
+  )
+
+  // Partial CourseView data is a download state, never a full Web workbench. Poll the durable
+  // install journal and refresh factual prep until every selected hole is precise.
+  useEffect(() => {
+    if (globalId === null || prepKey === null || prepComplete) return
+    const holes = prepData?.holes.map((hole) => hole.hole) ?? []
+    if (holes.length === 0) return
+    const timer = window.setTimeout(() => {
+      const seq = ++prepSeq.current
+      void fetchCoursePrep(globalId, { holes, render: false, includeShots: true }, adminToken)
+        .then((data) => {
+          if (prepSeq.current !== seq) return
+          setPrepDone({ key: prepKey, result: { data } })
+          void fetchCourseInstallStatus(globalId, {}, adminToken)
+            .then((status) => setInstallDone({ key: prepKey, data: status }))
+            .catch(() => {})
+        })
+        .catch(() => {
+          // The lightweight map remains the honest current state; the next mounted cycle retries.
+        })
+    }, PRECISE_MAP_POLL_MS)
+    return () => window.clearTimeout(timer)
+  }, [globalId, adminToken, prepData, prepKey, prepComplete])
+
   // On course select, kick a background render of ALL the course's hole topo bitmaps so browsing
   // holes hits a warm cache instead of paying ~6–10s on each hole's first view. Fire-and-forget:
   // failures are swallowed (holes still render lazily on first view as before).
   useEffect(() => {
-    if (globalId === null) return
+    if (globalId === null || prepLoadedKey === null || !prepComplete) return
     void prewarmCourseTopo(globalId).catch(() => {})
-  }, [globalId])
+  }, [globalId, prepLoadedKey, prepComplete])
 
   useEffect(() => {
-    if (globalId === null) return
+    if (globalId === null || prepLoadedKey === null) return
     const key = `${globalId}:${tipsAttempt}`
     const seq = ++tipsSeq.current
     fetchPrepTips(globalId, adminToken)
@@ -210,7 +311,7 @@ export function PrepPage({
         if (tipsSeq.current !== seq) return
         setTipsDone({ key, result: { error: error instanceof Error ? error.message : '未知错误' } })
       })
-  }, [globalId, adminToken, tipsAttempt])
+  }, [globalId, adminToken, tipsAttempt, prepLoadedKey])
 
   if (globalId === null) {
     return (
@@ -220,19 +321,13 @@ export function PrepPage({
             heading="选择球场开始备战"
             courseOptions={courseOptions}
             onSearchCourses={onSearchCourses}
+            onNearbyCourses={onNearbyCourses}
             onSelectCourse={onSelectCourse}
           />
         </section>
       </section>
     )
   }
-
-  const prepCurrent = prepDone !== null && prepDone.key === `${globalId}:${prepAttempt}` ? prepDone.result : null
-  const prepData = prepCurrent !== null && 'data' in prepCurrent ? prepCurrent.data : null
-  const prepError = prepCurrent !== null && 'error' in prepCurrent ? prepCurrent.error : null
-  const tipsCurrent = tipsDone !== null && tipsDone.key === `${globalId}:${tipsAttempt}` ? tipsDone.result : null
-  const tipsData = tipsCurrent !== null && 'data' in tipsCurrent ? tipsCurrent.data : null
-  const tipsError = tipsCurrent !== null && 'error' in tipsCurrent ? tipsCurrent.error : null
 
   const option = findCourseOption(courseOptions, globalId)
   // courseOptions (played, canonical) wins; the finder-handed search name covers
@@ -278,7 +373,7 @@ export function PrepPage({
             重试
           </button>
         </section>
-      ) : prepData ? (
+      ) : prepData && prepComplete ? (
         <PrepWorkbench
           prepData={prepData}
           holeRows={holeRows}
@@ -288,6 +383,11 @@ export function PrepPage({
           totals={totals}
           record={record}
         />
+      ) : prepData ? (
+        <section className="panel prep-loading" aria-label="球场包准备中">
+          <p>球场地图准备中，完成后进入备战…</p>
+          <p>{installCurrent ? `${installCurrent.topoReady}/${installCurrent.totalHoles} 洞地图已完成` : `${prepData.holes.filter((hole) => hole.geometryCoverage === 'ready').length}/${prepData.holes.length} 洞已完成`}</p>
+        </section>
       ) : (
         <section className="panel prep-loading" aria-label="球场攻略加载中">
           <p>球场攻略加载中…</p>

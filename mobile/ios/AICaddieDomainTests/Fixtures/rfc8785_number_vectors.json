@@ -1,0 +1,8194 @@
+[
+  {
+    "bitPatternHex": "0000000000000000",
+    "expected": "0"
+  },
+  {
+    "bitPatternHex": "0000000000000001",
+    "expected": "5e-324"
+  },
+  {
+    "bitPatternHex": "8000000000000001",
+    "expected": "-5e-324"
+  },
+  {
+    "bitPatternHex": "7fefffffffffffff",
+    "expected": "1.7976931348623157e+308"
+  },
+  {
+    "bitPatternHex": "ffefffffffffffff",
+    "expected": "-1.7976931348623157e+308"
+  },
+  {
+    "bitPatternHex": "4340000000000000",
+    "expected": "9007199254740992"
+  },
+  {
+    "bitPatternHex": "c340000000000000",
+    "expected": "-9007199254740992"
+  },
+  {
+    "bitPatternHex": "4430000000000000",
+    "expected": "295147905179352830000"
+  },
+  {
+    "bitPatternHex": "44b52d02c7e14af5",
+    "expected": "9.999999999999997e+22"
+  },
+  {
+    "bitPatternHex": "44b52d02c7e14af6",
+    "expected": "1e+23"
+  },
+  {
+    "bitPatternHex": "44b52d02c7e14af7",
+    "expected": "1.0000000000000001e+23"
+  },
+  {
+    "bitPatternHex": "444b1ae4d6e2ef4e",
+    "expected": "999999999999999700000"
+  },
+  {
+    "bitPatternHex": "444b1ae4d6e2ef4f",
+    "expected": "999999999999999900000"
+  },
+  {
+    "bitPatternHex": "444b1ae4d6e2ef50",
+    "expected": "1e+21"
+  },
+  {
+    "bitPatternHex": "3eb0c6f7a0b5ed8c",
+    "expected": "9.999999999999997e-7"
+  },
+  {
+    "bitPatternHex": "3eb0c6f7a0b5ed8d",
+    "expected": "0.000001"
+  },
+  {
+    "bitPatternHex": "41b3de4355555553",
+    "expected": "333333333.3333332"
+  },
+  {
+    "bitPatternHex": "41b3de4355555554",
+    "expected": "333333333.33333325"
+  },
+  {
+    "bitPatternHex": "41b3de4355555555",
+    "expected": "333333333.3333333"
+  },
+  {
+    "bitPatternHex": "41b3de4355555556",
+    "expected": "333333333.3333334"
+  },
+  {
+    "bitPatternHex": "41b3de4355555557",
+    "expected": "333333333.33333343"
+  },
+  {
+    "bitPatternHex": "becbf647612f3696",
+    "expected": "-0.0000033333333333333333"
+  },
+  {
+    "bitPatternHex": "43143ff3c1cb0959",
+    "expected": "1424953923781206.2"
+  },
+  {
+    "bitPatternHex": "26b5cf744b5f8073",
+    "expected": "3.299322491865393e-122"
+  },
+  {
+    "bitPatternHex": "cb900d437ed92286",
+    "expected": "-9.839731603838295e+55"
+  },
+  {
+    "bitPatternHex": "52566078dbb10cdd",
+    "expected": "4.4514098211923664e+88"
+  },
+  {
+    "bitPatternHex": "d6efba7183896728",
+    "expected": "-5.9612200726258444e+110"
+  },
+  {
+    "bitPatternHex": "79e72d552b037b57",
+    "expected": "1.6434054877727307e+279"
+  },
+  {
+    "bitPatternHex": "ac2f5fbdded7589a",
+    "expected": "-7.344143577626287e-96"
+  },
+  {
+    "bitPatternHex": "558a7e2241d87a61",
+    "expected": "1.186738168583953e+104"
+  },
+  {
+    "bitPatternHex": "5fd0348ff5a0235c",
+    "expected": "3.394966251396707e+153"
+  },
+  {
+    "bitPatternHex": "295d8b877aa45c7b",
+    "expected": "1.9656496366397033e-109"
+  },
+  {
+    "bitPatternHex": "f1e6e2e467c3c7ee",
+    "expected": "-4.768942603246657e+240"
+  },
+  {
+    "bitPatternHex": "ec302e435a86b825",
+    "expected": "-1.3618041778963794e+213"
+  },
+  {
+    "bitPatternHex": "b86b58d3dff93ad0",
+    "expected": "-6.429244794975842e-37"
+  },
+  {
+    "bitPatternHex": "607224eef57407df",
+    "expected": "3.892398457163124e+156"
+  },
+  {
+    "bitPatternHex": "fad0c256757f8482",
+    "expected": "-3.8939237964805375e+283"
+  },
+  {
+    "bitPatternHex": "512cfa6499384a29",
+    "expected": "1.099508761553111e+83"
+  },
+  {
+    "bitPatternHex": "67bc682d28f3e184",
+    "expected": "5.0626942465023505e+191"
+  },
+  {
+    "bitPatternHex": "32d7e3d998faa183",
+    "expected": "9.073979360614335e-64"
+  },
+  {
+    "bitPatternHex": "3d842d7d16d4e256",
+    "expected": "2.293937764022865e-12"
+  },
+  {
+    "bitPatternHex": "2bc3c706db29f46d",
+    "expected": "7.233719716474472e-98"
+  },
+  {
+    "bitPatternHex": "170ebd91ed7a8b78",
+    "expected": "1.2851206335561876e-197"
+  },
+  {
+    "bitPatternHex": "0688b0c84dfa8d67",
+    "expected": "3.482129184418325e-277"
+  },
+  {
+    "bitPatternHex": "0ee3b94dd98b756a",
+    "expected": "6.057940217791474e-237"
+  },
+  {
+    "bitPatternHex": "61d65dc332dcbaf1",
+    "expected": "2.0124774900266203e+163"
+  },
+  {
+    "bitPatternHex": "76297f5fc336ecac",
+    "expected": "1.5681398623073375e+261"
+  },
+  {
+    "bitPatternHex": "acd9d8a357946f8b",
+    "expected": "-1.239078317206997e-92"
+  },
+  {
+    "bitPatternHex": "103eba992fbc11be",
+    "expected": "1.9792941603917393e-230"
+  },
+  {
+    "bitPatternHex": "b5091b3b63d9e1b5",
+    "expected": "-3.2765348153585458e-53"
+  },
+  {
+    "bitPatternHex": "c109b91bb605f920",
+    "expected": "-210723.46387858037"
+  },
+  {
+    "bitPatternHex": "5059c6ba6cab2bef",
+    "expected": "1.1938758234039294e+79"
+  },
+  {
+    "bitPatternHex": "0ebd7bdb8264cb52",
+    "expected": "1.1319497782101427e-237"
+  },
+  {
+    "bitPatternHex": "6fb2dd3592b6ecb9",
+    "expected": "1.144017755597306e+230"
+  },
+  {
+    "bitPatternHex": "bc4194f634abe4d4",
+    "expected": "-1.9062314445648868e-18"
+  },
+  {
+    "bitPatternHex": "dec7c8269f87e693",
+    "expected": "-3.801135231596731e+148"
+  },
+  {
+    "bitPatternHex": "5e70a9d1453cf626",
+    "expected": "8.323005925138343e+146"
+  },
+  {
+    "bitPatternHex": "c1c708dded599ffd",
+    "expected": "-772914138.700195"
+  },
+  {
+    "bitPatternHex": "a955276360c823c8",
+    "expected": "-1.4073794833124502e-109"
+  },
+  {
+    "bitPatternHex": "5bab5e3e77be0377",
+    "expected": "3.8852000897913255e+133"
+  },
+  {
+    "bitPatternHex": "c3292c6b9fc9263a",
+    "expected": "-3542857585824541"
+  },
+  {
+    "bitPatternHex": "7484664d4f7bff81",
+    "expected": "1.8695125630233267e+253"
+  },
+  {
+    "bitPatternHex": "14c7c237760969fc",
+    "expected": "1.445356345987626e-208"
+  },
+  {
+    "bitPatternHex": "3736730ae24f269b",
+    "expected": "1.0066652314581957e-42"
+  },
+  {
+    "bitPatternHex": "b3efd7747faf2f8e",
+    "expected": "-1.5852071705623436e-58"
+  },
+  {
+    "bitPatternHex": "f4d42d5c27704f45",
+    "expected": "-5.917209923181501e+254"
+  },
+  {
+    "bitPatternHex": "e94b2b4a3ca1ab70",
+    "expected": "-1.6247345944093399e+199"
+  },
+  {
+    "bitPatternHex": "1b2d174ddc0f33ff",
+    "expected": "8.973703093127684e-178"
+  },
+  {
+    "bitPatternHex": "2f11fc76284a2622",
+    "expected": "5.92543275220182e-82"
+  },
+  {
+    "bitPatternHex": "cd4c0cb51f251349",
+    "expected": "-2.307790415372511e+64"
+  },
+  {
+    "bitPatternHex": "115aabebbafa1c24",
+    "expected": "4.503516549139996e-225"
+  },
+  {
+    "bitPatternHex": "b022fbf1fa484fa3",
+    "expected": "-8.197520729267352e-77"
+  },
+  {
+    "bitPatternHex": "047d4f93937e5df6",
+    "expected": "4.8122977749526747e-287"
+  },
+  {
+    "bitPatternHex": "d2d0074b4d690f8d",
+    "expected": "-8.162654106355765e+90"
+  },
+  {
+    "bitPatternHex": "11eb7daf9aa73018",
+    "expected": "2.37663851488949e-222"
+  },
+  {
+    "bitPatternHex": "57b5aae4359edd87",
+    "expected": "3.334940353623966e+114"
+  },
+  {
+    "bitPatternHex": "2d42b82c37cd6b0a",
+    "expected": "1.148692569146854e-90"
+  },
+  {
+    "bitPatternHex": "5bb69a0bf36f4811",
+    "expected": "6.417118514986883e+133"
+  },
+  {
+    "bitPatternHex": "7f651583f49c9b4c",
+    "expected": "4.626787410730206e+305"
+  },
+  {
+    "bitPatternHex": "d77a53a79b3581ab",
+    "expected": "-2.532538573511258e+113"
+  },
+  {
+    "bitPatternHex": "2dc155a707aa215e",
+    "expected": "2.723106337011871e-88"
+  },
+  {
+    "bitPatternHex": "d870d41c0a9300d5",
+    "expected": "-1.0609259915375472e+118"
+  },
+  {
+    "bitPatternHex": "5491a2eb78a151c0",
+    "expected": "2.4109525452859435e+99"
+  },
+  {
+    "bitPatternHex": "c05568a4c811200f",
+    "expected": "-85.63505746528993"
+  },
+  {
+    "bitPatternHex": "df9015d5be0c94f2",
+    "expected": "-2.1061378419621976e+152"
+  },
+  {
+    "bitPatternHex": "bbc08b6e265bbdd9",
+    "expected": "-7.006931614964337e-21"
+  },
+  {
+    "bitPatternHex": "4d4565ca24038774",
+    "expected": "1.7604937052024983e+64"
+  },
+  {
+    "bitPatternHex": "c57d098d52bcdcb3",
+    "expected": "-5.6166331231947414e+26"
+  },
+  {
+    "bitPatternHex": "40bee64acc4619c6",
+    "expected": "7910.292179471295"
+  },
+  {
+    "bitPatternHex": "588a063d6ec1431d",
+    "expected": "3.281320257856407e+118"
+  },
+  {
+    "bitPatternHex": "dc2154befb8cb068",
+    "expected": "-6.298435198137581e+135"
+  },
+  {
+    "bitPatternHex": "35886f65872e1b97",
+    "expected": "8.16367346870105e-51"
+  },
+  {
+    "bitPatternHex": "7eab91f97d1543da",
+    "expected": "1.4770860342882434e+302"
+  },
+  {
+    "bitPatternHex": "2653bc3eb6af94a1",
+    "expected": "4.664726982659083e-124"
+  },
+  {
+    "bitPatternHex": "5f54b7c47cb5809c",
+    "expected": "1.69543972776556e+151"
+  },
+  {
+    "bitPatternHex": "634f062518e880bb",
+    "expected": "2.3416684740473614e+170"
+  },
+  {
+    "bitPatternHex": "52ae59c920f9e72e",
+    "expected": "1.9320474751782005e+90"
+  },
+  {
+    "bitPatternHex": "04e3e860f2caf665",
+    "expected": "4.183654789378979e-285"
+  },
+  {
+    "bitPatternHex": "d7599204ba19ec10",
+    "expected": "-6.149441244769762e+112"
+  },
+  {
+    "bitPatternHex": "5ed240a1af61f01f",
+    "expected": "5.834712347376755e+148"
+  },
+  {
+    "bitPatternHex": "7a1af6a957c917c2",
+    "expected": "1.5295109685778403e+280"
+  },
+  {
+    "bitPatternHex": "0f20ba029473ec69",
+    "expected": "8.219797594382347e-236"
+  },
+  {
+    "bitPatternHex": "7b8de9b5572d26c4",
+    "expected": "1.4233927267095747e+287"
+  },
+  {
+    "bitPatternHex": "0f3c4bdc70a68dc3",
+    "expected": "2.7810804231275456e-235"
+  },
+  {
+    "bitPatternHex": "b317f76ecb812996",
+    "expected": "-1.456485443323778e-62"
+  },
+  {
+    "bitPatternHex": "f4b002d18d0b3aad",
+    "expected": "-1.173856708735251e+254"
+  },
+  {
+    "bitPatternHex": "c9d590aad72da4b8",
+    "expected": "-4.924599832235074e+47"
+  },
+  {
+    "bitPatternHex": "1ee2c915ee3cbda7",
+    "expected": "6.680898276345126e-160"
+  },
+  {
+    "bitPatternHex": "bf69e98cf05db0aa",
+    "expected": "-0.0031631233895748805"
+  },
+  {
+    "bitPatternHex": "ed88415ffd75e531",
+    "expected": "-4.2810941321839317e+219"
+  },
+  {
+    "bitPatternHex": "42321b61f35919ec",
+    "expected": "77768815449.10126"
+  },
+  {
+    "bitPatternHex": "9db5787a184923cb",
+    "expected": "-1.456420683184285e-165"
+  },
+  {
+    "bitPatternHex": "4829dae29e2b80fe",
+    "expected": "4.399003771631026e+39"
+  },
+  {
+    "bitPatternHex": "98c8200fd5e12ff5",
+    "expected": "-2.7073500237743614e-189"
+  },
+  {
+    "bitPatternHex": "32a141c0ec607a60",
+    "expected": "8.193179425327965e-65"
+  },
+  {
+    "bitPatternHex": "bf6bfb081af2a42f",
+    "expected": "-0.003415599661441358"
+  },
+  {
+    "bitPatternHex": "eb44018496dcae92",
+    "expected": "-5.138374389283973e+208"
+  },
+  {
+    "bitPatternHex": "b20fb093e9c69ef9",
+    "expected": "-1.4692980186201496e-67"
+  },
+  {
+    "bitPatternHex": "2517340a0b1bfa14",
+    "expected": "5.230355760383205e-130"
+  },
+  {
+    "bitPatternHex": "ffa967d04a0662d3",
+    "expected": "-8.920182122979653e+306"
+  },
+  {
+    "bitPatternHex": "379585fa4e5c8d66",
+    "expected": "6.176898696825996e-41"
+  },
+  {
+    "bitPatternHex": "1b085e253c2ff63d",
+    "expected": "1.8791788300598982e-178"
+  },
+  {
+    "bitPatternHex": "012a32a3c47f0d08",
+    "expected": "4.77528598810369e-303"
+  },
+  {
+    "bitPatternHex": "d17fa0fc7edbc3b7",
+    "expected": "-3.8402742740690697e+84"
+  },
+  {
+    "bitPatternHex": "7903f1fe87a3b17a",
+    "expected": "8.631900294673241e+274"
+  },
+  {
+    "bitPatternHex": "acb64fef883b39c1",
+    "expected": "-2.6741434177351118e-93"
+  },
+  {
+    "bitPatternHex": "881b57ba34cc673c",
+    "expected": "-1.2939129321015503e-269"
+  },
+  {
+    "bitPatternHex": "4cb606958c786adb",
+    "expected": "3.539396650786901e+61"
+  },
+  {
+    "bitPatternHex": "a655dac69b0beece",
+    "expected": "-5.165644536339141e-124"
+  },
+  {
+    "bitPatternHex": "3428926049dead85",
+    "expected": "1.9572553371418012e-57"
+  },
+  {
+    "bitPatternHex": "005a5990e609fcb0",
+    "expected": "5.863040074197471e-307"
+  },
+  {
+    "bitPatternHex": "844021daadf43c3f",
+    "expected": "-3.31076926112658e-288"
+  },
+  {
+    "bitPatternHex": "d94c4f5879e45962",
+    "expected": "-1.462066977943775e+122"
+  },
+  {
+    "bitPatternHex": "9ed22d2fcaecd589",
+    "expected": "-3.2321598214063137e-160"
+  },
+  {
+    "bitPatternHex": "cff2aae315b50164",
+    "expected": "-1.350970009144451e+77"
+  },
+  {
+    "bitPatternHex": "0bda1a86131d5be3",
+    "expected": "1.4241776889056128e-251"
+  },
+  {
+    "bitPatternHex": "0ccb02d0c3454536",
+    "expected": "4.8289665688860066e-247"
+  },
+  {
+    "bitPatternHex": "76cf656bf85875cd",
+    "expected": "1.9772564802733673e+264"
+  },
+  {
+    "bitPatternHex": "a50dc72bedb5e958",
+    "expected": "-3.3561983272978912e-130"
+  },
+  {
+    "bitPatternHex": "249d89c3ef5c2dc7",
+    "expected": "2.6009089493763286e-132"
+  },
+  {
+    "bitPatternHex": "d7f54ce77e24464a",
+    "expected": "-5.245492377357261e+115"
+  },
+  {
+    "bitPatternHex": "a442eac103b89251",
+    "expected": "-5.205283382887927e-134"
+  },
+  {
+    "bitPatternHex": "cc38625f6494688c",
+    "expected": "-1.5306253148097296e+59"
+  },
+  {
+    "bitPatternHex": "dc25832faed755eb",
+    "expected": "-7.818039525097715e+135"
+  },
+  {
+    "bitPatternHex": "d673f9c34ca8309e",
+    "expected": "-2.9321020267862774e+108"
+  },
+  {
+    "bitPatternHex": "22a2f5f4150c6f15",
+    "expected": "7.774414511515283e-142"
+  },
+  {
+    "bitPatternHex": "8ab349bfb8eb7300",
+    "expected": "-4.014327019800429e-257"
+  },
+  {
+    "bitPatternHex": "8c9b4d1d35d7b84f",
+    "expected": "-6.101066335079826e-248"
+  },
+  {
+    "bitPatternHex": "f0259a802cbd1832",
+    "expected": "-1.67699265025535e+232"
+  },
+  {
+    "bitPatternHex": "dc48504090bf9019",
+    "expected": "-3.5343965117607397e+136"
+  },
+  {
+    "bitPatternHex": "c405e552bc1d3cb4",
+    "expected": "-50488262795554360000"
+  },
+  {
+    "bitPatternHex": "82c63d0a4e6c78f3",
+    "expected": "-2.720310964500364e-295"
+  },
+  {
+    "bitPatternHex": "f8aa0af819e85106",
+    "expected": "-1.761061669360561e+273"
+  },
+  {
+    "bitPatternHex": "dd688048b5edb95d",
+    "expected": "-9.33670690792453e+141"
+  },
+  {
+    "bitPatternHex": "453fca45604739a8",
+    "expected": "3.8431898200511403e+25"
+  },
+  {
+    "bitPatternHex": "062be58ea84efbd7",
+    "expected": "6.1473364796057104e-279"
+  },
+  {
+    "bitPatternHex": "5b903499245c6f1a",
+    "expected": "1.150269253293398e+133"
+  },
+  {
+    "bitPatternHex": "5fc29dce98e6eee1",
+    "expected": "1.9500434925349472e+153"
+  },
+  {
+    "bitPatternHex": "8d9fb58b3d761ddc",
+    "expected": "-4.6439570363428383e-243"
+  },
+  {
+    "bitPatternHex": "a9473ebf0f06e4fb",
+    "expected": "-7.732555804929296e-110"
+  },
+  {
+    "bitPatternHex": "5d3692a5d14d466e",
+    "expected": "1.0752371047811038e+141"
+  },
+  {
+    "bitPatternHex": "a88781b2bdf374a5",
+    "expected": "-1.9090710067298793e-113"
+  },
+  {
+    "bitPatternHex": "89c98e7b0219dd50",
+    "expected": "-1.6232157511807603e-261"
+  },
+  {
+    "bitPatternHex": "48269afaba4e185f",
+    "expected": "3.846107518270841e+39"
+  },
+  {
+    "bitPatternHex": "19f28f61d883eb02",
+    "expected": "1.092000043354304e-183"
+  },
+  {
+    "bitPatternHex": "4fd4a001d857cea9",
+    "expected": "3.731586094548752e+76"
+  },
+  {
+    "bitPatternHex": "78f4ea5002b9ac04",
+    "expected": "4.525846453936303e+274"
+  },
+  {
+    "bitPatternHex": "388c1ebfdcb4ba03",
+    "expected": "2.6444029140394393e-36"
+  },
+  {
+    "bitPatternHex": "531bbca69332b0d6",
+    "expected": "2.260043890281672e+92"
+  },
+  {
+    "bitPatternHex": "674e0e6b7198c0ed",
+    "expected": "4.1848818037372037e+189"
+  },
+  {
+    "bitPatternHex": "52e096945ce7fdf8",
+    "expected": "1.68953814545242e+91"
+  },
+  {
+    "bitPatternHex": "ce7284aed4852de7",
+    "expected": "-7.9880349354248e+69"
+  },
+  {
+    "bitPatternHex": "88130267b0092bea",
+    "expected": "-8.995642358327172e-270"
+  },
+  {
+    "bitPatternHex": "a0ac468f7cff4f71",
+    "expected": "-2.6993825310147156e-151"
+  },
+  {
+    "bitPatternHex": "bf4848c66176872c",
+    "expected": "-0.0007410973220667075"
+  },
+  {
+    "bitPatternHex": "cfd24d91a2e8180b",
+    "expected": "-3.311473457464287e+76"
+  },
+  {
+    "bitPatternHex": "8fcacc120088303e",
+    "expected": "-1.3484720918272397e-232"
+  },
+  {
+    "bitPatternHex": "8e1499691b5cbe35",
+    "expected": "-7.723161167811747e-241"
+  },
+  {
+    "bitPatternHex": "5f69004f39ea3ba0",
+    "expected": "4.0919361193659974e+151"
+  },
+  {
+    "bitPatternHex": "f091114f8d485c6f",
+    "expected": "-1.6958584973909846e+234"
+  },
+  {
+    "bitPatternHex": "3b4bbfa37395d1d2",
+    "expected": "4.5906187744223026e-23"
+  },
+  {
+    "bitPatternHex": "d59f0bf9130e9139",
+    "expected": "-2.7814735342333863e+104"
+  },
+  {
+    "bitPatternHex": "388e6c57fd2f4f54",
+    "expected": "2.8609856343412413e-36"
+  },
+  {
+    "bitPatternHex": "6daf976b0cf71f13",
+    "expected": "2.230369315658848e+220"
+  },
+  {
+    "bitPatternHex": "8f3ab024915164a6",
+    "expected": "-2.623012570314461e-235"
+  },
+  {
+    "bitPatternHex": "c6e83d72c0428c7d",
+    "expected": "-3.9331700969612396e+33"
+  },
+  {
+    "bitPatternHex": "bb58b475a78d3648",
+    "expected": "-8.174172431208293e-23"
+  },
+  {
+    "bitPatternHex": "f2b32e42710fc3f7",
+    "expected": "-3.2741681466455274e+244"
+  },
+  {
+    "bitPatternHex": "1767ee090c277cba",
+    "expected": "6.4025409385270455e-196"
+  },
+  {
+    "bitPatternHex": "27ecd0d2817ab401",
+    "expected": "2.2853937880443004e-116"
+  },
+  {
+    "bitPatternHex": "9fa800c3a9daa47c",
+    "expected": "-3.4965321304899395e-156"
+  },
+  {
+    "bitPatternHex": "f0ae8e09d69bef1b",
+    "expected": "-6.07192809134145e+234"
+  },
+  {
+    "bitPatternHex": "db754c2e3b25ee0e",
+    "expected": "-3.7792739722120325e+132"
+  },
+  {
+    "bitPatternHex": "97e4af2ce4514bc5",
+    "expected": "-1.4167498603717422e-193"
+  },
+  {
+    "bitPatternHex": "d2dfa71803f18df0",
+    "expected": "-1.6119427354431639e+91"
+  },
+  {
+    "bitPatternHex": "d10f79975af7847f",
+    "expected": "-2.985617033439142e+82"
+  },
+  {
+    "bitPatternHex": "b123b4f3918fcca2",
+    "expected": "-5.576838526306861e-72"
+  },
+  {
+    "bitPatternHex": "a39ee972167cd7c9",
+    "expected": "-4.1532458983217265e-137"
+  },
+  {
+    "bitPatternHex": "bb0ec6c31e6326a4",
+    "expected": "-3.182206703230822e-24"
+  },
+  {
+    "bitPatternHex": "58f571e0ac74a823",
+    "expected": "3.460995079238905e+120"
+  },
+  {
+    "bitPatternHex": "3175e18267b16c76",
+    "expected": "1.9814637279575277e-70"
+  },
+  {
+    "bitPatternHex": "6f3360115f141c0d",
+    "expected": "4.589912347247509e+227"
+  },
+  {
+    "bitPatternHex": "686e9e08d76be298",
+    "expected": "1.1175177229454444e+195"
+  },
+  {
+    "bitPatternHex": "8efec3b35d3fbe07",
+    "expected": "-1.8897861055085393e-236"
+  },
+  {
+    "bitPatternHex": "6e822307a8f4618a",
+    "expected": "2.097917009574849e+224"
+  },
+  {
+    "bitPatternHex": "a67b011ca4121c91",
+    "expected": "-2.553144566269777e-123"
+  },
+  {
+    "bitPatternHex": "7fdcfb6f772775cc",
+    "expected": "8.140788638014664e+307"
+  },
+  {
+    "bitPatternHex": "919c2fff9c836a2b",
+    "expected": "-7.6151717467673275e-224"
+  },
+  {
+    "bitPatternHex": "1e6c7ba33b337fde",
+    "expected": "3.9569217096120677e-162"
+  },
+  {
+    "bitPatternHex": "ed2d0284401a1d55",
+    "expected": "-8.000406857218373e+217"
+  },
+  {
+    "bitPatternHex": "7ba0c4647f04d440",
+    "expected": "3.19143015961718e+287"
+  },
+  {
+    "bitPatternHex": "cb4f883f39cc908f",
+    "expected": "-6.040372312021086e+54"
+  },
+  {
+    "bitPatternHex": "5f89e066334edb72",
+    "expected": "1.6940817336724194e+152"
+  },
+  {
+    "bitPatternHex": "056321ffac7ba259",
+    "expected": "1.0293256203297042e-282"
+  },
+  {
+    "bitPatternHex": "03f5c1ce887a31f4",
+    "expected": "1.395353812469388e-289"
+  },
+  {
+    "bitPatternHex": "f263105916ae5533",
+    "expected": "-1.016944716157568e+243"
+  },
+  {
+    "bitPatternHex": "6e1e18222affc846",
+    "expected": "2.7195725568899737e+222"
+  },
+  {
+    "bitPatternHex": "55ee8f77c3766f9d",
+    "expected": "8.76128546474631e+105"
+  },
+  {
+    "bitPatternHex": "1dbd4d2ea6f902e8",
+    "expected": "1.987614446282126e-165"
+  },
+  {
+    "bitPatternHex": "5941f01b6aa61c17",
+    "expected": "9.26403749142281e+121"
+  },
+  {
+    "bitPatternHex": "3b9889494becda5a",
+    "expected": "1.2989395653694882e-21"
+  },
+  {
+    "bitPatternHex": "035ea58b9ebe8921",
+    "expected": "1.9194084276913294e-292"
+  },
+  {
+    "bitPatternHex": "aacf5d330121fb1c",
+    "expected": "-1.7504260041962385e-102"
+  },
+  {
+    "bitPatternHex": "06e6be457d3f893b",
+    "expected": "2.0527991528423893e-275"
+  },
+  {
+    "bitPatternHex": "693c84efe3fde5ae",
+    "expected": "8.527383512797253e+198"
+  },
+  {
+    "bitPatternHex": "bf842651564032e5",
+    "expected": "-0.009838710255303204"
+  },
+  {
+    "bitPatternHex": "ec750a4f95390e90",
+    "expected": "-2.833272718792419e+214"
+  },
+  {
+    "bitPatternHex": "0dcd605bba78809f",
+    "expected": "3.441851014086976e-242"
+  },
+  {
+    "bitPatternHex": "b0c1636596effe42",
+    "expected": "-7.68860267345193e-74"
+  },
+  {
+    "bitPatternHex": "82ac0d002323f0e9",
+    "expected": "-8.578261177455932e-296"
+  },
+  {
+    "bitPatternHex": "c2e262595cd97144",
+    "expected": "-161708922817418.12"
+  },
+  {
+    "bitPatternHex": "32e06b6745652643",
+    "expected": "1.2473031803900597e-63"
+  },
+  {
+    "bitPatternHex": "44e8991581297816",
+    "expected": "9.292855759799326e+23"
+  },
+  {
+    "bitPatternHex": "da6ba001ab12872d",
+    "expected": "-3.739993695301425e+127"
+  },
+  {
+    "bitPatternHex": "7569287b43e99738",
+    "expected": "3.7775018191002106e+257"
+  },
+  {
+    "bitPatternHex": "b767948c6d13de27",
+    "expected": "-8.459006198072535e-42"
+  },
+  {
+    "bitPatternHex": "a89bdda9dfcde72a",
+    "expected": "-4.526205807691531e-113"
+  },
+  {
+    "bitPatternHex": "a882c63c77b8f9b1",
+    "expected": "-1.5247434920779137e-113"
+  },
+  {
+    "bitPatternHex": "1a98846ba6cf346c",
+    "expected": "1.4771162576729381e-180"
+  },
+  {
+    "bitPatternHex": "f942eb51a7b14c4b",
+    "expected": "-1.3100538479482553e+276"
+  },
+  {
+    "bitPatternHex": "ae727d1112121f7e",
+    "expected": "-5.948177080158142e-85"
+  },
+  {
+    "bitPatternHex": "208f7681de8c8c75",
+    "expected": "7.509157485105219e-152"
+  },
+  {
+    "bitPatternHex": "3e4933cc4be33ce0",
+    "expected": "1.1735752255760613e-8"
+  },
+  {
+    "bitPatternHex": "53dcc4c2f7ec54af",
+    "expected": "9.601461969391977e+95"
+  },
+  {
+    "bitPatternHex": "8725ef3707d03512",
+    "expected": "-3.1676732720088914e-274"
+  },
+  {
+    "bitPatternHex": "0596ad25dccec379",
+    "expected": "9.759720732513774e-282"
+  },
+  {
+    "bitPatternHex": "27ef4a560c25e494",
+    "expected": "2.4816610323703037e-116"
+  },
+  {
+    "bitPatternHex": "1200cc93e09a1b53",
+    "expected": "5.809249538533847e-222"
+  },
+  {
+    "bitPatternHex": "26cb314f715b7be6",
+    "expected": "8.227024559122987e-122"
+  },
+  {
+    "bitPatternHex": "5f09b227abd162bd",
+    "expected": "6.57131063272045e+149"
+  },
+  {
+    "bitPatternHex": "0bec241c9f329f88",
+    "expected": "3.0706768028647706e-251"
+  },
+  {
+    "bitPatternHex": "4c59623c4a9a0437",
+    "expected": "6.3734508465122125e+59"
+  },
+  {
+    "bitPatternHex": "1132f7aa449487fa",
+    "expected": "8.006671703576114e-226"
+  },
+  {
+    "bitPatternHex": "ab1eae36117a6e41",
+    "expected": "-5.479287338174423e-101"
+  },
+  {
+    "bitPatternHex": "d1abc8163e7421bc",
+    "expected": "-2.6985214767415023e+85"
+  },
+  {
+    "bitPatternHex": "2e04a20b00f9b35b",
+    "expected": "5.186008538875204e-87"
+  },
+  {
+    "bitPatternHex": "3e8d627d6b3d2d4e",
+    "expected": "2.189332711739367e-7"
+  },
+  {
+    "bitPatternHex": "142ee682b1082a05",
+    "expected": "1.8357671902904912e-211"
+  },
+  {
+    "bitPatternHex": "c54f736613985f30",
+    "expected": "-7.604331106692435e+25"
+  },
+  {
+    "bitPatternHex": "f029878aa7590cbf",
+    "expected": "-1.9817473831765403e+232"
+  },
+  {
+    "bitPatternHex": "ee2e3813ae8c7fe2",
+    "expected": "-5.4616972752105144e+222"
+  },
+  {
+    "bitPatternHex": "1a554b03e0151a09",
+    "expected": "8.017889200430987e-182"
+  },
+  {
+    "bitPatternHex": "aa616eefa6448be4",
+    "expected": "-1.5202402250756058e-104"
+  },
+  {
+    "bitPatternHex": "468ce59c4e8e3463",
+    "expected": "7.326238659341272e+31"
+  },
+  {
+    "bitPatternHex": "603ee4aa3402d3b6",
+    "expected": "4.142103881766338e+155"
+  },
+  {
+    "bitPatternHex": "33e3e8b4c3dc024d",
+    "expected": "9.911525003612687e-59"
+  },
+  {
+    "bitPatternHex": "b11d2bb4bd091bd8",
+    "expected": "-4.1275115403223647e-72"
+  },
+  {
+    "bitPatternHex": "bfa153950b898e47",
+    "expected": "-0.03384080663525118"
+  },
+  {
+    "bitPatternHex": "404559331f7dbcca",
+    "expected": "42.69687265052342"
+  },
+  {
+    "bitPatternHex": "6c85e5d7babbe6d1",
+    "expected": "5.897498881665359e+214"
+  },
+  {
+    "bitPatternHex": "31bc26ae6595c30c",
+    "expected": "4.0788370319239455e-69"
+  },
+  {
+    "bitPatternHex": "e2f91bba3479be6b",
+    "expected": "-5.922363658634058e+168"
+  },
+  {
+    "bitPatternHex": "4444df752e8c0f1e",
+    "expected": "770073417392016000000"
+  },
+  {
+    "bitPatternHex": "dd86d17755fc0b95",
+    "expected": "-3.4781624800673215e+142"
+  },
+  {
+    "bitPatternHex": "791b6d75182d7580",
+    "expected": "2.374014428871759e+275"
+  },
+  {
+    "bitPatternHex": "32f508ea282fa8cf",
+    "expected": "3.1958013817607653e-63"
+  },
+  {
+    "bitPatternHex": "5b80b8d56101deb2",
+    "expected": "5.934668671406503e+132"
+  },
+  {
+    "bitPatternHex": "6e3da59e67cff499",
+    "expected": "1.07165946760661e+223"
+  },
+  {
+    "bitPatternHex": "e72229632a5a6734",
+    "expected": "-6.321833658567085e+188"
+  },
+  {
+    "bitPatternHex": "528f2555c3c27173",
+    "expected": "4.956655970352779e+89"
+  },
+  {
+    "bitPatternHex": "f66fcec102cc7f86",
+    "expected": "-3.129951349995916e+262"
+  },
+  {
+    "bitPatternHex": "514e0d3fe99b65dd",
+    "expected": "4.5609853489152883e+83"
+  },
+  {
+    "bitPatternHex": "27322a2804e20c28",
+    "expected": "7.034436634795925e-120"
+  },
+  {
+    "bitPatternHex": "2d78f528ea737c57",
+    "expected": "1.2251946389698854e-89"
+  },
+  {
+    "bitPatternHex": "72a9656bab06859a",
+    "expected": "2.1675783125468853e+244"
+  },
+  {
+    "bitPatternHex": "c0c377cbbe766361",
+    "expected": "-9967.591749952817"
+  },
+  {
+    "bitPatternHex": "40298a41d0f9185c",
+    "expected": "12.77003338852608"
+  },
+  {
+    "bitPatternHex": "755efc1ec3d26d7b",
+    "expected": "2.3261924103794956e+257"
+  },
+  {
+    "bitPatternHex": "9d16fca6044bc4ee",
+    "expected": "-1.5227303313791827e-168"
+  },
+  {
+    "bitPatternHex": "869fb53595f13125",
+    "expected": "-8.943567267280069e-277"
+  },
+  {
+    "bitPatternHex": "dca3b2c690b77fd0",
+    "expected": "-1.832642308615874e+138"
+  },
+  {
+    "bitPatternHex": "59e8d680942128df",
+    "expected": "1.313539334913301e+125"
+  },
+  {
+    "bitPatternHex": "a484c437724d5182",
+    "expected": "-9.14270320594939e-133"
+  },
+  {
+    "bitPatternHex": "ca5131ff73185329",
+    "expected": "-1.0052386039444616e+50"
+  },
+  {
+    "bitPatternHex": "ae74e78cd6cc7684",
+    "expected": "-6.725442530095013e-85"
+  },
+  {
+    "bitPatternHex": "d4d96b3452f7d283",
+    "expected": "-5.559721687698668e+100"
+  },
+  {
+    "bitPatternHex": "b62a029de8a57f56",
+    "expected": "-8.898458042166468e-48"
+  },
+  {
+    "bitPatternHex": "d4592be99bb88d6d",
+    "expected": "-2.1506427546460243e+98"
+  },
+  {
+    "bitPatternHex": "0b67445f91727078",
+    "expected": "9.917349252955098e-254"
+  },
+  {
+    "bitPatternHex": "f52daf8a6428ce67",
+    "expected": "-2.785824163901324e+256"
+  },
+  {
+    "bitPatternHex": "4ee8dba486ebe26a",
+    "expected": "1.37250773889894e+72"
+  },
+  {
+    "bitPatternHex": "c589197df3e2e3f1",
+    "expected": "-9.709928982177921e+26"
+  },
+  {
+    "bitPatternHex": "22df86b79ca321ac",
+    "expected": "1.0341277785525102e-140"
+  },
+  {
+    "bitPatternHex": "d0b4b4a816e4c08b",
+    "expected": "-6.137741019657624e+80"
+  },
+  {
+    "bitPatternHex": "37bf3122ce094ebe",
+    "expected": "3.5806588009854738e-40"
+  },
+  {
+    "bitPatternHex": "f93c010509b09ab5",
+    "expected": "-9.695625958593071e+275"
+  },
+  {
+    "bitPatternHex": "f1a6f0b90f8b7e20",
+    "expected": "-2.9876251994173825e+239"
+  },
+  {
+    "bitPatternHex": "03f8bbfecf1e8cef",
+    "expected": "1.5862980914957157e-289"
+  },
+  {
+    "bitPatternHex": "831f20ab82cbd852",
+    "expected": "-1.2184567424232694e-293"
+  },
+  {
+    "bitPatternHex": "6a5022cf554735b9",
+    "expected": "1.2647722283795068e+204"
+  },
+  {
+    "bitPatternHex": "c9a00129793fb9d4",
+    "expected": "-4.56848829704879e+46"
+  },
+  {
+    "bitPatternHex": "9c417a75fd2f5793",
+    "expected": "-1.4133614602342996e-172"
+  },
+  {
+    "bitPatternHex": "336c763b91bad326",
+    "expected": "5.534953291371948e-61"
+  },
+  {
+    "bitPatternHex": "faca6f5d711c78fd",
+    "expected": "-3.0710407078652333e+283"
+  },
+  {
+    "bitPatternHex": "6b311bff80af48c8",
+    "expected": "2.1972069768939565e+208"
+  },
+  {
+    "bitPatternHex": "e5eb830847ba8477",
+    "expected": "-9.132866364249741e+182"
+  },
+  {
+    "bitPatternHex": "413b7356882ad33a",
+    "expected": "1798998.5319034592"
+  },
+  {
+    "bitPatternHex": "61af10164e7a6881",
+    "expected": "3.4937260260721102e+162"
+  },
+  {
+    "bitPatternHex": "f4feb74b9bd8defc",
+    "expected": "-3.603138558708423e+255"
+  },
+  {
+    "bitPatternHex": "ea63afd28bd1b79b",
+    "expected": "-3.086187758655939e+204"
+  },
+  {
+    "bitPatternHex": "69ba7caf7691ac8e",
+    "expected": "2.02745279268966e+201"
+  },
+  {
+    "bitPatternHex": "effc6122aa434845",
+    "expected": "-2.7537241620660988e+231"
+  },
+  {
+    "bitPatternHex": "efd64bccd23e7070",
+    "expected": "-5.408607724729969e+230"
+  },
+  {
+    "bitPatternHex": "0480d6359758d4ff",
+    "expected": "5.528566518713375e-287"
+  },
+  {
+    "bitPatternHex": "b15eabc2501a7322",
+    "expected": "-6.943653322582297e-71"
+  },
+  {
+    "bitPatternHex": "48e430f145f59c49",
+    "expected": "1.40711998355556e+43"
+  },
+  {
+    "bitPatternHex": "25d776cbbe993124",
+    "expected": "2.1664303864927435e-126"
+  },
+  {
+    "bitPatternHex": "b027cdf1c1aa00a3",
+    "expected": "-1.0278970833946595e-76"
+  },
+  {
+    "bitPatternHex": "bc7446db1b797af6",
+    "expected": "-1.75873038462657e-17"
+  },
+  {
+    "bitPatternHex": "42aec617a8f0288d",
+    "expected": "16918074652692.275"
+  },
+  {
+    "bitPatternHex": "b86b2f1143cd9518",
+    "expected": "-6.390894112266962e-37"
+  },
+  {
+    "bitPatternHex": "7a39e64dc6799e87",
+    "expected": "5.876644774333841e+280"
+  },
+  {
+    "bitPatternHex": "cad4b6358900580a",
+    "expected": "-3.0996749251485405e+52"
+  },
+  {
+    "bitPatternHex": "e7c5eaf76df5f111",
+    "expected": "-7.812408924055473e+191"
+  },
+  {
+    "bitPatternHex": "1469203da91f504c",
+    "expected": "2.3883357138370215e-210"
+  },
+  {
+    "bitPatternHex": "fead05a886fa52ab",
+    "expected": "-1.5548716459350359e+302"
+  },
+  {
+    "bitPatternHex": "424d7960c1f1de5e",
+    "expected": "253180871651.73724"
+  },
+  {
+    "bitPatternHex": "d4f3300860f239d5",
+    "expected": "-1.6787261167623317e+101"
+  },
+  {
+    "bitPatternHex": "075999a811a556c0",
+    "expected": "2.95765597247697e-273"
+  },
+  {
+    "bitPatternHex": "498e79879541010f",
+    "expected": "2.174749053010202e+46"
+  },
+  {
+    "bitPatternHex": "5bc2c228851621f2",
+    "expected": "1.065183898509919e+134"
+  },
+  {
+    "bitPatternHex": "477c5e23f0fc86d9",
+    "expected": "2.3566992977455183e+36"
+  },
+  {
+    "bitPatternHex": "1d9f9f8582fddc74",
+    "expected": "5.3627465106562984e-166"
+  },
+  {
+    "bitPatternHex": "9242ad8aade8cdb3",
+    "expected": "-1.0334302522159005e-220"
+  },
+  {
+    "bitPatternHex": "1ecbe32de48e76c6",
+    "expected": "2.4794801849603687e-160"
+  },
+  {
+    "bitPatternHex": "180619eeba9c9c1d",
+    "expected": "6.055229212014076e-193"
+  },
+  {
+    "bitPatternHex": "bacea9a1ef425568",
+    "expected": "-1.9815258382752774e-25"
+  },
+  {
+    "bitPatternHex": "4cc0b8e683f71c97",
+    "expected": "5.374329530161615e+61"
+  },
+  {
+    "bitPatternHex": "e86f755738e970da",
+    "expected": "-1.1482152741466426e+195"
+  },
+  {
+    "bitPatternHex": "910f6cc12e4e7da1",
+    "expected": "-1.6581587608370646e-226"
+  },
+  {
+    "bitPatternHex": "ec5939b4f63b759c",
+    "expected": "-8.492103953192167e+213"
+  },
+  {
+    "bitPatternHex": "fdaaba6782ff91bb",
+    "expected": "-2.185015424183644e+297"
+  },
+  {
+    "bitPatternHex": "98a291901d76e42e",
+    "expected": "-5.209451857007149e-190"
+  },
+  {
+    "bitPatternHex": "925ff67897466f65",
+    "expected": "-3.536940021227022e-220"
+  },
+  {
+    "bitPatternHex": "5bc56f8f51d53110",
+    "expected": "1.2172152695799926e+134"
+  },
+  {
+    "bitPatternHex": "3e14fcbf6b88111f",
+    "expected": "1.2216213996340793e-9"
+  },
+  {
+    "bitPatternHex": "007a693789dbe4c2",
+    "expected": "2.3506573564307937e-306"
+  },
+  {
+    "bitPatternHex": "810f2aa60674f569",
+    "expected": "-1.4202465826979026e-303"
+  },
+  {
+    "bitPatternHex": "c1150a4521d2bbc4",
+    "expected": "-344721.28303044685"
+  },
+  {
+    "bitPatternHex": "8b1da646edacbec3",
+    "expected": "-3.949311131477832e-255"
+  },
+  {
+    "bitPatternHex": "e472e8535ce6c696",
+    "expected": "-7.48224801806298e+175"
+  },
+  {
+    "bitPatternHex": "e4e122e0e5cad3ad",
+    "expected": "-8.68006737751842e+177"
+  },
+  {
+    "bitPatternHex": "39293e548ac289b8",
+    "expected": "2.4308584617540417e-33"
+  },
+  {
+    "bitPatternHex": "99457aa6a603fea7",
+    "expected": "-6.170621237508101e-187"
+  },
+  {
+    "bitPatternHex": "519e766deca31daa",
+    "expected": "1.4794693543113178e+85"
+  },
+  {
+    "bitPatternHex": "7d983bd737bd0e31",
+    "expected": "9.905500265215971e+296"
+  },
+  {
+    "bitPatternHex": "b98a88d75c324eec",
+    "expected": "-1.635317046489619e-31"
+  },
+  {
+    "bitPatternHex": "40b6c84920c274cb",
+    "expected": "5832.285656121744"
+  },
+  {
+    "bitPatternHex": "3f87c7236fadbdfe",
+    "expected": "0.011610295148527957"
+  },
+  {
+    "bitPatternHex": "af74234dc708e8f5",
+    "expected": "-4.245955727328198e-80"
+  },
+  {
+    "bitPatternHex": "946e3a51b222ff60",
+    "expected": "-2.8732916454488827e-210"
+  },
+  {
+    "bitPatternHex": "85b1b949c71f052f",
+    "expected": "-3.051268730523493e-281"
+  },
+  {
+    "bitPatternHex": "db80771a53c8bb92",
+    "expected": "-5.843543952344118e+132"
+  },
+  {
+    "bitPatternHex": "1e24f6decab7e7f9",
+    "expected": "1.820260295693926e-163"
+  },
+  {
+    "bitPatternHex": "740e17e6c5bccf14",
+    "expected": "1.0773012380838119e+251"
+  },
+  {
+    "bitPatternHex": "0143c60adaf6d3d3",
+    "expected": "1.4417175325398777e-302"
+  },
+  {
+    "bitPatternHex": "b68cbeaad5af6a66",
+    "expected": "-6.293755627017781e-46"
+  },
+  {
+    "bitPatternHex": "29bd1e25c263cf3d",
+    "expected": "1.239822683025168e-107"
+  },
+  {
+    "bitPatternHex": "d546dae861433208",
+    "expected": "-6.398701091032797e+102"
+  },
+  {
+    "bitPatternHex": "d73b38f6e4b144b7",
+    "expected": "-1.6366909714809774e+112"
+  },
+  {
+    "bitPatternHex": "8cd736176e2a5e7a",
+    "expected": "-8.299328133028087e-247"
+  },
+  {
+    "bitPatternHex": "9e20336b8ebaa2c1",
+    "expected": "-1.4066641874230398e-163"
+  },
+  {
+    "bitPatternHex": "8629ec14ab48dc3c",
+    "expected": "-5.712230504559496e-279"
+  },
+  {
+    "bitPatternHex": "dd1775703763fbdb",
+    "expected": "-2.793590493219793e+140"
+  },
+  {
+    "bitPatternHex": "4014b928e8636bce",
+    "expected": "5.180820113247092"
+  },
+  {
+    "bitPatternHex": "11ba640e0a42a685",
+    "expected": "2.8519140128293834e-223"
+  },
+  {
+    "bitPatternHex": "cd26d4a93d23c1b0",
+    "expected": "-4.696004129991634e+63"
+  },
+  {
+    "bitPatternHex": "0894d1d36f36dd3f",
+    "expected": "2.5221848806045364e-267"
+  },
+  {
+    "bitPatternHex": "cfce36863579a662",
+    "expected": "-2.7331442949389802e+76"
+  },
+  {
+    "bitPatternHex": "2a488a0aa65e5e89",
+    "expected": "5.349736170135092e-105"
+  },
+  {
+    "bitPatternHex": "32e212f9b8a11664",
+    "expected": "1.37299247082161e-63"
+  },
+  {
+    "bitPatternHex": "cea13bf80e080ce3",
+    "expected": "-5.947322398466881e+70"
+  },
+  {
+    "bitPatternHex": "2e2d437951556236",
+    "expected": "2.9421076443751754e-86"
+  },
+  {
+    "bitPatternHex": "40e8f283d0908ecd",
+    "expected": "51092.11920955554"
+  },
+  {
+    "bitPatternHex": "6e4c4db350f94e58",
+    "expected": "2.0461959223598166e+223"
+  },
+  {
+    "bitPatternHex": "abb9e3049a4feec7",
+    "expected": "-4.734123745315106e-98"
+  },
+  {
+    "bitPatternHex": "3f68dc3fccbc334a",
+    "expected": "0.003034710511093418"
+  },
+  {
+    "bitPatternHex": "69036e0d24003b51",
+    "expected": "7.26202042392861e+197"
+  },
+  {
+    "bitPatternHex": "5ac2ffa5fb041d8c",
+    "expected": "1.6461536150703765e+129"
+  },
+  {
+    "bitPatternHex": "5c6eb6f9e44526eb",
+    "expected": "1.7859736082220691e+137"
+  },
+  {
+    "bitPatternHex": "1112d4c6d0a4ed9e",
+    "expected": "1.9872857217202186e-226"
+  },
+  {
+    "bitPatternHex": "a8024742ab3ca815",
+    "expected": "-5.798677149041865e-116"
+  },
+  {
+    "bitPatternHex": "52ec510f38ac7800",
+    "expected": "2.8841005686713594e+91"
+  },
+  {
+    "bitPatternHex": "e726904b5540994f",
+    "expected": "-7.854103921338854e+188"
+  },
+  {
+    "bitPatternHex": "69034307aecba532",
+    "expected": "7.19921011472769e+197"
+  },
+  {
+    "bitPatternHex": "bb47f6ebb6415919",
+    "expected": "-3.964599612295363e-23"
+  },
+  {
+    "bitPatternHex": "7fc8ca39b3a491b4",
+    "expected": "3.481617989856898e+307"
+  },
+  {
+    "bitPatternHex": "644f3e706d6169f3",
+    "expected": "1.5455134147113422e+175"
+  },
+  {
+    "bitPatternHex": "ded40c635385ae06",
+    "expected": "-6.40880991096931e+148"
+  },
+  {
+    "bitPatternHex": "5c4f8aea08ba125d",
+    "expected": "4.5852815099771606e+136"
+  },
+  {
+    "bitPatternHex": "c25c31101b59dea8",
+    "expected": "-484328893799.479"
+  },
+  {
+    "bitPatternHex": "fb3bf5d5d370fcd7",
+    "expected": "-4.157742990677106e+285"
+  },
+  {
+    "bitPatternHex": "509ebf982cd59c1a",
+    "expected": "2.2786709128886294e+80"
+  },
+  {
+    "bitPatternHex": "806a62ba6486d7e1",
+    "expected": "-1.1742006959890453e-306"
+  },
+  {
+    "bitPatternHex": "11af3f40fa2912dc",
+    "expected": "1.6883510110454274e-223"
+  },
+  {
+    "bitPatternHex": "f218a2329b06f5fb",
+    "expected": "-4.1064274544608225e+241"
+  },
+  {
+    "bitPatternHex": "4762de7f5abf436e",
+    "expected": "7.837930275772082e+35"
+  },
+  {
+    "bitPatternHex": "618a1193b47feda5",
+    "expected": "7.330040894185244e+161"
+  },
+  {
+    "bitPatternHex": "5ec3ec0475d22250",
+    "expected": "3.1841943992444914e+148"
+  },
+  {
+    "bitPatternHex": "fa136c48a4ed395f",
+    "expected": "-1.1017724923276367e+280"
+  },
+  {
+    "bitPatternHex": "2ad69ae33cdbb802",
+    "expected": "2.52317032459838e-102"
+  },
+  {
+    "bitPatternHex": "b58c577e5b79d7a9",
+    "expected": "-9.468860939344317e-51"
+  },
+  {
+    "bitPatternHex": "973cf2bc2f2c4104",
+    "expected": "-9.681533851509767e-197"
+  },
+  {
+    "bitPatternHex": "76b357bd3dc3eb03",
+    "expected": "6.090795508348248e+263"
+  },
+  {
+    "bitPatternHex": "24f011bab12d4dd6",
+    "expected": "9.055608356569473e-131"
+  },
+  {
+    "bitPatternHex": "ed23704d6b8959ed",
+    "expected": "-5.360850335251135e+217"
+  },
+  {
+    "bitPatternHex": "6dcab1c0b519e2f8",
+    "expected": "7.538520778967443e+220"
+  },
+  {
+    "bitPatternHex": "2c1bb1415ee56ee7",
+    "expected": "3.241171793395909e-96"
+  },
+  {
+    "bitPatternHex": "002b1521983398ea",
+    "expected": "7.532582546139817e-308"
+  },
+  {
+    "bitPatternHex": "81abad77c9877871",
+    "expected": "-1.2915252790481008e-300"
+  },
+  {
+    "bitPatternHex": "102ac9ff3ebcbc2c",
+    "expected": "8.627613138131924e-231"
+  },
+  {
+    "bitPatternHex": "12632cef358a690b",
+    "expected": "4.243854076643289e-220"
+  },
+  {
+    "bitPatternHex": "07cc40c8723f6d3e",
+    "expected": "4.178105338023783e-271"
+  },
+  {
+    "bitPatternHex": "6788eea780d57735",
+    "expected": "5.554291013785124e+190"
+  },
+  {
+    "bitPatternHex": "e2235bcda0e9c0a0",
+    "expected": "-5.573932886032997e+164"
+  },
+  {
+    "bitPatternHex": "e08b0ad4d42dbd6f",
+    "expected": "-1.1602499155123013e+157"
+  },
+  {
+    "bitPatternHex": "006a238a2a06ded2",
+    "expected": "1.1632164115656946e-306"
+  },
+  {
+    "bitPatternHex": "223b18b1cb60da39",
+    "expected": "8.679899258770981e-144"
+  },
+  {
+    "bitPatternHex": "4592d6d1b2dd2454",
+    "expected": "1.457607644058015e+27"
+  },
+  {
+    "bitPatternHex": "06a17a5a32309013",
+    "expected": "9.859711497493018e-277"
+  },
+  {
+    "bitPatternHex": "915ecca0607941a6",
+    "expected": "-5.200491734969792e-225"
+  },
+  {
+    "bitPatternHex": "bc97ebca91e7657d",
+    "expected": "-8.299284773978614e-17"
+  },
+  {
+    "bitPatternHex": "3fe00544962e5b48",
+    "expected": "0.5006430562233186"
+  },
+  {
+    "bitPatternHex": "157346caddbe44f7",
+    "expected": "2.401662028946179e-205"
+  },
+  {
+    "bitPatternHex": "85a3a8cbcdd329ba",
+    "expected": "-1.69224575749444e-281"
+  },
+  {
+    "bitPatternHex": "17fe5c6a687b1d01",
+    "expected": "4.159095044152522e-193"
+  },
+  {
+    "bitPatternHex": "1721ed799604197c",
+    "expected": "2.9978913343477936e-197"
+  },
+  {
+    "bitPatternHex": "4157be0a03f0801b",
+    "expected": "6223912.06155398"
+  },
+  {
+    "bitPatternHex": "68a3ccf78bf26b0e",
+    "expected": "1.1563430417577564e+196"
+  },
+  {
+    "bitPatternHex": "dc33e6c64b4644c5",
+    "expected": "-1.446515414348749e+136"
+  },
+  {
+    "bitPatternHex": "679ef2a3918852f0",
+    "expected": "1.3788822058057247e+191"
+  },
+  {
+    "bitPatternHex": "2fb0c899b333257f",
+    "expected": "5.661951475112088e-79"
+  },
+  {
+    "bitPatternHex": "512f1da35dea19a2",
+    "expected": "1.1806180911385847e+83"
+  },
+  {
+    "bitPatternHex": "e7cfcf249f8f60c9",
+    "expected": "-1.1338075760087195e+192"
+  },
+  {
+    "bitPatternHex": "c70c169b259c3ba4",
+    "expected": "-1.8230352131908082e+34"
+  },
+  {
+    "bitPatternHex": "0c067de47be85923",
+    "expected": "9.816964234822677e-251"
+  },
+  {
+    "bitPatternHex": "fd4315fa48d68976",
+    "expected": "-2.4379077982741614e+295"
+  },
+  {
+    "bitPatternHex": "50143a0b3cfd350d",
+    "expected": "5.85523946553275e+77"
+  },
+  {
+    "bitPatternHex": "9f34a52309cc4798",
+    "expected": "-2.349516843228045e-158"
+  },
+  {
+    "bitPatternHex": "06bdb362d34c7f07",
+    "expected": "3.350974050516374e-276"
+  },
+  {
+    "bitPatternHex": "c557bc2811f14e8a",
+    "expected": "-1.1477535165031934e+26"
+  },
+  {
+    "bitPatternHex": "235fda76831ac591",
+    "expected": "2.6748374873638653e-138"
+  },
+  {
+    "bitPatternHex": "1a09dd1754842acc",
+    "expected": "3.043422517958724e-183"
+  },
+  {
+    "bitPatternHex": "a6ad4f03dc9a3b2b",
+    "expected": "-2.2168056911228293e-122"
+  },
+  {
+    "bitPatternHex": "c588db8175e53cde",
+    "expected": "-9.616257937839442e+26"
+  },
+  {
+    "bitPatternHex": "ace04241bf1b5655",
+    "expected": "-1.5589071477725034e-92"
+  },
+  {
+    "bitPatternHex": "fc4c48579a82d940",
+    "expected": "-5.512453773645349e+290"
+  },
+  {
+    "bitPatternHex": "ff7e9f737c6e718f",
+    "expected": "-1.3440062956695241e+306"
+  },
+  {
+    "bitPatternHex": "1f6f45a82d626872",
+    "expected": "2.8471430422947935e-157"
+  },
+  {
+    "bitPatternHex": "4869cde565de6b59",
+    "expected": "7.024593611428175e+40"
+  },
+  {
+    "bitPatternHex": "b2187f531d8e86f4",
+    "expected": "-2.271644144335456e-67"
+  },
+  {
+    "bitPatternHex": "ef86e5adda6c4633",
+    "expected": "-1.7357564689506468e+229"
+  },
+  {
+    "bitPatternHex": "bbc9533d12f22546",
+    "expected": "-1.0725618503884508e-20"
+  },
+  {
+    "bitPatternHex": "861d98efe633c89d",
+    "expected": "-3.2610521914193754e-279"
+  },
+  {
+    "bitPatternHex": "d60da4297e68a7e8",
+    "expected": "-3.3991092265770766e+106"
+  },
+  {
+    "bitPatternHex": "2f60350ab5211d17",
+    "expected": "1.708594539365259e-80"
+  },
+  {
+    "bitPatternHex": "b213682ffe0b075a",
+    "expected": "-1.7996124533213544e-67"
+  },
+  {
+    "bitPatternHex": "53e4d062175f7221",
+    "expected": "1.389325851038171e+96"
+  },
+  {
+    "bitPatternHex": "47a63a91a601f01c",
+    "expected": "1.4773561613465218e+37"
+  },
+  {
+    "bitPatternHex": "17681fc92c289a3b",
+    "expected": "6.454536971946786e-196"
+  },
+  {
+    "bitPatternHex": "9d18f88e2764e2ae",
+    "expected": "-1.654157903897125e-168"
+  },
+  {
+    "bitPatternHex": "90fe43a087ddabe5",
+    "expected": "-7.984578974321957e-227"
+  },
+  {
+    "bitPatternHex": "fe4b606bd9ee5390",
+    "expected": "-2.2917430845425892e+300"
+  },
+  {
+    "bitPatternHex": "b6ad7866e490a19f",
+    "expected": "-2.5810446367007576e-45"
+  },
+  {
+    "bitPatternHex": "b1c39e152a8ccb42",
+    "expected": "-5.684796132755311e-69"
+  },
+  {
+    "bitPatternHex": "5624f8373066f9e9",
+    "expected": "9.618746100284152e+106"
+  },
+  {
+    "bitPatternHex": "3d2b3e4b30190644",
+    "expected": "4.8393884057469985e-14"
+  },
+  {
+    "bitPatternHex": "867411f3ab7d5743",
+    "expected": "-1.4152529536227007e-277"
+  },
+  {
+    "bitPatternHex": "5577be09f8b91516",
+    "expected": "5.317678040737379e+103"
+  },
+  {
+    "bitPatternHex": "6f95387d4f34202d",
+    "expected": "3.2173302532767936e+229"
+  },
+  {
+    "bitPatternHex": "0dcab29dd5b87c38",
+    "expected": "3.128006791011973e-242"
+  },
+  {
+    "bitPatternHex": "d61e8d5cfb0d1f27",
+    "expected": "-7.007142846685999e+106"
+  },
+  {
+    "bitPatternHex": "a7821f2050dd542a",
+    "expected": "-2.2456803431685613e-118"
+  },
+  {
+    "bitPatternHex": "0590957b6f8222b1",
+    "expected": "7.13758220573673e-282"
+  },
+  {
+    "bitPatternHex": "e37c54aadd82696c",
+    "expected": "-1.7107059004744666e+171"
+  },
+  {
+    "bitPatternHex": "77aa3d9b057c9d4b",
+    "expected": "2.7075761991098753e+268"
+  },
+  {
+    "bitPatternHex": "bbeb89e090fe5c7e",
+    "expected": "-4.6652174007990255e-20"
+  },
+  {
+    "bitPatternHex": "614f618de1564575",
+    "expected": "5.5148724209377773e+160"
+  },
+  {
+    "bitPatternHex": "7f3b819f891fc1e0",
+    "expected": "7.545159852465307e+304"
+  },
+  {
+    "bitPatternHex": "7c983afb2a8ab5af",
+    "expected": "1.5112499700148168e+292"
+  },
+  {
+    "bitPatternHex": "b8c7202ef4c64212",
+    "expected": "-3.4795710844677034e-35"
+  },
+  {
+    "bitPatternHex": "1981875a25820c79",
+    "expected": "8.057176360063782e-186"
+  },
+  {
+    "bitPatternHex": "7292f49d41e0b994",
+    "expected": "8.089325524838462e+243"
+  },
+  {
+    "bitPatternHex": "8b803cb9fb1c8c53",
+    "expected": "-2.768376403739254e-253"
+  },
+  {
+    "bitPatternHex": "0e82d3a0955858e6",
+    "expected": "9.034974592773798e-239"
+  },
+  {
+    "bitPatternHex": "06d7580e11e73bbd",
+    "expected": "1.0535098442267826e-275"
+  },
+  {
+    "bitPatternHex": "f372a664b4b0c488",
+    "expected": "-1.3039912542294125e+248"
+  },
+  {
+    "bitPatternHex": "ab6681f92f218537",
+    "expected": "-1.2863013509763686e-99"
+  },
+  {
+    "bitPatternHex": "f9cf2b67be6534fa",
+    "expected": "-5.5253089055365334e+278"
+  },
+  {
+    "bitPatternHex": "754308c3b1fbd741",
+    "expected": "7.144992381896362e+256"
+  },
+  {
+    "bitPatternHex": "eae44119c54a96bc",
+    "expected": "-8.128384998420355e+206"
+  },
+  {
+    "bitPatternHex": "3c465e1c31b7445b",
+    "expected": "2.425101971384753e-18"
+  },
+  {
+    "bitPatternHex": "0d681b126c7eaa4e",
+    "expected": "4.4130024760860565e-244"
+  },
+  {
+    "bitPatternHex": "cdf3698d278e2305",
+    "expected": "-3.270967780621857e+67"
+  },
+  {
+    "bitPatternHex": "9a0433ef4cac2430",
+    "expected": "-2.3773094802865506e-183"
+  },
+  {
+    "bitPatternHex": "01812af8278dadbf",
+    "expected": "2.0027661143032924e-301"
+  },
+  {
+    "bitPatternHex": "b928d05b08abcce2",
+    "expected": "-2.389490599507465e-33"
+  },
+  {
+    "bitPatternHex": "f41abd580fc8a309",
+    "expected": "-1.9144838754159908e+251"
+  },
+  {
+    "bitPatternHex": "491a7090d6caa0e4",
+    "expected": "1.4740630933847207e+44"
+  },
+  {
+    "bitPatternHex": "baafe34a938ae563",
+    "expected": "-5.1517611003228254e-26"
+  },
+  {
+    "bitPatternHex": "83473924b53cf0b6",
+    "expected": "-7.272380541322476e-293"
+  },
+  {
+    "bitPatternHex": "4fc918c830761b4d",
+    "expected": "2.270321439984244e+76"
+  },
+  {
+    "bitPatternHex": "eab69c1bd38680d8",
+    "expected": "-1.1342107637170014e+206"
+  },
+  {
+    "bitPatternHex": "72594bd3fdaf4f47",
+    "expected": "6.747017994810578e+242"
+  },
+  {
+    "bitPatternHex": "b8e048a9bfdfa9ca",
+    "expected": "-9.800479811470525e-35"
+  },
+  {
+    "bitPatternHex": "9850eb9d71858fd1",
+    "expected": "-1.4834491066865286e-191"
+  },
+  {
+    "bitPatternHex": "7a2736a8eedf780c",
+    "expected": "2.6335822776157646e+280"
+  },
+  {
+    "bitPatternHex": "0fc4cf8240398f6b",
+    "expected": "1.0472191376887968e-232"
+  },
+  {
+    "bitPatternHex": "3e1b3d240cf2cc1e",
+    "expected": "1.5855086582126472e-9"
+  },
+  {
+    "bitPatternHex": "62b0347166ce4495",
+    "expected": "2.388926377707254e+167"
+  },
+  {
+    "bitPatternHex": "9e4e1a0984687a80",
+    "expected": "-1.0454505345598402e-162"
+  },
+  {
+    "bitPatternHex": "3f2365885f0a89cf",
+    "expected": "0.00014798440635839383"
+  },
+  {
+    "bitPatternHex": "d3e5f30c901a6bb2",
+    "expected": "-1.4651142548738446e+96"
+  },
+  {
+    "bitPatternHex": "5eb8bdd4ee13bd99",
+    "expected": "1.9772630107758987e+148"
+  },
+  {
+    "bitPatternHex": "53df11b461fbbc34",
+    "expected": "1.0369268772029458e+96"
+  },
+  {
+    "bitPatternHex": "ec2d7d580d496273",
+    "expected": "-1.2409554737167481e+213"
+  },
+  {
+    "bitPatternHex": "3783a1b82613dc86",
+    "expected": "2.8170131122731257e-41"
+  },
+  {
+    "bitPatternHex": "64f2ce56a549bedd",
+    "expected": "1.9051716224627684e+178"
+  },
+  {
+    "bitPatternHex": "cc5f06284daeb128",
+    "expected": "-7.7896453468878135e+59"
+  },
+  {
+    "bitPatternHex": "a783e66b45477d57",
+    "expected": "-2.4660757413036557e-118"
+  },
+  {
+    "bitPatternHex": "cc13b3d563c9b29a",
+    "expected": "-3.0918609720838394e+58"
+  },
+  {
+    "bitPatternHex": "f9ef16ff3d184c61",
+    "expected": "-2.204470923573381e+279"
+  },
+  {
+    "bitPatternHex": "30e9cc8a03060d5c",
+    "expected": "4.563033037672261e-73"
+  },
+  {
+    "bitPatternHex": "d5b87eea96a47e7b",
+    "expected": "-8.778282467788712e+104"
+  },
+  {
+    "bitPatternHex": "400f26602ea7c1ee",
+    "expected": "3.8937381405778444"
+  },
+  {
+    "bitPatternHex": "032fd598eb9faa25",
+    "expected": "2.4922432169079406e-293"
+  },
+  {
+    "bitPatternHex": "3d4a9b369b69c4d0",
+    "expected": "1.8904914602981316e-13"
+  },
+  {
+    "bitPatternHex": "510c8ebf0eb249df",
+    "expected": "2.7088850881447108e+82"
+  },
+  {
+    "bitPatternHex": "e6ea5f45322f1e82",
+    "expected": "-5.737369847217541e+187"
+  },
+  {
+    "bitPatternHex": "012605e3837c5c29",
+    "expected": "4.0143100221798264e-303"
+  },
+  {
+    "bitPatternHex": "02c11caa95d90b84",
+    "expected": "2.093218062499697e-295"
+  },
+  {
+    "bitPatternHex": "ebdaa2c4df190383",
+    "expected": "-3.502700368639236e+211"
+  },
+  {
+    "bitPatternHex": "6236836886ca1c56",
+    "expected": "1.2964538567353782e+165"
+  },
+  {
+    "bitPatternHex": "c264d6e6f30b266d",
+    "expected": "-716038445145.2008"
+  },
+  {
+    "bitPatternHex": "e5013eb8f1de5578",
+    "expected": "-3.4940642356190126e+178"
+  },
+  {
+    "bitPatternHex": "15516fde26bb0f67",
+    "expected": "5.431181687508452e-206"
+  },
+  {
+    "bitPatternHex": "aac84f501de04f6a",
+    "expected": "-1.3567291718613694e-102"
+  },
+  {
+    "bitPatternHex": "07bd242a2fed0cf1",
+    "expected": "2.1547276046046154e-271"
+  },
+  {
+    "bitPatternHex": "254003dd11c356ac",
+    "expected": "2.8880273829769684e-129"
+  },
+  {
+    "bitPatternHex": "1d8055d380d9118b",
+    "expected": "1.3850913556098262e-166"
+  },
+  {
+    "bitPatternHex": "8c5e7f93c72a8bbe",
+    "expected": "-4.2597089260176595e-249"
+  },
+  {
+    "bitPatternHex": "d8d96decd2cb53b5",
+    "expected": "-1.0260164351678612e+120"
+  },
+  {
+    "bitPatternHex": "e6fc92b558050320",
+    "expected": "-1.243238247672795e+188"
+  },
+  {
+    "bitPatternHex": "71dd00823e75edef",
+    "expected": "3.0216510989923612e+240"
+  },
+  {
+    "bitPatternHex": "839a2ba9e346e552",
+    "expected": "-2.6225105192121957e-291"
+  },
+  {
+    "bitPatternHex": "d01d3bdde75b7eb9",
+    "expected": "-8.462622789800013e+77"
+  },
+  {
+    "bitPatternHex": "731983abb4078ed4",
+    "expected": "2.7874095746340174e+246"
+  },
+  {
+    "bitPatternHex": "7ec0010e6dfac893",
+    "expected": "3.429711843693399e+302"
+  },
+  {
+    "bitPatternHex": "dd1ca7f1178cb026",
+    "expected": "-3.4125097948202924e+140"
+  },
+  {
+    "bitPatternHex": "8355436ab4a351fd",
+    "expected": "-1.3317289744400733e-292"
+  },
+  {
+    "bitPatternHex": "b51771bc920a6dc8",
+    "expected": "-6.119243542804327e-53"
+  },
+  {
+    "bitPatternHex": "d16d0ae9151b0577",
+    "expected": "-1.7631310183919848e+84"
+  },
+  {
+    "bitPatternHex": "a223b8349720803a",
+    "expected": "-3.158414610764173e-144"
+  },
+  {
+    "bitPatternHex": "2d7061e4817cd181",
+    "expected": "8.042269828462245e-90"
+  },
+  {
+    "bitPatternHex": "fe38406be25c53fc",
+    "expected": "-1.0150721727760309e+300"
+  },
+  {
+    "bitPatternHex": "2edf6fb940f8489b",
+    "expected": "6.472831396906745e-83"
+  },
+  {
+    "bitPatternHex": "81b90b99d548298e",
+    "expected": "-2.33738822902089e-300"
+  },
+  {
+    "bitPatternHex": "55610ba4995a4145",
+    "expected": "1.908876247566884e+103"
+  },
+  {
+    "bitPatternHex": "3917798b2bcf3570",
+    "expected": "1.130269535453146e-33"
+  },
+  {
+    "bitPatternHex": "6c3f0bd8d08675ff",
+    "expected": "2.6129221866372786e+213"
+  },
+  {
+    "bitPatternHex": "72dd332bb4fec022",
+    "expected": "1.9937818527729614e+245"
+  },
+  {
+    "bitPatternHex": "de205042154a2549",
+    "expected": "-2.5463335519590235e+145"
+  },
+  {
+    "bitPatternHex": "c9f7e8badd6c4624",
+    "expected": "-2.183949421544234e+48"
+  },
+  {
+    "bitPatternHex": "2fd3c15c1d2fb1a3",
+    "expected": "2.6657844148122897e-78"
+  },
+  {
+    "bitPatternHex": "3fb6e65089c897f6",
+    "expected": "0.08945182193619403"
+  },
+  {
+    "bitPatternHex": "0724d91d2d3b418d",
+    "expected": "3.0107900389282584e-274"
+  },
+  {
+    "bitPatternHex": "481ff3cc5367fa18",
+    "expected": "2.7182041744404665e+39"
+  },
+  {
+    "bitPatternHex": "4f82f3c5e5b85f87",
+    "expected": "1.0715426185643508e+75"
+  },
+  {
+    "bitPatternHex": "658769a57dc7450a",
+    "expected": "1.2143910771786423e+181"
+  },
+  {
+    "bitPatternHex": "0ae42f3815809a11",
+    "expected": "3.360706673074672e-256"
+  },
+  {
+    "bitPatternHex": "456995994356054c",
+    "expected": "2.4743684240182445e+26"
+  },
+  {
+    "bitPatternHex": "db34e8d71f6323ab",
+    "expected": "-2.319009084401129e+131"
+  },
+  {
+    "bitPatternHex": "51e3163b310d9b5e",
+    "expected": "2.9663529331117833e+86"
+  },
+  {
+    "bitPatternHex": "b4333fcdac9572d5",
+    "expected": "-3.0665795935784895e-57"
+  },
+  {
+    "bitPatternHex": "b4bdbfc8839d5bc0",
+    "expected": "-1.2132642705704869e-54"
+  },
+  {
+    "bitPatternHex": "48281d9c9154e20f",
+    "expected": "4.1030686819823685e+39"
+  },
+  {
+    "bitPatternHex": "832a2e44a633aef2",
+    "expected": "-2.0496328412858576e-293"
+  },
+  {
+    "bitPatternHex": "631628927d214fd9",
+    "expected": "2.0906322673133427e+169"
+  },
+  {
+    "bitPatternHex": "3212de8f622c3174",
+    "expected": "1.7497600784733794e-67"
+  },
+  {
+    "bitPatternHex": "3ef440325e38beb3",
+    "expected": "0.000019312637858869257"
+  },
+  {
+    "bitPatternHex": "26769232d02ad3c6",
+    "expected": "2.133999323886341e-123"
+  },
+  {
+    "bitPatternHex": "51ca354cd83bf51d",
+    "expected": "1.0182772451212315e+86"
+  },
+  {
+    "bitPatternHex": "49445b09fe6bfa68",
+    "expected": "9.07891045432541e+44"
+  },
+  {
+    "bitPatternHex": "711ab8efe0241d97",
+    "expected": "6.797234228687965e+236"
+  },
+  {
+    "bitPatternHex": "28f34b3455519dda",
+    "expected": "2.0056661692779557e-111"
+  },
+  {
+    "bitPatternHex": "f3a914b50bf166a1",
+    "expected": "-1.402908454709354e+249"
+  },
+  {
+    "bitPatternHex": "97210c845a756a9c",
+    "expected": "-2.850946538478095e-197"
+  },
+  {
+    "bitPatternHex": "c98a470c7abaa2bb",
+    "expected": "-1.87522750075596e+46"
+  },
+  {
+    "bitPatternHex": "6459d7625bc7e12e",
+    "expected": "2.5565400520173662e+175"
+  },
+  {
+    "bitPatternHex": "8d795296fa05e865",
+    "expected": "-9.27154464501457e-244"
+  },
+  {
+    "bitPatternHex": "daea4a4117847610",
+    "expected": "-9.111705095001492e+129"
+  },
+  {
+    "bitPatternHex": "92c8d7904792321f",
+    "expected": "-3.518685905215154e-218"
+  },
+  {
+    "bitPatternHex": "40c45dc87302b1c2",
+    "expected": "10427.566009842678"
+  },
+  {
+    "bitPatternHex": "b0284d3a92f9fe69",
+    "expected": "-1.049366808230035e-76"
+  },
+  {
+    "bitPatternHex": "13cbad3211ac50c4",
+    "expected": "2.5691233762389232e-213"
+  },
+  {
+    "bitPatternHex": "8b6b37c9c0d6efc3",
+    "expected": "-1.160135278021429e-253"
+  },
+  {
+    "bitPatternHex": "cb396e2eeea06396",
+    "expected": "-2.4357487601021046e+54"
+  },
+  {
+    "bitPatternHex": "3e821c68f94e6cad",
+    "expected": "1.349372921427986e-7"
+  },
+  {
+    "bitPatternHex": "bd33eef24ecb6eb8",
+    "expected": "-7.081760892717432e-14"
+  },
+  {
+    "bitPatternHex": "239ec8cbce2f3fa7",
+    "expected": "4.1361103069326793e-137"
+  },
+  {
+    "bitPatternHex": "4f31475c467c8aaa",
+    "expected": "3.0528911830041924e+73"
+  },
+  {
+    "bitPatternHex": "c790353851083731",
+    "expected": "-5.385995475255643e+36"
+  },
+  {
+    "bitPatternHex": "c628c85ff4bf83ec",
+    "expected": "-9.817444530248662e+29"
+  },
+  {
+    "bitPatternHex": "ae2dbde5d7dfc5cb",
+    "expected": "-2.9901868847415257e-86"
+  },
+  {
+    "bitPatternHex": "be3837a35003fafe",
+    "expected": "-5.638537859058831e-9"
+  },
+  {
+    "bitPatternHex": "db9b3f607f74a1f5",
+    "expected": "-1.934041625996607e+133"
+  },
+  {
+    "bitPatternHex": "442449b83ad98460",
+    "expected": "187123470970288870000"
+  },
+  {
+    "bitPatternHex": "35736ed9c42f662f",
+    "expected": "3.246241517275138e-51"
+  },
+  {
+    "bitPatternHex": "0ee4044964c8c892",
+    "expected": "6.147901142899478e-237"
+  },
+  {
+    "bitPatternHex": "d58653775f2d30f9",
+    "expected": "-1.0000926238769097e+104"
+  },
+  {
+    "bitPatternHex": "292e1f4e8a91a414",
+    "expected": "2.505068563571575e-110"
+  },
+  {
+    "bitPatternHex": "b2d3be0a030b44d3",
+    "expected": "-7.498589179489942e-64"
+  },
+  {
+    "bitPatternHex": "b8972dd8ca564766",
+    "expected": "-4.3595021475184825e-36"
+  },
+  {
+    "bitPatternHex": "06143d532c5ba83d",
+    "expected": "2.2300001528418987e-279"
+  },
+  {
+    "bitPatternHex": "ee584423437b5708",
+    "expected": "-3.508632743002843e+223"
+  },
+  {
+    "bitPatternHex": "990fc5340beac5b7",
+    "expected": "-5.7044579345018915e-188"
+  },
+  {
+    "bitPatternHex": "5d12c710ef450b7a",
+    "expected": "2.2361355704145312e+140"
+  },
+  {
+    "bitPatternHex": "14a4ef362d3e0bc1",
+    "expected": "3.183860008651461e-209"
+  },
+  {
+    "bitPatternHex": "fed32dfdd679513c",
+    "expected": "-8.220465954960842e+302"
+  },
+  {
+    "bitPatternHex": "6c1bcec9f1f38cdb",
+    "expected": "5.850905749315081e+212"
+  },
+  {
+    "bitPatternHex": "b338a317518ee8ce",
+    "expected": "-5.9889410706965645e-62"
+  },
+  {
+    "bitPatternHex": "8bdce18edaea9f85",
+    "expected": "-1.5757131305058265e-251"
+  },
+  {
+    "bitPatternHex": "3b3fe0812c3186b0",
+    "expected": "2.6368012412942007e-23"
+  },
+  {
+    "bitPatternHex": "49b1e0dff25d7e3f",
+    "expected": "1.0206771854084542e+47"
+  },
+  {
+    "bitPatternHex": "f5d72b112222f362",
+    "expected": "-4.452758476821087e+259"
+  },
+  {
+    "bitPatternHex": "3270fc440e53e789",
+    "expected": "1.0080384007496683e-65"
+  },
+  {
+    "bitPatternHex": "deac1d388ac12b64",
+    "expected": "-1.1233956904284464e+148"
+  },
+  {
+    "bitPatternHex": "01d3b7292116bde3",
+    "expected": "7.359892846543433e-300"
+  },
+  {
+    "bitPatternHex": "d9abd4a6f9b97f36",
+    "expected": "-9.198816199398295e+123"
+  },
+  {
+    "bitPatternHex": "6ffbf1f4f58ca7cd",
+    "expected": "2.7115838561983306e+231"
+  },
+  {
+    "bitPatternHex": "165619166eb0b358",
+    "expected": "4.510823618300565e-201"
+  },
+  {
+    "bitPatternHex": "d95c4de897a7afc7",
+    "expected": "-2.9235541415943655e+122"
+  },
+  {
+    "bitPatternHex": "fb462f6132e8204a",
+    "expected": "-6.597916889315419e+285"
+  },
+  {
+    "bitPatternHex": "588ac788d54be451",
+    "expected": "3.376522662895515e+118"
+  },
+  {
+    "bitPatternHex": "28f3738e0b27d28c",
+    "expected": "2.022051296738669e-111"
+  },
+  {
+    "bitPatternHex": "231a064aca56f7eb",
+    "expected": "1.3658585588330718e-139"
+  },
+  {
+    "bitPatternHex": "b541d78cbd75aa9e",
+    "expected": "-3.725581611924177e-52"
+  },
+  {
+    "bitPatternHex": "97fbfb22dab0e115",
+    "expected": "-3.833063667139633e-193"
+  },
+  {
+    "bitPatternHex": "c8614b9365617d00",
+    "expected": "-4.708206128980172e+40"
+  },
+  {
+    "bitPatternHex": "9ac7cf8ce78d7a4f",
+    "expected": "-1.1476396888662904e-179"
+  },
+  {
+    "bitPatternHex": "724d6fad7eee3232",
+    "expected": "3.925625608243903e+242"
+  },
+  {
+    "bitPatternHex": "813b414a81472219",
+    "expected": "-9.935992246688194e-303"
+  },
+  {
+    "bitPatternHex": "377c1aa53f5fe6b4",
+    "expected": "2.0163691376174046e-41"
+  },
+  {
+    "bitPatternHex": "61bf9dee657a5af3",
+    "expected": "7.112089626838361e+162"
+  },
+  {
+    "bitPatternHex": "c8037eac94770b06",
+    "expected": "-8.292179731568228e+38"
+  },
+  {
+    "bitPatternHex": "0b54c619514a6b5d",
+    "expected": "4.427311834523028e-254"
+  },
+  {
+    "bitPatternHex": "19e7c8cf45e083a8",
+    "expected": "6.996890713899955e-184"
+  },
+  {
+    "bitPatternHex": "b5e032e321f6fdd7",
+    "expected": "-3.4636418324428415e-49"
+  },
+  {
+    "bitPatternHex": "ed57be2e09e2c91a",
+    "expected": "-5.238300997018305e+218"
+  },
+  {
+    "bitPatternHex": "2549f6c2fa2ac0e1",
+    "expected": "4.6821142581908803e-129"
+  },
+  {
+    "bitPatternHex": "edbc3d92359007dc",
+    "expected": "-3.9875800363342127e+220"
+  },
+  {
+    "bitPatternHex": "4d12d79ab8ab06fb",
+    "expected": "1.9378083472940974e+63"
+  },
+  {
+    "bitPatternHex": "5b4ddb0ada05406e",
+    "expected": "6.622385001092533e+131"
+  },
+  {
+    "bitPatternHex": "fd8cfe150d5066a5",
+    "expected": "-5.925316361644028e+296"
+  },
+  {
+    "bitPatternHex": "e53b8412eb7e6750",
+    "expected": "-4.4600668854784467e+179"
+  },
+  {
+    "bitPatternHex": "72ee15f3f3705a5f",
+    "expected": "4.108538665665797e+245"
+  },
+  {
+    "bitPatternHex": "b8f6d7114c478502",
+    "expected": "-2.7492779590495232e-34"
+  },
+  {
+    "bitPatternHex": "b4cbc8d7dd1fe0a9",
+    "expected": "-2.266282599099621e-54"
+  },
+  {
+    "bitPatternHex": "5df89c1894d2d604",
+    "expected": "4.8015907275378266e+144"
+  },
+  {
+    "bitPatternHex": "48f5c29978f71c03",
+    "expected": "3.032922853952928e+43"
+  },
+  {
+    "bitPatternHex": "55156027037bead6",
+    "expected": "7.48060581016861e+101"
+  },
+  {
+    "bitPatternHex": "c58acd8a443df2ed",
+    "expected": "-1.0368866242241368e+27"
+  },
+  {
+    "bitPatternHex": "b689e87d71bfc7f8",
+    "expected": "-5.672667282327622e-46"
+  },
+  {
+    "bitPatternHex": "72283f8f1da9afe7",
+    "expected": "8.084393225418467e+241"
+  },
+  {
+    "bitPatternHex": "9a4e62f551f205ea",
+    "expected": "-5.7210284706802626e-182"
+  },
+  {
+    "bitPatternHex": "e83932065913a171",
+    "expected": "-1.1495255905134739e+194"
+  },
+  {
+    "bitPatternHex": "911c2e04dfb6f12c",
+    "expected": "-2.9738604706828724e-226"
+  },
+  {
+    "bitPatternHex": "ec00d7257ad0ba0b",
+    "expected": "-1.771657498684137e+212"
+  },
+  {
+    "bitPatternHex": "81ab87a9a6caaa3e",
+    "expected": "-1.28463421769432e-300"
+  },
+  {
+    "bitPatternHex": "f43cc17551923035",
+    "expected": "-8.235316260316029e+251"
+  },
+  {
+    "bitPatternHex": "b9968e4c9edd45a0",
+    "expected": "-2.7802239819869006e-31"
+  },
+  {
+    "bitPatternHex": "d0b8665baff71e6f",
+    "expected": "-7.232788607492862e+80"
+  },
+  {
+    "bitPatternHex": "4b62e349288bebd2",
+    "expected": "1.4472761501777607e+55"
+  },
+  {
+    "bitPatternHex": "af9579d51b372339",
+    "expected": "-1.811226184686526e-79"
+  },
+  {
+    "bitPatternHex": "5926590686bef954",
+    "expected": "2.8853744889217053e+121"
+  },
+  {
+    "bitPatternHex": "ff84616d728e0113",
+    "expected": "-1.7889659215761893e+306"
+  },
+  {
+    "bitPatternHex": "385508dfd0f51ea6",
+    "expected": "2.472613007265892e-37"
+  },
+  {
+    "bitPatternHex": "e57f12726b503e7d",
+    "expected": "-8.058374380066491e+180"
+  },
+  {
+    "bitPatternHex": "402de5131e438048",
+    "expected": "14.947411485423928"
+  },
+  {
+    "bitPatternHex": "20c20fe5cfd0c5f7",
+    "expected": "6.897320913938526e-151"
+  },
+  {
+    "bitPatternHex": "a60270b09e12d6ba",
+    "expected": "-1.3620634068374835e-125"
+  },
+  {
+    "bitPatternHex": "1ce7885e4b7f8601",
+    "expected": "1.9486058498684896e-169"
+  },
+  {
+    "bitPatternHex": "f21f8ab4cae18e7c",
+    "expected": "-5.2580329708030376e+241"
+  },
+  {
+    "bitPatternHex": "0b85d54d44e9111b",
+    "expected": "3.722470398797238e-253"
+  },
+  {
+    "bitPatternHex": "889c59bdac92e80e",
+    "expected": "-3.434514502221039e-267"
+  },
+  {
+    "bitPatternHex": "ca158b4e667f3dc5",
+    "expected": "-7.871708121992523e+48"
+  },
+  {
+    "bitPatternHex": "338ceb268b1317f0",
+    "expected": "2.2495077654666836e-60"
+  },
+  {
+    "bitPatternHex": "134782ac1152c67f",
+    "expected": "8.524989220784615e-216"
+  },
+  {
+    "bitPatternHex": "7ba268c44f5866a2",
+    "expected": "3.5039819852096124e+287"
+  },
+  {
+    "bitPatternHex": "00fa28c39925e9c9",
+    "expected": "5.960317854686523e-304"
+  },
+  {
+    "bitPatternHex": "449dbfa8700950a4",
+    "expected": "3.512102333313399e+22"
+  },
+  {
+    "bitPatternHex": "6a8431dfe7800a23",
+    "expected": "1.2663306262148013e+205"
+  },
+  {
+    "bitPatternHex": "da4a3862784fa676",
+    "expected": "-8.874523873152421e+126"
+  },
+  {
+    "bitPatternHex": "9e10a5028baa4e0d",
+    "expected": "-7.225949961723438e-164"
+  },
+  {
+    "bitPatternHex": "f431b5cf4aa0ac98",
+    "expected": "-5.072005520041586e+251"
+  },
+  {
+    "bitPatternHex": "2499a06e5fbd4007",
+    "expected": "2.256494779747386e-132"
+  },
+  {
+    "bitPatternHex": "bdc945c806823b8a",
+    "expected": "-4.597056139712095e-11"
+  },
+  {
+    "bitPatternHex": "d5ad6d9e57276e91",
+    "expected": "-5.272932019950482e+104"
+  },
+  {
+    "bitPatternHex": "371d5fd43f94dfcc",
+    "expected": "3.292976550955324e-43"
+  },
+  {
+    "bitPatternHex": "22289a4bd1550c2b",
+    "expected": "3.94053508631593e-144"
+  },
+  {
+    "bitPatternHex": "07216d57cd6af9de",
+    "expected": "2.516747266565945e-274"
+  },
+  {
+    "bitPatternHex": "106e184d7b608f55",
+    "expected": "1.5507674882429441e-229"
+  },
+  {
+    "bitPatternHex": "05a2e10436f4de40",
+    "expected": "1.6250711192374103e-281"
+  },
+  {
+    "bitPatternHex": "762ce04075f4528f",
+    "expected": "1.7759185532821988e+261"
+  },
+  {
+    "bitPatternHex": "a793e0316989f572",
+    "expected": "-4.926123784363856e-118"
+  },
+  {
+    "bitPatternHex": "f19696bda8c53459",
+    "expected": "-1.470924358086335e+239"
+  },
+  {
+    "bitPatternHex": "137bdf865ad6dbf4",
+    "expected": "8.085540570754526e-215"
+  },
+  {
+    "bitPatternHex": "2a774f6bfb4e3733",
+    "expected": "4.0654467819408406e-104"
+  },
+  {
+    "bitPatternHex": "bc58d00636388246",
+    "expected": "-5.380373834080628e-18"
+  },
+  {
+    "bitPatternHex": "d6cb155b22b5219d",
+    "expected": "-1.2721313909096749e+110"
+  },
+  {
+    "bitPatternHex": "6a36f8bc194c4ce8",
+    "expected": "4.501411464867429e+203"
+  },
+  {
+    "bitPatternHex": "e3308a21e7001e17",
+    "expected": "-6.241975272051945e+169"
+  },
+  {
+    "bitPatternHex": "b35e4718f8bd345a",
+    "expected": "-2.944042873875236e-61"
+  },
+  {
+    "bitPatternHex": "bbe04bc4be045b21",
+    "expected": "-2.760644834773666e-20"
+  },
+  {
+    "bitPatternHex": "9d05c3bc5d95e51c",
+    "expected": "-7.208800237824649e-169"
+  },
+  {
+    "bitPatternHex": "d222443770b5ab3b",
+    "expected": "-4.542170225671962e+87"
+  },
+  {
+    "bitPatternHex": "9a6bd819149fdfae",
+    "expected": "-2.0969415161870134e-181"
+  },
+  {
+    "bitPatternHex": "89418a2dbfbf24e5",
+    "expected": "-4.351685210669696e-264"
+  },
+  {
+    "bitPatternHex": "01dd911ef4979890",
+    "expected": "1.103747684123328e-299"
+  },
+  {
+    "bitPatternHex": "3c36c81db68cc29f",
+    "expected": "1.2349986151848947e-18"
+  },
+  {
+    "bitPatternHex": "9ef731ef5d3d9842",
+    "expected": "-1.649824626471764e-159"
+  },
+  {
+    "bitPatternHex": "bd133b7b202e02e9",
+    "expected": "-1.708175600888866e-14"
+  },
+  {
+    "bitPatternHex": "8db5ffb4508c9b44",
+    "expected": "-1.2887342951388269e-242"
+  },
+  {
+    "bitPatternHex": "4ff29d096fb98843",
+    "expected": "1.347054622636645e+77"
+  },
+  {
+    "bitPatternHex": "4febafcbd89cb216",
+    "expected": "1.0018441633954613e+77"
+  },
+  {
+    "bitPatternHex": "38db60b9f619b92d",
+    "expected": "8.238718303112961e-35"
+  },
+  {
+    "bitPatternHex": "3f1f0e211ffb6138",
+    "expected": "0.00011846615961575303"
+  },
+  {
+    "bitPatternHex": "ddd51b33816a6027",
+    "expected": "-1.0295065608394737e+144"
+  },
+  {
+    "bitPatternHex": "e20ecb110780c12a",
+    "expected": "-2.2165772945900217e+164"
+  },
+  {
+    "bitPatternHex": "fe8833e10e4f4bb1",
+    "expected": "-3.241668853073248e+301"
+  },
+  {
+    "bitPatternHex": "490620e46be99e6c",
+    "expected": "6.168521441719524e+43"
+  },
+  {
+    "bitPatternHex": "cca2882c19ebee4b",
+    "expected": "-1.4889825996165835e+61"
+  },
+  {
+    "bitPatternHex": "a2d5cc5a86be997e",
+    "expected": "-7.150292252684471e-141"
+  },
+  {
+    "bitPatternHex": "cf5765e7f363fe75",
+    "expected": "-1.6536324900252323e+74"
+  },
+  {
+    "bitPatternHex": "e0530e52315046e0",
+    "expected": "-1.021993622807046e+156"
+  },
+  {
+    "bitPatternHex": "0ebe448c360d16af",
+    "expected": "1.162047229764052e-237"
+  },
+  {
+    "bitPatternHex": "e46b38121dd04f12",
+    "expected": "-5.385674188747669e+175"
+  },
+  {
+    "bitPatternHex": "6cc19359e9b95579",
+    "expected": "7.573503647886555e+215"
+  },
+  {
+    "bitPatternHex": "0d3265c3a9cf8e94",
+    "expected": "4.210006314332165e-245"
+  },
+  {
+    "bitPatternHex": "61de0447b4c2fd53",
+    "expected": "2.70085263686063e+163"
+  },
+  {
+    "bitPatternHex": "828e8b0f8ea935e6",
+    "expected": "-2.3351183833765077e-296"
+  },
+  {
+    "bitPatternHex": "c55c9aeba3c114bd",
+    "expected": "-1.3832605668865666e+26"
+  },
+  {
+    "bitPatternHex": "2e6d07e9b7a2e988",
+    "expected": "4.669946283308025e-85"
+  },
+  {
+    "bitPatternHex": "83e9bdbc5d0d0637",
+    "expected": "-8.25433748802769e-290"
+  },
+  {
+    "bitPatternHex": "381bd1dcbac9e1fa",
+    "expected": "2.0438742219285958e-38"
+  },
+  {
+    "bitPatternHex": "1beb877eb2814041",
+    "expected": "3.4783023075076578e-174"
+  },
+  {
+    "bitPatternHex": "8ce7ab0d28d50bbc",
+    "expected": "-1.6925372343992227e-246"
+  },
+  {
+    "bitPatternHex": "d08057987a18d55b",
+    "expected": "-6.055340956992677e+79"
+  },
+  {
+    "bitPatternHex": "918b32a8f194274e",
+    "expected": "-3.6739095331774606e-224"
+  },
+  {
+    "bitPatternHex": "47db0aa5f6581c05",
+    "expected": "1.4377777987903685e+38"
+  },
+  {
+    "bitPatternHex": "b54fea5bc5b3e930",
+    "expected": "-6.664259591286122e-52"
+  },
+  {
+    "bitPatternHex": "c1826d15f1a64ebf",
+    "expected": "-38642366.206204884"
+  },
+  {
+    "bitPatternHex": "5d4c73fb7bdf19e2",
+    "expected": "2.7106715881058597e+141"
+  },
+  {
+    "bitPatternHex": "dd89ea6a94002c09",
+    "expected": "-3.95030584939663e+142"
+  },
+  {
+    "bitPatternHex": "b96012685e84b5e4",
+    "expected": "-2.476269055592231e-32"
+  },
+  {
+    "bitPatternHex": "0dae310cf8ab9663",
+    "expected": "8.843408709219144e-243"
+  },
+  {
+    "bitPatternHex": "2b2c020eb8cb0db6",
+    "expected": "1.0004010407130639e-100"
+  },
+  {
+    "bitPatternHex": "fc8ddd0131d4344d",
+    "expected": "-9.31287138680387e+291"
+  },
+  {
+    "bitPatternHex": "de9981ff4c77e5d8",
+    "expected": "-5.096252370433607e+147"
+  },
+  {
+    "bitPatternHex": "82475d4bca391047",
+    "expected": "-1.1164251998186474e-297"
+  },
+  {
+    "bitPatternHex": "ad01a7aa5fd596ca",
+    "expected": "-6.771075589967331e-92"
+  },
+  {
+    "bitPatternHex": "0c48b393815338d1",
+    "expected": "1.725028972525241e-249"
+  },
+  {
+    "bitPatternHex": "7d0b64a019dd2d0c",
+    "expected": "2.186887568486713e+294"
+  },
+  {
+    "bitPatternHex": "8a6aaaaf049d606b",
+    "expected": "-1.7343771649676956e-258"
+  },
+  {
+    "bitPatternHex": "ba19a694bc2d891e",
+    "expected": "-8.093935982813677e-29"
+  },
+  {
+    "bitPatternHex": "cdca4a7a58e47d95",
+    "expected": "-5.537516044243707e+66"
+  },
+  {
+    "bitPatternHex": "a321ee9045977f80",
+    "expected": "-1.8822532515054284e-139"
+  },
+  {
+    "bitPatternHex": "3d9ee1e890c96acf",
+    "expected": "7.0218572816491926e-12"
+  },
+  {
+    "bitPatternHex": "a311b487f546f8b2",
+    "expected": "-9.292291959234969e-140"
+  },
+  {
+    "bitPatternHex": "9979dd80e1db8699",
+    "expected": "-5.944554765565398e-186"
+  },
+  {
+    "bitPatternHex": "d0ae78d255d11134",
+    "expected": "-4.5163671668709905e+80"
+  },
+  {
+    "bitPatternHex": "c020aaf937f45373",
+    "expected": "-8.3339326368093"
+  },
+  {
+    "bitPatternHex": "331e8d41b8af3986",
+    "expected": "1.8566818270669552e-62"
+  },
+  {
+    "bitPatternHex": "af9342499ebc17dd",
+    "expected": "-1.624252111500479e-79"
+  },
+  {
+    "bitPatternHex": "217fb897adef5628",
+    "expected": "2.4807893314648772e-147"
+  },
+  {
+    "bitPatternHex": "7fcfbc5b4b7f7e57",
+    "expected": "4.4571228400605936e+307"
+  },
+  {
+    "bitPatternHex": "00e2ce00d920df9a",
+    "expected": "2.142302585356577e-304"
+  },
+  {
+    "bitPatternHex": "16aa55f24dbe3561",
+    "expected": "1.7202763546381094e-199"
+  },
+  {
+    "bitPatternHex": "b6b65942dbc7025c",
+    "expected": "-3.9146457451017625e-45"
+  },
+  {
+    "bitPatternHex": "24db70fb031a8f7b",
+    "expected": "3.866046362853072e-131"
+  },
+  {
+    "bitPatternHex": "3d0103d5b6d7beee",
+    "expected": "7.556168921828599e-15"
+  },
+  {
+    "bitPatternHex": "fafb0ddbeb922325",
+    "expected": "-2.5143724445374388e+284"
+  },
+  {
+    "bitPatternHex": "a1daf503501009d0",
+    "expected": "-1.3492579441047706e-145"
+  },
+  {
+    "bitPatternHex": "b4bd879b75276adf",
+    "expected": "-1.2043149171473639e-54"
+  },
+  {
+    "bitPatternHex": "9638a9cf8524eb82",
+    "expected": "-1.2586196277473903e-201"
+  },
+  {
+    "bitPatternHex": "d5a00a485a646529",
+    "expected": "-2.874070290254627e+104"
+  },
+  {
+    "bitPatternHex": "2b3d75bab619a084",
+    "expected": "2.10451697885055e-100"
+  },
+  {
+    "bitPatternHex": "b8396d6d4d5e3483",
+    "expected": "-7.472455684254465e-38"
+  },
+  {
+    "bitPatternHex": "200c0789c142b956",
+    "expected": "2.6131644588912857e-154"
+  },
+  {
+    "bitPatternHex": "bc03fc8f7121bf6d",
+    "expected": "-1.3543422398931176e-19"
+  },
+  {
+    "bitPatternHex": "c6f671775ebe3a78",
+    "expected": "-7.283243790367561e+33"
+  },
+  {
+    "bitPatternHex": "815eeaa6a5b15067",
+    "expected": "-4.508334838564157e-302"
+  },
+  {
+    "bitPatternHex": "edb0c92a6e68bc6a",
+    "expected": "-2.370167197852069e+220"
+  },
+  {
+    "bitPatternHex": "87e6664176fb35f1",
+    "expected": "-1.3249851108726599e-270"
+  },
+  {
+    "bitPatternHex": "7a7ff29e72978bac",
+    "expected": "1.1598343511467252e+282"
+  },
+  {
+    "bitPatternHex": "3d4ce919a571628b",
+    "expected": "2.054217957044986e-13"
+  },
+  {
+    "bitPatternHex": "680ef0c2eb1fc8be",
+    "expected": "1.7645509538482303e+193"
+  },
+  {
+    "bitPatternHex": "3b602ae54f2a0cb5",
+    "expected": "1.069879472764107e-22"
+  },
+  {
+    "bitPatternHex": "4c45d459cab14eef",
+    "expected": "2.740519233209851e+59"
+  },
+  {
+    "bitPatternHex": "2319a37a73d5f252",
+    "expected": "1.3456004106362408e-139"
+  },
+  {
+    "bitPatternHex": "9bcda75cd8f3c7b9",
+    "expected": "-9.366822778273692e-175"
+  },
+  {
+    "bitPatternHex": "bd650b25350363d4",
+    "expected": "-5.980932793656499e-13"
+  },
+  {
+    "bitPatternHex": "0a875f3601ea3993",
+    "expected": "6.080342950902714e-258"
+  },
+  {
+    "bitPatternHex": "dd9ce432a6b28d26",
+    "expected": "-8.807781194738399e+142"
+  },
+  {
+    "bitPatternHex": "edb7c89a47ee2afd",
+    "expected": "-3.3582615041143533e+220"
+  },
+  {
+    "bitPatternHex": "d0e28d27e4d992c8",
+    "expected": "-4.39931741065501e+81"
+  },
+  {
+    "bitPatternHex": "fb754d67efdf8677",
+    "expected": "-5.068316835393028e+286"
+  },
+  {
+    "bitPatternHex": "0bdaaeb39caa2d3a",
+    "expected": "1.4557573195028226e-251"
+  },
+  {
+    "bitPatternHex": "a38d3b7578833a81",
+    "expected": "-1.9637870916243724e-137"
+  },
+  {
+    "bitPatternHex": "7d238c5a9993c8fc",
+    "expected": "6.24243203036221e+294"
+  },
+  {
+    "bitPatternHex": "5e7fe09711c2d99b",
+    "expected": "1.59220689753035e+147"
+  },
+  {
+    "bitPatternHex": "aad1131e6bd2a68e",
+    "expected": "-1.9058737608434234e-102"
+  },
+  {
+    "bitPatternHex": "39add95884b53a45",
+    "expected": "7.35834832170826e-31"
+  },
+  {
+    "bitPatternHex": "758ca6cc9953fa70",
+    "expected": "1.7208165168598332e+258"
+  },
+  {
+    "bitPatternHex": "12fe3f70979816ff",
+    "expected": "3.4274971398709345e-217"
+  },
+  {
+    "bitPatternHex": "700ef6aa26f70d22",
+    "expected": "6.008930806486961e+231"
+  },
+  {
+    "bitPatternHex": "7152fd671d22ae49",
+    "expected": "7.728553761618994e+237"
+  },
+  {
+    "bitPatternHex": "af4ba5d567735b24",
+    "expected": "-7.286711223004045e-81"
+  },
+  {
+    "bitPatternHex": "a40b4adb1cd962a3",
+    "expected": "-4.693683237777109e-135"
+  },
+  {
+    "bitPatternHex": "a4095dc8ae6bb4f6",
+    "expected": "-4.3624435786427647e-135"
+  },
+  {
+    "bitPatternHex": "dc064bf46a4a5a8d",
+    "expected": "-2.025762962181297e+135"
+  },
+  {
+    "bitPatternHex": "519c552219765f18",
+    "expected": "1.376019164140753e+85"
+  },
+  {
+    "bitPatternHex": "4a2dea77a35b2087",
+    "expected": "2.1861059670979563e+49"
+  },
+  {
+    "bitPatternHex": "264691fde622320a",
+    "expected": "2.667403733837668e-124"
+  },
+  {
+    "bitPatternHex": "7ad186cf7a0f4311",
+    "expected": "4.072243050263566e+283"
+  },
+  {
+    "bitPatternHex": "bcb5ac4d1340ba4c",
+    "expected": "-3.0077400395729176e-16"
+  },
+  {
+    "bitPatternHex": "b0ff9cef746ff4ab",
+    "expected": "-1.1182712634340497e-72"
+  },
+  {
+    "bitPatternHex": "ccbadc3524fd585e",
+    "expected": "-4.3162654631640125e+61"
+  },
+  {
+    "bitPatternHex": "f4866c667d7cabd5",
+    "expected": "-2.054984676781447e+253"
+  },
+  {
+    "bitPatternHex": "bd6ba6c81e8960c0",
+    "expected": "-7.859026447345524e-13"
+  },
+  {
+    "bitPatternHex": "2e56a440cc4cc30f",
+    "expected": "1.8210782913078068e-85"
+  },
+  {
+    "bitPatternHex": "fe41c875f1653bf2",
+    "expected": "-1.4886477171713768e+300"
+  },
+  {
+    "bitPatternHex": "2bd7fa3d5aca18d9",
+    "expected": "1.7539826358943967e-97"
+  },
+  {
+    "bitPatternHex": "d4a8f178118e8674",
+    "expected": "-6.819639520248723e+99"
+  },
+  {
+    "bitPatternHex": "ce83389273acafb3",
+    "expected": "-1.6582295097839626e+70"
+  },
+  {
+    "bitPatternHex": "ee302ac25f1b30c6",
+    "expected": "-5.843956966218839e+222"
+  },
+  {
+    "bitPatternHex": "8ffb24f4579f4e1d",
+    "expected": "-1.0927551143301283e-231"
+  },
+  {
+    "bitPatternHex": "f35bdbec79099f68",
+    "expected": "-4.8697108799222727e+247"
+  },
+  {
+    "bitPatternHex": "445ee750abb51e97",
+    "expected": "2.2802813329063016e+21"
+  },
+  {
+    "bitPatternHex": "28282be6a24dcada",
+    "expected": "3.0672915263590204e-115"
+  },
+  {
+    "bitPatternHex": "e2469d5fdf984fa1",
+    "expected": "-2.6045896824743436e+165"
+  },
+  {
+    "bitPatternHex": "f54c83dcf9635f9c",
+    "expected": "-1.0703876108307909e+257"
+  },
+  {
+    "bitPatternHex": "ef7e6eb41019b3bb",
+    "expected": "-1.153488915893298e+229"
+  },
+  {
+    "bitPatternHex": "43bd1952abecde2e",
+    "expected": "2096797999884545500"
+  },
+  {
+    "bitPatternHex": "2cf03b3aab096165",
+    "expected": "3.112550106294488e-92"
+  },
+  {
+    "bitPatternHex": "95fdb7c95b27bb10",
+    "expected": "-9.478536457745036e-203"
+  },
+  {
+    "bitPatternHex": "a364a9955380531f",
+    "expected": "-3.4701919244322486e-138"
+  },
+  {
+    "bitPatternHex": "b72339fbe33d7ec2",
+    "expected": "-4.310730331983216e-43"
+  },
+  {
+    "bitPatternHex": "a00e5707ca030769",
+    "expected": "-2.8285722357540522e-154"
+  },
+  {
+    "bitPatternHex": "210a808076b9e5c4",
+    "expected": "1.6192360384796202e-149"
+  },
+  {
+    "bitPatternHex": "27524ad6fa2520c3",
+    "expected": "2.833551151791275e-119"
+  },
+  {
+    "bitPatternHex": "f37384fe50ae0096",
+    "expected": "-1.364788192709026e+248"
+  },
+  {
+    "bitPatternHex": "dce1b60a579605ad",
+    "expected": "-2.6364129115859265e+139"
+  },
+  {
+    "bitPatternHex": "8d8c042d734853b8",
+    "expected": "-2.051561700041649e-243"
+  },
+  {
+    "bitPatternHex": "491c6cf876be80a7",
+    "expected": "1.584783850761333e+44"
+  },
+  {
+    "bitPatternHex": "c6e45a81cde9f7aa",
+    "expected": "-3.302551193602057e+33"
+  },
+  {
+    "bitPatternHex": "88b6a90cd9576031",
+    "expected": "-1.098071217753251e-266"
+  },
+  {
+    "bitPatternHex": "b28a9f9a0d00b8ec",
+    "expected": "-3.1600589965241783e-65"
+  },
+  {
+    "bitPatternHex": "78242fd44da116cb",
+    "expected": "5.332296800911057e+270"
+  },
+  {
+    "bitPatternHex": "30feb5890f2e37fe",
+    "expected": "1.0862967153860673e-72"
+  },
+  {
+    "bitPatternHex": "25fde14a8f245af5",
+    "expected": "1.1035272269024158e-125"
+  },
+  {
+    "bitPatternHex": "c6e8aed7d6840960",
+    "expected": "-4.005042635007075e+33"
+  },
+  {
+    "bitPatternHex": "d67d7e5d2223c72f",
+    "expected": "-4.3291872326311247e+108"
+  },
+  {
+    "bitPatternHex": "841e330599dcd592",
+    "expected": "-7.747134720221948e-289"
+  },
+  {
+    "bitPatternHex": "ef270a69372679f9",
+    "expected": "-2.7291148274761194e+227"
+  },
+  {
+    "bitPatternHex": "5576ccb9a99a7914",
+    "expected": "5.106552608287877e+103"
+  },
+  {
+    "bitPatternHex": "8ac37ea3d243b5d3",
+    "expected": "-8.114653478264927e-257"
+  },
+  {
+    "bitPatternHex": "5af29114fc512466",
+    "expected": "1.286984994716468e+130"
+  },
+  {
+    "bitPatternHex": "57fbf5520a17813d",
+    "expected": "6.885077767826567e+115"
+  },
+  {
+    "bitPatternHex": "b75f03b1bb277c08",
+    "expected": "-5.562940688272489e-42"
+  },
+  {
+    "bitPatternHex": "e34061cb048846b7",
+    "expected": "-1.2365013548861264e+170"
+  },
+  {
+    "bitPatternHex": "1e9e55e8daf3b87a",
+    "expected": "3.371434275581719e-161"
+  },
+  {
+    "bitPatternHex": "3b469a1cf3c574c1",
+    "expected": "3.7391879483889465e-23"
+  },
+  {
+    "bitPatternHex": "2729ea08065dc63c",
+    "expected": "5.017753155820217e-120"
+  },
+  {
+    "bitPatternHex": "32762e0acc271ddb",
+    "expected": "1.3163143105692125e-65"
+  },
+  {
+    "bitPatternHex": "7a2759cca68e65ce",
+    "expected": "2.6491549038125993e+280"
+  },
+  {
+    "bitPatternHex": "1e4a3f694bd69885",
+    "expected": "9.115985283422969e-163"
+  },
+  {
+    "bitPatternHex": "3f814a3003334bb0",
+    "expected": "0.00844228276983991"
+  },
+  {
+    "bitPatternHex": "b74a7cc947681f3f",
+    "expected": "-2.3754763382991687e-42"
+  },
+  {
+    "bitPatternHex": "f86348410fe04062",
+    "expected": "-8.149362721710545e+271"
+  },
+  {
+    "bitPatternHex": "f3b0ffab92cd7089",
+    "expected": "-1.9016580962233465e+249"
+  },
+  {
+    "bitPatternHex": "c822558bdc154064",
+    "expected": "-3.1193965886478893e+39"
+  },
+  {
+    "bitPatternHex": "4afbf0535c496ee3",
+    "expected": "1.6725016983184134e+53"
+  },
+  {
+    "bitPatternHex": "32de727e8c719c36",
+    "expected": "1.1564554524878745e-63"
+  },
+  {
+    "bitPatternHex": "8b37c967f74cc0cd",
+    "expected": "-1.2673560746065409e-254"
+  },
+  {
+    "bitPatternHex": "69ca776696dc1858",
+    "expected": "4.051745313164499e+201"
+  },
+  {
+    "bitPatternHex": "5113aa2af76370c7",
+    "expected": "3.730667593330103e+82"
+  },
+  {
+    "bitPatternHex": "3d48b71d80a80d4a",
+    "expected": "1.7561272559451153e-13"
+  },
+  {
+    "bitPatternHex": "b1a1f245a79b8d51",
+    "expected": "-1.300132926138589e-69"
+  },
+  {
+    "bitPatternHex": "9ca4669de4ff878c",
+    "expected": "-1.0557975777297587e-170"
+  },
+  {
+    "bitPatternHex": "971e426e710cc8eb",
+    "expected": "-2.53002357354481e-197"
+  },
+  {
+    "bitPatternHex": "843dd863e31a679e",
+    "expected": "-3.0625256530068295e-288"
+  },
+  {
+    "bitPatternHex": "ca31e69f33691a15",
+    "expected": "-2.61621460088923e+49"
+  },
+  {
+    "bitPatternHex": "8d1ab9978f0a8200",
+    "expected": "-1.5289058929593212e-245"
+  },
+  {
+    "bitPatternHex": "723884cefcbe5b4f",
+    "expected": "1.6349160142274311e+242"
+  },
+  {
+    "bitPatternHex": "d9d57a0d6d24bf32",
+    "expected": "-5.678938104029192e+124"
+  },
+  {
+    "bitPatternHex": "30d34bf081d0eb19",
+    "expected": "1.7064860003387188e-73"
+  },
+  {
+    "bitPatternHex": "0211e0f5af4f3bb4",
+    "expected": "1.0678774943020852e-298"
+  },
+  {
+    "bitPatternHex": "4897862246b74bf3",
+    "expected": "5.123064936320566e+41"
+  },
+  {
+    "bitPatternHex": "f3a3998cacbc6806",
+    "expected": "-1.0963220088525396e+249"
+  },
+  {
+    "bitPatternHex": "1d46bc831f9ec45d",
+    "expected": "1.2049073746224243e-167"
+  },
+  {
+    "bitPatternHex": "f22c5d482fdb28a8",
+    "expected": "-9.456705672921322e+241"
+  },
+  {
+    "bitPatternHex": "4abfe115a3e0fed7",
+    "expected": "1.1927438405685023e+52"
+  },
+  {
+    "bitPatternHex": "a221ae008b83f61a",
+    "expected": "-2.831697609658644e-144"
+  },
+  {
+    "bitPatternHex": "d3fcc23de9d2a9e1",
+    "expected": "-3.839270787353844e+96"
+  },
+  {
+    "bitPatternHex": "276749f93faafcdc",
+    "expected": "7.215090896047373e-119"
+  },
+  {
+    "bitPatternHex": "1785172777f317fb",
+    "expected": "2.2571404639031515e-195"
+  },
+  {
+    "bitPatternHex": "157d90ab1f1f3d6e",
+    "expected": "3.683515327047136e-205"
+  },
+  {
+    "bitPatternHex": "a58bd5c55864dfa5",
+    "expected": "-8.031261007154832e-128"
+  },
+  {
+    "bitPatternHex": "b8daef25b31eac50",
+    "expected": "-8.105206657391714e-35"
+  },
+  {
+    "bitPatternHex": "4f341f0db5d77b5f",
+    "expected": "3.555126506179378e+73"
+  },
+  {
+    "bitPatternHex": "0a13c8dbd6c75202",
+    "expected": "4.021157904505124e-260"
+  },
+  {
+    "bitPatternHex": "33b15a65ed49e9a9",
+    "expected": "1.0798871707096426e-59"
+  },
+  {
+    "bitPatternHex": "34fc243983ad6b04",
+    "expected": "1.836318726491144e-53"
+  },
+  {
+    "bitPatternHex": "4ea121569e4e4d03",
+    "expected": "5.911424405789682e+70"
+  },
+  {
+    "bitPatternHex": "cf6918385a1e87d6",
+    "expected": "-3.5470670223569405e+74"
+  },
+  {
+    "bitPatternHex": "fb9c0ed28bb68bed",
+    "expected": "-2.670244606336399e+287"
+  },
+  {
+    "bitPatternHex": "26458943e2d9acf8",
+    "expected": "2.545192976153451e-124"
+  },
+  {
+    "bitPatternHex": "accab99b20d1f0e7",
+    "expected": "-6.406036979147692e-93"
+  },
+  {
+    "bitPatternHex": "9a5f035cad4472ea",
+    "expected": "-1.1677994534589153e-181"
+  },
+  {
+    "bitPatternHex": "505e72d4bba3ca71",
+    "expected": "1.4102808833912276e+79"
+  },
+  {
+    "bitPatternHex": "0b9c54459465262c",
+    "expected": "9.660014037869828e-253"
+  },
+  {
+    "bitPatternHex": "12f1dc4882bb0b0b",
+    "expected": "2.0238405827864194e-217"
+  },
+  {
+    "bitPatternHex": "a9b7382c6e29e73e",
+    "expected": "-9.886739173177724e-108"
+  },
+  {
+    "bitPatternHex": "790bb2e51d92e935",
+    "expected": "1.1987459328378023e+275"
+  },
+  {
+    "bitPatternHex": "87d3ed7f83c4caa0",
+    "expected": "-5.893885239368813e-271"
+  },
+  {
+    "bitPatternHex": "04c6b91930a47f6f",
+    "expected": "1.1938247226660745e-285"
+  },
+  {
+    "bitPatternHex": "8760dc243f24f8d2",
+    "expected": "-3.895737260504935e-273"
+  },
+  {
+    "bitPatternHex": "1233c87e92916c39",
+    "expected": "5.472922815057615e-221"
+  },
+  {
+    "bitPatternHex": "7184593ec8d4ce54",
+    "expected": "6.625236992713996e+238"
+  },
+  {
+    "bitPatternHex": "905db70ade0f7213",
+    "expected": "-7.655951894172823e-230"
+  },
+  {
+    "bitPatternHex": "17010ac3b2c4fba6",
+    "expected": "7.12450437358166e-198"
+  },
+  {
+    "bitPatternHex": "dc85711edc7d177d",
+    "expected": "-4.987131724300332e+137"
+  },
+  {
+    "bitPatternHex": "6df16a0e8fcca548",
+    "expected": "3.934254644577877e+221"
+  },
+  {
+    "bitPatternHex": "98867a3a574746f7",
+    "expected": "-1.5765213118713502e-190"
+  },
+  {
+    "bitPatternHex": "b37bc4054ce683ba",
+    "expected": "-1.079915074229449e-60"
+  },
+  {
+    "bitPatternHex": "88dc328bba87ef01",
+    "expected": "-5.465546500713882e-266"
+  },
+  {
+    "bitPatternHex": "978492d79873037c",
+    "expected": "-2.2018268409402863e-195"
+  },
+  {
+    "bitPatternHex": "19afeccba985a21b",
+    "expected": "5.869800556452498e-185"
+  },
+  {
+    "bitPatternHex": "e4d2b60b6d07650e",
+    "expected": "-4.738894648021108e+177"
+  },
+  {
+    "bitPatternHex": "2e6fe95bc5fc36c5",
+    "expected": "5.133330480355551e-85"
+  },
+  {
+    "bitPatternHex": "118588884091dcf0",
+    "expected": "2.9087367351900305e-224"
+  },
+  {
+    "bitPatternHex": "19db8c278556677f",
+    "expected": "4.0519540138443324e-184"
+  },
+  {
+    "bitPatternHex": "0abf38ee35dab3a2",
+    "expected": "6.498150768783919e-257"
+  },
+  {
+    "bitPatternHex": "206ceb2e934072c9",
+    "expected": "1.7254829175530425e-152"
+  },
+  {
+    "bitPatternHex": "3efe85a74daa65a4",
+    "expected": "0.000029108127686505066"
+  },
+  {
+    "bitPatternHex": "7937f19cff3bbb23",
+    "expected": "8.289897390798435e+275"
+  },
+  {
+    "bitPatternHex": "69ce612fc61cc376",
+    "expected": "4.650821499077413e+201"
+  },
+  {
+    "bitPatternHex": "74d2f0afdb1b670d",
+    "expected": "5.55444317284689e+254"
+  },
+  {
+    "bitPatternHex": "430e32eee9e91198",
+    "expected": "1062531376161331"
+  },
+  {
+    "bitPatternHex": "8f1d432112920107",
+    "expected": "-7.190030450009445e-236"
+  },
+  {
+    "bitPatternHex": "cc16b20956a7288a",
+    "expected": "-3.5615419982089256e+58"
+  },
+  {
+    "bitPatternHex": "6d2e20b5b0381791",
+    "expected": "8.308715785652365e+217"
+  },
+  {
+    "bitPatternHex": "de9eedfc885994cc",
+    "expected": "-6.179490684746833e+147"
+  },
+  {
+    "bitPatternHex": "189924b38ab3dd2b",
+    "expected": "3.5270055408075804e-190"
+  },
+  {
+    "bitPatternHex": "9cd8fdc511c4b6de",
+    "expected": "-1.0346920175229998e-169"
+  },
+  {
+    "bitPatternHex": "4b2655c204e9c855",
+    "expected": "1.069633601843024e+54"
+  },
+  {
+    "bitPatternHex": "1c9e4d85a45ae340",
+    "expected": "7.841254040046015e-171"
+  },
+  {
+    "bitPatternHex": "dbb4ff23365e338f",
+    "expected": "-5.96139239280466e+133"
+  },
+  {
+    "bitPatternHex": "40fdc4edb7c58272",
+    "expected": "121934.85736609416"
+  },
+  {
+    "bitPatternHex": "9a5c362c052ffd59",
+    "expected": "-1.0623080848086844e-181"
+  },
+  {
+    "bitPatternHex": "f6557898905330f4",
+    "expected": "-1.0564041372790538e+262"
+  },
+  {
+    "bitPatternHex": "4a003bc189542833",
+    "expected": "2.965646582452087e+48"
+  },
+  {
+    "bitPatternHex": "0a5d968664d2df46",
+    "expected": "9.621863118339823e-259"
+  },
+  {
+    "bitPatternHex": "4152dd7608fa7a9d",
+    "expected": "4945368.140288022"
+  },
+  {
+    "bitPatternHex": "b063bf7bc7a3f1e8",
+    "expected": "-1.3643752426006832e-75"
+  },
+  {
+    "bitPatternHex": "68a7105010431f17",
+    "expected": "1.3469038150632368e+196"
+  },
+  {
+    "bitPatternHex": "319dd8fa0c03615a",
+    "expected": "1.0811598946688344e-69"
+  },
+  {
+    "bitPatternHex": "b35e8f1922ad4421",
+    "expected": "-2.971390352038846e-61"
+  },
+  {
+    "bitPatternHex": "686427fd77ddda1c",
+    "expected": "7.356921395506725e+194"
+  },
+  {
+    "bitPatternHex": "cc51e9505ae6bc3b",
+    "expected": "-4.497262774633746e+59"
+  },
+  {
+    "bitPatternHex": "048e16437baedcae",
+    "expected": "9.879445132544717e-287"
+  },
+  {
+    "bitPatternHex": "672a68978de49de5",
+    "expected": "9.192466610795772e+188"
+  },
+  {
+    "bitPatternHex": "a3d587b83534dd90",
+    "expected": "-4.6283811445344304e-136"
+  },
+  {
+    "bitPatternHex": "d4ed9521406ce39f",
+    "expected": "-1.2940885811916748e+101"
+  },
+  {
+    "bitPatternHex": "d3a59333ff026542",
+    "expected": "-9.000770751548973e+94"
+  },
+  {
+    "bitPatternHex": "5eeffe3382790be9",
+    "expected": "2.0454199002310832e+149"
+  },
+  {
+    "bitPatternHex": "3d61c4390e343044",
+    "expected": "5.049541754713312e-13"
+  },
+  {
+    "bitPatternHex": "66ab563aa219b943",
+    "expected": "3.717025323430262e+186"
+  },
+  {
+    "bitPatternHex": "617722f7f0d44f16",
+    "expected": "3.252798434153759e+161"
+  },
+  {
+    "bitPatternHex": "8cc6b3782fc3522d",
+    "expected": "-4.0584440629071316e-247"
+  },
+  {
+    "bitPatternHex": "9102c64e72b24638",
+    "expected": "-9.906603135050853e-227"
+  },
+  {
+    "bitPatternHex": "3394a8a3102ba127",
+    "expected": "3.213991077667245e-60"
+  },
+  {
+    "bitPatternHex": "4720e245d3b82e2a",
+    "expected": "4.3833053287096715e+34"
+  },
+  {
+    "bitPatternHex": "2136f316e42074b1",
+    "expected": "1.1217515189499554e-148"
+  },
+  {
+    "bitPatternHex": "42413256a204d36c",
+    "expected": "147717964809.65173"
+  },
+  {
+    "bitPatternHex": "2f8224a8f4ff3f4b",
+    "expected": "7.650769527543372e-80"
+  },
+  {
+    "bitPatternHex": "a514ba45c352d67e",
+    "expected": "-4.672308029195927e-130"
+  },
+  {
+    "bitPatternHex": "f987e8b2a4b5b775",
+    "expected": "-2.648908749283001e+277"
+  },
+  {
+    "bitPatternHex": "410b96679474cbe0",
+    "expected": "225996.94748839643"
+  },
+  {
+    "bitPatternHex": "79c1b93b2a7377af",
+    "expected": "3.141788480761145e+278"
+  },
+  {
+    "bitPatternHex": "80bf377452ee5c12",
+    "expected": "-4.4453940638985115e-305"
+  },
+  {
+    "bitPatternHex": "76d14f50b9749e79",
+    "expected": "2.180263078292131e+264"
+  },
+  {
+    "bitPatternHex": "6b0837e193f26394",
+    "expected": "3.88767927822109e+207"
+  },
+  {
+    "bitPatternHex": "e0bfd9331d8d6e53",
+    "expected": "-1.0931653518560555e+158"
+  },
+  {
+    "bitPatternHex": "c94bb5cd2d4e12e6",
+    "expected": "-1.235914524439673e+45"
+  },
+  {
+    "bitPatternHex": "2ae65084f15eedbd",
+    "expected": "4.98148921320394e-102"
+  },
+  {
+    "bitPatternHex": "4e912fa8f8090e88",
+    "expected": "2.965364997240805e+70"
+  },
+  {
+    "bitPatternHex": "65a3eabce45c8737",
+    "expected": "4.132283619085372e+181"
+  },
+  {
+    "bitPatternHex": "fc9106a709c28efa",
+    "expected": "-1.0619109301923988e+292"
+  },
+  {
+    "bitPatternHex": "36825f54a30aa941",
+    "expected": "4.022686746187661e-46"
+  },
+  {
+    "bitPatternHex": "aaa7fe22b91380bc",
+    "expected": "-3.347579759649737e-103"
+  },
+  {
+    "bitPatternHex": "1e64b507ea1e665b",
+    "expected": "2.876687707542368e-162"
+  },
+  {
+    "bitPatternHex": "e4563f1bca7da44e",
+    "expected": "-2.2008960722034957e+175"
+  },
+  {
+    "bitPatternHex": "2125be73ad661505",
+    "expected": "5.31411131776632e-149"
+  },
+  {
+    "bitPatternHex": "f7810962ceafae30",
+    "expected": "-4.394715030972624e+267"
+  },
+  {
+    "bitPatternHex": "c951f8cd15a2efbf",
+    "expected": "-1.6031452077244742e+45"
+  },
+  {
+    "bitPatternHex": "713b1cdcd82666e2",
+    "expected": "2.7586086083323013e+237"
+  },
+  {
+    "bitPatternHex": "81c1d02afcbbb509",
+    "expected": "-3.3248740726388794e-300"
+  },
+  {
+    "bitPatternHex": "aacda0028d72cae4",
+    "expected": "-1.653371385959506e-102"
+  },
+  {
+    "bitPatternHex": "d8b9423d8df04763",
+    "expected": "-2.5478284616247388e+119"
+  },
+  {
+    "bitPatternHex": "7e03842d0ead2ab6",
+    "expected": "1.021088713185026e+299"
+  },
+  {
+    "bitPatternHex": "fc86ff2857f64d4d",
+    "expected": "-7.171524921317701e+291"
+  },
+  {
+    "bitPatternHex": "1243a51077dd4ad8",
+    "expected": "1.0869270888850927e-220"
+  },
+  {
+    "bitPatternHex": "ba8c28d78126d147",
+    "expected": "-1.1373546958680259e-26"
+  },
+  {
+    "bitPatternHex": "7972b9a6cf5f83ca",
+    "expected": "1.0372955854359881e+277"
+  },
+  {
+    "bitPatternHex": "8b419eeb7a24e1d1",
+    "expected": "-1.877668048980089e-254"
+  },
+  {
+    "bitPatternHex": "6e8e2cba368ee20c",
+    "expected": "3.490358078507301e+224"
+  },
+  {
+    "bitPatternHex": "c82511ac91a5316b",
+    "expected": "-3.5847113051825264e+39"
+  },
+  {
+    "bitPatternHex": "a2faaeb60c3c461e",
+    "expected": "-3.500966725078046e-140"
+  },
+  {
+    "bitPatternHex": "eb4470bcbc3eb695",
+    "expected": "-5.249959766076537e+208"
+  },
+  {
+    "bitPatternHex": "e2e838f4abba8480",
+    "expected": "-2.856710691041083e+168"
+  },
+  {
+    "bitPatternHex": "d70f7d17cd6c4bcf",
+    "expected": "-2.3664775153918781e+111"
+  },
+  {
+    "bitPatternHex": "e96d9d83608785b2",
+    "expected": "-7.0840737236419714e+199"
+  },
+  {
+    "bitPatternHex": "cc1feb55d3274f99",
+    "expected": "-5.009013935378228e+58"
+  },
+  {
+    "bitPatternHex": "9c34d0bd55da6634",
+    "expected": "-8.416025245744479e-173"
+  },
+  {
+    "bitPatternHex": "e7cd6ff753c34473",
+    "expected": "-1.0492675148753938e+192"
+  },
+  {
+    "bitPatternHex": "5c7339b68a9e9686",
+    "expected": "2.235807272842755e+137"
+  },
+  {
+    "bitPatternHex": "7c0c1fe565f270dd",
+    "expected": "3.4260375105317033e+289"
+  },
+  {
+    "bitPatternHex": "3ddfaedb75a3fb28",
+    "expected": "1.1526221419163611e-10"
+  },
+  {
+    "bitPatternHex": "099b84780d1b7f57",
+    "expected": "2.184701382933948e-262"
+  },
+  {
+    "bitPatternHex": "5e926c33db0c0c9a",
+    "expected": "3.680699627061178e+147"
+  },
+  {
+    "bitPatternHex": "a0814b1a80681e61",
+    "expected": "-4.127355814763963e-152"
+  },
+  {
+    "bitPatternHex": "c7804586ab3bf75c",
+    "expected": "-2.7035809781573614e+36"
+  },
+  {
+    "bitPatternHex": "5fb125a01934a07b",
+    "expected": "8.980599066345946e+152"
+  },
+  {
+    "bitPatternHex": "db9e42096cdbbbee",
+    "expected": "-2.1477201532861757e+133"
+  },
+  {
+    "bitPatternHex": "45743cad25c89c25",
+    "expected": "3.9144083824939474e+26"
+  },
+  {
+    "bitPatternHex": "a4584e4bfeaa4ed0",
+    "expected": "-1.3376198199658448e-133"
+  },
+  {
+    "bitPatternHex": "6f16d546d7808bdf",
+    "expected": "1.3522651599811388e+227"
+  },
+  {
+    "bitPatternHex": "6984d7663b2eb882",
+    "expected": "1.9941329029181584e+200"
+  },
+  {
+    "bitPatternHex": "3f81b7a587d06e29",
+    "expected": "0.008651059348316075"
+  },
+  {
+    "bitPatternHex": "1b334031878e3584",
+    "expected": "1.1876551353660393e-177"
+  },
+  {
+    "bitPatternHex": "07b7ac4fadc76583",
+    "expected": "1.7504063641914129e-271"
+  },
+  {
+    "bitPatternHex": "3f0257ee680f5656",
+    "expected": "0.000034987414444448306"
+  },
+  {
+    "bitPatternHex": "0fe779b3a5fc586d",
+    "expected": "4.725266484651243e-232"
+  },
+  {
+    "bitPatternHex": "040cf4b428121f78",
+    "expected": "3.714076572669213e-289"
+  },
+  {
+    "bitPatternHex": "a6987b06f10b9167",
+    "expected": "-9.25813237680438e-123"
+  },
+  {
+    "bitPatternHex": "7bab034d4885296a",
+    "expected": "5.141585417208242e+287"
+  },
+  {
+    "bitPatternHex": "baa6747d590d5ef1",
+    "expected": "-3.627806992901184e-26"
+  },
+  {
+    "bitPatternHex": "c28f560a0f1fc0ac",
+    "expected": "-4306799551480.084"
+  },
+  {
+    "bitPatternHex": "75e3a1ae94adb38b",
+    "expected": "7.546078372409538e+259"
+  },
+  {
+    "bitPatternHex": "f1a2a8c709e905be",
+    "expected": "-2.4300858519824553e+239"
+  },
+  {
+    "bitPatternHex": "8aaef1210eccc5b5",
+    "expected": "-3.219888581520558e-257"
+  },
+  {
+    "bitPatternHex": "f3bbf157f5d40d20",
+    "expected": "-3.1259753403793707e+249"
+  },
+  {
+    "bitPatternHex": "37df61da83d0afef",
+    "expected": "1.441001814480969e-39"
+  },
+  {
+    "bitPatternHex": "71237c010478ff52",
+    "expected": "9.912277011039597e+236"
+  },
+  {
+    "bitPatternHex": "21435887ba1010b9",
+    "expected": "1.8912080683617988e-148"
+  },
+  {
+    "bitPatternHex": "0f4fb57e4c3338d4",
+    "expected": "6.232974804042476e-235"
+  },
+  {
+    "bitPatternHex": "8372a672c8fdaa93",
+    "expected": "-4.672264833224857e-292"
+  },
+  {
+    "bitPatternHex": "9fe811810f2c6a26",
+    "expected": "-5.609692050324326e-155"
+  },
+  {
+    "bitPatternHex": "771f7ac0bafd03fd",
+    "expected": "6.344013005685473e+265"
+  },
+  {
+    "bitPatternHex": "8d77760ec91cb7c8",
+    "expected": "-8.589997941101795e-244"
+  },
+  {
+    "bitPatternHex": "ef65144be8080777",
+    "expected": "-3.994869214085182e+228"
+  },
+  {
+    "bitPatternHex": "5c19dfc168c7da3a",
+    "expected": "4.7015644544488145e+135"
+  },
+  {
+    "bitPatternHex": "a4bab8c6c38da381",
+    "expected": "-9.411684040411738e-132"
+  },
+  {
+    "bitPatternHex": "abce211a117f3dfc",
+    "expected": "-1.1019972673470054e-97"
+  },
+  {
+    "bitPatternHex": "223946840e316a9b",
+    "expected": "8.096568989699213e-144"
+  },
+  {
+    "bitPatternHex": "5c7bcb680a31238e",
+    "expected": "3.2323455716441363e+137"
+  },
+  {
+    "bitPatternHex": "b6b9f6f4fc543345",
+    "expected": "-4.548032520423796e-45"
+  },
+  {
+    "bitPatternHex": "783911186accbf70",
+    "expected": "1.3242642167333642e+271"
+  },
+  {
+    "bitPatternHex": "b757f275fc8db7ff",
+    "expected": "-4.2953027118152293e-42"
+  },
+  {
+    "bitPatternHex": "6d61177576035a22",
+    "expected": "7.541721690236929e+218"
+  },
+  {
+    "bitPatternHex": "2461cf5fed7f3749",
+    "expected": "1.9602761268001052e-133"
+  },
+  {
+    "bitPatternHex": "c295d177acae7024",
+    "expected": "-5997350038428.035"
+  },
+  {
+    "bitPatternHex": "8620fd58d0a713a3",
+    "expected": "-3.7438471906455244e-279"
+  },
+  {
+    "bitPatternHex": "02ccee585962d1f6",
+    "expected": "3.5389810897422455e-295"
+  },
+  {
+    "bitPatternHex": "1591f275f01d738d",
+    "expected": "8.944118250657146e-205"
+  },
+  {
+    "bitPatternHex": "b6cfcf93e5f8c418",
+    "expected": "-1.1144123988410548e-44"
+  },
+  {
+    "bitPatternHex": "db1b63ce0f61e187",
+    "expected": "-7.594304300357598e+130"
+  },
+  {
+    "bitPatternHex": "34b9940092111f0a",
+    "expected": "1.0431569384784458e-54"
+  },
+  {
+    "bitPatternHex": "f984ddff2ba1ec11",
+    "expected": "-2.3119033740523466e+277"
+  },
+  {
+    "bitPatternHex": "5ad2424f68df6f4c",
+    "expected": "3.164140189397792e+129"
+  },
+  {
+    "bitPatternHex": "41a1e7ed9620c5ab",
+    "expected": "150206155.0640081"
+  },
+  {
+    "bitPatternHex": "68a8f48d6dc1155e",
+    "expected": "1.4573695606456204e+196"
+  },
+  {
+    "bitPatternHex": "03fd2f0d63a7e4d5",
+    "expected": "1.8716558299243542e-289"
+  },
+  {
+    "bitPatternHex": "e8427b62326965c0",
+    "expected": "-1.686457549281059e+194"
+  },
+  {
+    "bitPatternHex": "5d4b67115628a40f",
+    "expected": "2.6105973110409086e+141"
+  },
+  {
+    "bitPatternHex": "f7558c4836aac8f2",
+    "expected": "-6.948045867110027e+266"
+  },
+  {
+    "bitPatternHex": "3d0776e819f6e1d9",
+    "expected": "1.042032197713832e-14"
+  },
+  {
+    "bitPatternHex": "8c70760fe124db74",
+    "expected": "-9.196541794097586e-249"
+  },
+  {
+    "bitPatternHex": "00ca3bf8fe44a0b3",
+    "expected": "7.471767566534458e-305"
+  },
+  {
+    "bitPatternHex": "da98c585615f8dc6",
+    "expected": "-2.682944204498164e+128"
+  },
+  {
+    "bitPatternHex": "f6fa0dc1c8c6a71d",
+    "expected": "-1.3126418483163855e+265"
+  },
+  {
+    "bitPatternHex": "8e91e27eaf1b4468",
+    "expected": "-1.716588538274927e-238"
+  },
+  {
+    "bitPatternHex": "1ca54e17f6aa1f97",
+    "expected": "1.1025926402633016e-170"
+  },
+  {
+    "bitPatternHex": "18c9a503efddf7da",
+    "expected": "2.8778524167411106e-189"
+  },
+  {
+    "bitPatternHex": "c50f4c47394338a1",
+    "expected": "-4.7296142632230973e+24"
+  },
+  {
+    "bitPatternHex": "3ebceaa92305549c",
+    "expected": "0.000001723566253349497"
+  },
+  {
+    "bitPatternHex": "406c2a3e531cc4bb",
+    "expected": "225.3201079904446"
+  },
+  {
+    "bitPatternHex": "b5ac8eb3dde5db2e",
+    "expected": "-3.81636482962277e-50"
+  },
+  {
+    "bitPatternHex": "52938f223a50da65",
+    "expected": "6.225409844946922e+89"
+  },
+  {
+    "bitPatternHex": "668739176cbf0010",
+    "expected": "7.89415992014976e+185"
+  },
+  {
+    "bitPatternHex": "0cba658f9f52741f",
+    "expected": "2.359573901308693e-247"
+  },
+  {
+    "bitPatternHex": "870ac0b1aa8c4bc2",
+    "expected": "-9.65876867684022e-275"
+  },
+  {
+    "bitPatternHex": "67cba1953b901069",
+    "expected": "9.848877599504549e+191"
+  },
+  {
+    "bitPatternHex": "c2b45174a0fb7ac4",
+    "expected": "-22340081613690.766"
+  },
+  {
+    "bitPatternHex": "00086820a99751c3",
+    "expected": "1.169102254805938e-308"
+  },
+  {
+    "bitPatternHex": "7ebdd9fe530f9d96",
+    "expected": "3.198617876170881e+302"
+  },
+  {
+    "bitPatternHex": "d4a09ea590a19ead",
+    "expected": "-4.543935137554637e+99"
+  },
+  {
+    "bitPatternHex": "c4a572ef483938b8",
+    "expected": "-5.06449335293773e+22"
+  },
+  {
+    "bitPatternHex": "162bc2dfafb1c1a7",
+    "expected": "7.083559640461171e-202"
+  },
+  {
+    "bitPatternHex": "8066f34852eb64aa",
+    "expected": "-1.0213232450023402e-306"
+  },
+  {
+    "bitPatternHex": "03a1ff1e60aa8931",
+    "expected": "3.606813068049358e-291"
+  },
+  {
+    "bitPatternHex": "5fae1b63f4f5edec",
+    "expected": "7.884156103709112e+152"
+  },
+  {
+    "bitPatternHex": "c0c93ad8920667cb",
+    "expected": "-12917.691956329994"
+  },
+  {
+    "bitPatternHex": "bc45e33b7d2c74fe",
+    "expected": "-2.373061217961023e-18"
+  },
+  {
+    "bitPatternHex": "7782a64e861813f5",
+    "expected": "4.810791277564759e+267"
+  },
+  {
+    "bitPatternHex": "0fc6e3d3d5228e60",
+    "expected": "1.1518560944959625e-232"
+  },
+  {
+    "bitPatternHex": "75b974b8f0fc282f",
+    "expected": "1.2231100822598954e+259"
+  },
+  {
+    "bitPatternHex": "2f34ba82c304e292",
+    "expected": "2.7315569881676195e-81"
+  },
+  {
+    "bitPatternHex": "b8d313ffe2a3c2f9",
+    "expected": "-5.741113882791387e-35"
+  },
+  {
+    "bitPatternHex": "18ab11e072d74e14",
+    "expected": "7.594484326622065e-190"
+  },
+  {
+    "bitPatternHex": "4c4884ee58a026d3",
+    "expected": "3.0781980252306054e+59"
+  },
+  {
+    "bitPatternHex": "a1ab27303ba00166",
+    "expected": "-1.6988350594121753e-146"
+  },
+  {
+    "bitPatternHex": "060df806eb975a3d",
+    "expected": "1.650989061624673e-279"
+  },
+  {
+    "bitPatternHex": "ad6792311847a108",
+    "expected": "-5.78562723037115e-90"
+  },
+  {
+    "bitPatternHex": "d823dd12de89c7b7",
+    "expected": "-3.9133223780894764e+116"
+  },
+  {
+    "bitPatternHex": "ac85a8dd0136657a",
+    "expected": "-3.244906925055641e-94"
+  },
+  {
+    "bitPatternHex": "b629c72d7250ddc1",
+    "expected": "-8.819024402991131e-48"
+  },
+  {
+    "bitPatternHex": "ec3484058af63b3c",
+    "expected": "-1.7266467278436202e+213"
+  },
+  {
+    "bitPatternHex": "9ef404dad5feaedb",
+    "expected": "-1.4239144885423175e-159"
+  },
+  {
+    "bitPatternHex": "d5f187c3b761e2ce",
+    "expected": "-1.0051446980954875e+106"
+  },
+  {
+    "bitPatternHex": "bcbe7263ed069185",
+    "expected": "-4.2253474674607456e-16"
+  },
+  {
+    "bitPatternHex": "aab56a0d122910b0",
+    "expected": "-5.975642431322499e-103"
+  },
+  {
+    "bitPatternHex": "cd550d987e56c03f",
+    "expected": "-3.4642985351182316e+64"
+  },
+  {
+    "bitPatternHex": "ed65a69dceb18d62",
+    "expected": "-9.553482776251701e+218"
+  },
+  {
+    "bitPatternHex": "0bbb5450c3caf989",
+    "expected": "3.7276322635568514e-252"
+  },
+  {
+    "bitPatternHex": "0cc7071ffc9d5564",
+    "expected": "4.1168649227107526e-247"
+  },
+  {
+    "bitPatternHex": "75d6a9f0cfa01fe3",
+    "expected": "4.355816720558851e+259"
+  },
+  {
+    "bitPatternHex": "ec392a64d97db936",
+    "expected": "-2.117991729682254e+213"
+  },
+  {
+    "bitPatternHex": "cd14e6c565d0d9cd",
+    "expected": "-2.1495894055860485e+63"
+  },
+  {
+    "bitPatternHex": "c176e9f5197b7d58",
+    "expected": "-24026961.592648834"
+  },
+  {
+    "bitPatternHex": "1a3a99c6c98331c7",
+    "expected": "2.5041222677597847e-182"
+  },
+  {
+    "bitPatternHex": "e69ac98685fbfa4a",
+    "expected": "-1.8211461600831877e+186"
+  },
+  {
+    "bitPatternHex": "fb8af5952aef3651",
+    "expected": "-1.2828462687375702e+287"
+  },
+  {
+    "bitPatternHex": "074b689bd88b3c8c",
+    "expected": "1.5832928368210994e-273"
+  },
+  {
+    "bitPatternHex": "faa5a2f0e86699eb",
+    "expected": "-6.283950035624291e+282"
+  },
+  {
+    "bitPatternHex": "ca4666db1193249e",
+    "expected": "-6.548047694816283e+49"
+  },
+  {
+    "bitPatternHex": "b1e72f0245655315",
+    "expected": "-2.6872767834675207e-68"
+  },
+  {
+    "bitPatternHex": "5a8bf6a705a78700",
+    "expected": "1.5143263735570308e+128"
+  },
+  {
+    "bitPatternHex": "f4ff743ea4d33c4f",
+    "expected": "-3.68971939782182e+255"
+  },
+  {
+    "bitPatternHex": "ac988903496f4c32",
+    "expected": "-7.351417323288505e-94"
+  },
+  {
+    "bitPatternHex": "188707b147deb419",
+    "expected": "1.6152792433413747e-190"
+  },
+  {
+    "bitPatternHex": "f5ce36cb537290b4",
+    "expected": "-2.903454896979649e+259"
+  },
+  {
+    "bitPatternHex": "5d948fea21183cf3",
+    "expected": "6.268546169293489e+142"
+  },
+  {
+    "bitPatternHex": "3bddb5fc6c55c506",
+    "expected": "2.5166096727046682e-20"
+  },
+  {
+    "bitPatternHex": "a51e911403b71d5d",
+    "expected": "-6.890180543332418e-130"
+  },
+  {
+    "bitPatternHex": "17b83d802949cda8",
+    "expected": "2.0753897546588257e-194"
+  },
+  {
+    "bitPatternHex": "e9ea170c692effd7",
+    "expected": "-1.597650348125833e+202"
+  },
+  {
+    "bitPatternHex": "9130c1f581b9231a",
+    "expected": "-7.073859636017053e-226"
+  },
+  {
+    "bitPatternHex": "de71c9c0c37e92e1",
+    "expected": "-8.884794858251957e+146"
+  },
+  {
+    "bitPatternHex": "1ac735306879f1dc",
+    "expected": "1.1185773140939926e-179"
+  },
+  {
+    "bitPatternHex": "af2f0f48e8df28fb",
+    "expected": "-2.0464848217728442e-81"
+  },
+  {
+    "bitPatternHex": "a4269102fa0d3a6e",
+    "expected": "-1.5523699355513035e-134"
+  },
+  {
+    "bitPatternHex": "3687077325bd58a5",
+    "expected": "5.0422880515701965e-46"
+  },
+  {
+    "bitPatternHex": "0aa7f0fc1cb2f150",
+    "expected": "2.491393321122361e-257"
+  },
+  {
+    "bitPatternHex": "d31e68e6fc229c5f",
+    "expected": "-2.4778321916157714e+92"
+  },
+  {
+    "bitPatternHex": "58e29272ac5b1f02",
+    "expected": "1.4986782983085803e+120"
+  },
+  {
+    "bitPatternHex": "079dd6c01bf7f2a9",
+    "expected": "5.515771723613329e-272"
+  },
+  {
+    "bitPatternHex": "dbc328334bbc0004",
+    "expected": "-1.0878182201517914e+134"
+  },
+  {
+    "bitPatternHex": "07efb436bdc97e03",
+    "expected": "1.8753719763722148e-270"
+  },
+  {
+    "bitPatternHex": "d73c9b7b851524d6",
+    "expected": "-1.7199510504108467e+112"
+  },
+  {
+    "bitPatternHex": "e8bf4516d1f324ed",
+    "expected": "-3.652274384494721e+196"
+  },
+  {
+    "bitPatternHex": "ab73b5cd586791f8",
+    "expected": "-2.252846958484404e-99"
+  },
+  {
+    "bitPatternHex": "161d8ba8785e31e7",
+    "expected": "3.7694227346638485e-202"
+  },
+  {
+    "bitPatternHex": "0e7f93117a2adfea",
+    "expected": "7.5763448322415295e-239"
+  },
+  {
+    "bitPatternHex": "53d73abc8137f371",
+    "expected": "7.75277816322685e+95"
+  },
+  {
+    "bitPatternHex": "a6b0a36facc75b2c",
+    "expected": "-2.516946152751612e-122"
+  },
+  {
+    "bitPatternHex": "a44e52ac5d495c0b",
+    "expected": "-8.343788397190202e-134"
+  },
+  {
+    "bitPatternHex": "53ec4307985d243e",
+    "expected": "1.8864660127823594e+96"
+  },
+  {
+    "bitPatternHex": "a4fdd44974d7a235",
+    "expected": "-1.680986262039963e-130"
+  },
+  {
+    "bitPatternHex": "f9ac4a599fa04fa0",
+    "expected": "-1.2537344642739459e+278"
+  },
+  {
+    "bitPatternHex": "5e7102826635e06f",
+    "expected": "8.4960520748218e+146"
+  },
+  {
+    "bitPatternHex": "66e0589f3dd205d2",
+    "expected": "3.55617879913267e+187"
+  },
+  {
+    "bitPatternHex": "635e9209c16fb539",
+    "expected": "4.614870899103864e+170"
+  },
+  {
+    "bitPatternHex": "c398ed02c91ea354",
+    "expected": "-449023722304099600"
+  },
+  {
+    "bitPatternHex": "357273d884b4e313",
+    "expected": "3.0824531941364086e-51"
+  },
+  {
+    "bitPatternHex": "1244396cd5e8d8a6",
+    "expected": "1.1189921755065993e-220"
+  },
+  {
+    "bitPatternHex": "034c7fc4756df07d",
+    "expected": "8.924527721434036e-293"
+  },
+  {
+    "bitPatternHex": "c926cda43ac9ca48",
+    "expected": "-2.542651487174189e+44"
+  },
+  {
+    "bitPatternHex": "8cf368af8421c7f7",
+    "expected": "-2.775908253510145e-246"
+  },
+  {
+    "bitPatternHex": "3ece7657aa4e30ba",
+    "expected": "0.000003631386180596728"
+  },
+  {
+    "bitPatternHex": "43a4f51045945801",
+    "expected": "755065570540126300"
+  },
+  {
+    "bitPatternHex": "13fd97844eb8787c",
+    "expected": "2.1975328290679165e-212"
+  },
+  {
+    "bitPatternHex": "45a3b3bd41c6331b",
+    "expected": "3.0487533244509953e+27"
+  },
+  {
+    "bitPatternHex": "40bcceab9d4fe20e",
+    "expected": "7374.670369141282"
+  },
+  {
+    "bitPatternHex": "7d414dc4f9bd2fc5",
+    "expected": "2.210278100436155e+295"
+  },
+  {
+    "bitPatternHex": "48fc8df00204a1f0",
+    "expected": "3.9799085520362896e+43"
+  },
+  {
+    "bitPatternHex": "923843a51f3e087f",
+    "expected": "-6.712585864915502e-221"
+  },
+  {
+    "bitPatternHex": "0c096df8e17100a2",
+    "expected": "1.1099228404233021e-250"
+  },
+  {
+    "bitPatternHex": "fcbe8f851ddefbc9",
+    "expected": "-7.624265894822476e+292"
+  },
+  {
+    "bitPatternHex": "a2d72b940e7f7aa4",
+    "expected": "-7.600328150223349e-141"
+  },
+  {
+    "bitPatternHex": "ff21bf25d31b6c23",
+    "expected": "-2.434010960255452e+304"
+  },
+  {
+    "bitPatternHex": "a46e3a17023de076",
+    "expected": "-3.3269458629968307e-133"
+  },
+  {
+    "bitPatternHex": "426cb50bbb50800d",
+    "expected": "986372233860.0016"
+  },
+  {
+    "bitPatternHex": "2db1f2a337a57698",
+    "expected": "1.4097190787326965e-88"
+  },
+  {
+    "bitPatternHex": "54675605fbcac207",
+    "expected": "3.987636399262146e+98"
+  },
+  {
+    "bitPatternHex": "55e2184dd260158a",
+    "expected": "5.187589254367209e+105"
+  },
+  {
+    "bitPatternHex": "66a7a61e1e4cc091",
+    "expected": "3.215571896811763e+186"
+  },
+  {
+    "bitPatternHex": "2c5619267ed249cc",
+    "expected": "4.138272989770975e-95"
+  },
+  {
+    "bitPatternHex": "d989a75718b6ae2b",
+    "expected": "-2.1198141855804952e+123"
+  },
+  {
+    "bitPatternHex": "35fc52a812f273de",
+    "expected": "1.2112061826706936e-48"
+  },
+  {
+    "bitPatternHex": "24205bf9ebb70155",
+    "expected": "1.125372224356331e-134"
+  },
+  {
+    "bitPatternHex": "b61c683732b4e840",
+    "expected": "-4.859230316640365e-48"
+  },
+  {
+    "bitPatternHex": "0d4f3ad8cdac148f",
+    "expected": "1.4293010718798306e-244"
+  },
+  {
+    "bitPatternHex": "2a7a1608e8150f72",
+    "expected": "4.549568632241373e-104"
+  },
+  {
+    "bitPatternHex": "85fd7a140b1ec659",
+    "expected": "-8.119427023764733e-280"
+  },
+  {
+    "bitPatternHex": "05ba2ffa0e0385f4",
+    "expected": "4.508339305432458e-281"
+  },
+  {
+    "bitPatternHex": "b0bf471c947e1933",
+    "expected": "-6.915076576955302e-74"
+  },
+  {
+    "bitPatternHex": "b4f610066ec13c46",
+    "expected": "-1.43965170311495e-53"
+  },
+  {
+    "bitPatternHex": "f969a23d2903d39d",
+    "expected": "-7.099996009718795e+276"
+  },
+  {
+    "bitPatternHex": "b0e4303dd96f96e8",
+    "expected": "-3.5707044466335885e-73"
+  },
+  {
+    "bitPatternHex": "e477fac440ea2017",
+    "expected": "-9.489397572285151e+175"
+  },
+  {
+    "bitPatternHex": "9907c60907dd8e5a",
+    "expected": "-4.26861728541363e-188"
+  },
+  {
+    "bitPatternHex": "4f52ee04d55a2d21",
+    "expected": "1.3378397241979295e+74"
+  },
+  {
+    "bitPatternHex": "35230ddf44d9cf1c",
+    "expected": "9.946750280538328e-53"
+  },
+  {
+    "bitPatternHex": "06008313fabbcd3b",
+    "expected": "9.096500292453584e-280"
+  },
+  {
+    "bitPatternHex": "e67e6f002c91d9ae",
+    "expected": "-5.172620579064748e+185"
+  },
+  {
+    "bitPatternHex": "82d06dbc824e16e5",
+    "expected": "-4.019262194566341e-295"
+  },
+  {
+    "bitPatternHex": "9a819ac6ebc62290",
+    "expected": "-5.303208742450044e-181"
+  },
+  {
+    "bitPatternHex": "66b1bf529231049f",
+    "expected": "4.826262432634047e+186"
+  },
+  {
+    "bitPatternHex": "b6f81362dfdb3242",
+    "expected": "-6.747455981814528e-44"
+  },
+  {
+    "bitPatternHex": "ce910c07e74814e9",
+    "expected": "-2.941350989630151e+70"
+  },
+  {
+    "bitPatternHex": "c31248bdb90fc544",
+    "expected": "-1286632317907281"
+  },
+  {
+    "bitPatternHex": "73fe4559529dea43",
+    "expected": "5.418282691927619e+250"
+  },
+  {
+    "bitPatternHex": "addffd6b115fec16",
+    "expected": "-1.0050654884116418e-87"
+  },
+  {
+    "bitPatternHex": "c96e33b88c30eb2d",
+    "expected": "-5.388223046718972e+45"
+  },
+  {
+    "bitPatternHex": "321279af1ddd2b38",
+    "expected": "1.713220035838089e-67"
+  },
+  {
+    "bitPatternHex": "d536c27eb750e227",
+    "expected": "-3.186001344546164e+102"
+  },
+  {
+    "bitPatternHex": "d26b2ac885839b2a",
+    "expected": "-1.0808672915470218e+89"
+  },
+  {
+    "bitPatternHex": "19be910680f59db1",
+    "expected": "1.1240055661846707e-184"
+  },
+  {
+    "bitPatternHex": "fe03997fcfd4086c",
+    "expected": "-1.025446634092848e+299"
+  },
+  {
+    "bitPatternHex": "375d32f5a6b6904b",
+    "expected": "5.2373246867322904e-42"
+  },
+  {
+    "bitPatternHex": "618162a916bb137e",
+    "expected": "4.888461409228029e+161"
+  },
+  {
+    "bitPatternHex": "cf33ff50854b7075",
+    "expected": "-3.533221038252298e+73"
+  },
+  {
+    "bitPatternHex": "efb991a3028d50e0",
+    "expected": "-1.5506316363438883e+230"
+  },
+  {
+    "bitPatternHex": "2a531b0d17bdd8af",
+    "expected": "8.330359737810025e-105"
+  },
+  {
+    "bitPatternHex": "36fccc2964206912",
+    "expected": "8.070780348928548e-44"
+  },
+  {
+    "bitPatternHex": "32186daa24b3e779",
+    "expected": "2.2652471955331994e-67"
+  },
+  {
+    "bitPatternHex": "192cf44f50493894",
+    "expected": "2.0795353547047476e-187"
+  },
+  {
+    "bitPatternHex": "39bf3fb2457bdf53",
+    "expected": "1.5406854790265561e-30"
+  },
+  {
+    "bitPatternHex": "9384b34a4146efe6",
+    "expected": "-1.200966314990542e-214"
+  },
+  {
+    "bitPatternHex": "4ac946de8ac0c6bd",
+    "expected": "1.8914372167556176e+52"
+  },
+  {
+    "bitPatternHex": "5f6367dfc5e33388",
+    "expected": "3.176131340546972e+151"
+  },
+  {
+    "bitPatternHex": "711a1071d5100837",
+    "expected": "6.629818272240891e+236"
+  },
+  {
+    "bitPatternHex": "7e517aa47b4f3bfa",
+    "expected": "2.9264025633873995e+300"
+  },
+  {
+    "bitPatternHex": "06b8c17313981241",
+    "expected": "2.7930488834803578e-276"
+  },
+  {
+    "bitPatternHex": "2df549ccc605f5bc",
+    "expected": "2.675357705955706e-87"
+  },
+  {
+    "bitPatternHex": "7478733291c7f75b",
+    "expected": "1.1203534804204698e+253"
+  },
+  {
+    "bitPatternHex": "21c23f85c73b214e",
+    "expected": "4.566785336285581e-146"
+  },
+  {
+    "bitPatternHex": "cb81b9dcdcb80e05",
+    "expected": "-5.433011264501566e+55"
+  },
+  {
+    "bitPatternHex": "55670efbb79f7330",
+    "expected": "2.582260887405774e+103"
+  },
+  {
+    "bitPatternHex": "dd983346a38390bf",
+    "expected": "-7.377660240618133e+142"
+  },
+  {
+    "bitPatternHex": "f2644226ed81b3e2",
+    "expected": "-1.0806667749255507e+243"
+  },
+  {
+    "bitPatternHex": "756330c8d9fb3e09",
+    "expected": "2.8814697563755023e+257"
+  },
+  {
+    "bitPatternHex": "7269a42bb394dfe4",
+    "expected": "1.3678120320982761e+243"
+  },
+  {
+    "bitPatternHex": "cd7d68766358f863",
+    "expected": "-1.9356436369889679e+65"
+  },
+  {
+    "bitPatternHex": "3efed58486e347b6",
+    "expected": "0.000029405644846054484"
+  },
+  {
+    "bitPatternHex": "c7ced14632dc664d",
+    "expected": "-8.192690743054403e+37"
+  },
+  {
+    "bitPatternHex": "4ac38040a5b6afd8",
+    "expected": "1.459237048900486e+52"
+  },
+  {
+    "bitPatternHex": "2fe4919232789247",
+    "expected": "5.551069263719466e-78"
+  },
+  {
+    "bitPatternHex": "7f922750de7d70ca",
+    "expected": "3.186968948306507e+306"
+  },
+  {
+    "bitPatternHex": "b1cd9b16ebfa8ad1",
+    "expected": "-8.579225321009385e-69"
+  },
+  {
+    "bitPatternHex": "72fa725d94f4970c",
+    "expected": "7.223183236929281e+245"
+  },
+  {
+    "bitPatternHex": "1b3a4f26f751026b",
+    "expected": "1.6231177108381636e-177"
+  },
+  {
+    "bitPatternHex": "a90a21b6cd1f031e",
+    "expected": "-5.432993667626905e-111"
+  },
+  {
+    "bitPatternHex": "9fbbd4a320dcef95",
+    "expected": "-8.108211055670636e-156"
+  },
+  {
+    "bitPatternHex": "e88fa26206d18980",
+    "expected": "-4.6185488944361827e+195"
+  },
+  {
+    "bitPatternHex": "3f4b006324f32ccf",
+    "expected": "0.0008240207770539245"
+  },
+  {
+    "bitPatternHex": "ad059b7aa1dc12b2",
+    "expected": "-8.286910269411923e-92"
+  },
+  {
+    "bitPatternHex": "7c64224751f71899",
+    "expected": "1.5696894814079723e+291"
+  },
+  {
+    "bitPatternHex": "0ac31ab5b217bb34",
+    "expected": "7.952169552035373e-257"
+  },
+  {
+    "bitPatternHex": "473e7c5070b63573",
+    "expected": "1.5829029768249678e+35"
+  },
+  {
+    "bitPatternHex": "c250f0af6be1f386",
+    "expected": "-291030019975.80505"
+  },
+  {
+    "bitPatternHex": "fe0136368aecc9dd",
+    "expected": "-9.005155975383674e+298"
+  },
+  {
+    "bitPatternHex": "06115998f4cca028",
+    "expected": "1.911627483461677e-279"
+  },
+  {
+    "bitPatternHex": "cc7e9e809a1b8057",
+    "expected": "-3.0751922945867216e+60"
+  },
+  {
+    "bitPatternHex": "16327bf4398b399a",
+    "expected": "9.432861609604048e-202"
+  },
+  {
+    "bitPatternHex": "a6b8292d65160761",
+    "expected": "-3.654887038524282e-122"
+  },
+  {
+    "bitPatternHex": "a1d95dafc164ec5c",
+    "expected": "-1.2696191461509206e-145"
+  },
+  {
+    "bitPatternHex": "aa8be669e8f2b17b",
+    "expected": "-9.731875437157486e-104"
+  },
+  {
+    "bitPatternHex": "b675973e20b3b8ee",
+    "expected": "-2.363683071452018e-46"
+  },
+  {
+    "bitPatternHex": "54bfa0fb2a431525",
+    "expected": "1.7295046688783594e+100"
+  },
+  {
+    "bitPatternHex": "13f3e06ff73893d0",
+    "expected": "1.476071985199865e-212"
+  },
+  {
+    "bitPatternHex": "176f663245bdacdf",
+    "expected": "8.401009544149963e-196"
+  },
+  {
+    "bitPatternHex": "43ef38d9244c8582",
+    "expected": "17998294110379446000"
+  },
+  {
+    "bitPatternHex": "7e446ab29bc07729",
+    "expected": "1.7091221804852996e+300"
+  },
+  {
+    "bitPatternHex": "f58da8c35a36ca84",
+    "expected": "-1.7813373973482251e+258"
+  },
+  {
+    "bitPatternHex": "458c3ece10549683",
+    "expected": "1.0926883480690436e+27"
+  },
+  {
+    "bitPatternHex": "c163aec34b2ff356",
+    "expected": "-10319386.349603336"
+  },
+  {
+    "bitPatternHex": "b1ccd364219af16d",
+    "expected": "-8.353174742603954e-69"
+  },
+  {
+    "bitPatternHex": "26fc33c89dda0478",
+    "expected": "6.825995074060396e-121"
+  },
+  {
+    "bitPatternHex": "f438de6218c9d267",
+    "expected": "-7.122118613586331e+251"
+  },
+  {
+    "bitPatternHex": "7966bd127c35966a",
+    "expected": "6.298092774846572e+276"
+  },
+  {
+    "bitPatternHex": "dbd58fd7662387f1",
+    "expected": "-2.44875151558585e+134"
+  },
+  {
+    "bitPatternHex": "02ae386e375bf5ac",
+    "expected": "9.241765315575553e-296"
+  },
+  {
+    "bitPatternHex": "c7f7b9065e8e048b",
+    "expected": "-5.045271681238283e+38"
+  },
+  {
+    "bitPatternHex": "e768a4f6f38642be",
+    "expected": "-1.3725412649994628e+190"
+  },
+  {
+    "bitPatternHex": "339d6a12a1b37eb5",
+    "expected": "4.5761482375486884e-60"
+  },
+  {
+    "bitPatternHex": "53c08fe4eb299220",
+    "expected": "2.763781455465836e+95"
+  },
+  {
+    "bitPatternHex": "3c03bd9979d410ef",
+    "expected": "1.3376766536268162e-19"
+  },
+  {
+    "bitPatternHex": "7445966165300c52",
+    "expected": "1.2364803025913562e+252"
+  },
+  {
+    "bitPatternHex": "25b7b6da1ab059b9",
+    "expected": "5.473832659018575e-127"
+  },
+  {
+    "bitPatternHex": "c7f1cfdf49970dd4",
+    "expected": "-3.788193629729074e+38"
+  },
+  {
+    "bitPatternHex": "9f44f68ad3351b93",
+    "expected": "-4.771411527626177e-158"
+  },
+  {
+    "bitPatternHex": "ff15579d20fa4726",
+    "expected": "-1.4635772990946535e+304"
+  },
+  {
+    "bitPatternHex": "10500df29dcfdcfd",
+    "expected": "4.136372609864485e-230"
+  },
+  {
+    "bitPatternHex": "8e4ad77e8ed3dcc8",
+    "expected": "-8.050904850551375e-240"
+  },
+  {
+    "bitPatternHex": "dc199b9c0d948877",
+    "expected": "-4.6531942438662476e+135"
+  },
+  {
+    "bitPatternHex": "6968a98bcb79873a",
+    "expected": "5.8993006688445405e+199"
+  },
+  {
+    "bitPatternHex": "08e73215f29c0c81",
+    "expected": "8.992083594601205e-266"
+  },
+  {
+    "bitPatternHex": "af78dbec9a1eb2fc",
+    "expected": "-5.2413866322981155e-80"
+  },
+  {
+    "bitPatternHex": "bb8efbd84643fb9b",
+    "expected": "-8.201335323344913e-22"
+  },
+  {
+    "bitPatternHex": "cea315e18063a08e",
+    "expected": "-6.586154377544841e+70"
+  },
+  {
+    "bitPatternHex": "2061117090372c45",
+    "expected": "1.0183990653489542e-152"
+  },
+  {
+    "bitPatternHex": "27ca4135f0398470",
+    "expected": "5.205701240475741e-117"
+  },
+  {
+    "bitPatternHex": "d469a0a20f6758ff",
+    "expected": "-4.379195980307391e+98"
+  },
+  {
+    "bitPatternHex": "72d974057223a722",
+    "expected": "1.7379569556998476e+245"
+  },
+  {
+    "bitPatternHex": "e72e616c165fc049",
+    "expected": "-1.057506412878728e+189"
+  },
+  {
+    "bitPatternHex": "a5420e3dfd1d8524",
+    "expected": "-3.2560015012365864e-129"
+  },
+  {
+    "bitPatternHex": "b86689ff4898c4a3",
+    "expected": "-5.298905558289173e-37"
+  },
+  {
+    "bitPatternHex": "157cea545aadeef6",
+    "expected": "3.6025615871610895e-205"
+  },
+  {
+    "bitPatternHex": "256a68ba4eb48c8d",
+    "expected": "1.904957729509812e-128"
+  },
+  {
+    "bitPatternHex": "91cbd2e308ef2918",
+    "expected": "-6.01352751055483e-223"
+  },
+  {
+    "bitPatternHex": "bd107b7439cca287",
+    "expected": "-1.4639171843314777e-14"
+  },
+  {
+    "bitPatternHex": "e19079af51940c0a",
+    "expected": "-9.26513696344054e+161"
+  },
+  {
+    "bitPatternHex": "f7b4ed48ba389511",
+    "expected": "-4.3185789295706555e+268"
+  },
+  {
+    "bitPatternHex": "bf8edcd69432244c",
+    "expected": "-0.01506965293653386"
+  },
+  {
+    "bitPatternHex": "5008b60d947596ab",
+    "expected": "3.576693842222782e+77"
+  },
+  {
+    "bitPatternHex": "163a01c2db58d25e",
+    "expected": "1.3271840682854568e-201"
+  },
+  {
+    "bitPatternHex": "b97c113cef171dd5",
+    "expected": "-8.648915666553374e-32"
+  },
+  {
+    "bitPatternHex": "12b805920f3d6ac0",
+    "expected": "1.7012493771497344e-218"
+  },
+  {
+    "bitPatternHex": "41f5c9eb3ee8850f",
+    "expected": "5848871918.532485"
+  },
+  {
+    "bitPatternHex": "e76f0287460455f2",
+    "expected": "-1.7270595775423447e+190"
+  },
+  {
+    "bitPatternHex": "488ed6964aa7aad9",
+    "expected": "3.3579859703799023e+41"
+  },
+  {
+    "bitPatternHex": "ca31d96720ef3074",
+    "expected": "-2.608667867763461e+49"
+  },
+  {
+    "bitPatternHex": "795e1df40e0091b3",
+    "expected": "4.1708812125426083e+276"
+  },
+  {
+    "bitPatternHex": "a03c5c64a6f7eac6",
+    "expected": "-2.1152533642478423e-153"
+  },
+  {
+    "bitPatternHex": "d69d6cd1bbb2001d",
+    "expected": "-1.7276510570829073e+109"
+  },
+  {
+    "bitPatternHex": "280b6835f0a0e968",
+    "expected": "8.694694669160068e-116"
+  },
+  {
+    "bitPatternHex": "b6368994d1032097",
+    "expected": "-1.5420733328797068e-47"
+  },
+  {
+    "bitPatternHex": "5beab9620e0224da",
+    "expected": "6.070046522482637e+134"
+  },
+  {
+    "bitPatternHex": "caf4c330a8f221a1",
+    "expected": "-1.2429054402541693e+53"
+  },
+  {
+    "bitPatternHex": "b1e98313275b499c",
+    "expected": "-2.957165880162074e-68"
+  },
+  {
+    "bitPatternHex": "037da8cb53c3d5bb",
+    "expected": "7.430291989111068e-292"
+  },
+  {
+    "bitPatternHex": "ec5cb818c1b2d82e",
+    "expected": "-9.668256958203738e+213"
+  },
+  {
+    "bitPatternHex": "d899cd4c37dc5365",
+    "expected": "-6.506549549567477e+118"
+  },
+  {
+    "bitPatternHex": "7e053a5a9c4a4510",
+    "expected": "1.1106409128239413e+299"
+  },
+  {
+    "bitPatternHex": "4cf818803b08951f",
+    "expected": "6.195249233443383e+62"
+  },
+  {
+    "bitPatternHex": "6965120998ef18c2",
+    "expected": "5.040123030857762e+199"
+  },
+  {
+    "bitPatternHex": "62bbaaaa77a11969",
+    "expected": "4.078630817946314e+167"
+  },
+  {
+    "bitPatternHex": "2f2b0c92e0710fc4",
+    "expected": "1.7822321047397362e-81"
+  },
+  {
+    "bitPatternHex": "39dc5698df2d82c3",
+    "expected": "5.588738358437951e-30"
+  },
+  {
+    "bitPatternHex": "5b46cbabc5c53a96",
+    "expected": "5.056371277841619e+131"
+  },
+  {
+    "bitPatternHex": "a12a6d5b347137ad",
+    "expected": "-6.458666524394255e-149"
+  },
+  {
+    "bitPatternHex": "6516c3611d9e1db8",
+    "expected": "9.224243687645296e+178"
+  },
+  {
+    "bitPatternHex": "409ac874890902a7",
+    "expected": "1714.1138039977902"
+  },
+  {
+    "bitPatternHex": "69229a59a580d1aa",
+    "expected": "2.7811763077122405e+198"
+  },
+  {
+    "bitPatternHex": "d3418b767701b231",
+    "expected": "-1.1436589018795025e+93"
+  },
+  {
+    "bitPatternHex": "d4a68fdbfc9f22ec",
+    "expected": "-6.16858031809618e+99"
+  },
+  {
+    "bitPatternHex": "62a241f6b50fb8cb",
+    "expected": "1.3457766250479664e+167"
+  },
+  {
+    "bitPatternHex": "9bbc7c6169feb1fe",
+    "expected": "-4.4989574880569206e-175"
+  },
+  {
+    "bitPatternHex": "4acf5beef44fccf5",
+    "expected": "2.3465675661984112e+52"
+  },
+  {
+    "bitPatternHex": "9e959e0f86b51360",
+    "expected": "-2.402515962546162e-161"
+  },
+  {
+    "bitPatternHex": "2e6f091240b8892f",
+    "expected": "4.992396492858545e-85"
+  },
+  {
+    "bitPatternHex": "d8f07f34b040ef92",
+    "expected": "-2.662444506693147e+120"
+  },
+  {
+    "bitPatternHex": "10581cc6f1a50bf9",
+    "expected": "6.212464965905557e-230"
+  },
+  {
+    "bitPatternHex": "a4864fbb36482314",
+    "expected": "-9.822900022559436e-133"
+  },
+  {
+    "bitPatternHex": "e2b49c3fa62097d3",
+    "expected": "-3.0383856305767266e+167"
+  },
+  {
+    "bitPatternHex": "33d8b03b5842de66",
+    "expected": "6.1454529918027105e-59"
+  },
+  {
+    "bitPatternHex": "8f486f9660db333d",
+    "expected": "-4.8033200721585294e-235"
+  },
+  {
+    "bitPatternHex": "ec0f4b7eaadbc608",
+    "expected": "-3.292308702664848e+212"
+  },
+  {
+    "bitPatternHex": "9e85b7a2a9ef48b7",
+    "expected": "-1.2068093985856673e-161"
+  },
+  {
+    "bitPatternHex": "4e059b6b320d127a",
+    "expected": "7.281579786183197e+67"
+  },
+  {
+    "bitPatternHex": "e5de85b538e046c1",
+    "expected": "-5.06610977781965e+182"
+  },
+  {
+    "bitPatternHex": "fdc1f708b442b03c",
+    "expected": "-5.874519963668688e+297"
+  },
+  {
+    "bitPatternHex": "e8ee1b221f7a3fdb",
+    "expected": "-2.813067038443241e+197"
+  },
+  {
+    "bitPatternHex": "9b2fc0b754095fce",
+    "expected": "-9.794777234971448e-178"
+  },
+  {
+    "bitPatternHex": "78d02f854e7a8a85",
+    "expected": "8.755997362561514e+273"
+  },
+  {
+    "bitPatternHex": "f7ba23afa912d5b0",
+    "expected": "-5.394258437489694e+268"
+  },
+  {
+    "bitPatternHex": "ab8c3596a729613f",
+    "expected": "-6.448581708612323e-99"
+  },
+  {
+    "bitPatternHex": "f4755bef2e96da62",
+    "expected": "-9.787227823955338e+252"
+  },
+  {
+    "bitPatternHex": "8af8fe83314c8289",
+    "expected": "-8.323054716278288e-256"
+  },
+  {
+    "bitPatternHex": "19423c613c596a64",
+    "expected": "5.238885657484901e-187"
+  },
+  {
+    "bitPatternHex": "41e404bb8b1ad0e3",
+    "expected": "2686835800.837999"
+  },
+  {
+    "bitPatternHex": "58895afeb0ddd636",
+    "expected": "3.1969777591193856e+118"
+  },
+  {
+    "bitPatternHex": "394dc035d118f2cd",
+    "expected": "1.1459599475749149e-32"
+  },
+  {
+    "bitPatternHex": "661c2553468ee258",
+    "expected": "7.474652373009698e+183"
+  },
+  {
+    "bitPatternHex": "e49880f71e06f2c7",
+    "expected": "-3.878737566381659e+176"
+  },
+  {
+    "bitPatternHex": "7722a1ee12e3e74a",
+    "expected": "7.509970426811987e+265"
+  },
+  {
+    "bitPatternHex": "4989e508ef46df51",
+    "expected": "1.8479052280129767e+46"
+  },
+  {
+    "bitPatternHex": "7c0df08e35caf18c",
+    "expected": "3.6471435637845657e+289"
+  },
+  {
+    "bitPatternHex": "77bec59e40646aeb",
+    "expected": "6.350254207780808e+268"
+  },
+  {
+    "bitPatternHex": "68bacbc118dfe19e",
+    "expected": "3.129722158046605e+196"
+  },
+  {
+    "bitPatternHex": "881949d6a0a58c15",
+    "expected": "-1.1967013529264118e-269"
+  },
+  {
+    "bitPatternHex": "cef8398d19388c00",
+    "expected": "-2.675095819062355e+72"
+  },
+  {
+    "bitPatternHex": "9d31ac48efcc1d4f",
+    "expected": "-4.682873313632e-168"
+  },
+  {
+    "bitPatternHex": "68ac90aae3cdd932",
+    "expected": "1.6681805700443254e+196"
+  },
+  {
+    "bitPatternHex": "2c3c39a063707d19",
+    "expected": "1.3214080005467665e-95"
+  },
+  {
+    "bitPatternHex": "c1fc45067bc9e5b4",
+    "expected": "-7588571068.61858"
+  },
+  {
+    "bitPatternHex": "2c82c264049d2df3",
+    "expected": "2.810404870583215e-94"
+  },
+  {
+    "bitPatternHex": "4c564e34a3432206",
+    "expected": "5.600553372306824e+59"
+  },
+  {
+    "bitPatternHex": "f838fef88d93765d",
+    "expected": "-1.3205239596861119e+271"
+  },
+  {
+    "bitPatternHex": "08633bbc822c72a8",
+    "expected": "2.9125185331675984e-268"
+  },
+  {
+    "bitPatternHex": "c9b6bda681e100d7",
+    "expected": "-1.2982714263561742e+47"
+  },
+  {
+    "bitPatternHex": "7713e232bc82501a",
+    "expected": "4.00710681915714e+265"
+  },
+  {
+    "bitPatternHex": "36b4ae21172e7be1",
+    "expected": "3.622390235320787e-45"
+  },
+  {
+    "bitPatternHex": "6bbe0731fffce6dc",
+    "expected": "9.871995128057676e+210"
+  },
+  {
+    "bitPatternHex": "0931e4af1b6f39fb",
+    "expected": "2.219699501043662e-264"
+  },
+  {
+    "bitPatternHex": "fe88f6f53acf376e",
+    "expected": "-3.343733607749915e+301"
+  },
+  {
+    "bitPatternHex": "7fdce22d0559d1a5",
+    "expected": "8.113073234067141e+307"
+  },
+  {
+    "bitPatternHex": "bda87895783b3650",
+    "expected": "-1.11281363960707e-11"
+  },
+  {
+    "bitPatternHex": "cea22f10d651bd5f",
+    "expected": "-6.275016244904871e+70"
+  },
+  {
+    "bitPatternHex": "6839f3459d02ec02",
+    "expected": "1.1839661591367435e+194"
+  },
+  {
+    "bitPatternHex": "271d6cbdf929fba9",
+    "expected": "2.8487535242197402e-120"
+  },
+  {
+    "bitPatternHex": "c665a45a3cfe9504",
+    "expected": "-1.3717248366177733e+31"
+  },
+  {
+    "bitPatternHex": "b81939bbe768af03",
+    "expected": "-1.8532787685162447e-38"
+  },
+  {
+    "bitPatternHex": "33523cbd545fc1d6",
+    "expected": "1.7732933144744344e-61"
+  },
+  {
+    "bitPatternHex": "7325a987a6f3bded",
+    "expected": "4.7331421891501895e+246"
+  },
+  {
+    "bitPatternHex": "2c1e6313226976f8",
+    "expected": "3.5565537392183263e-96"
+  },
+  {
+    "bitPatternHex": "b744043a344e72e7",
+    "expected": "-1.7951429828265396e-42"
+  },
+  {
+    "bitPatternHex": "80e0340d88a54cea",
+    "expected": "-1.8459447993011036e-304"
+  },
+  {
+    "bitPatternHex": "9e1a80d739d01c71",
+    "expected": "-1.1505938787360255e-163"
+  },
+  {
+    "bitPatternHex": "4379097178dd902c",
+    "expected": "112756118104113860"
+  },
+  {
+    "bitPatternHex": "5530d6e51a7bad0b",
+    "expected": "2.3572520179520223e+102"
+  },
+  {
+    "bitPatternHex": "7092f231f564613e",
+    "expected": "1.8825039306380533e+234"
+  },
+  {
+    "bitPatternHex": "73e0a734e7605b35",
+    "expected": "1.4903999730486093e+250"
+  },
+  {
+    "bitPatternHex": "8294f10e426fd4a0",
+    "expected": "-3.2020980753547986e-296"
+  },
+  {
+    "bitPatternHex": "ffc0ac4c60ab416f",
+    "expected": "-2.341641431100926e+307"
+  },
+  {
+    "bitPatternHex": "a81c107df49312d2",
+    "expected": "-1.780646763677824e-115"
+  },
+  {
+    "bitPatternHex": "db4a581237d1fe39",
+    "expected": "-5.843463041284358e+131"
+  },
+  {
+    "bitPatternHex": "2b35d91ad79c7854",
+    "expected": "1.5607539854707848e-100"
+  },
+  {
+    "bitPatternHex": "b3981ebc767e5413",
+    "expected": "-3.7524880472643673e-60"
+  },
+  {
+    "bitPatternHex": "523abd3c0a60b5a6",
+    "expected": "1.3298024187932682e+88"
+  },
+  {
+    "bitPatternHex": "2ce86e97c622c97d",
+    "expected": "2.3425583627166905e-92"
+  },
+  {
+    "bitPatternHex": "699c6c816f3aef48",
+    "expected": "5.4392626740774226e+200"
+  },
+  {
+    "bitPatternHex": "01e8b06c666048f7",
+    "expected": "1.8433191398167644e-299"
+  },
+  {
+    "bitPatternHex": "798db0758649ddba",
+    "expected": "3.289318167559381e+277"
+  },
+  {
+    "bitPatternHex": "6ee826497ca4c101",
+    "expected": "1.7877877707760476e+226"
+  },
+  {
+    "bitPatternHex": "31d5019d3db1ed7c",
+    "expected": "1.2174487152493785e-68"
+  },
+  {
+    "bitPatternHex": "53f66f9a1daac41b",
+    "expected": "2.995180528300979e+96"
+  },
+  {
+    "bitPatternHex": "1bafb9a90d6c5f0e",
+    "expected": "2.5052864821465793e-175"
+  },
+  {
+    "bitPatternHex": "e87905a091c228c5",
+    "expected": "-1.8265808642854757e+195"
+  },
+  {
+    "bitPatternHex": "392289c51f6b66f0",
+    "expected": "1.7851602681117635e-33"
+  },
+  {
+    "bitPatternHex": "ec6d81fdef09a97f",
+    "expected": "-1.9867512072018927e+214"
+  },
+  {
+    "bitPatternHex": "85f424fc221b4da2",
+    "expected": "-5.548811036135736e-280"
+  },
+  {
+    "bitPatternHex": "64361326c90184c9",
+    "expected": "5.459771759452416e+174"
+  },
+  {
+    "bitPatternHex": "11b373ab02888fa4",
+    "expected": "2.1020529432273513e-223"
+  },
+  {
+    "bitPatternHex": "bc093ac4731f1d23",
+    "expected": "-1.7096214908998508e-19"
+  },
+  {
+    "bitPatternHex": "60a0fe0cfcb2fd76",
+    "expected": "2.9162322342596084e+157"
+  },
+  {
+    "bitPatternHex": "6e4fd24ebc49990d",
+    "expected": "2.3005286262892756e+223"
+  },
+  {
+    "bitPatternHex": "fd093e4d83d5db98",
+    "expected": "-2.015269438513312e+294"
+  },
+  {
+    "bitPatternHex": "27cb95e82b678307",
+    "expected": "5.469576722396529e-117"
+  },
+  {
+    "bitPatternHex": "667cb53749ad028a",
+    "expected": "4.879309772494892e+185"
+  },
+  {
+    "bitPatternHex": "f063fc7931656991",
+    "expected": "-2.4823179805506796e+233"
+  },
+  {
+    "bitPatternHex": "735f9a2872fefecc",
+    "expected": "5.523997730777477e+247"
+  },
+  {
+    "bitPatternHex": "853581928b5d7f2b",
+    "expected": "-1.4462607800494269e-283"
+  },
+  {
+    "bitPatternHex": "969f2b1fa0f430de",
+    "expected": "-1.0179773434734693e-199"
+  },
+  {
+    "bitPatternHex": "d1541c8fbfc83a55",
+    "expected": "-6.104705996603008e+83"
+  },
+  {
+    "bitPatternHex": "214426b43202ed40",
+    "expected": "1.9699390120407442e-148"
+  },
+  {
+    "bitPatternHex": "67d25c5e4bddf58f",
+    "expected": "1.3089081699003725e+192"
+  },
+  {
+    "bitPatternHex": "2f8a02eeca789c72",
+    "expected": "1.096871678522252e-79"
+  },
+  {
+    "bitPatternHex": "bc3644994a918f59",
+    "expected": "-1.2071487494152193e-18"
+  },
+  {
+    "bitPatternHex": "50533a5b23e7daf4",
+    "expected": "8.905779486486641e+78"
+  },
+  {
+    "bitPatternHex": "f5f4bc2b2ccc0a33",
+    "expected": "-1.5940466194905644e+260"
+  },
+  {
+    "bitPatternHex": "2b8b070f24039946",
+    "expected": "6.178435437739388e-99"
+  },
+  {
+    "bitPatternHex": "a055eced12d12c9d",
+    "expected": "-6.541111737028729e-153"
+  },
+  {
+    "bitPatternHex": "ee3346179eaf3be8",
+    "expected": "-6.96697271507493e+222"
+  },
+  {
+    "bitPatternHex": "cff88eed88f52117",
+    "expected": "-1.7772864088718374e+77"
+  },
+  {
+    "bitPatternHex": "bd6fabbbbc4bbb5a",
+    "expected": "-9.001392233716558e-13"
+  },
+  {
+    "bitPatternHex": "f65f986d660b1621",
+    "expected": "-1.5545345116391929e+262"
+  },
+  {
+    "bitPatternHex": "dae4932c1489c41c",
+    "expected": "-7.130922217020223e+129"
+  },
+  {
+    "bitPatternHex": "49f53bc26034de3b",
+    "expected": "1.9395437227978506e+48"
+  },
+  {
+    "bitPatternHex": "1f3e6781f748d6ae",
+    "expected": "3.4601719592641034e-158"
+  },
+  {
+    "bitPatternHex": "fcdf48bb2cfb8fe5",
+    "expected": "-3.1219039975853485e+293"
+  },
+  {
+    "bitPatternHex": "1f798c1a684b6790",
+    "expected": "4.6518628825232386e-157"
+  },
+  {
+    "bitPatternHex": "c3bfc0d2bbd9259f",
+    "expected": "-2288060314948050700"
+  },
+  {
+    "bitPatternHex": "f424e13bcfc7ff42",
+    "expected": "-2.9898756370311963e+251"
+  },
+  {
+    "bitPatternHex": "bd11d4dfde9b1de9",
+    "expected": "-1.5837589886931652e-14"
+  },
+  {
+    "bitPatternHex": "0da4e966a11f5a44",
+    "expected": "6.125242818670582e-243"
+  },
+  {
+    "bitPatternHex": "be6d307791461b43",
+    "expected": "-5.436935360523848e-8"
+  },
+  {
+    "bitPatternHex": "707c56420a3f8916",
+    "expected": "7.038979214309298e+233"
+  },
+  {
+    "bitPatternHex": "a3f04cbb9b62842d",
+    "expected": "-1.4015951123655928e-135"
+  },
+  {
+    "bitPatternHex": "f72fda0c717c1038",
+    "expected": "-1.283806349486471e+266"
+  },
+  {
+    "bitPatternHex": "738617d986da2327",
+    "expected": "3.0894725138581786e+248"
+  },
+  {
+    "bitPatternHex": "83412fe2ece3082a",
+    "expected": "-5.382149148461621e-293"
+  },
+  {
+    "bitPatternHex": "c79e37d974cec6b1",
+    "expected": "-1.0041706684527963e+37"
+  },
+  {
+    "bitPatternHex": "0c832e1e45573d6c",
+    "expected": "2.14311547132432e-248"
+  },
+  {
+    "bitPatternHex": "153699363f11e14b",
+    "expected": "1.759714808331552e-206"
+  },
+  {
+    "bitPatternHex": "5d876dcb50f7507e",
+    "expected": "3.571244308860196e+142"
+  },
+  {
+    "bitPatternHex": "b3ba6f6425252975",
+    "expected": "-1.6450616710067756e-59"
+  },
+  {
+    "bitPatternHex": "026f3307cb99d5e0",
+    "expected": "5.9632039514284924e-297"
+  },
+  {
+    "bitPatternHex": "c5a196470dec39af",
+    "expected": "-2.721459792377423e+27"
+  },
+  {
+    "bitPatternHex": "8c57514521667612",
+    "expected": "-3.25675328408258e-249"
+  },
+  {
+    "bitPatternHex": "f714d511bb773079",
+    "expected": "-4.198299836800324e+265"
+  },
+  {
+    "bitPatternHex": "9bcc13a52ed40d94",
+    "expected": "-8.868684319309006e-175"
+  },
+  {
+    "bitPatternHex": "b1ba8a3b3c8e5053",
+    "expected": "-3.845398692507722e-69"
+  },
+  {
+    "bitPatternHex": "22ade4379a93cce6",
+    "expected": "1.2256299761296479e-141"
+  },
+  {
+    "bitPatternHex": "b71b443cffe69fbd",
+    "expected": "-3.056686619380444e-43"
+  },
+  {
+    "bitPatternHex": "ecbb5e0b71315888",
+    "expected": "-5.896439557269939e+215"
+  },
+  {
+    "bitPatternHex": "77f668923f278937",
+    "expected": "7.398923907874509e+269"
+  },
+  {
+    "bitPatternHex": "cb3773f2df6fe8fa",
+    "expected": "-2.2463439071945908e+54"
+  },
+  {
+    "bitPatternHex": "7dcfdb4794297b41",
+    "expected": "1.0417046892949701e+298"
+  },
+  {
+    "bitPatternHex": "1c52b4bd9fac6abc",
+    "expected": "3.025267952019142e-172"
+  },
+  {
+    "bitPatternHex": "608465208115885b",
+    "expected": "8.750483448392688e+156"
+  },
+  {
+    "bitPatternHex": "df3e9c41b7cc9e4e",
+    "expected": "-6.262482694875709e+150"
+  },
+  {
+    "bitPatternHex": "12e47208144e0705",
+    "expected": "1.1583759049080554e-217"
+  },
+  {
+    "bitPatternHex": "6077845dd0833830",
+    "expected": "5.044994825151453e+156"
+  },
+  {
+    "bitPatternHex": "38023bebab4831bf",
+    "expected": "6.698137542221485e-39"
+  },
+  {
+    "bitPatternHex": "2fb1d8418bf100e2",
+    "expected": "6.019932430720589e-79"
+  },
+  {
+    "bitPatternHex": "49f992b3bbbec709",
+    "expected": "2.335941360882442e+48"
+  },
+  {
+    "bitPatternHex": "8b1ae8f020eaf4e4",
+    "expected": "-3.584396103939624e-255"
+  },
+  {
+    "bitPatternHex": "55b2d39188e5a963",
+    "expected": "6.746626997839156e+104"
+  },
+  {
+    "bitPatternHex": "c9e6dd59f16d64b6",
+    "expected": "-1.0442727743512549e+48"
+  },
+  {
+    "bitPatternHex": "c43e2da352867f4d",
+    "expected": "-556690885101812000000"
+  },
+  {
+    "bitPatternHex": "ea7d41c1260414d8",
+    "expected": "-9.172858313497388e+204"
+  },
+  {
+    "bitPatternHex": "774abcd6ee2e5347",
+    "expected": "4.31071676291338e+266"
+  },
+  {
+    "bitPatternHex": "9ea0fe9a5d2f5dca",
+    "expected": "-3.777476894175852e-161"
+  },
+  {
+    "bitPatternHex": "7bc521c766d433d1",
+    "expected": "1.6088865428904654e+288"
+  },
+  {
+    "bitPatternHex": "0ed58030850e4c0c",
+    "expected": "3.301846200650113e-237"
+  },
+  {
+    "bitPatternHex": "d1ad940a45a0d36b",
+    "expected": "-2.8730403909005173e+85"
+  },
+  {
+    "bitPatternHex": "76420505ced5c01e",
+    "expected": "4.432940218441042e+261"
+  },
+  {
+    "bitPatternHex": "741473d816bf2895",
+    "expected": "1.4643441018417709e+251"
+  },
+  {
+    "bitPatternHex": "76092f43a6dc8e80",
+    "expected": "3.872235597452117e+260"
+  },
+  {
+    "bitPatternHex": "9d15ff57a75e0dcf",
+    "expected": "-1.4571840392371516e-168"
+  },
+  {
+    "bitPatternHex": "d574e92989449fb2",
+    "expected": "-4.683483205172444e+103"
+  },
+  {
+    "bitPatternHex": "e3c31188ee4ae199",
+    "expected": "-3.684545847085465e+172"
+  },
+  {
+    "bitPatternHex": "fa0be73bba891034",
+    "expected": "-7.914087713277088e+279"
+  },
+  {
+    "bitPatternHex": "aef56e429ecd2673",
+    "expected": "-1.7650525321027977e-82"
+  },
+  {
+    "bitPatternHex": "afe09d052c795086",
+    "expected": "-4.483618090898437e-78"
+  },
+  {
+    "bitPatternHex": "56166c899dab22dd",
+    "expected": "5.142935528777501e+106"
+  },
+  {
+    "bitPatternHex": "30f32cb57b694528",
+    "expected": "6.7827900115632e-73"
+  },
+  {
+    "bitPatternHex": "e149bc74027f8157",
+    "expected": "-4.5228397858049007e+160"
+  },
+  {
+    "bitPatternHex": "2ef42007c49e669a",
+    "expected": "1.657523306124031e-82"
+  },
+  {
+    "bitPatternHex": "54143f208bc7f061",
+    "expected": "1.0811613634160898e+97"
+  },
+  {
+    "bitPatternHex": "d84925586e41e15c",
+    "expected": "-1.981596286058618e+117"
+  },
+  {
+    "bitPatternHex": "7a17f3288254c27b",
+    "expected": "1.3585591270762394e+280"
+  },
+  {
+    "bitPatternHex": "7c4fc2f6a25fb5ee",
+    "expected": "6.190530601221391e+290"
+  },
+  {
+    "bitPatternHex": "560bd9f489018e25",
+    "expected": "3.1938559411968324e+106"
+  },
+  {
+    "bitPatternHex": "cbb1900e89bad8d0",
+    "expected": "-4.306366862976146e+56"
+  },
+  {
+    "bitPatternHex": "885b030ecfdecddf",
+    "expected": "-2.045218579493291e-268"
+  },
+  {
+    "bitPatternHex": "11d03c38107e5282",
+    "expected": "7.017811124888031e-223"
+  },
+  {
+    "bitPatternHex": "4d01646726348029",
+    "expected": "8.943419564132024e+62"
+  },
+  {
+    "bitPatternHex": "c3cebb647e135f84",
+    "expected": "-4428948268872829000"
+  },
+  {
+    "bitPatternHex": "2e74028a8505c783",
+    "expected": "6.437640448447856e-85"
+  },
+  {
+    "bitPatternHex": "7269b7753aa49056",
+    "expected": "1.3718310146650704e+243"
+  },
+  {
+    "bitPatternHex": "9af736f173fd8a6d",
+    "expected": "-8.951260510822699e-179"
+  },
+  {
+    "bitPatternHex": "eeb1ed4e1015e978",
+    "expected": "-1.6589134325004682e+225"
+  },
+  {
+    "bitPatternHex": "6e94345b2cec1367",
+    "expected": "4.6741779132459375e+224"
+  },
+  {
+    "bitPatternHex": "0807bb13d97a036a",
+    "expected": "5.614948251166573e-270"
+  },
+  {
+    "bitPatternHex": "248ba5892e3db0f1",
+    "expected": "1.2171778321061441e-132"
+  },
+  {
+    "bitPatternHex": "9c01ab593b4c2aac",
+    "expected": "-8.930023468301753e-174"
+  },
+  {
+    "bitPatternHex": "32576ed51312558b",
+    "expected": "3.476704022916958e-66"
+  },
+  {
+    "bitPatternHex": "bdc9bbe977f77fbe",
+    "expected": "-4.6809930060461994e-11"
+  },
+  {
+    "bitPatternHex": "ea952f6c97de37b5",
+    "expected": "-2.6568722262383237e+205"
+  },
+  {
+    "bitPatternHex": "817d5c9e0f731720",
+    "expected": "-1.7126429627243508e-301"
+  },
+  {
+    "bitPatternHex": "96fbe66bbcbb71ef",
+    "expected": "-5.831876691601829e-198"
+  },
+  {
+    "bitPatternHex": "b882c0ff65fb1952",
+    "expected": "-1.7636080049108984e-36"
+  },
+  {
+    "bitPatternHex": "fbe49e0f8ad4a2b9",
+    "expected": "-6.278852418335961e+288"
+  },
+  {
+    "bitPatternHex": "88e3d6b07d2ee2d4",
+    "expected": "-7.690693900200999e-266"
+  },
+  {
+    "bitPatternHex": "dbfa7d8430908c93",
+    "expected": "-1.2033859141310065e+135"
+  },
+  {
+    "bitPatternHex": "a1951f87ac1c2426",
+    "expected": "-6.60786397675231e-147"
+  },
+  {
+    "bitPatternHex": "aa5c6e848066b5fd",
+    "expected": "-1.2396654227406826e-104"
+  },
+  {
+    "bitPatternHex": "8ee5ffc485ff01c8",
+    "expected": "-6.756755224581883e-237"
+  },
+  {
+    "bitPatternHex": "6d4d919f70850977",
+    "expected": "3.2618286864427577e+218"
+  },
+  {
+    "bitPatternHex": "58293f8094bf343a",
+    "expected": "4.974120243770075e+116"
+  },
+  {
+    "bitPatternHex": "05833be095ae7581",
+    "expected": "4.139056233898653e-282"
+  },
+  {
+    "bitPatternHex": "ca6cf154837227fc",
+    "expected": "-3.383983786734824e+50"
+  },
+  {
+    "bitPatternHex": "7204712bc9fa8c9b",
+    "expected": "1.7038505906152327e+241"
+  },
+  {
+    "bitPatternHex": "457e7d359e6a1d8e",
+    "expected": "5.89744951859235e+26"
+  },
+  {
+    "bitPatternHex": "fd5c5601d05e2545",
+    "expected": "-7.23891987363493e+295"
+  },
+  {
+    "bitPatternHex": "e3bd0b2c799a4970",
+    "expected": "-2.8060066280963776e+172"
+  },
+  {
+    "bitPatternHex": "c455bfede024f9ff",
+    "expected": "-1.6048463281121717e+21"
+  },
+  {
+    "bitPatternHex": "dbc3a811eb57f422",
+    "expected": "-1.1161814384184125e+134"
+  },
+  {
+    "bitPatternHex": "0bff530b27c44949",
+    "expected": "6.8360657796410385e-251"
+  },
+  {
+    "bitPatternHex": "dad97e04a8c09a24",
+    "expected": "-4.4176008023194284e+129"
+  },
+  {
+    "bitPatternHex": "8ebdc03894ae75a3",
+    "expected": "-1.1422022395668395e-237"
+  },
+  {
+    "bitPatternHex": "a62bb551824d0bf6",
+    "expected": "-8.18655713317819e-125"
+  },
+  {
+    "bitPatternHex": "638f131a160fa58d",
+    "expected": "3.752781956615989e+171"
+  },
+  {
+    "bitPatternHex": "0f88c210d2598e18",
+    "expected": "7.786640958319531e-234"
+  },
+  {
+    "bitPatternHex": "2457cf55329b6387",
+    "expected": "1.310326099455223e-133"
+  },
+  {
+    "bitPatternHex": "e4d0f24bf4aaf90a",
+    "expected": "-4.291970660144815e+177"
+  },
+  {
+    "bitPatternHex": "bb61396db5d33e11",
+    "expected": "-1.1398105667805393e-22"
+  },
+  {
+    "bitPatternHex": "071aa858e538d94c",
+    "expected": "1.9248864485013255e-274"
+  },
+  {
+    "bitPatternHex": "482a19cb7f6e67ab",
+    "expected": "4.4408144303572534e+39"
+  },
+  {
+    "bitPatternHex": "49d01f943dc48f5e",
+    "expected": "3.68192356284605e+47"
+  },
+  {
+    "bitPatternHex": "91d4acafafca56d5",
+    "expected": "-8.936745781206741e-223"
+  },
+  {
+    "bitPatternHex": "553da89305056fc0",
+    "expected": "4.151715907628124e+102"
+  },
+  {
+    "bitPatternHex": "d5c43aeb968c660f",
+    "expected": "-1.449932429473745e+105"
+  },
+  {
+    "bitPatternHex": "f742413eef71e2f2",
+    "expected": "-2.9430988079620526e+266"
+  },
+  {
+    "bitPatternHex": "b3a5e58b7cdc73d9",
+    "expected": "-6.813162381154833e-60"
+  },
+  {
+    "bitPatternHex": "492457ce20ed8574",
+    "expected": "2.2683190739141914e+44"
+  },
+  {
+    "bitPatternHex": "8a5ee051b2e082b3",
+    "expected": "-1.0040798203035409e-258"
+  },
+  {
+    "bitPatternHex": "994fca88ffe447c6",
+    "expected": "-9.133116128809454e-187"
+  },
+  {
+    "bitPatternHex": "7f6a1780c061591d",
+    "expected": "5.7257159096826924e+305"
+  },
+  {
+    "bitPatternHex": "c69aa9c78d9a8e68",
+    "expected": "-1.3519849196630512e+32"
+  },
+  {
+    "bitPatternHex": "c96cc8564ac02197",
+    "expected": "-5.1349814911139093e+45"
+  },
+  {
+    "bitPatternHex": "7882e116ccba51da",
+    "expected": "3.191618149535535e+272"
+  },
+  {
+    "bitPatternHex": "607c0021bea50aa1",
+    "expected": "6.006808412217426e+156"
+  },
+  {
+    "bitPatternHex": "2c34868556653e9c",
+    "expected": "9.609361725207402e-96"
+  },
+  {
+    "bitPatternHex": "e8134fbb220ee6bb",
+    "expected": "-2.2026835023674372e+193"
+  },
+  {
+    "bitPatternHex": "e3b35f542753d52e",
+    "expected": "-1.8716320260826246e+172"
+  },
+  {
+    "bitPatternHex": "a2fa14f733abcc65",
+    "expected": "-3.422167044946584e-140"
+  },
+  {
+    "bitPatternHex": "9992130239c98a10",
+    "expected": "-1.661586786554715e-185"
+  },
+  {
+    "bitPatternHex": "b2a8e9a836a2b61f",
+    "expected": "-1.1828022440867482e-64"
+  },
+  {
+    "bitPatternHex": "2ebfab637e65e5c2",
+    "expected": "1.6302050766738402e-83"
+  },
+  {
+    "bitPatternHex": "6574144f0e362269",
+    "expected": "5.207468612900301e+180"
+  },
+  {
+    "bitPatternHex": "dd44bd9f851aa4c4",
+    "expected": "-1.9759307256262925e+141"
+  },
+  {
+    "bitPatternHex": "19471b71aae7b3c3",
+    "expected": "6.638349052692898e-187"
+  },
+  {
+    "bitPatternHex": "4ecb69c378ced796",
+    "expected": "3.7839706271558124e+71"
+  },
+  {
+    "bitPatternHex": "962ea18bd304d0ad",
+    "expected": "-7.81582195802259e-202"
+  },
+  {
+    "bitPatternHex": "52de10ec437702b8",
+    "expected": "1.531143443691585e+91"
+  },
+  {
+    "bitPatternHex": "33b91dea12c443a7",
+    "expected": "1.563025594854389e-59"
+  },
+  {
+    "bitPatternHex": "15081d9f95aa3eaa",
+    "expected": "2.3473246672732096e-207"
+  },
+  {
+    "bitPatternHex": "41e68e5eac5cdb31",
+    "expected": "3027432802.901757"
+  },
+  {
+    "bitPatternHex": "0231986073fc57ec",
+    "expected": "4.2037709632868665e-298"
+  },
+  {
+    "bitPatternHex": "3cbbee72c6bd09cb",
+    "expected": "3.876265814951414e-16"
+  },
+  {
+    "bitPatternHex": "d5f255e1a5a4eefe",
+    "expected": "-1.0513096261717012e+106"
+  },
+  {
+    "bitPatternHex": "21e1ffee69cb85f5",
+    "expected": "1.8018479224817217e-145"
+  },
+  {
+    "bitPatternHex": "12dbce2e3b3b9860",
+    "expected": "7.876842916899878e-218"
+  },
+  {
+    "bitPatternHex": "97851cce2158ea2f",
+    "expected": "-2.2595028989613937e-195"
+  },
+  {
+    "bitPatternHex": "924a92cf3190fc92",
+    "expected": "-1.4702849833311986e-220"
+  },
+  {
+    "bitPatternHex": "c0ae8589f42a54f9",
+    "expected": "-3906.7694409588553"
+  },
+  {
+    "bitPatternHex": "f3f1568243ecf814",
+    "expected": "-3.103369835614295e+250"
+  },
+  {
+    "bitPatternHex": "e0c6de2dcac508d3",
+    "expected": "-1.5698341189428329e+158"
+  },
+  {
+    "bitPatternHex": "ebdb6d872239bb66",
+    "expected": "-3.6068545714468693e+211"
+  },
+  {
+    "bitPatternHex": "a8c6fe64f9e30c3d",
+    "expected": "-2.987865343014042e-112"
+  },
+  {
+    "bitPatternHex": "ae096eb7c2e3eb08",
+    "expected": "-6.392344458496672e-87"
+  },
+  {
+    "bitPatternHex": "f407245176b8c9b7",
+    "expected": "-8.284471690531401e+250"
+  },
+  {
+    "bitPatternHex": "90991e513d77bf7a",
+    "expected": "-1.035465766238583e-228"
+  },
+  {
+    "bitPatternHex": "aea96141d773afc1",
+    "expected": "-6.532227652069191e-84"
+  },
+  {
+    "bitPatternHex": "0d3ed563d243253c",
+    "expected": "7.055814101996757e-245"
+  },
+  {
+    "bitPatternHex": "c6b98f08b899d0db",
+    "expected": "-5.183925663796357e+32"
+  },
+  {
+    "bitPatternHex": "52df81a24c84dcce",
+    "expected": "1.6044908778694844e+91"
+  },
+  {
+    "bitPatternHex": "ebc9ec1400328385",
+    "expected": "-1.7044273831362215e+211"
+  },
+  {
+    "bitPatternHex": "8da5e5ef17f09ab0",
+    "expected": "-6.414185560063573e-243"
+  },
+  {
+    "bitPatternHex": "10efd14cd1e0023f",
+    "expected": "4.197207165743589e-227"
+  },
+  {
+    "bitPatternHex": "6b7a7b3cff902762",
+    "expected": "5.441240636182747e+209"
+  },
+  {
+    "bitPatternHex": "09f246d26b520b89",
+    "expected": "9.28667649574426e-261"
+  },
+  {
+    "bitPatternHex": "83d6befbeb497f64",
+    "expected": "-3.646950128680205e-290"
+  },
+  {
+    "bitPatternHex": "d3f87fad9eb981e3",
+    "expected": "-3.27056233776707e+96"
+  },
+  {
+    "bitPatternHex": "5072b430e291f336",
+    "expected": "3.46521646624843e+79"
+  },
+  {
+    "bitPatternHex": "f6d7d421c9250bcd",
+    "expected": "-3.0013419332439985e+264"
+  },
+  {
+    "bitPatternHex": "e83311526e164758",
+    "expected": "-8.69950848646011e+193"
+  },
+  {
+    "bitPatternHex": "3102863704eeb3c7",
+    "expected": "1.310546155682532e-72"
+  },
+  {
+    "bitPatternHex": "10cf60e5f75fd44a",
+    "expected": "1.0348218607847136e-227"
+  },
+  {
+    "bitPatternHex": "026de07284a28851",
+    "expected": "5.7104141096410384e-297"
+  },
+  {
+    "bitPatternHex": "d9d65cbb4cbea68c",
+    "expected": "-5.913075031562551e+124"
+  },
+  {
+    "bitPatternHex": "510dae8289063beb",
+    "expected": "2.8155114777488576e+82"
+  },
+  {
+    "bitPatternHex": "34370924c9009e9e",
+    "expected": "3.669801529139159e-57"
+  },
+  {
+    "bitPatternHex": "3998fce6d529c515",
+    "expected": "3.079996129071883e-31"
+  },
+  {
+    "bitPatternHex": "aed7945519bd9100",
+    "expected": "-4.8550576221577714e-83"
+  },
+  {
+    "bitPatternHex": "7133859aeda8fe4f",
+    "expected": "1.9862713533317517e+237"
+  },
+  {
+    "bitPatternHex": "c32d52600c406632",
+    "expected": "-4126673400247065"
+  },
+  {
+    "bitPatternHex": "62f07b1164864619",
+    "expected": "3.88735446138387e+168"
+  },
+  {
+    "bitPatternHex": "fca343c778553ab4",
+    "expected": "-2.4030868371430826e+292"
+  },
+  {
+    "bitPatternHex": "fc0d92ee01461ef3",
+    "expected": "-3.6025921558764893e+289"
+  },
+  {
+    "bitPatternHex": "ace9fdae21847f06",
+    "expected": "-2.4920301807239228e-92"
+  },
+  {
+    "bitPatternHex": "548f599d4d33cf5d",
+    "expected": "2.1428260550361473e+99"
+  },
+  {
+    "bitPatternHex": "7253ad828a8317a8",
+    "expected": "5.248467014456397e+242"
+  },
+  {
+    "bitPatternHex": "f5a79002fdf701d7",
+    "expected": "-5.6606786571159285e+258"
+  },
+  {
+    "bitPatternHex": "a741ac1e0bdf7d1a",
+    "expected": "-1.368754714354038e-119"
+  },
+  {
+    "bitPatternHex": "c6b6ac7474e264e1",
+    "expected": "-4.598762967984403e+32"
+  },
+  {
+    "bitPatternHex": "2b4dff385633dbdc",
+    "expected": "4.285767436315107e-100"
+  },
+  {
+    "bitPatternHex": "6d01324a1fa34afb",
+    "expected": "1.1856200338436808e+217"
+  },
+  {
+    "bitPatternHex": "504d66a4b165346e",
+    "expected": "6.808794971387732e+78"
+  },
+  {
+    "bitPatternHex": "45a29541873a4aa5",
+    "expected": "2.875584786119489e+27"
+  },
+  {
+    "bitPatternHex": "f787a03115b77b50",
+    "expected": "-6.094411121835812e+267"
+  },
+  {
+    "bitPatternHex": "e572075c5464de5f",
+    "expected": "-4.675661847188521e+180"
+  },
+  {
+    "bitPatternHex": "aa3f480478beb902",
+    "expected": "-3.4097816774369404e-105"
+  },
+  {
+    "bitPatternHex": "dfd0af7714e004a9",
+    "expected": "-3.495543486039345e+153"
+  },
+  {
+    "bitPatternHex": "2e8cf442a7752a04",
+    "expected": "1.86303892142939e-84"
+  },
+  {
+    "bitPatternHex": "eb63eea82b2be003",
+    "expected": "-2.047780517499035e+209"
+  },
+  {
+    "bitPatternHex": "2dda400a97fe5ed6",
+    "expected": "8.247327808406073e-88"
+  },
+  {
+    "bitPatternHex": "90429d959ab856ed",
+    "expected": "-2.398112347150649e-230"
+  },
+  {
+    "bitPatternHex": "7c28594e90df5bf8",
+    "expected": "1.1864361924063343e+290"
+  },
+  {
+    "bitPatternHex": "ed8b541364a2b3e7",
+    "expected": "-4.823490133398157e+219"
+  },
+  {
+    "bitPatternHex": "bd8b8d8aa8b3b9ea",
+    "expected": "-3.132401732081771e-12"
+  },
+  {
+    "bitPatternHex": "6463687e756c4571",
+    "expected": "3.840186283125317e+175"
+  },
+  {
+    "bitPatternHex": "0dc4fb7948a7c52c",
+    "expected": "2.4583685580806117e-242"
+  },
+  {
+    "bitPatternHex": "c7e78bc6ca51fe0b",
+    "expected": "-2.503840409036413e+38"
+  },
+  {
+    "bitPatternHex": "54dbe8e2553f9e3e",
+    "expected": "6.104551935657034e+100"
+  },
+  {
+    "bitPatternHex": "d4e01d7a052d1435",
+    "expected": "-7.049571698558121e+100"
+  },
+  {
+    "bitPatternHex": "8c8ca910bc3359a0",
+    "expected": "-3.2024031858024017e-248"
+  },
+  {
+    "bitPatternHex": "514e8a6c3004a26f",
+    "expected": "4.635194820022427e+83"
+  },
+  {
+    "bitPatternHex": "6d7a28c433681fd2",
+    "expected": "2.308564675093593e+219"
+  },
+  {
+    "bitPatternHex": "6f40907385b84739",
+    "expected": "7.847997307007334e+227"
+  },
+  {
+    "bitPatternHex": "4f47918f444e4d54",
+    "expected": "8.328419635201662e+73"
+  },
+  {
+    "bitPatternHex": "c085ccdcc36bc513",
+    "expected": "-697.6077946109311"
+  },
+  {
+    "bitPatternHex": "07787fd2202c92a6",
+    "expected": "1.1321855640798312e-272"
+  },
+  {
+    "bitPatternHex": "8c99260d5e9ba27d",
+    "expected": "-5.620023241095075e-248"
+  },
+  {
+    "bitPatternHex": "3c77c6937d201448",
+    "expected": "2.0622122065586295e-17"
+  },
+  {
+    "bitPatternHex": "3a5418d80e02c9f7",
+    "expected": "1.0146415666239174e-27"
+  },
+  {
+    "bitPatternHex": "952df06cb0d98aba",
+    "expected": "-1.1656618333769335e-206"
+  },
+  {
+    "bitPatternHex": "8e72d8d4efb92a01",
+    "expected": "-4.5223655327364675e-239"
+  },
+  {
+    "bitPatternHex": "c4c81144b55f627c",
+    "expected": "-2.27310682412733e+23"
+  },
+  {
+    "bitPatternHex": "f375fc1a4d33551b",
+    "expected": "-1.537157951622924e+248"
+  },
+  {
+    "bitPatternHex": "a6bcb64e8d5cdc0e",
+    "expected": "-4.3433744594979423e-122"
+  },
+  {
+    "bitPatternHex": "3ad05e451e0b21c5",
+    "expected": "2.115545713393398e-25"
+  },
+  {
+    "bitPatternHex": "7809d5aee8c62bf0",
+    "expected": "1.7060413505921634e+270"
+  },
+  {
+    "bitPatternHex": "8e509a4b04b94a7f",
+    "expected": "-9.959610830397758e-240"
+  },
+  {
+    "bitPatternHex": "d18eb84fc7d99aa2",
+    "expected": "-7.459840619165339e+84"
+  },
+  {
+    "bitPatternHex": "d333f7b324a80dc9",
+    "expected": "-6.5079477176103e+92"
+  },
+  {
+    "bitPatternHex": "69771f6879c5a4a4",
+    "expected": "1.106204589451259e+200"
+  },
+  {
+    "bitPatternHex": "430ea302ef46ce23",
+    "expected": "1077935287622084.4"
+  },
+  {
+    "bitPatternHex": "ad337946857c1a76",
+    "expected": "-5.974898255291529e-91"
+  },
+  {
+    "bitPatternHex": "444770f16e06b20d",
+    "expected": "864827041343981900000"
+  },
+  {
+    "bitPatternHex": "75c9d28f1e7a4098",
+    "expected": "2.4814441690875974e+259"
+  },
+  {
+    "bitPatternHex": "8373c1d2b1684407",
+    "expected": "-4.94957464172256e-292"
+  },
+  {
+    "bitPatternHex": "7733eaa78c8def8a",
+    "expected": "1.605505515571491e+266"
+  },
+  {
+    "bitPatternHex": "52ba6ea879821291",
+    "expected": "3.3652163079928145e+90"
+  },
+  {
+    "bitPatternHex": "95425118b4dfb3cc",
+    "expected": "-2.8526085851343556e-206"
+  },
+  {
+    "bitPatternHex": "c639b901f2a8502b",
+    "expected": "-2.0379611445168955e+30"
+  },
+  {
+    "bitPatternHex": "0ab93f8a8bc9edde",
+    "expected": "5.2547767230104e-257"
+  },
+  {
+    "bitPatternHex": "96b3195e111d7355",
+    "expected": "-2.495143861672598e-199"
+  },
+  {
+    "bitPatternHex": "e5ea99d7f244f240",
+    "expected": "-8.830484935278837e+182"
+  },
+  {
+    "bitPatternHex": "7a74b6f0c0f3d68f",
+    "expected": "7.520258050163159e+281"
+  },
+  {
+    "bitPatternHex": "d34fc84b2ef02972",
+    "expected": "-2.0717403687881332e+93"
+  },
+  {
+    "bitPatternHex": "27e48c1f53885859",
+    "expected": "1.6296245883851705e-116"
+  },
+  {
+    "bitPatternHex": "83131bac22002ff4",
+    "expected": "-7.479656249392197e-294"
+  },
+  {
+    "bitPatternHex": "025493db623dfb33",
+    "expected": "1.9665197022126962e-297"
+  },
+  {
+    "bitPatternHex": "fd8ca7695499f646",
+    "expected": "-5.8561239413098335e+296"
+  },
+  {
+    "bitPatternHex": "bc291f025662859d",
+    "expected": "-6.809095772169175e-19"
+  },
+  {
+    "bitPatternHex": "a0fbbf5e6762e0e8",
+    "expected": "-8.476695134255916e-150"
+  },
+  {
+    "bitPatternHex": "0100247af8642217",
+    "expected": "7.356059202777507e-304"
+  },
+  {
+    "bitPatternHex": "dbd41cc7f94de85a",
+    "expected": "-2.284139112040758e+134"
+  },
+  {
+    "bitPatternHex": "999e9a7864bfff21",
+    "expected": "-2.8134056296911097e-185"
+  },
+  {
+    "bitPatternHex": "2fe04cee36edb91c",
+    "expected": "4.399185960468814e-78"
+  },
+  {
+    "bitPatternHex": "b1a5f3db9b51ef3b",
+    "expected": "-1.590363408009759e-69"
+  },
+  {
+    "bitPatternHex": "222f4e3babd3d3ae",
+    "expected": "5.01411268487654e-144"
+  },
+  {
+    "bitPatternHex": "b1efc8f21ded08e5",
+    "expected": "-3.6842784783543773e-68"
+  },
+  {
+    "bitPatternHex": "dd4388c1fac4ac90",
+    "expected": "-1.860989117913713e+141"
+  },
+  {
+    "bitPatternHex": "4bb1ae02cd65469f",
+    "expected": "4.3350572459729525e+56"
+  },
+  {
+    "bitPatternHex": "469c08be9ec8cc42",
+    "expected": "1.421500720781869e+32"
+  },
+  {
+    "bitPatternHex": "30bc6ce2f87226e9",
+    "expected": "6.284441926399374e-74"
+  },
+  {
+    "bitPatternHex": "c1e5a1981662ef44",
+    "expected": "-2903294131.091707"
+  },
+  {
+    "bitPatternHex": "98ac9be76e124c43",
+    "expected": "-8.026300654762748e-190"
+  },
+  {
+    "bitPatternHex": "f12f75d9ab732616",
+    "expected": "-1.6004797773478044e+237"
+  },
+  {
+    "bitPatternHex": "bbebd201ed581d2d",
+    "expected": "-4.71294923958547e-20"
+  },
+  {
+    "bitPatternHex": "4ec6ac6fbd8ef538",
+    "expected": "3.1297459620066464e+71"
+  },
+  {
+    "bitPatternHex": "705f7a068ec76427",
+    "expected": "1.9547235245732138e+233"
+  },
+  {
+    "bitPatternHex": "6764421ed9d6752a",
+    "expected": "1.1282618937147614e+190"
+  },
+  {
+    "bitPatternHex": "d6bb7df94fabefb1",
+    "expected": "-6.456633333869798e+109"
+  },
+  {
+    "bitPatternHex": "bcea8f30528e726c",
+    "expected": "-2.9486780897671637e-15"
+  },
+  {
+    "bitPatternHex": "f23103cece11324b",
+    "expected": "-1.1345542769347835e+242"
+  },
+  {
+    "bitPatternHex": "e2c21d3342078d7e",
+    "expected": "-5.340765200914193e+167"
+  },
+  {
+    "bitPatternHex": "561eaed01442e275",
+    "expected": "7.037110276044954e+106"
+  },
+  {
+    "bitPatternHex": "23e168d93f9a5ae0",
+    "expected": "7.485139226178446e-136"
+  },
+  {
+    "bitPatternHex": "c89c016e1cfe9aaf",
+    "expected": "-6.099076635210109e+41"
+  },
+  {
+    "bitPatternHex": "1f68cf1b5ac08312",
+    "expected": "2.2587165324106392e-157"
+  },
+  {
+    "bitPatternHex": "5b83a0730dbe7979",
+    "expected": "6.965569329977136e+132"
+  },
+  {
+    "bitPatternHex": "ff58fdbb7f92e294",
+    "expected": "-2.74209013981795e+305"
+  },
+  {
+    "bitPatternHex": "7225d98412c4c153",
+    "expected": "7.284696255402955e+241"
+  },
+  {
+    "bitPatternHex": "4322aa860934a9e6",
+    "expected": "2627021118788851"
+  },
+  {
+    "bitPatternHex": "c06c0724e0d078bd",
+    "expected": "-224.22325173108212"
+  },
+  {
+    "bitPatternHex": "fd4922e949f37d88",
+    "expected": "-3.2107638325484533e+295"
+  },
+  {
+    "bitPatternHex": "01695f1532a30a37",
+    "expected": "7.399443945376761e-302"
+  },
+  {
+    "bitPatternHex": "abe1cdf0062495fa",
+    "expected": "-2.604832599944386e-97"
+  },
+  {
+    "bitPatternHex": "c5e1d67fb4bee441",
+    "expected": "-4.416446693658276e+28"
+  },
+  {
+    "bitPatternHex": "efcb7ce79606dfbc",
+    "expected": "-3.334021532132919e+230"
+  },
+  {
+    "bitPatternHex": "f8063419c807195b",
+    "expected": "-1.4662496673283353e+270"
+  },
+  {
+    "bitPatternHex": "f68e26ea6c321b4e",
+    "expected": "-1.1868137393918847e+263"
+  },
+  {
+    "bitPatternHex": "69639c5be4280005",
+    "expected": "4.69096234785857e+199"
+  },
+  {
+    "bitPatternHex": "42f2fe00695afd30",
+    "expected": "334114206363603"
+  },
+  {
+    "bitPatternHex": "34c2ec653cf0d2bf",
+    "expected": "1.5435134446910802e-54"
+  },
+  {
+    "bitPatternHex": "483550d483744de2",
+    "expected": "7.253371378146739e+39"
+  },
+  {
+    "bitPatternHex": "a564409b32065009",
+    "expected": "-1.460856887277265e-128"
+  },
+  {
+    "bitPatternHex": "ca1d779c257509e4",
+    "expected": "-1.0766599890888989e+49"
+  },
+  {
+    "bitPatternHex": "d6ae91a90e965a63",
+    "expected": "-3.589628249613185e+109"
+  },
+  {
+    "bitPatternHex": "e29954321e4b81b6",
+    "expected": "-9.334988101633748e+166"
+  },
+  {
+    "bitPatternHex": "c16576c846f4984d",
+    "expected": "-11253314.217357779"
+  },
+  {
+    "bitPatternHex": "42efcb0348c579d8",
+    "expected": "279654351383502.75"
+  },
+  {
+    "bitPatternHex": "c0971240c4481447",
+    "expected": "-1476.563248754728"
+  },
+  {
+    "bitPatternHex": "c10fb2b51b754aca",
+    "expected": "-259670.63840731076"
+  },
+  {
+    "bitPatternHex": "4dd038ee7ab1dcd1",
+    "expected": "6.833667807686138e+66"
+  },
+  {
+    "bitPatternHex": "caf4081956dc010c",
+    "expected": "-1.199156009285006e+53"
+  },
+  {
+    "bitPatternHex": "77eff7828c94a46b",
+    "expected": "5.277470161241678e+269"
+  },
+  {
+    "bitPatternHex": "36679751e1607d1e",
+    "expected": "1.2913344764229419e-46"
+  },
+  {
+    "bitPatternHex": "e5921c462de56195",
+    "expected": "-1.8787394254369935e+181"
+  },
+  {
+    "bitPatternHex": "ffad3f44dbdb9380",
+    "expected": "-1.0269021639851943e+307"
+  },
+  {
+    "bitPatternHex": "d5e4d7c264aceecf",
+    "expected": "-5.975369473373335e+105"
+  },
+  {
+    "bitPatternHex": "bbd30e8be6c12cb2",
+    "expected": "-1.614175629515706e-20"
+  },
+  {
+    "bitPatternHex": "cf259c8e3822aa99",
+    "expected": "-1.9092147507310698e+73"
+  },
+  {
+    "bitPatternHex": "f8d8560fbf2e6534",
+    "expected": "-1.3165229699482244e+274"
+  },
+  {
+    "bitPatternHex": "a1bbd24bee081773",
+    "expected": "-3.4813060603979444e-146"
+  },
+  {
+    "bitPatternHex": "2161cad09c64ad86",
+    "expected": "6.95733481269351e-148"
+  },
+  {
+    "bitPatternHex": "da28c26b2e2d7bdd",
+    "expected": "-2.0950247483598652e+126"
+  },
+  {
+    "bitPatternHex": "40b49f565979ea28",
+    "expected": "5279.337302798907"
+  },
+  {
+    "bitPatternHex": "32e7e29156478257",
+    "expected": "1.814415376486908e-63"
+  },
+  {
+    "bitPatternHex": "8cb6b0744c45939a",
+    "expected": "-2.0281692013597003e-247"
+  },
+  {
+    "bitPatternHex": "08a4f829847dd961",
+    "expected": "5.080652800220653e-267"
+  },
+  {
+    "bitPatternHex": "90a1d75b01d2d65c",
+    "expected": "-1.4709508118540553e-228"
+  },
+  {
+    "bitPatternHex": "e04c81ebf55ad37b",
+    "expected": "-7.644463485144983e+155"
+  },
+  {
+    "bitPatternHex": "058c8df5c1dfb2ee",
+    "expected": "6.144819157615349e-282"
+  },
+  {
+    "bitPatternHex": "15eae707d2040725",
+    "expected": "4.290273506839197e-203"
+  },
+  {
+    "bitPatternHex": "fd0ced0706311dd0",
+    "expected": "-2.309258164754791e+294"
+  },
+  {
+    "bitPatternHex": "d9ab4ecd85e3eedf",
+    "expected": "-9.025999870330808e+123"
+  },
+  {
+    "bitPatternHex": "39e56cd2cfc41f82",
+    "expected": "8.450708628099358e-30"
+  },
+  {
+    "bitPatternHex": "1a5ac9fab72c8929",
+    "expected": "1.0087390556723598e-181"
+  },
+  {
+    "bitPatternHex": "e10463494323f484",
+    "expected": "-2.2393339725650493e+159"
+  },
+  {
+    "bitPatternHex": "28c2d3671bdaf883",
+    "expected": "2.4462727835568854e-112"
+  },
+  {
+    "bitPatternHex": "d03a8eb1066d2d56",
+    "expected": "-3.0751355209533974e+78"
+  },
+  {
+    "bitPatternHex": "6ea879ec2d24236d",
+    "expected": "1.1324833781986966e+225"
+  },
+  {
+    "bitPatternHex": "3e97331dcec5ce78",
+    "expected": "3.4570207565270447e-7"
+  },
+  {
+    "bitPatternHex": "2638fed53d725467",
+    "expected": "1.4770071995045265e-124"
+  },
+  {
+    "bitPatternHex": "94f2c72b3052706a",
+    "expected": "-9.138867884897406e-208"
+  },
+  {
+    "bitPatternHex": "85294f0c415bd9f1",
+    "expected": "-8.509916937348192e-284"
+  },
+  {
+    "bitPatternHex": "7628c7996af05fac",
+    "expected": "1.523989709117482e+261"
+  },
+  {
+    "bitPatternHex": "191d090ec23aa68b",
+    "expected": "1.0426780961037201e-187"
+  },
+  {
+    "bitPatternHex": "11e59d75673cbcbe",
+    "expected": "1.868658381686748e-222"
+  },
+  {
+    "bitPatternHex": "b42acb21814cf0b5",
+    "expected": "-2.1342238127116927e-57"
+  },
+  {
+    "bitPatternHex": "986bbc96b2b09c20",
+    "expected": "-4.8634801929431956e-191"
+  },
+  {
+    "bitPatternHex": "f640c5665c86d2ef",
+    "expected": "-4.125794767583118e+261"
+  },
+  {
+    "bitPatternHex": "71bfb77ed6da2652",
+    "expected": "8.261247704195304e+239"
+  },
+  {
+    "bitPatternHex": "a42d5e239a7cebb9",
+    "expected": "-2.0202370748943442e-134"
+  },
+  {
+    "bitPatternHex": "3473759a36fab7d4",
+    "expected": "4.9600940563612035e-56"
+  },
+  {
+    "bitPatternHex": "7a1977a4f10ffd93",
+    "expected": "1.444640951797305e+280"
+  },
+  {
+    "bitPatternHex": "286e138180920126",
+    "expected": "6.1065306466410464e-114"
+  },
+  {
+    "bitPatternHex": "c75fc10af2c18efd",
+    "expected": "-6.595063003163195e+35"
+  },
+  {
+    "bitPatternHex": "9a6be06dfe9e26c8",
+    "expected": "-2.0993925316148147e-181"
+  },
+  {
+    "bitPatternHex": "88fa16dd20d98a77",
+    "expected": "-2.0227697661424625e-265"
+  },
+  {
+    "bitPatternHex": "03a5aa4d9498e13a",
+    "expected": "4.3420801113874785e-291"
+  },
+  {
+    "bitPatternHex": "17caa6e43cc4de81",
+    "expected": "4.563744351659412e-194"
+  },
+  {
+    "bitPatternHex": "c1d0ed141d799cfc",
+    "expected": "-1135890549.9002066"
+  },
+  {
+    "bitPatternHex": "248e2d56a9551d9b",
+    "expected": "1.3285853971242745e-132"
+  },
+  {
+    "bitPatternHex": "b170354f34449a8e",
+    "expected": "-1.46776618149764e-70"
+  },
+  {
+    "bitPatternHex": "c41b721f4cc91e45",
+    "expected": "-126571366465359920000"
+  },
+  {
+    "bitPatternHex": "5d828e4356ef0e70",
+    "expected": "2.828431468037336e+142"
+  },
+  {
+    "bitPatternHex": "46c4c0927ec69aff",
+    "expected": "8.418106746994942e+32"
+  },
+  {
+    "bitPatternHex": "fa5e0c92b1a04122",
+    "expected": "-2.72726682536346e+281"
+  },
+  {
+    "bitPatternHex": "dfe947fcb1acd249",
+    "expected": "-1.059267087104327e+154"
+  },
+  {
+    "bitPatternHex": "aa77c1e7ff97af24",
+    "expected": "-4.14344200587517e-104"
+  },
+  {
+    "bitPatternHex": "7b298daec4e826a3",
+    "expected": "1.899920463474527e+285"
+  },
+  {
+    "bitPatternHex": "d3ffc424a04028f6",
+    "expected": "-4.240759807682222e+96"
+  },
+  {
+    "bitPatternHex": "1b551e2dd62ebe8d",
+    "expected": "5.21138331419726e-177"
+  },
+  {
+    "bitPatternHex": "3eaaf35e9237f318",
+    "expected": "8.031923112713334e-7"
+  },
+  {
+    "bitPatternHex": "d2627f9c09ce2487",
+    "expected": "-7.359777047359754e+88"
+  },
+  {
+    "bitPatternHex": "b02352584b55e60a",
+    "expected": "-8.343255524211973e-77"
+  },
+  {
+    "bitPatternHex": "0a5b136fae71e711",
+    "expected": "8.804952267812854e-259"
+  },
+  {
+    "bitPatternHex": "bb19788cabf38e4c",
+    "expected": "-5.267257938061423e-24"
+  },
+  {
+    "bitPatternHex": "0ab64be3670b38ab",
+    "expected": "4.6404405297713e-257"
+  },
+  {
+    "bitPatternHex": "98bfe30065044c5e",
+    "expected": "-1.7891743094397143e-189"
+  },
+  {
+    "bitPatternHex": "b0deab6035c18fd5",
+    "expected": "-2.7122321989239143e-73"
+  },
+  {
+    "bitPatternHex": "9ba562e063c174c0",
+    "expected": "-1.688833752283786e-175"
+  },
+  {
+    "bitPatternHex": "8365326f6d14470f",
+    "expected": "-2.655148889661795e-292"
+  },
+  {
+    "bitPatternHex": "f41aebbb02f36ff2",
+    "expected": "-1.9274571095322064e+251"
+  },
+  {
+    "bitPatternHex": "377b044b40953cd9",
+    "expected": "1.93835841937007e-41"
+  },
+  {
+    "bitPatternHex": "23a2fcd5311fda74",
+    "expected": "5.102261312689351e-137"
+  },
+  {
+    "bitPatternHex": "a348b31ffce473b3",
+    "expected": "-1.0370598155300168e-138"
+  },
+  {
+    "bitPatternHex": "ef6dcc5b3c24a4c6",
+    "expected": "-5.647259380578565e+228"
+  },
+  {
+    "bitPatternHex": "5bcc3b6b66d4b21d",
+    "expected": "1.6031397695377326e+134"
+  },
+  {
+    "bitPatternHex": "20c42728d6083368",
+    "expected": "7.695753911193973e-151"
+  },
+  {
+    "bitPatternHex": "8494cb2b73e12297",
+    "expected": "-1.3655716302991455e-286"
+  },
+  {
+    "bitPatternHex": "26fb0977fc067eda",
+    "expected": "6.543951095035959e-121"
+  },
+  {
+    "bitPatternHex": "2a865d600a5bf3a1",
+    "expected": "7.801093597451705e-104"
+  },
+  {
+    "bitPatternHex": "f64025aa0023339c",
+    "expected": "-3.972294723788297e+261"
+  },
+  {
+    "bitPatternHex": "1bb4baadcdfdf7bb",
+    "expected": "3.2738997651787127e-175"
+  },
+  {
+    "bitPatternHex": "cba49778dec8d22e",
+    "expected": "-2.5245336133707694e+56"
+  },
+  {
+    "bitPatternHex": "74c525a1bdbf4565",
+    "expected": "3.100809620298565e+254"
+  },
+  {
+    "bitPatternHex": "a98905bd953ccf10",
+    "expected": "-1.3318059591466606e-108"
+  },
+  {
+    "bitPatternHex": "afb61a88a220d71f",
+    "expected": "-7.456672823200201e-79"
+  },
+  {
+    "bitPatternHex": "d578675f2af0b2c2",
+    "expected": "-5.46582735436581e+103"
+  },
+  {
+    "bitPatternHex": "f6ada4ca8f4f2b69",
+    "expected": "-4.667226358894417e+263"
+  },
+  {
+    "bitPatternHex": "1c408f9edef839c4",
+    "expected": "1.3391817447479014e-172"
+  },
+  {
+    "bitPatternHex": "43fcfa1d1cc5e4c3",
+    "expected": "33408214186496635000"
+  },
+  {
+    "bitPatternHex": "d59475423c2c7496",
+    "expected": "-1.8328316727279406e+104"
+  },
+  {
+    "bitPatternHex": "9519a2d7fc5c69ad",
+    "expected": "-4.990626719390453e-207"
+  },
+  {
+    "bitPatternHex": "40a60a3a09c3e7b8",
+    "expected": "2821.1133557529793"
+  },
+  {
+    "bitPatternHex": "007905b35ce384a7",
+    "expected": "2.2270557860707766e-306"
+  },
+  {
+    "bitPatternHex": "535c9043f367abaa",
+    "expected": "3.723836938787799e+93"
+  },
+  {
+    "bitPatternHex": "244d346090bc0431",
+    "expected": "8.036060131192803e-134"
+  },
+  {
+    "bitPatternHex": "ba4c178fab0d8cec",
+    "expected": "-7.091426851487925e-28"
+  },
+  {
+    "bitPatternHex": "a2db2fd0d70e5acb",
+    "expected": "-8.917842893900933e-141"
+  },
+  {
+    "bitPatternHex": "43f55de3001f2bfe",
+    "expected": "24634179796688953000"
+  },
+  {
+    "bitPatternHex": "bfa9c04f768b3ef5",
+    "expected": "-0.05029533693379832"
+  },
+  {
+    "bitPatternHex": "32b5a01342b61d60",
+    "expected": "2.0534444318580186e-64"
+  },
+  {
+    "bitPatternHex": "94c2bb91a2dd4b2f",
+    "expected": "-1.1396019468699317e-208"
+  },
+  {
+    "bitPatternHex": "bbd9344616f50992",
+    "expected": "-2.1348783136604776e-20"
+  },
+  {
+    "bitPatternHex": "e32263547a339df9",
+    "expected": "-3.469782519955168e+169"
+  },
+  {
+    "bitPatternHex": "363765adebc5cd14",
+    "expected": "1.600900366857137e-47"
+  },
+  {
+    "bitPatternHex": "a3fcb28ed68d79d3",
+    "expected": "-2.46766331005823e-135"
+  },
+  {
+    "bitPatternHex": "3b9921a469849866",
+    "expected": "1.3304460312393295e-21"
+  },
+  {
+    "bitPatternHex": "1f7bbf1746aee53d",
+    "expected": "5.0523063986904697e-157"
+  },
+  {
+    "bitPatternHex": "c1a41e39b0601008",
+    "expected": "-168762584.1876223"
+  },
+  {
+    "bitPatternHex": "a380083654e64ab7",
+    "expected": "-1.0770152070397826e-137"
+  },
+  {
+    "bitPatternHex": "3606378cf3766c7a",
+    "expected": "1.9001855629584123e-48"
+  },
+  {
+    "bitPatternHex": "c3cc61a0de0b18c1",
+    "expected": "-4090185162664542700"
+  },
+  {
+    "bitPatternHex": "408a48a934f79a3c",
+    "expected": "841.0826205581611"
+  },
+  {
+    "bitPatternHex": "4818d4f6b15d61db",
+    "expected": "2.1124635109052822e+39"
+  },
+  {
+    "bitPatternHex": "af4030bf70d459ce",
+    "expected": "-4.267065614709878e-81"
+  },
+  {
+    "bitPatternHex": "6482dd96922e7c85",
+    "expected": "1.4931299756931918e+176"
+  },
+  {
+    "bitPatternHex": "75ecaae2aec25fb0",
+    "expected": "1.1019361247825077e+260"
+  },
+  {
+    "bitPatternHex": "bb45f7840e7aa33f",
+    "expected": "-3.6341119391721637e-23"
+  },
+  {
+    "bitPatternHex": "b75b14cf119d7462",
+    "expected": "-4.857467206263497e-42"
+  },
+  {
+    "bitPatternHex": "c2b7ba0e01db9489",
+    "expected": "-26087866358676.535"
+  },
+  {
+    "bitPatternHex": "9ad717dc596d9464",
+    "expected": "-2.2261110368744292e-179"
+  },
+  {
+    "bitPatternHex": "cbcdf8011a7c32e3",
+    "expected": "-1.4696640493954102e+57"
+  },
+  {
+    "bitPatternHex": "ebec37203e9a1036",
+    "expected": "-7.420825030956973e+211"
+  },
+  {
+    "bitPatternHex": "eddca931ddf524cd",
+    "expected": "-1.6187766026051562e+221"
+  },
+  {
+    "bitPatternHex": "6bb1c903e011ac58",
+    "expected": "5.847040621701302e+210"
+  },
+  {
+    "bitPatternHex": "5dfc92418e3a74c7",
+    "expected": "5.574528394384418e+144"
+  },
+  {
+    "bitPatternHex": "8ee60c40036fc14a",
+    "expected": "-6.771731056376597e-237"
+  },
+  {
+    "bitPatternHex": "2c1a13e37b023151",
+    "expected": "3.0521825962014636e-96"
+  },
+  {
+    "bitPatternHex": "0968f2a96d665b8c",
+    "expected": "2.475869547736418e-263"
+  },
+  {
+    "bitPatternHex": "367cc7e9d24c0ceb",
+    "expected": "3.1508318126932043e-46"
+  },
+  {
+    "bitPatternHex": "a6b0da54f1f55b9e",
+    "expected": "-2.5493845386448426e-122"
+  },
+  {
+    "bitPatternHex": "19235e3d72f1fe15",
+    "expected": "1.3910421585569457e-187"
+  },
+  {
+    "bitPatternHex": "9a3bf44a57369600",
+    "expected": "-2.631543942135929e-182"
+  },
+  {
+    "bitPatternHex": "0179a321ae69df4f",
+    "expected": "1.4953935340531101e-301"
+  },
+  {
+    "bitPatternHex": "02295cbe92c6f332",
+    "expected": "3.029721079045364e-298"
+  },
+  {
+    "bitPatternHex": "18623997db200f19",
+    "expected": "3.1956533645850724e-191"
+  },
+  {
+    "bitPatternHex": "243b7a6e99148fb4",
+    "expected": "3.7805154255814487e-134"
+  },
+  {
+    "bitPatternHex": "e590e52627130ff3",
+    "expected": "-1.752663403631735e+181"
+  },
+  {
+    "bitPatternHex": "a06a8121b719dc06",
+    "expected": "-1.5814320039307667e-152"
+  },
+  {
+    "bitPatternHex": "caf08caed298285d",
+    "expected": "-9.907070394462595e+52"
+  },
+  {
+    "bitPatternHex": "a7036b97924dbca8",
+    "expected": "-9.40085316313088e-121"
+  },
+  {
+    "bitPatternHex": "01491b80ed7102d7",
+    "expected": "1.8306137967553463e-302"
+  },
+  {
+    "bitPatternHex": "1ca5725d3fd0aa1a",
+    "expected": "1.1099250683074885e-170"
+  },
+  {
+    "bitPatternHex": "4c179e106c9a4de1",
+    "expected": "3.7062265442464155e+58"
+  },
+  {
+    "bitPatternHex": "30ee93bdbb1ed0dc",
+    "expected": "5.408135348823249e-73"
+  },
+  {
+    "bitPatternHex": "5354094a057b5bfb",
+    "expected": "2.612136630930723e+93"
+  },
+  {
+    "bitPatternHex": "b8e20d742dcf316e",
+    "expected": "-1.086498572538478e-34"
+  },
+  {
+    "bitPatternHex": "06fd303f3b5ec3a5",
+    "expected": "5.269085257371724e-275"
+  },
+  {
+    "bitPatternHex": "253aad4e4527c050",
+    "expected": "2.4053510245097606e-129"
+  },
+  {
+    "bitPatternHex": "3afee1da865bff5f",
+    "expected": "1.5965744223817556e-24"
+  },
+  {
+    "bitPatternHex": "fb938a9f0f8e8602",
+    "expected": "-1.8597456265243324e+287"
+  },
+  {
+    "bitPatternHex": "10559642ff1a0da9",
+    "expected": "5.561792778424475e-230"
+  },
+  {
+    "bitPatternHex": "d868d2c0db1fbf04",
+    "expected": "-7.824688456868324e+117"
+  },
+  {
+    "bitPatternHex": "a1358dfd99131103",
+    "expected": "-1.0535693868290883e-148"
+  },
+  {
+    "bitPatternHex": "686fdab01ff0fbd6",
+    "expected": "1.1626649905527075e+195"
+  },
+  {
+    "bitPatternHex": "0b44aaf13d40efed",
+    "expected": "2.202352014969227e-254"
+  },
+  {
+    "bitPatternHex": "479233f8f3c940f8",
+    "expected": "6.048990104055997e+36"
+  },
+  {
+    "bitPatternHex": "d38b8e37195af4e7",
+    "expected": "-2.8739380419245456e+94"
+  },
+  {
+    "bitPatternHex": "ac33cc02aa5626ea",
+    "expected": "-9.26827519900715e-96"
+  },
+  {
+    "bitPatternHex": "61ba414bc40c6e71",
+    "expected": "5.905963107932137e+162"
+  },
+  {
+    "bitPatternHex": "40a875f56c25fa2c",
+    "expected": "3130.979340731419"
+  },
+  {
+    "bitPatternHex": "05251a657ccc4f0b",
+    "expected": "7.095787195131244e-284"
+  },
+  {
+    "bitPatternHex": "577d238f87eedb3e",
+    "expected": "2.8030553403844958e+113"
+  },
+  {
+    "bitPatternHex": "151f992b5e3dcd35",
+    "expected": "6.1513006950095764e-207"
+  },
+  {
+    "bitPatternHex": "1c00b5145ceadea0",
+    "expected": "8.443837607803252e-174"
+  },
+  {
+    "bitPatternHex": "6c83db16e442036f",
+    "expected": "5.347548230245972e+214"
+  },
+  {
+    "bitPatternHex": "29f933b5ca512cd2",
+    "expected": "1.7169451614604564e-106"
+  },
+  {
+    "bitPatternHex": "73c8a5493b229039",
+    "expected": "5.514252845025902e+249"
+  },
+  {
+    "bitPatternHex": "7a0a39a85f342254",
+    "expected": "7.438154907253162e+279"
+  },
+  {
+    "bitPatternHex": "4f25219f7b7d3613",
+    "expected": "1.866792281311551e+73"
+  },
+  {
+    "bitPatternHex": "04462c0fe74c6fa6",
+    "expected": "4.5503136466139044e-288"
+  },
+  {
+    "bitPatternHex": "e88346d9ced87b7d",
+    "expected": "-2.8143704735863996e+195"
+  },
+  {
+    "bitPatternHex": "b5ba7f07b4793948",
+    "expected": "-7.081813856345699e-50"
+  },
+  {
+    "bitPatternHex": "e7925b998b094af7",
+    "expected": "-8.179338421894657e+190"
+  },
+  {
+    "bitPatternHex": "3612098af9fd37ba",
+    "expected": "3.085401412266796e-48"
+  },
+  {
+    "bitPatternHex": "3481db902ed19301",
+    "expected": "9.103650472605966e-56"
+  },
+  {
+    "bitPatternHex": "29dbdddd05c0d77c",
+    "expected": "4.7462037077296777e-107"
+  },
+  {
+    "bitPatternHex": "e099cb35e05fe61b",
+    "expected": "-2.2133644375188558e+157"
+  },
+  {
+    "bitPatternHex": "0e8e2d26ed21590e",
+    "expected": "1.4481732406216976e-238"
+  },
+  {
+    "bitPatternHex": "76a3a5492e981ac5",
+    "expected": "3.093090163509417e+263"
+  },
+  {
+    "bitPatternHex": "65cb9694ae14f0f0",
+    "expected": "2.2895538209680173e+182"
+  },
+  {
+    "bitPatternHex": "0bfd59e5704ceb7f",
+    "expected": "6.405438317811808e-251"
+  },
+  {
+    "bitPatternHex": "8831bf8ba2abe7a2",
+    "expected": "-3.359532111661995e-269"
+  },
+  {
+    "bitPatternHex": "0e9b4309c0d296c9",
+    "expected": "2.6166103000902625e-238"
+  },
+  {
+    "bitPatternHex": "ffd2ef88c436b9a4",
+    "expected": "-5.318834858045029e+307"
+  },
+  {
+    "bitPatternHex": "793bd4ab57927f23",
+    "expected": "9.635645004748305e+275"
+  },
+  {
+    "bitPatternHex": "ffc509386c993776",
+    "expected": "-2.9543987291049545e+307"
+  },
+  {
+    "bitPatternHex": "237101ac6087cb0d",
+    "expected": "5.712390266457418e-138"
+  },
+  {
+    "bitPatternHex": "a137df495792a598",
+    "expected": "-1.1668494583574344e-148"
+  },
+  {
+    "bitPatternHex": "ae009b109dcd0507",
+    "expected": "-4.173774991936589e-87"
+  },
+  {
+    "bitPatternHex": "4b9e3fc06b02dc8a",
+    "expected": "1.8542601323331888e+56"
+  },
+  {
+    "bitPatternHex": "dc9893cd86a2bb91",
+    "expected": "-1.1432814866417177e+138"
+  },
+  {
+    "bitPatternHex": "8d04454d947468cc",
+    "expected": "-5.798325870304498e-246"
+  },
+  {
+    "bitPatternHex": "af45f9815e97212b",
+    "expected": "-5.791522551369025e-81"
+  },
+  {
+    "bitPatternHex": "2d434187a373aade",
+    "expected": "1.1816173200130061e-90"
+  },
+  {
+    "bitPatternHex": "2941647f6fb6ac55",
+    "expected": "5.785692386827875e-110"
+  },
+  {
+    "bitPatternHex": "96f7edbdc37af740",
+    "expected": "-5.001744990101621e-198"
+  },
+  {
+    "bitPatternHex": "1d8d280d3cedb78f",
+    "expected": "2.4722198020093343e-166"
+  },
+  {
+    "bitPatternHex": "0f7bb009e57bb672",
+    "expected": "4.354010723123821e-234"
+  },
+  {
+    "bitPatternHex": "b9b15b49b6032159",
+    "expected": "-8.557461282731826e-31"
+  },
+  {
+    "bitPatternHex": "d7eaa71d584c84f4",
+    "expected": "-3.2817920516868923e+115"
+  },
+  {
+    "bitPatternHex": "d0d7755b44d3ec33",
+    "expected": "-2.7814911117901665e+81"
+  },
+  {
+    "bitPatternHex": "6e2f7e1dd0845346",
+    "expected": "5.691882357036351e+222"
+  },
+  {
+    "bitPatternHex": "72f8723983b7de9d",
+    "expected": "6.676789183653095e+245"
+  },
+  {
+    "bitPatternHex": "e81d1da7838a85e8",
+    "expected": "-3.3209819687791985e+193"
+  },
+  {
+    "bitPatternHex": "95c9255b9f372317",
+    "expected": "-1.0025375178310388e-203"
+  },
+  {
+    "bitPatternHex": "afeba1238ee4155a",
+    "expected": "-7.456643035420074e-78"
+  },
+  {
+    "bitPatternHex": "716adc8b6178e821",
+    "expected": "2.1864365425749928e+238"
+  },
+  {
+    "bitPatternHex": "ef38476ffc05ae1c",
+    "expected": "-5.751597330618933e+227"
+  },
+  {
+    "bitPatternHex": "4d28421fbc13003b",
+    "expected": "4.989642228284319e+63"
+  },
+  {
+    "bitPatternHex": "0b6f3ae01a32d0ae",
+    "expected": "1.3311451013141167e-253"
+  },
+  {
+    "bitPatternHex": "f1e0ddffe52281e5",
+    "expected": "-3.514707469208093e+240"
+  },
+  {
+    "bitPatternHex": "50f9290cf331f190",
+    "expected": "1.1933163267524343e+82"
+  },
+  {
+    "bitPatternHex": "f0803583d6d5679f",
+    "expected": "-8.052746383604934e+233"
+  },
+  {
+    "bitPatternHex": "da34732b1cdd9942",
+    "expected": "-3.4607393245267215e+126"
+  },
+  {
+    "bitPatternHex": "bff28c78c4cd2fe9",
+    "expected": "-1.1592948615607332"
+  },
+  {
+    "bitPatternHex": "2c840bf668da8444",
+    "expected": "3.0032734580866e-94"
+  },
+  {
+    "bitPatternHex": "74b4ca3af9027d43",
+    "expected": "1.5242284397179552e+254"
+  },
+  {
+    "bitPatternHex": "4d66d5cec4fac316",
+    "expected": "7.51508062526043e+64"
+  },
+  {
+    "bitPatternHex": "72f8ff4c1211b62d",
+    "expected": "6.827296921799552e+245"
+  },
+  {
+    "bitPatternHex": "2811c9225215da38",
+    "expected": "1.1284755307157688e-115"
+  },
+  {
+    "bitPatternHex": "c0d2dc98df18a527",
+    "expected": "-19314.3886167157"
+  },
+  {
+    "bitPatternHex": "b9d077461c5de22a",
+    "expected": "-3.247328868273882e-30"
+  },
+  {
+    "bitPatternHex": "dc6b660fa18d18b1",
+    "expected": "-1.593153497539965e+137"
+  },
+  {
+    "bitPatternHex": "aeee22f44779a76c",
+    "expected": "-1.2410365976574903e-82"
+  },
+  {
+    "bitPatternHex": "71bfe56363b4834b",
+    "expected": "8.307941686287092e+239"
+  },
+  {
+    "bitPatternHex": "30994ba7b9ebca7e",
+    "expected": "1.3981212411256226e-74"
+  },
+  {
+    "bitPatternHex": "4ca1e3b6e2a49b75",
+    "expected": "1.4373666590718506e+61"
+  },
+  {
+    "bitPatternHex": "d44cdc9aae8edfe0",
+    "expected": "-1.2329658469049352e+98"
+  },
+  {
+    "bitPatternHex": "8b31dd4754f4fbaf",
+    "expected": "-9.51812435201557e-255"
+  },
+  {
+    "bitPatternHex": "799efb3fe02e9012",
+    "expected": "6.864954562280878e+277"
+  },
+  {
+    "bitPatternHex": "158a1ef9ab89c279",
+    "expected": "6.508826776003604e-205"
+  },
+  {
+    "bitPatternHex": "1dc409aa9285b794",
+    "expected": "2.71845117721114e-165"
+  },
+  {
+    "bitPatternHex": "fe5c1c82d81f3253",
+    "expected": "-4.7064963356646357e+300"
+  },
+  {
+    "bitPatternHex": "1a6269665d2986e6",
+    "expected": "1.3865864199804506e-181"
+  },
+  {
+    "bitPatternHex": "f97e465abd7e51bd",
+    "expected": "-1.6770948597266971e+277"
+  },
+  {
+    "bitPatternHex": "011a2a76a029a288",
+    "expected": "2.384732121935029e-303"
+  },
+  {
+    "bitPatternHex": "328a9231bf828b37",
+    "expected": "3.1538426301617397e-65"
+  },
+  {
+    "bitPatternHex": "9bc0f939bf6d42fa",
+    "expected": "-5.361482463655038e-175"
+  },
+  {
+    "bitPatternHex": "4f2ad90905584d41",
+    "expected": "2.3717972921949125e+73"
+  },
+  {
+    "bitPatternHex": "23c7f77cf91554bc",
+    "expected": "2.5760905889913713e-136"
+  },
+  {
+    "bitPatternHex": "44a15fa6769caa5b",
+    "expected": "4.1022332921349705e+22"
+  },
+  {
+    "bitPatternHex": "a4a41a5ab46b984e",
+    "expected": "-3.540231239387127e-132"
+  }
+]

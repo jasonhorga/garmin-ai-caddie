@@ -15,6 +15,11 @@ on:
         description: 'Optional public API base URL to bake into the TestFlight app'
         required: false
         default: ''
+      upload_to_testflight:
+        description: 'Upload the signed IPA to TestFlight (false builds an artifact only)'
+        type: boolean
+        required: true
+        default: false
 
 concurrency:
   group: ios-testflight
@@ -64,9 +69,7 @@ jobs:
           MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
           MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
           AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || '' }}
-          # Single private owner: bake the admin token so the app authenticates to the
-          # private backend with no manual entry. Every tester is the owner.
-          AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          UPLOAD_TO_TESTFLIGHT: ${{ github.event.inputs.upload_to_testflight || 'false' }}
           RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
         run: bundle exec fastlane ios beta
 

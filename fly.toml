@@ -7,6 +7,7 @@ primary_region = "sin"
 [env]
   AI_CADDIE_SECURITY_PROFILE = "private"
   AI_CADDIE_DATA_MODE = "local_or_fixture"
+  AI_CADDIE_BUILD_REVISION = "unknown"
   AI_CADDIE_LLM_PROVIDER = "static"
   AI_CADDIE_PRIVATE_ROOT = "/var/lib/ai-caddie"
   GOOGLE_CLOUD_LOCATION = "global"

@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieDomain
 
 /// Pre-round course-prep DTO from `GET /api/v2/courses/{globalId}/prep`.
 /// Mirrors the engine's `course_prep` output (par + route + hazards + strategy + styled map).
@@ -57,7 +58,10 @@ public struct CoursePrepOverlay: Codable, Equatable {
 }
 
 public struct CoursePrepMap: Codable, Equatable {
-    public let image: String // data:image/jpeg;base64,...
+    /// Precise geometry carries an embedded raster fallback. CourseView-only history can still
+    /// provide an exact affine overlay before that bitmap exists, so the image is independently
+    /// optional instead of making the whole map decode as nil.
+    public let image: String? // data:image/png;base64,... when available
     public let overlay: CoursePrepOverlay
 }
 
@@ -74,6 +78,146 @@ public struct CoursePrepHazardIntervalReadout: Equatable {
         self.isBehind = isBehind
         self.isInside = isInside
         self.isCleared = isCleared
+    }
+}
+
+struct CoursePrepLiveHazardReadout: Equatable {
+    let id: String
+    let kind: String
+    let label: String
+    let toYards: Int
+    let overYards: Int
+    /// The same factual boundary pixels used to calculate the range. Keeping them attached to the
+    /// readout lets every client put the numbers on the obstacle instead of rebuilding a list below
+    /// the map (or positioning a generic pill in an unrelated screen lane).
+    let frontPx: [Double]
+    let backPx: [Double]
+
+    var detail: String { "到 \(toYards) · 过 \(overYards) 码" }
+
+    static func upcoming(
+        hazards: CoursePrepHazards,
+        route: [[Double]],
+        projectionRefs: [CoursePrepProjectionRef],
+        playerLatitude: Double,
+        playerLongitude: Double
+    ) -> [Self]? {
+        guard playerLatitude.isFinite, (-90...90).contains(playerLatitude),
+              playerLongitude.isFinite, (-180...180).contains(playerLongitude) else {
+            return nil
+        }
+        let refs = projectionRefs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+        guard let playerPx = WatchEventBridge.projectToTopoPx(
+            lat: playerLatitude,
+            lon: playerLongitude,
+            refs: refs
+        ), let progressM = playerProgressMetres(on: route, playerPx: playerPx) else {
+            return nil
+        }
+
+        let supported = hazards.details
+            .filter { $0.kind == "bunker" || $0.kind == "water" }
+            .sorted {
+                if $0.frontRouteM == $1.frontRouteM { return $0.kind < $1.kind }
+                return $0.frontRouteM < $1.frontRouteM
+            }
+        guard !supported.isEmpty else { return nil }
+
+        var ordinals: [String: Int] = [:]
+        var upcoming: [(readout: Self, frontRouteM: Double)] = []
+        var hasUnpassedGeometry = false
+
+        for detail in supported {
+            let ordinal = ordinals[detail.kind, default: 0]
+            ordinals[detail.kind] = ordinal + 1
+            guard max(detail.frontRouteM, detail.backRouteM) > progressM else { continue }
+            hasUnpassedGeometry = true
+            guard let front = coordinate(for: detail.frontPx, refs: refs),
+                  let back = coordinate(for: detail.backPx, refs: refs),
+                  let toYards = GeoDistance.yards(
+                      from: playerLatitude,
+                      playerLongitude,
+                      to: front.latitude,
+                      front.longitude
+                  ),
+                  let overYards = GeoDistance.yards(
+                      from: playerLatitude,
+                      playerLongitude,
+                      to: back.latitude,
+                      back.longitude
+                  ) else {
+                continue
+            }
+            let label = CoursePrepHazardNaming.label(
+                kind: detail.kind,
+                detail: detail,
+                route: route
+            )
+            upcoming.append((
+                readout: Self(
+                    id: "\(detail.kind)-\(ordinal)",
+                    kind: detail.kind,
+                    label: label,
+                    toYards: toYards,
+                    overYards: overYards,
+                    frontPx: detail.frontPx,
+                    backPx: detail.backPx
+                ),
+                frontRouteM: detail.frontRouteM
+            ))
+        }
+
+        if !hasUnpassedGeometry { return [] }
+        guard !upcoming.isEmpty else { return nil }
+        return upcoming.sorted {
+            if $0.readout.toYards == $1.readout.toYards {
+                if $0.frontRouteM == $1.frontRouteM { return $0.readout.id < $1.readout.id }
+                return $0.frontRouteM < $1.frontRouteM
+            }
+            return $0.readout.toYards < $1.readout.toYards
+        }.map(\.readout)
+    }
+
+    private static func coordinate(
+        for pixels: [Double],
+        refs: [(lat: Double, lon: Double, px: Double, py: Double)]
+    ) -> (latitude: Double, longitude: Double)? {
+        guard pixels.count >= 2 else { return nil }
+        return WatchEventBridge.projectFromTopoPx(px: pixels[0], py: pixels[1], refs: refs)
+    }
+
+    private static func playerProgressMetres(on route: [[Double]], playerPx: [Double]) -> Double? {
+        guard playerPx.count >= 2, playerPx[0].isFinite, playerPx[1].isFinite, route.count >= 2 else {
+            return nil
+        }
+        var bestDistanceSquared = Double.greatestFiniteMagnitude
+        var bestProgressM: Double?
+        for index in 0..<(route.count - 1) {
+            let start = route[index]
+            let end = route[index + 1]
+            guard validRoutePoint(start), validRoutePoint(end), end[2] >= start[2] else { continue }
+            let dx = end[0] - start[0]
+            let dy = end[1] - start[1]
+            let lengthSquared = dx * dx + dy * dy
+            guard lengthSquared > 0 else { continue }
+            let rawFraction = ((playerPx[0] - start[0]) * dx + (playerPx[1] - start[1]) * dy)
+                / lengthSquared
+            let fraction = min(max(rawFraction, 0), 1)
+            let projectedX = start[0] + dx * fraction
+            let projectedY = start[1] + dy * fraction
+            let playerDX = playerPx[0] - projectedX
+            let playerDY = playerPx[1] - projectedY
+            let distanceSquared = playerDX * playerDX + playerDY * playerDY
+            if distanceSquared < bestDistanceSquared {
+                bestDistanceSquared = distanceSquared
+                bestProgressM = start[2] + (end[2] - start[2]) * fraction
+            }
+        }
+        return bestProgressM
+    }
+
+    private static func validRoutePoint(_ point: [Double]) -> Bool {
+        point.count >= 3 && point[0].isFinite && point[1].isFinite && point[2].isFinite
     }
 }
 
@@ -105,15 +249,111 @@ public enum CoursePrepRoute {
 public struct CoursePrepHazards: Codable, Equatable {
     public let waterCarry: [[Double]]
     public let bunkers: [[Double]]
+    public let details: [CoursePrepHazardDetail]
 
-    public init(waterCarry: [[Double]] = [], bunkers: [[Double]] = []) {
+    public init(
+        waterCarry: [[Double]] = [],
+        bunkers: [[Double]] = [],
+        details: [CoursePrepHazardDetail] = []
+    ) {
         self.waterCarry = waterCarry
         self.bunkers = bunkers
+        self.details = details
     }
 
     private enum CodingKeys: String, CodingKey {
         case waterCarry = "water_carry"
-        case bunkers
+        case bunkers, details
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        waterCarry = try container.decodeIfPresent([[Double]].self, forKey: .waterCarry) ?? []
+        bunkers = try container.decodeIfPresent([[Double]].self, forKey: .bunkers) ?? []
+        details = try container.decodeIfPresent([CoursePrepHazardDetail].self, forKey: .details) ?? []
+    }
+}
+
+/// Player-facing front/back facts for one mapped hazard. Route metres are used only for ordering and
+/// passed/remaining state; front/back metres are straight-line distances from the selected tee, and
+/// the pixel pairs are the real geometry boundary points on the shared topo image.
+public struct CoursePrepHazardDetail: Codable, Equatable {
+    public let kind: String
+    public let frontM: Double
+    public let backM: Double
+    public let frontRouteM: Double
+    public let backRouteM: Double
+    public let frontPx: [Double]
+    public let backPx: [Double]
+    public let sideM: Double?
+
+    public init(
+        kind: String,
+        frontM: Double,
+        backM: Double,
+        frontRouteM: Double,
+        backRouteM: Double,
+        frontPx: [Double],
+        backPx: [Double],
+        sideM: Double?
+    ) {
+        self.kind = kind
+        self.frontM = frontM
+        self.backM = backM
+        self.frontRouteM = frontRouteM
+        self.backRouteM = backRouteM
+        self.frontPx = frontPx
+        self.backPx = backPx
+        self.sideM = sideM
+    }
+}
+
+/// Shared player-facing hazard naming for prep and live GPS readouts. Hazard decoder order is not
+/// meaningful; route-relative side and station are. Pixels and route points share one affine frame,
+/// so this uses source geometry only and never guesses a named bunker.
+enum CoursePrepHazardNaming {
+    static func label(
+        kind: String,
+        detail: CoursePrepHazardDetail,
+        route: [[Double]]?
+    ) -> String {
+        HazardDisplayNaming.label(
+            kind: kind,
+            frontRouteM: detail.frontRouteM,
+            frontPx: detail.frontPx,
+            sideM: detail.sideM,
+            route: route
+        )
+    }
+
+    static func legacyLabel(
+        kind: String,
+        interval: [Double],
+        route: [[Double]]?
+    ) -> String {
+        HazardDisplayNaming.legacyLabel(kind: kind, interval: interval, route: route)
+    }
+}
+
+/// Putting-surface boundary in the same affine frame as `resolvedMapOverlay`. Precise prep uses the
+/// selected `Green.drc` mesh exterior; lightweight prep retains Garmin CourseView's 30-direction
+/// outline while geometry is downloading. `source` tells consumers which authority supplied it.
+public struct CoursePrepGreenOutline: Codable, Equatable {
+    public let available: Bool
+    public let source: String?
+    public let distanceUnit: String?
+    public let pointsPx: [[Double]]
+
+    public init(
+        available: Bool,
+        source: String? = nil,
+        distanceUnit: String? = nil,
+        pointsPx: [[Double]] = []
+    ) {
+        self.available = available
+        self.source = source
+        self.distanceUnit = distanceUnit
+        self.pointsPx = pointsPx
     }
 }
 
@@ -125,6 +365,7 @@ public struct CoursePrepHole: Codable, Equatable {
     public let routeLenM: Double
     public let route: [[Double]]
     public let geometryCoverage: String
+    public let geometryRevision: String?
     public let sourceRefs: [String]
     public let missingData: [CoursePrepMissingData]
     public let candidateRoutes: [CoursePrepCandidateRoute]
@@ -140,14 +381,64 @@ public struct CoursePrepHole: Codable, Equatable {
     public let playsLike: CoursePrepPlaysLike?
     // watch P0.1: geo→px anchors so a client can place its GPS/pin/landings on the topo map.
     public let holeImageProjection: CoursePrepHoleImageProjection?
+    /// Factual putting-surface outline from precise Green.drc, with CourseView radii as fallback.
+    public let greenOutline: CoursePrepGreenOutline?
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, route, geometryCoverage, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map, greenDistances, playsLike, holeImageProjection
+        case hole, par, route, geometryCoverage, geometryRevision, sourceRefs, missingData, candidateRoutes, carryTargets, steps, cautions, hazards, map, greenDistances, playsLike, holeImageProjection, greenOutline
         case parSource = "par_source"
         case blueYards = "blue_yards"
         case routeLenM = "route_len_m"
         case landingM = "landing_m"
         case teeClub = "tee_club"
+    }
+
+    public init(
+        hole: Int,
+        par: Int,
+        parSource: String,
+        blueYards: Int,
+        routeLenM: Double,
+        route: [[Double]] = [],
+        geometryCoverage: String = "missing",
+        geometryRevision: String? = nil,
+        sourceRefs: [String] = [],
+        missingData: [CoursePrepMissingData] = [],
+        candidateRoutes: [CoursePrepCandidateRoute] = [],
+        carryTargets: [CoursePrepCarryTarget] = [],
+        steps: [CoursePrepStep] = [],
+        cautions: [String] = [],
+        landingM: Double? = nil,
+        teeClub: String? = nil,
+        hazards: CoursePrepHazards = CoursePrepHazards(),
+        map: CoursePrepMap? = nil,
+        greenDistances: CoursePrepGreenDistances? = nil,
+        playsLike: CoursePrepPlaysLike? = nil,
+        holeImageProjection: CoursePrepHoleImageProjection? = nil,
+        greenOutline: CoursePrepGreenOutline? = nil
+    ) {
+        self.hole = hole
+        self.par = par
+        self.parSource = parSource
+        self.blueYards = blueYards
+        self.routeLenM = routeLenM
+        self.route = route
+        self.geometryCoverage = geometryCoverage
+        self.geometryRevision = geometryRevision
+        self.sourceRefs = sourceRefs
+        self.missingData = missingData
+        self.candidateRoutes = candidateRoutes
+        self.carryTargets = carryTargets
+        self.steps = steps
+        self.cautions = cautions
+        self.landingM = landingM
+        self.teeClub = teeClub
+        self.hazards = hazards
+        self.map = map
+        self.greenDistances = greenDistances
+        self.playsLike = playsLike
+        self.holeImageProjection = holeImageProjection
+        self.greenOutline = greenOutline
     }
 
     public init(from decoder: Decoder) throws {
@@ -159,6 +450,7 @@ public struct CoursePrepHole: Codable, Equatable {
         self.routeLenM = try container.decode(Double.self, forKey: .routeLenM)
         self.route = try container.decodeIfPresent([[Double]].self, forKey: .route) ?? []
         self.geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage) ?? "missing"
+        self.geometryRevision = try container.decodeIfPresent(String.self, forKey: .geometryRevision)
         self.sourceRefs = try container.decodeIfPresent([String].self, forKey: .sourceRefs) ?? []
         self.missingData = try container.decodeIfPresent([CoursePrepMissingData].self, forKey: .missingData) ?? []
         self.candidateRoutes = try container.decodeIfPresent([CoursePrepCandidateRoute].self, forKey: .candidateRoutes) ?? []
@@ -172,6 +464,104 @@ public struct CoursePrepHole: Codable, Equatable {
         self.greenDistances = try container.decodeIfPresent(CoursePrepGreenDistances.self, forKey: .greenDistances)
         self.playsLike = try container.decodeIfPresent(CoursePrepPlaysLike.self, forKey: .playsLike)
         self.holeImageProjection = try container.decodeIfPresent(CoursePrepHoleImageProjection.self, forKey: .holeImageProjection)
+        self.greenOutline = try container.decodeIfPresent(CoursePrepGreenOutline.self, forKey: .greenOutline)
+    }
+
+    /// Overlay in the shared `/topo.png` pixel frame. Rendered prep already embeds this value; the
+    /// lightweight `render=false` response instead carries the route in local metres plus three affine
+    /// anchors. The backend fixes those anchors at local (0,0), (120,0), and (0,120), in that order.
+    public var resolvedMapOverlay: CoursePrepOverlay? {
+        if let overlay = map?.overlay,
+           overlay.w > 0, overlay.h > 0, overlay.route.count >= 2 {
+            return overlay
+        }
+        guard route.count >= 2,
+              let projection = holeImageProjection,
+              projection.available,
+              let width = projection.widthPx, width > 0,
+              let height = projection.heightPx, height > 0,
+              let refs = projection.refs, refs.count >= 3 else {
+            return nil
+        }
+
+        let origin = refs[0]
+        let xReference = refs[1]
+        let yReference = refs[2]
+        let pixelValues = [
+            origin.px, origin.py,
+            xReference.px, xReference.py,
+            yReference.px, yReference.py,
+        ]
+        guard pixelValues.allSatisfy(\.isFinite) else { return nil }
+
+        let xBasis = (
+            x: (xReference.px - origin.px) / 120,
+            y: (xReference.py - origin.py) / 120
+        )
+        let yBasis = (
+            x: (yReference.px - origin.px) / 120,
+            y: (yReference.py - origin.py) / 120
+        )
+        let ppm = (hypot(xBasis.x, xBasis.y) + hypot(yBasis.x, yBasis.y)) / 2
+        guard ppm.isFinite, ppm > 0 else { return nil }
+
+        var previousLocal: (x: Double, y: Double)?
+        var cumulativeM = 0.0
+        var projectedRoute: [[Double]] = []
+        for row in route {
+            guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
+            let local = (x: row[0], y: row[1])
+            if let previousLocal {
+                cumulativeM += hypot(local.x - previousLocal.x, local.y - previousLocal.y)
+            }
+            let routeM = row.count >= 3 && row[2].isFinite ? row[2] : cumulativeM
+            projectedRoute.append([
+                origin.px + local.x * xBasis.x + local.y * yBasis.x,
+                origin.py + local.x * xBasis.y + local.y * yBasis.y,
+                routeM,
+            ])
+            previousLocal = local
+        }
+
+        let length = routeLenM.isFinite && routeLenM > 0
+            ? routeLenM
+            : (projectedRoute.last?[2] ?? 0)
+        return CoursePrepOverlay(
+            w: width,
+            h: height,
+            ppm: ppm,
+            ln: length,
+            route: projectedRoute
+        )
+    }
+
+    /// Composite rounds renumber the second CourseView loop from local holes 1...9 to round holes
+    /// 10...18. Retain every factual prep field while moving only that display/event identity.
+    public func renumbered(to roundHole: Int) -> CoursePrepHole {
+        CoursePrepHole(
+            hole: roundHole,
+            par: par,
+            parSource: parSource,
+            blueYards: blueYards,
+            routeLenM: routeLenM,
+            route: route,
+            geometryCoverage: geometryCoverage,
+            geometryRevision: geometryRevision,
+            sourceRefs: sourceRefs,
+            missingData: missingData,
+            candidateRoutes: candidateRoutes,
+            carryTargets: carryTargets,
+            steps: steps,
+            cautions: cautions,
+            landingM: landingM,
+            teeClub: teeClub,
+            hazards: hazards,
+            map: map,
+            greenDistances: greenDistances,
+            playsLike: playsLike,
+            holeImageProjection: holeImageProjection,
+            greenOutline: greenOutline
+        )
     }
 }
 

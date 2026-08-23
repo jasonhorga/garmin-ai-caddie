@@ -10,8 +10,9 @@ data, never the wall clock. The summary additionally gains ``handicapEstimate`` 
 Round-id reality this locks in:
   - real shots carry ``scorecardId`` while fixture shots carry ``roundId`` — both keys
     must match;
-  - merged rounds (``id="merged_<a>_<b>"``) expose member ids via ``ids``; their shots
-    and raw_rounds reference the RAW member ids, so those must survive with the round;
+  - merged rounds (``id="merged_<a>_<b>"``) expose member ids via ``ids``; current
+    canonical shots reference the merged id while older/manually-built inputs may
+    still reference RAW member ids, so both shapes must survive with the round;
   - ids can be ints or strings — comparison is by string.
 
 unittest.TestCase on purpose: CI runs ``python -m unittest discover``, which ignores
@@ -160,7 +161,8 @@ class WindowedHistoryDataTests(unittest.TestCase):
         kept_ids = {str(row["id"]) for row in result.rounds}
         self.assertNotIn("100", kept_ids)
         self.assertIn("merged_101_102", kept_ids)
-        # shots reference the raw member ids (ints) and must survive with the merged round
+        # Legacy/manually-built shots may reference raw member ids and must still
+        # survive with the merged round. Loaded production shots are canonical.
         self.assertEqual([s["scorecardId"] for s in result.shots], [101, 102])
         self.assertEqual(
             {str(row["id"]) for row in result.raw_rounds},

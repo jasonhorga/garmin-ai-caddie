@@ -250,7 +250,10 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
             summary = round_ingest.ingest_round("p_friend", self._par4_events(), meta, idempotency_key="g2", root=self.root)
         sc_path = self.root / "data" / "players" / "p_friend" / "scorecards" / f"{summary['id']}.json"
         hole = read_json(sc_path)["scorecardDetails"][0]["scorecard"]["holes"][0]
-        self.assertEqual(hole, {"number": 1, "strokes": 4})  # no gir/fairway when undeterminable
+        self.assertEqual(
+            hole,
+            {"number": 1, "strokes": 4, "putts": 2, "penalties": 0},
+        )  # no gir/fairway when undeterminable
 
 
 if __name__ == "__main__":

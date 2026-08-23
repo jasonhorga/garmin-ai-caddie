@@ -82,16 +82,20 @@ def apply_M(M: np.ndarray, lon: float, lat: float) -> tuple[float, float]:
     return float(M[0, 0] * lon + M[0, 1] * lat + M[0, 2]), float(M[1, 0] * lon + M[1, 1] * lat + M[1, 2])
 
 
-# Subjective color palette for visual differentiation when alignment unknown
+# Research palette using terminal cross-source classifications.  It is only a
+# visualization aid and does not promote DSKIMG above prodgeometry authority.
 TYPE_COLOR = {
-    0x011407: (255, 230, 130),   # small features (bunkers/greens?)
-    0x011402: (255, 170, 0),     # tiny markers
-    0x011405: (50, 150, 250),    # cart path segments?
-    0x011403: (200, 250, 100),   # fairway centerline?
-    0x01140e: (90, 200, 90),     # per-hole summary blob
-    0x011409: (60, 130, 240),    # per-hole summary blob alt
-    0x011404: (255, 100, 150),
-    0x010b08: (255, 80, 200),    # cart paths (visually confirmed earlier)
+    0x010B08: (130, 130, 130),  # opaque mixed context; not a cart path
+    0x010D01: (75, 75, 75),  # course/complex boundary
+    0x011402: (70, 210, 210),  # tee area
+    0x011403: (80, 190, 90),  # fairway area
+    0x011404: (90, 240, 120),  # green area
+    0x011405: (235, 205, 120),  # bunker area
+    0x011407: (40, 115, 55),  # tree area
+    0x011409: (110, 110, 135),  # inner hole corridor
+    0x01140A: (45, 125, 220),  # stream/water area
+    0x01140B: (70, 180, 165),  # teebox surface
+    0x01140E: (80, 80, 105),  # outer hole domain
 }
 DEFAULT_COLOR = (200, 200, 200)
 
@@ -154,10 +158,9 @@ def overlay_hole(snapshot_hole_n: int) -> None:
     overlay = Image.new("RGBA", bg.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(overlay)
 
-    # Filter out the per-hole "summary blob" types (0x01140e, 0x011409) — they're
-    # the overview-zoom rendering, not individual features
-    overview_types = {0x01140e, 0x011409}
-    in_view = [p for p in in_view if p.ext_type not in overview_types]
+    # Structural hole domains are useful for clipping/framing, not as surfaces.
+    structural_types = {0x010D01, 0x01140E, 0x011409}
+    in_view = [p for p in in_view if p.ext_type not in structural_types]
 
     # Larger features first so small detail stays on top
     for p in sorted(in_view, key=lambda p: -len(p.lats)):

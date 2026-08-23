@@ -144,6 +144,7 @@ def mesh_components(mesh: dict[str, Any]) -> list[dict[str, Any]]:
         centroid = (cx / area, cy / area) if area else (sum(xs) / len(xs), sum(ys) / len(ys))
         components.append({
             "triangles": tris,
+            "vertex_indices": vertices,
             "face_count": len(face_indices),
             "point_count": len(vertices),
             "area_m2": area,
@@ -197,14 +198,117 @@ def line_intervals_for_component(start: Point, end: Point, component: dict[str, 
 
 
 def target_point(hole: dict[str, Any], green_components: list[dict[str, Any]]) -> tuple[str, Point]:
+    fallback: tuple[str, Point] | None = None
     for dogleg in hole.get("Doglegs", []) or []:
         line = dogleg.get("Line", [])
         if line:
             last = line[-1]
-            return "Dogleg/green endpoint", (float(last["X"]), float(last["Y"]))
+            fallback = (
+                "Dogleg/green endpoint",
+                (float(last["X"]), float(last["Y"])),
+            )
+            break
+
+    # A dual-green hole.json can keep Doglegs on physical A while the selected
+    # layout plays B.  courseData's release-bound route endpoint is the observed
+    # authority for that choice.  This lookup is cache-only and therefore safe in
+    # exporters and runtime reads.
+    try:
+        from ai_caddie.courses import courseview_core
+        from ai_caddie.geometry.shot_projection import world_to_local
+
+        route = courseview_core.load_cached_hole_route(
+            int(hole["GlobalId"]), int(hole["HoleNumber"])
+        )
+        latitude, longitude = (route or [])[-1]
+        selected = world_to_local(
+            latitude,
+            longitude,
+            ref_lat=float(hole["RefLat"]),
+            ref_lon=float(hole["RefLon"]),
+        )
+        if (
+            fallback is None
+            or dist(selected, fallback[1])
+            > courseview_core.COURSE_DATA_ROUTE_ENDPOINT_OVERRIDE_METRES
+        ):
+            return "courseData selected green endpoint", selected
+    except (IndexError, KeyError, TypeError, ValueError, OverflowError):
+        pass
+
+    if fallback is not None:
+        return fallback
 
     largest_green = green_components[0]
     return "Largest green component centroid", largest_green["centroid"]
+
+
+def bind_selected_green_target(
+    hazards: dict[str, Any] | None,
+    decoded: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Overlay the current selected-layout target onto an older hazard export.
+
+    New exports already call :func:`target_point`.  This read-time binding keeps
+    pre-fix cached hazard files correct without mutating them or downloading the
+    package again.  Only target-derived fields consumed by the product are
+    replaced; factual mesh components remain byte-for-byte as captured.
+    """
+    if not isinstance(hazards, dict) or not isinstance(decoded, dict):
+        return hazards
+    try:
+        by_name = {
+            mesh["name"]: mesh
+            for mesh in decoded.get("meshes") or []
+            if isinstance(mesh, dict) and isinstance(mesh.get("name"), str)
+        }
+        green_components = (
+            mesh_components(by_name["Green.drc"])
+            if "Green.drc" in by_name
+            else []
+        )
+        target_name, target = target_point(decoded["hole"], green_components)
+    except (IndexError, KeyError, TypeError, ValueError, OverflowError):
+        return hazards
+
+    rounded_target = rounded_point(target)
+    current_target = hazards.get("target") if isinstance(hazards.get("target"), dict) else {}
+    current_position = current_target.get("position")
+    try:
+        unchanged = (
+            current_position is not None
+            and dist(
+                (float(current_position[0]), float(current_position[1])),
+                target,
+            ) <= 0.05
+        )
+    except (IndexError, TypeError, ValueError, OverflowError):
+        unchanged = False
+    if unchanged and current_target.get("name") == target_name:
+        return hazards
+
+    rebound = dict(hazards)
+    rebound["target"] = {
+        **current_target,
+        "name": target_name,
+        "position": rounded_target,
+    }
+    rebound_tees: list[Any] = []
+    for tee in hazards.get("tees") or []:
+        if not isinstance(tee, dict):
+            rebound_tees.append(tee)
+            continue
+        row = dict(tee)
+        try:
+            position = tee["position"]
+            row["target_distance_m"] = round(
+                dist((float(position[0]), float(position[1])), target), 1
+            )
+        except (IndexError, KeyError, TypeError, ValueError, OverflowError):
+            pass
+        rebound_tees.append(row)
+    rebound["tees"] = rebound_tees
+    return rebound
 
 
 def rounded_point(p: Point) -> list[float]:

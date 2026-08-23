@@ -5,10 +5,11 @@ import UIKit
 
 // MARK: - shared options
 
-/// Lie choices for the pickers (value, 中文). Mirrors `shotLieLabel` / the legend.
+/// Where this shot was played from. `endLie` is a separate observed landing fact, so the editor
+/// never offers water/green as a start lie for the non-putt shots this product records.
 public let roundEditLieOptions: [(String, String)] = [
-    ("fairway", "球道"), ("rough", "长草"), ("bunker", "沙坑"),
-    ("water", "水"), ("green", "果岭"), ("teebox", "发球台"),
+    ("teebox", "发球台"), ("fairway", "球道"), ("rough", "长草"),
+    ("bunker", "沙坑"), ("fringe", "果岭边"), ("trees", "树下"), ("unknown", "未知"),
 ]
 
 /// Fallback club list when the player's real bag hasn't loaded (the picker prefers the real bag,
@@ -18,14 +19,32 @@ public let roundEditCommonClubs: [String] = [
     "七号铁", "八号铁", "九号铁", "PW", "GW", "SW", "LW", "推杆",
 ]
 
-// MARK: - edit overlay (handles + drag-to-move + magnifier + tap → add/edit)
+/// Picker state always uses the same display spelling as its rows. Garmin history may contain raw
+/// tokens such as `1W` / `7I`, while the real bag and fallback choices are Chinese display names.
+/// Keeping a raw token as the selection when no row has that tag makes SwiftUI render an empty value.
+public func roundEditClubSelection(_ raw: String?) -> String {
+    guard let raw else { return "" }
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, trimmed.lowercased() != "unknown" else { return "" }
+    return zhClubName(trimmed)
+}
+
+/// Normalise and deduplicate the choices, and retain the recorded club even when it is no longer in
+/// the player's current bag. That makes every historical shot visible and still lets the player pick
+/// a current club to replace it.
+public func roundEditClubOptions(current: String?, clubs: [String]) -> [String] {
+    var seen = Set<String>()
+    return ([roundEditClubSelection(current)] + clubs.map { roundEditClubSelection($0) })
+        .filter { !$0.isEmpty && seen.insert($0).inserted }
+}
+
+// MARK: - edit overlay (tap-to-add + long-press move + numbered handles + magnifier)
 
 #if canImport(UIKit)
-/// The edit affordance layer, overlaid on the read-only shot map when editing. Draws a drag-handle
-/// ring on each landing, and disambiguates ONE single-finger gesture (设计 §2/§5):
-///   • press a handle and **drag** → move that landing (live rubber-band both lines + magnifier loupe),
-///   • **tap** a handle (barely moved) → edit that shot (球杆/球位/删),
-///   • **tap** empty → add a shot there.
+/// The edit affordance layer, overlaid on the read-only shot map when editing. A short tap on empty
+/// ground immediately adds one numbered point to the local whole-hole draft; a short tap on a number
+/// selects it for details. A deliberate long press on an existing number moves it. Finger-up never
+/// writes the server — the parent Save action owns persistence.
 /// Pixel↔view conversion uses the fitted map size from GeometryReader (same projection as the canvas).
 public struct RoundShotEditLayer: View {
     @ObservedObject var editModel: RoundEditModel
@@ -33,25 +52,21 @@ public struct RoundShotEditLayer: View {
     let clubs: [String]
     /// The map's own base bitmap (flat fallback) + topo URL — reused by the magnifier so it shows the
     /// real course under the finger, not just the shot lines.
-    let baseImage: UIImage
+    let baseImage: UIImage?
     let topoURL: URL?
 
     @State private var editingShot: RoundShot?
-    @State private var addAtPx: [Double]?
     /// Current finger location (view coords) during a drag — drives the magnifier + the committed px.
     @State private var dragLocation: CGPoint?
-    /// The shot whose handle this gesture grabbed (nil = started on empty), and whether it has
-    /// travelled past the tap↔drag threshold yet.
+    /// The existing shot whose numbered handle this long-press gesture owns.
     @State private var grabbedShotId: String?
-    @State private var movedFar = false
     @State private var gestureActive = false
 
     private let hitRadius: CGFloat = 24
-    private let dragThreshold: CGFloat = 10
     private let loupeDiameter: CGFloat = 116
 
     public init(editModel: RoundEditModel, overlay: CoursePrepOverlay, clubs: [String],
-                baseImage: UIImage, topoURL: URL?) {
+                baseImage: UIImage?, topoURL: URL?) {
         self.editModel = editModel
         self.overlay = overlay
         self.clubs = clubs
@@ -65,32 +80,92 @@ public struct RoundShotEditLayer: View {
             let sy = geo.size.height / CGFloat(max(overlay.h, 1))
             ZStack {
                 Canvas { ctx, _ in
-                    for shot in editModel.map.shots {
+                    for (index, shot) in editModel.map.shots.enumerated() {
                         guard let e = shot.end, e.count >= 2 else { continue }
                         let p = CGPoint(x: CGFloat(e[0]) * sx, y: CGFloat(e[1]) * sy)
                         let dragging = editModel.draggingShotId == shot.id
-                        let r: CGFloat = dragging ? 15 : 11
+                        let selected = editModel.selectedShotId == shot.id
+                        let r: CGFloat = dragging ? 16 : (selected ? 15 : 13)
                         let ring = Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r))
-                        ctx.stroke(ring, with: .color(.white), lineWidth: dragging ? 3 : 2)
+                        ctx.fill(ring, with: .color(.black.opacity(selected || dragging ? 0.88 : 0.72)))
+                        ctx.stroke(
+                            ring,
+                            with: .color(selected ? LiveHoleStyle.green : .white),
+                            lineWidth: dragging ? 3.5 : (selected ? 3 : 2)
+                        )
                         ctx.stroke(ring, with: .color(.black.opacity(0.45)), lineWidth: 0.5)
-                        if dragging {
-                            ctx.fill(Path(ellipseIn: CGRect(x: p.x - 2.5, y: p.y - 2.5, width: 5, height: 5)),
-                                     with: .color(.white))
-                        }
+                        ctx.draw(
+                            Text("\(index + 1)")
+                                .font(.caption2.monospacedDigit().weight(.heavy))
+                                .foregroundColor(.white),
+                            at: p
+                        )
                     }
                 }
                 .contentShape(Rectangle())
-                .gesture(dragGesture(sx: sx, sy: sy))
+                .gesture(longPressDragGesture(sx: sx, sy: sy))
+                .simultaneousGesture(selectionTapGesture(sx: sx, sy: sy))
 
                 // Magnifier loupe: floats ABOVE the finger while dragging (设计 §5), showing the
                 // area the finger covers, magnified + crosshair, so the landing lands precisely.
-                // Gated on `movedFar` so a mere tap-to-edit doesn't flash the loupe.
-                if let loc = dragLocation, editModel.draggingShotId != nil, movedFar {
+                if let loc = dragLocation, editModel.draggingShotId != nil, gestureActive {
                     MagnifierLoupe(overlay: overlay, shots: editModel.map.shots,
                                    baseImage: baseImage, topoURL: topoURL,
                                    mapSize: geo.size, focus: loc, diameter: loupeDiameter)
                         .position(loupePosition(loc, in: geo.size))
                         .allowsHitTesting(false)
+                }
+
+                // A system sheet covers the lower half of the map. Keep the exact tapped/selected
+                // landing visible in the uncovered area instead of making the player remember which
+                // dot is being edited. This reuses the real topo + current route rather than drawing
+                // a detached synthetic thumbnail.
+                if let focus = sheetFocus(sx: sx, sy: sy) {
+                    VStack(spacing: 3) {
+                        MagnifierLoupe(
+                            overlay: overlay,
+                            shots: editModel.map.shots,
+                            baseImage: baseImage,
+                            topoURL: topoURL,
+                            mapSize: geo.size,
+                            focus: focus,
+                            diameter: 98,
+                            magnification: 2.35
+                        )
+                        Text(sheetFocusLabel)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.72), in: Capsule())
+                    }
+                    .frame(width: 122)
+                    .position(x: max(66, geo.size.width - 68), y: 72)
+                    .allowsHitTesting(false)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(sheetFocusLabel)
+                }
+
+                if let selectedShot {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Button {
+                                editingShot = selectedShot
+                            } label: {
+                                Label(selectedShotLabel, systemImage: "slider.horizontal.3")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 7)
+                                    .background(.black.opacity(0.78), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("修改球杆、球位或删除这一杆")
+                        }
+                    }
+                    .padding(10)
                 }
             }
         }
@@ -99,60 +174,71 @@ public struct RoundShotEditLayer: View {
                 shot: shot, clubs: effectiveClubs,
                 onClub: { editModel.editClub(shotId: shot.id, $0) },
                 onLie: { editModel.editLie(shotId: shot.id, $0) },
-                onDelete: { editModel.delete(shotId: shot.id) }
-            )
-        }
-        .sheet(isPresented: Binding(get: { addAtPx != nil }, set: { if !$0 { addAtPx = nil } })) {
-            if let px = addAtPx {
-                AddShotSheet(clubs: effectiveClubs) { club, lie in
-                    editModel.addShot(px: px, club: club, lie: lie, afterShotId: insertAfter(px))
-                    addAtPx = nil
+                onDelete: {
+                    editModel.delete(shotId: shot.id)
+                    editModel.selectedShotId = nil
                 }
-            }
+            )
         }
     }
 
-    /// One `DragGesture(minimumDistance:0)` handling both tap and drag. First frame decides if we
-    /// grabbed a handle; past the threshold it's a drag (live preview, commit on release); otherwise
-    /// it's a tap (edit a landing / add on empty). No pan/zoom in this view, so no gesture contention.
-    private func dragGesture(sx: CGFloat, sy: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { v in
+    private func longPressDragGesture(sx: CGFloat, sy: CGFloat) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.38, maximumDistance: 18)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                guard case .second(true, let drag?) = value else { return }
                 if !gestureActive {
                     gestureActive = true
-                    movedFar = false
-                    if let hit = editModel.map.shots.first(where: { hitTest($0, v.startLocation, sx, sy) }) {
-                        grabbedShotId = hit.id
-                        editModel.draggingShotId = hit.id
-                    } else {
+                    guard let hit = nearestHit(to: drag.startLocation, sx: sx, sy: sy) else {
                         grabbedShotId = nil
+                        return
                     }
+                    let id = hit.id
+                    grabbedShotId = id
+                    editModel.selectedShotId = id
+                    editModel.draggingShotId = id
                 }
-                dragLocation = v.location
-                if hypot(v.location.x - v.startLocation.x, v.location.y - v.startLocation.y) > dragThreshold {
-                    movedFar = true
-                }
-                // Live rubber-band the grabbed landing (local only, no network) once clearly dragging.
-                if let id = grabbedShotId, movedFar {
-                    editModel.previewMove(shotId: id, px: [Double(v.location.x / sx), Double(v.location.y / sy)])
+                dragLocation = drag.location
+                if let id = grabbedShotId {
+                    editModel.previewMove(
+                        shotId: id,
+                        px: clampedPixel(drag.location, sx: sx, sy: sy)
+                    )
                 }
             }
-            .onEnded { v in
-                if let id = grabbedShotId, movedFar {
-                    editModel.move(shotId: id, px: [Double(v.location.x / sx), Double(v.location.y / sy)])
-                } else if !movedFar {
-                    if let hit = editModel.map.shots.first(where: { hitTest($0, v.location, sx, sy) }) {
-                        editingShot = hit
-                    } else {
-                        addAtPx = [Double(v.location.x / sx), Double(v.location.y / sy)]
-                    }
+            .onEnded { value in
+                if case .second(true, let drag?) = value, let id = grabbedShotId {
+                    editModel.move(
+                        shotId: id,
+                        px: clampedPixel(drag.location, sx: sx, sy: sy)
+                    )
                 }
-                editModel.draggingShotId = nil
-                grabbedShotId = nil
-                movedFar = false
-                gestureActive = false
-                dragLocation = nil
+                resetGesture()
             }
+    }
+
+    private func selectionTapGesture(sx: CGFloat, sy: CGFloat) -> some Gesture {
+        SpatialTapGesture()
+            .onEnded { value in
+                guard !gestureActive else { return }
+                if let hit = nearestHit(to: value.location, sx: sx, sy: sy) {
+                    editModel.selectedShotId = hit.id
+                } else {
+                    let id = editModel.addShot(
+                        px: clampedPixel(value.location, sx: sx, sy: sy),
+                        afterShotId: editModel.selectedShotId
+                    )
+                    editModel.selectedShotId = id
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                }
+            }
+    }
+
+    private func resetGesture() {
+        editModel.draggingShotId = nil
+        grabbedShotId = nil
+        gestureActive = false
+        dragLocation = nil
     }
 
     /// Place the loupe centered horizontally on the finger but ABOVE it, clamped inside the map.
@@ -165,22 +251,70 @@ public struct RoundShotEditLayer: View {
 
     private var effectiveClubs: [String] { clubs.isEmpty ? roundEditCommonClubs : clubs }
 
+    private var selectedShot: RoundShot? {
+        guard let selectedShotId = editModel.selectedShotId else { return nil }
+        return editModel.map.shots.first { $0.id == selectedShotId }
+    }
+
+    private var selectedShotLabel: String {
+        guard let selectedShot,
+              let index = editModel.map.shots.firstIndex(where: { $0.id == selectedShot.id }) else {
+            return "编辑这一杆"
+        }
+        return "第 \(index + 1) 杆详情"
+    }
+
+    private var sheetFocusLabel: String {
+        guard let editingShot,
+              let index = editModel.map.shots.firstIndex(where: { $0.id == editingShot.id }) else {
+            return "当前落点"
+        }
+        return "正在改第 \(index + 1) 杆"
+    }
+
+    private func sheetFocus(sx: CGFloat, sy: CGFloat) -> CGPoint? {
+        let px: [Double]?
+        if let end = editingShot?.end, end.count >= 2 {
+            px = [Double(end[0]), Double(end[1])]
+        } else {
+            px = nil
+        }
+        guard let px, px.count >= 2 else { return nil }
+        return CGPoint(x: CGFloat(px[0]) * sx, y: CGFloat(px[1]) * sy)
+    }
+
     private func hitTest(_ s: RoundShot, _ loc: CGPoint, _ sx: CGFloat, _ sy: CGFloat) -> Bool {
         guard let e = s.end, e.count >= 2 else { return false }
         let p = CGPoint(x: CGFloat(e[0]) * sx, y: CGFloat(e[1]) * sy)
         return hypot(p.x - loc.x, p.y - loc.y) <= hitRadius
     }
 
-    /// Insert the new shot after the existing landing nearest the tap (a sensible "which gap"; the
-    /// backend re-sequences by this id). Forward-play assumption keeps the two connecting lines sane.
-    private func insertAfter(_ px: [Double]) -> String? {
-        editModel.map.shots.min(by: { pxDist($0, px) < pxDist($1, px) })?.id
+    private func nearestHit(to location: CGPoint, sx: CGFloat, sy: CGFloat) -> RoundShot? {
+        editModel.map.shots
+            .filter { hitTest($0, location, sx, sy) }
+            .min { lhs, rhs in
+                viewDistance(lhs, to: location, sx: sx, sy: sy)
+                    < viewDistance(rhs, to: location, sx: sx, sy: sy)
+            }
     }
 
-    private func pxDist(_ s: RoundShot, _ px: [Double]) -> CGFloat {
-        guard let e = s.end, e.count >= 2 else { return .greatestFiniteMagnitude }
-        return hypot(CGFloat(e[0]) - CGFloat(px[0]), CGFloat(e[1]) - CGFloat(px[1]))
+    private func viewDistance(
+        _ shot: RoundShot,
+        to location: CGPoint,
+        sx: CGFloat,
+        sy: CGFloat
+    ) -> CGFloat {
+        guard let end = shot.end, end.count >= 2 else { return .greatestFiniteMagnitude }
+        return hypot(CGFloat(end[0]) * sx - location.x, CGFloat(end[1]) * sy - location.y)
     }
+
+    private func clampedPixel(_ location: CGPoint, sx: CGFloat, sy: CGFloat) -> [Double] {
+        [
+            min(max(Double(location.x / sx), 0), Double(overlay.w)),
+            min(max(Double(location.y / sy), 0), Double(overlay.h)),
+        ]
+    }
+
 }
 
 // MARK: - magnifier loupe (设计 §5)
@@ -192,7 +326,7 @@ public struct RoundShotEditLayer: View {
 public struct MagnifierLoupe: View {
     let overlay: CoursePrepOverlay
     let shots: [RoundShot]
-    let baseImage: UIImage
+    let baseImage: UIImage?
     let topoURL: URL?
     /// Fitted map size in view coordinates (the edit layer's GeometryReader size).
     let mapSize: CGSize
@@ -201,7 +335,7 @@ public struct MagnifierLoupe: View {
     var diameter: CGFloat = 116
     var magnification: CGFloat = 2.2
 
-    public init(overlay: CoursePrepOverlay, shots: [RoundShot], baseImage: UIImage, topoURL: URL?,
+    public init(overlay: CoursePrepOverlay, shots: [RoundShot], baseImage: UIImage?, topoURL: URL?,
                 mapSize: CGSize, focus: CGPoint, diameter: CGFloat = 116, magnification: CGFloat = 2.2) {
         self.overlay = overlay
         self.shots = shots
@@ -250,44 +384,88 @@ public struct MagnifierLoupe: View {
 public struct ShotEditSheet: View {
     let shot: RoundShot
     let clubs: [String]
-    let onClub: (String) -> Void
-    let onLie: (String) -> Void
+    let onClub: (String?) -> Void
+    let onLie: (String?) -> Void
     let onDelete: () -> Void
+    let showsMapContext: Bool
+    @State private var selectedClub: String
+    @State private var selectedLie: String
     @Environment(\.dismiss) private var dismiss
 
-    public init(shot: RoundShot, clubs: [String], onClub: @escaping (String) -> Void,
-                onLie: @escaping (String) -> Void, onDelete: @escaping () -> Void) {
+    public init(shot: RoundShot, clubs: [String], onClub: @escaping (String?) -> Void,
+                onLie: @escaping (String?) -> Void, onDelete: @escaping () -> Void,
+                showsMapContext: Bool = true) {
         self.shot = shot
         self.clubs = clubs
         self.onClub = onClub
         self.onLie = onLie
         self.onDelete = onDelete
+        self.showsMapContext = showsMapContext
+        self._selectedClub = State(initialValue: roundEditClubSelection(shot.club))
+        let rawLie = (shot.lie ?? "unknown").lowercased()
+        let validLies = Set(roundEditLieOptions.map(\.0))
+        self._selectedLie = State(initialValue: validLies.contains(rawLie) ? rawLie : "unknown")
     }
 
     public var body: some View {
         NavigationStack {
-            Form {
-                Section("球杆") {
-                    Picker("球杆", selection: Binding(
-                        get: { shot.club ?? "" },
-                        set: { if !$0.isEmpty { onClub($0) } })) {
-                        Text("未知").tag("")
-                        ForEach(clubs, id: \.self) { Text($0).tag($0) }
+            VStack(spacing: 0) {
+                Form {
+                    if showsMapContext {
+                        Section {
+                            Label(shotSummary, systemImage: "scope")
+                                .font(.subheadline.weight(.semibold))
+                                .accessibilityLabel("地图位置，\(shotSummary)")
+                                .accessibilityHint("上方放大镜持续显示当前落点")
+                        }
+                    } else {
+                        Section {
+                            Label("原始位置保持不变", systemImage: "location.fill")
+                                .font(.subheadline.weight(.semibold))
+                            Text(shotSummary).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Section("球杆") {
+                        Picker("球杆", selection: Binding(
+                            get: { selectedClub },
+                            set: {
+                                selectedClub = $0
+                                onClub($0.isEmpty ? nil : $0)
+                            })) {
+                            Text("未知").tag("")
+                            ForEach(clubOptions, id: \.self) { Text($0).tag($0) }
+                        }
+                        .accessibilityIdentifier("shot-edit-club-picker")
+                        .accessibilityValue(selectedClub.isEmpty ? "未知" : selectedClub)
+                    }
+                    Section("击球时球位") {
+                        Picker("击球时球位", selection: Binding(
+                            get: { selectedLie },
+                            set: {
+                                selectedLie = $0
+                                onLie($0 == "unknown" ? nil : $0)
+                            })) {
+                            ForEach(roundEditLieOptions, id: \.0) { Text($0.1).tag($0.0) }
+                        }
                     }
                 }
-                Section("球位(球落哪)") {
-                    Picker("球位", selection: Binding(
-                        get: { shot.endLie ?? shot.lie ?? "" },
-                        set: { if !$0.isEmpty { onLie($0) } })) {
-                        Text("—").tag("")
-                        ForEach(roundEditLieOptions, id: \.0) { Text($0.1).tag($0.0) }
-                    }
-                }
-                Section {
+                Divider()
+                VStack {
                     Button(role: .destructive) { onDelete(); dismiss() } label: {
                         Label("删除这一杆", systemImage: "trash")
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .background(
+                                Color(uiColor: .secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            )
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.red)
                 }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .background(Color(uiColor: .systemGroupedBackground))
             }
             .navigationTitle("改这一杆")
             .navigationBarTitleDisplayMode(.inline)
@@ -295,54 +473,25 @@ public struct ShotEditSheet: View {
         }
         .presentationDetents([.medium])
     }
-}
 
-// MARK: - add a shot (club default-highlighted by nothing yet; lie)
-
-public struct AddShotSheet: View {
-    let clubs: [String]
-    let onAdd: (String?, String?) -> Void
-    @State private var club: String = ""
-    @State private var lie: String = "fairway"
-    @Environment(\.dismiss) private var dismiss
-
-    public init(clubs: [String], onAdd: @escaping (String?, String?) -> Void) {
-        self.clubs = clubs
-        self.onAdd = onAdd
+    private var clubOptions: [String] {
+        roundEditClubOptions(current: shot.club, clubs: clubs)
     }
 
-    public var body: some View {
-        NavigationStack {
-            Form {
-                Section("这一杆用什么杆") {
-                    Picker("球杆", selection: $club) {
-                        Text("未知").tag("")
-                        ForEach(clubs, id: \.self) { Text($0).tag($0) }
-                    }
-                }
-                Section("球落哪") {
-                    Picker("球位", selection: $lie) {
-                        ForEach(roundEditLieOptions, id: \.0) { Text($0.1).tag($0.0) }
-                    }
-                }
-            }
-            .navigationTitle("补一杆")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("加上") { onAdd(club.isEmpty ? nil : club, lie.isEmpty ? nil : lie); dismiss() }
-                }
-            }
+    private var shotSummary: String {
+        let number = shot.order.map { "第 \(max($0, 1)) 杆" } ?? "当前这一杆"
+        let club = shot.club.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty || trimmed.lowercased() == "unknown" ? nil : zhClubName(trimmed)
         }
-        .presentationDetents([.medium])
+        let lie = shotLieLabel(shot.lie)
+        return [number, club, lie == "—" ? nil : lie].compactMap { $0 }.joined(separator: " · ")
     }
 }
 
 // MARK: - edit-mode content (observes the edit model so optimistic changes redraw)
 
-/// The whole edit-mode body for one hole: the map with the edit overlay + the penalty stepper +
-/// a hint. Observes ``RoundEditModel`` so every optimistic change redraws instantly.
+/// The whole edit-mode body for one hole. Every visible value comes from the same unsaved draft.
 public struct RoundShotEditContent: View {
     @ObservedObject var editModel: RoundEditModel
     let topoURL: URL?
@@ -357,15 +506,66 @@ public struct RoundShotEditContent: View {
             RoundShotMapView(shotMap: editModel.map, topoURL: topoURL, editModel: editModel)
             PenaltyStepper(value: editModel.map.manualPenalty) { editModel.setPenalty($0) }
                 .hubCard()
-            Text("按住落点拖动微调(带放大镜)· 点空白补一杆 · 点落点改球杆/球位/删")
+            Text("点空白添加 · 长按编号拖动 · 点编号看详情")
                 .font(.caption).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             RoundShotReorderList(editModel: editModel, ppm: editModel.map.map?.overlay.ppm)
             RoundShotMapLegend()
-            if let err = editModel.pendingError {
+            if let err = editModel.saveError {
                 Text(err).font(.caption2).foregroundStyle(.orange).multilineTextAlignment(.center)
             }
+        }
+    }
+}
+
+/// Fact-only fallback while precise topo is unavailable. The player can still fix the counted list,
+/// club, start lie and penalty, but there is deliberately no add/move gesture without an authority
+/// pixel frame. Save persists only stable ids + facts, leaving every source GPS coordinate untouched.
+public struct RoundShotFactEditContent: View {
+    @ObservedObject var editModel: RoundEditModel
+    @State private var editingShot: RoundShot?
+
+    public init(editModel: RoundEditModel) {
+        self.editModel = editModel
+    }
+
+    public var body: some View {
+        VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("精确地图准备中", systemImage: "location.fill")
+                    .font(.subheadline.weight(.semibold))
+                Text("已有 GPS 原样保留；现在可改球杆、击球时球位、顺序、删除和罚杆，位置稍后在精确地图上调整。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .hubCard()
+            PenaltyStepper(value: editModel.map.manualPenalty) { editModel.setPenalty($0) }
+                .hubCard()
+            RoundShotReorderList(
+                editModel: editModel,
+                ppm: nil,
+                onEdit: { shot in editingShot = shot }
+            )
+            if let err = editModel.saveError {
+                Text(err).font(.caption2).foregroundStyle(.orange).multilineTextAlignment(.center)
+            }
+        }
+        .sheet(item: $editingShot) { shot in
+            ShotEditSheet(
+                shot: shot,
+                clubs: roundEditCommonClubs,
+                onClub: { editModel.editClub(shotId: shot.id, $0) },
+                onLie: { editModel.editLie(shotId: shot.id, $0) },
+                onDelete: {
+                    editModel.delete(shotId: shot.id)
+                    editModel.selectedShotId = nil
+                },
+                showsMapContext: false
+            )
         }
     }
 }
@@ -408,26 +608,51 @@ public struct RoundShotRow: View {
     }
 }
 
-/// 编辑态逐杆列表:长按行拖动重排(设计 §6)→ `editModel.reorder(新 shotId 顺序)`。用 `List` + `.onMove`
+/// 编辑态逐杆列表:拖动系统右侧手柄重排，点行内垃圾桶删除。列表编号和地图编号共用数组顺序。
 /// (唯一能长按拖动重排的容器);外层是 `ScrollView`,故 `.scrollDisabled` 让外层滚、行仍能拖。
 /// ⚠️ ImageRenderer / 窗口快照不渲 `List` 内容 → 编辑态快照里这块是空的,真机 / XCUITest 才验交互。
 public struct RoundShotReorderList: View {
     @ObservedObject var editModel: RoundEditModel
     let ppm: Double?
+    let onEdit: ((RoundShot) -> Void)?
 
-    public init(editModel: RoundEditModel, ppm: Double?) {
+    public init(editModel: RoundEditModel, ppm: Double?, onEdit: ((RoundShot) -> Void)? = nil) {
         self.editModel = editModel
         self.ppm = ppm
+        self.onEdit = onEdit
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("逐杆 · 长按拖动可调整顺序").font(.caption).foregroundStyle(.secondary)
+            Text("共 \(editModel.map.shots.count) 杆 · 点一杆修改 · 拖动排序 · 垃圾桶删除")
+                .font(.caption).foregroundStyle(.secondary)
             List {
                 ForEach(Array(editModel.map.shots.enumerated()), id: \.element.id) { idx, shot in
-                    RoundShotRow(shot: shot, ppm: ppm, displayNumber: idx + 1)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
-                        .listRowBackground(Color.clear)
+                    HStack(spacing: 8) {
+                        RoundShotRow(shot: shot, ppm: ppm, displayNumber: idx + 1)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("shot-draft-row-\(idx + 1)")
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                editModel.selectedShotId = shot.id
+                                onEdit?(shot)
+                            }
+                        Button(role: .destructive) {
+                            editModel.delete(shotId: shot.id)
+                        } label: {
+                            Image(systemName: "trash")
+                                .frame(width: 28, height: 32)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("删除第 \(idx + 1) 杆")
+                        .accessibilityIdentifier("shot-draft-delete-\(idx + 1)")
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                    .listRowBackground(
+                        editModel.selectedShotId == shot.id
+                            ? LiveHoleStyle.green.opacity(0.12)
+                            : Color.clear
+                    )
                 }
                 .onMove { indices, newOffset in
                     var ids = editModel.map.shots.map { $0.id }

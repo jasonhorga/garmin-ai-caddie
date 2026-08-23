@@ -38,14 +38,17 @@ RASTER_CACHE.mkdir(parents=True, exist_ok=True)
 SEMI31_TO_DEG = 180 / (1 << 31)
 
 TYPE_COLOR = {
-    0x011407: (255, 230, 80),   # frequent small polygons
-    0x011402: (255, 165, 0),    # tiny markers
-    0x011405: (50, 150, 250),
-    0x011403: (150, 255, 110),
-    0x01140E: (70, 220, 90),
-    0x011409: (50, 120, 255),
-    0x011404: (255, 100, 150),
-    0x010B08: (255, 80, 220),   # visually close to cart paths on satellite
+    0x010B08: (130, 130, 130),  # opaque mixed context; not a cart path
+    0x010D01: (75, 75, 75),  # course/complex boundary
+    0x011402: (70, 210, 210),  # tee area
+    0x011403: (80, 190, 90),  # fairway area
+    0x011404: (90, 240, 120),  # green area
+    0x011405: (235, 205, 120),  # bunker area
+    0x011407: (40, 115, 55),  # tree area
+    0x011409: (110, 110, 135),  # inner hole corridor
+    0x01140A: (45, 125, 220),  # stream/water area
+    0x01140B: (70, 180, 165),  # teebox surface
+    0x01140E: (80, 80, 105),  # outer hole domain
 }
 DEFAULT_COLOR = (220, 220, 220)
 

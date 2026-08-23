@@ -32,6 +32,8 @@ public struct LiveRoundPackage: Codable, Equatable {
     public let clubProfiles: [ClubProfile]
     public let caddieDecisionEndpoint: String
     public let offlinePackageStatus: OfflinePackageStatus
+    /// Cross-surface package gate. `blocked` means download/progress only; it is not a prep map.
+    public let readinessState: String?
     public let eventCursor: EventCursor
     public let recentHistory: RecentHistory
     public let cachedCaddieRules: CachedCaddieRules
@@ -58,7 +60,8 @@ public struct LiveRoundPackage: Codable, Equatable {
         eventCursor: EventCursor,
         recentHistory: RecentHistory,
         cachedCaddieRules: CachedCaddieRules,
-        generatedAt: String
+        generatedAt: String,
+        readinessState: String? = nil
     ) {
         self.schema = schema
         self.roundId = roundId
@@ -77,6 +80,7 @@ public struct LiveRoundPackage: Codable, Equatable {
         self.clubProfiles = clubProfiles
         self.caddieDecisionEndpoint = caddieDecisionEndpoint
         self.offlinePackageStatus = offlinePackageStatus
+        self.readinessState = readinessState
         self.eventCursor = eventCursor
         self.recentHistory = recentHistory
         self.cachedCaddieRules = cachedCaddieRules
@@ -85,6 +89,146 @@ public struct LiveRoundPackage: Codable, Equatable {
 
     public func cacheState(now: Date = Date()) -> OfflinePackageCacheState {
         offlinePackageStatus.cacheState(now: now)
+    }
+
+    /// A fast live package intentionally omits all-hole prep. Once the phone's background download
+    /// fills it, every round hole must have both a retained route/projection and precise geometry.
+    /// A CourseView-only outline remains useful for online play, but is not a complete offline map.
+    public var hasCompleteOfflineCoursePrep: Bool {
+        guard !holes.isEmpty, let preparedHoles = coursePrep?.holes else { return false }
+        let preciseDrawable: Set<Int> = Set(preparedHoles.compactMap { prep -> Int? in
+            guard prep.resolvedMapOverlay != nil,
+                  prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
+                return nil
+            }
+            return prep.hole
+        })
+        return Set(holes.map(\.number)).isSubset(of: preciseDrawable)
+    }
+
+    public func replacingCoursePrep(_ nextCoursePrep: CoursePrepPackage?) -> LiveRoundPackage {
+        LiveRoundPackage(
+            schema: schema,
+            roundId: roundId,
+            dataMode: dataMode,
+            sourceCoverage: sourceCoverage,
+            missingData: missingData,
+            playerProfile: playerProfile,
+            course: course,
+            holes: holes,
+            nine: nine,
+            coursePrep: nextCoursePrep,
+            geometryCoverage: geometryCoverage,
+            readinessChecks: readinessChecks,
+            caddieContextSeeds: caddieContextSeeds,
+            weatherSnapshot: weatherSnapshot,
+            clubProfiles: clubProfiles,
+            caddieDecisionEndpoint: caddieDecisionEndpoint,
+            offlinePackageStatus: offlinePackageStatus,
+            readinessState: readinessState,
+            eventCursor: eventCursor,
+            recentHistory: recentHistory,
+            cachedCaddieRules: cachedCaddieRules,
+            generatedAt: generatedAt
+        )
+    }
+
+    /// Keep the catalogue identity the player actually selected while retaining every package fact
+    /// (global id, Tee, release revisions, geometry and event authority) from the server. Garmin's
+    /// catalogue and package builders can expose different localized aliases for the same globalId;
+    /// letting a background refresh swap those aliases makes the course appear to change mid-round.
+    public func replacingCourseDisplayName(_ rawName: String?) -> LiveRoundPackage {
+        guard let name = rawName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty,
+              name != course.name else { return self }
+        return LiveRoundPackage(
+            schema: schema,
+            roundId: roundId,
+            dataMode: dataMode,
+            sourceCoverage: sourceCoverage,
+            missingData: missingData,
+            playerProfile: playerProfile,
+            course: Course(globalId: course.globalId, name: name, teeBox: course.teeBox),
+            holes: holes,
+            nine: nine,
+            coursePrep: coursePrep,
+            geometryCoverage: geometryCoverage,
+            readinessChecks: readinessChecks,
+            caddieContextSeeds: caddieContextSeeds,
+            weatherSnapshot: weatherSnapshot,
+            clubProfiles: clubProfiles,
+            caddieDecisionEndpoint: caddieDecisionEndpoint,
+            offlinePackageStatus: offlinePackageStatus,
+            readinessState: readinessState,
+            eventCursor: eventCursor,
+            recentHistory: recentHistory,
+            cachedCaddieRules: cachedCaddieRules,
+            generatedAt: generatedAt
+        )
+    }
+
+    /// Reuse immutable course/geometry/caddie facts for a brand-new offline round without reusing
+    /// the old round's identity or server cursor. Hole events live in OfflineStore separately and
+    /// are therefore intentionally absent from this new identity.
+    public func rebasedForOfflineStart(roundId: String, generatedAt: Date = Date()) -> LiveRoundPackage {
+        let rebasedSeeds = caddieContextSeeds.map {
+            $0.rebasedForOfflineStart(roundId: roundId, discardDynamicWeather: true)
+        }
+        var rebasedSeedRefs: [String: String] = [:]
+        for (oldSeed, newSeed) in zip(caddieContextSeeds, rebasedSeeds) {
+            rebasedSeedRefs[oldSeed.sourceRef] = newSeed.sourceRef
+        }
+        return LiveRoundPackage(
+            schema: schema,
+            roundId: roundId,
+            dataMode: dataMode,
+            sourceCoverage: SourceCoverage(
+                state: sourceCoverage.state,
+                dataMode: sourceCoverage.dataMode,
+                requestedRoundId: roundId,
+                selectedRoundId: nil,
+                roundFound: false,
+                availableRoundCount: sourceCoverage.availableRoundCount,
+                holeCount: holes.count,
+                clubProfileCount: sourceCoverage.clubProfileCount
+            ),
+            missingData: missingData,
+            playerProfile: playerProfile,
+            course: course,
+            holes: holes,
+            nine: nine,
+            coursePrep: coursePrep,
+            geometryCoverage: geometryCoverage,
+            readinessChecks: readinessChecks.map { check in
+                PackageReadinessCheck(
+                    label: check.label,
+                    state: check.state,
+                    ready: check.ready,
+                    total: check.total,
+                    reason: check.reason,
+                    sourceRefs: check.sourceRefs.map { rebasedSeedRefs[$0] ?? $0 }
+                )
+            },
+            caddieContextSeeds: rebasedSeeds,
+            // A course template can live for weeks. Its map, clubs and historical evidence remain
+            // reusable, but its weather does not. Online revalidation supplies a fresh snapshot;
+            // an offline start stays honest and makes no wind adjustment from prep-day conditions.
+            weatherSnapshot: .offlineRefreshPending,
+            clubProfiles: clubProfiles,
+            caddieDecisionEndpoint: caddieDecisionEndpoint,
+            offlinePackageStatus: offlinePackageStatus,
+            readinessState: readinessState,
+            eventCursor: EventCursor(
+                serverSequence: 0,
+                pendingEventCount: 0,
+                clientId: eventCursor.clientId,
+                lastAckedServerSequence: 0,
+                replayEndpoint: nil
+            ),
+            recentHistory: recentHistory,
+            cachedCaddieRules: cachedCaddieRules,
+            generatedAt: ISO8601DateFormatter().string(from: generatedAt)
+        )
     }
 }
 
@@ -153,10 +297,38 @@ public struct Hole: Codable, Equatable, Identifiable {
     public let par: Int
     public let yards: Int?
     public let geometryCoverage: GeometryCoverageState
+    /// Stable identity of the Garmin release-bound geometry used by prep/topo. Optional keeps
+    /// packages saved by older app versions playable offline until the next online revalidation.
+    public let geometryRevision: String?
     /// Source course id + local hole for this hole's geometry (composite rounds: holes 10–18 live
     /// in a second loop's gid). Optional → older payloads decode to nil and fall back to the course.
     public let sourceGlobalId: Int?
     public let sourceLocalHole: Int?
+    /// Selected Tee anchor from the same per-hole geometry. Optional keeps cached v1 packages valid.
+    public let teeLatitude: Double?
+    public let teeLongitude: Double?
+
+    public init(
+        number: Int,
+        par: Int,
+        yards: Int?,
+        geometryCoverage: GeometryCoverageState,
+        geometryRevision: String? = nil,
+        sourceGlobalId: Int? = nil,
+        sourceLocalHole: Int? = nil,
+        teeLatitude: Double? = nil,
+        teeLongitude: Double? = nil
+    ) {
+        self.number = number
+        self.par = par
+        self.yards = yards
+        self.geometryCoverage = geometryCoverage
+        self.geometryRevision = geometryRevision
+        self.sourceGlobalId = sourceGlobalId
+        self.sourceLocalHole = sourceLocalHole
+        self.teeLatitude = teeLatitude
+        self.teeLongitude = teeLongitude
+    }
 }
 
 public struct GeometryCoverage: Codable, Equatable {
@@ -201,6 +373,28 @@ public struct CaddieContextSeed: Codable, Equatable, Identifiable {
         case missingData
     }
 
+    public init(
+        hole: Int,
+        sourceRef: String,
+        shotTypes: [String],
+        requiredLiveInputs: [String],
+        context: [String: JSONValue],
+        selectedOfflineOptionId: String?,
+        offlineOptions: [OfflineCaddieOption],
+        evidence: [[String: JSONValue]],
+        missingData: [[String: JSONValue]]
+    ) {
+        self.hole = hole
+        self.sourceRef = sourceRef
+        self.shotTypes = shotTypes
+        self.requiredLiveInputs = requiredLiveInputs
+        self.context = context
+        self.selectedOfflineOptionId = selectedOfflineOptionId
+        self.offlineOptions = offlineOptions
+        self.evidence = evidence
+        self.missingData = missingData
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.hole = try container.decode(Int.self, forKey: .hole)
@@ -213,6 +407,53 @@ public struct CaddieContextSeed: Codable, Equatable, Identifiable {
         self.offlineOptions = offlineOptions ?? []
         self.evidence = try container.decode([[String: JSONValue]].self, forKey: .evidence)
         self.missingData = try container.decode([[String: JSONValue]].self, forKey: .missingData)
+    }
+
+    /// A cached seed contains both reusable golf evidence and identity that belongs to the round
+    /// which originally downloaded it. Rebind only that runtime identity. Historical shot samples
+    /// remain untouched so the recommendation keeps its real provenance.
+    public func rebasedForOfflineStart(
+        roundId: String,
+        discardDynamicWeather: Bool = false
+    ) -> CaddieContextSeed {
+        let nextSourceRef = "\(roundId):\(hole)"
+        var nextContext = context.mapValues {
+            $0.replacingExactString(sourceRef, with: nextSourceRef)
+        }
+        nextContext["roundId"] = .string(roundId)
+        nextContext["sourceRef"] = .string(nextSourceRef)
+        if discardDynamicWeather {
+            nextContext["weatherSnapshot"] = .object([
+                "schema": .string("ai-caddie-weather-snapshot-v1"),
+                "state": .string("missing"),
+                "source": .string("missing"),
+                "confidence": .string("low"),
+                "missingData": .array([
+                    .object([
+                        "label": .string("weather_values"),
+                        "reason": .string("course template weather is stale; refresh required"),
+                    ])
+                ]),
+            ])
+        }
+
+        return CaddieContextSeed(
+            hole: hole,
+            sourceRef: nextSourceRef,
+            shotTypes: shotTypes,
+            requiredLiveInputs: requiredLiveInputs,
+            context: nextContext,
+            selectedOfflineOptionId: selectedOfflineOptionId,
+            offlineOptions: offlineOptions.map {
+                $0.replacingRuntimeSourceRef(sourceRef, with: nextSourceRef)
+            },
+            evidence: evidence.map { row in
+                row.mapValues { $0.replacingExactString(sourceRef, with: nextSourceRef) }
+            },
+            missingData: missingData.map { row in
+                row.mapValues { $0.replacingExactString(sourceRef, with: nextSourceRef) }
+            }
+        )
     }
 }
 
@@ -282,6 +523,30 @@ public struct OfflineCaddieOption: Codable, Equatable, Identifiable {
         case sampleRefs
         case missingData
     }
+
+    fileprivate func replacingRuntimeSourceRef(
+        _ oldSourceRef: String,
+        with newSourceRef: String
+    ) -> OfflineCaddieOption {
+        OfflineCaddieOption(
+            optionId: optionId,
+            label: label,
+            clubName: clubName,
+            carryM: carryM,
+            p10M: p10M,
+            p90M: p90M,
+            sampleSize: sampleSize,
+            confidence: confidence,
+            coverage: coverage,
+            riskScore: riskScore,
+            source: source,
+            sourceRefs: sourceRefs.map { $0 == oldSourceRef ? newSourceRef : $0 },
+            sampleRefs: sampleRefs,
+            missingData: missingData?.map { row in
+                row.mapValues { $0.replacingExactString(oldSourceRef, with: newSourceRef) }
+            }
+        )
+    }
 }
 
 public struct OfflineOptionCoverage: Codable, Equatable {
@@ -296,11 +561,27 @@ public struct WeatherSnapshot: Codable, Equatable {
     public let source: String
     public let confidence: String
     public let missingData: [WeatherMissingData]
+
+    public static let offlineRefreshPending = WeatherSnapshot(
+        schema: "ai-caddie-weather-snapshot-v1",
+        state: "missing",
+        source: "missing",
+        confidence: "low",
+        missingData: [WeatherMissingData(
+            label: "weather_values",
+            reason: "course template weather is stale; refresh required"
+        )]
+    )
 }
 
 public struct WeatherMissingData: Codable, Equatable {
     public let label: String
     public let reason: String
+
+    public init(label: String, reason: String) {
+        self.label = label
+        self.reason = reason
+    }
 }
 
 public struct ClubProfile: Codable, Equatable, Identifiable {
@@ -449,4 +730,23 @@ public struct CachedCaddieRules: Codable, Equatable {
     public let offlineCapable: Bool
     public let requiredInputs: [String]
     public let degradeWhenMissing: [String]
+}
+
+private extension JSONValue {
+    func replacingExactString(_ oldValue: String, with newValue: String) -> JSONValue {
+        switch self {
+        case .string(let value):
+            return .string(value == oldValue ? newValue : value)
+        case .object(let object):
+            return .object(object.mapValues {
+                $0.replacingExactString(oldValue, with: newValue)
+            })
+        case .array(let array):
+            return .array(array.map {
+                $0.replacingExactString(oldValue, with: newValue)
+            })
+        case .number(_), .bool(_), .null:
+            return self
+        }
+    }
 }

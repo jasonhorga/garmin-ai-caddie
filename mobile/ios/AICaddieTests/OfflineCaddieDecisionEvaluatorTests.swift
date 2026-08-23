@@ -2,6 +2,34 @@ import XCTest
 @testable import AICaddie
 
 final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
+    func testLiveCaddieDistancePrefersManualThenLiveThenStaticMiddle() {
+        XCTAssertEqual(
+            LiveCaddieDistance.resolve(manualM: 141, liveMiddleM: 152, staticMiddleM: 163),
+            141
+        )
+        XCTAssertEqual(
+            LiveCaddieDistance.resolve(manualM: nil, liveMiddleM: 152, staticMiddleM: 163),
+            152
+        )
+        XCTAssertEqual(
+            LiveCaddieDistance.resolve(manualM: nil, liveMiddleM: nil, staticMiddleM: 163),
+            163
+        )
+        XCTAssertNil(LiveCaddieDistance.resolve(manualM: nil, liveMiddleM: nil, staticMiddleM: nil))
+    }
+
+    func testOffCourseGPSFallsBackToDownloadedHoleDistance() {
+        XCTAssertEqual(
+            LiveCaddieDistance.resolve(
+                manualM: nil,
+                liveMiddleM: 20_000,
+                staticMiddleM: 374,
+                holeYards: 410
+            ),
+            374
+        )
+    }
+
     func testMakesAuditableOfflineDecisionFromSeedAndStrategy() throws {
         let package = try fixturePackage()
         let seed = try XCTUnwrap(package.caddieContextSeeds.first)
@@ -32,6 +60,26 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertTrue(decision.evidence.contains { row in row["label"] == .string("offline_caddie") })
         XCTAssertTrue(decision.auditCriteria.contains { row in row["label"] == .string("offline_selected_option") })
         XCTAssertTrue(decision.missingData.contains { row in row["label"] == .string("club_profile_sample") })
+    }
+
+    func testLiveStructuredDecisionDoesNotWaitForUnusedLLMExplanation() throws {
+        let seed = try XCTUnwrap(try fixturePackage().caddieContextSeeds.first)
+        let request = CaddieDecisionRequestBuilder().makeDecisionRequest(
+            seed: seed,
+            input: LiveCaddieInput(shotType: "tee", distanceToPinM: 369)
+        )
+
+        XCTAssertFalse(request.includeExplanation)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
+        )
+        XCTAssertEqual(object["includeExplanation"] as? Bool, false)
+    }
+
+    func testCancelledLiveCaddieRequestIsNotReportedAsConnectivityFailure() {
+        XCTAssertTrue(LiveCaddieLoadFailure.isCancellation(CancellationError()))
+        XCTAssertTrue(LiveCaddieLoadFailure.isCancellation(URLError(.cancelled)))
+        XCTAssertFalse(LiveCaddieLoadFailure.isCancellation(URLError(.timedOut)))
     }
 
     func testStrategyModeSelectsCachedOptionWithoutNetwork() throws {

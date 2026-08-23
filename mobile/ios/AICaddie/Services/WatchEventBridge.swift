@@ -7,6 +7,7 @@ public enum WatchInputKind: String, Codable, Equatable {
     case penalty
     case club
     case distance
+    case location
 }
 
 public struct WatchClubOption: Codable, Equatable, Identifiable {
@@ -30,26 +31,56 @@ public struct WatchClubOption: Codable, Equatable, Identifiable {
     }
 }
 
-/// round-13 spec ⑤: a 障碍 carry interval pushed to the watch Hazard View. Mirrors the watch-side
-/// WatchHazard (same JSON shape); distances are along-route metres, the watch converts to 码.
+/// A measured hazard fact pushed to the Watch. New payloads carry true front/back boundary pixels and
+/// straight-line tee distances; legacy bunker payloads may still contain only startM + sideM.
 public struct WatchHazard: Codable, Equatable, Identifiable {
     public var id: String { "\(kind)-\(label)" }
 
     public let kind: String     // "bunker" | "water"
-    public let label: String    // 中文,如「沙坑 1」「水域」
+    public let label: String    // 中文,如「右侧球道沙坑」「前方水障碍」
     public let startM: Double?
     public let endM: Double?
+    public let sideM: Double?
+    public let frontDistanceM: Double?
+    public let backDistanceM: Double?
+    public let frontPx: [Double]?
+    public let backPx: [Double]?
 
-    public init(kind: String, label: String, startM: Double? = nil, endM: Double? = nil) {
+    public init(
+        kind: String,
+        label: String,
+        startM: Double? = nil,
+        endM: Double? = nil,
+        sideM: Double? = nil,
+        frontDistanceM: Double? = nil,
+        backDistanceM: Double? = nil,
+        frontPx: [Double]? = nil,
+        backPx: [Double]? = nil
+    ) {
         self.kind = kind
         self.label = label
         self.startM = startM
         self.endM = endM
+        self.sideM = sideM
+        self.frontDistanceM = frontDistanceM
+        self.backDistanceM = backDistanceM
+        self.frontPx = frontPx
+        self.backPx = backPx
     }
 }
 
-/// round-13 spec ②: one AI-caddie play option (激进/推荐/保守) pushed to the watch 球童打法 screen.
-/// Mirrors the watch-side WatchCaddieOption (same JSON shape). No success-% (intentionally absent).
+public struct WatchCaddiePlanStep: Codable, Equatable {
+    public let clubName: String
+    public let carryM: Double?
+
+    public init(clubName: String, carryM: Double? = nil) {
+        self.clubName = clubName
+        self.carryM = carryM
+    }
+}
+
+/// One AI-caddie route on Watch. `clubName/carryM` remain the current-shot fallback; `plan` carries
+/// the complete route and p10/p90 carries measured longitudinal dispersion when available.
 public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public var id: String { optionId }
 
@@ -57,7 +88,10 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
     public let label: String
     public let clubName: String?
     public let carryM: Double?
-    public let expectedStrokes: Double?
+    public let carryP10M: Double?
+    public let carryP90M: Double?
+    public let sampleSize: Int?
+    public let plan: [WatchCaddiePlanStep]?
     public let confidence: String?
 
     public init(
@@ -65,14 +99,20 @@ public struct WatchCaddieOption: Codable, Equatable, Identifiable {
         label: String,
         clubName: String? = nil,
         carryM: Double? = nil,
-        expectedStrokes: Double? = nil,
+        carryP10M: Double? = nil,
+        carryP90M: Double? = nil,
+        sampleSize: Int? = nil,
+        plan: [WatchCaddiePlanStep]? = nil,
         confidence: String? = nil
     ) {
         self.optionId = optionId
         self.label = label
         self.clubName = clubName
         self.carryM = carryM
-        self.expectedStrokes = expectedStrokes
+        self.carryP10M = carryP10M
+        self.carryP90M = carryP90M
+        self.sampleSize = sampleSize
+        self.plan = plan
         self.confidence = confidence
     }
 }
@@ -94,6 +134,7 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public let distanceToPinM: Double?
     public let offlineOptionId: String?
     public let decisionId: String?
+    public let fairwayResult: String?
 
     public init(
         eventId: String,
@@ -108,7 +149,8 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
         lie: String? = nil,
         distanceToPinM: Double? = nil,
         offlineOptionId: String? = nil,
-        decisionId: String? = nil
+        decisionId: String? = nil,
+        fairwayResult: String? = nil
     ) {
         self.eventId = eventId
         self.roundId = roundId
@@ -123,6 +165,7 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
         self.distanceToPinM = distanceToPinM
         self.offlineOptionId = offlineOptionId
         self.decisionId = decisionId
+        self.fairwayResult = fairwayResult
     }
 }
 
@@ -151,6 +194,164 @@ public struct WatchHoleMap: Codable, Equatable {
     public let layup: [Double]
     public let apex: [Double]
     public let greenCtrl: [Double]
+    /// Original CoursePrep centreline points `[px, py, cumulativeMetres]`. Optional so payloads
+    /// created before the hazard-map instrument remain decodable on both sides of the bridge.
+    public let route: [[Double]]?
+    /// Drawing-only CourseView outline used when the precise topo bitmap has not arrived yet.
+    public let greenOutline: [[Double]]?
+
+    public init(
+        w: Int,
+        h: Int,
+        you: [Double],
+        pin: [Double],
+        layup: [Double],
+        apex: [Double],
+        greenCtrl: [Double],
+        route: [[Double]]? = nil,
+        greenOutline: [[Double]]? = nil
+    ) {
+        self.w = w
+        self.h = h
+        self.you = you
+        self.pin = pin
+        self.layup = layup
+        self.apex = apex
+        self.greenCtrl = greenCtrl
+        self.route = route
+        self.greenOutline = greenOutline
+    }
+}
+
+/// The small, round-level payload that lets the Watch enter the real round UI before the first
+/// per-hole caddie snapshot arrives. The Watch target mirrors these JSON keys with `WatchRoundSeed`.
+public struct WatchRoundSeedHolePayload: Codable, Equatable {
+    public let hole: Int
+    public let par: Int
+    public let distanceM: Double?
+    public let teeLatitude: Double?
+    public let teeLongitude: Double?
+    public let globalId: Int?
+
+    public init(
+        hole: Int,
+        par: Int,
+        distanceM: Double?,
+        teeLatitude: Double? = nil,
+        teeLongitude: Double? = nil,
+        globalId: Int? = nil
+    ) {
+        self.hole = hole
+        self.par = par
+        self.distanceM = distanceM
+        self.teeLatitude = teeLatitude
+        self.teeLongitude = teeLongitude
+        self.globalId = globalId
+    }
+}
+
+public struct WatchRoundSeedPayload: Codable, Equatable {
+    public let schema: String = "ai-caddie-watch-round-seed-v1"
+    public let roundId: String
+    public let courseName: String
+    public let activeHole: Int
+    public let holes: [WatchRoundSeedHolePayload]
+
+    public init(
+        roundId: String,
+        courseName: String,
+        activeHole: Int,
+        holes: [WatchRoundSeedHolePayload]
+    ) {
+        self.roundId = roundId
+        self.courseName = courseName
+        self.activeHole = activeHole
+        self.holes = holes
+    }
+}
+
+/// Reverse direction of `WatchRoundSeedPayload`: the Watch can create a round while the iPhone is
+/// asleep, out of range, or still waiting for a cold GPS fix. The iPhone uses this compact identity
+/// payload to activate/fetch its own package; scoring events continue to use the existing event queue.
+public struct WatchRoundStartPayload: Codable, Equatable {
+    public let schema: String
+    public let roundId: String
+    public let courseName: String
+    public let teeBox: String
+    public let nine: String?
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let activeHole: Int
+    public let holes: [WatchRoundSeedHolePayload]
+
+    public init(
+        schema: String = "ai-caddie-watch-round-start-v1",
+        roundId: String,
+        courseName: String,
+        teeBox: String,
+        nine: String? = "all",
+        globalId: Int? = nil,
+        backGlobalId: Int? = nil,
+        activeHole: Int,
+        holes: [WatchRoundSeedHolePayload]
+    ) {
+        self.schema = schema
+        self.roundId = roundId
+        self.courseName = courseName
+        self.teeBox = teeBox
+        self.nine = nine
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.activeHole = activeHole
+        self.holes = holes
+    }
+}
+
+public enum WatchRoundDispositionPayload: String, Codable, Equatable {
+    case finished
+    case savedLocally
+    case abandoned
+}
+
+public struct WatchRoundClosurePayload: Codable, Equatable {
+    public let schema: String
+    public let roundId: String
+    public let disposition: WatchRoundDispositionPayload
+    public let closedAt: String
+
+    public init(
+        schema: String = "ai-caddie-watch-round-closure-v1",
+        roundId: String,
+        disposition: WatchRoundDispositionPayload,
+        closedAt: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        self.schema = schema
+        self.roundId = roundId
+        self.disposition = disposition
+        self.closedAt = closedAt
+    }
+}
+
+/// Phone-side mirror of the Watch's fail-closed Hole Root recommendation contract. This is emitted
+/// only from a live decision whose exact input location and measured carry distribution survived the
+/// backend round trip. It intentionally carries no lateral ellipse or whole-hole route.
+public struct WatchRootCaddieRecommendationPayload: Codable, Equatable {
+    public let decisionId: String
+    public let clubName: String
+    public let aimCarryM: Double
+    public let carryP10M: Double
+    public let carryP90M: Double
+    public let sampleSize: Int
+    public let confidence: String
+    public let source: String
+    public let mode: String
+    public let generatedAt: String
+    public let validUntil: String
+    public let originLatitude: Double
+    public let originLongitude: Double
+    public let originAccuracyM: Double
+    public let maximumMovementM: Double
+    public let evidenceCount: Int
 }
 
 public struct WatchRoundStatePayload: Codable, Equatable {
@@ -159,6 +360,8 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let hole: Int
     public let par: Int
     public let distanceM: Double?
+    public let teeLatitude: Double?
+    public let teeLongitude: Double?
     public let targetNote: String?
     public let targetLatitude: Double?
     public let targetLongitude: Double?
@@ -173,7 +376,6 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let decisionId: String?
     public let nextShotPrompt: String?
     public let holePlanSummary: String?
-    public let expectedStrokes: Double?
     public let expectedRemainingM: Double?
     public let evidenceSummary: String?
     public let missingDataSummary: String?
@@ -200,8 +402,10 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     public let greenInRegulation: Bool?
     public let fairwayResult: String?
     public let geometryCoverage: String?
+    public let geometryRevision: String?
     public let caddieOptions: [WatchCaddieOption]
     public let hazards: [WatchHazard]
+    public let rootCaddieRecommendation: WatchRootCaddieRecommendationPayload?
     public let score: Int
     public let putts: Int
     public let penaltyCount: Int
@@ -215,12 +419,19 @@ public enum WatchEventBridgeError: Error {
 
 public final class WatchEventBridge: NSObject {
     public var onAcceptedLiveEvent: ((LiveRoundEvent) async throws -> Void)?
+    public var onRoundClosure: ((WatchRoundClosurePayload) -> Void)?
+    /// Fired when the Watch creates a standalone round. This is deliberately separate from scoring
+    /// events: a round must be visible on the phone before the first score/location fact exists.
+    public var onRoundStarted: ((WatchRoundStartPayload) -> Void)?
 
     private let offlineStore: OfflineStore
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     /// Latest backend config to hand the watch; re-pushed once the session activates (round-12 P3.4).
     private var pendingConfig: [String: Any]?
+    /// Latest real-round seed. Application context is latest-wins, so keep it beside config and always
+    /// publish the two together instead of allowing one update to erase the other.
+    private var pendingRoundSeed: [String: Any]?
 
     public init(offlineStore: OfflineStore = OfflineStore(), autoActivate: Bool = false) {
         self.offlineStore = offlineStore
@@ -240,7 +451,13 @@ public final class WatchEventBridge: NSObject {
     public func mapWatchInputEvent(_ event: WatchInputEvent) throws -> LiveRoundEvent {
         switch event.kind {
         case .score:
-            return liveEvent(event, kind: .score, payload: ["strokes": try numericPayload(event.value, minimum: 1)])
+            var payload: [String: JSONValue] = [
+                "strokes": try numericPayload(event.value, minimum: 1)
+            ]
+            if let fairway = normalizedFairway(event.fairwayResult) {
+                payload["fairway"] = .string(fairway)
+            }
+            return liveEvent(event, kind: .score, payload: payload)
         case .putt:
             return liveEvent(event, kind: .putt, payload: ["putts": try numericPayload(event.value, minimum: 0)])
         case .penalty:
@@ -261,6 +478,9 @@ public final class WatchEventBridge: NSObject {
                 kind: .club,
                 payload: payload
             )
+        case .location:
+            let location = try shotLocationPayload(event.value)
+            return liveEvent(event, kind: .location, payload: location)
         }
     }
 
@@ -296,6 +516,7 @@ public final class WatchEventBridge: NSObject {
         greenInRegulation: Bool? = nil,
         fairwayResult: String? = nil,
         geometryCoverage: String? = nil,
+        geometryRevision: String? = nil,
         caddieOptions: [WatchCaddieOption] = [],
         hazards: [WatchHazard] = []
     ) -> WatchRoundStatePayload {
@@ -304,11 +525,15 @@ public final class WatchEventBridge: NSObject {
         let selectedOptionId = string(selected?["id"]) ?? decision?.selectedOptionId ?? offlineSelected?.optionId
         let suggestedClub = clubName(selected?["clubRecommendation"]) ?? string(selected?["clubName"]) ?? offlineSelected?.clubName
         let selectedSequence = selectedSequence(from: decision)
+        let resolvedCaddieOptions = caddieOptions.isEmpty ? makeWatchCaddieOptions(from: decision) : caddieOptions
+        let tee = Self.teeCoordinate(package: package, hole: hole.number)
         return WatchRoundStatePayload(
             roundId: package.roundId,
             hole: hole.number,
             par: hole.par,
             distanceM: distanceToPinM ?? number(selected?["carry_m"]) ?? number(selected?["carryM"]) ?? offlineSelected?.carryM,
+            teeLatitude: tee?.latitude,
+            teeLongitude: tee?.longitude,
             targetNote: watchTargetNote(
                 selected: selected,
                 offlineOption: offlineSelected,
@@ -336,7 +561,6 @@ public final class WatchEventBridge: NSObject {
             decisionId: nonEmpty(decision?.decisionId),
             nextShotPrompt: nextShotPrompt(selected: selected, offlineOption: offlineSelected),
             holePlanSummary: sequenceSummary(from: selectedSequence),
-            expectedStrokes: number(selectedSequence?["expectedStrokes"]),
             expectedRemainingM: number(selectedSequence?["expectedRemaining_m"]) ?? number(selectedSequence?["expectedRemainingM"]),
             evidenceSummary: evidenceSummary(from: decision, offlineOption: offlineSelected),
             missingDataSummary: missingDataSummary(from: decision),
@@ -359,8 +583,14 @@ public final class WatchEventBridge: NSObject {
             greenInRegulation: greenInRegulation,
             fairwayResult: fairwayResult,
             geometryCoverage: geometryCoverage,
-            caddieOptions: caddieOptions,
+            geometryRevision: geometryRevision,
+            caddieOptions: resolvedCaddieOptions,
             hazards: hazards,
+            rootCaddieRecommendation: rootCaddieRecommendation(
+                from: decision,
+                selected: selected,
+                suggestedClub: suggestedClub
+            ),
             score: score,
             putts: putts,
             penaltyCount: penaltyCount,
@@ -368,12 +598,87 @@ public final class WatchEventBridge: NSObject {
         )
     }
 
+    public func makeWatchRoundSeedPayload(
+        package: LiveRoundPackage,
+        activeHole: Int
+    ) -> WatchRoundSeedPayload {
+        WatchRoundSeedPayload(
+            roundId: package.roundId,
+            courseName: package.course.name,
+            activeHole: activeHole,
+            holes: package.holes
+                .sorted { $0.number < $1.number }
+                .map { hole in
+                    let tee = Self.teeCoordinate(package: package, hole: hole.number)
+                    return WatchRoundSeedHolePayload(
+                        hole: hole.number,
+                        par: hole.par,
+                        distanceM: hole.yards.map { Double($0) * 0.9144 },
+                        teeLatitude: tee?.latitude,
+                        teeLongitude: tee?.longitude,
+                        globalId: hole.sourceGlobalId ?? package.course.globalId
+                    )
+                }
+        )
+    }
+
+    private static func teeCoordinate(
+        package: LiveRoundPackage,
+        hole: Int
+    ) -> (latitude: Double, longitude: Double)? {
+        if let packageHole = package.holes.first(where: { $0.number == hole }),
+           let latitude = packageHole.teeLatitude,
+           let longitude = packageHole.teeLongitude,
+           latitude.isFinite, (-90...90).contains(latitude),
+           longitude.isFinite, (-180...180).contains(longitude) {
+            return (latitude, longitude)
+        }
+        guard let prep = package.coursePrep?.holes.first(where: { $0.hole == hole }),
+              let first = prep.resolvedMapOverlay?.route.first,
+              first.count >= 2,
+              let refs = prep.holeImageProjection?.refs else { return nil }
+        return projectFromTopoPx(
+            px: first[0],
+            py: first[1],
+            refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+        )
+    }
+
+    /// Inverse of `projectToTopoPx`, used once on the phone to put each real tee anchor into the
+    /// compact Watch round seed.
+    static func projectFromTopoPx(
+        px: Double,
+        py: Double,
+        refs: [(lat: Double, lon: Double, px: Double, py: Double)]
+    ) -> (latitude: Double, longitude: Double)? {
+        guard refs.count >= 3, px.isFinite, py.isFinite else { return nil }
+        let o = refs[0], r1 = refs[1], r2 = refs[2]
+        let a = r1.px - o.px, b = r2.px - o.px
+        let c = r1.py - o.py, d = r2.py - o.py
+        let det = a * d - b * c
+        guard abs(det) > 1e-12 else { return nil }
+        let dx = px - o.px, dy = py - o.py
+        let s = (dx * d - b * dy) / det
+        let t = (a * dy - dx * c) / det
+        let latitude = o.lat + s * (r1.lat - o.lat) + t * (r2.lat - o.lat)
+        let longitude = o.lon + s * (r1.lon - o.lon) + t * (r2.lon - o.lon)
+        guard latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude) else { return nil }
+        return (latitude, longitude)
+    }
+
     /// watch P1b: pre-compute the five hole-map overlay anchors from the hole's centreline route so the
     /// watch renders the map with zero projection math. `overlay.route` is `[[px, py, cumMetres]]` in the
-    /// same /topo.png pixel space the watch caches. `you` = tee, `pin` = green centre, `layup` = the
-    /// recommended lay-up (at `landingM` along the route, default 60%), `apex`/`greenCtrl` = the mid-route
-    /// points that make the you→lay-up / lay-up→green curves bend with the dogleg. nil for < 2 route points.
-    public static func makeHoleMap(overlay: CoursePrepOverlay, landingM: Double?, youPxOverride: [Double]? = nil) -> WatchHoleMap? {
+    /// same /topo.png pixel space the watch caches. `you` = tee, `pin` = green centre. `layup` retains
+    /// the historical 60% compatibility anchor when `landingM` is absent, but Garmin-first consumers
+    /// must never present that fallback as advice; the Watch root rebuilds its target from an explicit
+    /// selected-option carry. `apex`/`greenCtrl` are curve-layout anchors. nil for < 2 route points.
+    public static func makeHoleMap(
+        overlay: CoursePrepOverlay,
+        landingM: Double?,
+        youPxOverride: [Double]? = nil,
+        greenOutline: [[Double]]? = nil
+    ) -> WatchHoleMap? {
         let route = overlay.route
         guard route.count >= 2, let first = route.first, let last = route.last,
               first.count >= 3, last.count >= 3, last[2] > 0 else { return nil }
@@ -389,7 +694,9 @@ public final class WatchEventBridge: NSObject {
             pin: [last[0], last[1]],
             layup: Self.interpRoute(route, atM: layupM),
             apex: Self.interpRoute(route, atM: layupM * 0.5),
-            greenCtrl: Self.interpRoute(route, atM: layupM + (total - layupM) * 0.5)
+            greenCtrl: Self.interpRoute(route, atM: layupM + (total - layupM) * 0.5),
+            route: route,
+            greenOutline: greenOutline
         )
     }
 
@@ -444,6 +751,55 @@ public final class WatchEventBridge: NSObject {
         }
     }
 
+    /// Send the latest real-round identity and hole list using application context. It survives an
+    /// unreachable Watch and is re-pushed after WCSession activation; live per-hole state continues to
+    /// use `sendStateToWatch`.
+    public func sendRoundSeedToWatch(_ seed: WatchRoundSeedPayload) {
+        guard let data = try? encoder.encode(seed),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return
+        }
+        pendingRoundSeed = object
+        pushPendingApplicationContext()
+    }
+
+    /// Retract only the matching seed. Publishing the remaining config-only context is essential:
+    /// WatchConnectivity application context is latest-wins, so omitting an update would leave the
+    /// previous seed stored by the system indefinitely.
+    public func clearRoundSeed(roundId: String) {
+        let lastSentSeed = pendingRoundSeed
+            ?? (WCSession.isSupported()
+                ? WCSession.default.applicationContext["roundSeed"] as? [String: Any]
+                : nil)
+        if let lastSentSeed,
+           lastSentSeed["roundId"] as? String != roundId {
+            return
+        }
+        pendingRoundSeed = nil
+        pushPendingApplicationContext()
+    }
+
+    public func sendRoundClosureToWatch(
+        roundId: String,
+        disposition: WatchRoundDispositionPayload,
+        closedAt: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        clearRoundSeed(roundId: roundId)
+        let closure = WatchRoundClosurePayload(
+            roundId: roundId,
+            disposition: disposition,
+            closedAt: closedAt
+        )
+        guard WCSession.isSupported(),
+              WCSession.default.activationState == .activated,
+              let data = try? encoder.encode(closure),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        WCSession.default.transferUserInfo(["roundClosure": object])
+    }
+
     /// round-12 P3.4 (Watch standalone): hand the watch what it needs to reach the backend on its own
     /// (base URL + auth), so a standalone round can sync without the phone relaying each event. Sent via
     /// application context — latest-wins and delivered even when the watch isn't reachable now.
@@ -477,25 +833,69 @@ public final class WatchEventBridge: NSObject {
             }
         }
         pendingConfig = config
-        pushPendingConfig()
+        pushPendingApplicationContext()
     }
 
-    /// Push the stored config via application context. No-op until the session is activated — the
-    /// activation callback re-invokes this, so a config set during launch still reaches the watch.
-    private func pushPendingConfig() {
-        guard WCSession.isSupported(), let pendingConfig else {
+    /// Push the stored config and real-round seed in one latest-wins application context. No-op until
+    /// activation; the activation callback retries anything queued during launch.
+    private func pushPendingApplicationContext() {
+        guard WCSession.isSupported() else {
             return
         }
         guard WCSession.default.activationState == .activated else {
             return
         }
-        try? WCSession.default.updateApplicationContext(["config": pendingConfig])
+        let context = pendingApplicationContext()
+        try? WCSession.default.updateApplicationContext(context)
+    }
+
+    /// One complete latest-wins snapshot, shared by application-context delivery and the Watch's
+    /// active request/reply handshake. `configStatus` makes clearing explicit; an empty dictionary
+    /// must never leave an obsolete credential alive on the Watch.
+    func pendingApplicationContext() -> [String: Any] {
+        var context: [String: Any] = [
+            "configStatus": pendingConfig == nil ? "unavailable" : "available",
+        ]
+        if let pendingConfig {
+            context["config"] = pendingConfig
+        }
+        if let pendingRoundSeed {
+            context["roundSeed"] = pendingRoundSeed
+        }
+        return context
+    }
+
+    public func handleWatchRoundClosure(_ object: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let closure = try? decoder.decode(WatchRoundClosurePayload.self, from: data) else {
+            return
+        }
+        clearRoundSeed(roundId: closure.roundId)
+        onRoundClosure?(closure)
+    }
+
+    public func handleWatchRoundStart(_ object: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let start = try? decoder.decode(WatchRoundStartPayload.self, from: data),
+              !start.roundId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !start.holes.isEmpty else {
+            return
+        }
+        onRoundStarted?(start)
     }
 
     /// watch P0.4: push a hole's topo image to the watch via a guaranteed-delivery file transfer, keyed
     /// by {globalId, hole}. Called at round-start / hole-change so the watch has the current (+ next)
     /// hole's map cached for offline play. Best-effort — a failure just leaves the watch mapless.
-    public func pushHoleImage(globalId: Int, hole: Int, imageData: Data) {
+    public func pushHoleImage(
+        globalId: Int,
+        hole: Int,
+        imageData: Data,
+        geometryRevision: String? = nil,
+        assetKind: String = "topo"
+    ) {
         guard WCSession.isSupported(), WCSession.default.activationState == .activated else {
             return
         }
@@ -506,13 +906,30 @@ public final class WatchEventBridge: NSObject {
                 try? FileManager.default.removeItem(at: tmp)
             }
             try imageData.write(to: tmp, options: .atomic)
-            WCSession.default.transferFile(tmp, metadata: ["globalId": globalId, "hole": hole])
+            var metadata: [String: Any] = [
+                "globalId": globalId,
+                "hole": hole,
+                "styleVersion": SyncClient.topoStyleVersion,
+                "assetKind": assetKind,
+                "assetStyleVersion": assetKind == "green-detail"
+                    ? SyncClient.greenDetailStyleVersion
+                    : SyncClient.topoStyleVersion,
+            ]
+            if let revision = geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !revision.isEmpty {
+                metadata["geometryRevision"] = revision
+            }
+            WCSession.default.transferFile(tmp, metadata: metadata)
         } catch {
             // best-effort; the watch simply renders no map for this hole
         }
     }
 
     public func handleWatchInputMessage(_ message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
+        if message["requestConfiguration"] as? Bool == true {
+            replyHandler(pendingApplicationContext())
+            return
+        }
         guard let object = message["event"] as? [String: Any],
               JSONSerialization.isValidJSONObject(object),
               let data = try? JSONSerialization.data(withJSONObject: object),
@@ -524,20 +941,22 @@ public final class WatchEventBridge: NSObject {
 
         do {
             let liveEvent = try mapWatchInputEvent(event)
-            if try offlineStore.containsEvent(eventId: liveEvent.eventId) {
-                replyHandler(acknowledgementReply(eventId: event.eventId, duplicate: true))
-                return
-            }
+            let duplicate = try offlineStore.containsEvent(eventId: liveEvent.eventId)
 
             if let onAcceptedLiveEvent {
                 Task {
                     do {
                         try await onAcceptedLiveEvent(liveEvent)
-                        replyHandler(self.acknowledgementReply(eventId: event.eventId, duplicate: false))
+                        replyHandler(self.acknowledgementReply(
+                            eventId: event.eventId,
+                            duplicate: duplicate
+                        ))
                     } catch {
                         replyHandler(["accepted": false, "eventId": event.eventId])
                     }
                 }
+            } else if duplicate {
+                replyHandler(acknowledgementReply(eventId: event.eventId, duplicate: true))
             } else {
                 try offlineStore.appendEvent(liveEvent)
                 replyHandler(acknowledgementReply(eventId: event.eventId, duplicate: false))
@@ -570,6 +989,12 @@ public final class WatchEventBridge: NSObject {
             payload["decisionId"] = .string(decisionId)
         }
         return payload
+    }
+
+    private func normalizedFairway(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return ["hit", "left", "right"].contains(normalized) ? normalized : nil
     }
 
     private func liveEvent(
@@ -631,6 +1056,21 @@ public final class WatchEventBridge: NSObject {
             throw WatchEventBridgeError.invalidNumericInput
         }
         return .number(parsed)
+    }
+
+    private func shotLocationPayload(_ value: String) throws -> [String: JSONValue] {
+        let parts = value.split(separator: ",", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let latitude = Double(parts[0]), latitude.isFinite, (-90...90).contains(latitude),
+              let longitude = Double(parts[1]), longitude.isFinite, (-180...180).contains(longitude),
+              let accuracy = Double(parts[2]), accuracy.isFinite, accuracy >= 0 else {
+            throw WatchEventBridgeError.invalidNumericInput
+        }
+        return [
+            "latitude": .number(latitude),
+            "longitude": .number(longitude),
+            "horizontalAccuracyM": .number(accuracy),
+        ]
     }
 
     private func jsonStringOrNull(_ value: String?) -> JSONValue {
@@ -769,8 +1209,97 @@ public final class WatchEventBridge: NSObject {
         return decision.sequences?.first
     }
 
+    public func makeWatchCaddieOptions(from decision: CaddieDecisionResponse?) -> [WatchCaddieOption] {
+        guard let decision else { return [] }
+        let sequences = CaddiePlanSequence.sequences(from: decision)
+        return CaddiePlanOption.options(from: decision).map { option in
+            let sequence = sequences.first { $0.id == option.id }
+            let idLabel = zhCaddieRouteLabel(option.id)
+            let fallbackLabel = zhCaddieRouteLabel(option.label)
+            return WatchCaddieOption(
+                optionId: option.id,
+                label: idLabel != option.id ? idLabel : fallbackLabel,
+                clubName: option.clubName == "-" ? nil : option.clubName,
+                carryM: option.carryM > 0 ? option.carryM : nil,
+                carryP10M: option.p10M,
+                carryP90M: option.p90M,
+                sampleSize: option.sampleSize,
+                plan: sequence?.steps.map { WatchCaddiePlanStep(clubName: $0.clubName, carryM: $0.targetCarryM) },
+                confidence: sequence?.confidence ?? option.confidence
+            )
+        }
+    }
+
     private func selectedOfflineOption(from offlineOption: OfflineCaddieOption?) -> OfflineCaddieOption? {
         offlineOption
+    }
+
+    private func rootCaddieRecommendation(
+        from decision: CaddieDecisionResponse?,
+        selected: [String: JSONValue]?,
+        suggestedClub: String?
+    ) -> WatchRootCaddieRecommendationPayload? {
+        guard let decision,
+              !decision.isOfflineFallback,
+              string(decision.context["source"]) == "ios_live",
+              let selected,
+              let decisionId = nonEmpty(decision.decisionId),
+              let clubName = nonEmpty(suggestedClub),
+              case .object(let dispersion) = selected["dispersion"],
+              string(dispersion["state"]) == "modeled",
+              nonEmpty(string(dispersion["clubName"])) == clubName,
+              let aimCarryM = number(selected["carry_m"]) ?? number(selected["carryM"]),
+              let carryP10M = number(dispersion["carryP10_m"]),
+              let carryP90M = number(dispersion["carryP90_m"]),
+              let rawSampleSize = number(dispersion["sampleSize"]),
+              rawSampleSize.rounded() == rawSampleSize,
+              rawSampleSize >= 10,
+              rawSampleSize <= Double(Int.max),
+              let confidence = nonEmpty(string(decision.confidence["level"])),
+              ["high", "medium"].contains(confidence),
+              case .object(let location) = decision.context["currentLocation"],
+              let latitude = number(location["latitude"]),
+              let longitude = number(location["longitude"]),
+              let accuracyM = number(location["horizontalAccuracyM"]),
+              let capturedAt = nonEmpty(string(location["capturedAt"])),
+              latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude),
+              accuracyM.isFinite, (0...15).contains(accuracyM),
+              aimCarryM.isFinite, aimCarryM > 0,
+              carryP10M.isFinite, carryP10M > 0,
+              carryP90M.isFinite, carryP90M >= carryP10M
+        else {
+            return nil
+        }
+
+        let evidenceCount = max(decision.evidenceRefs?.count ?? 0, decision.evidence.count)
+        let mode = nonEmpty(string(decision.context["guidanceMode"])) ?? "automatic"
+        let formatter = ISO8601DateFormatter()
+        guard evidenceCount > 0,
+              ["automatic", "manual"].contains(mode),
+              let generatedAt = formatter.date(from: capturedAt)
+        else {
+            return nil
+        }
+
+        return WatchRootCaddieRecommendationPayload(
+            decisionId: decisionId,
+            clubName: clubName,
+            aimCarryM: aimCarryM,
+            carryP10M: carryP10M,
+            carryP90M: carryP90M,
+            sampleSize: Int(rawSampleSize),
+            confidence: confidence,
+            source: "live",
+            mode: mode,
+            generatedAt: formatter.string(from: generatedAt),
+            validUntil: formatter.string(from: generatedAt.addingTimeInterval(180)),
+            originLatitude: latitude,
+            originLongitude: longitude,
+            originAccuracyM: accuracyM,
+            maximumMovementM: 25,
+            evidenceCount: evidenceCount
+        )
     }
 
     private func confidenceLevel(from decision: CaddieDecisionResponse?, offlineOption: OfflineCaddieOption?) -> String {
@@ -887,17 +1416,33 @@ public final class WatchEventBridge: NSObject {
             return nil
         }
         var parts: [String] = []
-        if let label = safeSummaryText(string(selectedSequence["label"]) ?? string(selectedSequence["id"])) {
+        let plan = sequencePlan(from: selectedSequence)
+        if !plan.isEmpty {
+            parts.append(plan.map(\.clubName).joined(separator: " → "))
+        } else if let label = safeSummaryText(string(selectedSequence["label"]) ?? string(selectedSequence["id"])) {
             parts.append(label)
         }
-        if let expectedStrokes = number(selectedSequence["expectedStrokes"]) {
-            let shotCount = Int(expectedStrokes)
-            parts.append("\(shotCount) \(shotCount == 1 ? "shot" : "shots")")
-        }
         if let expectedRemaining = number(selectedSequence["expectedRemaining_m"]) ?? number(selectedSequence["expectedRemainingM"]) {
-            parts.append("leave \(Int(expectedRemaining))m")
+            if abs(expectedRemaining) <= 10 {
+                parts.append("上果岭")
+            } else if expectedRemaining > 0 {
+                parts.append("留 \(CoursePrepRoute.yards(fromMetres: expectedRemaining)) 码")
+            }
         }
-        return parts.isEmpty ? nil : parts.joined(separator: " / ")
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func sequencePlan(from sequence: [String: JSONValue]) -> [WatchCaddiePlanStep] {
+        guard case .array(let values) = sequence["clubs"] else { return [] }
+        return values.compactMap { value in
+            guard case .object(let row) = value,
+                  let clubName = string(row["clubName"])
+            else { return nil }
+            return WatchCaddiePlanStep(
+                clubName: clubName,
+                carryM: number(row["targetCarry_m"]) ?? number(row["targetCarryM"])
+            )
+        }
     }
 
     private func clubName(_ value: JSONValue?) -> String? {
@@ -940,7 +1485,7 @@ extension WatchEventBridge: WCSessionDelegate {
         error: Error?
     ) {
         if activationState == .activated {
-            pushPendingConfig()  // deliver config queued before activation completed
+            pushPendingApplicationContext()
         }
     }
 
@@ -955,6 +1500,26 @@ extension WatchEventBridge: WCSessionDelegate {
         didReceiveMessage message: [String: Any],
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
+        if let roundStart = message["roundStart"] as? [String: Any] {
+            handleWatchRoundStart(roundStart)
+            replyHandler(["accepted": true, "roundId": roundStart["roundId"] as? String ?? ""])
+            return
+        }
         handleWatchInputMessage(message, replyHandler: replyHandler)
+    }
+
+    public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        if let roundStart = message["roundStart"] as? [String: Any] {
+            handleWatchRoundStart(roundStart)
+        }
+    }
+
+    public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        if let roundStart = userInfo["roundStart"] as? [String: Any] {
+            handleWatchRoundStart(roundStart)
+        }
+        if let closure = userInfo["roundClosure"] as? [String: Any] {
+            handleWatchRoundClosure(closure)
+        }
     }
 }

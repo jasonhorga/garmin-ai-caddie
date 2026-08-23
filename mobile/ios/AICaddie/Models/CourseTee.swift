@@ -5,6 +5,7 @@ import Foundation
 /// - `name`: display label — the course's own CourseView tee name when known, else the colour title.
 /// - `yards`: the tee's total yardage, or `nil` when the tee has no geometry (honest — never faked).
 /// - `set` / `holeCount`: the geometry set number + how many holes contributed to the yardage.
+/// - `courseRating` / `slopeRating`: Garmin's real scorecard values for this gender/layout.
 /// - `isDefault`: the course default (blue when present, else the longest tee).
 public struct CourseTee: Codable, Equatable, Identifiable {
     public var id: String { teeBox }
@@ -13,10 +14,12 @@ public struct CourseTee: Codable, Equatable, Identifiable {
     public let set: Int?
     public let yards: Int?
     public let holeCount: Int?
+    public let courseRating: Double?
+    public let slopeRating: Int?
     public let isDefault: Bool
 
     public enum CodingKeys: String, CodingKey {
-        case teeBox, name, set, yards, holeCount
+        case teeBox, name, set, yards, holeCount, courseRating, slopeRating
         case isDefault = "default"
     }
 
@@ -26,6 +29,8 @@ public struct CourseTee: Codable, Equatable, Identifiable {
         set: Int? = nil,
         yards: Int? = nil,
         holeCount: Int? = nil,
+        courseRating: Double? = nil,
+        slopeRating: Int? = nil,
         isDefault: Bool = false
     ) {
         self.teeBox = teeBox
@@ -33,6 +38,8 @@ public struct CourseTee: Codable, Equatable, Identifiable {
         self.set = set
         self.yards = yards
         self.holeCount = holeCount
+        self.courseRating = courseRating
+        self.slopeRating = slopeRating
         self.isDefault = isDefault
     }
 
@@ -43,6 +50,8 @@ public struct CourseTee: Codable, Equatable, Identifiable {
         set = try container.decodeIfPresent(Int.self, forKey: .set)
         yards = try container.decodeIfPresent(Int.self, forKey: .yards)
         holeCount = try container.decodeIfPresent(Int.self, forKey: .holeCount)
+        courseRating = try container.decodeIfPresent(Double.self, forKey: .courseRating)
+        slopeRating = try container.decodeIfPresent(Int.self, forKey: .slopeRating)
         // Tolerate an older/degraded payload that omits the flag → not default.
         isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
     }

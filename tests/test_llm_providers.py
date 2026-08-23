@@ -507,6 +507,28 @@ class LLMProviderTests(unittest.TestCase):
         self.assertIn("[REDACTED]", text)
         self.assertIn("[REDACTED_PATH]", text)
 
+    def test_redact_secret_text_covers_cross_platform_paths_without_eating_http_urls(self) -> None:
+        public_url = "https://example.test/opt/public"
+        text = redact_secret_text(
+            "Bearer 密钥Δ /opt/private/key.txt /etc/app/config.ini "
+            "/srv/member/raw.json \\\\server\\share\\round.json "
+            f"C:\\users\\player\\secret.txt Z:\\ProgramData\\private.db {public_url}"
+        )
+
+        for secret in (
+            "密钥Δ",
+            "/opt/private/key.txt",
+            "/etc/app/config.ini",
+            "/srv/member/raw.json",
+            "\\\\server\\share\\round.json",
+            "C:\\users\\player\\secret.txt",
+            "Z:\\ProgramData\\private.db",
+        ):
+            self.assertNotIn(secret, text)
+        self.assertIn("Bearer [REDACTED]", text)
+        self.assertEqual(text.count("[REDACTED_PATH]"), 6)
+        self.assertIn(public_url, text)
+
     def test_maybe_call_llm_uses_configured_static_provider(self) -> None:
         with patch.dict(
             os.environ,

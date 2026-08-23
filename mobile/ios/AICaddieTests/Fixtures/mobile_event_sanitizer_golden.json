@@ -1,0 +1,212 @@
+{
+  "schema": "ai-caddie-mobile-event-sanitizer-golden-v1",
+  "cases": [
+    {
+      "name": "photo_local_path_nested_secrets_and_exact_identity",
+      "input": {
+        "schema": "ai-caddie-live-round-event-v1",
+        "eventId": "token=identity-secret",
+        "roundId": "round-privacy-1",
+        "clientId": "ios-phone",
+        "timestamp": "2026-07-21T00:00:00Z",
+        "hole": 1,
+        "kind": "photo",
+        "payload": {
+          "fileURL": "file:///private/mobile/photo.jpg",
+          "note": "token=alpha from /home/ubuntu/secret.txt",
+          "nested": {
+            "password": "password hunter2",
+            "refs": [
+              "/tmp/a.txt",
+              "safe"
+            ]
+          }
+        }
+      },
+      "expected": {
+        "schema": "ai-caddie-live-round-event-v1",
+        "eventId": "token=identity-secret",
+        "roundId": "round-privacy-1",
+        "clientId": "ios-phone",
+        "timestamp": "2026-07-21T00:00:00Z",
+        "hole": 1,
+        "kind": "photo",
+        "payload": {
+          "fileURL": "[REDACTED_LOCAL_MEDIA_URL]",
+          "note": "token=[REDACTED] from [REDACTED_PATH]",
+          "nested": {
+            "password": "password [REDACTED]",
+            "refs": [
+              "[REDACTED_PATH]",
+              "safe"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "note_bearer_cookie_client_secret_and_windows_path",
+      "input": {
+        "schema": "ai-caddie-live-round-event-v1",
+        "eventId": "note-private",
+        "roundId": "round-privacy-2",
+        "clientId": null,
+        "timestamp": "2026-07-21T00:00:01Z",
+        "hole": 2,
+        "kind": "note",
+        "payload": {
+          "note": "Bearer abc.def cookie=session123 client_secret supersecret C:\\Users\\alice\\note.txt"
+        }
+      },
+      "expected": {
+        "schema": "ai-caddie-live-round-event-v1",
+        "eventId": "note-private",
+        "roundId": "round-privacy-2",
+        "clientId": null,
+        "timestamp": "2026-07-21T00:00:01Z",
+        "hole": 2,
+        "kind": "note",
+        "payload": {
+          "note": "Bearer [REDACTED] cookie=[REDACTED] client_secret [REDACTED] [REDACTED_PATH]"
+        }
+      }
+    },
+    {
+      "name": "legacy_non_string_video_file_url_is_local_only",
+      "input": {
+        "schema": "ai-caddie-live-round-event-v1",
+        "eventId": "video-invalid-file-url",
+        "roundId": "round-privacy-3",
+        "clientId": "ios-phone",
+        "timestamp": "2026-07-21T00:00:02Z",
+        "hole": 3,
+        "kind": "video",
+        "payload": {
+          "fileURL": false,
+          "metadata": [
+            "api_key=legacy-key",
+            7,
+            null
+          ]
+        }
+      },
+      "expected": {
+        "schema": "ai-caddie-live-round-event-v1",
+        "eventId": "video-invalid-file-url",
+        "roundId": "round-privacy-3",
+        "clientId": "ios-phone",
+        "timestamp": "2026-07-21T00:00:02Z",
+        "hole": 3,
+        "kind": "video",
+        "payload": {
+          "fileURL": "[REDACTED_LOCAL_MEDIA_URL]",
+          "metadata": [
+            "api_key=[REDACTED]",
+            7,
+            null
+          ]
+        }
+      }
+    },
+    {
+      "name": "empty_photo_file_url_and_public_payload_remain_exact",
+      "input": {
+        "schema": "ai-caddie-live-round-event-v1",
+        "eventId": "photo-empty-file-url",
+        "roundId": "round-privacy-4",
+        "clientId": "ios-phone",
+        "timestamp": "2026-07-21T00:00:03Z",
+        "hole": 4,
+        "kind": "photo",
+        "payload": {
+          "fileURL": "",
+          "note": "public note",
+          "count": 0
+        }
+      },
+      "expected": {
+        "schema": "ai-caddie-live-round-event-v1",
+        "eventId": "photo-empty-file-url",
+        "roundId": "round-privacy-4",
+        "clientId": "ios-phone",
+        "timestamp": "2026-07-21T00:00:03Z",
+        "hole": 4,
+        "kind": "photo",
+        "payload": {
+          "fileURL": "",
+          "note": "public note",
+          "count": 0
+        }
+      }
+    },
+    {
+      "name": "structural_fields_paths_unicode_bearers_and_exact_identity",
+      "input": {
+        "schema": "source:/schema-root/private.json token=structural-secret",
+        "eventId": "\\\\identity-server\\share\\event",
+        "roundId": "/srv/identity/round",
+        "clientId": "Bearer ı",
+        "timestamp": "Bearer İ path:/clock-root/private.txt",
+        "hole": 5,
+        "kind": "note",
+        "payload": {
+          "note": "Bearer ı from /srv/caddie/private.txt",
+          "nested": {
+            "paths": [
+              "\\\\fileserver\\rounds\\secret.json",
+              "C:\\users\\alice\\lowercase.txt",
+              "Z:\\ProgramData\\caddie\\secret.txt",
+              "/mnt/caddie/generalized.txt",
+              "source:/opt/caddie/source.json",
+              "path:/etc/caddie/path.json",
+              "drive=C:/users/alice/private.txt",
+              "drive=z:/users/alice/private.txt",
+              "//fileserver/rounds/forward.json",
+              "file:///var/mobile/private.json",
+              "FILE://server/share/private.json",
+              "https://example.test/opt/public",
+              "https://example.test/C:/users/alice/private.txt",
+              "https://example.test//fileserver/share/x",
+              "custom://host/srv/private",
+              "https://example.test/search?course=private"
+            ],
+            "unicodeCredential": "Bearer 密钥Δ"
+          }
+        }
+      },
+      "expected": {
+        "schema": "source:[REDACTED_PATH] token=[REDACTED]",
+        "eventId": "\\\\identity-server\\share\\event",
+        "roundId": "/srv/identity/round",
+        "clientId": "Bearer ı",
+        "timestamp": "Bearer [REDACTED] path:[REDACTED_PATH]",
+        "hole": 5,
+        "kind": "note",
+        "payload": {
+          "note": "Bearer [REDACTED] from [REDACTED_PATH]",
+          "nested": {
+            "paths": [
+              "[REDACTED_PATH]",
+              "[REDACTED_PATH]",
+              "[REDACTED_PATH]",
+              "[REDACTED_PATH]",
+              "source:[REDACTED_PATH]",
+              "path:[REDACTED_PATH]",
+              "drive=[REDACTED_PATH]",
+              "drive=[REDACTED_PATH]",
+              "[REDACTED_PATH]",
+              "[REDACTED_PATH]",
+              "[REDACTED_PATH]",
+              "https://example.test/opt/public",
+              "https://example.test/C:/users/alice/private.txt",
+              "https://example.test//fileserver/share/x",
+              "custom://host/srv/private",
+              "https://example.test/search?course=private"
+            ],
+            "unicodeCredential": "Bearer [REDACTED]"
+          }
+        }
+      }
+    }
+  ]
+}

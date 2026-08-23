@@ -1,5 +1,7 @@
 # AI Caddie 三端统一设计 Spec(手表 / 手机 / 网页)
 
+> **2026-07-16 AUTHORITY CORRECTION — OWNER SOURCE, NOT CURRENT IMPLEMENTATION SPEC：**本文件仍是重要的 Owner 决定来源，尤其是无成功率/风/推杆级等高线、距离用码、Watch 独立整轮等边界；但后续决定已经局部取代其固定表冠手势、未校准平均杆数、默认 `HKWorkoutSession` 和“实时 AutoShot v1 不做”内容。当前 Watch 行为、证据路由与实施门以[决策账本](../../reviews/2026-07-15-watch-decision-and-task-tracker.md)为准；冲突清单见[全仓 Owner-gate 审计](../../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。不得把正文旧条款自动重开为新问题。
+
 2026-07-02 · **第二版**(基于两路 Fable 深度研究 + 负责人一轮新决定)
 
 ## 这份东西是怎么来的

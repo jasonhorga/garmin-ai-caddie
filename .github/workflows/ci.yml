@@ -3,6 +3,10 @@ name: CI
 on:
   workflow_dispatch:
   pull_request:
+  push:
+    branches:
+      - main
+      - integration/v2
 
 concurrency:
   group: ai-caddie-ci-${{ github.workflow }}-${{ github.ref }}
@@ -15,6 +19,8 @@ jobs:
       AI_CADDIE_DATA_MODE: fixture
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
         with:
           # The fixture API is launched via `uv run uvicorn ... &` below and the
@@ -25,6 +31,30 @@ jobs:
         # --frozen: fail if uv.lock has drifted from pyproject.toml, matching how the Docker
         # images install (uv sync --frozen). Keeps CI and the deployed image byte-identical (P1-7).
         run: uv sync --frozen
+      - name: Resolve canonical authority diff base
+        id: canonical-authority-base
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then
+            test -n "$PR_BASE_SHA"
+            echo "range=${PR_BASE_SHA}...HEAD" >> "$GITHUB_OUTPUT"
+          elif [[ "$EVENT_NAME" == "push" && -n "$PUSH_BEFORE_SHA" && "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]]; then
+            echo "range=${PUSH_BEFORE_SHA}..HEAD" >> "$GITHUB_OUTPUT"
+          else
+            git rev-parse HEAD^ >/dev/null
+            echo "range=HEAD^..HEAD" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check canonical contract authority
+        env:
+          AUTHORITY_RANGE: ${{ steps.canonical-authority-base.outputs.range }}
+        run: |
+          set -euo pipefail
+          git diff --no-renames --name-only -z "$AUTHORITY_RANGE" | uv run python tools/contracts/check_authority.py
       - name: Compile Python sources
         run: uv run python -m py_compile $(git ls-files '*.py')
       - name: Run backend tests
@@ -34,6 +64,35 @@ jobs:
           AI_CADDIE_SECURITY_PROFILE: private
           AI_CADDIE_ADMIN_TOKEN: ci-admin-token
         run: |
+          # Exercise the exact production cold-start order on a genuinely absent identity DB before
+          # serving: migration -> idempotent registry seed -> Apple auth -> API process.
+          export AI_CADDIE_DATABASE_URL="sqlite:///$RUNNER_TEMP/identity-cold-start.db"
+          rm -f "$RUNNER_TEMP/identity-cold-start.db"
+          uv run --frozen alembic upgrade head
+          uv run --frozen python -m server_v2.identity_seed
+          uv run --frozen python - <<'PY'
+          from unittest.mock import patch
+
+          from fastapi.testclient import TestClient
+
+          from server_v2.apple_auth import AppleIdentity
+          from server_v2.main import app
+
+          with patch(
+              "server_v2.auth_api._verify",
+              return_value=AppleIdentity(subject="ci-cold-start-subject", email="ci@example.test"),
+          ):
+              with TestClient(app) as client:
+                  response = client.post(
+                      "/api/v2/auth/apple",
+                      json={"identityToken": "ci-stubbed-token", "displayName": "CI Member"},
+                  )
+          if response.status_code != 200:
+              raise SystemExit(f"cold-start Apple auth failed: {response.status_code} {response.text}")
+          payload = response.json()
+          if not payload.get("token") or not payload.get("playerId"):
+              raise SystemExit("cold-start Apple auth returned no scoped session/player identity")
+          PY
           uv run uvicorn server_v2.main:app --host 127.0.0.1 --port 9000 > /tmp/ai-caddie-api.log 2>&1 &
           echo $! > /tmp/ai-caddie-api.pid
           for attempt in {1..30}; do
@@ -105,6 +164,21 @@ jobs:
             sleep 2
           done
           if [ -z "$ok" ]; then docker logs aicaddie-api; exit 1; fi
+          # Exercise the packaged canonical schema registry and immutable typed-ID golden inside the
+          # production image, where repo-relative runtime resources must resolve under /app.
+          docker exec -i aicaddie-api /app/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from ai_caddie.contracts.typed_ids import typed_id
+
+          fixture_path = Path("/app/contracts/canonical/fixtures/canonical_json_v1.json")
+          fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+          for domain, expected in fixture["typedIds"].items():
+              actual = typed_id(domain, fixture["value"])
+              if actual != expected:
+                  raise SystemExit(f"typed ID mismatch for {domain}: {actual} != {expected}")
+          PY
           # The geometry read path resolves ROOT and imports the node-subprocess toolchain inside the
           # container; with no data it must return a STRUCTURED response, never a 500 crash.
           code=$(curl -s -o /tmp/geo.json -w '%{http_code}' --max-time 30 http://127.0.0.1:9000/api/v2/geometry/hole/31795/1)

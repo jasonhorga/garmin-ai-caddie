@@ -1,5 +1,7 @@
 # Web 产品重设计 — 信息架构与核心界面
 
+> **2026-07-16 AUTHORITY CORRECTION — PARTIAL OWNER SOURCE：**本文件保留已与用户逐屏确认的 Web IA、v1 gross score 与净杆/Stableford 后续等来源价值；但正文中的风/上果岭概率、洞分完全由逐杆自动累计、Web 决策沙盘风输入等语义已被 L04/D08/L18 取代。完整逐杆深编辑归 iOS，Web 当前只读复盘。现行裁决见[Watch 决策账本](../../reviews/2026-07-15-watch-decision-and-task-tracker.md)与[全仓 Owner-gate 审计](../../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。
+
 - 日期:2026-06-09(2026-06-10 改为中文版,内容同步最新决策)
 - 状态:设计已与用户逐屏确认(visual-companion 头脑风暴;mockup 在 `.superpowers/brainstorm/*/content/`,未入库)
 - 范围:`web_v2`(主)、`server_v2`(少量新增 API)、`ai_caddie`(新增击球分析模块)

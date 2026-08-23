@@ -1,5 +1,7 @@
 # AI Caddie Master Plan Tree
 
+> **2026-07-16 AUTHORITY CORRECTION — HISTORICAL PLAN TREE：**本计划树对应早期 Master Spec，不再授权 Apple Watch、动态风/天气、Web 编辑或 AutoShot 的现行实施。当前 Watch 设计、证据与 no-code gate 见[决策账本](../../reviews/2026-07-15-watch-decision-and-task-tracker.md)；全仓冲突见[Owner-gate 审计](../../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement each detailed plan task-by-task. Steps in detailed plans use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Convert the master product spec into dependency-ordered, testable implementation plans without dropping any required capability.

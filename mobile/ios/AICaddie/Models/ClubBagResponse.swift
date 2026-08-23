@@ -30,16 +30,22 @@ public struct ClubBagClub: Codable, Equatable, Identifiable {
     /// The clubType's standard English name from Garmin's dictionary (e.g. "Driver", "5 Iron").
     public let typeName: String?
     public let loftAngle: Double?
+    /// Garmin's own normal-distance fields. Older accounts commonly return 0 for both.
+    public let averageDistance: Double?
+    public let adviceDistance: Double?
     public let retired: Bool
     public let deleted: Bool
 
     public init(id: Int, clubTypeId: Int, customName: String? = nil, typeName: String? = nil,
-                loftAngle: Double? = nil, retired: Bool = false, deleted: Bool = false) {
+                loftAngle: Double? = nil, averageDistance: Double? = nil,
+                adviceDistance: Double? = nil, retired: Bool = false, deleted: Bool = false) {
         self.id = id
         self.clubTypeId = clubTypeId
         self.customName = customName
         self.typeName = typeName
         self.loftAngle = loftAngle
+        self.averageDistance = averageDistance
+        self.adviceDistance = adviceDistance
         self.retired = retired
         self.deleted = deleted
     }

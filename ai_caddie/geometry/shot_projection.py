@@ -18,12 +18,14 @@ Frame chain (every step verified against real data, 2026-06):
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable
 
 from ai_caddie.core.data import (
     clean_club_name,
     club_name_from_details,
+    load_club_overrides,
     load_shot_file,
     read_json,
     scorecard_files,
@@ -99,31 +101,39 @@ def _int_or_none(value: Any) -> int | None:
         return None
 
 
-def _scorecard_shot_rows(path, shots_loader, gid: int, local: int, shot_types, apply_overrides: bool = True) -> tuple[str, str, list[dict]] | None:
-    """Project one scorecard file's matching-hole shots. ``shots_loader(scorecard_id)`` returns
-    that scorecard's shot data (or None). Shared by the owner path and the player-scoped path so
-    the matching/projection logic stays identical for both."""
+def _scorecard_shot_rows_for_holes(
+    path,
+    shots_loader,
+    gid: int,
+    local_holes: set[int],
+    shot_types,
+    apply_overrides: bool = True,
+    club_overrides: dict[int, dict[str, Any]] | None = None,
+) -> tuple[str, str, dict[int, list[dict]]] | None:
+    """Read one scorecard/shot pair once and distribute rows to requested physical holes."""
     try:
         sc = read_json(path)["scorecardDetails"][0]["scorecard"]
     except Exception:
         return None
     front = _int_or_none(sc.get("frontNineGlobalCourseId")) or _int_or_none(sc.get("courseGlobalId"))
     back = _int_or_none(sc.get("backNineGlobalCourseId"))
-    wanted = set()
-    if front == gid:
-        wanted.add(local)
-    if back == gid:
-        wanted.add(local + 9)
-    if not wanted:
+    locals_by_scorecard_hole: dict[int, set[int]] = defaultdict(set)
+    for local in local_holes:
+        if front == gid:
+            locals_by_scorecard_hole[local].add(local)
+        if back == gid:
+            locals_by_scorecard_hole[local + 9].add(local)
+    if not locals_by_scorecard_hole:
         return None
     scorecard_id = sc.get("id") or path.stem
     shot_data = shots_loader(scorecard_id)
     if not shot_data:
         return None
     date = str(sc.get("formattedStartTime") or sc.get("startTime") or "")
-    rows: list[dict] = []
+    rows_by_local: dict[int, list[dict]] = defaultdict(list)
     for hole in shot_data.get("holeShots") or []:
-        if _int_or_none(hole.get("holeNumber")) not in wanted:
+        matching_locals = locals_by_scorecard_hole.get(_int_or_none(hole.get("holeNumber")))
+        if not matching_locals:
             continue
         for shot in sorted(hole.get("shots") or [], key=lambda s: s.get("shotOrder") or 0):
             if shot.get("shotType") not in shot_types or shot.get("excludeFromStats"):
@@ -134,19 +144,97 @@ def _scorecard_shot_rows(path, shots_loader, gid: int, local: int, shot_types, a
             if lat is None or lon is None:
                 continue
             club_id = shot.get("clubId")
-            rows.append({
+            if club_id and apply_overrides and club_id in (club_overrides or {}):
+                club_name = str((club_overrides or {})[club_id].get("name") or "Unknown")
+            else:
+                club_name = club_name_from_details(club_id, shot_data, apply_overrides=False)
+            row = {
                 "roundId": str(scorecard_id),
                 "date": date,
                 "shotType": shot.get("shotType"),
                 # Real bag label or None (no signal) — never an "Unknown"/number placeholder, so the
                 # 备战 scatter matches the 复盘 shot-map (shared prep layer, not per-surface).
-                "club": clean_club_name(club_name_from_details(club_id, shot_data, apply_overrides=apply_overrides)) if club_id else None,
+                "club": clean_club_name(club_name) if club_id else None,
                 "lat": lat,
                 "lon": lon,
-            })
-    if rows:
-        return (date, str(scorecard_id), rows)
+            }
+            for local in matching_locals:
+                rows_by_local[local].append(row)
+    if rows_by_local:
+        return (date, str(scorecard_id), dict(rows_by_local))
     return None
+
+
+def _scorecard_shot_rows(path, shots_loader, gid: int, local: int, shot_types, apply_overrides: bool = True) -> tuple[str, str, list[dict]] | None:
+    """Backward-compatible single-hole wrapper around the batched scorecard reader."""
+    result = _scorecard_shot_rows_for_holes(
+        path,
+        shots_loader,
+        gid,
+        {local},
+        shot_types,
+        apply_overrides,
+        load_club_overrides() if apply_overrides else {},
+    )
+    if result is None:
+        return None
+    date, scorecard_id, rows_by_local = result
+    rows = rows_by_local.get(local)
+    return (date, scorecard_id, rows) if rows else None
+
+
+def shots_for_holes(
+    global_id: int,
+    local_holes,
+    *,
+    shot_types: tuple[str, ...] = SCATTER_SHOT_TYPES,
+    sources: list[tuple[Path, Path]] | None = None,
+    apply_overrides: bool = True,
+) -> dict[int, list[dict]]:
+    """Batch form of :func:`shots_for_hole`, scanning each scorecard/shot file at most once."""
+    gid = int(global_id)
+    requested = {int(local) for local in local_holes}
+    per_hole: dict[int, list[tuple[str, str, list[dict]]]] = {
+        local: [] for local in requested
+    }
+    club_overrides = load_club_overrides() if apply_overrides else {}
+
+    def consume(path, loader) -> None:
+        result = _scorecard_shot_rows_for_holes(
+            path,
+            loader,
+            gid,
+            requested,
+            shot_types,
+            apply_overrides,
+            club_overrides,
+        )
+        if result is None:
+            return
+        date, scorecard_id, rows_by_local = result
+        for local, rows in rows_by_local.items():
+            per_hole[local].append((date, scorecard_id, rows))
+
+    if sources is None:
+        for path in scorecard_files():
+            consume(path, load_shot_file)
+    else:
+        for scorecards_dir, shots_dir in sources:
+            def _loader(scorecard_id, _shots_dir=shots_dir):
+                path = _shots_dir / f"{scorecard_id}.json"
+                if not path.exists():
+                    return None
+                data = read_json(path)
+                return None if data.get("_no_data") else data
+
+            for path in sorted(scorecards_dir.glob("*.json")):
+                consume(path, _loader)
+
+    output: dict[int, list[dict]] = {}
+    for local, rounds in per_hole.items():
+        rounds.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        output[local] = [row for _date, _scorecard_id, rows in rounds for row in rows]
+    return output
 
 
 def shots_for_hole(
@@ -169,25 +257,11 @@ def shots_for_hole(
     given (a member's ``(scorecards_dir, shots_dir)`` pairs from ``history._player_shot_sources``),
     only those trees are read — so a member's scatter comes solely from their own logged rounds.
     """
-    gid = int(global_id)
     local = int(local_hole)
-    per_round: list[tuple[str, str, list[dict]]] = []
-    if sources is None:
-        for path in scorecard_files():
-            res = _scorecard_shot_rows(path, load_shot_file, gid, local, shot_types, apply_overrides)
-            if res is not None:
-                per_round.append(res)
-    else:
-        for scorecards_dir, shots_dir in sources:
-            def _loader(scorecard_id, _shots_dir=shots_dir):
-                p = _shots_dir / f"{scorecard_id}.json"
-                if not p.exists():
-                    return None
-                d = read_json(p)
-                return None if d.get("_no_data") else d
-            for path in sorted(scorecards_dir.glob("*.json")):
-                res = _scorecard_shot_rows(path, _loader, gid, local, shot_types, apply_overrides)
-                if res is not None:
-                    per_round.append(res)
-    per_round.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return [row for _date, _sid, rows in per_round for row in rows]
+    return shots_for_holes(
+        global_id,
+        [local],
+        shot_types=shot_types,
+        sources=sources,
+        apply_overrides=apply_overrides,
+    ).get(local, [])

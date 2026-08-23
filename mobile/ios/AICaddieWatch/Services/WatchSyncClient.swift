@@ -1,7 +1,87 @@
 import Combine
 import Foundation
 import os
+#if canImport(Security)
+import Security
+#endif
 import WatchConnectivity
+
+protocol WatchConfigPersisting {
+    func read() -> WatchRoundConfig?
+    func write(_ config: WatchRoundConfig)
+    func clear()
+}
+
+/// File-backed test/dev persistence. The production convenience initializer replaces this with the
+/// Keychain store below, so a member bearer is never written to the Watch Documents container.
+private struct WatchFileConfigStore: WatchConfigPersisting {
+    let url: URL
+
+    func read() -> WatchRoundConfig? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(WatchRoundConfig.self, from: data)
+    }
+
+    func write(_ config: WatchRoundConfig) {
+        guard let data = try? JSONEncoder().encode(config) else { return }
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: url, options: [.atomic])
+    }
+
+    func clear() {
+        try? FileManager.default.removeItem(at: url)
+    }
+}
+
+/// The phone provisions the Watch once; the Watch then keeps that backend identity across app
+/// launches and phone disconnection. `AfterFirstUnlockThisDeviceOnly` supports background Watch
+/// networking after the wearer has unlocked the device without allowing the credential into backups.
+private struct WatchKeychainConfigStore: WatchConfigPersisting {
+    private let service = "com.ai-caddie.mobile.watchkitapp.backend-config"
+    private let account = "current"
+
+    func read() -> WatchRoundConfig? {
+        #if canImport(Security)
+        var query = baseQuery
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return try? JSONDecoder().decode(WatchRoundConfig.self, from: data)
+        #else
+        return nil
+        #endif
+    }
+
+    func write(_ config: WatchRoundConfig) {
+        #if canImport(Security)
+        guard let data = try? JSONEncoder().encode(config) else { return }
+        SecItemDelete(baseQuery as CFDictionary)
+        var item = baseQuery
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(item as CFDictionary, nil)
+        #endif
+    }
+
+    func clear() {
+        #if canImport(Security)
+        SecItemDelete(baseQuery as CFDictionary)
+        #endif
+    }
+
+    private var baseQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+    }
+}
 
 public enum WatchInputKind: String, Codable, Equatable {
     case score
@@ -9,6 +89,46 @@ public enum WatchInputKind: String, Codable, Equatable {
     case penalty
     case club
     case distance
+    case location
+}
+
+/// Compact value carried by the existing Watch input adapter for a manually captured shot origin.
+/// The domain/backend event remains the existing `location` live-round event; this is only the
+/// WatchConnectivity/offline-queue representation and adds no second shot protocol.
+public struct WatchShotLocationValue: Codable, Equatable {
+    public let latitude: Double
+    public let longitude: Double
+    public let horizontalAccuracyM: Double
+
+    public init?(latitude: Double, longitude: Double, horizontalAccuracyM: Double) {
+        guard latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude),
+              horizontalAccuracyM.isFinite, horizontalAccuracyM >= 0 else {
+            return nil
+        }
+        self.latitude = latitude
+        self.longitude = longitude
+        self.horizontalAccuracyM = horizontalAccuracyM
+    }
+
+    public init?(encodedValue: String) {
+        let parts = encodedValue.split(separator: ",", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let latitude = Double(parts[0]),
+              let longitude = Double(parts[1]),
+              let horizontalAccuracyM = Double(parts[2]) else {
+            return nil
+        }
+        self.init(
+            latitude: latitude,
+            longitude: longitude,
+            horizontalAccuracyM: horizontalAccuracyM
+        )
+    }
+
+    public var encodedValue: String {
+        "\(latitude),\(longitude),\(horizontalAccuracyM)"
+    }
 }
 
 public struct WatchInputEvent: Codable, Equatable, Identifiable {
@@ -28,6 +148,8 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
     public let distanceToPinM: Double?
     public let offlineOptionId: String?
     public let decisionId: String?
+    /// Optional Fairway result captured with a score on Par 4/5: HIT, LEFT, or RIGHT.
+    public let fairwayResult: String?
 
     public init(
         eventId: String,
@@ -42,7 +164,8 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
         lie: String? = nil,
         distanceToPinM: Double? = nil,
         offlineOptionId: String? = nil,
-        decisionId: String? = nil
+        decisionId: String? = nil,
+        fairwayResult: String? = nil
     ) {
         self.eventId = eventId
         self.roundId = roundId
@@ -57,6 +180,7 @@ public struct WatchInputEvent: Codable, Equatable, Identifiable {
         self.distanceToPinM = distanceToPinM
         self.offlineOptionId = offlineOptionId
         self.decisionId = decisionId
+        self.fairwayResult = fairwayResult
     }
 }
 
@@ -108,6 +232,8 @@ public struct WatchSyncAcknowledgement: Equatable {
 
 public final class WatchSyncClient: NSObject, ObservableObject {
     @Published public private(set) var currentState: WatchRoundState?
+    @Published public private(set) var roundSeed: WatchRoundSeed?
+    @Published public private(set) var phoneRoundClosure: WatchRoundClosure?
     @Published public private(set) var queuedEventCount = 0
     @Published public private(set) var phoneReachable = false
     @Published public private(set) var lastPhoneAcceptedAt: String?
@@ -117,18 +243,45 @@ public final class WatchSyncClient: NSObject, ObservableObject {
 
     private let queueURL: URL
     private let stateURL: URL
+    private let roundStartURL: URL
+    private let configStore: WatchConfigPersisting
+    private let queueFileLock = NSLock()
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     /// watch P0.4: local cache of per-hole topo images the phone pushes via WatchConnectivity file
     /// transfer, so the hole map renders offline mid-round. Read by `WatchHoleMapView`'s geometry.
-    public let holeImageStore = WatchHoleImageStore()
+    public let holeImageStore: WatchHoleImageStore
     @Published public private(set) var lastHoleImageKey: String?
 
-    public init(queueURL: URL, stateURL: URL? = nil) {
+    public convenience init(
+        queueURL: URL,
+        stateURL: URL? = nil,
+        holeImageStore: WatchHoleImageStore = WatchHoleImageStore()
+    ) {
+        self.init(
+            queueURL: queueURL,
+            stateURL: stateURL,
+            holeImageStore: holeImageStore,
+            configStore: WatchFileConfigStore(
+                url: queueURL.deletingLastPathComponent().appendingPathComponent("backend_config.json")
+            )
+        )
+    }
+
+    private init(
+        queueURL: URL,
+        stateURL: URL?,
+        holeImageStore: WatchHoleImageStore,
+        configStore: WatchConfigPersisting
+    ) {
         self.queueURL = queueURL
         self.stateURL = stateURL ?? queueURL.deletingLastPathComponent().appendingPathComponent("current_state.json")
+        self.roundStartURL = queueURL.deletingLastPathComponent().appendingPathComponent("pending_round_start.json")
+        self.configStore = configStore
+        self.holeImageStore = holeImageStore
         super.init()
         currentState = try? loadPersistedState()
+        config = self.configStore.read()
         refreshQueuedEventCount()
         if WCSession.isSupported() {
             WCSession.default.delegate = self
@@ -143,7 +296,29 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             .appendingPathComponent("AICaddieWatch", isDirectory: true)
         self.init(
             queueURL: directory.appendingPathComponent("queued_events.json"),
-            stateURL: directory.appendingPathComponent("current_state.json")
+            stateURL: directory.appendingPathComponent("current_state.json"),
+            holeImageStore: WatchHoleImageStore(),
+            configStore: WatchKeychainConfigStore()
+        )
+    }
+
+    /// Ask for the latest backend identity instead of relying on a one-shot phone push that may have
+    /// happened while this process was not running. Called on activation, foreground and every
+    /// reachability recovery; the persisted config remains usable when the phone is absent.
+    public func requestConfigurationFromPhone() {
+        guard WCSession.isSupported(),
+              WCSession.default.activationState == .activated,
+              WCSession.default.isReachable else { return }
+        WCSession.default.sendMessage(
+            ["requestConfiguration": true],
+            replyHandler: { [weak self] reply in
+                self?.applyApplicationContext(reply)
+            },
+            errorHandler: { error in
+                WatchLog.connectivity.error(
+                    "Watch configuration request failed: \(String(describing: error), privacy: .public)"
+                )
+            }
         )
     }
 
@@ -162,6 +337,112 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         }
     }
 
+    public func receiveRoundSeed(_ seed: WatchRoundSeed) {
+        publishStateUpdate { client in
+            client.roundSeed = seed
+        }
+    }
+
+    public func receiveRoundClosure(_ closure: WatchRoundClosure) {
+        try? forgetRound(
+            roundId: closure.roundId,
+            // A phone Finish does not prove that an unreachable legacy WatchConnectivity event was
+            // accepted. Only explicit Abandon is destructive; the model's backend retry clears the
+            // normal standalone queue after acknowledgement.
+            discardQueuedEvents: closure.disposition == .abandoned
+        )
+        publishStateUpdate { client in
+            client.phoneRoundClosure = closure
+        }
+    }
+
+    /// Clear only facts belonging to the terminal round. A newer in-flight state and its queue must
+    /// survive a delayed completion message from either device.
+    public func forgetRound(roundId: String, discardQueuedEvents: Bool) throws {
+        clearPendingRoundStart(roundId: roundId)
+        let removePersistedState = clearPublishedRoundIdentitySynchronously(roundId: roundId)
+        if removePersistedState {
+            if FileManager.default.fileExists(atPath: stateURL.path) {
+                try FileManager.default.removeItem(at: stateURL)
+            }
+        }
+        if discardQueuedEvents {
+            try withQueueFileLock {
+                let remaining = try loadQueuedEventsUnlocked().filter { $0.roundId != roundId }
+                try writeQueuedEventsUnlocked(remaining)
+            }
+            refreshQueuedEventCount()
+        }
+    }
+
+    /// `transferUserInfo` provides background delivery when the phone is currently unreachable.
+    /// The local tombstone remains the safety authority if WatchConnectivity is unavailable.
+    public func sendRoundClosureToPhone(_ closure: WatchRoundClosure) {
+        clearPendingRoundStart(roundId: closure.roundId)
+        guard WCSession.isSupported(),
+              WCSession.default.activationState == .activated,
+              let data = try? encoder.encode(closure),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        WCSession.default.transferUserInfo(["roundClosure": object])
+    }
+
+    /// Relay round creation independently of GPS and scoring. `sendMessage` makes the iPhone UI
+    /// react immediately when it is reachable; `transferUserInfo` keeps the same fact queued for
+    /// background delivery when the phone is asleep/out of range. The receiver de-duplicates by
+    /// roundId, so sending both paths is intentional and loss-tolerant.
+    public func sendRoundStart(_ start: WatchRoundStart) {
+        if let data = try? encoder.encode(start) {
+            do {
+                // WatchSyncClient and WatchRoundStore use different subdirectories. Do not assume
+                // the round-store directory has created the connectivity directory: without this
+                // explicit mkdir the offline/background start fact was silently lost on first launch.
+                try FileManager.default.createDirectory(
+                    at: roundStartURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: roundStartURL, options: [.atomic])
+            } catch {
+                WatchLog.storage.error(
+                    "Persist pending Watch round start failed: \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+        relayRoundStart(start)
+    }
+
+    private func relayRoundStart(_ start: WatchRoundStart) {
+        guard WCSession.isSupported(),
+              WCSession.default.activationState == .activated,
+              let data = try? encoder.encode(start),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        let message: [String: Any] = ["roundStart": object]
+        if WCSession.default.isReachable {
+            WCSession.default.sendMessage(message, replyHandler: nil) { error in
+                WatchLog.connectivity.error(
+                    "Watch round-start immediate relay failed: \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+        WCSession.default.transferUserInfo(message)
+    }
+
+    private func flushPendingRoundStart() {
+        guard let data = try? Data(contentsOf: roundStartURL),
+              let start = try? decoder.decode(WatchRoundStart.self, from: data) else { return }
+        relayRoundStart(start)
+    }
+
+    private func clearPendingRoundStart(roundId: String) {
+        guard let data = try? Data(contentsOf: roundStartURL),
+              let start = try? decoder.decode(WatchRoundStart.self, from: data),
+              start.roundId == roundId else { return }
+        try? FileManager.default.removeItem(at: roundStartURL)
+    }
+
     private func applyingQueuedEdits(to state: WatchRoundState) -> WatchRoundState {
         let queued = (try? loadQueuedEvents()) ?? []
         // `applying` ignores events for a different round/hole, so edits for other holes stay queued
@@ -178,17 +459,27 @@ public final class WatchSyncClient: NSObject, ObservableObject {
     }
 
     public func queueInputEvent(_ event: WatchInputEvent) throws {
-        var events = try loadQueuedEvents()
-        guard !events.contains(where: { $0.eventId == event.eventId }) else {
-            return
+        let appended = try withQueueFileLock {
+            var events = try loadQueuedEventsUnlocked()
+            guard !events.contains(where: { $0.eventId == event.eventId }) else {
+                return false
+            }
+            events.append(event)
+            try writeQueuedEventsUnlocked(events)
+            return true
         }
-        events.append(event)
-        try writeQueuedEvents(events)
+        guard appended else { return }
         refreshQueuedEventCount()
         applyQuickInputToCurrentState(event)
     }
 
     public func loadQueuedEvents() throws -> [WatchInputEvent] {
+        try withQueueFileLock {
+            try loadQueuedEventsUnlocked()
+        }
+    }
+
+    private func loadQueuedEventsUnlocked() throws -> [WatchInputEvent] {
         guard FileManager.default.fileExists(atPath: queueURL.path) else {
             return []
         }
@@ -230,14 +521,16 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         guard !eventIds.isEmpty else {
             return
         }
-        let remaining = try loadQueuedEvents().filter { event in
-            !eventIds.contains(event.eventId)
+        try withQueueFileLock {
+            let remaining = try loadQueuedEventsUnlocked().filter { event in
+                !eventIds.contains(event.eventId)
+            }
+            try writeQueuedEventsUnlocked(remaining)
         }
-        try writeQueuedEvents(remaining)
         refreshQueuedEventCount()
     }
 
-    private func writeQueuedEvents(_ events: [WatchInputEvent]) throws {
+    private func writeQueuedEventsUnlocked(_ events: [WatchInputEvent]) throws {
         try FileManager.default.createDirectory(at: queueURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard !events.isEmpty else {
             if FileManager.default.fileExists(atPath: queueURL.path) {
@@ -246,6 +539,12 @@ public final class WatchSyncClient: NSObject, ObservableObject {
             return
         }
         try encoder.encode(events).write(to: queueURL, options: [.atomic])
+    }
+
+    private func withQueueFileLock<T>(_ operation: () throws -> T) rethrows -> T {
+        queueFileLock.lock()
+        defer { queueFileLock.unlock() }
+        return try operation()
     }
 
     public func flushQueue() throws {
@@ -336,6 +635,29 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         }
     }
 
+    /// Terminal identity checks must observe and mutate `@Published` state on the same executor.
+    /// Unlike ordinary UI notifications this operation is synchronous because its caller immediately
+    /// decides whether the matching persisted state file may be removed.
+    private func clearPublishedRoundIdentitySynchronously(roundId: String) -> Bool {
+        if Thread.isMainThread {
+            return clearPublishedRoundIdentity(roundId: roundId)
+        }
+        return DispatchQueue.main.sync {
+            clearPublishedRoundIdentity(roundId: roundId)
+        }
+    }
+
+    private func clearPublishedRoundIdentity(roundId: String) -> Bool {
+        let removePersistedState = currentState?.roundId == roundId
+        if removePersistedState {
+            currentState = nil
+        }
+        if roundSeed?.roundId == roundId {
+            roundSeed = nil
+        }
+        return removePersistedState
+    }
+
     private func receiveStatePayload(_ state: [String: Any]) {
         guard JSONSerialization.isValidJSONObject(state),
               let data = try? JSONSerialization.data(withJSONObject: state),
@@ -346,29 +668,62 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         receiveState(decoded)
     }
 
-    /// round-12 P3.4 (Watch standalone): parse the backend config the phone delivers in its application
-    /// context. Exposed (not just used inside the delegate) so it can be unit-tested without WCSession.
-    public func applyApplicationContext(_ context: [String: Any]) {
-        guard let configDict = context["config"] as? [String: Any],
-              let baseURLString = configDict["apiBaseURL"] as? String,
-              let baseURL = URL(string: baseURLString)
+    private func receiveRoundSeedPayload(_ seed: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(seed),
+              let data = try? JSONSerialization.data(withJSONObject: seed),
+              let decoded = try? decoder.decode(WatchRoundSeed.self, from: data)
         else {
             return
         }
-        let adminToken = configDict["adminToken"] as? String
-        // round-13 watch-auth: the phone's live Apple session token (Bearer) + its expiry. Absent when
-        // the phone is signed out, so the rebuilt config clears the Bearer (latest-wins app context).
-        let sessionToken = configDict["sessionToken"] as? String
-        let sessionTokenExpiresAt = (configDict["sessionTokenExpiresAt"] as? String)
-            .flatMap { ISO8601DateFormatter().date(from: $0) }
-        let parsed = WatchRoundConfig(
-            baseURL: baseURL,
-            adminToken: adminToken,
-            sessionToken: sessionToken,
-            sessionTokenExpiresAt: sessionTokenExpiresAt
-        )
-        publishStateUpdate { client in
-            client.config = parsed
+        receiveRoundSeed(decoded)
+    }
+
+    private func receiveRoundClosurePayload(_ closure: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(closure),
+              let data = try? JSONSerialization.data(withJSONObject: closure),
+              let decoded = try? decoder.decode(WatchRoundClosure.self, from: data) else {
+            return
+        }
+        receiveRoundClosure(decoded)
+    }
+
+    /// round-12 P3.4 (Watch standalone): parse the backend config the phone delivers in its application
+    /// context. Exposed (not just used inside the delegate) so it can be unit-tested without WCSession.
+    public func applyApplicationContext(_ context: [String: Any]) {
+        if context["configStatus"] as? String == "unavailable" {
+            configStore.clear()
+            publishStateUpdate { client in
+                client.config = nil
+            }
+        }
+        if let configDict = context["config"] as? [String: Any],
+           let baseURLString = configDict["apiBaseURL"] as? String,
+           let baseURL = URL(string: baseURLString) {
+            let adminToken = configDict["adminToken"] as? String
+            // round-13 watch-auth: the phone's live Apple session token (Bearer) + its expiry. Absent when
+            // the phone is signed out, so the rebuilt config clears the Bearer (latest-wins app context).
+            let sessionToken = configDict["sessionToken"] as? String
+            let sessionTokenExpiresAt = (configDict["sessionTokenExpiresAt"] as? String)
+                .flatMap { ISO8601DateFormatter().date(from: $0) }
+            let parsed = WatchRoundConfig(
+                baseURL: baseURL,
+                adminToken: adminToken,
+                sessionToken: sessionToken,
+                sessionTokenExpiresAt: sessionTokenExpiresAt
+            )
+            configStore.write(parsed)
+            publishStateUpdate { client in
+                client.config = parsed
+            }
+        }
+        if let seed = context["roundSeed"] as? [String: Any] {
+            receiveRoundSeedPayload(seed)
+        } else {
+            // Application context is a complete latest-wins snapshot. A config-only context is an
+            // explicit seed retraction, not "no update".
+            publishStateUpdate { client in
+                client.roundSeed = nil
+            }
         }
     }
 }
@@ -380,6 +735,13 @@ extension WatchSyncClient: WCSessionDelegate {
         error: Error?
     ) {
         publishPhoneReachable(session.isReachable)
+        if activationState == .activated {
+            // `receivedApplicationContext` is only authoritative after activation. Re-read it here
+            // so config/seed delivered while the app was dead cannot be missed by the eager init read.
+            applyApplicationContext(session.receivedApplicationContext)
+            requestConfigurationFromPhone()
+            flushPendingRoundStart()
+        }
         if activationState == .activated, session.isReachable {
             do {
                 try flushQueue()
@@ -392,6 +754,8 @@ extension WatchSyncClient: WCSessionDelegate {
     public func sessionReachabilityDidChange(_ session: WCSession) {
         publishPhoneReachable(session.isReachable)
         if session.isReachable {
+            requestConfigurationFromPhone()
+            flushPendingRoundStart()
             do {
                 try flushQueue()
             } catch {
@@ -401,17 +765,27 @@ extension WatchSyncClient: WCSessionDelegate {
     }
 
     public func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-        guard let state = message["state"] as? [String: Any] else {
-            return
+        if let state = message["state"] as? [String: Any] {
+            receiveStatePayload(state)
         }
-        receiveStatePayload(state)
+        if let seed = message["roundSeed"] as? [String: Any] {
+            receiveRoundSeedPayload(seed)
+        }
+        if let closure = message["roundClosure"] as? [String: Any] {
+            receiveRoundClosurePayload(closure)
+        }
     }
 
     public func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
-        guard let state = userInfo["state"] as? [String: Any] else {
-            return
+        if let state = userInfo["state"] as? [String: Any] {
+            receiveStatePayload(state)
         }
-        receiveStatePayload(state)
+        if let seed = userInfo["roundSeed"] as? [String: Any] {
+            receiveRoundSeedPayload(seed)
+        }
+        if let closure = userInfo["roundClosure"] as? [String: Any] {
+            receiveRoundClosurePayload(closure)
+        }
     }
 
     public func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
@@ -421,17 +795,47 @@ extension WatchSyncClient: WCSessionDelegate {
     // watch P0.4: the phone pushes each hole's topo image via `transferFile`; cache it locally (keyed
     // by the file's {globalId, hole} metadata) so the hole map renders offline while playing.
     public func session(_ session: WCSession, didReceive file: WCSessionFile) {
-        let meta = file.metadata ?? [:]
+        receiveHoleImage(fileURL: file.fileURL, metadata: file.metadata ?? [:])
+    }
+
+    /// Accept only pixels produced for this Watch build's renderer contract. A transfer queued by
+    /// the previous phone build may arrive after upgrade; silently caching it would reintroduce the
+    /// exact stale map that the versioned directories are meant to retire.
+    @discardableResult
+    func receiveHoleImage(fileURL: URL, metadata meta: [String: Any]) -> Bool {
+        guard meta["styleVersion"] as? String == WatchBackendClient.topoStyleVersion else {
+            return false
+        }
+        let detail = (meta["assetKind"] as? String) == "green-detail"
+        let expectedAssetStyle = detail
+            ? WatchBackendClient.greenDetailStyleVersion
+            : WatchBackendClient.topoStyleVersion
+        if let receivedAssetStyle = meta["assetStyleVersion"] as? String {
+            guard receivedAssetStyle == expectedAssetStyle else { return false }
+        } else if detail {
+            // A queued green-v1 transfer can arrive after an app upgrade.  It shares topo-v8 but
+            // does not contain the enlarged/feathered context, so it must never repopulate v2's
+            // versioned file after the new asset has been requested.
+            return false
+        }
         guard let gid = (meta["globalId"] as? Int) ?? (meta["globalId"] as? NSNumber)?.intValue,
               let hole = (meta["hole"] as? Int) ?? (meta["hole"] as? NSNumber)?.intValue else {
-            return
+            return false
         }
         do {
-            try holeImageStore.store(fileURL: file.fileURL, globalId: gid, hole: hole)
+            try holeImageStore.store(
+                fileURL: fileURL,
+                globalId: gid,
+                hole: hole,
+                geometryRevision: meta["geometryRevision"] as? String,
+                detail: detail
+            )
             let key = WatchHoleImageStore.key(globalId: gid, hole: hole)
             DispatchQueue.main.async { self.lastHoleImageKey = key }
+            return true
         } catch {
             WatchLog.sync.error("Store hole image failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 }

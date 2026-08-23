@@ -191,11 +191,16 @@ def load_manual_club_bag(player_id: str = OWNER_ID) -> dict[str, Any] | None:
 # resolving a shot's club by clubTypeId (round shot-map, prep scatter, history, reports) agrees.
 # history.club_label re-exports this. The owner's real bag is a per-clubId override (clubs.json) on top,
 # because Garmin's clubTypeId assignment on the owner's clubs does NOT match the generic labels here.
+# Garmin Golf `/club/types` values. This is the same authoritative 1...23 scheme used by the
+# synced bag and both native clients. The former guessed 1...18 table shifted hybrids/irons and
+# mislabeled real 5I...9I AutoShot history as PW...Putter, corrupting every derived club distance.
 CLUB_TYPE_NAME: dict[int, str] = {
     0: "Unknown",
-    1: "Driver", 2: "3W", 3: "5W", 4: "7W", 5: "Hybrid", 6: "2I/Hybrid",
-    7: "3I", 8: "4I", 9: "5I", 10: "6I", 11: "7I", 12: "8I", 13: "9I",
-    14: "PW", 15: "GW", 16: "SW", 17: "LW", 18: "Putter",
+    1: "Driver", 2: "3W", 3: "5W",
+    4: "1H", 5: "2H", 6: "3H", 7: "4H", 8: "5H", 9: "6H",
+    10: "1I", 11: "2I", 12: "3I", 13: "4I", 14: "5I", 15: "6I",
+    16: "7I", 17: "8I", 18: "9I",
+    19: "PW", 20: "GW", 21: "SW", 22: "LW", 23: "Putter",
 }
 
 # Placeholder club values that carry NO real signal — "Unknown", the old "ClubType 7" leak, "?" or
@@ -354,11 +359,13 @@ def mesh_path(global_id: int, local_hole: int) -> Path:
 
 
 def available_prep_holes(global_id: int) -> list[int]:
-    """Sorted local hole numbers that have decoded geometry meshes for this course.
+    """Sorted local hole numbers from precise geometry or the cached lightweight map.
 
     Derived from the same ``MESH_DIR`` files that :func:`mesh_path`/geometry coverage
     read, so single-gid 18-hole courses (e.g. gid41825 with h01..h18) prep ALL their
-    holes by default. No cached geometry → fall back to the front nine [1..9].
+    holes by default. A newly selected course can expose the same complete hole list from
+    release-bound CourseView ``courseData`` while prodgeometry downloads. With neither source,
+    retain the legacy front-nine fallback.
     """
     pattern = re.compile(rf"gid{int(global_id)}_h(\d+)_meshes\.json$")
     holes = sorted(
@@ -366,7 +373,26 @@ def available_prep_holes(global_id: int) -> list[int]:
         for path in MESH_DIR.glob(f"gid{int(global_id)}_h*_meshes.json")
         if (match := pattern.match(path.name))
     )
-    return holes or list(range(1, 10))
+    if holes:
+        return holes
+    try:
+        # Lazy import avoids the courseview_core -> core.data module cycle at import time.
+        from ai_caddie.courses.courseview_core import load_cached_course_data
+
+        course_data = load_cached_course_data(int(global_id))
+        lightweight_holes = sorted({
+            int(row["holeNumber"])
+            for row in (course_data or {}).get("holes") or []
+            if isinstance(row, dict)
+            and isinstance(row.get("holeNumber"), int)
+            and not isinstance(row.get("holeNumber"), bool)
+            and 0 < int(row["holeNumber"]) <= 36
+        })
+        if lightweight_holes:
+            return lightweight_holes
+    except (OSError, TypeError, ValueError):
+        pass
+    return list(range(1, 10))
 
 
 def available_holes() -> list[dict[str, Any]]:

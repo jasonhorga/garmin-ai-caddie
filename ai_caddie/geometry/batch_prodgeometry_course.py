@@ -15,14 +15,24 @@ output/prodgeometry*/. Secrets are not printed.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 from typing import Any
 
-from ai_caddie.geometry.inspect_courseview_release import inspect_release, load_release_pb
+from ai_caddie.geometry.geometry_authority import (
+    authority_path,
+    build_authority,
+    legacy_outputs_match,
+    valid_geometry_zip_sha256,
+    write_authority,
+)
+from ai_caddie.geometry.inspect_courseview_release import inspect_valid_release, load_release_pb
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_DIR = Path(__file__).resolve().parent  # sibling .js/.py invoked via subprocess below
@@ -76,6 +86,14 @@ def fetch_bytes(url: str) -> bytes:
 
 def zip_name(url: str) -> str:
     return Path(url.split("?", 1)[0]).name
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def expected_extract_dir(course_id: int, hole_number: int, zip_path: Path) -> Path:
@@ -144,10 +162,16 @@ def process_hole(
         zip_path.parent.mkdir(parents=True, exist_ok=True)
         if force_download or not zip_path.exists():
             data = fetch_bytes(geometry_url)
-            zip_path.write_bytes(data)
+            staged_zip = zip_path.with_name(f".{zip_path.name}.{os.getpid()}.tmp")
+            try:
+                staged_zip.write_bytes(data)
+                os.replace(staged_zip, zip_path)
+            finally:
+                staged_zip.unlink(missing_ok=True)
             row["steps"]["download"] = {"ok": True, "bytes": len(data)}
         else:
             row["steps"]["download"] = {"ok": True, "cached": True, "bytes": zip_path.stat().st_size}
+        row["geometry_zip_sha256"] = file_sha256(zip_path)
 
         key_cmd = [
             "node",
@@ -170,60 +194,89 @@ def process_hole(
             "passwordLength": key_result.get("passwordLength"),
         }
 
-        decode_cmd = [
-            "node",
-            str(SCRIPT_DIR / "decode_courseview_geometry.js"),
-            "--geometry-dir",
-            str(extract_dir),
-            "--out",
-            str(mesh_json_path(course_id, hole_number)),
-            "--stats",
-            str(stats_path(course_id, hole_number)),
-        ]
-        ok, out = run(decode_cmd)
-        decode_result = json.loads(out)
-        row["steps"]["decode"] = {"ok": ok, "meshCount": decode_result.get("meshCount")}
+        # Build every derivative privately. If any build step fails, readers
+        # continue seeing the complete previous version. The authority sidecar
+        # is the commit marker for the later per-file installation.
+        staging_root = ROOT / "output" / ".prodgeometry-staging"
+        staging_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix=f"gid{course_id}_h{hole_number:02d}-",
+            dir=staging_root,
+        ) as tmp:
+            stage = Path(tmp)
+            staged_mesh = stage / "meshes.json"
+            staged_stats = stage / "stats.json"
+            staged_distances = stage / "tee_distances.json"
+            staged_hazards = stage / "hazards.json"
 
-        distance_cmd = [
-            sys.executable,
-            "-m",
-            "ai_caddie.geometry.measure_prodgeometry_distances",
-            "--mesh-json",
-            str(mesh_json_path(course_id, hole_number)),
-            "--out",
-            str(distances_path(course_id, hole_number)),
-        ]
-        ok, out = run(distance_cmd)
-        row["steps"]["distances"] = {"ok": ok}
+            decode_cmd = [
+                "node",
+                str(SCRIPT_DIR / "decode_courseview_geometry.js"),
+                "--geometry-dir",
+                str(extract_dir),
+                "--out",
+                str(staged_mesh),
+                "--stats",
+                str(staged_stats),
+            ]
+            ok, out = run(decode_cmd)
+            decode_result = json.loads(out)
+            row["steps"]["decode"] = {"ok": ok, "meshCount": decode_result.get("meshCount")}
 
-        hazard_cmd = [
-            sys.executable,
-            "-m",
-            "ai_caddie.geometry.export_prodgeometry_hazards",
-            "--mesh-json",
-            str(mesh_json_path(course_id, hole_number)),
-            "--out",
-            str(hazards_path(course_id, hole_number)),
-        ]
-        ok, out = run(hazard_cmd)
-        row["steps"]["hazards"] = {"ok": ok, "output_tail": out.strip().splitlines()[-1:]}
-
-        if not skip_overlay and snapshot:
-            overlay_cmd = [
+            distance_cmd = [
                 sys.executable,
                 "-m",
-                "ai_caddie.geometry.overlay_prodgeometry_on_raster",
+                "ai_caddie.geometry.measure_prodgeometry_distances",
                 "--mesh-json",
-                str(mesh_json_path(course_id, hole_number)),
-                "--snapshot",
-                str(snapshot),
-                "--hole",
-                str(hole_number),
+                str(staged_mesh),
+                "--out",
+                str(staged_distances),
             ]
-            ok, out = run(overlay_cmd, allow_fail=True)
-            row["steps"]["overlay"] = {"ok": ok, "output_tail": out.strip().splitlines()[-3:]}
-            if not ok:
-                row["steps"]["overlay"]["error"] = out.strip()[-800:]
+            ok, out = run(distance_cmd)
+            row["steps"]["distances"] = {"ok": ok}
+
+            hazard_cmd = [
+                sys.executable,
+                "-m",
+                "ai_caddie.geometry.export_prodgeometry_hazards",
+                "--mesh-json",
+                str(staged_mesh),
+                "--out",
+                str(staged_hazards),
+            ]
+            ok, out = run(hazard_cmd)
+            row["steps"]["hazards"] = {"ok": ok, "output_tail": out.strip().splitlines()[-1:]}
+
+            if not skip_overlay and snapshot:
+                overlay_cmd = [
+                    sys.executable,
+                    "-m",
+                    "ai_caddie.geometry.overlay_prodgeometry_on_raster",
+                    "--mesh-json",
+                    str(staged_mesh),
+                    "--snapshot",
+                    str(snapshot),
+                    "--hole",
+                    str(hole_number),
+                ]
+                ok, out = run(overlay_cmd, allow_fail=True)
+                row["steps"]["overlay"] = {"ok": ok, "output_tail": out.strip().splitlines()[-3:]}
+                if not ok:
+                    row["steps"]["overlay"]["error"] = out.strip()[-800:]
+
+            installs = (
+                (staged_mesh, mesh_json_path(course_id, hole_number)),
+                (staged_stats, stats_path(course_id, hole_number)),
+                (staged_distances, distances_path(course_id, hole_number)),
+                (staged_hazards, hazards_path(course_id, hole_number)),
+            )
+            # A crash between the individual replaces must never leave the old
+            # authority marker claiming that a mixed set is release-bound.
+            authority_path(mesh_json_path(course_id, hole_number)).unlink(missing_ok=True)
+            for staged, target in installs:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(staged, target)
+            row["steps"]["install"] = {"ok": True, "files": len(installs)}
 
         row["ok"] = all(step.get("ok") for step in row["steps"].values())
     except Exception as exc:
@@ -244,7 +297,9 @@ def main() -> int:
     args = parser.parse_args()
 
     selected = hole_range(args.holes)
-    release = inspect_release(load_release_pb(args.course_id, args.live))
+    release = inspect_valid_release(
+        load_release_pb(args.course_id, args.live), expected_course_id=args.course_id
+    )
     holes = [h for h in release["holes"] if int(h.get("hole", -1)) in selected]
     if not holes:
         raise SystemExit(f"no selected holes found for course {args.course_id}")
@@ -269,6 +324,25 @@ def main() -> int:
             skip_overlay=args.skip_overlay,
             force_download=args.force_download,
         )
+        if row.get("ok") and valid_geometry_zip_sha256(row.get("geometry_zip_sha256")):
+            authority = build_authority(
+                global_id=args.course_id,
+                local_hole=hole_number,
+                release=release,
+                hole=hole,
+                release_source="live" if args.live else "cache",
+                geometry_zip_sha256=row.get("geometry_zip_sha256"),
+            )
+            mesh_file = mesh_json_path(args.course_id, hole_number)
+            hazard_file = hazards_path(args.course_id, hole_number)
+            if legacy_outputs_match(authority, mesh_file=mesh_file, hazard_file=hazard_file):
+                write_authority(authority_path(mesh_file), authority)
+            else:
+                row["ok"] = False
+                row["error"] = "decoded prodgeometry does not match the release asset authority"
+        elif row.get("ok"):
+            row["ok"] = False
+            row["error"] = "downloaded prodgeometry is missing a real ZIP SHA256"
         summary["holes"].append(row)
         status = "ok" if row.get("ok") else "FAIL"
         mesh_count = row.get("steps", {}).get("decode", {}).get("meshCount")

@@ -10,6 +10,7 @@ import json
 import math
 
 from ai_caddie.geometry.measure_prodgeometry_distances import (
+    bind_selected_green_target,
     dist,
     line_intervals_for_component,
     mesh_components,
@@ -95,12 +96,29 @@ TEE_SET_BY_BOX = {
 
 
 def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[str, Any] | None:
-    tees = (geometry.get("hazards") or {}).get("tees") or []
+    hazards = geometry.get("hazards") or {}
+    tees = hazards.get("tees") or []
     tees = [t for t in tees if t.get("position")]
     if not tees:
         return None
 
-    tee_set = TEE_SET_BY_BOX.get(str(tee_box or "").strip().lower())
+    tee_set = None
+    requested = str(tee_box or "").strip().lower()
+    global_id = hazards.get("globalId") or geometry.get("globalId")
+    if requested and global_id is not None:
+        try:
+            from ai_caddie.courses.course_reference import courseview_tees
+
+            used_keys: set[str] = set()
+            for row in courseview_tees(int(global_id), allow_fetch=False):
+                key = _release_tee_box_key(row.get("name"), row.get("index"), used_keys)
+                if requested in {key, str(row.get("name") or "").strip().lower()}:
+                    tee_set = int(row["index"])
+                    break
+        except Exception:
+            tee_set = None
+    if tee_set is None:
+        tee_set = TEE_SET_BY_BOX.get(requested)
     if tee_set is not None:
         match = next((t for t in tees if tee_set in (t.get("sets") or [])), None)
         if match:
@@ -146,6 +164,56 @@ def _normalize_tee_color(name: str | None) -> str | None:
     return None
 
 
+def _release_tee_box_key(name: Any, index: Any, used: set[str]) -> str:
+    """Stable request key for a release tee; the real numeric index remains in ``set``."""
+    key = str(name or "").strip().lower()
+    for suffix in (" tees", " tee"):
+        if key.endswith(suffix):
+            key = key[:-len(suffix)].strip()
+            break
+    key = {
+        "黑": "black", "蓝": "blue", "白": "white", "金": "gold",
+        "黄": "yellow", "红": "red", "绿": "green", "银": "silver",
+    }.get(key, key)
+    try:
+        set_index = int(index)
+    except (TypeError, ValueError):
+        set_index = 0
+    if not key or key in used:
+        key = f"cv-{set_index}"
+    used.add(key)
+    return key
+
+
+def _load_tee_distance_geometry(global_id: int, local_hole: int) -> dict[str, Any]:
+    """Load only the geometry facts required by the pre-round Tee picker.
+
+    ``load_geometry`` deliberately builds and caches every surface component for shot classification.
+    Calling it across an 18-hole course made a simple Tee-list request retain every decoded mesh and
+    triangle in the process LRU, which can exceed the production 1 GiB limit.  Tee totals need only
+    the compact hazard export's Tee rows.  Read the decoded hole transiently solely to preserve the
+    selected-green compatibility binding for older hazard exports, then release it before the next
+    hole; no mesh/component object escapes this function or enters the classification cache.
+    """
+    hazards = None
+    h_path = hazard_path(global_id, local_hole)
+    if h_path.exists():
+        try:
+            hazards = read_json(h_path)
+        except (OSError, ValueError, TypeError):
+            hazards = None
+
+    m_path = mesh_path(global_id, local_hole)
+    if hazards is not None and m_path.exists():
+        try:
+            hazards = bind_selected_green_target(hazards, read_json(m_path))
+        except (OSError, ValueError, TypeError):
+            # A damaged optional mesh must not erase factual Tee rows already present in the compact
+            # hazard export.  The normal geometry coverage path reports the damaged precise asset.
+            pass
+    return {"hazards": hazards}
+
+
 def course_tee_options(
     global_id: int,
     *,
@@ -163,59 +231,88 @@ def course_tee_options(
     if tee_name_resolver is None:
         def tee_name_resolver(_gid: int) -> list[str]:
             try:
-                from ai_caddie.caddie.mobile_live import _courseview_tee_names
-                return _courseview_tee_names(_gid)
+                from ai_caddie.courses.course_reference import courseview_tees
+                return courseview_tees(_gid, allow_fetch=False)
             except Exception:
                 return []
     resolve_holes = holes_resolver or available_prep_holes
-    resolve_geometry = geometry_loader or load_geometry
+    resolve_geometry = geometry_loader or _load_tee_distance_geometry
 
-    # Sum each geometry set's tee→target distance across every hole that carries geometry.
+    # Sum every REAL release set's tee→target distance across holes. A geometry tee may serve
+    # several release sets; each named scorecard tee remains selectable even when two share a marker.
     set_meters: dict[int, float] = {}
     set_holes: dict[int, int] = {}
     for hole in resolve_holes(gid):
         tees = ((resolve_geometry(gid, int(hole)) or {}).get("hazards") or {}).get("tees") or []
-        for _color, set_num in _CANONICAL_TEES:
-            match = next((t for t in tees if set_num in (t.get("sets") or [])), None)
-            if not match:
-                continue
-            distance = match.get("target_distance_m")
+        for tee in tees:
+            distance = tee.get("target_distance_m")
             if distance is None:
                 continue
-            set_meters[set_num] = set_meters.get(set_num, 0.0) + float(distance)
-            set_holes[set_num] = set_holes.get(set_num, 0) + 1
+            for raw_set in tee.get("sets") or []:
+                try:
+                    set_num = int(raw_set)
+                except (TypeError, ValueError):
+                    continue
+                set_meters[set_num] = set_meters.get(set_num, 0.0) + float(distance)
+                set_holes[set_num] = set_holes.get(set_num, 0) + 1
 
-    # Pin each course tee NAME (Garmin's own label) onto its canonical colour, when recognisable.
-    named_by_color: dict[str, str] = {}
-    for raw_name in (tee_name_resolver(gid) or []):
-        color = _normalize_tee_color(raw_name)
-        if color and color not in named_by_color:
-            named_by_color[color] = str(raw_name).strip()
+    raw_tees = list(tee_name_resolver(gid) or [])
+    release_rows = [row for row in raw_tees if isinstance(row, dict)]
+    men_rows = [row for row in release_rows if str(row.get("gender") or "").upper() == "MEN"]
+    if men_rows:
+        release_rows = men_rows
+    release_rows.sort(key=lambda row: int(row.get("index") or 0))
 
     tees_out: list[dict[str, Any]] = []
-    seen_yards: set[int] = set()
-    for color, set_num in _CANONICAL_TEES:
-        has_geometry = set_num in set_meters or set_num in set_holes
-        if not (has_geometry or color in named_by_color):
-            continue
-        meters = set_meters.get(set_num)
-        yards = int(round(meters * 1.09361)) if meters else None
-        # Courses with fewer physical tee boxes than the 5 canonical colours map several sets onto the
-        # SAME tee (identical summed yardage) — e.g. one tee serving sets [1,2,5,6]. Show each distinct
-        # tee once; never list red at black's distance just because they share a tee box. (Was a real
-        # bug: 72/104 decoded courses returned red == black yardage.)
-        if yards is not None and yards in seen_yards:
-            continue
-        if yards is not None:
-            seen_yards.add(yards)
-        tees_out.append({
-            "teeBox": color,
-            "name": named_by_color.get(color) or color.title(),
-            "set": set_num,
-            "yards": yards,
-            "holeCount": set_holes.get(set_num, 0),
-            "default": False,
-        })
+    if release_rows:
+        used_keys: set[str] = set()
+        for row in release_rows:
+            name = str(row.get("name") or "").strip()
+            try:
+                set_num = int(row.get("index"))
+            except (TypeError, ValueError):
+                continue
+            if not name or set_num <= 0:
+                continue
+            meters = set_meters.get(set_num)
+            tees_out.append({
+                "teeBox": _release_tee_box_key(name, set_num, used_keys),
+                "name": name,
+                "set": set_num,
+                "yards": int(round(meters * 1.09361)) if meters else None,
+                "holeCount": set_holes.get(set_num, 0),
+                "slopeRating": row.get("slopeRating"),
+                "courseRating": row.get("courseRating"),
+                "default": False,
+            })
+
+    if not release_rows:
+        # Legacy/cache fallback when the release is unavailable: retain the previous canonical list.
+        named_by_color: dict[str, str] = {}
+        for raw_name in raw_tees:
+            color = _normalize_tee_color(raw_name)
+            if color and color not in named_by_color:
+                named_by_color[color] = str(raw_name).strip()
+
+        seen_yards: set[int] = set()
+        for color, set_num in _CANONICAL_TEES:
+            has_geometry = set_num in set_meters or set_num in set_holes
+            if not (has_geometry or color in named_by_color):
+                continue
+            meters = set_meters.get(set_num)
+            yards = int(round(meters * 1.09361)) if meters else None
+            if yards is not None and yards in seen_yards:
+                continue
+            if yards is not None:
+                seen_yards.add(yards)
+            tees_out.append({
+                "teeBox": color,
+                "name": named_by_color.get(color) or color.title(),
+                "set": set_num,
+                "yards": yards,
+                "holeCount": set_holes.get(set_num, 0),
+                "default": False,
+            })
 
     # Neither geometry nor CourseView names → generic long/mid/short tiers (no yardage — honest).
     if not tees_out:
@@ -268,6 +365,7 @@ def load_geometry(global_id: int, local_hole: int) -> dict[str, Any]:
     m_path = mesh_path(global_id, local_hole)
     hazards = read_json(h_path) if h_path.exists() else None
     meshes = read_json(m_path) if m_path.exists() else None
+    hazards = bind_selected_green_target(hazards, meshes)
     components = []
     if meshes:
         by_name = {mesh["name"]: mesh for mesh in meshes.get("meshes", [])}

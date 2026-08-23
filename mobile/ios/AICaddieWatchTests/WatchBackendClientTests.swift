@@ -1,4 +1,5 @@
 import XCTest
+import AICaddieDomain
 @testable import AICaddieWatch
 
 final class WatchBackendClientTests: XCTestCase {
@@ -6,19 +7,23 @@ final class WatchBackendClientTests: XCTestCase {
         WatchBackendClient(baseURL: URL(string: "https://caddie.example")!, adminToken: adminToken)
     }
 
-    func testMapsWatchInputEventsToBackendEventsWithAppleWatchClientId() {
+    func testMapsWatchInputEventsToBackendEventsWithAppleWatchClientId() throws {
         let client = makeClient()
 
-        let score = WatchInputEvent(eventId: "e1", roundId: "r1", hole: 3, kind: .score, value: "5", createdAt: "2026-06-20T00:00:00Z")
-        let scoreDict = client.backendEvent(from: score)
+        let score = WatchInputEvent(
+            eventId: "e1", roundId: "r1", hole: 3, kind: .score, value: "5",
+            createdAt: "2026-06-20T00:00:00Z", fairwayResult: "LEFT"
+        )
+        let scoreDict = try client.backendEvent(from: score)
         XCTAssertEqual(scoreDict["kind"] as? String, "score")
         XCTAssertEqual(scoreDict["clientId"] as? String, "apple-watch")
         XCTAssertEqual(scoreDict["schema"] as? String, "ai-caddie-live-round-event-v1")
         XCTAssertEqual(scoreDict["hole"] as? Int, 3)
         XCTAssertEqual((scoreDict["payload"] as? [String: Any])?["strokes"] as? Int, 5)
+        XCTAssertEqual((scoreDict["payload"] as? [String: Any])?["fairway"] as? String, "left")
 
         let club = WatchInputEvent(eventId: "e2", roundId: "r1", hole: 3, kind: .club, value: "7I", createdAt: "t", shotType: "approach", lie: "fairway")
-        let clubDict = client.backendEvent(from: club)
+        let clubDict = try client.backendEvent(from: club)
         XCTAssertEqual(clubDict["kind"] as? String, "club")
         let clubPayload = clubDict["payload"] as? [String: Any]
         XCTAssertEqual(clubPayload?["clubName"] as? String, "7I")
@@ -27,11 +32,22 @@ final class WatchBackendClientTests: XCTestCase {
 
         // A distance input is recorded as a club event carrying the new to-pin distance.
         let distance = WatchInputEvent(eventId: "e3", roundId: "r1", hole: 3, kind: .distance, value: "142", createdAt: "t", contextClub: "8I")
-        let distDict = client.backendEvent(from: distance)
+        let distDict = try client.backendEvent(from: distance)
         XCTAssertEqual(distDict["kind"] as? String, "club")
         let distPayload = distDict["payload"] as? [String: Any]
         XCTAssertEqual(distPayload?["clubName"] as? String, "8I")
         XCTAssertEqual(distPayload?["distanceToPinM"] as? Double, 142)
+
+        let location = WatchInputEvent(
+            eventId: "e4", roundId: "r1", hole: 3, kind: .location,
+            value: "40.0454995,116.5461531,5.0", createdAt: "t"
+        )
+        let locationDict = try client.backendEvent(from: location)
+        XCTAssertEqual(locationDict["kind"] as? String, "location")
+        let locationPayload = locationDict["payload"] as? [String: Any]
+        XCTAssertEqual(locationPayload?["latitude"] as? Double, 40.0454995)
+        XCTAssertEqual(locationPayload?["longitude"] as? Double, 116.5461531)
+        XCTAssertEqual(locationPayload?["horizontalAccuracyM"] as? Double, 5)
     }
 
     func testEventBatchRequestCarriesHeadersAndMappedAppleWatchBatch() throws {
@@ -62,6 +78,31 @@ final class WatchBackendClientTests: XCTestCase {
             idempotencyKey: "b"
         )
         XCTAssertNil(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"))
+    }
+
+    func testRoundFinishRequestCarriesReviewMetadata() throws {
+        let metadata = WatchRoundFinishMetadata(
+            courseName: "北京丽宫 · 前九",
+            holePars: [4, 5],
+            holesCompleted: 2,
+            courseGlobalId: 12345
+        )
+
+        let request = try makeClient(adminToken: "secret").makeRoundFinishRequest(
+            roundId: "round-1",
+            metadata: metadata
+        )
+
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/v2/mobile/rounds/round-1/finish")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "secret")
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let meta = try XCTUnwrap(json["meta"] as? [String: Any])
+        XCTAssertEqual(meta["courseName"] as? String, "北京丽宫 · 前九")
+        XCTAssertEqual(meta["holePars"] as? [Int], [4, 5])
+        XCTAssertEqual(meta["holesCompleted"] as? Int, 2)
+        XCTAssertEqual(meta["courseGlobalId"] as? Int, 12345)
     }
 
     func testEventBatchRequestPrefersBearerSessionTokenOverAdminToken() throws {
@@ -102,13 +143,431 @@ final class WatchBackendClientTests: XCTestCase {
 
     func testParseEventResultDecodesAcceptedAndSequence() throws {
         let client = makeClient()
-        let data = try JSONSerialization.data(withJSONObject: ["accepted": 1, "duplicate": false, "serverSequence": 7])
+        let data = try JSONSerialization.data(withJSONObject: [
+            "accepted": 1,
+            "duplicate": false,
+            "acceptedEventIds": ["event-1"],
+            "duplicateEventIds": ["event-0"],
+            "serverSequence": 7,
+        ])
         let result = client.parseEventResult(data)
         XCTAssertEqual(result.accepted, 1)
         XCTAssertFalse(result.duplicate)
+        XCTAssertEqual(result.acceptedEventIds, ["event-1"])
+        XCTAssertEqual(result.duplicateEventIds, ["event-0"])
+        XCTAssertEqual(result.acknowledgedEventIds, ["event-1", "event-0"])
         XCTAssertEqual(result.serverSequence, 7)
 
         // Missing/garbled fields degrade to safe defaults rather than throwing.
+        XCTAssertEqual(client.parseEventResult(Data()).acknowledgedEventIds, [])
         XCTAssertEqual(client.parseEventResult(Data()).serverSequence, 0)
+    }
+
+    func testCourseDownloadRequestsReuseExistingAuthenticatedMobileEndpoints() throws {
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            adminToken: "admin-secret",
+            sessionToken: "member-session"
+        )
+
+        let options = try client.makeCourseOptionsRequest()
+        XCTAssertEqual(options.url?.path, "/api/v2/mobile/courses/options")
+        XCTAssertEqual(options.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
+
+        let search = try client.makeCourseSearchRequest(name: "观澜湖")
+        XCTAssertEqual(search.url?.path, "/api/v2/courses/search")
+        XCTAssertEqual(
+            URLComponents(url: try XCTUnwrap(search.url), resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "name" })?.value,
+            "观澜湖"
+        )
+        XCTAssertEqual(search.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
+        XCTAssertEqual(search.timeoutInterval, WatchBackendClient.nearbyDiscoveryTimeoutInterval)
+
+        let nearby = try client.makeNearbyCoursesRequest(
+            latitude: 22.7402,
+            longitude: 114.0715,
+            radiusKm: 50
+        )
+        XCTAssertEqual(nearby.url?.path, "/api/v2/courses/nearby")
+        let nearbyQuery = try XCTUnwrap(URLComponents(
+            url: try XCTUnwrap(nearby.url),
+            resolvingAgainstBaseURL: false
+        ))
+        XCTAssertEqual(nearbyQuery.queryItems?.first(where: { $0.name == "latitude" })?.value, "22.7402")
+        XCTAssertEqual(nearbyQuery.queryItems?.first(where: { $0.name == "longitude" })?.value, "114.0715")
+        XCTAssertEqual(nearbyQuery.queryItems?.first(where: { $0.name == "radius_km" })?.value, "50")
+        XCTAssertEqual(nearby.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
+        XCTAssertEqual(nearby.timeoutInterval, WatchBackendClient.nearbyDiscoveryTimeoutInterval)
+
+        let tees = try client.makeCourseTeesRequest(globalId: 31870)
+        XCTAssertEqual(tees.url?.path, "/api/v2/courses/31870/tees")
+        let teeQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(tees.url), resolvingAgainstBaseURL: false))
+        XCTAssertEqual(teeQuery.queryItems?.first(where: { $0.name == "ensure_release" })?.value, "true")
+        XCTAssertNil(teeQuery.queryItems?.first(where: { $0.name == "ensure_geometry" }))
+        XCTAssertEqual(tees.value(forHTTPHeaderField: "Authorization"), "Bearer member-session")
+        XCTAssertEqual(tees.timeoutInterval, WatchBackendClient.courseReleaseTimeoutInterval)
+
+        let package = try client.makeCoursePackageRequest(
+            globalId: 31669,
+            roundId: "watch-round-1",
+            teeBox: "White",
+            backGlobalId: 31670,
+            ensureGeometry: true
+        )
+        XCTAssertEqual(package.url?.path, "/api/v2/mobile/courses/31669/package")
+        let packageQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(package.url), resolvingAgainstBaseURL: false))
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "round_id" })?.value, "watch-round-1")
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "tee_box" })?.value, "White")
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "back_global_id" })?.value, "31670")
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "ensure_geometry" })?.value, "true")
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "background_geometry" })?.value, "false")
+        XCTAssertEqual(packageQuery.queryItems?.first(where: { $0.name == "client_id" })?.value, "apple-watch")
+        XCTAssertEqual(package.timeoutInterval, 900)
+
+        let lightweightPackage = try client.makeCoursePackageRequest(
+            globalId: 31669,
+            roundId: "watch-round-lightweight",
+            teeBox: "White",
+            backgroundGeometry: true
+        )
+        let lightweightQuery = try XCTUnwrap(URLComponents(
+            url: try XCTUnwrap(lightweightPackage.url),
+            resolvingAgainstBaseURL: false
+        ))
+        XCTAssertEqual(
+            lightweightQuery.queryItems?.first(where: { $0.name == "ensure_geometry" })?.value,
+            "false"
+        )
+        XCTAssertEqual(
+            lightweightQuery.queryItems?.first(where: { $0.name == "background_geometry" })?.value,
+            "true"
+        )
+        XCTAssertEqual(
+            lightweightPackage.timeoutInterval,
+            WatchBackendClient.coursePackageTimeoutInterval
+        )
+
+        let prep = try client.makeCoursePrepRequest(globalId: 31669, localHoles: [1, 2, 9])
+        XCTAssertEqual(prep.url?.path, "/api/v2/courses/31669/prep")
+        XCTAssertEqual(prep.timeoutInterval, 900)
+        let prepQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(prep.url), resolvingAgainstBaseURL: false))
+        XCTAssertEqual(prepQuery.queryItems?.filter { $0.name == "holes" }.compactMap(\.value), ["1", "2", "9"])
+        XCTAssertEqual(prepQuery.queryItems?.first(where: { $0.name == "render" })?.value, "false")
+
+        let topo = try client.makeCourseTopoRequest(
+            globalId: 31669,
+            localHole: 4,
+            geometryRevision: "aaaaaaaaaaaaaaaa"
+        )
+        XCTAssertEqual(topo.url?.path, "/api/v2/courses/31669/holes/4/topo.png")
+        XCTAssertEqual(topo.timeoutInterval, WatchBackendClient.courseReleaseTimeoutInterval)
+        let topoQuery = try XCTUnwrap(URLComponents(url: try XCTUnwrap(topo.url), resolvingAgainstBaseURL: false))
+        XCTAssertEqual(topoQuery.queryItems?.first(where: { $0.name == "v" })?.value, "topo-v8")
+        XCTAssertEqual(
+            topoQuery.queryItems?.first(where: { $0.name == "r" })?.value,
+            "aaaaaaaaaaaaaaaa"
+        )
+        XCTAssertNil(topo.value(forHTTPHeaderField: "Authorization"))
+
+        let green = try client.makeCourseGreenDetailRequest(
+            globalId: 31669,
+            localHole: 4,
+            crop: GreenDetailCrop(x: 220, y: 80, width: 420, height: 420),
+            geometryRevision: "aaaaaaaaaaaaaaaa"
+        )
+        XCTAssertEqual(green.url?.path, "/api/v2/courses/31669/holes/4/green.png")
+        let greenQuery = try XCTUnwrap(URLComponents(
+            url: try XCTUnwrap(green.url),
+            resolvingAgainstBaseURL: false
+        ))
+        XCTAssertEqual(
+            greenQuery.queryItems?.first(where: { $0.name == "size" })?.value,
+            "1024"
+        )
+        XCTAssertEqual(
+            greenQuery.queryItems?.first(where: { $0.name == "g" })?.value,
+            "green-v2"
+        )
+        XCTAssertNil(green.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testCourseReleaseRetryPolicyIsBoundedAndCancellationSafe() {
+        XCTAssertEqual(WatchBackendClient.courseReleaseMaximumAttempts, 3)
+        XCTAssertEqual(WatchBackendClient.courseReleaseRetryDelayNanoseconds(afterAttempt: 1), 500_000_000)
+        XCTAssertEqual(WatchBackendClient.courseReleaseRetryDelayNanoseconds(afterAttempt: 2), 1_000_000_000)
+        XCTAssertTrue(WatchBackendClient.isTransientCourseReleaseError(URLError(.timedOut)))
+        XCTAssertTrue(WatchBackendClient.isTransientCourseReleaseError(URLError(.secureConnectionFailed)))
+        XCTAssertTrue(WatchBackendClient.isTransientCourseReleaseError(
+            WatchBackendClientError.http(status: 503, body: "cooldown")
+        ))
+        XCTAssertFalse(WatchBackendClient.isTransientCourseReleaseError(URLError(.cancelled)))
+        XCTAssertFalse(WatchBackendClient.isTransientCourseReleaseError(URLError(.serverCertificateUntrusted)))
+        XCTAssertFalse(WatchBackendClient.isTransientCourseReleaseError(
+            WatchBackendClientError.http(status: 401, body: nil)
+        ))
+    }
+
+    func testCourseSearchRetriesTransientTLSHandshake() async throws {
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-search-v1","query":"北京丽宫","matches":[{"globalId":31793,"name":"北京丽宫体育公园高尔夫俱乐部","holes":18,"city":"北京","province":"北京","ratio":1.0}]}"#.utf8
+        )
+        var attempts = 0
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            dataLoader: { request in
+                attempts += 1
+                XCTAssertEqual(
+                    request.timeoutInterval,
+                    WatchBackendClient.nearbyDiscoveryTimeoutInterval
+                )
+                if attempts == 1 {
+                    throw URLError(.secureConnectionFailed)
+                }
+                let response = HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                return (payload, response)
+            },
+            retrySleep: { _ in }
+        )
+
+        let matches = try await client.searchCourses(name: "北京丽宫")
+
+        XCTAssertEqual(matches.map(\.globalId), [31793])
+        XCTAssertEqual(attempts, 2)
+    }
+
+    func testFetchCourseTeesRetriesTransientHTTPAndTransportFailures() async throws {
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-tees-v1","globalId":3881,"defaultTeeBox":"championship","tees":[{"teeBox":"championship","name":"Championship","set":1,"yards":6536,"holeCount":18,"default":true}]}"#.utf8
+        )
+        var attempts = 0
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            dataLoader: { request in
+                attempts += 1
+                if attempts == 1 {
+                    let response = HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 503,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!
+                    return (Data("cooldown".utf8), response)
+                }
+                if attempts == 2 {
+                    throw URLError(.timedOut)
+                }
+                let response = HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                return (payload, response)
+            },
+            retrySleep: { _ in }
+        )
+
+        let tees = try await client.fetchCourseTees(globalId: 3881)
+
+        XCTAssertEqual(tees.first?.teeBox, "championship")
+        XCTAssertEqual(attempts, 3)
+    }
+
+    func testNearbyCoursesHasABoundedBudgetAndRetriesTransientFailure() async throws {
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-nearby-v1","radiusKm":50,"complete":true,"matches":[]}"#.utf8
+        )
+        var attempts = 0
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            dataLoader: { request in
+                attempts += 1
+                XCTAssertEqual(
+                    request.timeoutInterval,
+                    WatchBackendClient.nearbyDiscoveryTimeoutInterval
+                )
+                if attempts == 1 {
+                    throw URLError(.networkConnectionLost)
+                }
+                let response = HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                return (payload, response)
+            },
+            retrySleep: { _ in }
+        )
+
+        let matches = try await client.nearbyCourses(
+            latitude: 22.7402,
+            longitude: 114.0715,
+            radiusKm: 50
+        )
+
+        XCTAssertTrue(matches.isEmpty)
+        XCTAssertEqual(attempts, 2)
+    }
+
+    func testFetchCourseTopoRetriesATimedOutColdRender() async throws {
+        let payload = Data([0x89, 0x50, 0x4E, 0x47])
+        var attempts = 0
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            dataLoader: { request in
+                attempts += 1
+                XCTAssertEqual(
+                    request.timeoutInterval,
+                    WatchBackendClient.courseReleaseTimeoutInterval
+                )
+                if attempts == 1 {
+                    throw URLError(.timedOut)
+                }
+                let response = HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "image/png"]
+                )!
+                return (payload, response)
+            },
+            retrySleep: { _ in }
+        )
+
+        let topo = try await client.fetchCourseTopo(globalId: 3881, localHole: 1)
+
+        XCTAssertEqual(topo, payload)
+        XCTAssertEqual(attempts, 2)
+    }
+
+    func testCoursePackageAndPrepRetryTransientCooldowns() async throws {
+        var attempts: [String: Int] = [:]
+        let packagePayload = Data(
+            #"{"roundId":"watch-retry","course":{"globalId":3881,"name":"Cypress Point","teeBox":"championship"},"holes":[{"number":1,"par":5}]}"#.utf8
+        )
+        let prepPayload = Data(
+            #"{"globalId":3881,"clubs":[],"holes":[{"hole":1,"hazards":{}}]}"#.utf8
+        )
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            dataLoader: { request in
+                let path = try XCTUnwrap(request.url?.path)
+                attempts[path, default: 0] += 1
+                if attempts[path] == 1 {
+                    return (Data("cooldown".utf8), HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: 503,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )!)
+                }
+                let payload = path.hasSuffix("/prep") ? prepPayload : packagePayload
+                return (payload, HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!)
+            },
+            retrySleep: { _ in }
+        )
+
+        let package = try await client.fetchCoursePackage(
+            globalId: 3881,
+            roundId: "watch-retry",
+            teeBox: "championship"
+        )
+        let prep = try await client.fetchCoursePrep(globalId: 3881, localHoles: [1])
+
+        XCTAssertEqual(package.holes.map(\.number), [1])
+        XCTAssertEqual(prep.holes.map(\.hole), [1])
+        XCTAssertEqual(attempts["/api/v2/mobile/courses/3881/package"], 2)
+        XCTAssertEqual(attempts["/api/v2/courses/3881/prep"], 2)
+    }
+
+    func testCoursePrepRequestRejectsAnEdgeUnsafeHoleBatch() throws {
+        XCTAssertThrowsError(
+            try makeClient().makeCoursePrepRequest(
+                globalId: 3881,
+                localHoles: [1, 2, 3, 4]
+            )
+        )
+    }
+
+    func testCoursePayloadsDecodeOnlyWatchStartFacts() throws {
+        let client = makeClient()
+        let options = try client.decodeCourseOptions(Data(
+            #"{"schema":"ai-caddie-mobile-course-options-v1","dataMode":"real","total":1,"courses":[{"globalId":31669,"name":"北京丽宫","roundCount":4,"holes":18,"teeBox":"Blue","geometryCoverage":"ready","sourceRefs":[],"venueName":"北京丽宫","segmentLabel":null,"segmentHoles":18,"latitude":40.0455,"longitude":116.5462,"tees":["Blue","White"]}],"generatedAt":"2026-07-26T00:00:00Z"}"#.utf8
+        ))
+        XCTAssertEqual(options.first?.latitude, 40.0455)
+        XCTAssertEqual(options.first?.longitude, 116.5462)
+        XCTAssertEqual(options, [
+            WatchCourseOption(
+                globalId: 31669,
+                name: "北京丽宫",
+                holes: 18,
+                teeBox: "Blue",
+                venueName: "北京丽宫",
+                segmentLabel: nil,
+                segmentHoles: 18,
+                latitude: 40.0455,
+                longitude: 116.5462,
+                tees: ["Blue", "White"],
+                roundCount: 4
+            )
+        ])
+
+        let package = try client.decodeCoursePackage(Data(
+            #"{"schema":"ai-caddie-live-round-package-v1","roundId":"watch-round-1","course":{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","sourceGlobalId":31669,"sourceLocalHole":1}],"ignored":{"large":"payload"}}"#.utf8
+        ))
+        XCTAssertEqual(package.roundId, "watch-round-1")
+        XCTAssertEqual(package.course.name, "北京丽宫")
+        XCTAssertEqual(package.holes.first?.yards, 404)
+        XCTAssertEqual(package.holes.first?.sourceLocalHole, 1)
+
+        let matches = try client.decodeCourseSearch(Data(
+            #"{"schema":"ai-caddie-course-search-v1","query":"观澜湖","matches":[{"globalId":31870,"name":"Mission Hills ~ A","holes":9,"city":"深圳","province":"广东","ratio":0.92}]}"#.utf8
+        ))
+        XCTAssertEqual(matches, [
+            WatchCourseSearchMatch(
+                globalId: 31870,
+                name: "Mission Hills ~ A",
+                holes: 9,
+                city: "深圳",
+                province: "广东",
+                ratio: 0.92
+            )
+        ])
+        XCTAssertEqual(matches.first?.courseOption?.segmentLabel, "A")
+        XCTAssertEqual(matches.first?.courseOption?.venueName, "Mission Hills")
+
+        let nearbyMatches = try client.decodeCourseSearch(Data(
+            #"{"schema":"ai-caddie-course-nearby-v1","radiusKm":50,"matches":[{"globalId":31870,"name":"Mission Hills ~ A","holes":9,"city":"深圳","province":"广东","ratio":0.0,"latitude":22.7402,"longitude":114.0715,"distanceKm":0.4}]}"#.utf8
+        ))
+        XCTAssertEqual(nearbyMatches.first?.latitude, 22.7402)
+        XCTAssertEqual(nearbyMatches.first?.longitude, 114.0715)
+        XCTAssertEqual(nearbyMatches.first?.distanceKm, 0.4)
+        XCTAssertEqual(nearbyMatches.first?.courseOption?.latitude, 22.7402)
+
+        let incompleteMatches = try client.decodeCourseSearch(Data(
+            #"{"schema":"ai-caddie-course-search-v1","query":"unknown","matches":[{"globalId":39999,"name":"Unclassified Course","holes":null,"city":null,"province":null,"ratio":0.5}]}"#.utf8
+        ))
+        XCTAssertEqual(incompleteMatches.count, 1)
+        XCTAssertNil(incompleteMatches.first?.holes)
+        XCTAssertNil(incompleteMatches.first?.courseOption)
+
+        let tees = try client.decodeCourseTees(Data(
+            #"{"schema":"ai-caddie-course-tees-v1","globalId":31870,"defaultTeeBox":"blue","tees":[{"teeBox":"blue","name":"Blue","set":2,"yards":6412,"holeCount":18,"default":true},{"teeBox":"white","name":"White","set":3,"yards":6020,"holeCount":18,"default":false}]}"#.utf8
+        ))
+        XCTAssertEqual(tees.map(\.teeBox), ["blue", "white"])
+        XCTAssertEqual(tees.first?.yards, 6412)
+        XCTAssertTrue(tees.first?.isDefault == true)
     }
 }

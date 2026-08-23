@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useEffect, useRef } from 'react'
 import type { AnnotationRecord, AnnotationTargetType, HistoryRoundDetailResponse, ReviewReportResponse } from '../types'
 import { issueLabel } from '../issueLabels'
 import { annotationKindZh, confidenceZh, coverageZh, phaseZh, stateZh } from '../zhLabels'
@@ -180,7 +180,16 @@ function RoundFacts({ data, diagnostics }: { data: HistoryRoundDetailResponse; d
   return (
     <section className="round-detail-facts" aria-label="球局数据">
       {facts.map(([label, value]) => (
-        <div key={label}>
+        <div
+          key={label}
+          className={
+            label === '成绩'
+              ? 'round-detail-fact round-detail-fact--score'
+              : label === '对标准杆'
+                ? 'round-detail-fact round-detail-fact--topar'
+                : 'round-detail-fact'
+          }
+        >
           <span>{label}</span>
           <b>{value}</b>
         </div>
@@ -191,42 +200,59 @@ function RoundFacts({ data, diagnostics }: { data: HistoryRoundDetailResponse; d
 
 function ScorecardGrid({ data, onSelectRef }: { data: HistoryRoundDetailResponse; onSelectRef?: (sourceRef: string) => void }) {
   if (data.scorecard.length === 0) return null
+  const front = data.scorecard.filter((cell) => cell.hole <= 9)
+  const back = data.scorecard.filter((cell) => cell.hole > 9)
+  const renderNine = (label: '前九' | '后九', cells: typeof data.scorecard) => {
+    if (cells.length === 0) return null
+    return (
+      <div className="round-detail-nine" aria-label={`${label}记分卡`}>
+        <span className="round-detail-nine-label">{label}</span>
+        <div className="round-detail-nine-grid">
+          {cells.map((cell) => {
+            const content = (
+              <>
+                <span>H{cell.hole}</span>
+                <b className="round-detail-score-mark">{cell.score ?? '-'}</b>
+                <small>
+                  Par {cell.par ?? '-'} · {toParText(cell.toPar)}
+                </small>
+                <em>
+                  {cell.putts === null ? '推杆 —' : `${cell.putts}推`}
+                  {cell.penalties == null ? '' : ` · 罚${cell.penalties}`}
+                </em>
+              </>
+            )
+            return onSelectRef ? (
+              <button
+                key={cell.holeRef}
+                type="button"
+                className={`round-detail-cell score-${cell.className}`}
+                onClick={() => onSelectRef(cell.holeRef)}
+                aria-label={`第${cell.hole}洞详情`}
+              >
+                {content}
+              </button>
+            ) : (
+              <div key={cell.holeRef} className={`round-detail-cell score-${cell.className}`}>
+                {content}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
   return (
     <section className="round-detail-section" aria-label="记分卡">
       <div className="section-head">
         <div>
           <h3>记分卡</h3>
-          <p>逐洞成绩、推杆数、果岭击球率、球道命中</p>
+          <p>逐洞成绩、推杆数、罚杆数、果岭击球率、球道命中</p>
         </div>
       </div>
-      <div className="round-detail-scorecard" style={{ '--round-detail-holes': Math.max(data.scorecard.length, 1) } as CSSProperties}>
-        {data.scorecard.map((cell) => {
-          const content = (
-            <>
-              <span>H{cell.hole}</span>
-              <b>{cell.score ?? '-'}</b>
-              <small>
-                p{cell.par ?? '-'} / {toParText(cell.toPar)}
-              </small>
-              <em>{cell.putts === null ? '推杆 —' : `${cell.putts}推`}</em>
-            </>
-          )
-          return onSelectRef ? (
-            <button
-              key={cell.holeRef}
-              type="button"
-              className={`round-detail-cell score-${cell.className}`}
-              onClick={() => onSelectRef(cell.holeRef)}
-              aria-label={`第${cell.hole}洞详情`}
-            >
-              {content}
-            </button>
-          ) : (
-            <div key={cell.holeRef} className={`round-detail-cell score-${cell.className}`}>
-              {content}
-            </div>
-          )
-        })}
+      <div className="round-detail-scorecard">
+        {renderNine('前九', front)}
+        {renderNine('后九', back)}
       </div>
     </section>
   )
@@ -263,8 +289,8 @@ function HoleDetails({ rows, onSelectRef, diagnostics }: { rows: Array<Record<st
               <b>{valueText(row.score)} / {toParText(row.toPar)}</b>
             </div>
             <div>
-              <span>推杆</span>
-              <b>{valueText(row.putts)}</b>
+              <span>推杆 / 罚杆</span>
+              <b>{valueText(row.putts)} / {valueText(row.penalties)}</b>
             </div>
             <div>
               <span>GIR</span>
@@ -575,7 +601,10 @@ function RoundAiReview({
       : null
 
   return (
-    <section className="round-detail-section round-ai-review" aria-label="Round AI review">
+    <section
+      className={loadedReport ? 'round-detail-section round-ai-review' : 'round-detail-section round-ai-review round-ai-review--empty'}
+      aria-label="Round AI review"
+    >
       <div className="section-head">
         <div>
           <h3>AI 回顾</h3>
@@ -664,11 +693,11 @@ export function HistoryRoundDetailPanel({
   const canAnnotate = data.found && Boolean(data.roundRef.trim()) && Boolean(onCreateAnnotationForRound)
   return (
     <section ref={rootRef} className="panel round-detail-panel" aria-live="polite">
-      <div className="drilldown-title-row">
+      <div className="drilldown-title-row round-detail-hero">
         <div>
           <p className="eyebrow">球局记分卡</p>
           <h2>{data.found ? '球局回顾' : '球局不可用'}</h2>
-          <p>{formatRoundTitle(data.title)}</p>
+          <p className="round-detail-course-title">{formatRoundTitle(data.title)}</p>
         </div>
         <div className="drilldown-meta">
           {diagnostics ? <span>{data.roundRef}</span> : null}

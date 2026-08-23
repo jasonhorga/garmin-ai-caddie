@@ -44,10 +44,27 @@ public struct BackendConfigurationStore {
               components.fragment == nil else {
             return nil
         }
-        guard components.percentEncodedPath.isEmpty || components.percentEncodedPath == "/" else {
-            return nil
+        let rawPath = components.percentEncodedPath
+        if rawPath.isEmpty || rawPath == "/" {
+            components.percentEncodedPath = ""
+        } else {
+            let normalizedPath = rawPath.hasSuffix("/")
+                ? String(rawPath.dropLast())
+                : rawPath
+            let segments = normalizedPath.split(separator: "/", omittingEmptySubsequences: false)
+            guard segments.first?.isEmpty == true,
+                  segments.dropFirst().allSatisfy({ encodedSegment in
+                      guard !encodedSegment.isEmpty,
+                            let segment = String(encodedSegment).removingPercentEncoding else {
+                          return false
+                      }
+                      return segment != "." && segment != ".."
+                          && !segment.contains("/") && !segment.contains("\\")
+                  }) else {
+                return nil
+            }
+            components.percentEncodedPath = normalizedPath
         }
-        components.percentEncodedPath = ""
         return components.url
     }
 }

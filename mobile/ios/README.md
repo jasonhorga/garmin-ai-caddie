@@ -24,9 +24,7 @@ workflow `api_base_url` input or the repo variable `AI_CADDIE_API_BASE_URL`. The
 is baked into the iOS `Info.plist` as `AICaddieAPIBaseURL`; leaving it blank preserves
 the offline/fixture fallback.
 
-If the backend URL or private admin token is not known at build time, use the
-runtime Backend screen in the iPhone app. It accepts an origin-only `https://`
-API URL, rejects paths/query strings/URL credentials, saves the URL in
-UserDefaults, and the admin token is saved in Keychain. This lets a TestFlight
-tester point the same build at a newly deployed backend without another
-TestFlight upload.
+TestFlight/Release builds never embed the owner admin token. They authenticate
+through Sign in with Apple and forward that scoped session to the Watch. The
+runtime Backend screen remains a DEBUG/CI aid for simulator verification; its
+admin-token fallback is not part of the Release credential path.

@@ -49,7 +49,7 @@ MediaPrivacyState = Literal["private_local", "synced", "redacted"]
 LiveRoundEventKind = Literal["score", "club", "putt", "penalty", "note", "location", "photo", "video", "sync_marker"]
 
 _LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
-    "score": ({"strokes"}, {"source"}),
+    "score": ({"strokes"}, {"source", "fairway"}),
     "club": (
         {"clubName"},
         {
@@ -77,7 +77,7 @@ _LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
 }
 
 _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
-    "score": {"strokes": "number", "source": "string"},
+    "score": {"strokes": "number", "source": "string", "fairway": "string"},
     "club": {
         "clubName": "string",
         "source": "string",
@@ -131,6 +131,7 @@ _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
 }
 
 _LIVE_EVENT_PAYLOAD_ENUMS: dict[tuple[str, str], set[str]] = {
+    ("score", "fairway"): {"hit", "left", "right"},
     ("club", "shotType"): {"tee", "approach", "recovery"},
     ("club", "strategyMode"): {"protect_score", "stock", "attack"},
 }
@@ -190,6 +191,8 @@ def _validate_live_event_payload(kind: str, payload: dict[str, Any]) -> None:
                 f"{kind} payload field {field} must be one of {', '.join(sorted(allowed_values))}"
             )
     media_type = payload.get("mediaType")
+    if kind == "club" and not str(payload.get("clubName") or "").strip():
+        raise ValueError("club payload field clubName must be non-empty")
     if kind in {"photo", "video"} and media_type != kind:
         raise ValueError(f"{kind} payload mediaType must be {kind}")
     count_constraints = {
@@ -438,7 +441,7 @@ class EffectiveClubOut(BaseModel):
     customName: str | None = None
     clubTypeId: int | None = None
     distanceM: int | None = None
-    distanceSource: str | None = None  # "manual" | "default" | None
+    distanceSource: str | None = None  # "manual" | "default" | "garmin_advice" | "garmin_average" | None
 
 
 class EffectiveClubBagResponse(BaseModel):
@@ -466,6 +469,10 @@ class RoundHoleShotMapResponse(BaseModel):
     # the client uses it to fetch the realistic topo base bitmap (/courses/{gid}/holes/{hole}/topo.png).
     globalId: int | None = None
     localHole: int | None = None
+    geometryRevision: str | None = None
+    # Pixel-space corrections are valid only in prodgeometry. courseData is a factual Garmin
+    # affine fallback used read-only while the precise bundle is unavailable.
+    mapKind: Literal["prodgeometry", "courseData"] | None = None
     map: dict[str, Any] | None = None
     shots: list[dict[str, Any]] = Field(default_factory=list)
     # 这一洞手填的罚杆数(复盘修改层,默认 0)。洞分 = 记录到的杆数 + 这个数。
@@ -476,7 +483,11 @@ class RoundHoleShotMapResponse(BaseModel):
 class RoundCorrectionRequest(BaseModel):
     """一条复盘修改事件:增/改/删一杆,或给某洞手填罚杆。见 ai_caddie/rounds/round_corrections.py。"""
 
-    op: str  # deleteShot | restoreShot | editField | setHolePenalty | addShot | reorderShot
+    # A misspelled edit field must fail loudly. The previous permissive default silently discarded
+    # legacy addShot.club/lie even though iOS sent them, making the edit look saved until refetch.
+    model_config = ConfigDict(extra="forbid")
+
+    op: str  # legacy granular ops, replaceHoleShots (pixel), or replaceHoleFacts (GPS-preserving)
     shotId: str | None = None
     hole: int | None = None
     field: str | None = None  # editField 时:club | lie | position
@@ -484,8 +495,15 @@ class RoundCorrectionRequest(BaseModel):
     reason: str | None = None  # deleteShot 的删因(可选;iOS 不发即无)
     clientMutationId: str | None = None  # 幂等键
     px: list[float] | None = None  # addShot:点地图的落点像素 [x, y]
+    club: str | None = None  # legacy addShot client; retained so Pydantic does not silently drop it
+    lie: str | None = None  # legacy addShot start lie
     insertAfterShotId: str | None = None  # addShot:插在这一杆之后(None=最前/空洞第一杆)
     order: list[str] | None = None  # reorderShot:该洞落点的目标顺序(按 shotId 列)
+    # Whole-hole snapshot. replaceHoleShots stores the approved precise pixel draft;
+    # replaceHoleFacts stores only ordered stable ids + club/lie while preserving source WGS84.
+    shots: list[dict[str, Any]] | None = None
+    manualPenalty: int | None = None
+    geometryRevision: str | None = None
 
 
 class RoundCorrectionResponse(BaseModel):
@@ -549,6 +567,10 @@ class SyncLastRunStatus(BaseModel):
     snapshotId: str | None
     errorCode: str | None
     updatedAt: str | None
+    remoteRoundCount: int | None = None
+    remoteLatestRoundId: str | None = None
+    remoteLatestRoundAt: str | None = None
+    newRoundCount: int | None = None
 
 
 class SyncStatusResponse(BaseModel):
@@ -638,6 +660,8 @@ class GeometryEvidenceResponse(BaseModel):
     globalId: int
     localHole: int
     coverage: GeometryCoverageState
+    geometryRevision: str | None = None
+    authorityObservation: Literal["not_required", "current", "stale", "unknown"] | None = None
     hasHazards: bool
     hasMeshes: bool
     sourceRef: str | None = None
@@ -658,6 +682,42 @@ class CourseGeometryCoverageResponse(BaseModel):
     partialHoles: int
     totalHoles: int
     holes: list[dict[str, Any]]
+
+
+class CourseInstallHoleStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    globalId: int
+    localHole: int
+    displayHole: int
+    geometry: Literal["queued", "running", "ready", "failed"]
+    geometryRevision: str | None = None
+    topo: Literal["queued", "running", "ready", "failed"]
+    topoRevision: str | None = None
+    error: str | None = None
+
+
+class CourseInstallStatusResponse(BaseModel):
+    model_config = ConfigDict(
+        populate_by_name=True,
+        serialize_by_alias=True,
+        extra="forbid",
+        strict=True,
+    )
+
+    schema_: Literal["ai-caddie-course-install-v1"] = Field(alias="schema")
+    jobId: str
+    globalId: int
+    teeBox: str
+    nine: Literal["all", "front", "back"]
+    phase: Literal["queued", "running", "ready", "failed"]
+    stage: str
+    totalHoles: int
+    geometryReady: int
+    topoReady: int
+    updatedAt: str | None = None
+    error: str | None = None
+    holes: list[CourseInstallHoleStatus] = Field(default_factory=list)
 
 
 class GeometryEnsureResponse(BaseModel):
@@ -941,10 +1001,14 @@ class LiveRoundPackageResponse(BaseModel):
     clubProfiles: list[dict[str, Any]]
     caddieDecisionEndpoint: str
     offlinePackageStatus: dict[str, Any]
+    readinessState: Literal["ready", "blocked", "error"] | None = None
     eventCursor: dict[str, Any]
     recentHistory: dict[str, Any]
     cachedCaddieRules: dict[str, Any]
     generatedAt: str
+    # Present when the caller requested a background course install. Older iOS/Watch clients ignore
+    # unknown JSON keys; the field is intentionally public-progress only (no player data).
+    courseInstallJob: dict[str, Any] | None = None
 
 
 class MobileCourseOption(BaseModel):
@@ -1022,6 +1086,15 @@ class LiveRoundEventBatchResponse(BaseModel):
     acceptedEventIds: list[str] = Field(default_factory=list)
     duplicateEventIds: list[str] = Field(default_factory=list)
     serverSequence: int = 0
+
+
+class MobileRoundFinishRequest(BaseModel):
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("meta")
+    @classmethod
+    def _bound_meta(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return _reject_oversized(value, label="meta")
 
 
 class LiveRoundEventReplayItem(BaseModel):

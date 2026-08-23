@@ -18,7 +18,8 @@ from ai_caddie.core import data
 
 # A subset of the owner's real bag (/club/player) — note custom names + a 2nd type-18 club.
 BAG_PAYLOAD = [
-    {"id": 42684923, "clubTypeId": 1, "shaftLength": 45.5, "retired": False, "deleted": False},
+    {"id": 42684923, "clubTypeId": 1, "shaftLength": 45.5, "averageDistance": 201,
+     "adviceDistance": 208, "retired": False, "deleted": False},
     {"id": 42684934, "clubTypeId": 18, "shaftLength": 35.5, "retired": False, "deleted": False},
     {"id": 42684975, "name": "Pw", "clubTypeId": 18, "shaftLength": 45.5, "retired": False, "deleted": False},
     {"id": 42684936, "name": "50", "clubTypeId": 20, "shaftLength": 35.5, "retired": False, "deleted": False},
@@ -85,6 +86,8 @@ class FetchClubsTests(unittest.TestCase):
         self.assertEqual(by_id[42684923]["typeName"], "Driver")
         self.assertEqual(by_id[42684923]["loftAngle"], 10.5)
         self.assertIsNone(by_id[42684923]["customName"])
+        self.assertEqual(by_id[42684923]["averageDistance"], 201)
+        self.assertEqual(by_id[42684923]["adviceDistance"], 208)
         # Custom-named club keeps the user's name AND the underlying type.
         self.assertEqual(by_id[42684975]["customName"], "Pw")
         self.assertEqual(by_id[42684975]["clubTypeId"], 18)
@@ -232,9 +235,11 @@ class ClubBagRouteTests(unittest.TestCase):
 class CanonicalClubNameTests(unittest.TestCase):
     def test_normalizes_real_garmin_forms(self) -> None:
         cases = {
-            "Driver": "driver", "1W": "driver", "3W": "wood3", "3 Wood": "wood3", "三号木": "wood3",
+            "Driver": "driver", "1D": "driver", "一号木杆": "driver",
+            "1W": "driver", "3W": "wood3", "3 Wood": "wood3", "三号木": "wood3",
             "5I": "iron5", "5 Iron": "iron5", "九号铁": "iron9",
             "二号小鸡腿": "hybrid2", "2I/Hybrid": "hybrid2", "3 Hybrid": "hybrid3",
+            "三号铁木杆": "hybrid3",
             "Pw": "pw", "PW": "pw", "Aw": "gw", "GW": "gw", "A杆": "gw", "SW": "sw", "LW": "lw",
             "50": "wedge50", "54°": "wedge54", "58": "wedge58",
             "Putter": "putter", "推杆": "putter",
@@ -246,6 +251,17 @@ class CanonicalClubNameTests(unittest.TestCase):
         self.assertIsNone(club_bag.canonical_club_name(""))
         self.assertIsNone(club_bag.canonical_club_name(None))
         self.assertIsNone(club_bag.canonical_club_name("banana"))
+
+    def test_garmin_distance_prefers_advice_and_rejects_zero(self) -> None:
+        self.assertEqual(
+            club_bag.garmin_distance_m({"adviceDistance": 188, "averageDistance": 181}),
+            (188, "garmin_advice"),
+        )
+        self.assertEqual(
+            club_bag.garmin_distance_m({"adviceDistance": 0, "averageDistance": 181}),
+            (181, "garmin_average"),
+        )
+        self.assertIsNone(club_bag.garmin_distance_m({"adviceDistance": 0, "averageDistance": 0}))
 
 
 # The owner's real bag (in-use) + one retired club to prove it's excluded.
@@ -277,6 +293,20 @@ class InUseCanonicalTests(unittest.TestCase):
         self.assertIn("wedge50", names)   # from custom "50"
         self.assertIn("putter", names)
         self.assertNotIn("hybrid2", names)  # the retired 2-hybrid is excluded
+
+    def test_recognised_custom_identity_replaces_generic_type_identity(self) -> None:
+        bag = {
+            "clubs": [{
+                "id": 1,
+                "clubTypeId": 2,
+                "customName": "三号铁木杆",
+                "retired": False,
+                "deleted": False,
+            }]
+        }
+        with patch.object(club_bag, "load_club_bag", return_value=bag):
+            names = club_bag.in_use_canonical_names()
+        self.assertEqual(names, {"hybrid3"})
 
     def test_no_bag_returns_none(self) -> None:
         with patch.object(club_bag, "load_club_bag", return_value=None):

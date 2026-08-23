@@ -36,6 +36,16 @@
       "type": ["number", "null"],
       "minimum": 0
     },
+    "teeLatitude": {
+      "type": ["number", "null"],
+      "minimum": -90,
+      "maximum": 90
+    },
+    "teeLongitude": {
+      "type": ["number", "null"],
+      "minimum": -180,
+      "maximum": 180
+    },
     "targetNote": {
       "type": ["string", "null"]
     },
@@ -102,9 +112,6 @@
     },
     "holePlanSummary": {
       "type": ["string", "null"]
-    },
-    "expectedStrokes": {
-      "type": ["number", "null"]
     },
     "expectedRemainingM": {
       "type": ["number", "null"]
@@ -189,7 +196,11 @@
     },
     "geometryCoverage": {
       "type": ["string", "null"],
-      "enum": ["ready", "partial", "missing", null]
+      "enum": ["ready", "partial", "missing", "pending", null]
+    },
+    "geometryRevision": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{16}$"
     },
     "caddieOptions": {
       "type": "array",
@@ -213,8 +224,35 @@
             "type": ["number", "null"],
             "minimum": 0
           },
-          "expectedStrokes": {
-            "type": ["number", "null"]
+          "carryP10M": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "carryP90M": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "sampleSize": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "plan": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["clubName"],
+              "properties": {
+                "clubName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "carryM": {
+                  "type": ["number", "null"],
+                  "minimum": 0
+                }
+              }
+            }
           },
           "confidence": {
             "type": ["string", "null"]

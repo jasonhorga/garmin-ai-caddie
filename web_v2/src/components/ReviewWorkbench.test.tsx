@@ -1,8 +1,15 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ReviewWorkbench } from './ReviewWorkbench'
 import type { RoundCard, RoundHoleShotMapResponse, ScoreStripCell } from '../types'
+
+const apiMocks = vi.hoisted(() => ({ prefetchTopoImage: vi.fn() }))
+
+vi.mock('../api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api')>()
+  return { ...actual, prefetchTopoImage: apiMocks.prefetchTopoImage }
+})
 
 function cell(hole: number, par: number, score: number): ScoreStripCell {
   const toPar = score - par
@@ -54,6 +61,8 @@ function shotMap(hole: number): RoundHoleShotMapResponse {
 }
 
 describe('ReviewWorkbench', () => {
+  beforeEach(() => apiMocks.prefetchTopoImage.mockClear())
+
   it('renders the round selector, total and shape-coded score chips reflecting to-par', async () => {
     const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
     render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
@@ -70,28 +79,33 @@ describe('ReviewWorkbench', () => {
     expect(screen.getByLabelText('双柏忌 5')).toBeInTheDocument() // hole 3: +2
     expect(screen.getByLabelText('小鸟 4')).toBeInTheDocument() // hole 4: -1 circle
     expect(screen.getByLabelText('三柏忌以上 7')).toBeInTheDocument() // hole 5: +3 triangle
+    const canvas = await screen.findByLabelText('第1洞落点图')
+    expect(within(canvas).getByText(/一号木/)).toBeInTheDocument()
   })
 
-  it('loads the selected hole shot map and renders the 杆序 timeline (club + distance + putts)', async () => {
+  it('uses a celebratory under-par tone for a negative round total', async () => {
+    const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
+    render(<ReviewWorkbench rounds={[round({ toPar: -2 })]} fetchShotMap={fetchShotMap} />)
+    expect(screen.getByText('· -2')).toHaveClass('score-under')
+    const canvas = await screen.findByLabelText('第1洞落点图')
+    expect(within(canvas).getByText(/一号木/)).toBeInTheDocument()
+  })
+
+  it('loads the selected hole shot map and overlays club, distance, and result on each landing', async () => {
     const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
     render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
 
     // Hole 1 auto-selects → its shot map loads.
     await waitFor(() => expect(fetchShotMap).toHaveBeenCalledWith('900001', 1))
-    // Club now appears BOTH on the map (review-canvas-chip) and in the 杆序 timeline, so
-    // scope the timeline assertions to the 杆序 aside to disambiguate.
+    const canvas = await screen.findByLabelText('第1洞落点图')
+    expect(within(canvas).getByText(/一号木 · \d+码 · →球道/)).toBeInTheDocument()
+    expect(within(canvas).getByText(/五号木 · \d+码 · →沙坑/)).toBeInTheDocument()
     const timeline = await screen.findByRole('complementary', { name: '杆序' })
-    expect(await within(timeline).findByText('一号木')).toBeInTheDocument()
+    expect(within(timeline).getByText('一号木')).toBeInTheDocument()
     expect(within(timeline).getByText('五号木')).toBeInTheDocument()
-    // The two-shot trajectory yardage is derived from the overlay ppm scale.
-    expect(screen.getByText('→ 沙坑')).toBeInTheDocument()
-    // The recorded putt collapses to a ×1 row.
-    expect(screen.getByText('×1')).toBeInTheDocument()
-    // The落点图 canvas renders on the real geometry.
-    expect(screen.getByLabelText('第1洞落点图')).toBeInTheDocument()
   })
 
-  it('shows read-only 复盘 corrections: a 已修正 marker on edited shots and the hand-added penalty badge', async () => {
+  it('shows read-only corrections and penalty directly on the map', async () => {
     const corrected: RoundHoleShotMapResponse = {
       ...shotMap(1),
       manualPenalty: 2,
@@ -105,23 +119,23 @@ describe('ReviewWorkbench', () => {
     const fetchShotMap = vi.fn(async () => corrected)
     render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
 
+    const canvas = await screen.findByLabelText('第1洞落点图')
+    expect(within(canvas).getByText('罚杆 +2')).toBeInTheDocument()
+    expect(within(canvas).getByText(/九号铁 · .*已修正/)).toBeInTheDocument()
+    expect(within(canvas).getByText(/推杆 ×1/)).toBeInTheDocument()
     const timeline = await screen.findByRole('complementary', { name: '杆序' })
-    // Hand-added penalty surfaces as a read-only hole badge.
-    expect(await within(timeline).findByText('本洞手填罚杆 +2')).toBeInTheDocument()
-    // The edited shot carries a 已修正 marker; the untouched drive does not.
-    const editedRow = (await within(timeline).findByText('九号铁')).closest('.review-shot') as HTMLElement
-    expect(within(editedRow).getByLabelText('已修正')).toBeInTheDocument()
-    const originalRow = within(timeline).getByText('一号木').closest('.review-shot') as HTMLElement
-    expect(within(originalRow).queryByLabelText('已修正')).toBeNull()
+    expect(within(timeline).getByText(/本洞手填罚杆 \+2/)).toBeInTheDocument()
+    expect(within(timeline).getByText(/九号铁/)).toBeInTheDocument()
   })
 
   it('does not show a penalty badge when none was hand-added', async () => {
     const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
     render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
+    await screen.findByLabelText('第1洞落点图')
     const timeline = await screen.findByRole('complementary', { name: '杆序' })
-    await within(timeline).findByText('一号木')
+    expect(within(timeline).getByText('一号木')).toBeInTheDocument()
     expect(within(timeline).queryByText(/本洞手填罚杆/)).toBeNull()
-    expect(within(timeline).queryByLabelText('已修正')).toBeNull()
+    expect(screen.queryByText(/本洞手填罚杆/)).toBeNull()
   })
 
   it('re-fetches the shot map when a different hole is selected', async () => {
@@ -132,6 +146,85 @@ describe('ReviewWorkbench', () => {
     await userEvent.click(screen.getByRole('button', { name: '第3洞 标准杆3 成绩5' }))
     await waitFor(() => expect(fetchShotMap).toHaveBeenCalledWith('900001', 3))
     expect(await screen.findByLabelText('第3洞落点图')).toBeInTheDocument()
+  })
+
+  it('keeps a visited hole shot map so returning to it renders the first frame without refetching', async () => {
+    const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
+    render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
+    await screen.findByLabelText('第1洞落点图')
+
+    await userEvent.click(screen.getByRole('button', { name: '第3洞 标准杆3 成绩5' }))
+    await screen.findByLabelText('第3洞落点图')
+
+    await userEvent.click(screen.getByRole('button', { name: '第1洞 标准杆5 成绩6' }))
+    // Synchronous getBy*: hole 1 is painted from the kept response, never through 正在载入落点图…
+    const canvas = screen.getByLabelText('第1洞落点图')
+    expect(within(canvas).getByText(/一号木/)).toBeInTheDocument()
+    expect(screen.queryByText('正在载入落点图…')).toBeNull()
+    expect(fetchShotMap.mock.calls).toEqual([
+      ['900001', 1],
+      ['900001', 3],
+    ])
+  })
+
+  it('keeps each round+hole entry apart so switching rounds still fetches that round', async () => {
+    const other = round({ id: '900002', courseName: 'Green Valley', scoreStrip: [cell(1, 4, 5)] })
+    const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
+    render(<ReviewWorkbench rounds={[round(), other]} fetchShotMap={fetchShotMap} />)
+    await screen.findByLabelText('第1洞落点图')
+
+    await userEvent.selectOptions(screen.getByLabelText('选择球局'), '900002')
+    await waitFor(() => expect(fetchShotMap).toHaveBeenCalledWith('900002', 1))
+
+    await userEvent.selectOptions(screen.getByLabelText('选择球局'), '900001')
+    expect(within(screen.getByLabelText('第1洞落点图')).getByText(/一号木/)).toBeInTheDocument()
+    expect(fetchShotMap.mock.calls).toEqual([
+      ['900001', 1],
+      ['900002', 1],
+    ])
+  })
+
+  it('does not cache a failed hole fetch: returning to that hole retries', async () => {
+    const fetchShotMap = vi.fn(async (_ref: string, hole: number) => {
+      if (hole === 1 && fetchShotMap.mock.calls.filter(([, h]) => h === 1).length === 1) {
+        throw new Error('落点图加载失败:网络中断')
+      }
+      return shotMap(hole)
+    })
+    render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
+    expect(await screen.findByText('落点图加载失败:网络中断')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '第3洞 标准杆3 成绩5' }))
+    await screen.findByLabelText('第3洞落点图')
+
+    await userEvent.click(screen.getByRole('button', { name: '第1洞 标准杆5 成绩6' }))
+    const canvas = await screen.findByLabelText('第1洞落点图')
+    expect(await within(canvas).findByText(/一号木/)).toBeInTheDocument()
+    expect(screen.queryByText('落点图加载失败:网络中断')).toBeNull()
+    expect(fetchShotMap.mock.calls).toEqual([
+      ['900001', 1],
+      ['900001', 3],
+      ['900001', 1],
+    ])
+  })
+
+  it('never reuses the selected hole revision when warming adjacent topo images', async () => {
+    const currentHole = {
+      ...shotMap(2),
+      globalId: 3881,
+      localHole: 2,
+      geometryRevision: 'current-hole-only-revision',
+    }
+    render(<ReviewWorkbench rounds={[round({ scoreStrip: [cell(2, 4, 4)] })]} fetchShotMap={vi.fn(async () => currentHole)} />)
+
+    await waitFor(() => expect(apiMocks.prefetchTopoImage).toHaveBeenCalledTimes(2))
+    const urls = apiMocks.prefetchTopoImage.mock.calls.map(([url]) => String(url))
+    expect(urls).toEqual([
+      '/api/v2/courses/3881/holes/1/topo.png?v=topo-v8',
+      '/api/v2/courses/3881/holes/3/topo.png?v=topo-v8',
+    ])
+    expect(urls.join('\n')).not.toContain('current-hole-only-revision')
+    expect(urls.join('\n')).not.toContain('&r=')
   })
 
   it('shows a graceful empty state with no rounds', () => {

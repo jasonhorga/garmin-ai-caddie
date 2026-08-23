@@ -18,6 +18,7 @@ vi.mock('../api', () => ({
   fetchHistoryRoundDetail: vi.fn(),
   fetchCaddieContext: vi.fn(),
   fetchCaddieDecision: vi.fn(),
+  topoImageUrl: (gid: number, hole: number) => `/api/v2/courses/${gid}/holes/${hole}/topo.png`,
 }))
 
 const fetchCoursePrepMock = vi.mocked(fetchCoursePrep)
@@ -233,7 +234,7 @@ describe('LivePage tabs', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '开始模拟 观澜湖·奥拉沙宝场' }))
 
-    expect(fetchCoursePrepMock).toHaveBeenCalledWith(31870, {}, 'admin-secret')
+    expect(fetchCoursePrepMock).toHaveBeenCalledWith(31870, { render: false }, 'admin-secret')
     const chips = within(await screen.findByLabelText('选洞'))
     expect(chips.getByRole('button', { name: '第1洞' })).toHaveAttribute('aria-current', 'true')
     expect(screen.getByRole('heading', { name: '观澜湖·奥拉沙宝场' })).toBeInTheDocument()

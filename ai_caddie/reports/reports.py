@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import json
 from pathlib import Path
 import re
+from collections.abc import Iterator
 from typing import Any
 from uuid import uuid4
 
@@ -1823,33 +1824,143 @@ def store_report(
     return record
 
 
-def list_report_records(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+def iter_report_records(
+    *,
+    root: Path | str | None = None,
+    player_id: str = OWNER_ID,
+) -> Iterator[Any]:
+    """Yield the append-only report authority one record at a time.
+
+    Callers that only need an index, one matching report, or aggregate metadata must not retain the
+    complete fact trees for every historical report.  A malformed/torn final append remains ignored,
+    matching the original lossless list reader.
+    """
     evidence = evidence_root(player_id, root=root)
     if evidence is None:
-        return []
+        return
     path = report_store_file(evidence)
     if not path.exists():
-        return []
-    records = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue  # tolerate a torn final append; never 500 the read path
+        return
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # tolerate a torn final append; never 500 the read path
+
+
+def list_report_records(*, root: Path | str | None = None, player_id: str = OWNER_ID) -> list[dict[str, Any]]:
+    """Return every full stored report for callers that explicitly need the whole ledger."""
+    return list(iter_report_records(root=root, player_id=player_id))
+
+
+_STATS_ISSUE_KEYS = (
+    "issue",
+    "suggestedIssue",
+    "tag",
+    "sourceRefs",
+    "refs",
+    "targetRefs",
+    "targetRef",
+    "targetId",
+)
+
+
+def _stats_issue_projection(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    projected = {key: value[key] for key in _STATS_ISSUE_KEYS if key in value}
+    return projected or None
+
+
+def _stats_report_projection(record: Any) -> dict[str, Any] | None:
+    """Keep exactly the report fields consumed by ``history_stats``.
+
+    Stored reports retain their complete fact and inference provenance for review/report APIs.  The
+    statistics builder only needs report coverage plus explicitly suggested issue labels and refs;
+    retaining every report's multi-megabyte ``factsUsed`` tree during each stats build made a normal
+    owner process exceed the production 1 GiB memory limit.  This projection is deliberately private
+    to the stats read path; ``list_report_records`` remains the lossless authority for every other
+    consumer.
+    """
+    if not isinstance(record, dict):
+        return None
+    projected = {
+        key: record[key]
+        for key in ("kind", "subjectId", "sourceRefs")
+        if key in record
+    }
+    report = record.get("report")
+    if not isinstance(report, dict):
+        return projected
+
+    report_projection: dict[str, Any] = {}
+    if "sourceRefs" in report:
+        report_projection["sourceRefs"] = report["sourceRefs"]
+    for key in ("aiSuggestedIssues", "suggestedIssues"):
+        rows = report.get(key)
+        if isinstance(rows, list):
+            report_projection[key] = [
+                projected_row
+                for row in rows
+                if (projected_row := _stats_issue_projection(row)) is not None
+            ]
+
+    inferences: list[dict[str, Any]] = []
+    raw_inferences = report.get("inferencesMade")
+    if isinstance(raw_inferences, list):
+        for inference in raw_inferences:
+            projected_inference = _stats_issue_projection(inference)
+            if not isinstance(inference, dict):
+                continue
+            nested = inference.get("suggestedIssues")
+            if isinstance(nested, list):
+                nested_projection = [
+                    projected_row
+                    for row in nested
+                    if (projected_row := _stats_issue_projection(row)) is not None
+                ]
+                if nested_projection:
+                    projected_inference = dict(projected_inference or {})
+                    projected_inference["suggestedIssues"] = nested_projection
+            if projected_inference:
+                inferences.append(projected_inference)
+    if inferences:
+        report_projection["inferencesMade"] = inferences
+    if report_projection:
+        projected["report"] = report_projection
+    return projected
+
+
+def list_report_stats_records(
+    *,
+    root: Path | str | None = None,
+    player_id: str = OWNER_ID,
+) -> list[dict[str, Any]]:
+    """Stream a compact report projection for aggregate history statistics."""
+    records: list[dict[str, Any]] = []
+    for record in iter_report_records(root=root, player_id=player_id):
+        projected = _stats_report_projection(record)
+        if projected is not None:
+            records.append(projected)
     return records
 
 
 def latest_report_record(kind: str, subject_id: str, *, root: Path | str | None = None, player_id: str = OWNER_ID) -> dict[str, Any] | None:
     safe_subject_id = redact_private_text(subject_id)
-    matches = [
-        record
-        for record in list_report_records(root=root, player_id=player_id)
-        if record.get("kind") == kind and str(record.get("subjectId")) == safe_subject_id
-    ]
-    if not matches:
-        return None
-    return sorted(matches, key=lambda record: str(record.get("storedAt") or ""))[-1]
+    latest: dict[str, Any] | None = None
+    latest_key: tuple[str, int] | None = None
+    for sequence, record in enumerate(iter_report_records(root=root, player_id=player_id)):
+        if not isinstance(record, dict):
+            continue
+        if record.get("kind") != kind or str(record.get("subjectId")) != safe_subject_id:
+            continue
+        key = (str(record.get("storedAt") or ""), sequence)
+        if latest_key is None or key >= latest_key:
+            latest = record
+            latest_key = key
+    return latest
 
 
 def _confidence(facts_used: list[dict[str, Any]], missing_data: list[dict[str, Any]]) -> str:

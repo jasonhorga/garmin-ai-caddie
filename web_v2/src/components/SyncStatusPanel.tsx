@@ -182,6 +182,14 @@ export function SyncStatusPanel({
           <strong>{status.lastRun ? stateZh(status.lastRun.state) : '未运行'}</strong>
           {status.lastRun?.snapshotId ? <em>快照 {status.lastRun.snapshotId}</em> : null}
           {status.lastRun?.errorCode ? <em>错误 {status.lastRun.errorCode}</em> : null}
+          {status.lastRun?.newRoundCount != null ? (
+            <em>
+              {status.lastRun.newRoundCount > 0
+                ? `本次新增 ${status.lastRun.newRoundCount} 场`
+                : '本次没有新球局'}
+            </em>
+          ) : null}
+          {status.lastRun?.remoteLatestRoundAt ? <em>Garmin 最新球局 {status.lastRun.remoteLatestRoundAt}</em> : null}
         </article>
       </div>
       <div className="sync-connectors" aria-label="连接器">

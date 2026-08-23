@@ -15,7 +15,7 @@ ENV PYTHONUNBUFFERED=1 \
     PORT=9000
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl nodejs libarchive-tools \
+    && apt-get install -y --no-install-recommends ca-certificates curl nodejs libarchive-tools postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml uv.lock ./
@@ -25,6 +25,7 @@ COPY package.json package-lock.json ./
 COPY --from=node-deps /app/node_modules ./node_modules
 
 COPY ai_caddie/ ./ai_caddie/
+COPY contracts/canonical/ ./contracts/canonical/
 COPY server_v2/ ./server_v2/
 COPY ops/ ./ops/
 COPY alembic.ini ./

@@ -8,8 +8,10 @@ centroid). These tests pin the two failure modes the old approximation had:
   * a long bunker whose near edge hugs the route but whose centroid is far → distance was measured
     to the centroid (and could exceed the 30 m gate and be dropped), now measured to the near edge.
 
-The output SHAPE is unchanged: ``water_carry`` is ``[[enter_m, clear_m], ...]`` and ``bunkers`` is
-``[[along_route_m, side_m], ...]``, both in metres along the route, rounded to 0.1 m.
+The legacy output stays available: ``water_carry`` is ``[[enter_m, clear_m], ...]`` and ``bunkers``
+is ``[[along_route_m, side_m], ...]``.  The additive ``details`` rows carry the S70-facing front and
+back edges, including their true map pixels, so clients never mistake the internal lateral gap for
+the back of a bunker.
 """
 from __future__ import annotations
 
@@ -33,6 +35,14 @@ def _rect_mesh(min_x: float, min_y: float, max_x: float, max_y: float) -> dict:
             [-min_x, 0.0, max_y],
         ],
         "faces": [[0, 1, 2], [0, 2, 3]],
+    }
+
+
+def _triangle_mesh(first: tuple[float, float], second: tuple[float, float], third: tuple[float, float]) -> dict:
+    """One triangular component in the same decoded prodgeometry coordinate convention."""
+    return {
+        "positions": [[-x, 0.0, y] for x, y in (first, second, third)],
+        "faces": [[0, 1, 2]],
     }
 
 
@@ -84,8 +94,96 @@ class WaterCarryPrecisionTests(unittest.TestCase):
         route = [(0.0, 0.0), (0.0, 100.0)]
         self.assertEqual(cp.route_hazards({}, route)["water_carry"], [])
 
+    def test_nearby_side_water_has_real_front_and_back_without_fake_route_carry(self) -> None:
+        # S70 lists hazards for the hole even when the intended centre line does not literally cross
+        # them. This lake sits 12 m right of the route: it must have player-facing boundary distances,
+        # while the legacy route-crossing array remains empty because no carry crosses water.
+        route = [(0.0, 0.0), (0.0, 150.0)]
+        side_lake = _rect_mesh(12.0, 50.0, 25.0, 80.0)
+
+        hazards = cp.route_hazards({"Lake.drc": side_lake}, route)
+
+        self.assertEqual(hazards["water_carry"], [])
+        self.assertEqual(len(hazards["details"]), 1)
+        detail = hazards["details"][0]
+        self.assertEqual(detail["kind"], "water")
+        self.assertEqual(detail["frontRouteM"], 50.0)
+        self.assertEqual(detail["backRouteM"], 80.0)
+        self.assertAlmostEqual(detail["frontM"], math.hypot(12.0, 50.0), places=1)
+        self.assertAlmostEqual(detail["backM"], math.hypot(25.0, 80.0), places=1)
+
+        # Both display dots belong to the real lake boundary, never the route centre (x=0).
+        to_px = cp.hole_render.overlay_projector({"Lake.drc": side_lake}, route)
+        expected_front = to_px((12.0, 50.0))
+        expected_back = to_px((25.0, 80.0))
+        self.assertAlmostEqual(detail["frontPx"][0], expected_front[0], places=1)
+        self.assertAlmostEqual(detail["frontPx"][1], expected_front[1], places=1)
+        self.assertAlmostEqual(detail["backPx"][0], expected_back[0], places=1)
+        self.assertAlmostEqual(detail["backPx"][1], expected_back[1], places=1)
+
+    def test_side_water_beyond_the_hole_corridor_is_not_listed(self) -> None:
+        route = [(0.0, 0.0), (0.0, 150.0)]
+        neighbouring_hole_lake = _rect_mesh(40.0, 50.0, 55.0, 80.0)
+
+        hazards = cp.route_hazards({"Lake.drc": neighbouring_hole_lake}, route)
+
+        self.assertEqual(hazards["water_carry"], [])
+        self.assertEqual(hazards["details"], [])
+
 
 class BunkerEdgeDistanceTests(unittest.TestCase):
+    def test_route_sample_inside_bunker_keeps_zero_filled_mesh_distance(self) -> None:
+        # The optimized implementation measures the exterior boundary instead of every internal
+        # triangulation edge.  A point inside the filled mesh must still have distance zero.
+        route = [(0.0, 0.0), (0.0, 100.0)]
+        bunker = _rect_mesh(-5.0, 38.0, 5.0, 46.0)
+
+        hazards = cp.route_hazards({"Bunker.drc": bunker}, route)
+
+        self.assertEqual(hazards["bunkers"], [[40.0, 0.0]])
+
+    def test_dogleg_greenside_bunker_uses_player_near_and_far_edges(self) -> None:
+        # Real regression: 黑骑士 A 场 h4 bends sharply before the green. Selecting boundary points by
+        # their station along that dogleg produced `到 471 · 过 468` because the later route point was
+        # physically nearer the tee. Player-facing S70 semantics are radial: 到 = nearest true edge,
+        # 过 = farthest true edge. This triangle recreates the same inversion without fixture data.
+        route = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0)]
+        bunker = _triangle_mesh((130.0, 90.0), (110.0, 100.0), (130.0, 110.0))
+
+        detail = cp.route_hazards({"Bunker.drc": bunker}, route)["details"][0]
+
+        self.assertAlmostEqual(detail["frontM"], math.hypot(110.0, 100.0), places=1)
+        self.assertAlmostEqual(detail["backM"], math.hypot(130.0, 110.0), places=1)
+        self.assertLess(detail["frontM"], detail["backM"])
+
+    def test_side_bunker_reports_true_front_and_back_edges_on_the_bunker(self) -> None:
+        route = [(0.0, 0.0), (0.0, 200.0)]
+        bunker = _rect_mesh(5.0, 90.0, 15.0, 110.0)
+
+        hazards = cp.route_hazards({"Bunker.drc": bunker}, route)
+
+        # Preserve the legacy closest-sample row for strategy compatibility; it is deliberately
+        # separate from the new player-facing edge pair below.
+        self.assertEqual(hazards["bunkers"], [[92.0, 5.0]])
+        detail = hazards["details"][0]
+        self.assertEqual(detail["kind"], "bunker")
+        self.assertEqual(detail["frontRouteM"], 90.0)
+        self.assertEqual(detail["backRouteM"], 110.0)
+        self.assertAlmostEqual(detail["frontM"], math.hypot(5.0, 90.0), places=1)
+        self.assertAlmostEqual(detail["backM"], math.hypot(15.0, 110.0), places=1)
+        self.assertEqual(detail["sideM"], 5.0)
+
+        # Both dots belong on the bunker boundary, not on the route centreline (x=0).
+        to_px = cp.hole_render.overlay_projector({"Bunker.drc": bunker}, route)
+        expected_front = to_px((5.0, 90.0))
+        expected_back = to_px((15.0, 110.0))
+        route_front = to_px((0.0, 90.0))
+        self.assertAlmostEqual(detail["frontPx"][0], expected_front[0], places=1)
+        self.assertAlmostEqual(detail["frontPx"][1], expected_front[1], places=1)
+        self.assertAlmostEqual(detail["backPx"][0], expected_back[0], places=1)
+        self.assertAlmostEqual(detail["backPx"][1], expected_back[1], places=1)
+        self.assertNotAlmostEqual(detail["frontPx"][0], route_front[0], places=1)
+
     def test_long_bunker_distance_reflects_near_edge_not_centroid(self) -> None:
         # A 55 m-long bunker at x in [5, 60], y in [98, 102]. Its near edge sits 5 m off the route
         # (x=0); its area centroid is at x=32.5 → 32.5 m away, which EXCEEDS the 30 m gate, so the
@@ -140,13 +238,53 @@ class OutputShapeTests(unittest.TestCase):
             "Lake.drc": _rect_mesh(-8.0, 40.0, 8.0, 55.0),
             "Bunker.drc": _rect_mesh(7.0, 95.0, 13.0, 105.0),
         }, route)
-        self.assertEqual(set(hazards), {"water_carry", "bunkers"})
+        self.assertEqual(set(hazards), {"water_carry", "bunkers", "details"})
         for row in hazards["water_carry"]:
             self.assertEqual(len(row), 2)
             self.assertTrue(all(isinstance(v, float) for v in row))
         for row in hazards["bunkers"]:
             self.assertEqual(len(row), 2)
             self.assertTrue(all(isinstance(v, float) for v in row))
+
+    def test_water_and_bunker_use_the_same_front_back_detail_contract(self) -> None:
+        route = [(0.0, 0.0), (0.0, 160.0)]
+        hazards = cp.route_hazards({
+            "Lake.drc": _rect_mesh(-8.0, 40.0, 8.0, 55.0),
+            "Bunker.drc": _rect_mesh(7.0, 95.0, 13.0, 105.0),
+        }, route)
+
+        self.assertEqual([row["kind"] for row in hazards["details"]], ["water", "bunker"])
+        for row in hazards["details"]:
+            self.assertEqual(
+                set(row),
+                {"kind", "frontM", "backM", "frontRouteM", "backRouteM", "frontPx", "backPx", "sideM"},
+            )
+            self.assertLess(row["frontRouteM"], row["backRouteM"])
+            self.assertEqual(len(row["frontPx"]), 2)
+            self.assertEqual(len(row["backPx"]), 2)
+
+
+class FrameCorridorTests(unittest.TestCase):
+    def test_bulk_corridor_filter_matches_scalar_distance_rule(self) -> None:
+        route = [(-20.0, 5.0), (0.0, 40.0), (25.0, 75.0)]
+        points = [
+            (-20.0, 5.0),
+            (-3.0, 38.0),
+            (25.0, 85.0),
+            (60.0, 40.0),
+            (-75.0, -30.0),
+        ]
+        limit_sq = 30.0 ** 2
+        expected = [
+            point
+            for point in points
+            if cp.hole_render._distance_sq_to_route(point, route) <= limit_sq
+        ]
+
+        self.assertEqual(
+            cp.hole_render._points_in_route_corridor(points, route, limit_sq),
+            expected,
+        )
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.history.history import HistoryData
 from ai_caddie.history.history_drilldown import (
     _matching_weather_snapshots,
+    _record_refs,
     build_drilldown_index,
     resolve_history_ref,
 )
@@ -116,6 +117,33 @@ def split_nine_geometry_drilldown_data() -> HistoryData:
 
 
 class HistoryDrilldownTests(unittest.TestCase):
+    def test_report_refs_keep_first_seen_order_while_deduplicating(self) -> None:
+        refs = _record_refs(
+            {
+                "sourceRefs": ["round-1", "round-1:1"],
+                "evidenceRefs": ["round-1:1", "round-1:1:0"],
+                "report": {
+                    "sourceRefs": ["round-1", "round-1:2"],
+                    "factsUsed": [
+                        {"sourceRefs": ["round-1:2", "round-1:2:0"]},
+                        {"refs": ["round-1:1:0", "round-1:3"]},
+                    ],
+                },
+            }
+        )
+
+        self.assertEqual(
+            refs,
+            [
+                "round-1",
+                "round-1:1",
+                "round-1:1:0",
+                "round-1:2",
+                "round-1:2:0",
+                "round-1:3",
+            ],
+        )
+
     def test_drilldown_index_lists_round_hole_and_shot_refs(self) -> None:
         index = build_drilldown_index(fixture_history_data())
 

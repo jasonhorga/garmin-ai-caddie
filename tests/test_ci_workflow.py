@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 import yaml
@@ -49,7 +54,272 @@ class CIWorkflowTests(unittest.TestCase):
 
         self.assertIn("workflow_dispatch", triggers)
         self.assertIn("pull_request", triggers)
-        self.assertNotIn("push", triggers)
+        self.assertEqual(
+            triggers["push"]["branches"],
+            ["main", "integration/v2"],
+            "push CI must protect integration branches without duplicating feature-branch PR runs",
+        )
+
+    def test_canonical_authority_check_propagates_git_diff_failures(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["backend"]["steps"]}
+        run_lines = steps["Check canonical contract authority"]["run"].splitlines()
+
+        self.assertEqual(
+            [
+                "set -euo pipefail",
+                'git diff --no-renames --name-only -z "$AUTHORITY_RANGE" | uv run python tools/contracts/check_authority.py',
+            ],
+            run_lines,
+        )
+
+    def test_canonical_authority_uses_one_full_history_checkout_and_exact_ranges(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        backend_steps = workflow["jobs"]["backend"]["steps"]
+        checkout_steps = [
+            step for step in backend_steps if step.get("uses") == "actions/checkout@v4"
+        ]
+        self.assertEqual(1, len(checkout_steps))
+        self.assertEqual(0, checkout_steps[0]["with"]["fetch-depth"])
+
+        steps = {step.get("name"): step for step in backend_steps}
+        resolver = steps["Resolve canonical authority diff base"]
+        self.assertEqual("canonical-authority-base", resolver["id"])
+        self.assertEqual(
+            {
+                "EVENT_NAME": "${{ github.event_name }}",
+                "PR_BASE_SHA": "${{ github.event.pull_request.base.sha }}",
+                "PUSH_BEFORE_SHA": "${{ github.event.before }}",
+            },
+            resolver["env"],
+        )
+        self.assertEqual(
+            [
+                "set -euo pipefail",
+                'if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "pull_request_target" ]]; then',
+                '  test -n "$PR_BASE_SHA"',
+                '  echo "range=${PR_BASE_SHA}...HEAD" >> "$GITHUB_OUTPUT"',
+                'elif [[ "$EVENT_NAME" == "push" && -n "$PUSH_BEFORE_SHA" && "$PUSH_BEFORE_SHA" != "0000000000000000000000000000000000000000" ]]; then',
+                '  echo "range=${PUSH_BEFORE_SHA}..HEAD" >> "$GITHUB_OUTPUT"',
+                "else",
+                "  git rev-parse HEAD^ >/dev/null",
+                '  echo "range=HEAD^..HEAD" >> "$GITHUB_OUTPUT"',
+                "fi",
+            ],
+            resolver["run"].splitlines(),
+        )
+
+    def test_canonical_authority_range_resolver_executes_event_semantics(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        steps = {
+            step.get("name"): step for step in workflow["jobs"]["backend"]["steps"]
+        }
+        script = steps["Resolve canonical authority diff base"]["run"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            for index in (1, 2):
+                (root / "tracked.txt").write_text(f"{index}\n", encoding="utf-8")
+                subprocess.run(["git", "add", "tracked.txt"], cwd=root, check=True)
+                subprocess.run(
+                    [
+                        "git", "-c", "user.name=CI Test", "-c",
+                        "user.email=ci@example.invalid", "commit", "-qm", f"commit {index}",
+                    ],
+                    cwd=root, check=True,
+                )
+            base = subprocess.run(
+                ["git", "rev-parse", "HEAD^"], cwd=root, check=True,
+                capture_output=True, text=True,
+            ).stdout.strip()
+
+            scenarios = (
+                ("pull_request", base, "", f"range={base}...HEAD"),
+                ("pull_request_target", base, "", f"range={base}...HEAD"),
+                ("push", "", base, f"range={base}..HEAD"),
+                ("push", "", "0" * 40, "range=HEAD^..HEAD"),
+                ("workflow_dispatch", "", "", "range=HEAD^..HEAD"),
+            )
+            for index, (event, pr_base, push_before, expected) in enumerate(scenarios):
+                with self.subTest(event=event, push_before=push_before):
+                    output = root / f"github-output-{index}"
+                    env = {
+                        **os.environ,
+                        "EVENT_NAME": event,
+                        "PR_BASE_SHA": pr_base,
+                        "PUSH_BEFORE_SHA": push_before,
+                        "GITHUB_OUTPUT": str(output),
+                    }
+                    result = subprocess.run(
+                        ["bash", "-c", script], cwd=root, env=env,
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual(expected, output.read_text(encoding="utf-8").strip())
+
+            missing_pr_base = subprocess.run(
+                ["bash", "-c", script], cwd=root,
+                env={
+                    **os.environ,
+                    "EVENT_NAME": "pull_request",
+                    "PR_BASE_SHA": "",
+                    "PUSH_BEFORE_SHA": "",
+                    "GITHUB_OUTPUT": str(root / "missing-pr-output"),
+                },
+                capture_output=True, text=True,
+            )
+            self.assertNotEqual(0, missing_pr_base.returncode)
+
+    def test_canonical_authority_invalid_diff_range_fails_the_exact_ci_step(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        steps = {
+            step.get("name"): step for step in workflow["jobs"]["backend"]["steps"]
+        }
+        script = steps["Check canonical contract authority"]["run"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            (root / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=root, check=True)
+            subprocess.run(
+                [
+                    "git", "-c", "user.name=CI Test", "-c",
+                    "user.email=ci@example.invalid", "commit", "-qm", "initial",
+                ],
+                cwd=root, check=True,
+            )
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            uv = bin_dir / "uv"
+            uv.write_text("#!/bin/sh\ncat >/dev/null\nexit 0\n", encoding="utf-8")
+            uv.chmod(0o755)
+
+            result = subprocess.run(
+                ["bash", "-c", script], cwd=root,
+                env={
+                    **os.environ,
+                    "AUTHORITY_RANGE": "definitely-missing-ref..HEAD",
+                    "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                },
+                capture_output=True, text=True,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("definitely-missing-ref..HEAD", result.stderr)
+
+    def test_canonical_authority_step_rejects_source_rename_outside_generated_pattern(
+        self,
+    ) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+        steps = {
+            step.get("name"): step for step in workflow["jobs"]["backend"]["steps"]
+        }
+        script = steps["Check canonical contract authority"]["run"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "diff.renames", "true"], cwd=root, check=True
+            )
+            (root / "contracts/canonical").mkdir(parents=True)
+            (root / "generated").mkdir()
+            (root / "tools/contracts").mkdir(parents=True)
+            (root / "contracts/canonical/authority.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "ai-caddie-contract-authority-v1",
+                        "authoritativeInputs": [],
+                        "evidenceInputs": [],
+                        "canonicalRoots": ["contracts/canonical"],
+                        "legacyAdapters": [],
+                        "forbiddenSymbols": [],
+                        "generatedGroups": [
+                            {
+                                "name": "generated-contracts",
+                                "sources": ["contracts/canonical/**/*.schema.json"],
+                                "outputs": ["generated/contracts.py"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            source = "contracts/canonical/source.schema.json"
+            destination = "archive/source.schema.json"
+            (root / source).write_text('{"type":"object"}\n', encoding="utf-8")
+            (root / "generated/contracts.py").write_text(
+                "GENERATED = True\n", encoding="utf-8"
+            )
+            (root / "tools/contracts/check_authority.py").write_text(
+                Path("tools/contracts/check_authority.py").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(
+                [
+                    "git", "-c", "user.name=CI Test", "-c",
+                    "user.email=ci@example.invalid", "commit", "-qm", "initial",
+                ],
+                cwd=root,
+                check=True,
+            )
+            base = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, check=True,
+                capture_output=True, text=True,
+            ).stdout.strip()
+            (root / "archive").mkdir()
+            subprocess.run(["git", "mv", source, destination], cwd=root, check=True)
+            subprocess.run(
+                [
+                    "git", "-c", "user.name=CI Test", "-c",
+                    "user.email=ci@example.invalid", "commit", "-qm", "rename source",
+                ],
+                cwd=root,
+                check=True,
+            )
+            authority_range = f"{base}..HEAD"
+            detected = subprocess.run(
+                ["git", "diff", "--name-only", "-z", authority_range],
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual(destination.encode() + b"\0", detected.stdout)
+
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            uv = bin_dir / "uv"
+            uv.write_text(
+                "#!/bin/sh\n"
+                "set -eu\n"
+                'test "$1" = run\n'
+                'test "$2" = python\n'
+                "shift 2\n"
+                'exec "$CI_TEST_PYTHON" "$@"\n',
+                encoding="utf-8",
+            )
+            uv.chmod(0o755)
+            result = subprocess.run(
+                ["bash", "-c", script],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "AUTHORITY_RANGE": authority_range,
+                    "CI_TEST_PYTHON": sys.executable,
+                    "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                },
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(0, result.returncode, result.stderr)
+            self.assertIn(
+                "generated group generated-contracts changed a source without an owned output",
+                result.stderr,
+            )
 
     def test_private_trial_smoke_can_send_admin_token_header(self) -> None:
         script = Path("ops/smoke_private_trial.sh")
@@ -165,9 +435,285 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("xcodebuild test", watch_test)
         self.assertIn("-project mobile/ios/AICaddieNative.xcodeproj", watch_test)
         self.assertIn("-scheme AICaddieWatch", watch_test)
-        self.assertIn('-destination "$WATCH_DESTINATION"', watch_test)
+        self.assertIn('-destination "platform=watchOS Simulator,id=$NATIVE_WATCH_UDID"', watch_test)
 
         self.assertEqual("python3 ops/write_native_build_evidence.py", steps["Write native build evidence"]["run"])
+
+    def test_native_review_capture_scope_exits_normally_after_post_round_evidence(self) -> None:
+        workflow_path = Path(".github/workflows/native-mobile.yml")
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        dispatch = workflow[True]["workflow_dispatch"] or {}
+        inputs = dispatch.get("inputs", {})
+        real_step = {
+            step.get("name"): step for step in workflow["jobs"]["native-mobile"]["steps"]
+        }["Real-simulator screenshots (iOS, XCUITest against live backend)"]
+        real_flow = Path("mobile/ios/AICaddieUITests/RealFlowUITests.swift").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("capture_scope", inputs)
+        self.assertEqual(["full", "review", "edit"], inputs["capture_scope"]["options"])
+        self.assertEqual("full", inputs["capture_scope"]["default"])
+        self.assertIn("api_base_url", inputs)
+        self.assertFalse(inputs["api_base_url"]["required"])
+        self.assertEqual("", inputs["api_base_url"]["default"])
+        self.assertIn("require_live_preflight", inputs)
+        self.assertEqual("boolean", inputs["require_live_preflight"]["type"])
+        self.assertTrue(inputs["require_live_preflight"]["default"])
+        self.assertIn("UITEST_CAPTURE_SCOPE", real_step["env"])
+        self.assertIn("TEST_RUNNER_UITEST_CAPTURE_SCOPE", real_step["env"])
+        self.assertIn('case "$UITEST_CAPTURE_SCOPE" in', real_step["run"])
+        self.assertIn("review)", real_step["run"])
+        self.assertIn("edit)", real_step["run"])
+        self.assertIn(
+            "-only-testing:AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow",
+            real_step["run"],
+        )
+        self.assertIn(
+            "-only-testing:AICaddieUITests/ReviewEditUITests/testCaptureReviewEditFlow",
+            real_step["run"],
+        )
+        review_exit = 'if cfg("UITEST_CAPTURE_SCOPE") == "review" { return }'
+        self.assertIn(review_exit, real_flow)
+        self.assertGreater(real_flow.index(review_exit), real_flow.index('save("05-last-round-review")'))
+        self.assertLess(real_flow.index(review_exit), real_flow.index("// ---- Section 4:"))
+
+    def test_native_journeys_preflight_real_course_discovery_before_launch(self) -> None:
+        script_path = Path(".github/scripts/preflight_live_course_catalogue.py")
+        self.assertTrue(script_path.is_file())
+        script = script_path.read_text(encoding="utf-8")
+        self.assertIn("/api/v2/health", script)
+        self.assertIn("/api/v2/courses/nearby", script)
+        self.assertIn("/api/v2/courses/search", script)
+        self.assertIn("require_distance_order=True", script)
+
+        native = yaml.safe_load(
+            Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8")
+        )["jobs"]["native-mobile"]["steps"]
+        watch = yaml.safe_load(
+            Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8")
+        )["jobs"]["watch-runtime"]["steps"]
+        native_steps = {step.get("name"): step for step in native}
+        watch_steps = {step.get("name"): step for step in watch}
+
+        native_preflight = native_steps["Preflight live course discovery"]
+        watch_preflight = watch_steps["Preflight live course discovery"]
+        self.assertIn("inputs.require_live_preflight", native_preflight["if"])
+        self.assertEqual("admin", native_preflight["env"]["AI_CADDIE_PREFLIGHT_AUTH_MODE"])
+        self.assertEqual("bearer", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_AUTH_MODE"])
+        self.assertIn("AI_CADDIE_ADMIN_TOKEN", native_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
+        self.assertIn("AI_CADDIE_CI_PLAYER_TOKEN", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
+        self.assertEqual("${{ github.sha }}", native_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
+        self.assertIn(
+            "github.event_name == 'workflow_dispatch'",
+            watch_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"],
+        )
+        self.assertLess(
+            list(native_steps).index("Preflight live course discovery"),
+            list(native_steps).index("Real-simulator screenshots (iOS, XCUITest against live backend)"),
+        )
+        self.assertLess(
+            list(watch_steps).index("Preflight live course discovery"),
+            list(watch_steps).index("Seed and restore a real Watch round"),
+        )
+
+    def test_watch_runtime_uses_an_isolated_player_bearer_instead_of_the_owner_admin_token(self) -> None:
+        workflow_path = Path(".github/workflows/watch-runtime.yml")
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        runtime = workflow["jobs"]["watch-runtime"]
+        steps = {step.get("name"): step for step in runtime["steps"]}
+        journey = steps["Seed and restore a real Watch round"]
+        script = journey["run"]
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+
+        self.assertIn("REAL_COURSE_PLAYER_TOKEN", journey["env"])
+        self.assertEqual(
+            "${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}",
+            journey["env"]["REAL_COURSE_PLAYER_TOKEN"],
+        )
+        self.assertNotIn("REAL_COURSE_ADMIN_TOKEN", journey["env"])
+        self.assertIn("test -n \"$REAL_COURSE_PLAYER_TOKEN\"", script)
+        self.assertIn("select(.isOwner == false)", script)
+        self.assertIn("| .id", script)
+        self.assertIn('select(type == "string" and length > 0 and . != "me")', script)
+        self.assertIn(
+            "SIMCTL_CHILD_AI_CADDIE_PLAYER_TOKEN=\"$REAL_COURSE_PLAYER_TOKEN\"",
+            script,
+        )
+        self.assertIn(
+            'if ! xcrun simctl privacy "$WATCH_UDID" grant location "$BID"; then',
+            script,
+        )
+        self.assertIn("continuing to the runtime GPS gate", script)
+        self.assertNotIn("SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN", script)
+        self.assertNotIn("secrets.AI_CADDIE_ADMIN_TOKEN", workflow_text)
+
+    def test_watch_runtime_accepts_one_api_override_for_watch_and_web_evidence(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
+        dispatch_inputs = workflow[True]["workflow_dispatch"]["inputs"]
+        watch_steps = {
+            step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]
+        }
+        journey = watch_steps["Seed and restore a real Watch round"]
+        web = workflow["jobs"]["web-live-evidence"]
+        expected = (
+            "${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL "
+            "|| 'https://caddie.taile36706.ts.net' }}"
+        )
+
+        self.assertIn("api_base_url", dispatch_inputs)
+        self.assertFalse(dispatch_inputs["api_base_url"]["required"])
+        self.assertEqual("", dispatch_inputs["api_base_url"]["default"])
+        self.assertEqual(expected, journey["env"]["REAL_COURSE_API_BASE_URL"])
+        self.assertEqual(expected, web["env"]["VITE_AI_CADDIE_API_BASE_URL"])
+
+    def test_watch_runtime_rejects_a_placeholder_or_truncated_player_secret_before_launch(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]}
+        script = steps["Seed and restore a real Watch round"]["run"]
+
+        length_gate = 'test "${#REAL_COURSE_PLAYER_TOKEN}" -ge 32'
+        placeholder_gate = 'test "$REAL_COURSE_PLAYER_TOKEN" != "-"'
+        first_launch = "launch_and_capture standalone-course-seed"
+        self.assertIn(length_gate, script)
+        self.assertIn(placeholder_gate, script)
+        self.assertLess(script.index(length_gate), script.index(first_launch))
+        self.assertLess(script.index(placeholder_gate), script.index(first_launch))
+
+    def test_watch_runtime_redacts_the_player_secret_from_every_diagnostic_artifact(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]}
+        diagnostics = steps["Collect Watch runtime diagnostics"]
+        script = diagnostics["run"]
+
+        self.assertIn("env", diagnostics)
+        self.assertEqual(
+            "${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}",
+            diagnostics["env"]["REAL_COURSE_PLAYER_TOKEN"],
+        )
+        self.assertIn('sed "s|$REAL_COURSE_PLAYER_TOKEN|[REDACTED]|g"', script)
+        self.assertNotIn("-exec cp {} watch-runtime-artifacts/diagnostics/", script)
+
+    def test_watch_runtime_captures_full_device_approval_states(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]}
+        script = steps["Seed and restore a real Watch round"]["run"]
+
+        for mode in [
+            "standalone-course-touch-target",
+            "standalone-course-view-green",
+            "real-course-map-measured",
+            "real-course-view-green",
+            "caddie-options",
+            "score-total",
+            "score-putts",
+            "score-penalty",
+            "scorecard",
+            "hole-select",
+        ]:
+            self.assertIn(f"launch_and_capture {mode} ", script)
+
+    def test_watch_runtime_uses_a_real_41mm_device_for_compact_scroll_surfaces(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
+        steps = {step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]}
+        compact = steps["Capture compact 41mm runtime boundaries"]["run"]
+        snapshots = Path(
+            "mobile/ios/AICaddieWatchTests/WatchDesignSnapshotTests.swift"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Apple Watch Series 9 (41mm)", compact)
+        self.assertIn('= "352"', compact)
+        self.assertIn('= "430"', compact)
+        for mode in [
+            "compact-holemap-long-copy",
+            "compact-score-fairway",
+            "compact-club-prompt",
+            "compact-finish",
+            "compact-home",
+        ]:
+            self.assertIn(f"capture_compact {mode} ", compact)
+        self.assertNotIn('named: "watch-compact-club-prompt"', snapshots)
+        self.assertNotIn('named: "watch-compact-finish"', snapshots)
+
+    def test_watch_runtime_real_course_visual_scope_stops_before_score_writes_and_web(self) -> None:
+        workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
+        scopes = workflow[True]["workflow_dispatch"]["inputs"]["runtime_scope"]["options"]
+        runtime_steps = {
+            step.get("name"): step for step in workflow["jobs"]["watch-runtime"]["steps"]
+        }
+        script = runtime_steps["Seed and restore a real Watch round"]["run"]
+
+        self.assertIn("real-course-visual", scopes)
+        visual_exit = 'if [[ "$WATCH_RUNTIME_SCOPE" == "real-course-visual" ]]; then'
+        self.assertIn(visual_exit, script)
+        self.assertLess(script.index("real-course-hazard-mid-map"), script.index(visual_exit))
+        self.assertLess(script.index(visual_exit), script.index("real-course-journey-start"))
+
+        web_condition = workflow["jobs"]["web-live-evidence"]["if"]
+        self.assertIn("runtime_scope != 'setup-visual'", web_condition)
+        self.assertIn("runtime_scope != 'real-course-visual'", web_condition)
+
+    def test_watch_runtime_hands_the_isolated_round_to_png_only_web_evidence(self) -> None:
+        workflow_path = Path(".github/workflows/watch-runtime.yml")
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        web = workflow["jobs"]["web-live-evidence"]
+        steps = {step.get("name"): step for step in web["steps"]}
+
+        self.assertEqual("watch-runtime", web["needs"])
+        self.assertEqual("ubuntu-latest", web["runs-on"])
+        self.assertEqual(
+            "${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}",
+            web["env"]["AI_CADDIE_CI_PLAYER_TOKEN"],
+        )
+        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", json.dumps(web))
+
+        capture = steps["Capture real Web player evidence"]
+        self.assertEqual("web_v2", capture["working-directory"])
+        self.assertIn("live-ci-player-evidence.spec.ts", capture["run"])
+        self.assertIn("--config=playwright.live.config.ts", capture["run"])
+        self.assertIn("--project=desktop-chromium", capture["run"])
+        self.assertIn("--reporter=line", capture["run"])
+
+        upload = steps["Upload real Web player evidence"]
+        self.assertEqual("actions/upload-artifact@v4", upload["uses"])
+        self.assertEqual("web-live-evidence", upload["with"]["name"])
+        self.assertEqual(
+            "web_v2/web-live-evidence/",
+            upload["with"]["path"],
+        )
+        self.assertNotIn("test-results", json.dumps(upload))
+        self.assertNotIn("playwright-report", json.dumps(upload))
+
+    def test_real_web_player_evidence_scrubs_the_token_and_disables_debug_artifacts(self) -> None:
+        spec_path = Path("web_v2/e2e/live-ci-player-evidence.spec.ts")
+        self.assertTrue(spec_path.exists())
+        text = spec_path.read_text(encoding="utf-8")
+
+        self.assertIn("process.env.AI_CADDIE_CI_PLAYER_TOKEN", text)
+        self.assertIn("test.skip(!playerToken", text)
+        self.assertIn("trace: 'off'", text)
+        self.assertIn("screenshot: 'off'", text)
+        self.assertIn("video: 'off'", text)
+        self.assertIn("window.history.replaceState", text)
+        for filename in [
+            "review-workbench.png",
+            "rounds-list.png",
+            "round-review.png",
+        ]:
+            self.assertIn(filename, text)
+        # Runtime diagnostics may record only non-secret response facts. They deliberately reduce a
+        # URL to its pathname before logging and must never print the capability, full URL, request
+        # headers, or the temporary credential-bearing browser location.
+        self.assertIn("const url = new URL(response.url())", text)
+        self.assertIn("LIVE_EVIDENCE_OVERVIEW_RESPONSE", text)
+        self.assertIn("response.request().method() === 'GET'", text)
+        self.assertIn("overviewResponse.status()", text)
+        self.assertIn("rounds-list-load-failure.png", text)
+        self.assertIn("pathname: url.pathname", text)
+        self.assertNotIn("console.log(playerToken", text)
+        self.assertNotIn("console.log(response.url()", text)
+        self.assertNotIn("console.log(request.url()", text)
+        self.assertNotIn("console.log(credentialPath", text)
 
     def test_backend_fly_deploy_workflow_is_manual_secret_driven_and_runs_remote_preflight(self) -> None:
         workflow_path = Path(".github/workflows/backend-fly-deploy.yml")
@@ -196,6 +742,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn('--org "$FLY_ORG"', text)
         self.assertIn("flyctl volumes create ai_caddie_private", text)
         self.assertIn("flyctl secrets set", text)
+        self.assertIn('AI_CADDIE_BUILD_REVISION="$GITHUB_SHA"', text)
         self.assertIn("flyctl deploy --remote-only --config fly.toml", text)
         self.assertIn("AI_CADDIE_API_BASE_URL", text)
         self.assertIn("Content-Type: application/json", text)
@@ -366,6 +913,9 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("SecureRandom.hex(24)", text)
         self.assertIn('require "shellwords"', text)
         self.assertIn("AI_CADDIE_API_BASE_URL=#{Shellwords.escape(api_base_url)}", text)
+        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", text)
+        self.assertIn('ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"', text)
+        self.assertIn('UI.success("Signed IPA built; TestFlight upload was not requested.")', text)
         self.assertNotIn("create_app_online", text)
 
         project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))
@@ -375,14 +925,35 @@ class CIWorkflowTests(unittest.TestCase):
         watch_release = project["targets"]["AICaddieWatch"]["settings"]["configs"]["Release"]
         app_base = project["targets"]["AICaddie"]["settings"]["base"]
         self.assertEqual(app_base["AI_CADDIE_API_BASE_URL"], "")
+        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", app_base)
         self.assertEqual(app_release["PROVISIONING_PROFILE_SPECIFIER"], "match AppStore com.ai-caddie.mobile")
         self.assertEqual(watch_release["PROVISIONING_PROFILE_SPECIFIER"], "match AppStore com.ai-caddie.mobile.watchkitapp")
 
         workflow = yaml.safe_load(Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8"))
         inputs = workflow[True]["workflow_dispatch"]["inputs"]
         self.assertIn("api_base_url", inputs)
+        self.assertIn("upload_to_testflight", inputs)
+        self.assertFalse(inputs["upload_to_testflight"]["default"])
         workflow_text = Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8")
         self.assertIn("vars.AI_CADDIE_API_BASE_URL", workflow_text)
+        self.assertIn("UPLOAD_TO_TESTFLIGHT", workflow_text)
+        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", workflow_text)
+
+        info_plist = Path("mobile/ios/AICaddie/Info.plist").read_text(encoding="utf-8")
+        self.assertNotIn("AICaddieAdminToken", info_plist)
+        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", info_plist)
+
+    def test_signing_bootstrap_syncs_release_entitlements_before_match(self) -> None:
+        text = Path("fastlane/Fastfile").read_text(encoding="utf-8")
+
+        self.assertIn("ensure_bundle_capabilities!", text)
+        self.assertIn("BundleIdCapability::Type::APPLE_ID_AUTH", text)
+        self.assertIn("BundleIdCapability::Type::HEALTHKIT", text)
+        self.assertIn("bundle.create_capability", text)
+        self.assertLess(
+            text.index("ensure_bundle_capabilities!"),
+            text.index('match(\n      api_key: api_key, type: "appstore", readonly: false'),
+        )
 
     def test_native_evidence_writer_is_documented_and_reused_by_ci(self) -> None:
         workflow = Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8")

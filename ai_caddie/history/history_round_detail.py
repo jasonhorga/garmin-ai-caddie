@@ -7,7 +7,7 @@ from typing import Any
 
 from ai_caddie.core.data import OWNER_ID
 from ai_caddie.reports.annotations import list_annotations
-from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history import HistoryData, remap_shots_to_merged_rounds
 
 
 CORRECTION_KINDS = {"club_correction", "lie_correction", "penalty_correction", "putt_correction", "score_correction"}
@@ -28,7 +28,7 @@ def build_history_round_detail(
         return _missing_round_detail(ref)
 
     canonical_ref = _round_id(round_row)
-    shots = _shots_for_round(data, canonical_ref)
+    shots = _shots_for_round(data, round_row)
     shots_by_hole = _shots_by_hole(shots)
     scorecard = _scorecard(round_row, shots_by_hole)
     hole_details = _hole_details(round_row, shots_by_hole)
@@ -59,6 +59,7 @@ def build_history_round_detail(
             "fr",
             "frec",
             "gir",
+            "grec",
             "merged",
             "provenance",
         ],
@@ -122,12 +123,31 @@ def _round_aliases(data: HistoryData) -> dict[str, dict[str, Any]]:
     return aliases
 
 
-def _shots_for_round(data: HistoryData, round_ref: str) -> list[tuple[int, dict[str, Any]]]:
-    return [
-        (index, shot)
-        for index, shot in enumerate(data.shots)
-        if _shot_round_id(shot) == round_ref
-    ]
+def _shots_for_round(
+    data: HistoryData,
+    round_row: dict[str, Any],
+) -> list[tuple[int, dict[str, Any]]]:
+    """Return one display-round view without mutating the normalized source shots.
+
+    Local Garmin history keeps the two member scorecard IDs (and each member's physical hole
+    1...9).  A merged 18-hole scorecard renumbers only the second scorecard to display holes
+    10...18.  The old exact-ID lookup therefore returned zero rows for the merged ID.  Preserve the
+    raw ``scorecardId``/``localHole`` as provenance while assigning the canonical round identity and
+    display hole on copies consumed by this detail response.
+    """
+    canonical_ref = _round_id(round_row)
+    source_ids = [str(value) for value in (round_row.get("ids") or [canonical_ref])]
+    # Some ordinary rounds carry only alternate aliases in `ids`; source shots still use the
+    # canonical row id. A merged row, by contrast, carries the two physical member scorecard ids.
+    member_set = {canonical_ref, *source_ids}
+    selected: list[tuple[int, dict[str, Any]]] = []
+    canonical_shots = remap_shots_to_merged_rounds(data.shots, [round_row])
+    for index, row in enumerate(canonical_shots):
+        source_id = str(row.get("scorecardId") or row.get("roundId") or "")
+        if source_id not in member_set and str(row.get("roundId") or "") != canonical_ref:
+            continue
+        selected.append((index, row))
+    return selected
 
 
 def _shots_by_hole(shots: list[tuple[int, dict[str, Any]]]) -> dict[int, list[tuple[int, dict[str, Any]]]]:
@@ -242,6 +262,7 @@ def _scorecard(row: dict[str, Any], shots_by_hole: dict[int, list[tuple[int, dic
                 "toPar": to_par,
                 "className": _score_class(score, par),
                 "putts": _int_value(hole.get("putts")) if hole else None,
+                "penalties": _int_value(hole.get("penalties")) if hole else None,
                 "gir": hole.get("gir") if hole else None,
                 "fairway": hole.get("fairway") if hole else None,
                 "globalId": geometry_target.get("globalId"),
@@ -273,6 +294,7 @@ def _hole_details(row: dict[str, Any], shots_by_hole: dict[int, list[tuple[int, 
                 "score": score,
                 "toPar": score - par if score is not None and par is not None else None,
                 "putts": _int_value(hole.get("putts")) if hole else None,
+                "penalties": _int_value(hole.get("penalties")) if hole else None,
                 "gir": hole.get("gir") if hole else None,
                 "fairway": hole.get("fairway") if hole else None,
                 "globalId": geometry_target.get("globalId"),
@@ -378,6 +400,9 @@ def _phase_summary(
     putt_cells = [cell for cell in scorecard if cell.get("putts") is not None]
     putts_total = sum(int(cell["putts"]) for cell in putt_cells)
     three_putts = sum(1 for cell in putt_cells if int(cell["putts"]) >= 3)
+    penalty_cells = [cell for cell in scorecard if cell.get("penalties") is not None]
+    penalties_total = sum(int(cell["penalties"]) for cell in penalty_cells)
+    holes_with_penalties = sum(1 for cell in penalty_cells if int(cell["penalties"]) > 0)
     score_penalties = sum(1 for cell in scorecard if (cell.get("toPar") or 0) >= 2)
     holes_completed = int(
         row.get("holesCompleted") or len([c for c in scorecard if c.get("score") is not None]) or len(scorecard) or 0
@@ -387,20 +412,30 @@ def _phase_summary(
     # no per-hole fairway/gir/putt cells (the common case for synced rounds), fall back to the round
     # aggregates (fh/frec/gir/putts) instead of rendering 0/0. GIR denominator = holes played.
     has_round_fairways = not fairways and row.get("frec") is not None
-    has_round_gir = not gir_recorded and row.get("gir") is not None
+    round_gir_recorded = _int_value(row.get("grec"))
+    # New snapshots preserve Garmin's real denominator. Older normalized fixtures omitted it, so
+    # retain their historical holes-completed fallback only when the field itself is absent.
+    if round_gir_recorded is None and row.get("gir") is not None:
+        round_gir_recorded = holes_completed
+    has_round_gir = (
+        not gir_recorded
+        and row.get("gir") is not None
+        and (round_gir_recorded or 0) > 0
+    )
     has_round_putts = not putt_cells and row.get("putts") is not None
     if has_round_fairways:
         fairways_hit = int(row.get("fh") or 0)
         fairways_recorded = int(row.get("frec") or 0)
     if has_round_gir:
         gir_hit = int(row.get("gir") or 0)
-        gir_total = holes_completed
+        gir_total = int(round_gir_recorded or 0)
     if has_round_putts:
         putts_total = int(row.get("putts") or 0)
 
     has_fairways = fairways_recorded > 0
     has_gir = gir_total > 0
     has_putts = bool(putt_cells) or has_round_putts
+    has_penalties = bool(penalty_cells)
     return [
         {
             "phase": "Tee",
@@ -432,10 +467,21 @@ def _phase_summary(
         },
         {
             "phase": "Penalty / Damage",
-            "state": "partial" if score_penalties else "missing",
-            "primary": f"{score_penalties} 个双柏忌及以上",
-            "metrics": {"doubleOrWorseHoles": score_penalties},
-            "sourceRefs": _dedupe([str(cell.get("holeRef")) for cell in scorecard if (cell.get("toPar") or 0) >= 2]),
+            "state": "ready" if has_penalties else "partial" if score_penalties else "missing",
+            "primary": f"{penalties_total} 罚杆" if has_penalties else f"{score_penalties} 个双柏忌及以上",
+            "metrics": {
+                "totalPenalties": penalties_total if has_penalties else None,
+                "holesWithPenalties": holes_with_penalties if has_penalties else None,
+                "doubleOrWorseHoles": score_penalties,
+            },
+            "sourceRefs": _dedupe(
+                [
+                    str(cell.get("holeRef"))
+                    for cell in scorecard
+                    if (cell.get("penalties") or 0) > 0
+                    or (not has_penalties and (cell.get("toPar") or 0) >= 2)
+                ]
+            ),
         },
     ]
 

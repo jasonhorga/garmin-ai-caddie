@@ -14,6 +14,10 @@ Run:  ``uv run python -m ai_caddie.pipeline [--shots] [--refresh-auth] [--geomet
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+from typing import Any
 
 from ai_caddie.courses import course_reference
 from ai_caddie.core.data import ROOT, SCORECARD_DIR, SHOT_DIR
@@ -32,7 +36,93 @@ class SyncResult:
     course_reference_ready: int = 0
     course_reference_missing: int = 0
     course_reference_coverage_pct: float = 0.0
+    remote_round_count: int | None = None
+    remote_latest_round_id: str | None = None
+    remote_latest_round_at: str | None = None
+    new_round_count: int | None = None
     notes: list[str] = field(default_factory=list)
+
+
+def _summary_observation(*, root: Path = ROOT) -> dict[str, Any]:
+    """Read safe freshness facts from the latest Garmin summary response."""
+    path = Path(root) / "data" / "summary.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {"count": 0, "ids": set(), "latestId": None, "latestAt": None}
+    rows = payload.get("scorecardSummaries") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        rows = []
+
+    def row_id(row: object) -> str | None:
+        if not isinstance(row, dict):
+            return None
+        value = row.get("id") or row.get("scorecardId")
+        return str(value) if value is not None else None
+
+    def parsed_time(row: object) -> datetime:
+        if not isinstance(row, dict):
+            return datetime.min.replace(tzinfo=timezone.utc)
+        value = row.get("startTime") or row.get("formattedStartTime") or ""
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return datetime.min.replace(tzinfo=timezone.utc)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    ids = {value for row in rows if (value := row_id(row)) is not None}
+    latest = max((row for row in rows if isinstance(row, dict)), key=parsed_time, default=None)
+    latest_at: str | None = None
+    latest_id = row_id(latest)
+    if latest is not None:
+        parsed = parsed_time(latest)
+        if parsed != datetime.min.replace(tzinfo=timezone.utc):
+            latest_at = parsed.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return {"count": len(rows), "ids": ids, "latestId": latest_id, "latestAt": latest_at}
+
+
+def _persist_sync_observability(result: SyncResult, *, root=ROOT) -> bool:
+    """Persist cron outcome without claiming a durable connector snapshot exists.
+
+    The cron entrypoint historically called this module directly, so scorecards and shots were
+    refreshed while ``/sync/status`` kept serving the previous run's metadata. A raw-snapshot
+    manifest is intentionally NOT written here: connector snapshots include durable copies of all
+    referenced data/geometry, and copying those every hour would be both expensive and dishonest
+    unless the matching durable tree were created too. ``sync_status`` recognizes a newer ready
+    status without a snapshot id and reports the live files while retaining the last durable id.
+    """
+    from ai_caddie.connectors.snapshot import write_connector_status
+
+    if not result.auth_ok:
+        write_connector_status(
+            root=root,
+            state="reauth_required",
+            detail="Garmin CN web session is unavailable. Reconnect Garmin and retry.",
+            snapshot_id=None,
+            error_code="auth_failed",
+        )
+        return True
+
+    state = "ready" if result.scorecards else "no_data"
+    detail = (
+        f"Synced {result.scorecards} scorecards and {result.shots} shot files."
+        if state == "ready"
+        else "Garmin sync completed, but no scorecards were returned."
+    )
+    write_connector_status(
+        root=root,
+        state=state,
+        detail=detail,
+        snapshot_id=None,
+        error_code=None,
+        remote_round_count=result.remote_round_count,
+        remote_latest_round_id=result.remote_latest_round_id,
+        remote_latest_round_at=result.remote_latest_round_at,
+        new_round_count=result.new_round_count,
+    )
+    return True
 
 
 def _ensure_auth(force_refresh: bool) -> bool:
@@ -95,7 +185,9 @@ def sync(*, with_shots: bool = False, force_refresh: bool = False, geometry_limi
     """Run the full local sync idempotently and return a coverage summary."""
     if not _ensure_auth(force_refresh):
         return SyncResult(auth_ok=False, notes=["auth unavailable; cannot fetch"])
+    before = _summary_observation()
     rounds = _fetch_history(with_shots, force_refresh_auth=force_refresh)
+    after = _summary_observation()
     geometry = _ensure_geometry(limit=geometry_limit)
     notes: list[str] = []
     course_nines = 0
@@ -130,6 +222,14 @@ def sync(*, with_shots: bool = False, force_refresh: bool = False, geometry_limi
         course_reference_ready=course_reference_ready,
         course_reference_missing=course_reference_missing,
         course_reference_coverage_pct=course_reference_coverage_pct,
+        remote_round_count=int(after["count"]),
+        remote_latest_round_id=after["latestId"],
+        remote_latest_round_at=after["latestAt"],
+        new_round_count=(
+            len(after["ids"] - before["ids"])
+            if before["ids"]
+            else int(after["count"])
+        ),
         notes=notes,
     )
 
@@ -141,6 +241,10 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     geometry_limit = _int_arg(argv, "--geometry-limit")
     result = sync(with_shots="--shots" in argv, force_refresh="--refresh-auth" in argv, geometry_limit=geometry_limit)
+    try:
+        _persist_sync_observability(result)
+    except Exception:  # noqa: BLE001 - status persistence must not hide the sync result
+        result.notes.append("sync status persistence failed (data sync result is still valid)")
     print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
     return 0 if result.auth_ok else 1
 

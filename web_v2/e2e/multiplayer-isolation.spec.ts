@@ -310,7 +310,7 @@ test.describe('player-facing deployment (link required)', () => {
     expect(browserErrors).toEqual([])
   })
 
-  test('player history marks the manual round with a 手动 chip and leaves the garmin round unmarked', async ({ page }) => {
+  test('player history marks app-ingested rounds as AI Caddie and leaves Garmin rounds unmarked', async ({ page }) => {
     const browserErrors: string[] = []
     page.on('pageerror', (error) => browserErrors.push(error.message))
     page.on('console', (message) => {
@@ -319,8 +319,8 @@ test.describe('player-facing deployment (link required)', () => {
     await mockPlayerApi(page, PLAYER_A)
 
     await page.goto(`/p/${PLAYER_A.token}`)
-    // The archive now lives under the unified 成绩 destination. Scope the
-    // navigation lookup so the landing's same-named drilldown row cannot satisfy it.
+    // The archive lives under the unified 成绩 destination. Scope the lookup so
+    // a same-named content link cannot satisfy the navigation journey.
     await page.getByRole('navigation', { name: '辅助导航' }).getByRole('button', { name: '全部球局' }).click()
     await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
 
@@ -328,8 +328,9 @@ test.describe('player-facing deployment (link required)', () => {
     // course name is the card heading (disambiguated from the filter <option> of the same text).
     await expect(page.getByRole('heading', { name: '梅花山 A' })).toBeVisible()
     await expect(page.getByRole('heading', { name: '观澜湖 B' })).toBeVisible()
-    // …but only the manual one carries the 手动 chip.
-    await expect(page.getByLabel('手动录入的球局')).toHaveCount(1)
+    // …but only the app-ingested one carries the AI Caddie provenance chip. The internal
+    // `manual` source also covers Watch/iPhone rounds, so the UI must not call all of them hand-entered.
+    await expect(page.getByLabel('AI Caddie 记录的球局')).toHaveCount(1)
     // and still no other player's round leaks into this player's history.
     await expect(page.getByText(OTHER_PLAYER_ROUND)).toHaveCount(0)
     expect(browserErrors).toEqual([])
@@ -375,7 +376,7 @@ test.describe('owner deployment (admin token)', () => {
     for (const forbidden of ['成绩走势', '你最该练', '记分卡', '球道命中率', PLAYER_A_MANUAL_ROUND, OTHER_PLAYER_ROUND]) {
       await expect(page.getByText(forbidden, { exact: false })).toHaveCount(0)
     }
-    await expect(page.getByLabel('手动录入的球局')).toHaveCount(0)
+    await expect(page.getByLabel('AI Caddie 记录的球局')).toHaveCount(0)
 
     // Wire-level proof: the roster endpoint was called WITH the admin token, never anonymously.
     expect(adminHeadersSeen.length).toBeGreaterThan(0)

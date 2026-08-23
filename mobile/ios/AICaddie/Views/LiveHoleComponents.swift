@@ -4,7 +4,7 @@ import SwiftUI
 // Pure views: plain inputs + closures, no app state or networking — so they
 // compile-check independently and can be composed into CurrentHoleView next
 // without disturbing its existing logic. Mirrors the approved HTML mockup
-// (caddie-recommendation-first, GPS record, compact score).
+// (caddie-recommendation-first, independent GPS shot capture, compact score confirmation).
 
 enum LiveHoleStyle {
     static let green = Color(red: 21 / 255, green: 128 / 255, blue: 61 / 255)
@@ -47,6 +47,9 @@ struct HoleChip: View {
     var body: some View {
         Text(text)
             .font(.caption)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .allowsTightening(true)
             .padding(.vertical, 5)
             .padding(.horizontal, 10)
             .background(warn ? LiveHoleStyle.warnBg : LiveHoleStyle.tint)
@@ -298,13 +301,14 @@ extension View {
 // MARK: - Dark play-screen (实战/记分) reskin — map-backdrop + Apple-Maps-style glass panel.
 //
 // The 打球屏 v2 design language: DARK base, the hole map as a full-screen backdrop, and a floating
-// dark-glass data panel (big-number distance readout → caddie strip → score steppers → save → tab
+// dark-glass data panel (big-number distance readout → caddie strip → shot/score actions → tab
 // bar). Colours are hard-coded (never semantic) so the surface renders identically dark regardless
 // of the app's forced light colour scheme AND inside the CI ImageRenderer snapshot (which has no
 // blur/material). Aligned to the Apple-Watch play sheet + the approved `ios_play2.html` mockup.
 enum LivePlayStyle {
     static let base = Color(red: 5 / 255, green: 7 / 255, blue: 12 / 255)           // #05070c
     static let panelFill = Color(red: 14 / 255, green: 18 / 255, blue: 26 / 255)     // rgba(14,18,26,·)
+    static let auxiliaryFill = Color(red: 18 / 255, green: 23 / 255, blue: 32 / 255) // #121720
     static let accent = Color(red: 34 / 255, green: 197 / 255, blue: 94 / 255)       // #22c55e
     static let accentSystem = Color(red: 52 / 255, green: 199 / 255, blue: 89 / 255) // #34c759
     static let onAccent = Color(red: 4 / 255, green: 20 / 255, blue: 10 / 255)       // #04140a
@@ -329,16 +333,59 @@ enum LivePlayStyle {
     )
 }
 
-/// Header over the map: 第 N 洞 + Par/码/Tee (left) + 本场 to-par chip (right).
+private struct LivePlayAuxiliaryCardModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .foregroundStyle(LivePlayStyle.ink)
+            .tint(LivePlayStyle.accentSystem)
+            .environment(\.colorScheme, .dark)
+            .background(
+                LivePlayStyle.auxiliaryFill,
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(LivePlayStyle.stroke14)
+            )
+    }
+}
+
+extension View {
+    /// Secondary tools on the immersive Hole Root stay in the same explicit dark colour system as
+    /// the map and primary panel. The shared `liveCard()` remains light for non-playing screens.
+    func livePlayAuxiliaryCard() -> some View {
+        modifier(LivePlayAuxiliaryCardModifier())
+    }
+}
+
+/// Approved live header: compact circular return control + hole facts on one row, with round score right.
 struct LivePlayHeader: View {
     let holeNumber: Int
     let par: Int
     let yards: Int?
     let teeLabel: String?
     let roundToParText: String
+    var onBack: (() -> Void)? = nil
+    var onFinishRound: (() -> Void)? = nil
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 8) {
+            if let onBack {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.backward")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .frame(width: 30, height: 30)
+                        .background(LivePlayStyle.panelFill.opacity(0.76), in: Circle())
+                        .overlay(Circle().stroke(LivePlayStyle.stroke14))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("返回球局首页")
+            }
             VStack(alignment: .leading, spacing: 1) {
                 Text("第 \(holeNumber) 洞")
                     .font(.system(size: 19, weight: .heavy))
@@ -356,6 +403,19 @@ struct LivePlayHeader: View {
                 .padding(.horizontal, 11)
                 .background(LivePlayStyle.panelFill.opacity(0.7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(LivePlayStyle.stroke14))
+            if let onFinishRound {
+                Button(action: onFinishRound) {
+                    Image(systemName: "ellipsis.circle.fill")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .frame(width: 36, height: 36)
+                        .background(LivePlayStyle.panelFill.opacity(0.7), in: Circle())
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("结束或放弃本场")
+                .accessibilityIdentifier("live-round-end-menu")
+            }
         }
     }
 
@@ -378,39 +438,55 @@ struct LiveDistanceReadout: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
-            side(label: "前", value: greenFrontYards, color: LivePlayStyle.front)
+            side(
+                label: "前", value: greenFrontYards, color: LivePlayStyle.front,
+                accessibilityIdentifier: "live-green-front"
+            )
             VStack(spacing: 2) {
                 Text("到果岭中")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(LivePlayStyle.ink60)
-                Text(greenCenterYards.map(String.init) ?? "—")
+                Text(GeoDistance.greenRangeText(greenCenterYards))
                     .font(.system(size: 66, weight: .heavy))
                     .monospacedDigit()
                     .foregroundStyle(LivePlayStyle.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
+                    .accessibilityIdentifier("live-green-middle")
                 Text(unitLine)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(LivePlayStyle.ink45)
             }
             .frame(maxWidth: .infinity)
-            side(label: "后", value: greenBackYards, color: LivePlayStyle.back)
+            side(
+                label: "后", value: greenBackYards, color: LivePlayStyle.back,
+                accessibilityIdentifier: "live-green-back"
+            )
         }
     }
 
     private var unitLine: String {
+        if GeoDistance.isBeyondUsefulGreenRange(greenCenterYards) { return "离本洞较远" }
         if isGreenLive { return "码 · 实时" }
         if let toPinYards { return "码 · 到旗杆 \(toPinYards)" }
         return "码"
     }
 
-    private func side(label: String, value: Int?, color: Color) -> some View {
+    private func side(
+        label: String,
+        value: Int?,
+        color: Color,
+        accessibilityIdentifier: String
+    ) -> some View {
         VStack(spacing: 3) {
             Text(label).font(.system(size: 11, weight: .heavy)).foregroundStyle(LivePlayStyle.ink50)
-            Text(value.map(String.init) ?? "—")
+            Text(GeoDistance.greenRangeText(value))
                 .font(.system(size: 28, weight: .heavy))
                 .monospacedDigit()
                 .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
+                .accessibilityIdentifier(accessibilityIdentifier)
         }
         .frame(width: 72)
     }
@@ -448,7 +524,7 @@ struct LiveClubChip: View {
 /// Caddie strip: ● 球童建议 + 展开 › · a row of club chips · one 实打 plays-like line.
 struct LiveCaddieStrip: View {
     struct Club: Identifiable {
-        let id = UUID()
+        var id: String { name }
         let name: String
         let sub: String
         let on: Bool
@@ -457,6 +533,7 @@ struct LiveCaddieStrip: View {
     let clubs: [Club]
     var playsText: String?
     var isLoading: Bool = false
+    var isReady: Bool = true
     var errorText: String?
     var onExpand: () -> Void = {}
     var onSelect: (String) -> Void = { _ in }
@@ -464,13 +541,28 @@ struct LiveCaddieStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 7) {
-                Circle().fill(LivePlayStyle.accentSystem).frame(width: 7, height: 7)
+                ZStack {
+                    if isLoading {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(LivePlayStyle.ink60)
+                            .scaleEffect(0.6)
+                    } else {
+                        Circle().fill(LivePlayStyle.accentSystem)
+                    }
+                }
+                .frame(width: 7, height: 7)
+                .accessibilityLabel(
+                    isLoading ? "正在更新球童建议" : (isReady ? "球童建议已就绪" : "球童建议待更新")
+                )
                 Text("球童建议").font(.system(size: 13, weight: .heavy)).foregroundStyle(LivePlayStyle.greenLabel)
                 Spacer(minLength: 0)
                 Button(action: onExpand) {
                     Text("展开 ›").font(.system(size: 12, weight: .bold)).foregroundStyle(LivePlayStyle.ink45)
                 }
                 .buttonStyle(.plain)
+                .disabled(!isReady)
+                .opacity(isReady ? 1 : 0.45)
             }
             if !clubs.isEmpty {
                 HStack(spacing: 8) {
@@ -479,21 +571,13 @@ struct LiveCaddieStrip: View {
                     }
                 }
             }
-            if let playsText {
-                Text(playsText)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(LivePlayStyle.ink78)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if isLoading {
-                HStack(spacing: 6) {
-                    ProgressView().tint(LivePlayStyle.ink60)
-                    Text("更新球童建议…").font(.caption).foregroundStyle(LivePlayStyle.ink60)
-                }
-            }
-            if let errorText {
-                Text(errorText).font(.caption).foregroundStyle(LivePlayStyle.ink60)
-            }
+            let compactStatus = errorText ?? playsText
+            Text(compactStatus ?? " ")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(errorText == nil ? LivePlayStyle.ink78 : LivePlayStyle.ink60)
+                .lineLimit(1)
+                .opacity(compactStatus == nil ? 0 : 1)
+                .accessibilityHidden(compactStatus == nil)
         }
     }
 }
@@ -540,6 +624,164 @@ struct LivePlayScoreSteppers: View {
     }
 }
 
+/// The two high-frequency actions stay side by side: save the current shot location now, or confirm
+/// the completed hole. A location remains a recorded shot even when its optional club is skipped.
+struct LiveHolePrimaryActions: View {
+    let canRecordShot: Bool
+    let recordedShotCount: Int
+    var onRecordShot: () -> Void = {}
+    var onConfirmScore: () -> Void = {}
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 9) {
+                actionButton(
+                    title: "记一杆",
+                    systemImage: "location.fill",
+                    foreground: LivePlayStyle.ink,
+                    background: LivePlayStyle.fill12,
+                    border: LivePlayStyle.stroke14,
+                    action: onRecordShot
+                )
+                .disabled(!canRecordShot)
+                .opacity(canRecordShot ? 1 : 0.55)
+
+                actionButton(
+                    title: "确认本洞成绩",
+                    systemImage: "checkmark.circle.fill",
+                    foreground: LivePlayStyle.onAccent,
+                    background: LivePlayStyle.accent,
+                    border: LivePlayStyle.accent,
+                    action: onConfirmScore
+                )
+            }
+            if recordedShotCount > 0 {
+                Text("已记第 \(recordedShotCount) 杆")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.greenLabel)
+                    .monospacedDigit()
+            } else if !canRecordShot {
+                Text("等待 GPS 定位后即可记杆")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(LivePlayStyle.ink45)
+            }
+        }
+    }
+
+    private func actionButton(
+        title: String,
+        systemImage: String,
+        foreground: Color,
+        background: Color,
+        border: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 14, weight: .heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .foregroundStyle(foreground)
+                .background(background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(border))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+}
+
+struct LiveActualClubChoice: Identifiable, Equatable {
+    let name: String
+    let yards: Int?
+    let isRecommended: Bool
+
+    var id: String { name }
+}
+
+/// GPS is already durable before this sheet appears. Choosing a club appends a source-linked fact;
+/// skipping or dismissing the sheet never removes the saved location.
+struct LiveActualClubPromptView: View {
+    let shotNumber: Int
+    let choices: [LiveActualClubChoice]
+    let onSelect: (String) -> Void
+    let onSkip: () -> Void
+
+    var body: some View {
+        ZStack {
+            LivePlayStyle.panelFill.ignoresSafeArea()
+            VStack(spacing: 14) {
+                VStack(spacing: 4) {
+                    Text("这一杆用了什么球杆？")
+                        .font(.title3.weight(.heavy))
+                        .foregroundStyle(LivePlayStyle.ink)
+                    Text("第 \(shotNumber) 杆的位置已经保存")
+                        .font(.caption)
+                        .foregroundStyle(LivePlayStyle.ink60)
+                }
+
+                if choices.isEmpty {
+                    Spacer(minLength: 8)
+                    Text("球包暂不可用，可以先跳过球杆")
+                        .font(.subheadline)
+                        .foregroundStyle(LivePlayStyle.ink60)
+                    Spacer(minLength: 8)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(choices) { choice in
+                                Button { onSelect(choice.name) } label: {
+                                    HStack(spacing: 8) {
+                                        Text(choice.name)
+                                            .font(.headline.weight(.bold))
+                                        if let yards = choice.yards {
+                                            Text("\(yards) 码")
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(LivePlayStyle.ink50)
+                                        }
+                                        Spacer(minLength: 0)
+                                        if choice.isRecommended {
+                                            Text("球童建议")
+                                                .font(.caption2.weight(.heavy))
+                                                .foregroundStyle(LivePlayStyle.greenLabel)
+                                        }
+                                    }
+                                    .foregroundStyle(LivePlayStyle.ink)
+                                    .padding(.vertical, 12)
+                                    .padding(.horizontal, 14)
+                                    .frame(maxWidth: .infinity)
+                                    .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 13))
+                                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(LivePlayStyle.stroke14))
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(
+                                    choice.isRecommended ? "\(choice.name)，球童建议" : choice.name
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Button("跳过球杆（位置已记录）", action: onSkip)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(LivePlayStyle.ink78)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity)
+                    .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 13))
+                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(LivePlayStyle.stroke14))
+                    .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 14)
+        }
+        .preferredColorScheme(.dark)
+        .presentationDetents([.height(500), .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
 /// Full-width green primary — 保存本洞 ✓ — with an optional GPS caption line beneath.
 struct LiveSaveButton: View {
     var title: String = "保存本洞 ✓"
@@ -567,26 +809,36 @@ struct LiveSaveButton: View {
     }
 }
 
-/// Line-icon tab bar (洞图 / 记分 / 球童 / 球场 / 更多). Visual language only — the live screen's real
-/// navigation is the NavigationStack back gesture; these mirror the mockup's bottom rail.
-struct LivePlayTabBar: View {
-    var body: some View {
-        HStack(spacing: 0) {
-            tab("map", "洞图", on: true)
-            tab("list.bullet.rectangle", "记分", on: false)
-            tab("scope", "球童", on: false)
-            tab("flag", "球场", on: false)
-            tab("ellipsis", "更多", on: false)
-        }
-    }
+/// The live hole is already the map root, with caddie and real secondary tools embedded below it.
+/// Keep only the one separate high-frequency destination instead of presenting four inert tabs.
+struct LiveScorecardButton: View {
+    var onTap: () -> Void = {}
 
-    private func tab(_ symbol: String, _ label: String, on: Bool) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: symbol).font(.system(size: 18, weight: .regular))
-            Text(label).font(.system(size: 10.5, weight: .semibold))
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 9) {
+                Image(systemName: "list.bullet.rectangle")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("本场计分卡")
+                    .font(.system(size: 14, weight: .bold))
+                Spacer(minLength: 0)
+                Text("随时修改")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.ink45)
+                Image(systemName: "chevron.forward")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(LivePlayStyle.ink45)
+            }
+            .foregroundStyle(LivePlayStyle.ink)
+            .padding(.vertical, 9)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .background(LivePlayStyle.fill08, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(LivePlayStyle.stroke10))
         }
-        .frame(maxWidth: .infinity)
-        .foregroundStyle(on ? LivePlayStyle.accentSystem : LivePlayStyle.ink45)
+        .buttonStyle(.plain)
+        .accessibilityLabel("本场计分卡")
+        .accessibilityHint("查看并修改每洞成绩")
     }
 }
 
@@ -602,19 +854,224 @@ struct LivePlayReticle: View {
     }
 }
 
-/// One amber hazard "carry" pill over the map (e.g. 过水 235).
-struct LiveHazardPill: View {
-    let text: String
+/// Live GPS position in the same topo projection used by the Watch. The white halo keeps the marker
+/// legible over fairway, sand, water and contour backgrounds without pretending to be a shot point.
+struct LivePlayerPositionMarker: View {
     var body: some View {
-        Text(text)
-            .font(.system(size: 12, weight: .heavy))
-            .monospacedDigit()
-            .foregroundStyle(LivePlayStyle.hazard)
-            .padding(.vertical, 4)
-            .padding(.horizontal, 11)
-            .background(Color(red: 10 / 255, green: 14 / 255, blue: 20 / 255).opacity(0.8), in: Capsule())
-            .overlay(Capsule().stroke(LivePlayStyle.hazard.opacity(0.5)))
-            .shadow(color: .black.opacity(0.45), radius: 6, y: 4)
+        ZStack {
+            Circle()
+                .fill(Color.white)
+                .frame(width: 22, height: 22)
+                .shadow(color: .black.opacity(0.45), radius: 4, y: 2)
+            Circle()
+                .fill(Color(red: 0.12, green: 0.48, blue: 1.0))
+                .frame(width: 14, height: 14)
+            Circle()
+                .stroke(Color.white.opacity(0.9), lineWidth: 1)
+                .frame(width: 14, height: 14)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("我的 GPS 位置")
+    }
+}
+
+/// Compact F/M/B rangefinder embedded in the map. The phone previously repeated this as the first
+/// row of a bottom list-like panel; the shared product language now keeps spatial golf facts on the
+/// hole itself, matching the Watch root and leaving the lower panel for actions only.
+struct LiveMapGreenDistanceOverlay: View {
+    let frontYards: Int?
+    let middleYards: Int?
+    let backYards: Int?
+    let toPinYards: Int?
+    let isLive: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(isLive ? "果岭 · 实时" : "到果岭")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white.opacity(0.72))
+            distanceRow("后", backYards, LivePlayStyle.back, large: false,
+                        accessibilityIdentifier: "live-green-back")
+            distanceRow("中", middleYards, .white, large: true,
+                        accessibilityIdentifier: "live-green-middle")
+            distanceRow("前", frontYards, LivePlayStyle.front, large: false,
+                        accessibilityIdentifier: "live-green-front")
+            if let toPinYards, !GeoDistance.isBeyondUsefulGreenRange(toPinYards) {
+                Text("旗 \(toPinYards) 码")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.66))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(width: 108, alignment: .leading)
+        .background(Color.black.opacity(0.67), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.16)))
+        .shadow(color: .black.opacity(0.38), radius: 5, y: 3)
+    }
+
+    private func distanceRow(
+        _ label: String,
+        _ value: Int?,
+        _ color: Color,
+        large: Bool,
+        accessibilityIdentifier: String
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(label)
+                .font(.system(size: large ? 11 : 9, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.58))
+            Text(GeoDistance.greenRangeText(value))
+                .font(.system(size: large ? 25 : 15, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+                .accessibilityIdentifier(accessibilityIdentifier)
+        }
+    }
+}
+
+/// Obstacle distances are attached to their true front/back boundary points. A short connector makes
+/// label displacement explicit on dense maps; blue always means water and yellow always means sand.
+struct LiveMapHazardRangeOverlay: View {
+    let kind: String
+    let label: String
+    let toYards: Int
+    let overYards: Int
+    let front: CGPoint
+    let back: CGPoint
+    let index: Int
+    let viewportSize: CGSize
+
+    private var tint: Color {
+        kind == "water"
+            ? Color(red: 0.18, green: 0.58, blue: 0.94)
+            : Color(red: 0.95, green: 0.77, blue: 0.28)
+    }
+
+    var body: some View {
+        ZStack {
+            boundaryMarker(at: front)
+            boundaryMarker(at: back)
+            callout
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label)，到 \(toYards) 码，过 \(overYards) 码")
+    }
+
+    private var callout: some View {
+        let anchor = CGPoint(x: (front.x + back.x) / 2, y: (front.y + back.y) / 2)
+        let preferRight = anchor.x < viewportSize.width * 0.54
+        let width: CGFloat = 112
+        let desiredX = anchor.x + (preferRight ? 70 : -70)
+        let x = min(max(desiredX, width / 2 + 6), viewportSize.width - width / 2 - 6)
+        let stagger: CGFloat = index == 0 ? -20 : 24
+        let y = min(max(anchor.y + stagger, 176), viewportSize.height - 48)
+        let center = CGPoint(x: x, y: y)
+
+        return ZStack {
+            Path { path in
+                path.move(to: anchor)
+                path.addLine(to: center)
+            }
+            .stroke(tint.opacity(0.9), style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .lineLimit(1)
+                Text("到 \(toYards)  ·  过 \(overYards)")
+                    .font(.system(size: 11, weight: .heavy))
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(width: width, alignment: .leading)
+            .background(Color.black.opacity(0.74), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(tint.opacity(0.9)))
+            .position(center)
+        }
+    }
+
+    private func boundaryMarker(at point: CGPoint) -> some View {
+        Circle()
+            .fill(tint)
+            .frame(width: 9, height: 9)
+            .overlay(Circle().stroke(Color.black.opacity(0.8), lineWidth: 1.2))
+            .position(point)
+    }
+}
+
+enum LivePlayMapOverlayLayout {
+    /// The map begins below the fixed live header. Applying the same inset to the bitmap and every
+    /// projected marker keeps a shallow/partial hole's green reticle from crossing the title while
+    /// preserving pixel alignment with the factual route.
+    static let liveMapTopInset: CGFloat = 80
+
+    static func fallbackGreenTarget(in heroSize: CGSize) -> CGPoint {
+        CGPoint(x: heroSize.width * 0.55, y: heroSize.height * 0.30)
+    }
+
+    /// Mirror `HoleImageMapView`'s `.aspectRatio(..., contentMode: .fit)` projection so native
+    /// overlays remain pixel-aligned with the server-rendered map on every phone aspect ratio.
+    static func project(
+        overlayPoint: [Double],
+        overlayWidth: Int,
+        overlayHeight: Int,
+        into heroSize: CGSize,
+        topInset: CGFloat = 0
+    ) -> CGPoint? {
+        guard overlayPoint.count >= 2,
+              overlayPoint[0].isFinite,
+              overlayPoint[1].isFinite,
+              overlayWidth > 0,
+              overlayHeight > 0,
+              heroSize.width.isFinite,
+              heroSize.height.isFinite,
+              heroSize.width > 0,
+              heroSize.height > 0,
+              topInset.isFinite,
+              topInset >= 0,
+              topInset < heroSize.height else {
+            return nil
+        }
+        let mapHeight = heroSize.height - topInset
+        let scale = min(
+            heroSize.width / CGFloat(overlayWidth),
+            mapHeight / CGFloat(overlayHeight)
+        )
+        let renderedWidth = CGFloat(overlayWidth) * scale
+        let renderedHeight = CGFloat(overlayHeight) * scale
+        let origin = CGPoint(
+            x: (heroSize.width - renderedWidth) / 2,
+            y: topInset + (mapHeight - renderedHeight) / 2
+        )
+        return CGPoint(
+            x: origin.x + CGFloat(overlayPoint[0]) * scale,
+            y: origin.y + CGFloat(overlayPoint[1]) * scale
+        )
+    }
+
+}
+
+/// A cold course can draw Garmin's lightweight route immediately, but that package does not prove
+/// that every hazard is present.  Keep the provisional map usable while making the incomplete fact
+/// state explicit instead of flashing a nearest-hazard distance that may be reordered moments later.
+struct LiveMapPreparingPill: View {
+    var body: some View {
+        Label("地图准备中 · 危险区稍后更新", systemImage: "arrow.triangle.2.circlepath")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(.white.opacity(0.9))
+            .padding(.vertical, 5)
+            .padding(.horizontal, 10)
+            .background(Color.black.opacity(0.74), in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.24)))
+            .shadow(color: .black.opacity(0.4), radius: 5, y: 3)
+            .accessibilityIdentifier("live-map-preparing")
     }
 }
 
@@ -628,7 +1085,12 @@ struct LivePlayPanel<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Capsule().fill(Color.white.opacity(0.22)).frame(width: 36, height: 5)
+            Capsule()
+                .fill(Color.white.opacity(0.22))
+                .frame(width: 36, height: 5)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("实战面板起点")
+                .accessibilityIdentifier("live-play-panel-anchor")
             content
         }
         .padding(.horizontal, 18)

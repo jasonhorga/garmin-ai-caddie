@@ -1,16 +1,28 @@
 #!/usr/bin/env sh
 set -eu
 
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+app_root="$(CDPATH= cd -- "$script_dir/.." && pwd)"
+cd "$app_root"
+
 if [ -n "${AI_CADDIE_PRIVATE_ROOT:-}" ]; then
   private_root="${AI_CADDIE_PRIVATE_ROOT}"
+  case "$private_root" in
+    /*) ;;
+    *) private_root="$app_root/$private_root" ;;
+  esac
+  if [ "$private_root" = "$app_root" ]; then
+    echo "FATAL [start_api.sh]: AI_CADDIE_PRIVATE_ROOT must not be the application root." >&2
+    exit 1
+  fi
   mkdir -p "$private_root/data" "$private_root/.garmin_tokens" "$private_root/output" "$private_root/logs" "$private_root/backups"
   for name in data .garmin_tokens output logs backups; do
-    rm -rf "/app/$name"
-    ln -s "$private_root/$name" "/app/$name"
+    rm -rf "$app_root/$name"
+    ln -s "$private_root/$name" "$app_root/$name"
   done
   if [ -f "$private_root/clubs.json" ]; then
-    rm -f /app/clubs.json
-    ln -s "$private_root/clubs.json" /app/clubs.json
+    rm -f "$app_root/clubs.json"
+    ln -s "$private_root/clubs.json" "$app_root/clubs.json"
   fi
 fi
 
@@ -42,5 +54,6 @@ esac
 # Bring the identity DB schema up to date (Postgres in prod; the SQLite default
 # is created here too). Idempotent; fail-closed so a broken migration stops boot.
 uv run --frozen alembic upgrade head
+uv run --frozen python -m server_v2.identity_seed
 
 exec uv run --frozen uvicorn server_v2.main:app --host 0.0.0.0 --port "${PORT:-9000}"

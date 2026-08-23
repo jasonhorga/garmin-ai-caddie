@@ -1477,7 +1477,7 @@ describe('App navigation', () => {
         if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
         if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
-        if (path === '/api/v2/courses/31795/prep?include_shots=true') return coursePrepPayload()
+        if (path === '/api/v2/courses/31795/prep?render=false&include_shots=true') return coursePrepPayload()
         if (path === '/api/v2/courses/31795/prep-tips') return prepTipsPayload()
         return overviewPayload()
       },
@@ -1493,15 +1493,20 @@ describe('App navigation', () => {
 
     // PrepPage header resolves the chosen globalId against course options.
     expect(await screen.findByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?include_shots=true')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?render=false&include_shots=true')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep-tips')
     expect(await screen.findByText('PAR 9 · 930 码')).toBeInTheDocument()
     // 你的战绩 joins stats.courses through the option's courseKey.
     expect(screen.getByText('你的战绩:打过 2 次 · 均杆 82')).toBeInTheDocument()
-    // The workbench lists every hole in the left rail; the first is selected.
-    expect(screen.getByRole('button', { name: '第1洞 Par4 410码' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '第2洞 Par5 520码' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '球童试算 · 第 1 洞' })).toBeInTheDocument()
+    // Garmin-style workbench keeps one compact hole picker over one map instead of an 18-row rail.
+    const picker = screen.getByRole('combobox', { name: '选择球洞' })
+    expect(picker).toHaveValue('1')
+    expect(within(picker).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      '第 1 洞 · Par 4 · 410码 · 关键',
+      '第 2 洞 · Par 5 · 520码 · 关键',
+    ])
+    expect(screen.getByLabelText('第1洞球道图')).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: '球童试算' })).toBeInTheDocument()
   })
 
   it('球场 tab renders 球场表现 heading', async () => {
@@ -1532,7 +1537,7 @@ describe('App navigation', () => {
         if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
         if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
         if (path === '/api/v2/sync/status') return syncStatusPayload()
-        if (path === '/api/v2/courses/31795/prep?include_shots=true') return coursePrepPayload()
+        if (path === '/api/v2/courses/31795/prep?render=false&include_shots=true') return coursePrepPayload()
         if (path === '/api/v2/courses/31795/prep-tips') return prepTipsPayload()
         return overviewPayload()
       },
@@ -1550,7 +1555,7 @@ describe('App navigation', () => {
 
     // PrepPage header resolves 31795 against courseOptions → 'Black Knight B/C'
     expect(await screen.findByRole('heading', { name: 'Black Knight B/C' })).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?include_shots=true')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep?render=false&include_shots=true')
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/courses/31795/prep-tips')
   })
 
@@ -1568,7 +1573,7 @@ describe('App navigation', () => {
             matches: [{ globalId: 31870, name: '观澜湖·世界杯场', holes: 18, city: '深圳', province: '广东', ratio: 0.92 }],
           }
         }
-        if (path === '/api/v2/courses/31870/prep?include_shots=true') return coursePrepPayload()
+        if (path === '/api/v2/courses/31870/prep?render=false&include_shots=true') return coursePrepPayload()
         if (path === '/api/v2/courses/31870/prep-tips') return prepTipsPayload()
         return overviewPayload()
       },
@@ -1908,7 +1913,7 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '打开球局 Black Knight B，2026-05-20，成绩 82' }))
 
     expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
-    expect(screen.getAllByText('Black Knight B').length).toBeGreaterThan(0)
+    expect(screen.getByText('Black Knight B · 2026-05-20')).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/rounds/1')
     await userEvent.click(screen.getByRole('button', { name: '载入 AI 回顾' }))
 

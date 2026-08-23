@@ -43,9 +43,9 @@ func zhCaddieRouteLabel(_ label: String) -> String {
         .trimmingCharacters(in: .whitespaces)
     switch key {
     case "safe", "conservative", "protect", "protect score", "lay back":
-        return "稳妥"
+        return "保守"
     case "stock", "standard", "neutral":
-        return "标准"
+        return "推荐"
     case "attack", "aggressive", "go for it":
         return "进攻"
     case "layup", "lay up":
@@ -54,6 +54,25 @@ func zhCaddieRouteLabel(_ label: String) -> String {
         return "解围"
     default:
         return label
+    }
+}
+
+/// Map backend/offline route identifiers to the three product strategy modes used by the live
+/// decision request. Unknown routes stay visible as evidence but are not treated as selectable.
+func caddieStrategyMode(forRouteId routeId: String) -> String? {
+    let key = routeId.lowercased()
+        .replacingOccurrences(of: "_", with: " ")
+        .replacingOccurrences(of: "-", with: " ")
+        .trimmingCharacters(in: .whitespaces)
+    switch key {
+    case "conservative layup", "safe", "conservative", "protect", "protect score", "lay back":
+        return "protect_score"
+    case "stock line", "stock", "standard", "neutral":
+        return "stock"
+    case "aggressive line", "attack", "aggressive", "go for it":
+        return "attack"
+    default:
+        return nil
     }
 }
 
@@ -86,19 +105,9 @@ public struct CaddiePlanOption: Identifiable, Equatable {
     }
 
     public var scoreImpactText: String? {
-        guard expectedStrokes != nil || expectedStrokesDelta != nil else {
-            return nil
-        }
-        var parts: [String] = []
-        if let expectedStrokes {
-            parts.append(String(format: "期望 %.2f 杆", expectedStrokes))
-        }
-        if let expectedStrokesDelta {
-            parts.append(String(format: "%+.2f 杆", expectedStrokesDelta))
-        }
-        // scoreImpactModel (e.g. "calibrated_history_club_v2") is an internal model id —
-        // kept on the type for provenance but never shown to the player.
-        return parts.joined(separator: " · ")
+        // These backend fields currently come from a heuristic, not a calibrated scoring model.
+        // Keep them for diagnostics, but never present them as player-facing expected strokes.
+        nil
     }
 
     public var sourceRefsText: String? {
@@ -296,7 +305,7 @@ public struct CaddiePlanSequenceStep: Identifiable, Equatable {
         if let targetCarryM {
             parts.append("\(CoursePrepRoute.yards(fromMetres: targetCarryM)) 码")
         }
-        if let expectedRemainingM {
+        if let expectedRemainingM = CaddiePlanSequence.actionableDistance(expectedRemainingM) {
             parts.append("留 \(CoursePrepRoute.yards(fromMetres: expectedRemainingM)) 码")
         }
         return parts.joined(separator: " · ")
@@ -306,7 +315,6 @@ public struct CaddiePlanSequenceStep: Identifiable, Equatable {
 public struct CaddiePlanSequence: Identifiable, Equatable {
     public let id: String
     public let label: String
-    public let expectedStrokes: Int?
     public let expectedRemainingM: Double?
     public let riskScore: Double?
     public let confidence: String?
@@ -316,11 +324,12 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
 
     public var metaText: String {
         var parts: [String] = []
-        if let expectedStrokes {
-            parts.append("\(expectedStrokes) 杆")
-        }
         if let expectedRemainingM {
-            parts.append("留 \(CoursePrepRoute.yards(fromMetres: expectedRemainingM)) 码")
+            if abs(expectedRemainingM) <= 10 {
+                parts.append("上果岭")
+            } else if expectedRemainingM > 0 {
+                parts.append("留 \(CoursePrepRoute.yards(fromMetres: expectedRemainingM)) 码")
+            }
         }
         if let riskScore {
             parts.append("风险 \(Int(riskScore))")
@@ -338,13 +347,22 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
         return "来源 " + sourceRefs.prefix(2).joined(separator: ", ")
     }
 
+    static func actionableDistance(_ value: Double?) -> Double? {
+        guard let value,
+              value.isFinite,
+              value >= -25,
+              value <= GeoDistance.maximumUsefulGreenMetres else { return nil }
+        return value
+    }
+
     public static func sequences(from response: CaddieDecisionResponse) -> [CaddiePlanSequence] {
         (response.sequences ?? []).enumerated().map { index, row in
             CaddiePlanSequence(
                 id: string(row["id"]) ?? string(row["label"]) ?? "sequence-\(index + 1)",
                 label: string(row["label"]) ?? "Sequence \(index + 1)",
-                expectedStrokes: integer(row["expectedStrokes"]),
-                expectedRemainingM: number(row["expectedRemaining_m"]) ?? number(row["expectedRemainingM"]),
+                expectedRemainingM: actionableDistance(
+                    number(row["expectedRemaining_m"]) ?? number(row["expectedRemainingM"])
+                ),
                 riskScore: number(row["riskScore"]),
                 confidence: string(row["confidence"]),
                 coverageText: coverageText(row["coverage"]),
@@ -376,7 +394,9 @@ public struct CaddiePlanSequence: Identifiable, Equatable {
                 role: role,
                 clubName: clubName,
                 targetCarryM: number(row["targetCarry_m"]) ?? number(row["targetCarryM"]),
-                expectedRemainingM: number(row["expectedRemaining_m"]) ?? number(row["expectedRemainingM"]),
+                expectedRemainingM: actionableDistance(
+                    number(row["expectedRemaining_m"]) ?? number(row["expectedRemainingM"])
+                ),
                 sampleSize: integer(row["sampleSize"]),
                 confidence: string(row["confidence"]),
                 sourceRefs: stringArray(row["sourceRefs"])
@@ -429,22 +449,29 @@ public struct CaddiePlanView: View {
     public let sequences: [CaddiePlanSequence]
     public let selectedSequenceId: String?
     public let hazards: [CaddiePlanHazard]
+    public let onSelectStrategyMode: (String) -> Void
 
     public init(
         options: [CaddiePlanOption],
         selectedOptionId: String,
         sequences: [CaddiePlanSequence] = [],
         selectedSequenceId: String? = nil,
-        hazards: [CaddiePlanHazard] = []
+        hazards: [CaddiePlanHazard] = [],
+        onSelectStrategyMode: @escaping (String) -> Void = { _ in }
     ) {
         self.options = options
         self.selectedOptionId = selectedOptionId
         self.sequences = sequences
         self.selectedSequenceId = selectedSequenceId
         self.hazards = hazards
+        self.onSelectStrategyMode = onSelectStrategyMode
     }
 
-    public init(response: CaddieDecisionResponse, hazards: [CaddiePlanHazard] = []) {
+    public init(
+        response: CaddieDecisionResponse,
+        hazards: [CaddiePlanHazard] = [],
+        onSelectStrategyMode: @escaping (String) -> Void = { _ in }
+    ) {
         let responseOptions = CaddiePlanOption.options(from: response)
         let responseSequences = CaddiePlanSequence.sequences(from: response)
         self.options = responseOptions
@@ -452,19 +479,40 @@ public struct CaddiePlanView: View {
         self.sequences = responseSequences
         self.selectedSequenceId = CaddiePlanSequence.selectedSequenceId(from: response) ?? response.selectedOptionId
         self.hazards = hazards
+        self.onSelectStrategyMode = onSelectStrategyMode
     }
 
-    public init(seed: CaddieContextSeed?, hazards: [CaddiePlanHazard] = []) {
+    public init(
+        seed: CaddieContextSeed?,
+        hazards: [CaddiePlanHazard] = [],
+        onSelectStrategyMode: @escaping (String) -> Void = { _ in }
+    ) {
         let seedOptions = CaddiePlanOption.options(from: seed)
         self.options = seedOptions
         self.selectedOptionId = seed?.selectedOfflineOptionId ?? seedOptions.first?.id ?? "stock"
         self.sequences = []
         self.selectedSequenceId = nil
         self.hazards = hazards
+        self.onSelectStrategyMode = onSelectStrategyMode
     }
 
     private var recommended: CaddiePlanOption? {
         options.first { $0.id == selectedOptionId } ?? options.first
+    }
+
+    /// The recommendation is the product's primary answer. Keep it first even though legacy API
+    /// payloads are ordered safe/stock/attack; the remaining alternatives stay conservative-to-
+    /// aggressive by their factual risk score.
+    private var orderedOptions: [CaddiePlanOption] {
+        options.enumerated().sorted { lhs, rhs in
+            let lhsSelected = lhs.element.id == selectedOptionId
+            let rhsSelected = rhs.element.id == selectedOptionId
+            if lhsSelected != rhsSelected { return lhsSelected }
+            if lhs.element.riskScore != rhs.element.riskScore {
+                return lhs.element.riskScore < rhs.element.riskScore
+            }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
     }
 
     /// Selected打法 first, then the rest in backend order — matches the approved「整洞序列为主」mockup.
@@ -483,7 +531,12 @@ public struct CaddiePlanView: View {
             }
             DisclosureGroup("备选打法 · 避开区") {
                 VStack(alignment: .leading, spacing: 10) {
-                    altTable
+                    // The complete route cards above are already the three strategy choices. Only
+                    // short-hole/offline responses without route sequences need the single-shot
+                    // option table; rendering both produced two copies of every strategy.
+                    if sequences.isEmpty {
+                        altTable
+                    }
                     if let recommended {
                         recommendedDetail(recommended)
                     }
@@ -504,7 +557,13 @@ public struct CaddiePlanView: View {
         ForEach(orderedSequences) { sequence in
             let isSelected = sequence.id == selectedSequenceId
             let color = AICaddieDesignTokens.strategyColor(sequence.id)
-            VStack(alignment: .leading, spacing: 6) {
+            let strategyMode = caddieStrategyMode(forRouteId: sequence.id)
+            Button {
+                if let strategyMode {
+                    onSelectStrategyMode(strategyMode)
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                         .font(.subheadline)
@@ -552,17 +611,21 @@ public struct CaddiePlanView: View {
                 Text(sequence.metaText)
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(isSelected ? color.opacity(0.08) : Color(.secondarySystemBackground).opacity(0.6))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(isSelected ? color.opacity(0.5) : Color.clear, lineWidth: 1)
+                )
             }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(isSelected ? color.opacity(0.08) : Color(.secondarySystemBackground).opacity(0.6))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(isSelected ? color.opacity(0.5) : Color.clear, lineWidth: 1)
-            )
+            .buttonStyle(.plain)
+            .disabled(strategyMode == nil)
+            .accessibilityIdentifier("caddie-strategy-\(strategyMode ?? "unavailable")")
         }
     }
 
@@ -587,72 +650,117 @@ public struct CaddiePlanView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         ForEach(hazards) { hazard in
-            HStack(spacing: 8) {
-                Text(hazard.icon)
+            HStack(spacing: 10) {
+                hazardGlyph(hazard.icon)
                 Text(hazard.label)
-                    .font(.subheadline)
+                    .font(.subheadline.weight(.medium))
                 Spacer()
                 if let detail = hazard.detail {
                     Text(detail)
                         .font(.caption.monospacedDigit())
+                        .lineLimit(1)
                         .padding(.vertical, 3)
                         .padding(.horizontal, 8)
-                        .background(AICaddieDesignTokens.bogey.opacity(0.16))
+                        .background(AICaddieDesignTokens.bogey.opacity(0.13))
                         .foregroundStyle(AICaddieDesignTokens.bogey)
                         .clipShape(Capsule())
                 }
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(.secondarySystemBackground).opacity(0.72))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+            )
         }
     }
 
-    /// 备选打法对比表:打法 / 球杆 / 带球 / 风险;推荐行(选中)高亮。
-    private var altTable: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("打法").frame(maxWidth: .infinity, alignment: .leading)
-                Text("球杆").frame(width: 60, alignment: .leading)
-                Text("带球").frame(width: 60, alignment: .trailing)
-                Text("风险").frame(width: 48, alignment: .trailing)
+    @ViewBuilder private func hazardGlyph(_ kind: String) -> some View {
+        ZStack {
+            Circle()
+                .fill((kind == "water" ? Color.blue : AICaddieDesignTokens.bogey).opacity(0.12))
+            if kind == "water" {
+                Image(systemName: "drop.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.blue)
+            } else {
+                ZStack {
+                    Capsule()
+                        .fill(AICaddieDesignTokens.bogey.opacity(0.92))
+                        .frame(width: 19, height: 10)
+                        .rotationEffect(.degrees(-8))
+                    Capsule()
+                        .fill(AICaddieDesignTokens.bogey.opacity(0.45))
+                        .frame(width: 11, height: 5)
+                        .offset(x: 3, y: -1)
+                }
             }
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .padding(.vertical, 6)
-            Divider()
-            ForEach(options) { option in
+        }
+        .frame(width: 28, height: 28)
+        .accessibilityHidden(true)
+    }
+
+    /// 备选打法以紧凑卡片比较打法 / 球杆带球 / 风险；推荐卡保持批准稿的克制高亮。
+    private var altTable: some View {
+        VStack(spacing: 8) {
+            ForEach(orderedOptions) { option in
                 let isSelected = option.id == selectedOptionId
-                HStack {
-                    HStack(spacing: 5) {
+                let color = AICaddieDesignTokens.strategyColor(option.id)
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 7) {
+                        Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                            .font(.caption)
+                            .foregroundStyle(isSelected ? color : Color.secondary)
+                        Text("\(zhCaddieRouteLabel(option.label))打法")
+                            .font(.subheadline.weight(isSelected ? .semibold : .medium))
                         if isSelected {
-                            Text("推荐")
+                            Text("已选")
                                 .font(.caption2.weight(.bold))
                                 .padding(.vertical, 2)
                                 .padding(.horizontal, 6)
-                                .background(AICaddieDesignTokens.strategyColor(option.id).opacity(0.18))
-                                .foregroundStyle(AICaddieDesignTokens.strategyColor(option.id))
+                                .background(color.opacity(0.16))
+                                .foregroundStyle(color)
                                 .clipShape(Capsule())
                         }
-                        Text(zhCaddieRouteLabel(option.label))
-                            .font(.subheadline.weight(isSelected ? .semibold : .regular))
-                            .lineLimit(1)
+                        Spacer()
+                        Text("风险 \(Int(option.riskScore))")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(AICaddieDesignTokens.riskColor(option.riskScore))
+                            .padding(.vertical, 3)
+                            .padding(.horizontal, 7)
+                            .background(AICaddieDesignTokens.riskColor(option.riskScore).opacity(0.12))
+                            .clipShape(Capsule())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(zhClubName(option.clubName)).font(.subheadline).frame(width: 60, alignment: .leading)
-                    Text("\(CoursePrepRoute.yards(fromMetres: option.carryM)) 码").font(.subheadline.monospacedDigit()).frame(width: 60, alignment: .trailing)
-                    Text("\(Int(option.riskScore))")
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(AICaddieDesignTokens.riskColor(option.riskScore))
-                        .frame(width: 48, alignment: .trailing)
+                    HStack(spacing: 6) {
+                        Text(zhClubName(option.clubName))
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                        Text("带球 \(CoursePrepRoute.yards(fromMetres: option.carryM)) 码")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 6)
-                .background(isSelected ? AICaddieDesignTokens.strategyColor(option.id).opacity(0.10) : Color.clear)
-                Divider()
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(isSelected ? color.opacity(0.08) : Color(.secondarySystemBackground).opacity(0.6))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(isSelected ? color.opacity(0.45) : Color.primary.opacity(0.05), lineWidth: 1)
+                )
             }
         }
     }
 
-    /// 推荐打法的证据明细。只显示对玩家有意义的:样本/把握/期望杆。来源 ref、模型名、
+    /// 推荐打法的证据明细。只显示对玩家有意义的样本与把握。来源 ref、模型名、
     /// 缺数据标签等工程 provenance 留在类型上(sourceRefsText/missingDataText)但不渲染。
     @ViewBuilder private func recommendedDetail(_ option: CaddiePlanOption) -> some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -668,7 +776,7 @@ public struct CaddiePlanView: View {
     }
 }
 
-/// 避开区项:emoji 图标 + 中文标签 + 距离区间(由 CoursePrep 的 hazards 区间生成)。
+/// 避开区项：语义图标键 + 中文标签 + CoursePrep 中可证实的距离事实。
 public struct CaddiePlanHazard: Identifiable, Equatable {
     public let id: String
     public let icon: String
@@ -682,21 +790,72 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
         self.detail = detail
     }
 
-    /// 从 course_prep 的 hazards(米区间)生成避开区列表:沙坑在前、水域在后,各自按越线距离近→远排序。
-    /// 同类多于一处时编号(沙坑 1 / 沙坑 2 …),避免三个都只写「沙坑」看不出区别(round-10 反馈)。
-    public static func from(_ hazards: CoursePrepHazards) -> [CaddiePlanHazard] {
-        var out: [CaddiePlanHazard] = []
-        let bunkers = hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-        for (index, interval) in bunkers.enumerated() {
-            let label = bunkers.count > 1 ? "沙坑 \(index + 1)" : "沙坑"
-            out.append(CaddiePlanHazard(id: "bunker-\(index)", icon: "🏖", label: label, detail: rangeText(interval)))
+    /// New prep details give both water and bunkers true front/back edges. Legacy water intervals
+    /// retain both readings; a legacy bunker has only one safe route distance because its second
+    /// number is an internal lateral gap, never a player-facing back edge.
+    public static func from(
+        _ hazards: CoursePrepHazards,
+        route: [[Double]]? = nil
+    ) -> [CaddiePlanHazard] {
+        var out: [(frontRouteM: Double, hazard: CaddiePlanHazard)] = []
+        let bunkerDetails = hazards.details
+            .filter { $0.kind == "bunker" }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+        if !bunkerDetails.isEmpty {
+            for (index, detail) in bunkerDetails.enumerated() {
+                let label = CoursePrepHazardNaming.label(kind: "bunker", detail: detail, route: route)
+                out.append((detail.frontRouteM, CaddiePlanHazard(
+                    id: "bunker-\(index)", icon: "bunker", label: label,
+                    detail: measuredText(frontM: detail.frontM, backM: detail.backM)
+                )))
+            }
+        } else {
+            let bunkers = hazards.bunkers.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            for (index, interval) in bunkers.enumerated() {
+                let label = CoursePrepHazardNaming.legacyLabel(
+                    kind: "bunker", interval: interval, route: route
+                )
+                out.append((interval.first ?? .greatestFiniteMagnitude, CaddiePlanHazard(
+                    id: "bunker-\(index)", icon: "bunker", label: label, detail: bunkerText(interval)
+                )))
+            }
         }
-        let water = hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
-        for (index, interval) in water.enumerated() {
-            let label = water.count > 1 ? "水域 \(index + 1)" : "水域"
-            out.append(CaddiePlanHazard(id: "water-\(index)", icon: "💧", label: label, detail: rangeText(interval)))
+        let waterDetails = hazards.details
+            .filter { $0.kind == "water" }
+            .sorted { $0.frontRouteM < $1.frontRouteM }
+        if !waterDetails.isEmpty {
+            for (index, detail) in waterDetails.enumerated() {
+                let label = CoursePrepHazardNaming.label(kind: "water", detail: detail, route: route)
+                out.append((detail.frontRouteM, CaddiePlanHazard(
+                    id: "water-\(index)", icon: "water", label: label,
+                    detail: measuredText(frontM: detail.frontM, backM: detail.backM)
+                )))
+            }
+        } else {
+            let water = hazards.waterCarry.sorted { ($0.first ?? 0) < ($1.first ?? 0) }
+            for (index, interval) in water.enumerated() {
+                let label = CoursePrepHazardNaming.legacyLabel(
+                    kind: "water", interval: interval, route: route
+                )
+                out.append((interval.first ?? .greatestFiniteMagnitude, CaddiePlanHazard(
+                    id: "water-\(index)", icon: "water", label: label, detail: rangeText(interval)
+                )))
+            }
         }
-        return out
+        return out.sorted {
+            if $0.frontRouteM == $1.frontRouteM { return $0.hazard.id < $1.hazard.id }
+            return $0.frontRouteM < $1.frontRouteM
+        }.map { $0.hazard }
+    }
+
+    private static func bunkerText(_ values: [Double]) -> String? {
+        guard let alongRoute = values.first else { return nil }
+        let distance = CoursePrepRoute.yards(fromMetres: alongRoute)
+        return "距 \(distance) 码"
+    }
+
+    private static func measuredText(frontM: Double, backM: Double) -> String {
+        "到 \(CoursePrepRoute.yards(fromMetres: frontM)) · 过 \(CoursePrepRoute.yards(fromMetres: backM)) 码"
     }
 
     private static func rangeText(_ interval: [Double]) -> String? {
@@ -704,8 +863,8 @@ public struct CaddiePlanHazard: Identifiable, Equatable {
             return nil
         }
         if interval.count >= 2 {
-            return "\(CoursePrepRoute.yards(fromMetres: start))–\(CoursePrepRoute.yards(fromMetres: interval[1])) 码"
+            return measuredText(frontM: start, backM: interval[1])
         }
-        return "越线 \(CoursePrepRoute.yards(fromMetres: start)) 码"
+        return "距 \(CoursePrepRoute.yards(fromMetres: start)) 码"
     }
 }

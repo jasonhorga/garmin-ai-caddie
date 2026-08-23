@@ -22,7 +22,11 @@ from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components  #
 
 import json
 
-SS = 2  # supersample factor
+# The final bitmap is still 1060 px high and is displayed below native size on every supported
+# iPhone/Watch. Rendering that frame at 2x first multiplied the rich-topo working set and made a
+# cold Half Moon Bay hole take 11–27 seconds. Native-size rendering keeps the same projection and
+# output dimensions while reducing a measured cold render to roughly 2.5 seconds.
+SS = 1  # supersample factor
 # Fill-the-frame framing (design-system §九, ported from the locked prototype `make_frame`; the
 # funnel /render-final.png reference is 678x1060). The hole fills the HEIGHT; the canvas WIDTH
 # shrinks to the hole (never below FRAME_MIN_ASPECT portrait, hole centred, sky padding on the
@@ -36,6 +40,9 @@ SS = 2  # supersample factor
 FRAME_H = 1060           # display px the hole fills to along the tee->green axis
 FRAME_MIN_ASPECT = 0.64  # portrait floor (w/h); a hole wider than this widens the canvas
 FRAME_MARGIN = 0.06      # proportional breathing room around the framed surfaces
+# The rendered hole is clipped to a route corridor.  Geometry farther away can only be an
+# adjacent-hole fragment, so it must not widen the shared topo/overlay frame before that clip.
+FRAME_ROUTE_CORRIDOR_M = 110.0
 PALETTE = {
     "bg": (191, 222, 240), "Rough": (122, 167, 92), "TreeArea": (92, 138, 74),
     "Fairway": (150, 196, 104), "Fringe": (167, 207, 122), "Green": (126, 205, 110),
@@ -54,7 +61,65 @@ def load_mesh(global_id: int, local_hole: int):
     return md, {m["name"]: m for m in md["meshes"]}
 
 
-def _setup(by, tee, green, oh=FRAME_H, min_aspect=FRAME_MIN_ASPECT, margin_frac=FRAME_MARGIN):
+def _distance_sq_to_route(pt, route):
+    """Squared metre distance from a local 2D point to a route polyline."""
+    best = math.inf
+    for a, b in zip(route, route[1:]):
+        vx, vy = b[0] - a[0], b[1] - a[1]
+        denom = vx * vx + vy * vy
+        t = 0.0 if denom == 0 else max(
+            0.0,
+            min(1.0, ((pt[0] - a[0]) * vx + (pt[1] - a[1]) * vy) / denom),
+        )
+        qx, qy = a[0] + t * vx, a[1] + t * vy
+        best = min(best, (pt[0] - qx) ** 2 + (pt[1] - qy) ** 2)
+    return best
+
+
+def _points_in_route_corridor(points, route, limit_sq):
+    """Filter points by the same route distance rule without per-point helper overhead.
+
+    Frame setup only needs a yes/no answer.  Precomputing each route segment and stopping at the
+    first qualifying segment preserves the exact ``<= limit_sq`` contract while avoiding hundreds
+    of thousands of short-lived ``zip``/``min``/``max`` calls on production meshes.
+    """
+    segments = []
+    for start, end in zip(route, route[1:]):
+        ax, ay = start
+        vx, vy = end[0] - ax, end[1] - ay
+        segments.append((ax, ay, vx, vy, vx * vx + vy * vy))
+
+    kept = []
+    for point in points:
+        px, py = point
+        for ax, ay, vx, vy, denom in segments:
+            if denom == 0:
+                qx, qy = ax, ay
+            else:
+                projection = ((px - ax) * vx + (py - ay) * vy) / denom
+                if projection <= 0.0:
+                    qx, qy = ax, ay
+                elif projection >= 1.0:
+                    qx, qy = ax + vx, ay + vy
+                else:
+                    qx, qy = ax + projection * vx, ay + projection * vy
+            dx, dy = px - qx, py - qy
+            if dx * dx + dy * dy <= limit_sq:
+                kept.append(point)
+                break
+    return kept
+
+
+def _setup(
+    by,
+    tee,
+    green,
+    oh=FRAME_H,
+    min_aspect=FRAME_MIN_ASPECT,
+    margin_frac=FRAME_MARGIN,
+    route=None,
+    route_corridor_m=FRAME_ROUTE_CORRIDOR_M,
+):
     """Fill-the-frame projector: the hole fills the height ``oh``; the canvas width is the hole's own
     width (floored at ``min_aspect`` portrait, hole centred), with ``margin_frac`` breathing room.
 
@@ -70,6 +135,14 @@ def _setup(by, tee, green, oh=FRAME_H, min_aspect=FRAME_MIN_ASPECT, margin_frac=
     # PlayableBounds is a generous, per-hole-varying box that left the hole tiny in a corner and the
     # scale inconsistent between holes. Falls back to PlayableBounds/Rough only if no surface is present.
     pts = [_local(p) for name in ORDER if (m := by.get(name + ".drc")) for p in m["positions"]]
+    route_pts = [(float(p[0]), float(p[1])) for p in (route or [])]
+    if len(route_pts) >= 2 and pts:
+        limit_sq = float(route_corridor_m) ** 2
+        # A decoded file can contain surfaces from neighbouring holes.  Those fragments are clipped
+        # later and therefore are not visible, but historically they still stretched the canvas.
+        # Keep only geometry that could survive the route clip, and include the route itself so a
+        # malformed surface cannot crop a dogleg or either endpoint out of the shared projection.
+        pts = _points_in_route_corridor(pts, route_pts, limit_sq) + route_pts
     if not pts:
         pb = by.get("PlayableBounds.drc") or by.get("Rough.drc")
         pts = [_local(p) for p in pb["positions"]] if pb else [tee, green]
@@ -129,7 +202,7 @@ def _frame(by, route):
     ``w // SS`` x ``h // SS`` (variable width, ``FRAME_H`` tall). ``margin`` is the nominal
     breathing room in supersampled px, kept for signature/back-compat (callers derive geometry from
     ``project``, not ``margin``)."""
-    project, sc, w, h = _setup(by, tuple(route[0]), tuple(route[-1]))
+    project, sc, w, h = _setup(by, tuple(route[0]), tuple(route[-1]), route=route)
     margin = int(round(FRAME_H * FRAME_MARGIN)) * SS
     return project, sc, w, h, margin
 
@@ -173,14 +246,23 @@ def overlay_unprojector(by, route):
     return from_px
 
 
-def render_hole(global_id: int, local_hole: int, route, route_len: float, landing_m=None):
+def render_hole(
+    global_id: int,
+    local_hole: int,
+    route,
+    route_len: float,
+    landing_m=None,
+    *,
+    mesh_data=None,
+    frame=None,
+):
     """Render the hole. Returns (image_data_uri, overlay_meta).
 
     overlay_meta = {w, h, ppm, ln, route:[[px,py,cumM],...]} in display (post-downsample)
     pixel coords, so a client can map metres<->pixels and place the interactive layer.
     """
-    md, by = load_mesh(global_id, local_hole)
-    project, sc, w, h, margin = _frame(by, route)
+    md, by = mesh_data or load_mesh(global_id, local_hole)
+    project, sc, w, h, margin = frame or _frame(by, route)
     img = Image.new("RGBA", (w, h), PALETTE["bg"] + (255,))
     d = ImageDraw.Draw(img, "RGBA")
     for name in ORDER:

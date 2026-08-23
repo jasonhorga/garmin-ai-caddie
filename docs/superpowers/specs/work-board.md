@@ -1,5 +1,7 @@
 # 该做的事 —— 一张清单看全
 
+> **2026-07-16 AUTHORITY CORRECTION — ARCHIVED SNAPSHOT：**本文件是 2026-07-09 的进度快照，**不再是当前任务表，也不再产生 Owner 问题或实施授权**。其中旧 Watch A/B/C 排期门、完整读推杆、默认 Workout 与“AutoShot 先搁着”等文字已被当前决策账本取代。现行队列、任务依赖和条件重开见[Watch 决策账本](../../reviews/2026-07-15-watch-decision-and-task-tracker.md)；全仓旧文档/实现漂移见[Owner-gate 审计](../../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。正文保留用于追溯。
+
 **更新 2026-07-09**
 
 > 把手头该做的事都列在这一张纸上,免得聊着聊着钻进一件、把别的忘了(你我都会犯)。

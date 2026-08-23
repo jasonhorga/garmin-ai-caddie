@@ -84,8 +84,8 @@ public struct StatsSummary: Codable, Equatable {
 
 public struct StatsScoring: Codable, Equatable {
     public let outcomes: StatsOutcomes?
-    // round-13 E6: GolfLive 7-bucket spread (老鹰/小鸟/标准杆/柏忌/双柏忌/+3/+4) + the
-    // 表现 phase/tee/approach sections. Section-tolerant (one bad section never blanks the screen).
+    // Score-history breadth plus Garmin-style phase/tee/approach summaries. Section-tolerant:
+    // one malformed aggregate never blanks the rest of the performance screen.
     public let outcomeDistribution: [StatsOutcomeBucket]
     public let scoreBands: [StatsScoreBand]
     public let byPar: [StatsByPar]
@@ -148,6 +148,16 @@ public struct StatsPhase: Codable, Equatable, Identifiable {
     public let holesWithPutts: Int?
     public let averagePutts: Double?
     public let threePutts: Int?
+    /// Aggregate contract supplied by the history service.  The iPhone UI uses this to say how
+    /// much of the selected window is actually recorded instead of turning missing facts into 0%.
+    public let coverage: StatsCoverage?
+    public let confidence: String?
+}
+
+public struct StatsCoverage: Codable, Equatable {
+    public let ready: Int?
+    public let total: Int?
+    public let pct: Double?
 }
 
 public struct StatsTeeDirection: Codable, Equatable {

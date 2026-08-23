@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from itertools import combinations_with_replacement
 import json
 import math
 from pathlib import Path
@@ -38,9 +39,9 @@ MIN_CADDIE_SAMPLE = 20
 # under different labels (e.g. "3W" vs "3号木杆") and collapsed to the better-sampled row.
 NEAR_DUP_CLUB_EPS_M = 3.0
 MIN_SEQUENCE_DISTANCE_M = 260.0
-SCORING_CLUB_MIN_M = 45.0
-SCORING_CLUB_MAX_M = 115.0
-LONG_CLUB_MIN_M = 135.0
+MAX_SEQUENCE_OVERSHOOT_M = 10.0
+MAX_SEQUENCE_STEPS = 5
+EXTRA_SEQUENCE_STEP_COST_M = 25.0
 VISION_USABLE_CONFIDENCE = {"medium", "high"}
 VISION_HAZARD_TYPES = {
     "visible_water": "water",
@@ -595,16 +596,26 @@ def _prefer_trusted_clubs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _dedupe_near_clubs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Collapse rows whose medians are within NEAR_DUP_CLUB_EPS_M (same club, different label).
+    """Collapse canonical aliases and rows whose medians are near-identical.
 
-    Keeps the better-sampled row of each near-duplicate cluster; the caller re-sorts.
+    Keeps the better-sampled row of each cluster; the caller re-sorts. Canonical identity must win
+    even when stale aliases have drifted by more than the distance epsilon (``3W`` and
+    ``三号木杆`` are one physical club, not two options).
     """
+    from ai_caddie.caddie.club_bag import canonical_club_name
+
     kept: list[dict[str, Any]] = []
+    canonical_seen: set[str] = set()
     for row in sorted(rows, key=lambda r: (-int(r.get("sampleSize") or 0), str(r.get("clubName") or ""))):
+        token = canonical_club_name(str(row.get("clubName") or ""))
+        if token and token in canonical_seen:
+            continue
         median_m = _float(row.get("median_m"))
         if any(abs(_float(other.get("median_m")) - median_m) <= NEAR_DUP_CLUB_EPS_M for other in kept):
             continue
         kept.append(row)
+        if token:
+            canonical_seen.add(token)
     return kept
 
 
@@ -695,27 +706,13 @@ def _club_profile_rows(profiles: dict[str, dict[str, Any]]) -> list[dict[str, An
 
 
 def _sequence_distance(context: dict[str, Any]) -> float:
-    for key in ("holeRemaining_m", "remainingToPin_m", "distanceToPin_m"):
+    # A live/manual distance is more current than the package's tee-distance fallback.
+    for key in ("distanceToPin_m", "remainingToPin_m", "holeRemaining_m"):
         if context.get(key) is not None:
-            return _float(context.get(key))
+            value = _float(context.get(key))
+            if math.isfinite(value) and 0.0 < value <= 1000.0:
+                return value
     return 0.0
-
-
-def _is_scoring_club(row: dict[str, Any]) -> bool:
-    name = str(row.get("clubName") or "").upper()
-    median_m = _float(row.get("median_m"))
-    if SCORING_CLUB_MIN_M <= median_m <= SCORING_CLUB_MAX_M:
-        return True
-    return name in {"PW", "GW", "SW", "LW", "50", "52", "54", "56", "58", "60"}
-
-
-def _best_scoring_club(rows: list[dict[str, Any]], remaining_m: float, *, mode: str) -> dict[str, Any] | None:
-    scoring = [row for row in rows if _is_scoring_club(row)]
-    if not scoring:
-        return None
-    if mode == "attack":
-        return max(scoring, key=lambda row: (_float(row.get("median_m")), row.get("sampleSize", 0)))
-    return min(scoring, key=lambda row: (abs(_float(row.get("median_m")) - remaining_m), -int(row.get("sampleSize") or 0)))
 
 
 def _sequence_step(row: dict[str, Any], remaining_before_m: float, role: str) -> dict[str, Any]:
@@ -756,105 +753,89 @@ def _sequence_confidence(steps: list[dict[str, Any]]) -> str:
     return "high"
 
 
-def _sequence_option(
-    *,
-    option_id: str,
-    label: str,
-    distance_m: float,
-    first: dict[str, Any],
-    second: dict[str, Any] | None,
-    scoring: dict[str, Any] | None,
-    risk_score: float,
-    rationale: str,
-) -> dict[str, Any]:
+def _is_driver(row: dict[str, Any]) -> bool:
+    from ai_caddie.caddie.club_bag import canonical_club_name
+
+    return canonical_club_name(str(row.get("clubName") or "")) == "driver"
+
+
+def _sequence_first_club(option: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    recommendation = option.get("clubRecommendation") if isinstance(option.get("clubRecommendation"), dict) else {}
+    clubs = recommendation.get("clubs") if isinstance(recommendation.get("clubs"), list) else []
+    club_name = str((clubs[0] if clubs and isinstance(clubs[0], dict) else {}).get("clubName") or "").strip()
+    if club_name:
+        exact = next((row for row in rows if str(row.get("clubName") or "").casefold() == club_name.casefold()), None)
+        if exact is not None:
+            return exact
+    target_m = _float(option.get("carry_m") if option.get("carry_m") is not None else option.get("carryM"))
+    return min(rows, key=lambda row: (abs(_float(row.get("median_m")) - target_m), -int(row.get("sampleSize") or 0))) if rows else None
+
+
+def _sequence_tail(rows: list[dict[str, Any]], remaining_m: float) -> list[dict[str, Any]]:
+    if remaining_m <= 20.0:
+        return []
+    playable = [row for row in rows if not _is_driver(row)]
+    if not playable:
+        return []
+    longest_m = max(_float(row.get("median_m")) for row in playable)
+    minimum_steps = max(1, math.ceil(max(0.0, remaining_m - MAX_SEQUENCE_OVERSHOOT_M) / longest_m))
+    maximum_steps = min(MAX_SEQUENCE_STEPS - 1, minimum_steps + 1)
+    best: tuple[tuple[float, ...], list[dict[str, Any]]] | None = None
+    for step_count in range(minimum_steps, maximum_steps + 1):
+        for indexes in combinations_with_replacement(range(len(playable)), step_count):
+            candidate = sorted((playable[index] for index in indexes), key=lambda row: -_float(row.get("median_m")))
+            leave_m = round(remaining_m - sum(_float(row.get("median_m")) for row in candidate), 1)
+            overshoot_m = max(0.0, -leave_m)
+            excessive_overshoot = 1.0 if overshoot_m > MAX_SEQUENCE_OVERSHOOT_M else 0.0
+            extra_step_cost = (step_count - minimum_steps) * EXTRA_SEQUENCE_STEP_COST_M
+            sample_strength = sum(int(row.get("sampleSize") or 0) for row in candidate)
+            key = (
+                excessive_overshoot,
+                abs(leave_m) + extra_step_cost,
+                overshoot_m,
+                -float(sample_strength),
+                *tuple(str(row.get("clubName") or "") for row in candidate),
+            )
+            if best is None or key < best[0]:
+                best = (key, candidate)
+    return best[1] if best else []
+
+
+def _sequence_option(*, option: dict[str, Any], distance_m: float, club_rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    first = _sequence_first_club(option, club_rows)
+    if first is None:
+        return None
+    planned_rows = [first, *_sequence_tail(club_rows, distance_m - _float(first.get("median_m")))]
     remaining = distance_m
-    steps = [_sequence_step(first, remaining, "advance")]
-    remaining = steps[-1]["expectedRemaining_m"]
-    if second is not None:
-        steps.append(_sequence_step(second, remaining, "position"))
-        remaining = steps[-1]["expectedRemaining_m"]
-    if scoring is not None:
-        steps.append(_sequence_step(scoring, remaining, "scoring"))
+    steps = []
+    for index, row in enumerate(planned_rows):
+        role = "advance" if index == 0 else ("scoring" if index == len(planned_rows) - 1 else "position")
+        steps.append(_sequence_step(row, remaining, role))
         remaining = steps[-1]["expectedRemaining_m"]
     source_refs = _dedupe([ref for step in steps for ref in _sanitize_ref_list(step.get("sourceRefs"))])
     return {
-        "id": option_id,
+        "id": option.get("id"),
         "label": "-".join(str(step["clubName"]) for step in steps),
-        "strategyLabel": label,
+        "strategyLabel": option.get("label") or option.get("id"),
         "clubs": steps,
-        "totalExpectedCarry_m": round(sum(_float(step.get("targetCarry_m")) for step in steps), 1),
+        "totalPlannedCarry_m": round(sum(_float(step.get("targetCarry_m")) for step in steps), 1),
         "expectedRemaining_m": round(remaining, 1),
-        "expectedStrokes": len(steps),
-        "riskScore": risk_score,
-        "rationale": rationale,
+        "riskScore": _float(option.get("riskScore")),
+        "rationale": "Uses recorded median club carries and must be recalculated after the next lie is known.",
         "sourceRefs": source_refs,
         "coverage": _sequence_coverage(steps),
         "confidence": _sequence_confidence(steps),
     }
 
 
-def _club_sequences(context: dict[str, Any]) -> list[dict[str, Any]]:
+def _club_sequences(context: dict[str, Any], options: list[dict[str, Any]]) -> list[dict[str, Any]]:
     distance_m = _sequence_distance(context)
     if distance_m < MIN_SEQUENCE_DISTANCE_M:
         return []
     rows = _club_profile_rows(context.get("clubProfiles") or {})
-    long_rows = [row for row in rows if _float(row.get("median_m")) >= LONG_CLUB_MIN_M]
-    if len(long_rows) < 2:
+    if len(rows) < 2 or not options:
         return []
-
-    longest = long_rows[0]
-    second_longest = long_rows[1]
-    safe_first = second_longest
-    safe_second = next((row for row in long_rows[2:] if row["clubName"] != safe_first["clubName"]), None)
-    stock_second = second_longest
-    attack_second = second_longest
-
-    safe_remaining = distance_m - _float(safe_first.get("median_m")) - _float((safe_second or {}).get("median_m"))
-    stock_remaining = distance_m - _float(longest.get("median_m")) - _float(stock_second.get("median_m"))
-    attack_remaining = distance_m - _float(longest.get("median_m")) - _float(attack_second.get("median_m"))
-
-    sequences = [
-        _sequence_option(
-            option_id="safe",
-            label="Position for a full scoring club",
-            distance_m=distance_m,
-            first=safe_first,
-            second=safe_second,
-            scoring=_best_scoring_club(rows, safe_remaining, mode="safe"),
-            risk_score=1.0,
-            rationale="Keep the first two swings below maximum pressure and leave a predictable scoring club.",
-        ),
-        _sequence_option(
-            option_id="stock",
-            label="Normal three-shot plan",
-            distance_m=distance_m,
-            first=longest,
-            second=stock_second,
-            scoring=_best_scoring_club(rows, stock_remaining, mode="stock"),
-            risk_score=2.0,
-            rationale="Use normal full swings and choose the wedge closest to the remaining number.",
-        ),
-        _sequence_option(
-            option_id="attack",
-            label="Maximize advancement",
-            distance_m=distance_m,
-            first=longest,
-            second=attack_second,
-            scoring=_best_scoring_club(rows, attack_remaining, mode="attack"),
-            risk_score=4.0,
-            rationale="Advance aggressively; only use when dispersion, lie, and hazards support it.",
-        ),
-    ]
-
-    deduped = []
-    seen = set()
-    for sequence in sequences:
-        key = sequence["label"]
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(sequence)
-    return deduped
+    return [sequence for option in options if (sequence := _sequence_option(option=option, distance_m=distance_m, club_rows=rows))]
 
 
 def _selected_sequence(sequences: list[dict[str, Any]], selected: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -872,7 +853,7 @@ def _sequence_evidence(sequences: list[dict[str, Any]], selected_sequence: dict[
         "kind": "sequence",
         "text": (
             f"{sequence['strategyLabel']}: {sequence['label']} "
-            f"leaves {sequence['expectedRemaining_m']}m after {sequence['expectedStrokes']} shots"
+            f"uses recorded median carries and leaves {sequence['expectedRemaining_m']}m; re-plan from the next lie"
         ),
         "sourceRefs": sequence.get("sourceRefs", []),
         "coverage": sequence.get("coverage"),
@@ -2297,6 +2278,16 @@ def _apply_live_location(context: dict[str, Any]) -> dict[str, Any]:
         return analysis
 
     distance_m = round(_haversine_m(current, target), 1)
+    # Far-away coordinates are useful evidence that the player is off-course, not a golf distance.
+    # Leave the packaged nominal hole distance in authority instead of generating kilometre-long
+    # sequences and displaying them as a recommendation.
+    if not math.isfinite(distance_m) or distance_m <= 0.0 or distance_m > 1000.0:
+        analysis["_liveDistanceRejected"] = {
+            "source": "currentLocation+targetLocation",
+            "distanceToPin_m": distance_m,
+            "reason": "outside_golf_range",
+        }
+        return analysis
     bearing = round(_bearing_deg(current, target), 1)
     analysis["distanceToPin_m"] = distance_m
     analysis.setdefault("shotBearingDeg", bearing)
@@ -3095,7 +3086,7 @@ def _safe_manual_notes(analysis: dict[str, Any]) -> list[dict[str, Any]]:
 def _build_shot_decision(analysis: dict[str, Any], shot_type: str, options: list[dict[str, Any]]) -> dict[str, Any]:
     selected = _select_option(options, _strategy_mode(analysis), analysis)
     avoid_zones = selected.get("avoidZones", []) if selected else []
-    sequences = _club_sequences(analysis)
+    sequences = _club_sequences(analysis, options)
     selected_sequence = _selected_sequence(sequences, selected)
     evidence = _shot_evidence(analysis, selected)
     sequence_evidence = _sequence_evidence(sequences, selected_sequence)
@@ -3147,7 +3138,7 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     options = _ordered_options(options)
     selected = _select_option(options, _strategy_mode(analysis), analysis)
     forbidden = selected.get("forbiddenZones", []) if selected else []
-    sequences = _club_sequences(analysis)
+    sequences = _club_sequences(analysis, options)
     selected_sequence = _selected_sequence(sequences, selected)
     evidence = _evidence(analysis, selected, include_route_geometry=used_route_evidence)
     sequence_evidence = _sequence_evidence(sequences, selected_sequence)

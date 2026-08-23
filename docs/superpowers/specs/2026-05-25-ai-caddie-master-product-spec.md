@@ -1,5 +1,7 @@
 # AI Caddie Master Product Spec
 
+> **2026-07-16 AUTHORITY CORRECTION — HISTORICAL NORTH-STAR SOURCE：**本文件仍提供个人/私有产品的长期目标，但不是当前 Watch 或 v1 动态数据实施规格。早期的 iPhone-companion Watch、天气/风为必备输入等条款已被 D04 与 L18 局部取代；当前产品代码实施仍受 no-code gate 约束。权威队列见[Watch 决策账本](../../reviews/2026-07-15-watch-decision-and-task-tracker.md)，完整冲突见[全仓 Owner-gate 审计](../../reviews/2026-07-16-repository-wide-owner-gate-authority-and-drift-audit.md)。
+
 Date: 2026-05-25
 
 ## Purpose

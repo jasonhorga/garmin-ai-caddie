@@ -107,10 +107,18 @@ class ServerV2CaddieTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        labels = {sequence["label"] for sequence in payload["sequences"]}
-        self.assertIn("1D-3W-58", labels)
-        self.assertIn("3W-5I-54", labels)
+        self.assertEqual([sequence["id"] for sequence in payload["sequences"]], ["safe", "stock", "attack"])
+        options = {option["id"]: option for option in payload["options"]}
+        for sequence in payload["sequences"]:
+            self.assertNotIn("expectedStrokes", sequence)
+            self.assertEqual(
+                sequence["clubs"][0]["clubName"],
+                options[sequence["id"]]["clubRecommendation"]["clubs"][0]["clubName"],
+            )
+            self.assertGreaterEqual(sequence["expectedRemaining_m"], -10.0)
+            self.assertLessEqual(abs(sequence["expectedRemaining_m"]), 20.0)
         self.assertEqual(payload["selectedSequence"]["id"], payload["selectedOptionId"])
+        self.assertNotIn("expectedStrokes", payload["selectedSequence"])
         self.assertIn("coverage", payload["selectedSequence"])
         self.assertIn("confidence", payload["selectedSequence"])
         self.assertIn("sourceRefs", payload["selectedSequence"])

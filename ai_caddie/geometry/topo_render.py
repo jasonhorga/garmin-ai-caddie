@@ -6,7 +6,9 @@ draw their live vector overlays (playing line, shot dots, ball, reticle, yardage
 Built ON TOP of ``hole_render`` and never modifies it. It reuses ``hole_render._frame`` so the
 PNG shares the EXACT projection + canvas size as ``hole_render.overlay_projector`` — the overlay
 pixel coordinates the prep / shot-map responses already return line up with the topo base by
-construction (same 720x1120 portrait frame, ~0.64 aspect, hole centred with sky on the sides).
+construction (variable-width portrait frame, ~0.64 minimum aspect). The off-course canvas is
+transparent so iPhone/Watch/Web can place the same course asset on their platform-appropriate map
+surface instead of baking a phone-style sky colour into every client.
 
 The rich topo texturing is ported from the standalone prototype
 (``docs/superpowers/specs/assets/hole-render-topo-prototype.py``) and the locked rules in
@@ -20,8 +22,8 @@ The rich topo texturing is ported from the standalone prototype
   - trees: 1..9 species field (size/brightness), broccoli silhouette + smooth NW->SE gradient +
     fine grain + one soft grounded shadow layer; trees only fall in the side rough, never the
     fairway/green; shadows never darken mown surfaces
-  - water: THIS hole's connected water only (flood-filled from the green end), shallow->deep
-    gradient + ripple + bright shoreline
+  - water: THIS hole's connected lake plus decoded coastal Ocean/VfxOcean/OceanSide surfaces,
+    shallow->deep gradient + ripple + bright shoreline
   - green: white target ring + flag on the REAL per-hole green centroid (clustered to the play
     line so a neighbour green never steals the flag)
   - clean super-sampled material edges (no Gaussian blur softening)
@@ -33,25 +35,42 @@ Pure rendering — no network, no AI. PIL + numpy only (no scipy / cv2).
 """
 from __future__ import annotations
 
+import gc
+import hashlib
 import io
 import math
 import os
 import random
+import sys
+import threading
 from pathlib import Path
+from uuid import uuid4
 
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
-from ai_caddie.core.data import ROOT, mesh_path
+from ai_caddie.core.data import ROOT, hazard_path, mesh_path
 from ai_caddie.courses import course_prep
 from ai_caddie.geometry import hole_render
+from ai_caddie.geometry.geometry_authority import authority_path, cache_token
 
 # Bump when the render rules change so previously-cached PNGs are superseded (the cache key
 # includes this; old files stay on disk but are never served again).
 # topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
-STYLE_VERSION = "topo-v3"  # v3: 发球台小 tee 台标记(route[0] 处,和果岭旗遥相呼应)
+STYLE_VERSION = "topo-v8"  # v8: bounded coast plus every route-visible water component
+# The focused asset is a separate cache contract from the whole-hole bitmap.  Bump this when its
+# crop/compositing treatment changes; otherwise an installed Watch can keep the old, green-only
+# tile forever even though the server has learned to render a sharp surrounding apron.
+GREEN_DETAIL_STYLE_VERSION = "green-v2"
+GREEN_DETAIL_DEFAULT_SIZE = 1024
+GREEN_DETAIL_MIN_SIZE = 320
+GREEN_DETAIL_MAX_SIZE = 1280
+
+# PhysicsMesh is clipped to the same route corridor used by the renderer.  Unlike the decoded
+# material layers, it is a continuous terrain authority and therefore cannot add TreeArea spikes.
+HOLE_MASK_ROUTE_RADIUS_M = hole_render.FRAME_ROUTE_CORRIDOR_M
 
 SS = hole_render.SS  # supersample factor — MUST match hole_render so the frame downsamples identically
 AZ = math.radians(135)  # sun FROM the south-east (Garmin-matched: light in the lower-right)
@@ -62,6 +81,7 @@ PAL = {  # Garmin-matched realistic palette (the locked "realistic" panel of the
     "Rough": (110, 168, 66), "TreeArea": (92, 148, 58),
     "Fairway": (160, 216, 88), "Fringe": (172, 220, 104), "Green": (158, 216, 78),
     "Bunker": (232, 224, 178), "Teebox": (128, 186, 90),
+    "Beach": (226, 211, 164), "Cliff": (139, 130, 108), "CliffUV2": (139, 130, 108),
     "rough_lo": np.array([84, 138, 56], np.float32),
     "rough_hi": np.array([138, 190, 86], np.float32),
     "water_shallow": np.array([96, 190, 214], np.float32),
@@ -70,7 +90,26 @@ PAL = {  # Garmin-matched realistic palette (the locked "realistic" panel of the
     "edge": (46, 72, 38),
 }
 
-ORDER = ["Rough", "TreeArea", "Fairway", "Fringe", "Bunker", "Teebox", "Green"]
+ORDER = [
+    "Rough", "TreeArea", "Beach", "Cliff", "CliffUV2",
+    "Fairway", "Fringe", "Bunker", "Teebox", "Green",
+]
+
+# These layers are genuine coastal surfaces in Garmin's decoded course package.  Older renderers
+# ignored them, leaving PAL["bg"] visible inside PhysicsMesh; on Cypress 15--17 that looked like a
+# flat blue polygon clipped by the PNG edge.  OceanSide is a projected shoreline wall, but including
+# it closes small gaps between Ocean and VfxOcean without inventing water beyond source geometry.
+OCEAN_LAYERS = ("Ocean", "VfxOcean", "OceanSide")
+WATER_LAYERS = ("Lake",) + OCEAN_LAYERS
+
+# TreeArea is deliberately absent: some packages contain neighbouring-hole TreeArea triangles.
+# Beach/Cliff are rendered, but also stay out: a coastal strip can continue to the arbitrary mesh
+# edge and therefore cannot decide the visible hole envelope.  Only factual playable surfaces do.
+ENVELOPE_SUPPORT_LAYERS = (
+    "Rough", "Fairway", "Fringe", "Bunker", "Teebox", "Green",
+)
+
+ENVELOPE_PADDING_M = 4.0
 
 # id -> distinct top-down tree look (our species field, which Garmin does not expose).
 # rad=radius multiplier; base=body, hi=sun highlight, lo=dark underside, dap=dapple clump.
@@ -113,6 +152,188 @@ def _font(sz):  # kept for callers that want their own labels; the base map itse
     return ImageFont.load_default()
 
 
+def _clip_to_transparent_canvas(img: Image.Image, course_mask: Image.Image) -> Image.Image:
+    """Place the clipped course on transparency before shadows/canopies are composited.
+
+    Chroma-keying the final RGB render is insufficient: a tree shadow outside ``course_mask`` has
+    already darkened the old blue canvas and therefore no longer equals ``PAL["bg"]``. Starting the
+    overlay pass on a real transparent canvas preserves each overlay's own colour and alpha without
+    baking any phone-specific sky into the shared asset.
+    """
+    result = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    result.paste(img.convert("RGBA"), (0, 0), course_mask)
+    return result
+
+
+def _route_corridor_mask(size, route_px, sc, radius_m):
+    """Binary route corridor in the same supersampled projection as the renderer."""
+    mask = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(mask)
+    radius = max(1, int(round(float(radius_m) * sc)))
+    if len(route_px) >= 2:
+        try:
+            draw.line(route_px, fill=255, width=radius * 2, joint="curve")
+        except TypeError:
+            draw.line(route_px, fill=255, width=radius * 2)
+    for x, y in route_px:
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
+    return mask
+
+
+def _ground_envelope(mask_for, fallback: Image.Image) -> Image.Image:
+    """Choose continuous terrain; packages without it retain the exact legacy material union."""
+    physics = mask_for("PhysicsMesh")
+    return physics if physics is not None else fallback
+
+
+def _combined_water_mask(mask_for) -> Image.Image | None:
+    """Union every factual water component; the shared route/ground clip removes neighbour context.
+
+    Selecting only the Lake component nearest the green hid valid earlier hazards on holes with two
+    or more lakes.  Keeping the decoded union is both simpler and correct: the final hole corridor
+    and bounded terrain envelope already decide which part belongs on this hole's bitmap.
+    """
+    combined = None
+    for name in WATER_LAYERS:
+        mask = mask_for(name)
+        if mask is not None:
+            combined = mask if combined is None else ImageChops.lighter(combined, mask)
+    return combined
+
+
+def _convex_hull(points: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Small monotone-chain hull used by the silhouette pass (keeps cv2 out of request workers)."""
+    unique = sorted(set(points))
+    if len(unique) <= 1:
+        return unique
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower: list[tuple[int, int]] = []
+    for point in unique:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], point) <= 0:
+            lower.pop()
+        lower.append(point)
+    upper: list[tuple[int, int]] = []
+    for point in reversed(unique):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], point) <= 0:
+            upper.pop()
+        upper.append(point)
+    return lower[:-1] + upper[:-1]
+
+
+def _bounded_route_envelope(
+    current_mask: Image.Image,
+    support_mask: Image.Image,
+    route_px: list[tuple[float, float]],
+    pixels_per_metre: float,
+    *,
+    supersample: int = SS,
+    padding_m: float = ENVELOPE_PADDING_M,
+) -> Image.Image:
+    """Keep the continuous PhysicsMesh shape, but only near this hole's factual surfaces.
+
+    PhysicsMesh is the best continuous outline, yet seaside packages also contain ocean floor all
+    the way to an arbitrary mesh/canvas edge.  The old renderer exposed that edge as a rectangular
+    blue appendage.  Conversely, using the raw material union brought back neighbouring-hole spikes
+    and large gaps.  This pass finds only material components touched by the selected route, wraps
+    them in a rounded convex envelope, and intersects that envelope with the continuous current
+    mask.  It therefore removes unsupported far-ocean pixels without changing the shared projector.
+
+    Work happens at final display resolution; the result is expanded back to the supersampled mask
+    and re-intersected with the original authority, so no pixel outside PhysicsMesh can be invented.
+    """
+    if current_mask.size != support_mask.size or not route_px:
+        return current_mask
+
+    ss = max(1, int(supersample))
+    dw = max(1, current_mask.width // ss)
+    dh = max(1, current_mask.height // ss)
+    display_size = (dw, dh)
+
+    def binary_small(mask: Image.Image) -> Image.Image:
+        return mask.resize(display_size, Image.Resampling.NEAREST).point(
+            lambda value: 255 if value >= 128 else 0
+        )
+
+    current = binary_small(current_mask)
+    support = ImageChops.multiply(binary_small(support_mask), current)
+    current_np = np.asarray(current, dtype=np.uint8)
+    if not np.any(current_np) or not support.getbbox():
+        return current_mask
+
+    route_display = [
+        (
+            max(0, min(dw - 1, int(round(float(x) / ss)))),
+            max(0, min(dh - 1, int(round(float(y) / ss)))),
+        )
+        for x, y in route_px
+    ]
+
+    # Label only support components reached by the selected route.  A small metric search tolerates
+    # a tee/green centre that sits just outside the rasterised surface.  PIL floodfill is sufficient
+    # here and avoids importing a second image-processing runtime into each API worker.
+    labelled = support.copy()
+    search_px = max(5, int(round(8.0 * float(pixels_per_metre) / ss)))
+    touched = False
+    for rx, ry in route_display:
+        labelled_np = np.asarray(labelled, dtype=np.uint8)
+        if labelled_np[ry, rx] == 128:  # this component was already retained
+            continue
+        x0, x1 = max(0, rx - search_px), min(dw, rx + search_px + 1)
+        y0, y1 = max(0, ry - search_px), min(dh, ry + search_px + 1)
+        patch = labelled_np[y0:y1, x0:x1]
+        ys, xs = np.where(patch == 255)
+        if not len(xs):
+            continue
+        distances = (xs + x0 - rx) ** 2 + (ys + y0 - ry) ** 2
+        nearest = int(np.argmin(distances))
+        seed = (int(xs[nearest] + x0), int(ys[nearest] + y0))
+        ImageDraw.floodfill(labelled, seed, 128, thresh=0)
+        touched = True
+
+    labelled_np = np.asarray(labelled, dtype=np.uint8)
+    selected = labelled_np == 128 if touched else labelled_np == 255
+    # Row extrema are enough for a convex hull and bound the input to at most 2*height points.
+    hull_points: list[tuple[int, int]] = []
+    for y in np.flatnonzero(np.any(selected, axis=1)):
+        xs = np.flatnonzero(selected[y])
+        hull_points.append((int(xs[0]), int(y)))
+        hull_points.append((int(xs[-1]), int(y)))
+    hull_points.extend(route_display)
+    hull = _convex_hull(hull_points)
+    if len(hull) < 3:
+        return current_mask
+
+    min_x = min(point[0] for point in hull)
+    max_x = max(point[0] for point in hull)
+    min_y = min(point[1] for point in hull)
+    max_y = max(point[1] for point in hull)
+    requested_padding = max(0, int(round(float(padding_m) * float(pixels_per_metre) / ss)))
+    # Always leave at least two final pixels between the bounded envelope and the arbitrary canvas
+    # edge.  Normal holes already have the frame's 6% margin, so this cap changes only bad packages.
+    edge_clearance = min(min_x, dw - 1 - max_x, min_y, dh - 1 - max_y) - 2
+    padding = min(requested_padding, max(0, edge_clearance))
+
+    envelope = Image.new("L", display_size, 0)
+    draw = ImageDraw.Draw(envelope)
+    draw.polygon(hull, fill=255)
+    if padding:
+        closed = hull + [hull[0]]
+        draw.line(closed, fill=255, width=padding * 2 + 1, joint="curve")
+        for x, y in hull:
+            draw.ellipse((x - padding, y - padding, x + padding, y + padding), fill=255)
+
+    bounded = ImageChops.multiply(current, envelope)
+    if not bounded.getbbox():
+        return current_mask
+    expanded = bounded.resize(current_mask.size, Image.Resampling.NEAREST)
+    return ImageChops.multiply(current_mask, expanded).point(
+        lambda value: 255 if value >= 128 else 0
+    )
+
+
 def _fbm(w, h, seed, octaves=5, base_cells=6, persistence=0.55):
     """Fractal value noise (0..1, mean ~0.5) from upscaled random grids. No scipy needed."""
     rng = np.random.default_rng(seed)
@@ -130,7 +351,7 @@ def _fbm(w, h, seed, octaves=5, base_cells=6, persistence=0.55):
 
 
 def _build(md, by, route, project, sc, w, h, gid, hole):
-    """The rich topo texture pass. Returns (RGB PIL image at SS resolution)."""
+    """The rich topo texture pass. Returns an RGBA image at SS resolution."""
     _mcache: dict[str, Image.Image | None] = {}
 
     def mask_L(name):
@@ -170,26 +391,29 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         gy, gx = np.gradient(Hm, 1.0 / sc)
         slope = np.arctan(np.hypot(gx, gy))
         aspect = np.arctan2(-gy, gx)
+        # These full-frame float rasters are each tens of megabytes at 4x supersampling.  They are
+        # no longer needed once slope/aspect have been derived; retaining them until ``_build``
+        # returned made a single detailed hole approach the 1 GiB worker limit.
+        del Hm, gx, gy, hraw, pj, pz
         shade = np.clip(np.sin(ALT) * np.cos(slope) + np.cos(ALT) * np.sin(slope) * np.cos(AZ - aspect), 0, 1)
+        del slope, aspect
         light = 1.0 + 0.08 * (shade - 0.5)               # very subtle relief only; NO ambient-occlusion
         light = np.clip(light, 0.94, 1.07)[..., None]
+        del shade
 
     # ---- flat base fills ----
     img = Image.new("RGB", (w, h), PAL["bg"])
     land_L = Image.new("L", (w, h), 0)
+    support_L = Image.new("L", (w, h), 0)
     for name in ORDER:
         mk = mask_L(name)
         if mk is None:
             continue
         img.paste(Image.new("RGB", (w, h), PAL[name]), (0, 0), mk)
         land_L = ImageChops.lighter(land_L, mk)
+        if name in ENVELOPE_SUPPORT_LAYERS:
+            support_L = ImageChops.lighter(support_L, mk)
     base = np.asarray(img, dtype=np.float32)
-
-    a_rough = alpha("Rough"); a_tree = alpha("TreeArea")
-    a_fair = alpha("Fairway"); a_fringe = alpha("Fringe")
-    a_green = alpha("Green"); a_bunker = alpha("Bunker"); a_tee = alpha("Teebox")
-    land_np = (np.asarray(land_L, np.float32) / 255.0)[..., None]
-    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
 
     def blend(mask, color):
         if mask is None:
@@ -204,6 +428,8 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         np.copyto(base, base * (1 - m) + np.clip(base * lum, 0, 255) * m)
 
     # ---- rough: two-tone fbm mottle + fine tufts ----
+    a_rough = alpha("Rough")
+    a_tree = alpha("TreeArea")
     if a_rough is not None or a_tree is not None:
         rough_all = np.clip((a_rough if a_rough is not None else 0) +
                             (a_tree if a_tree is not None else 0), 0, 1)
@@ -213,8 +439,15 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         rc = PAL["rough_lo"] * (1 - g) + PAL["rough_hi"] * g
         rc = np.clip(rc * (1 + 0.085 * (nf - 0.5) * 2)[..., None], 0, 255)
         blend(rough_all, rc)
+        del rough_all, n, nf, g, rc
+    del a_rough, a_tree
+
+    # Coordinate rasters are shared only by the mow/checker/water passes.  Build them after the
+    # rough pass instead of retaining them beside every material alpha mask.
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
 
     # ---- fairway mow stripes (hard diagonal bands, +6% only) + fine turf grain ----
+    a_fair = alpha("Fairway")
     if a_fair is not None:
         th = math.radians(35)
         coord = xx * math.cos(th) + yy * math.sin(th)
@@ -223,9 +456,12 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         mul(a_fair, (1.0 + 0.06 * band)[..., None])
         fg = _fbm(w, h, gid * 7 + 41, octaves=4, base_cells=20, persistence=0.5)
         mul(a_fair, (1.0 + 0.035 * (fg - 0.5) * 2)[..., None])
+        del coord, band, fg
+    del a_fair
 
     # ---- green + fringe: manicured checker ----
-    for gm in (a_fringe, a_green):
+    for material in ("Fringe", "Green"):
+        gm = alpha(material)
         if gm is None:
             continue
         cell = 19.0 * SS
@@ -233,9 +469,12 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         c2 = 0.5 + 0.5 * np.sin(2 * math.pi * (xx - yy) / cell)
         checker = c1 * c2
         mul(gm, (1 + 0.13 * (checker - 0.32))[..., None])
+        del gm, c1, c2, checker
+    del xx
 
     # ---- bunker: sand grain + raked inner-edge depth shadow ----
     bmask = mask_L("Bunker")
+    a_bunker = alpha("Bunker")
     if bmask is not None and a_bunker is not None:
         grain = _fbm(w, h, gid * 7 + 53, octaves=4, base_cells=55, persistence=0.5)
         base += ((grain - 0.5) * 2 * 9.0)[..., None] * a_bunker[..., None]
@@ -246,75 +485,96 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         base -= (rim * 30.0)[..., None]
         depth = np.asarray(bmask.filter(ImageFilter.GaussianBlur(15 * SS)), np.float32) / 255.0
         base += ((depth - 0.5) * 10.0)[..., None] * a_bunker[..., None]
+        del grain, er, ring, rim, depth
+    del a_bunker, bmask
+
+    # ---- decoded coast: warm beach grain + muted rock variation (never leave bg-blue holes) ----
+    a_beach = alpha("Beach")
+    if a_beach is not None:
+        beach_grain = _fbm(w, h, gid * 7 + 67, octaves=4, base_cells=42, persistence=0.5)
+        base += ((beach_grain - 0.5) * 2 * 8.0)[..., None] * a_beach[..., None]
+        del beach_grain
+    del a_beach
+    a_cliff = alpha("Cliff")
+    a_cliff_uv = alpha("CliffUV2")
+    if a_cliff is not None or a_cliff_uv is not None:
+        cliff_all = np.clip(
+            (a_cliff if a_cliff is not None else 0) +
+            (a_cliff_uv if a_cliff_uv is not None else 0),
+            0,
+            1,
+        )
+        rock = _fbm(w, h, gid * 7 + 71, octaves=4, base_cells=24, persistence=0.55)
+        mul(cliff_all, (0.91 + 0.17 * rock)[..., None])
+        del cliff_all, rock
+    del a_cliff, a_cliff_uv
 
     # ---- hillshade over land; DAMPED on mown surfaces so the fairway/green stay evenly flat-lit ----
-    mown = np.clip((a_fair if a_fair is not None else 0) + (a_green if a_green is not None else 0)
-                   + (a_fringe if a_fringe is not None else 0) + (a_tee if a_tee is not None else 0),
-                   0, 1)[..., None]
+    mown_L = Image.new("L", (w, h), 0)
+    for material in ("Fairway", "Green", "Fringe", "Teebox"):
+        if (material_mask := mask_L(material)) is not None:
+            mown_L = ImageChops.lighter(mown_L, material_mask)
+    mown = (np.asarray(mown_L, np.float32) / 255.0)[..., None]
+    del mown_L, material_mask
     light_eff = 1.0 + (light - 1.0) * (1 - 0.92 * mown)
+    land_np = (np.asarray(land_L, np.float32) / 255.0)[..., None]
     np.copyto(base, base * (1 - land_np) + np.clip(base * light_eff, 0, 255) * land_np)
+    del light, light_eff, land_np
 
-    # ---- this hole's water only (flood fill the body nearest the green) ----
-    lmask = mask_L("Lake")
-    water_keep = None
-    if lmask is not None:
-        la = np.asarray(lmask, dtype=np.uint8)
-        ys, xs = np.where(la == 255)
-        if len(xs):
-            tgt = project(tuple(route[-1]))
-            k = int(np.argmin((xs - tgt[0]) ** 2 + (ys - tgt[1]) ** 2))
-            ff = lmask.copy()
-            ImageDraw.floodfill(ff, (int(xs[k]), int(ys[k])), 128, thresh=0)
-            water_keep = ff.point(lambda v: 255 if v == 128 else 0)
-        else:
-            water_keep = lmask
+    # ---- every factual water body; the final route/terrain mask removes neighbour context ----
+    water_keep = _combined_water_mask(mask_L)
 
     # ---- water: depth gradient + ripple + bright shoreline ----
     if water_keep is not None:
         lk = np.asarray(water_keep, np.float32) / 255.0
         depth_src = np.asarray(water_keep.filter(ImageFilter.GaussianBlur(22 * SS)), np.float32)
         dn = np.clip(depth_src / (depth_src.max() + 1e-6) * 1.35, 0, 1) * lk
+        del depth_src
         dn3 = dn[..., None]
         wc = PAL["water_shallow"] * (1 - dn3) + PAL["water_deep"] * dn3
+        del dn3, dn
         rip = _fbm(w, h, gid * 7 + 61, octaves=4, base_cells=16, persistence=0.5)
         band = 0.5 + 0.5 * np.sin(2 * math.pi * yy / (7.0 * SS) + (rip - 0.5) * 6)
         wc = np.clip(wc * (1 + 0.05 * (rip - 0.5) * 2 + 0.03 * (band - 0.5) * 2)[..., None], 0, 255)
+        del rip, band
         lk3 = lk[..., None]
         np.copyto(base, base * (1 - lk3) + wc * lk3)
+        del lk3, lk, wc
         ring = np.asarray(ImageChops.subtract(water_keep, water_keep.filter(ImageFilter.GaussianBlur(2.4 * SS))),
                           np.float32)
         ra = np.clip(ring * 3.4 / 255.0, 0, 1)[..., None]
         np.copyto(base, base * (1 - ra) + PAL["shore"] * ra)
+        del ring, ra
+    del yy
 
     img = Image.fromarray(np.clip(base, 0, 255).astype(np.uint8))
+    del base
 
-    # ---- corridor + hard clip to land ∪ kept water (drops neighbour holes) ----
+    # ---- corridor + hard clip to continuous terrain ∪ kept water (drops neighbour holes) ----
     rpx = [project(tuple(p)) for p in route]
 
     def corridor(radius_m):
-        c = Image.new("L", (w, h), 0)
-        cd = ImageDraw.Draw(c)
-        r = int(radius_m * sc)
-        if len(rpx) >= 2:
-            try:
-                cd.line(rpx, fill=255, width=r * 2, joint="curve")
-            except TypeError:
-                cd.line(rpx, fill=255, width=r * 2)
-        for q in rpx:
-            cd.ellipse((q[0] - r, q[1] - r, q[0] + r, q[1] + r), fill=255)
-        return c
+        return _route_corridor_mask((w, h), rpx, sc, radius_m)
 
-    corr = corridor(110)
-    hole_mask = land_L
+    corr = corridor(HOLE_MASK_ROUTE_RADIUS_M)
+    # PhysicsMesh is the continuous terrain authority.  Rough/TreeArea/paths are material layers
+    # with holes and neighbouring polygons; unioning them for alpha caused the reported spikes.
+    # Older/partial packages retain the legacy all-land union instead of using Rough alone (Rough
+    # has intentional fairway/green cut-outs and is therefore not a complete fallback envelope).
+    ground_envelope = _ground_envelope(mask_L, land_L)
+    hole_mask = ImageChops.multiply(ground_envelope, corr).point(lambda v: 255 if v >= 128 else 0)
     if water_keep is not None:
-        hole_mask = ImageChops.lighter(hole_mask, water_keep)
-    hole_mask = ImageChops.multiply(hole_mask, corr).point(lambda v: 255 if v >= 128 else 0)
-    bg = Image.new("RGB", (w, h), PAL["bg"])
-    bg.paste(img, (0, 0), hole_mask)
+        visible_water = ImageChops.multiply(water_keep, corr).point(lambda v: 255 if v >= 128 else 0)
+        hole_mask = ImageChops.lighter(hole_mask, visible_water)
+        del visible_water
+    hole_mask = _bounded_route_envelope(hole_mask, support_L, rpx, sc)
+    del corr, ground_envelope, support_L, land_L, water_keep
+    img = _clip_to_transparent_canvas(img, hole_mask)
     outline = ImageChops.difference(hole_mask, hole_mask.filter(ImageFilter.MinFilter(3)))
     stroke = Image.new("RGBA", (w, h), PAL["edge"] + (0,))
     stroke.putalpha(outline.point(lambda v: int(v * 0.55)))
-    img = Image.alpha_composite(bg.convert("RGBA"), stroke).convert("RGB")
+    img = Image.alpha_composite(img, stroke)
+    del outline, stroke
 
     # ---- crisp material boundary strokes (clean edges; no blur) ----
     def add_stroke(name, rgb, wpx, a):
@@ -331,10 +591,14 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
                                ("Green", (70, 146, 52), 1, 205)]:
         _ov = add_stroke(_nm, _rgb, _wp, _a)
         if _ov is not None:
-            img = Image.alpha_composite(img.convert("RGBA"), _ov).convert("RGB")
+            img = Image.alpha_composite(img, _ov)
+    del _ov
 
     # ---- trees: species-differentiated canopies (treeline in rough; none on the fairway) ----
     fmask = mask_L("Fairway")
+    # Material masks other than Fairway are finished.  Releasing the supersampled PIL rasters here
+    # matters on coastal holes, where many decoded layers are present simultaneously.
+    _mcache.clear()
     fair_np = np.asarray(fmask, np.uint8) if fmask is not None else None
     hole_np = np.asarray(hole_mask, np.uint8)
     trees = md.get("foliage", {}).get("trees", [])
@@ -371,7 +635,8 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     shp = shp.filter(ImageFilter.GaussianBlur(3.4 * SS))
     sa = np.asarray(shp.split()[3], np.float32) * (1 - 0.92 * mown[..., 0])  # keep shadows off mown turf
     shp.putalpha(Image.fromarray(np.clip(sa, 0, 255).astype(np.uint8)))
-    img = Image.alpha_composite(img.convert("RGBA"), shp).convert("RGB")
+    img = Image.alpha_composite(img, shp)
+    del sa, mown, shp
 
     # (2) canopies on a dedicated layer, composited once at the end
     canopy = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -414,7 +679,7 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     for px, py, r, spec, sd in placed:
         draw_broadleaf(px, py, r, spec, random.Random(sd))
 
-    img = Image.alpha_composite(img.convert("RGBA"), canopy).convert("RGB")
+    img = Image.alpha_composite(img, canopy)
     return img
 
 
@@ -426,11 +691,13 @@ def _draw_green_marker(img, project, by, route):
     gm = by.get("Green.drc")
     if not gm:
         return img
-    d = ImageDraw.Draw(img, "RGBA")
-    gl = [_local(p) for p in gm["positions"]]
-    tgt = route[-1]
-    nv = min(gl, key=lambda p: math.hypot(p[0] - tgt[0], p[1] - tgt[1]))
-    near = [p for p in gl if math.hypot(p[0] - nv[0], p[1] - nv[1]) < 35] or [nv]
+    input_mode = img.mode
+    marker = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(marker, "RGBA")
+    component = course_prep.selected_green_component(by, route)
+    if not component:
+        return img
+    near = [_local(gm["positions"][index]) for index in component["vertex_indices"]]
     cx = sum(p[0] for p in near) / len(near)
     cz = sum(p[1] for p in near) / len(near)
     gpx = [project(p) for p in near]
@@ -446,7 +713,8 @@ def _draw_green_marker(img, project, by, route):
     d.polygon([(gcx, gcy - pole), (gcx + 17 * SS, gcy - pole + 7 * SS), (gcx, gcy - pole + 14 * SS)],
               fill=(228, 58, 58, 255))
     d.ellipse((gcx - 3 * SS, gcy - 3 * SS, gcx + 3 * SS, gcy + 3 * SS), fill=(30, 30, 30, 255))
-    return img
+    composited = Image.alpha_composite(img.convert("RGBA"), marker)
+    return composited if input_mode == "RGBA" else composited.convert(input_mode)
 
 
 def _draw_tee_marker(img, project, by, route):
@@ -455,7 +723,9 @@ def _draw_tee_marker(img, project, by, route):
     lands on the actual tee (not the frame edge). Drawn on the SS image, downsampled with the rest."""
     if not route or len(route) < 2:
         return img
-    d = ImageDraw.Draw(img, "RGBA")
+    input_mode = img.mode
+    marker = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(marker, "RGBA")
     tpx, tpy = project(route[0])
     npx, npy = project(route[1])
     dx, dy = npx - tpx, npy - tpy
@@ -477,12 +747,13 @@ def _draw_tee_marker(img, project, by, route):
     for s in (1.0, -1.0):
         mx, my = fx + qx * hw * 0.62 * s, fy + qy * hw * 0.62 * s
         d.ellipse((mx - 3 * SS, my - 3 * SS, mx + 3 * SS, my + 3 * SS), fill=(250, 250, 250, 240))
-    return img
+    composited = Image.alpha_composite(img.convert("RGBA"), marker)
+    return composited if input_mode == "RGBA" else composited.convert(input_mode)
 
 
 def render_hole_topo_image(gid: int, hole: int) -> Image.Image:
-    """Render the LOCKED realistic topo base for (gid, hole) as a downsampled RGB PIL image
-    (720x1120, the same frame as ``hole_render.overlay_projector``).
+    """Render the LOCKED realistic topo base for (gid, hole) as a downsampled RGBA PIL image
+    (the same variable-width frame as ``hole_render.overlay_projector``).
 
     Raises ``TopoGeometryUnavailable`` when the hole has no decoded geometry or no derivable
     route — the caller turns that into a 404. Any other rendering error propagates as a
@@ -513,7 +784,132 @@ def render_hole_topo(gid: int, hole: int) -> bytes:
     ``TopoRenderError`` on failure (never crashes the caller)."""
     img = render_hole_topo_image(gid, hole)
     buf = io.BytesIO()
-    img.save(buf, "PNG", optimize=True)
+    # Pillow's exhaustive PNG optimisation cost seconds on a cold rich-topo render while saving
+    # only transport bytes that HTTP/cache reuse pays once. Normal compression is fast and keeps a
+    # standards-compliant lossless PNG.
+    img.save(buf, "PNG", optimize=False)
+    return buf.getvalue()
+
+
+def _validated_green_detail_crop(crop: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    """Validate and canonicalise a client-requested full-topo crop.
+
+    The crop is expressed in the display-pixel frame returned by ``holeImageProjection``.  Keeping
+    it client-supplied means the phone and the Watch can use the exact same rectangle without adding
+    another metadata sidecar to every course package.  Bounds are deliberately tight: this endpoint
+    is public course imagery and must not become an unbounded render-size oracle.
+    """
+    if len(crop) != 4 or not all(math.isfinite(float(value)) for value in crop):
+        raise ValueError("green detail crop must contain four finite values")
+    x, y, width, height = (float(value) for value in crop)
+    if width < 20 or height < 20 or width > 1000 or height > 1000:
+        raise ValueError("green detail crop has an invalid size")
+    if x < -1000 or y < -1000 or x > 10000 or y > 10000:
+        raise ValueError("green detail crop origin is out of range")
+    # One decimal is enough for a projection pixel and keeps cache keys stable across JSON/Swift
+    # floating-point formatting differences.
+    return tuple(round(value, 1) for value in (x, y, width, height))
+
+
+def _feather_green_detail_edges(image: Image.Image) -> Image.Image:
+    """Fade a focused render into the continuous whole-hole bitmap at its crop boundary.
+
+    The source alpha already encodes the factual route/course envelope.  Multiplying it by a short
+    edge ramp preserves that authority while preventing the client from exposing an opaque square
+    when its high-resolution crop is rotated over a separately rendered base image.
+    """
+    rendered = image.convert("RGBA")
+    out_w, out_h = rendered.size
+    if out_w <= 1 or out_h <= 1:
+        return rendered
+    edge = max(8, min(out_w, out_h) // 16)
+    yy, xx = np.mgrid[0:out_h, 0:out_w]
+    distance = np.minimum.reduce((xx, yy, out_w - 1 - xx, out_h - 1 - yy))
+    edge_alpha = np.clip(distance.astype(np.float32) / float(edge), 0.0, 1.0)
+    source_alpha = np.asarray(rendered.getchannel("A"), dtype=np.float32) / 255.0
+    alpha = np.clip(source_alpha * edge_alpha * 255.0, 0, 255).astype(np.uint8)
+    rendered.putalpha(Image.fromarray(alpha, mode="L"))
+    return rendered
+
+
+def render_hole_green_detail_image(
+    gid: int,
+    hole: int,
+    crop: tuple[float, float, float, float],
+    *,
+    size: int = GREEN_DETAIL_DEFAULT_SIZE,
+) -> Image.Image:
+    """Render a high-resolution, green-focused bitmap in the shared topo coordinate frame.
+
+    ``/topo.png`` is framed for an entire hole, so a putting surface can be only a few source
+    pixels wide.  Re-rendering the decoded Garmin geometry into the requested local window keeps
+    the fairway/bunker context but gives the green genuine pixels; interpolation of the old bitmap
+    can never do that.  The output is transparent outside the factual course corridor and therefore
+    can be composited over the normal whole-hole image while rotating the green.
+    """
+    gid = int(gid)
+    hole = int(hole)
+    x, y, width, height = _validated_green_detail_crop(crop)
+    size = int(size)
+    if not GREEN_DETAIL_MIN_SIZE <= size <= GREEN_DETAIL_MAX_SIZE:
+        raise ValueError("green detail output size is out of range")
+    if not mesh_path(gid, hole).exists():
+        raise TopoGeometryUnavailable(f"no geometry mesh for gid{gid} hole{hole}")
+    try:
+        md, by = hole_render.load_mesh(gid, hole)
+        route, route_len = course_prep.derive_route(md)
+        if not route or not route_len:
+            raise TopoGeometryUnavailable(f"no derivable route for gid{gid} hole{hole}")
+        base_project, base_sc, _base_w, _base_h, _margin = hole_render._frame(by, route)
+        # Preserve the requested aspect ratio while keeping the long side at the requested detail
+        # resolution.  The shared client crop is square today, but accepting a rectangle keeps the
+        # endpoint useful to iOS layouts without changing the coordinate contract.
+        detail_scale = float(size) / max(width, height)
+        out_w = max(1, int(round(width * detail_scale)))
+        out_h = max(1, int(round(height * detail_scale)))
+
+        def detail_project(point):
+            px, py = base_project(point)
+            return ((px - x) * detail_scale, (py - y) * detail_scale)
+
+        image = _build(
+            md,
+            by,
+            route,
+            detail_project,
+            base_sc * detail_scale,
+            out_w,
+            out_h,
+            gid,
+            hole,
+        )
+        rendered = image.resize((out_w, out_h), Image.Resampling.LANCZOS).convert("RGBA")
+
+        # The Watch composites this focused window over the normal whole-hole image.  The two
+        # renders have the same geometry but their texture rasters have different pixel densities,
+        # so an opaque crop edge reads as a square seam (and a rotated transparent corner can read
+        # as a black wedge).  Fade only the *outer crop edge*; the factual course alpha produced by
+        # ``_build`` is retained inside the window.  This lets the old continuous topo show through
+        # at the edge while the enlarged fairway/rough/bunker context remains genuinely detailed.
+        return _feather_green_detail_edges(rendered)
+    except TopoGeometryUnavailable:
+        raise
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise TopoRenderError(f"green detail render failed for gid{gid} hole{hole}: {exc}") from exc
+
+
+def render_hole_green_detail(
+    gid: int,
+    hole: int,
+    crop: tuple[float, float, float, float],
+    *,
+    size: int = GREEN_DETAIL_DEFAULT_SIZE,
+) -> bytes:
+    image = render_hole_green_detail_image(gid, hole, crop, size=size)
+    buf = io.BytesIO()
+    image.save(buf, "PNG", optimize=False)
     return buf.getvalue()
 
 
@@ -528,28 +924,226 @@ def cache_dir() -> Path:
     return root / STYLE_VERSION
 
 
+def cache_identity(gid: int, hole: int) -> str:
+    mesh_file = mesh_path(gid, hole)
+    token = cache_token(
+        global_id=int(gid),
+        local_hole=int(hole),
+        mesh_file=mesh_file,
+        hazard_file=hazard_path(gid, hole),
+        sidecar=authority_path(mesh_file),
+    )
+    return f"{STYLE_VERSION}-{token}"
+
+
 def cache_path(gid: int, hole: int) -> Path:
-    return cache_dir() / f"gid{int(gid)}_h{int(hole):02d}.png"
+    return cache_dir() / f"gid{int(gid)}_h{int(hole):02d}_{cache_identity(gid, hole)}.png"
+
+
+def green_detail_cache_path(
+    gid: int,
+    hole: int,
+    crop: tuple[float, float, float, float],
+    *,
+    size: int = GREEN_DETAIL_DEFAULT_SIZE,
+) -> Path:
+    canonical = _validated_green_detail_crop(crop)
+    key = hashlib.sha256(
+        (repr(canonical) + f"|{int(size)}|{GREEN_DETAIL_STYLE_VERSION}").encode("ascii")
+    ).hexdigest()[:20]
+    return cache_dir() / "green-detail" / (
+        f"gid{int(gid)}_h{int(hole):02d}_{cache_identity(gid, hole)}_{key}.png"
+    )
+
+
+_cache_lock = threading.Lock()
+_cache_inflight: dict[Path, threading.Event] = {}
+# A cold supersampled render owns several large NumPy rasters at once.  Different holes used to
+# render concurrently (the per-path singleflight only protects duplicate requests), so an iPhone
+# download plus Web/Watch prewarm could multiply that peak until the API host swapped or died.
+# Serialise cold renders process-wide; warm PNG reads never take this gate.
+_cold_render_slot = threading.BoundedSemaphore(2)
+
+
+def _release_cold_render_working_set() -> None:
+    """Return supersampled render arenas to Linux after a cold render.
+
+    A render briefly owns several large PIL/NumPy buffers. Python releases those objects, but
+    glibc normally retains their arenas, so a worker that pre-renders a course can remain multiple
+    gigabytes larger even though no render object is reachable. ``malloc_trim`` returns those free
+    pages to the OS. It is a best-effort Linux/glibc optimisation and must never affect rendering on
+    Darwin or another libc.
+    """
+    gc.collect()
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        import ctypes
+
+        malloc_trim = ctypes.CDLL(None).malloc_trim
+        malloc_trim.argtypes = [ctypes.c_size_t]
+        malloc_trim.restype = ctypes.c_int
+        malloc_trim(0)
+    except Exception:
+        # musl and other C libraries may not export malloc_trim. Cache correctness and the response
+        # must never depend on an optional allocator hint.
+        return
+
+
+def _write_cached_topo(path: Path, png: bytes) -> None:
+    """Publish rendered bytes into the disk cache atomically, under a name unique to this writer.
+
+    ``os.replace`` alone is not enough. A FIXED ``<name>.tmp`` scratch path is shared by every
+    concurrent writer of the same hole, and the topo cache directory is shared beyond one process:
+    several API workers plus the prerender tool can point at the same ``AI_CADDIE_TOPO_CACHE_DIR``
+    (the in-process singleflight only covers one interpreter). Two writers then interleave into the
+    same scratch file and the ``os.replace`` publishes a truncated/mixed PNG that later readers keep
+    serving. Giving each writer a pid+random scratch name leaves only the rename racing, and both
+    renames carry byte-identical content for the same cache identity.
+
+    Raises ``OSError`` like the direct write it replaces; callers treat cache writes as best effort.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    try:
+        tmp.write_bytes(png)
+        os.replace(tmp, path)
+    except OSError:
+        # A failed write (full volume, vanished dir) must not leave scratch files accumulating in a
+        # cache directory that nothing else sweeps.
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def _read_cached_topo(path: Path) -> bytes | None:
+    if not path.exists():
+        return None
+    try:
+        cached = path.read_bytes()
+    except OSError:
+        return None
+    try:
+        # Atomic writes prevent readers from observing our own half-written file, but they cannot
+        # protect a persistent volume from truncation or corruption. Never serve arbitrary non-empty
+        # bytes as image/png forever: discard an invalid entry and let the normal singleflight path
+        # rebuild it from the current Garmin geometry authority.
+        with Image.open(io.BytesIO(cached)) as image:
+            if image.format != "PNG":
+                raise ValueError("cached topo is not PNG")
+            image.verify()
+        return cached
+    except Exception:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return None
 
 
 def render_hole_topo_cached(gid: int, hole: int) -> bytes:
-    """PNG bytes for (gid, hole), served from the on-disk cache after the first render.
+    """PNG bytes for (gid, hole, geometry authority), cached after the first render.
 
     Raises ``TopoGeometryUnavailable`` when the hole has no geometry (cheap ``mesh_path``
     check — negatives are not cached, they just fail fast) and ``TopoRenderError`` on a
-    malformed mesh. A successful render is written atomically then reused."""
+    malformed mesh. A Garmin geometry update changes the cache identity and therefore
+    cannot reuse the previous release's bitmap."""
     path = cache_path(gid, hole)
-    if path.exists():
-        try:
-            return path.read_bytes()
-        except OSError:
-            pass  # unreadable cache entry -> re-render below
-    png = render_hole_topo(gid, hole)  # raises on missing/broken geometry (before any write)
+    if cached := _read_cached_topo(path):
+        return cached
+
+    # AsyncImage, the phone's offline cache, Watch transfer and Web may request the same cold hole
+    # together. Rendering each copy wastes tens of seconds of CPU and can block unrelated catalogue
+    # requests. One process-level leader renders; followers reuse its atomic cache result.
+    with _cache_lock:
+        if cached := _read_cached_topo(path):
+            return cached
+        waiter = _cache_inflight.get(path)
+        if waiter is None:
+            waiter = threading.Event()
+            _cache_inflight[path] = waiter
+            is_leader = True
+        else:
+            is_leader = False
+
+    if not is_leader:
+        waiter.wait()
+        if cached := _read_cached_topo(path):
+            return cached
+        # The leader failed before producing a cache file. Become the next leader and preserve the
+        # endpoint's existing honest 404/error behaviour instead of returning invented bytes.
+        return render_hole_topo_cached(gid, hole)
+
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".png.tmp")
-        tmp.write_bytes(png)
-        os.replace(tmp, path)  # atomic: concurrent readers never see a half-written file
-    except OSError:
-        pass  # cache write is best-effort; still return the freshly rendered bytes
-    return png
+        with _cold_render_slot:
+            try:
+                png = render_hole_topo(gid, hole)  # raises before any cache write
+            finally:
+                _release_cold_render_working_set()
+        try:
+            _write_cached_topo(path, png)  # atomic: concurrent readers never see a half-written file
+        except OSError:
+            pass  # cache write is best-effort; still return the freshly rendered bytes
+        return png
+    finally:
+        with _cache_lock:
+            _cache_inflight.pop(path, None)
+            waiter.set()
+
+
+_green_cache_lock = threading.Lock()
+_green_cache_inflight: dict[Path, threading.Event] = {}
+
+
+def render_hole_green_detail_cached(
+    gid: int,
+    hole: int,
+    crop: tuple[float, float, float, float],
+    *,
+    size: int = GREEN_DETAIL_DEFAULT_SIZE,
+) -> bytes:
+    """Render/cache one bounded high-resolution green window.
+
+    This intentionally has its own cache namespace.  A normal topo style bump invalidates both
+    images through ``cache_identity``; ``GREEN_DETAIL_STYLE_VERSION`` also lets us change crop
+    treatment without serving a stale focused asset.
+    """
+    canonical = _validated_green_detail_crop(crop)
+    path = green_detail_cache_path(gid, hole, canonical, size=size)
+    if cached := _read_cached_topo(path):
+        return cached
+
+    with _green_cache_lock:
+        if cached := _read_cached_topo(path):
+            return cached
+        waiter = _green_cache_inflight.get(path)
+        if waiter is None:
+            waiter = threading.Event()
+            _green_cache_inflight[path] = waiter
+            is_leader = True
+        else:
+            is_leader = False
+
+    if not is_leader:
+        waiter.wait()
+        if cached := _read_cached_topo(path):
+            return cached
+        return render_hole_green_detail_cached(gid, hole, canonical, size=size)
+
+    try:
+        with _cold_render_slot:
+            try:
+                png = render_hole_green_detail(gid, hole, canonical, size=size)
+            finally:
+                _release_cold_render_working_set()
+        try:
+            _write_cached_topo(path, png)
+        except OSError:
+            pass
+        return png
+    finally:
+        with _green_cache_lock:
+            _green_cache_inflight.pop(path, None)
+            waiter.set()

@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from ai_caddie.caddie.caddie_context import build_caddie_context
+from ai_caddie.caddie.mobile_live import hydrate_live_caddie_geometry_context
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.caddie.decision import (
     audit_decision,
@@ -38,7 +39,9 @@ WEATHER_ROOT = Path(".")
 def build_caddie_decision_response(
     request: CaddieDecisionRequest, *, player_id: str = OWNER_ID
 ) -> CaddieDecisionResponse:
-    decision = build_decision_from_request(request.model_dump())
+    payload = request.model_dump()
+    payload["context"] = hydrate_live_caddie_geometry_context(payload.get("context") or {})
+    decision = build_decision_from_request(payload)
     # Member-scoped: the decision lands in the caller's evidence partition (evidence_root(player_id));
     # the owner stays flat / byte-identical.
     store_decision(decision, root=DECISION_LEDGER_ROOT, player_id=player_id)
@@ -144,8 +147,16 @@ def create_decision_audit_response(
     )
 
 
-def latest_decision_audit_response(decision_id: str) -> CaddieDecisionAuditLatestResponse:
-    record = latest_decision_audit(decision_id, root=DECISION_AUDIT_ROOT)
+def latest_decision_audit_response(
+    decision_id: str, *, player_id: str = OWNER_ID
+) -> CaddieDecisionAuditLatestResponse:
+    # Read from the same caller partition used by decision/audit writes. A guessed owner/member
+    # decision id therefore resolves to null instead of crossing evidence boundaries.
+    record = latest_decision_audit(
+        decision_id,
+        root=DECISION_AUDIT_ROOT,
+        player_id=player_id,
+    )
     return CaddieDecisionAuditLatestResponse(
         schema="ai-caddie-decision-audit-latest-v1",
         decisionId=normalize_decision_audit_id(decision_id),

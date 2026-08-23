@@ -64,8 +64,8 @@ class MultimodalProvider(Protocol):
 
 def redact_secret_text(text: object) -> str:
     value = str(text)
-    value = re.sub(r"(?i)authorization\s+bearer\s+[a-z0-9._~+/=-]+", "authorization [REDACTED]", value)
-    value = re.sub(r"(?i)bearer\s+[a-z0-9._~+/=-]+", "Bearer [REDACTED]", value)
+    value = re.sub(r"(?i)authorization\s+bearer\s+[^\s,;)]+", "authorization [REDACTED]", value)
+    value = re.sub(r"(?i)bearer\s+[^\s,;)]+", "Bearer [REDACTED]", value)
     value = re.sub(
         r"(?i)(authorization|cookie|connect-csrf-token|csrf|token|access[_-]?token|refresh[_-]?token|client[_-]?secret|api[_-]?key)\s*[:=]\s*[^,\s]+",
         r"\1=[REDACTED]",
@@ -77,8 +77,13 @@ def redact_secret_text(text: object) -> str:
         value,
     )
     value = re.sub(r"(?i)file://[^\s,)]+", "[REDACTED_PATH]", value)
-    value = re.sub(r"/(?:home|Users|private|tmp|var)/[^\s,)]+", "[REDACTED_PATH]", value)
-    value = re.sub(r"[A-Za-z]:\\Users\\[^\s,)]+", "[REDACTED_PATH]", value)
+    value = re.sub(r"\\\\[^\s,;)]+", "[REDACTED_PATH]", value)
+    value = re.sub(r"(?i)(?<![a-z0-9])[a-z]:\\[^\s,;)]+", "[REDACTED_PATH]", value)
+    value = re.sub(
+        r"(^|[\s=(\[{'\"])/(?!/)[^\s,;)]+",
+        r"\1[REDACTED_PATH]",
+        value,
+    )
     return value
 
 

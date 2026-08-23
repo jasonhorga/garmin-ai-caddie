@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from contextlib import redirect_stdout
 import io
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -123,12 +126,68 @@ class PipelineSyncTests(unittest.TestCase):
     def test_main_parses_refresh_auth_shots_and_geometry_limit(self) -> None:
         stdout = io.StringIO()
         with patch.object(pipeline, "sync", return_value=pipeline.SyncResult(auth_ok=True, rounds=1)) as sync_call, \
+                patch.object(pipeline, "_persist_sync_observability") as persist, \
                 redirect_stdout(stdout):
             code = pipeline.main(["--shots", "--refresh-auth", "--geometry-limit", "50"])
 
         self.assertEqual(code, 0)
         self.assertIn('"auth_ok": true', stdout.getvalue())
         sync_call.assert_called_once_with(with_shots=True, force_refresh=True, geometry_limit=50)
+        persist.assert_called_once()
+
+    def test_persist_sync_observability_writes_status_without_fake_snapshot(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "data" / "scorecards").mkdir(parents=True)
+            (root / "data" / "shots").mkdir(parents=True)
+            (root / "data" / "summary.json").write_text("{}", encoding="utf-8")
+            (root / "data" / "scorecards" / "1.json").write_text("{}", encoding="utf-8")
+            (root / "data" / "shots" / "1.json").write_text("{}", encoding="utf-8")
+
+            result = pipeline.SyncResult(auth_ok=True, scorecards=1, shots=1)
+            self.assertTrue(pipeline._persist_sync_observability(result, root=root))
+
+            self.assertFalse((root / "data" / "snapshots").exists())
+            status = json.loads((root / "data" / "sync" / "garmin_cn_status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status["state"], "ready")
+            self.assertIsNone(status["snapshotId"])
+
+    def test_persist_sync_observability_records_upstream_freshness(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = pipeline.SyncResult(
+                auth_ok=True,
+                scorecards=3,
+                shots=3,
+                remote_round_count=3,
+                remote_latest_round_id="r3",
+                remote_latest_round_at="2026-08-22T09:00:00Z",
+                new_round_count=0,
+            )
+
+            pipeline._persist_sync_observability(result, root=root)
+            status = json.loads((root / "data" / "sync" / "garmin_cn_status.json").read_text())
+
+        self.assertEqual(status["remoteRoundCount"], 3)
+        self.assertEqual(status["remoteLatestRoundId"], "r3")
+        self.assertEqual(status["remoteLatestRoundAt"], "2026-08-22T09:00:00Z")
+        self.assertEqual(status["newRoundCount"], 0)
+
+    def test_sync_counts_new_remote_round_ids(self) -> None:
+        before = {"count": 2, "ids": {"r1", "r2"}, "latestId": "r2", "latestAt": "2026-08-20T09:00:00Z"}
+        after = {"count": 3, "ids": {"r1", "r2", "r3"}, "latestId": "r3", "latestAt": "2026-08-22T09:00:00Z"}
+        with patch.object(pipeline, "_ensure_auth", return_value=True), \
+                patch.object(pipeline, "_summary_observation", side_effect=[before, after]), \
+                patch.object(pipeline, "_fetch_history", return_value=3), \
+                patch.object(pipeline, "_ensure_geometry", return_value={"attempted": 0}), \
+                patch.object(pipeline.course_reference, "build_played_store", return_value={}), \
+                patch.object(pipeline, "_on_disk", return_value=(3, 3)):
+            result = pipeline.sync(with_shots=True)
+
+        self.assertEqual(result.remote_round_count, 3)
+        self.assertEqual(result.remote_latest_round_id, "r3")
+        self.assertEqual(result.remote_latest_round_at, "2026-08-22T09:00:00Z")
+        self.assertEqual(result.new_round_count, 1)
 
 
 class PipelineRunsAllStepsTests(unittest.TestCase):

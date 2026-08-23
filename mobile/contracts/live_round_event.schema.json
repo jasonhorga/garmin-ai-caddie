@@ -93,7 +93,11 @@
               "distanceToPinM": { "type": ["number", "null"] },
               "offlineOptionId": { "type": ["string", "null"] },
               "decisionId": { "type": "string" },
-              "decision": { "type": "object", "additionalProperties": true },
+              "decision": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Compact audit snapshot for an offline decision. Online decisions are resolved by decisionId from the server ledger."
+              },
               "actualShot": { "type": "object", "additionalProperties": true }
             }
           }

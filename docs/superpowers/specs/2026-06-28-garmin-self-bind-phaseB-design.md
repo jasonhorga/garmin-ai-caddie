@@ -1,6 +1,6 @@
 # Garmin self-binding (Phase B) — backend slice — design
 
-**Status:** design, owner-goal-directed. Branch `superpowers/garmin-self-bind` off integration/v2 @ 82a55aa. Part of the [multi-user / family redesign](2026-06-26-phase0-findings.md). This is the **backend** slice; the iOS UI (Sign-in-with-Apple + member-scoping the existing Garmin WebView bind client) is a separate iOS slice (macOS CI).
+**Status:** design, owner-goal-directed. Branch `superpowers/garmin-self-bind` off integration/v2 @ 82a55aa. Part of the [multi-user / family redesign](2026-06-13-multiplayer-foundation-design.md). This is the **backend** slice; the iOS UI (Sign-in-with-Apple + member-scoping the existing Garmin WebView bind client) is a separate iOS slice (macOS CI).
 
 ## Goal
 

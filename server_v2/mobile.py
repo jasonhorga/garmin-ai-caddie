@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
+import logging
 from pathlib import Path
+from typing import Iterator
 
 from fastapi import HTTPException
 
@@ -11,9 +15,12 @@ from ai_caddie.caddie.mobile_live import (
     build_live_round_package_for_course,
     build_mobile_course_options,
     build_round_state,
+    first_hole_lightweight_course_prep,
     replay_event_log,
+    round_events,
 )
 from ai_caddie.history.history import OWNER_ID
+from ai_caddie.rounds import round_ingest
 from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.llm.weather_context import WeatherTransport
 
@@ -25,7 +32,9 @@ from .models import (
     LiveRoundEventAckResponse,
     LiveRoundEventReplayResponse,
     LiveRoundPackageResponse,
+    MobileRoundFinishRequest,
     MobileCourseOptionsResponse,
+    RoundIngestResponse,
     RoundStateResponse,
     MobileReconciliationApplyRequest,
     MobileReconciliationApplyResponse,
@@ -36,7 +45,76 @@ from .models import (
 MOBILE_ROOT = Path(".")
 ANNOTATION_ROOT = Path(".")
 DECISION_AUDIT_ROOT = Path(".")
+DECISION_LEDGER_ROOT = Path(".")
 OPEN_METEO_TRANSPORT: WeatherTransport | None = None
+logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _mobile_materialization_lock(player_id: str) -> Iterator[None]:
+    """Serialize a player's event snapshots and shared history index across workers."""
+    directory = (
+        Path(MOBILE_ROOT)
+        / "data"
+        / "players"
+        / player_id
+        / "mobile_events"
+    )
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / "materialization.lock").open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _refresh_course_release_authority(global_ids: list[int]) -> None:
+    """Refresh each physical loop's small Garmin release before package coverage is evaluated."""
+    from ai_caddie.courses.course_reference import courseview_release_info
+
+    for selected_global_id in dict.fromkeys(int(value) for value in global_ids if int(value) > 0):
+        try:
+            # Geometry files and release documents live under the canonical repository data root;
+            # MOBILE_ROOT only scopes player/event fixtures and may be redirected independently.
+            courseview_release_info(selected_global_id, allow_fetch=True)
+        except Exception:
+            # Offline/provider failure keeps the last complete release and precise map usable. A
+            # later package request retries without making course start depend on Garmin uptime.
+            pass
+
+
+def _round_release_global_ids(data: object, round_id: str) -> list[int]:
+    rows = getattr(data, "rounds", []) or []
+    requested = str(round_id)
+    row = next(
+        (
+            candidate
+            for candidate in rows
+            if requested
+            in {
+                str(candidate.get("id") or ""),
+                *(str(value) for value in (candidate.get("ids") or [])),
+            }
+        ),
+        None,
+    )
+    if not isinstance(row, dict):
+        return []
+    values = [
+        row.get("frontNineGlobalCourseId"),
+        row.get("backNineGlobalCourseId"),
+        row.get("globalId") or row.get("courseGlobalId") or row.get("courseId"),
+    ]
+    result: list[int] = []
+    for value in values:
+        try:
+            global_id = int(value)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if global_id > 0 and global_id not in result:
+            result.append(global_id)
+    return result
 
 
 def build_mobile_round_package_response(
@@ -48,6 +126,7 @@ def build_mobile_round_package_response(
     player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode(player_id=player_id)
+    _refresh_course_release_authority(_round_release_global_ids(data, round_id))
     return LiveRoundPackageResponse(
         **build_live_round_package(
             round_id,
@@ -74,30 +153,43 @@ def build_mobile_course_package_response(
     ensure_geometry: bool = False,
     nine: str = "all",
     back_global_id: int | None = None,
+    include_event_cursor: bool = True,
     player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
+    # Refresh every selected physical loop before historical `ready` or cached precise files are
+    # evaluated. This applies equally to played and never-played catalogue courses.
+    _refresh_course_release_authority(
+        [int(global_id), *([int(back_global_id)] if back_global_id is not None else [])]
+    )
     data, mode = load_history_data_for_mode(player_id=player_id)
+    package = build_live_round_package_for_course(
+        global_id,
+        round_id=round_id,
+        tee_box=tee_box,
+        data=data,
+        data_mode=mode,
+        player_id=player_id,
+        root=MOBILE_ROOT,
+        annotations_root=ANNOTATION_ROOT,
+        captured_at=captured_at,
+        weather_transport=OPEN_METEO_TRANSPORT,
+        client_id=client_id,
+        ensure_geometry=ensure_geometry,
+        nine=nine,
+        back_global_id=back_global_id,
+        # Live start must be fast: skip the heavy all-hole course_prep build (per-hole route /
+        # hazard point-in-polygon over big meshes).  One forced-lightweight first-hole seed is
+        # attached below so the live screen is factual before precise background work begins.
+        include_course_prep=False,
+        include_event_cursor=include_event_cursor,
+        ensure_lightweight=True,
+    )
+    package["coursePrep"] = first_hole_lightweight_course_prep(
+        package,
+        player_id=player_id,
+    )
     return LiveRoundPackageResponse(
-        **build_live_round_package_for_course(
-            global_id,
-            round_id=round_id,
-            tee_box=tee_box,
-            data=data,
-            data_mode=mode,
-            player_id=player_id,
-            root=MOBILE_ROOT,
-            annotations_root=ANNOTATION_ROOT,
-            captured_at=captured_at,
-            weather_transport=OPEN_METEO_TRANSPORT,
-            client_id=client_id,
-            ensure_geometry=ensure_geometry,
-            nine=nine,
-            back_global_id=back_global_id,
-            # Live start must be fast: skip the heavy all-hole course_prep build (per-hole route /
-            # hazard point-in-polygon over big meshes). The app fetches per-hole prep on demand
-            # (the 2D map + hazards), so the round opens immediately.
-            include_course_prep=False,
-        )
+        **package
     )
 
 
@@ -115,17 +207,60 @@ def append_mobile_events_response(
 ) -> LiveRoundEventBatchResponse:
     if request.roundId != round_id:
         raise HTTPException(status_code=422, detail="roundId does not match path")
-    try:
-        result = append_event_batch(
-            round_id,
-            [event.model_dump(by_alias=True) for event in request.events],
-            idempotency_key=idempotency_key,
-            root=MOBILE_ROOT,
-            player_id=player_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with _mobile_materialization_lock(player_id):
+        try:
+            result = append_event_batch(
+                round_id,
+                [event.model_dump(by_alias=True) for event in request.events],
+                idempotency_key=idempotency_key,
+                root=MOBILE_ROOT,
+                player_id=player_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # If another device already finished this round, the append itself is the earliest reliable
+        # moment to refresh history. This also covers an upgraded legacy Watch queue that relays
+        # through the phone and never owns the newer standalone model's explicit finish retry.
+        try:
+            round_ingest.refresh_ingested_round_if_exists(
+                player_id,
+                load_events=lambda: round_events(
+                    round_id,
+                    root=MOBILE_ROOT,
+                    player_id=player_id,
+                ),
+                idempotency_key=f"mobile-finish:{round_id}",
+                root=MOBILE_ROOT,
+            )
+        except Exception:
+            # append_event_batch already committed and fsynced. Never lie to the client that its
+            # accepted event failed merely because the derived history view needs a later retry.
+            logger.exception("late-event history refresh failed for round %s", round_id)
     return LiveRoundEventBatchResponse(**result)
+
+
+def finish_mobile_round_response(
+    round_id: str,
+    request: MobileRoundFinishRequest,
+    *,
+    player_id: str = OWNER_ID,
+) -> RoundIngestResponse:
+    with _mobile_materialization_lock(player_id):
+        try:
+            summary = round_ingest.ingest_round(
+                player_id,
+                round_events(round_id, root=MOBILE_ROOT, player_id=player_id),
+                request.meta,
+                idempotency_key=f"mobile-finish:{round_id}",
+                root=MOBILE_ROOT,
+                # A phone may finish before an offline Watch uploads its last facts. Repeated finish
+                # is still a no-op for the same event revision, but a larger append-only stream must
+                # refresh the existing history row instead of acknowledging a permanently stale one.
+                refresh_existing_events=True,
+            )
+        except round_ingest.RoundIngestError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RoundIngestResponse(**summary)
 
 
 def replay_mobile_events_response(
@@ -162,7 +297,8 @@ def ack_mobile_events_response(round_id: str, request: LiveRoundEventAckRequest,
             player_id=player_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        status_code = 409 if str(exc) == "consumer_ack_ahead_of_stream" else 422
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return LiveRoundEventAckResponse(**result)
 
 
@@ -186,5 +322,6 @@ def apply_mobile_round_reconciliation_response(
             root=MOBILE_ROOT,
             annotations_root=ANNOTATION_ROOT,
             decision_audit_root=DECISION_AUDIT_ROOT,
+            decision_ledger_root=DECISION_LEDGER_ROOT,
         )
     )
