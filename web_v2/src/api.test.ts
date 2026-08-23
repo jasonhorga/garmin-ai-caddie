@@ -2467,7 +2467,7 @@ describe('fetchCourseSearch', () => {
 
     await fetchCourseSearch('black knight', 'admin-secret')
 
-    expect(fetch).toHaveBeenCalledWith(`/api/v2/courses/search?name=${encodeURIComponent('black knight')}`, {
+    expect(fetch).toHaveBeenCalledWith(`/api/v2/courses/search?${new URLSearchParams({ name: 'black knight' }).toString()}`, {
       headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
     })
   })
