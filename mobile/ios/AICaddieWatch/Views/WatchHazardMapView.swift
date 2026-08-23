@@ -159,6 +159,9 @@ public struct WatchHazardMapView: View {
     public let route: [[Double]]
     public let hazards: [WatchHazard]
     public let centerGreenYards: Int?
+    /// Hazard distances are player-relative too. Keep the instrument explicit while the wrist fix
+    /// is unavailable instead of measuring from the cached Tee/phone anchor.
+    public let rangeUnavailable: Bool
     public let onBack: () -> Void
 
     @State private var crownSelection: Double
@@ -168,6 +171,7 @@ public struct WatchHazardMapView: View {
         route: [[Double]],
         hazards: [WatchHazard],
         centerGreenYards: Int?,
+        rangeUnavailable: Bool = false,
         initialHazardID: String? = nil,
         onBack: @escaping () -> Void = {}
     ) {
@@ -175,6 +179,7 @@ public struct WatchHazardMapView: View {
         self.route = route
         self.hazards = hazards
         self.centerGreenYards = centerGreenYards
+        self.rangeUnavailable = rangeUnavailable
         self.onBack = onBack
 
         let progress = WatchHazardMapLayout.playerProgressMetres(
@@ -202,7 +207,9 @@ public struct WatchHazardMapView: View {
 
     public var body: some View {
         GeometryReader { geo in
-            if centerGreenYards.map { WatchGeoMath.isBeyondUsefulGreenRange($0) } == true {
+            if rangeUnavailable {
+                rangeUnavailableState
+            } else if centerGreenYards.map { WatchGeoMath.isBeyondUsefulGreenRange($0) } == true {
                 offCourseState
             } else if upcoming.isEmpty {
                 emptyState
@@ -436,6 +443,26 @@ public struct WatchHazardMapView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(10)
+    }
+
+    private var rangeUnavailableState: some View {
+        VStack(spacing: 10) {
+            WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
+            Text("999")
+                .font(.system(size: 42, weight: .black, design: .rounded))
+                .monospacedDigit()
+            Text("等待定位")
+                .font(.system(size: 19, weight: .black))
+                .foregroundStyle(AICaddieDesignTokens.hudYellow)
+            Text("定位完成后显示障碍距离")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(10)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("999 码，等待定位，定位完成后显示障碍距离")
     }
 
     private static func upcomingHazards(_ hazards: [WatchHazard], after progressMetres: Double) -> [WatchHazard] {

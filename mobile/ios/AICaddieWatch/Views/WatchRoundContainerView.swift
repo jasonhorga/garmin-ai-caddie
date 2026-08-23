@@ -128,6 +128,18 @@ public struct WatchRoundContainerView: View {
         live ?? fallbackMetres.map(WatchUnits.yards)
     }
 
+    /// Static phone-pushed green ranges are course facts, not a live rangefinder reading. They may
+    /// calibrate the map only after a qualified wrist fix exists; otherwise callers must keep the
+    /// distance unavailable and render the explicit acquiring state.
+    static func canonicalCenterYards(
+        live: Int?,
+        fallbackMetres: Double?,
+        hasQualifiedRangeFix: Bool
+    ) -> Int? {
+        guard hasQualifiedRangeFix else { return nil }
+        return effectiveGreenYards(live: live, fallbackMetres: fallbackMetres)
+    }
+
     private func frontYd(_ s: WatchRoundState) -> Int? {
         if let live = watchGreenYards?.front { return live }
         guard hasQualifiedRangeFix else { return 999 }
@@ -135,7 +147,11 @@ public struct WatchRoundContainerView: View {
     }
 
     private func canonicalCenterYd(_ s: WatchRoundState) -> Int? {
-        Self.effectiveGreenYards(live: watchGreenYards?.center, fallbackMetres: s.centerGreenM)
+        Self.canonicalCenterYards(
+            live: watchGreenYards?.center,
+            fallbackMetres: s.centerGreenM,
+            hasQualifiedRangeFix: hasQualifiedRangeFix
+        )
     }
 
     private func selectedGreenPin(
@@ -267,6 +283,7 @@ public struct WatchRoundContainerView: View {
                 WatchGreenPreviewView(
                     geometry: geometry,
                     centerGreenYards: canonicalCenterYd(state),
+                    rangeUnavailable: !hasQualifiedRangeFix,
                     initialPin: initialGreenPinOverride ?? savedPin,
                     initialZoomScale: initialGreenZoomScaleOverride,
                     initialRotationDegrees: initialGreenRotationOverride ?? greenRotation(for: state),
@@ -309,6 +326,7 @@ public struct WatchRoundContainerView: View {
                         route: route,
                         hazards: state.hazards,
                         centerGreenYards: canonicalCenterYd(state),
+                        rangeUnavailable: !hasQualifiedRangeFix,
                         initialHazardID: initialHazardID,
                         onBack: { model.backToMenu() }
                     )

@@ -296,9 +296,19 @@ public final class WatchCourseLibrary: ObservableObject {
     public func startCourseImmediately(
         _ selection: WatchCourseSelection
     ) -> WatchPreparedCourse {
+        var incompleteCachedHoles: [Int] = []
+        var hasMatchingIncompleteCache = false
         if let cached = store.course(globalId: selection.front.globalId), cached.matches(selection) {
-            errorMessage = nil
-            return cached.makeRound(roundId: makeRoundId())
+            if Self.preciseTemplateReady(cached, imageStore: imageStore) {
+                errorMessage = nil
+                diagnosticErrorMessage = nil
+                return cached.makeRound(roundId: makeRoundId())
+            }
+            // A partial package is still useful to the bounded upgrade task, but it is not an
+            // offline map. Keep its identity and let the provisional template below replace the
+            // active round so a stale hole map/hazard/caddie cannot be presented as complete.
+            incompleteCachedHoles = Self.missingPreciseHoles(in: cached, imageStore: imageStore)
+            hasMatchingIncompleteCache = true
         }
 
         let roundId = makeRoundId()
@@ -337,10 +347,17 @@ public final class WatchCourseLibrary: ObservableObject {
             holeStates: states,
             cachedAt: now()
         )
-        try? store.save(template)
+        // Keep a matching partial package intact. The upgrade task can resume its downloaded holes
+        // from that durable cache while this round uses the all-pending provisional view. A fresh
+        // setup (or no cache) still persists the provisional identity for process-kill recovery.
+        if !hasMatchingIncompleteCache {
+            try? store.save(template)
+        }
         courses = Self.uniqueOptions(from: [frontOption, backOption].compactMap { $0 } + courses)
         errorMessage = nil
-        diagnosticErrorMessage = "球场数据后台补齐中"
+        diagnosticErrorMessage = incompleteCachedHoles.isEmpty
+            ? "球场数据后台补齐中"
+            : "球场数据后台补齐中：第 \(Self.holeList(incompleteCachedHoles)) 洞"
         return template.makeRound(roundId: roundId)
     }
 

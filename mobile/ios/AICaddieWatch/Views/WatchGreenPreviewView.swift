@@ -554,6 +554,9 @@ private struct WatchGreenRotationButton: View {
 public struct WatchGreenPreviewView: View {
     public let geometry: WatchHoleMapGeometry
     public let centerGreenYards: Int?
+    /// True while the Watch has no qualified wrist fix. Geometry/editing remains usable, but any
+    /// player-to-pin or edge distance must be replaced by an explicit acquiring state.
+    public let rangeUnavailable: Bool
     public let onBack: () -> Void
     public let onPlacementChange: (CGPoint, Double) -> Void
 
@@ -568,6 +571,7 @@ public struct WatchGreenPreviewView: View {
     public init(
         geometry: WatchHoleMapGeometry,
         centerGreenYards: Int? = nil,
+        rangeUnavailable: Bool = false,
         initialPin: CGPoint? = nil,
         initialZoomScale: Double = 1,
         initialRotationDegrees: Double = 0,
@@ -576,6 +580,7 @@ public struct WatchGreenPreviewView: View {
     ) {
         self.geometry = geometry
         self.centerGreenYards = centerGreenYards
+        self.rangeUnavailable = rangeUnavailable
         self.onPlacementChange = onPlacementChange
         self.onBack = onBack
         let boundary = WatchGreenPreviewLayout.boundaryPolygon(geometry.greenOutlinePx)
@@ -600,7 +605,19 @@ public struct WatchGreenPreviewView: View {
                     drawGreen(&context, size: size, viewport: viewport)
                 }
 
-                if let distanceText {
+                if rangeUnavailable {
+                    VStack(spacing: 1) {
+                        Text("999")
+                            .font(.system(size: 22, weight: .black, design: .rounded))
+                            .monospacedDigit()
+                        Text("等待定位")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(AICaddieDesignTokens.hudYellow)
+                    }
+                    .position(x: safeRect.midX, y: safeRect.minY + 18)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("999 码，等待定位")
+                } else if let distanceText {
                     Text(distanceText)
                         .font(.system(size: 16, weight: .heavy, design: .rounded))
                         .monospacedDigit()

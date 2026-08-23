@@ -702,4 +702,72 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertEqual(library.errorMessage, "球场地图还没下载完整，请联网后继续补齐")
         XCTAssertTrue(library.diagnosticErrorMessage?.contains("第 1 洞") == true)
     }
+
+    @MainActor
+    func testImmediateStartDoesNotBypassPartialCache() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("watch-course-immediate-partial-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WatchCourseStore(directoryURL: directory)
+        let imageStore = WatchHoleImageStore(directoryURL: directory)
+        let option = WatchCourseOption(globalId: 3882, name: "Cypress Point", holes: 18, teeBox: "championship")
+        let states = (1...18).map { hole in
+            WatchRoundState(
+                roundId: "partial-cache",
+                hole: hole,
+                par: hole == 1 ? 5 : 4,
+                distanceM: 372,
+                selectedClub: nil,
+                globalId: 3882,
+                holeMap: WatchHoleMap(
+                    w: 678,
+                    h: 1_060,
+                    you: [120, 900],
+                    pin: [430, 120],
+                    layup: [275, 510],
+                    apex: [198, 705],
+                    greenCtrl: [353, 315],
+                    route: [[120, 900, 0], [430, 120, 372]]
+                ),
+                geometryCoverage: hole == 1 ? "partial" : "ready",
+                score: 0,
+                putts: 0,
+                penaltyCount: 0,
+                caddieConfidence: "offline"
+            )
+        }
+        try store.save(WatchCourseTemplate(
+            option: option,
+            courseName: option.name,
+            teeBox: "championship",
+            holeStates: states,
+            cachedAt: "2026-08-23T00:00:00Z"
+        ))
+        let topo = try validTopoData()
+        for hole in 2...18 {
+            try imageStore.store(data: topo, globalId: 3882, hole: hole)
+        }
+
+        let library = WatchCourseLibrary(
+            store: store,
+            imageStore: imageStore,
+            makeRoundId: { "immediate-pending" }
+        )
+        let prepared = library.startCourseImmediately(
+            WatchCourseSelection(front: option, teeBox: "championship")
+        )
+
+        XCTAssertEqual(prepared.roundId, "immediate-pending")
+        XCTAssertTrue(prepared.holeStates.allSatisfy { state in
+            state.geometryCoverage == "pending"
+                && state.distanceM == nil
+                && state.caddieConfidence == "pending"
+        })
+        XCTAssertTrue(library.diagnosticErrorMessage?.contains("第 1 洞") == true)
+        XCTAssertEqual(
+            WatchCourseStore(directoryURL: directory).course(globalId: 3882)?.holeStates.first?.geometryCoverage,
+            "partial",
+            "the durable partial cache remains available for the bounded upgrade task"
+        )
+    }
 }

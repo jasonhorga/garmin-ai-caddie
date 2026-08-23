@@ -68,4 +68,48 @@ final class WatchHoleRootPresentationTests: XCTestCase {
             123
         )
     }
+
+    func testContainerDoesNotUseStaticCenterRangeWithoutQualifiedWristFix() {
+        XCTAssertNil(
+            WatchRoundContainerView.canonicalCenterYards(
+                live: nil,
+                fallbackMetres: 100,
+                hasQualifiedRangeFix: false
+            )
+        )
+        XCTAssertEqual(
+            WatchRoundContainerView.canonicalCenterYards(
+                live: nil,
+                fallbackMetres: 100,
+                hasQualifiedRangeFix: true
+            ),
+            109
+        )
+        XCTAssertEqual(
+            WatchRoundContainerView.canonicalCenterYards(
+                live: 123,
+                fallbackMetres: 100,
+                hasQualifiedRangeFix: true
+            ),
+            123
+        )
+    }
+
+    func testRangeDependentInstrumentsExposeExplicitUnavailableState() {
+        let green = WatchGreenPreviewView(
+            geometry: WatchHoleMapSample.geometry,
+            centerGreenYards: nil,
+            rangeUnavailable: true
+        )
+        XCTAssertTrue(green.rangeUnavailable)
+
+        let hazard = WatchHazardMapView(
+            geometry: WatchHoleMapSample.geometry,
+            route: [[120, 900, 0], [430, 120, 372]],
+            hazards: [],
+            centerGreenYards: nil,
+            rangeUnavailable: true
+        )
+        XCTAssertTrue(hazard.rangeUnavailable)
+    }
 }
