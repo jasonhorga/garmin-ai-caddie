@@ -308,7 +308,7 @@ public final class WatchCourseLibrary: ObservableObject {
         let backOption = selection.back?.withTees([], selectedTee: selection.teeBox)
         let states = (1...totalCount).map { number in
             let option = number <= frontCount ? frontOption : (backOption ?? frontOption)
-            WatchRoundState(
+            return WatchRoundState(
                 roundId: roundId,
                 hole: number,
                 // Par is explicitly provisional until the package arrives. It is never used for a
