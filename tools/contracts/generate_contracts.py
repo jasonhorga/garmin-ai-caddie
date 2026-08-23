@@ -162,7 +162,13 @@ def _load(path: Path) -> Any:
 
 def _source_digest(registry_root: Path) -> str:
     repo_root = registry_root.parents[1]
-    paths = sorted(registry_root.rglob("*.json")) + [repo_root / "tools/contracts/generate_contracts.py"]
+    # The authority manifest describes ownership and audit pins; it is not a
+    # contract input and must not invalidate the generated declaration digest.
+    paths = sorted(
+        path
+        for path in registry_root.rglob("*.json")
+        if path != registry_root / "authority.json"
+    ) + [repo_root / "tools/contracts/generate_contracts.py"]
     digest = hashlib.sha256()
     for path in paths:
         relative = path.relative_to(repo_root).as_posix().encode("utf-8")

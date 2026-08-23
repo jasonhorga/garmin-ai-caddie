@@ -1,5 +1,5 @@
 # generated; do not edit
-CANONICAL_CONTRACT_SOURCE_SHA256 = 'c8e518453b204b7a9db1781c3c3a8496b8d42814b543b2b73d4798174bfd7e75'
+CANONICAL_CONTRACT_SOURCE_SHA256 = '89b7a13db8f5535e4d7b09c64572d585323255118f7d7c9c9093a15cade26f3a'
 CANONICAL_OBJECT_DESCRIPTORS = {'CanonicalFixtureAlpha': {'domainTag': 'CanonicalFixtureAlpha/v1', 'schemaRef': 'contracts/canonical/canonical_fixture_v1.schema.json', 'includedFields': ['*'], 'excludedFields': ['transportNote']}, 'CanonicalFixtureBeta': {'domainTag': 'CanonicalFixtureBeta/v1', 'schemaRef': 'contracts/canonical/canonical_fixture_v1.schema.json', 'includedFields': ['*'], 'excludedFields': ['transportNote']}}
 EVENT_KINDS = ()
 EVENT_SUBMISSION_CLASSES = {}

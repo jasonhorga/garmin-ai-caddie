@@ -374,6 +374,17 @@ class ContractCodegenTests(unittest.TestCase):
             self.assertEqual(len(set(after.values())), 1)
             self.assertNotEqual(next(iter(before.values())), next(iter(after.values())))
 
+    def test_authority_manifest_is_metadata_not_source_digest_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root, registry_root, _ = self._copy_contract_repo(tmp)
+            before = self._source_shas(contract_codegen.generate_all(registry_root, repo_root))
+            manifest = registry_root / "authority.json"
+            manifest.write_bytes(manifest.read_bytes() + b" ")
+            after = self._source_shas(contract_codegen.generate_all(registry_root, repo_root))
+            self.assertEqual(len(set(before.values())), 1)
+            self.assertEqual(len(set(after.values())), 1)
+            self.assertEqual(next(iter(before.values())), next(iter(after.values())))
+
     def test_rejects_invalid_registry_envelopes(self) -> None:
         invalid_cases: list[tuple[str, str, Any, str]] = [
             (

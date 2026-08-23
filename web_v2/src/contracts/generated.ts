@@ -1,5 +1,5 @@
 // generated; do not edit
-export const canonicalContractSourceSHA256 = "c8e518453b204b7a9db1781c3c3a8496b8d42814b543b2b73d4798174bfd7e75" as const
+export const canonicalContractSourceSHA256 = "89b7a13db8f5535e4d7b09c64572d585323255118f7d7c9c9093a15cade26f3a" as const
 export const canonicalObjectDescriptors = {"CanonicalFixtureAlpha":{"domainTag":"CanonicalFixtureAlpha/v1","excludedFields":["transportNote"],"includedFields":["*"],"schemaRef":"contracts/canonical/canonical_fixture_v1.schema.json"},"CanonicalFixtureBeta":{"domainTag":"CanonicalFixtureBeta/v1","excludedFields":["transportNote"],"includedFields":["*"],"schemaRef":"contracts/canonical/canonical_fixture_v1.schema.json"}} as const
 export const roundEventKinds = [] as const
 export const roundEventSubmissionClasses = {} as const
