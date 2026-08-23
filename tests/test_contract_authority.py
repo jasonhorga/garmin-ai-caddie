@@ -1230,6 +1230,20 @@ class ContractAuthorityTests(unittest.TestCase):
                 [],
             )
 
+    def test_authority_manifest_change_is_metadata_not_a_generated_source(self) -> None:
+        fixture = AuthorityFixture()
+        self.addCleanup(fixture.close)
+        fixture.write_manifest(generatedGroups=[{
+            "name": "canonical-contracts",
+            "sources": ["contracts/canonical/**/*.json", "tools/generate.py"],
+            "outputs": ["python/generated.py"],
+        }])
+
+        self.assertEqual(
+            fixture.check(["contracts/canonical/authority.json"]),
+            None,
+        )
+
     def test_generated_output_has_exactly_one_group_owner(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

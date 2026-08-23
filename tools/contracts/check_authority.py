@@ -463,7 +463,15 @@ def check_authority(root: Path, *, changed_paths: list[str]) -> list[str]:
 
     for group, sources, outputs in generated_groups:
         source_matcher = generated_source_matchers[group["name"]]
-        changed_sources = {relative for relative in changed if source_matcher.match_file(relative)}
+        # The authority manifest describes this gate; it is metadata, not a
+        # canonical contract source that needs a generated output companion.
+        # Keep the exclusion here rather than relying on a fragile negated
+        # glob in every manifest so all generated groups get the same rule.
+        changed_sources = {
+            relative
+            for relative in changed
+            if relative != manifest_relative and source_matcher.match_file(relative)
+        }
         changed_outputs = changed & set(outputs)
         if changed_sources and not changed_outputs:
             violations.append(
