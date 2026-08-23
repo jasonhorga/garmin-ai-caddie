@@ -862,7 +862,7 @@ public struct WatchGreenPreviewView: View {
         //
         // Draw the entire focused context window, not only the putting surface.  The user's blur
         // report was correct: clipping this asset to the green left the approach apron, bunkers and
-        // trees enlarged from the low-resolution whole-hole bitmap.  green-v2 is a larger geometry
+        // trees enlarged from the low-resolution whole-hole bitmap.  green-v3 is a larger geometry
         // render whose alpha fades at the crop edge, so it preserves genuine context detail while
         // blending back into the continuous base without a square seam or rotated black corner.
         if let detail = geometry.greenDetailImage,

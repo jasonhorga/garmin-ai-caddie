@@ -63,8 +63,11 @@ STYLE_VERSION = "topo-v8"  # v8: bounded coast plus every route-visible water co
 # The focused asset is a separate cache contract from the whole-hole bitmap.  Bump this when its
 # crop/compositing treatment changes; otherwise an installed Watch can keep the old, green-only
 # tile forever even though the server has learned to render a sharp surrounding apron.
-GREEN_DETAIL_STYLE_VERSION = "green-v2"
-GREEN_DETAIL_DEFAULT_SIZE = 1024
+GREEN_DETAIL_STYLE_VERSION = "green-v3"
+# The Watch's maximum Crown zoom can display the 420 px focused crop at roughly 2x its default
+# viewport scale. Use the existing endpoint maximum so the geometry-rendered asset retains more
+# source pixels at that detent without changing the shared crop or edge geometry contract.
+GREEN_DETAIL_DEFAULT_SIZE = 1280
 GREEN_DETAIL_MIN_SIZE = 320
 GREEN_DETAIL_MAX_SIZE = 1280
 

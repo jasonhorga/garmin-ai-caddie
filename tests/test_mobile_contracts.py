@@ -2059,7 +2059,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIsNotNone(watch_green_version)
         assert phone_green_version is not None and watch_green_version is not None
         self.assertEqual(phone_green_version.group(1), watch_green_version.group(1))
-        self.assertEqual(phone_green_version.group(1), "green-v2")
+        self.assertEqual(phone_green_version.group(1), "green-v3")
 
         self.assertIn("SyncClient.topoStyleVersion", offline_store)
         self.assertIn('"styleVersion": SyncClient.topoStyleVersion', bridge)

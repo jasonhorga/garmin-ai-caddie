@@ -79,8 +79,8 @@ public final class WatchBackendClient {
     public static let topoStyleVersion = "topo-v8"
     /// Focused View Green pixels have their own cache contract so an improved context render does
     /// not force every whole-hole topo to download again.
-    public static let greenDetailStyleVersion = "green-v2"
-    public static let greenDetailImageSize = 1024
+    public static let greenDetailStyleVersion = "green-v3"
+    public static let greenDetailImageSize = 1280
     static let maximumCoursePrepHolesPerRequest = 3
     static let courseReleaseTimeoutInterval: TimeInterval = 180
     static let coursePackageTimeoutInterval: TimeInterval = 180

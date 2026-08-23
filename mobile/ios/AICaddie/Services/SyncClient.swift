@@ -196,8 +196,8 @@ public final class SyncClient {
     /// Bump this whenever existing rendered pixels must be invalidated on installed devices.
     public static let topoStyleVersion = "topo-v8"
     /// Version only the focused View Green asset; changing it must not invalidate every course topo.
-    public static let greenDetailStyleVersion = "green-v2"
-    public static let greenDetailImageSize = 1024
+    public static let greenDetailStyleVersion = "green-v3"
+    public static let greenDetailImageSize = 1280
     static let courseReleaseTimeoutInterval: TimeInterval = 180
     static let coursePackageTimeoutInterval: TimeInterval = 120
     static let coursePrepTimeoutInterval: TimeInterval = 90

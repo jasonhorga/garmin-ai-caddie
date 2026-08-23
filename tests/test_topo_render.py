@@ -31,11 +31,11 @@ def _test_png() -> bytes:
 
 
 class TopoRenderModuleTests(unittest.TestCase):
-    def test_green_v2_focuses_a_large_feathered_context_window(self) -> None:
+    def test_green_v3_focuses_a_large_feathered_context_window(self) -> None:
         from PIL import Image
 
-        self.assertEqual(topo_render.GREEN_DETAIL_STYLE_VERSION, "green-v2")
-        self.assertEqual(topo_render.GREEN_DETAIL_DEFAULT_SIZE, 1024)
+        self.assertEqual(topo_render.GREEN_DETAIL_STYLE_VERSION, "green-v3")
+        self.assertEqual(topo_render.GREEN_DETAIL_DEFAULT_SIZE, 1280)
 
         source = Image.new("RGBA", (64, 64), (30, 180, 60, 255))
         rendered = topo_render._feather_green_detail_edges(source)
@@ -465,13 +465,13 @@ class TopoEndpointTests(unittest.TestCase):
         ):
             response = self.client.get(
                 "/api/v2/courses/31795/holes/1/green.png"
-                "?x=100&y=200&width=420&height=420&g=green-v2"
+                "?x=100&y=200&width=420&height=420&g=green-v3"
             )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["content-type"], "image/png")
         self.assertIn("-green-", response.headers["etag"])
-        render.assert_called_once_with(31795, 1, (100.0, 200.0, 420.0, 420.0), size=1024)
+        render.assert_called_once_with(31795, 1, (100.0, 200.0, 420.0, 420.0), size=1280)
 
     def test_green_detail_endpoint_rejects_unknown_client_style(self) -> None:
         with patch.object(topo_render, "render_hole_green_detail_cached") as render:

@@ -283,11 +283,11 @@ final class WatchBackendClientTests: XCTestCase {
         ))
         XCTAssertEqual(
             greenQuery.queryItems?.first(where: { $0.name == "size" })?.value,
-            "1024"
+            "1280"
         )
         XCTAssertEqual(
             greenQuery.queryItems?.first(where: { $0.name == "g" })?.value,
-            "green-v2"
+            "green-v3"
         )
         XCTAssertNil(green.value(forHTTPHeaderField: "Authorization"))
     }
