@@ -472,12 +472,13 @@ const annotationsPayload = {
 }
 
 // 备战 walk fixtures for globalId 31795 ('Black Knight B/C' in the mobile
-// course options above). Hole 1 deliberately carries a 1x1 legacy fallback
-// under the realistic Topo response plus a two-dot shot scatter. This catches
-// any regression where the fallback's intrinsic ratio, rather than the factual
-// overlay dimensions, controls the visible frame. Holes 2/7 degrade without
-// geometry. Hole 7 matches the stats.holes black_knight row so 关键洞 and the
-// 逐洞速览 chip pick up 平均+1.1.
+// course options above). The package is installed (all requested holes carry
+// geometryCoverage=ready), so it can enter the full workbench gate. Hole 1
+// deliberately carries a 1x1 legacy fallback under the realistic Topo response
+// plus a two-dot shot scatter. Holes 2/7 carry authoritative route/par facts but
+// omit a rendered raster/projection, keeping the explicit no-map fallback covered
+// without pretending their geometry is missing. Hole 7 matches the
+// stats.holes black_knight row so 关键洞 and the 逐洞速览 chip pick up 平均+1.1.
 const tinyHoleJpeg =
   'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/yQALCAABAAEBAREA/8wABgAQEAX/2gAIAQEAAD8A0s8g/9k='
 
@@ -538,9 +539,9 @@ const coursePrepPayload = {
         [0, 0, 0],
         [0, 140, 165],
       ],
-      geometryCoverage: 'missing',
-      sourceRefs: [],
-      missingData: [{ label: 'geometry', reason: 'prodgeometry geometry is missing for this hole' }],
+      geometryCoverage: 'ready',
+      sourceRefs: ['course:31795', 'geometry:31795:2'],
+      missingData: [],
       candidateRoutes: [],
       carryTargets: [],
       steps: [{ club: null, note: '一杆上果岭,宁长勿短' }],
@@ -559,9 +560,9 @@ const coursePrepPayload = {
         [0, 0, 0],
         [0, 300, 375],
       ],
-      geometryCoverage: 'missing',
-      sourceRefs: [],
-      missingData: [{ label: 'geometry', reason: 'prodgeometry geometry is missing for this hole' }],
+      geometryCoverage: 'ready',
+      sourceRefs: ['course:31795', 'geometry:31795:7'],
+      missingData: [],
       candidateRoutes: [],
       carryTargets: [],
       steps: [{ club: '1D', note: '历史失分洞,稳住开球' }],
@@ -928,8 +929,9 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await assertNoViewportOverflow(page)
   await captureSmokeScreenshot(page, testInfo, 'prep-overview')
 
-  // Selecting hole 7 re-drives the same map surface (no geometry → explicit placeholder and
-  // no fabricated recommendation point).
+  // Selecting hole 7 re-drives the same map surface. This fixture has no rendered
+  // raster/projection for that hole, so the explicit placeholder remains visible
+  // and no recommendation point is fabricated.
   await holePicker.selectOption('7')
   await expect(holePicker).toHaveValue('7')
   const holeSevenCanvas = page.getByLabel('第7洞球道图')
@@ -970,9 +972,9 @@ test('major product screens render with stable Garmin Pro layout', async ({ page
   await expect(page.getByRole('heading', { name: 'Black Knight B/C' })).toBeVisible()
 
   // Hole chips come from the prep payload (1/2/7); hole 1 is active by default
-  // and carries the rendered map. Hole 7 has no geometry, so switching there
-  // degrades to the manual 到果岭 input; back on hole 1 the map overlay shows
-  // the full tee-to-green distance for the blue player marker.
+  // and carries the rendered map. Hole 7 has no rendered overlay in this fixture,
+  // so switching there degrades to the manual 到果岭 input; back on hole 1 the
+  // map overlay shows the full tee-to-green distance for the blue player marker.
   await expect(page.getByRole('button', { name: '第1洞' })).toHaveAttribute('aria-current', 'true')
   await page.getByRole('button', { name: '第7洞' }).click()
   await expect(page.getByLabel('到果岭(码)')).toBeVisible()
@@ -1125,6 +1127,23 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
     if (path === '/api/v2/sync/status') return route.fulfill({ json: syncStatusPayload })
     if (path === '/api/v2/mobile/courses/options') return route.fulfill({ json: mobileCourseOptionsPayload })
     if (path === '/api/v2/mobile/courses/31795/package') return route.fulfill({ json: mobileCoursePackagePayload })
+    if (path === '/api/v2/courses/31795/install/status') {
+      return route.fulfill({
+        json: {
+          schema: 'ai-caddie-course-install-v1',
+          jobId: 'visual-fixture-31795',
+          globalId: 31795,
+          teeBox: 'blue',
+          nine: 'all',
+          phase: 'complete',
+          stage: 'ready',
+          totalHoles: 3,
+          geometryReady: 3,
+          topoReady: 3,
+          holes: [],
+        },
+      })
+    }
     if (path === '/api/v2/courses/search') return route.fulfill({ json: courseSearchPayload })
     // PrepPage course fetches carry the globalId in the path (and the prep
     // request a ?include_shots=true query), so match by prefix + suffix.
