@@ -520,7 +520,20 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("-scheme AICaddieWatch", watch_test)
         self.assertIn('-destination "platform=watchOS Simulator,id=$NATIVE_WATCH_UDID"', watch_test)
 
-        self.assertEqual("python3 ops/write_native_build_evidence.py", steps["Write native build evidence"]["run"])
+        evidence_step = steps["Write native build evidence"]
+        self.assertEqual(
+            {
+                "NATIVE_EVENT_NAME": "${{ github.event_name }}",
+                "NATIVE_CAPTURE_SCOPE": "${{ github.event.inputs.capture_scope || 'full' }}",
+            },
+            evidence_step["env"],
+        )
+        self.assertIn('watch_status="passed"', evidence_step["run"])
+        self.assertIn('watch_status="skipped"', evidence_step["run"])
+        self.assertIn(
+            'python3 ops/write_native_build_evidence.py --watch-status "$watch_status"',
+            evidence_step["run"],
+        )
 
     def test_native_review_capture_scope_exits_normally_after_post_round_evidence(self) -> None:
         workflow_path = Path(".github/workflows/native-mobile.yml")

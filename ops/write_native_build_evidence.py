@@ -96,7 +96,9 @@ def build_native_build_evidence(
     workflow_run_id: str | None = None,
     artifact_name: str = DEFAULT_ARTIFACT_NAME,
     ios_status: str = "passed",
-    watch_status: str = "passed",
+    # A caller must explicitly attest that the Watch target ran. This keeps a
+    # standalone evidence stamp from claiming a skipped target passed.
+    watch_status: str = "skipped",
     ios_destination: str | None = None,
     watch_destination: str | None = None,
     ios_configuration: str | None = None,
@@ -155,7 +157,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workflow-run-id", default=_env("GITHUB_RUN_ID"), help="Workflow run id; defaults to GITHUB_RUN_ID")
     parser.add_argument("--artifact-name", default=DEFAULT_ARTIFACT_NAME, help="Uploaded artifact name")
     parser.add_argument("--ios-status", default="passed", help="AICaddie xcodebuild status")
-    parser.add_argument("--watch-status", default="passed", help="AICaddieWatch xcodebuild status")
+    parser.add_argument(
+        "--watch-status",
+        default="skipped",
+        help="AICaddieWatch xcodebuild status (defaults to skipped unless execution is attested)",
+    )
     parser.add_argument("--ios-destination", default=_env("IOS_DESTINATION"), help="iOS simulator destination")
     parser.add_argument("--watch-destination", default=_env("WATCH_DESTINATION"), help="watchOS simulator destination")
     parser.add_argument("--ios-configuration", default=None, help="Optional iOS build configuration")

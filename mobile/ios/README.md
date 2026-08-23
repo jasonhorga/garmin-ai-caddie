@@ -14,8 +14,11 @@ Native build and unit tests require macOS with Xcode:
 xcodegen generate --spec mobile/ios/project.yml --project-root .
 xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddie -destination "platform=iOS Simulator,name=iPhone 16,OS=latest"
 xcodebuild test -project mobile/ios/AICaddieNative.xcodeproj -scheme AICaddieWatch -destination "platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest"
-python3 ops/write_native_build_evidence.py
+python3 ops/write_native_build_evidence.py --watch-status passed
 ```
+
+The evidence writer defaults the Watch status to `skipped`; pass `--watch-status passed`
+only after the Watch target test has actually run.
 
 The iOS app should cache a live round package before play, append local events while offline, and sync the event log when network access returns.
 

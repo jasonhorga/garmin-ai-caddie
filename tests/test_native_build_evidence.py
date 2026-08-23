@@ -37,7 +37,12 @@ class NativeBuildEvidenceTests(unittest.TestCase):
         self.assertEqual(saved["ios"]["testCount"], 8)
         self.assertEqual(saved["ios"]["durationSeconds"], 12.346)
         self.assertEqual(saved["watch"]["scheme"], "AICaddieWatch")
-        self.assertEqual(saved["watch"]["status"], "passed")
+        self.assertEqual(saved["watch"]["status"], "skipped")
+
+    def test_writer_accepts_explicit_passed_watch_status(self) -> None:
+        payload = build_native_build_evidence(watch_status="passed")
+
+        self.assertEqual(payload["watch"]["status"], "passed")
 
     def test_writer_rejects_private_paths_and_secret_markers(self) -> None:
         with self.assertRaises(ValueError):
@@ -66,6 +71,18 @@ class NativeBuildEvidenceTests(unittest.TestCase):
                     watch_destination="platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest",
                 ),
             )
+
+    def test_writer_preserves_explicit_skipped_watch_status(self) -> None:
+        payload = build_native_build_evidence(
+            commit="abc123",
+            workflow_run_id="1001",
+            ios_destination="platform=iOS Simulator,name=iPhone 16,OS=latest",
+            watch_destination="platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest",
+            watch_status="skipped",
+        )
+
+        self.assertEqual(payload["ios"]["status"], "passed")
+        self.assertEqual(payload["watch"]["status"], "skipped")
 
 
 if __name__ == "__main__":
