@@ -125,11 +125,11 @@ public struct LiveRoundPackage: Codable, Equatable {
             clubProfiles: clubProfiles,
             caddieDecisionEndpoint: caddieDecisionEndpoint,
             offlinePackageStatus: offlinePackageStatus,
-            readinessState: readinessState,
             eventCursor: eventCursor,
             recentHistory: recentHistory,
             cachedCaddieRules: cachedCaddieRules,
-            generatedAt: generatedAt
+            generatedAt: generatedAt,
+            readinessState: readinessState
         )
     }
 
@@ -159,11 +159,11 @@ public struct LiveRoundPackage: Codable, Equatable {
             clubProfiles: clubProfiles,
             caddieDecisionEndpoint: caddieDecisionEndpoint,
             offlinePackageStatus: offlinePackageStatus,
-            readinessState: readinessState,
             eventCursor: eventCursor,
             recentHistory: recentHistory,
             cachedCaddieRules: cachedCaddieRules,
-            generatedAt: generatedAt
+            generatedAt: generatedAt,
+            readinessState: readinessState
         )
     }
 
@@ -217,7 +217,6 @@ public struct LiveRoundPackage: Codable, Equatable {
             clubProfiles: clubProfiles,
             caddieDecisionEndpoint: caddieDecisionEndpoint,
             offlinePackageStatus: offlinePackageStatus,
-            readinessState: readinessState,
             eventCursor: EventCursor(
                 serverSequence: 0,
                 pendingEventCount: 0,
@@ -227,7 +226,8 @@ public struct LiveRoundPackage: Codable, Equatable {
             ),
             recentHistory: recentHistory,
             cachedCaddieRules: cachedCaddieRules,
-            generatedAt: ISO8601DateFormatter().string(from: generatedAt)
+            generatedAt: ISO8601DateFormatter().string(from: generatedAt),
+            readinessState: readinessState
         )
     }
 }

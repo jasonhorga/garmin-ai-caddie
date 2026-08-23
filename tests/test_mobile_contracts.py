@@ -1184,6 +1184,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("enum LiveRoundEventKind: String, Codable", event_swift)
         self.assertIn('case syncMarker = "sync_marker"', event_swift)
 
+    def test_live_round_package_copy_initializers_match_declared_argument_order(self) -> None:
+        package_swift = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundPackage.swift")
+        call_bodies = re.findall(r"LiveRoundPackage\(\n(.*?)\n        \)", package_swift, flags=re.DOTALL)
+
+        self.assertEqual(3, len(call_bodies))
+        for body in call_bodies:
+            self.assertLess(body.index("generatedAt:"), body.index("readinessState:"))
+
     def test_ios_services_define_offline_store_and_sync_client(self) -> None:
         offline_store = (IOS_DIR / "Services" / "OfflineStore.swift").read_text(encoding="utf-8")
         sync_client = (IOS_DIR / "Services" / "SyncClient.swift").read_text(encoding="utf-8")
