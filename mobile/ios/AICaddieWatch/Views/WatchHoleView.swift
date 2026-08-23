@@ -144,7 +144,8 @@ public struct WatchHoleView: View {
             .foregroundStyle(.white)
             .lineLimit(1)
             .minimumScaleFactor(0.72)
-            .frame(maxWidth: .infinity, height: WatchHoleInstrumentLayout.actionHeight)
+            .frame(maxWidth: .infinity)
+            .frame(height: WatchHoleInstrumentLayout.actionHeight)
             .background(AICaddieDesignTokens.hudPanel, in: Capsule())
             .contentShape(Rectangle())
     }
