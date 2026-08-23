@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 from pathlib import Path
@@ -381,6 +382,88 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("ai-caddie-backup-manifest-v1", text)
         self.assertIn("sizeBytes", text)
         self.assertIn("createdAt", text)
+
+    def test_codex_runs_audit_inventories_nested_worktree_venvs(self) -> None:
+        script = Path("ops/audit_homeserver_codex_runs.sh")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs = root / "runs"
+            run_a = runs / "run-a"
+            run_b = runs / "run-b"
+            (run_a / ".venv").mkdir(parents=True)
+            (run_a / ".claude" / "worktrees" / "one" / ".venv").mkdir(parents=True)
+            (run_a / ".claude" / "worktrees" / "two" / "nested" / ".venv").mkdir(
+                parents=True
+            )
+            (run_a / ".claude" / "worktrees" / "one" / ".venv" / "marker").write_bytes(
+                b"one-venv"
+            )
+            (run_a / ".claude" / "worktrees" / "two" / "nested" / ".venv" / "marker").write_bytes(
+                b"two-venv-marker"
+            )
+            (run_a / ".claude" / "worktrees" / "two" / "source.txt").write_text(
+                "source", encoding="utf-8"
+            )
+            (run_b / ".venv").mkdir(parents=True)
+
+            manifest_root = root / "manifests"
+            result = subprocess.run(
+                ["bash", str(script)],
+                env={
+                    **os.environ,
+                    "AICADDIE_CODEX_RUNS": str(runs),
+                    "AICADDIE_MANIFEST_ROOT": str(manifest_root),
+                    "AICADDIE_MANIFEST_STAMP": "test-stamp",
+                },
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            output = Path(result.stdout.strip())
+            with (output / "runs.tsv").open(newline="", encoding="utf-8") as handle:
+                rows = {row["name"]: row for row in csv.DictReader(handle, delimiter="\t")}
+
+            metric_fields = {
+                "nested_venv_count",
+                "nested_venv_bytes",
+                "nested_worktree_count",
+                "nested_claude_bytes",
+            }
+            self.assertTrue(metric_fields.issubset(rows["run-a"]))
+            self.assertEqual(rows["run-a"]["nested_venv_count"], "2")
+            self.assertEqual(rows["run-a"]["nested_worktree_count"], "2")
+            nested_venv_bytes = sum(
+                int(
+                    subprocess.run(
+                        ["du", "--bytes", "--summarize", str(path)],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    ).stdout.split()[0]
+                )
+                for path in (
+                    run_a / ".claude" / "worktrees" / "one" / ".venv",
+                    run_a / ".claude" / "worktrees" / "two" / "nested" / ".venv",
+                )
+            )
+            claude_bytes = int(
+                subprocess.run(
+                    ["du", "--bytes", "--summarize", str(run_a / ".claude")],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.split()[0]
+            )
+            self.assertEqual(rows["run-a"]["nested_venv_bytes"], str(nested_venv_bytes))
+            self.assertEqual(rows["run-a"]["nested_claude_bytes"], str(claude_bytes))
+            self.assertEqual(rows["run-b"]["nested_venv_count"], "0")
+            self.assertEqual(rows["run-b"]["nested_venv_bytes"], "0")
+            self.assertEqual(rows["run-b"]["nested_worktree_count"], "0")
+            self.assertEqual(rows["run-b"]["nested_claude_bytes"], "0")
+
+            self.assertTrue((run_a / ".claude" / "worktrees" / "one" / ".venv").exists())
 
     def test_frontend_lint_ignores_generated_playwright_artifacts(self) -> None:
         config = Path("web_v2/eslint.config.js").read_text(encoding="utf-8")
