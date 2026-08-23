@@ -10,10 +10,11 @@ import type {
   MobileCourseOptionsResponse,
   PrepTipsResponse,
 } from '../types'
-import { fetchCoursePrep, fetchMobileCoursePackage, fetchPrepTips } from '../api'
+import { fetchCourseInstallStatus, fetchCoursePrep, fetchMobileCoursePackage, fetchPrepTips } from '../api'
 import { PrepPage, courseReadyForWorkbench } from './PrepPage'
 
 vi.mock('../api', () => ({
+  fetchCourseInstallStatus: vi.fn(),
   fetchCoursePrep: vi.fn(),
   fetchMobileCoursePackage: vi.fn(),
   fetchPrepTips: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('../api', () => ({
   prefetchTopoImage: vi.fn(),
 }))
 
+const fetchCourseInstallStatusMock = vi.mocked(fetchCourseInstallStatus)
 const fetchCoursePrepMock = vi.mocked(fetchCoursePrep)
 const fetchMobileCoursePackageMock = vi.mocked(fetchMobileCoursePackage)
 const fetchPrepTipsMock = vi.mocked(fetchPrepTips)
@@ -185,6 +187,7 @@ function renderPrep(overrides: Partial<Parameters<typeof PrepPage>[0]> = {}) {
 }
 
 beforeEach(() => {
+  fetchCourseInstallStatusMock.mockReset()
   fetchCoursePrepMock.mockReset()
   fetchMobileCoursePackageMock.mockReset()
   fetchPrepTipsMock.mockReset()
@@ -194,6 +197,7 @@ beforeEach(() => {
       { number: 2, sourceGlobalId: globalId, sourceLocalHole: 2 },
     ],
   } as unknown as LiveRoundPackageResponse))
+  fetchCourseInstallStatusMock.mockRejectedValue(new Error('install status unavailable'))
   fetchCoursePrepMock.mockImplementation(async (globalId: number) => prepResponse(globalId))
   fetchPrepTipsMock.mockImplementation(async () => tipsResponse())
 })
@@ -237,6 +241,7 @@ describe('PrepPage workbench', () => {
       { holes: [1, 2], render: false, includeShots: true },
       'admin-secret',
     )
+    await waitFor(() => expect(fetchCourseInstallStatusMock).toHaveBeenCalledWith(31795, {}, 'admin-secret'))
     await waitFor(() => expect(fetchPrepTipsMock).toHaveBeenCalledWith(31795, 'admin-secret'))
     expect(screen.queryByText('选择球场开始备战')).not.toBeInTheDocument()
   })
