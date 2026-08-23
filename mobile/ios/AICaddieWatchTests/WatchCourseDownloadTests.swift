@@ -1,6 +1,7 @@
 import XCTest
 @testable import AICaddieWatch
 
+@MainActor
 final class WatchCourseDownloadTests: XCTestCase {
     @MainActor
     func testNearbyWithoutConfigReportsAuthenticationBoundary() async {
