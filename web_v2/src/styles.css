@@ -9827,10 +9827,22 @@ textarea {
 
 .review-work--map-first {
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
     'holes'
-    'canvas';
+    'canvas'
+    'editor';
+}
+
+/* Map-first is intentionally a map-led surface. Keep the passive timeline out
+   of this grid mode so it cannot create an implicit track or intercept canvas
+   pointer events; the editor's actual reorder controls have their own row. */
+.review-work--map-first .review-inspector {
+  display: none;
+}
+
+.review-work--map-first .review-editor {
+  grid-area: editor;
 }
 
 .review-work--map-first .review-canvas {
@@ -9952,7 +9964,11 @@ textarea {
   }
 
   .review-work--map-first {
-    grid-template-rows: auto minmax(560px, calc(100svh - 190px));
+    grid-template-rows: auto minmax(560px, calc(100svh - 190px)) auto;
+    grid-template-areas:
+      'holes'
+      'canvas'
+      'editor';
     height: auto;
   }
 
