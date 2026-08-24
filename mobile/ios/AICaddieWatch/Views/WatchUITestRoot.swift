@@ -552,6 +552,17 @@ public struct WatchUITestRoot: View {
             failRuntimeHarness("Cancel did not reassign the next-tee shot as recovery")
             return
         }
+        model.completePendingManualShot(clubName: nil)
+        let recoveryEvents = model.round?.pendingEvents.filter {
+            $0.kind == .location && $0.hole == 1 && $0.shotType == "recovery"
+        } ?? []
+        guard model.pendingManualShot == nil,
+              model.screen == .home,
+              recoveryEvents.count == 1,
+              WatchRoundStore().load()?.pendingManualShot == nil else {
+            failRuntimeHarness("Cancel recovery shot did not persist its location event")
+            return
+        }
         writeRuntimeMarker("runtime-cancel-ready", contents: [
             "stage=cancel-recovery",
             "round_id=\(Self.runtimeCancelRoundId)",
@@ -561,7 +572,9 @@ public struct WatchUITestRoot: View {
             "pending_shot_hole=\(recovered.hole)",
             "candidate_from_hole=none",
             "shot_type=\(recovered.shotType)",
-            "screen_after=clubPrompt",
+            "screen_after=home",
+            "recovery_location_event=true",
+            "pending_shot_after=none",
             "recovery=true",
         ].joined(separator: "\n"))
     }
@@ -629,6 +642,26 @@ public struct WatchUITestRoot: View {
             failRuntimeHarness("abandon confirm did not close the persisted round")
             return
         }
+        model.applyRoundSeed(WatchRoundSeed(
+            roundId: Self.runtimeAbandonRoundId,
+            courseName: "W1 Abandon Recovery",
+            activeHole: 1,
+            holes: Self.runtimeRoundStates(roundId: Self.runtimeAbandonRoundId).map {
+                WatchRoundSeedHole(
+                    hole: $0.hole,
+                    par: $0.par,
+                    distanceM: $0.distanceM,
+                    teeLatitude: $0.teeLatitude,
+                    teeLongitude: $0.teeLongitude
+                )
+            }
+        ))
+        guard model.round == nil,
+              store.load() == nil,
+              model.lastRoundClosure?.disposition == .abandoned else {
+            failRuntimeHarness("abandoned round was resurrected by its stale seed")
+            return
+        }
         writeRuntimeMarker("runtime-abandon-ready", contents: [
             "stage=abandon-confirmed-after-relaunch",
             "round_id=\(Self.runtimeAbandonRoundId)",
@@ -636,6 +669,7 @@ public struct WatchUITestRoot: View {
             "deferred_finishes_after=0",
             "closure_disposition=\(closure?.disposition.rawValue ?? "missing")",
             "screen_after=home",
+            "stale_seed_rejected=true",
         ].joined(separator: "\n"))
     }
 

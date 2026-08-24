@@ -507,7 +507,9 @@ jobs:
                 grep -qx 'pending_shot_hole=1' "$app_container/Documents/$marker"
                 grep -qx 'candidate_from_hole=none' "$app_container/Documents/$marker"
                 grep -qx 'shot_type=recovery' "$app_container/Documents/$marker"
-                grep -qx 'screen_after=clubPrompt' "$app_container/Documents/$marker"
+                grep -qx 'screen_after=home' "$app_container/Documents/$marker"
+                grep -qx 'recovery_location_event=true' "$app_container/Documents/$marker"
+                grep -qx 'pending_shot_after=none' "$app_container/Documents/$marker"
                 grep -qx 'recovery=true' "$app_container/Documents/$marker"
               elif [[ "$mode" == "runtime-abandon-seed" ]]; then
                 grep -qx 'stage=seeded' "$app_container/Documents/$marker"
@@ -527,6 +529,7 @@ jobs:
                 grep -qx 'closure_disposition=abandoned' "$app_container/Documents/$marker"
                 grep -qx 'screen_after=home' "$app_container/Documents/$marker"
                 test ! -f "$app_container/Documents/watch-round/round.json"
+                grep -qx 'stale_seed_rejected=true' "$app_container/Documents/$marker"
               fi
               if [[ "$mode" == runtime-cancel-* || "$mode" == runtime-abandon-* ]]; then
                 cp "$app_container/Documents/$marker" \
