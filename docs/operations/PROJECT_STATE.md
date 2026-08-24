@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-24 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `309d7232` (runtime-verified code baseline: `ca2b2d7a`)
+**HEAD:** `318708e0` (runtime-verified code baseline: `ca2b2d7a`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -97,6 +97,13 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   it a 1280 px evidence asset.
 - The external API returned 502 during the production 18-hole/current-head
   journey, so that runtime evidence remains open.
+- 2026-08-24 read-only homeserver diagnosis: the local API is healthy at
+  `http://127.0.0.1:8080/api/v2/health` (and the container is healthy on
+  `127.0.0.1:9000`), but the public Funnel root still proxies to
+  `127.0.0.1:443`; no process listens on that loopback port. The Caddy
+  instance serving the project is configured on `:8080`. This is a shared
+  routing/configuration blocker; do not change the Funnel route without owner
+  approval.
 - Three runtime evidence boundaries remain open: Cancel has not completed the
   recovery-rod flow; the old-seed tombstone has not been runtime-verified; and
   deferred-finish network retry remains unit-only.
@@ -140,3 +147,6 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   head `ca2b2d7a` succeeded for 41/45/49 mm and five recovery markers, while
   the production journey remained open after an external API 502 and the
   three evidence boundaries listed above.
+- 2026-08-24: Read-only homeserver diagnosis confirmed the 502 is caused by
+  Funnel root -> `127.0.0.1:443` while project Caddy listens on `:8080`; no
+  routing change was made.
