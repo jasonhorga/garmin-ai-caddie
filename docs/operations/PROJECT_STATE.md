@@ -22,7 +22,7 @@ code; do not restart the old multi-week plan tree.
 | Track | State | What is true now | Exit evidence |
 |---|---|---|---|
 | P0 Watch | `evidence-open` | Provisional next-tee shot completion is idempotent (`10d56855`). Core lifecycle, independent discovery, offline/restart, and 41/45/49 mm runtime flow are not fully proven. | One real round (or simulator equivalent) covering start, hole advance/Cancel, edit, finish/recover, and all three sizes. |
-| P1 Sync / Prep / Caddie | `ci-fix-pending-rerun` | Strategy tiers are deduplicated and ordered (`ca3fa89`). Web prep has the four-state readiness gate (`a1b88a2e`); backend and navigation fixtures are aligned (`46aad448`, `2ca27720`), and visual E2E fixtures now carry complete hole rows (`edf41054`). Production sync provenance and durable background download remain open. | Metadata → preparing → precise → offline-installed is resumable; real package distance table and Garmin-to-client sync are consistent. |
+| P1 Sync / Prep / Caddie | `ci-green-runtime-open` | Strategy tiers are deduplicated and ordered (`ca3fa89`). Web prep has the four-state readiness gate (`a1b88a2e`); backend, navigation and visual fixtures are aligned (`46aad448`, `2ca27720`, `edf41054`). CI `32690671928` is green. Production sync provenance and durable background download remain open. | Metadata → preparing → precise → offline-installed is resumable; real package distance table and Garmin-to-client sync are consistent. |
 | P2 Review / Stats | `implementation-partial` | FIR unknown-token semantics merged (`bbc865af`). iOS review editing is largely present; Web editor, first-frame/cache, overlay-first layout, and cross-surface trend entry still need closure. | Half Moon Bay round-by-round facts plus iOS/Web runtime screenshots and edit/save/reload evidence. |
 | Release | `blocked` | Native runtime and production provenance evidence are incomplete. | P0, P1 and P2 gates above, then explicit owner approval. |
 
@@ -42,13 +42,15 @@ code; do not restart the old multi-week plan tree.
 - CI run `32690177548` then passed backend, Docker, component tests, lint and
   build, but failed only visual smoke because two E2E fixtures still used the
   old `phase:'complete', holes:[]` shape. That fixture correction is `edf41054`.
+- CI run `32690671928` at head `b6ecee8f` is green across backend, frontend
+  visual smoke and Docker.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Close the three CI regressions from run `32689037776`, rerun the same workflow,
-   and require the head SHA to match before declaring the batch green.
+1. Keep the CI-green batch intact; do not add unrelated fixture or UI changes
+   before the next evidence slice.
 2. Implement one P2 Web review editor/cache slice, then one evidence run; do not
    combine unrelated UI redesign work into that slice.
 3. Run the P0/P1/P2 real-data evidence matrix for the two Half Moon Bay rounds.
@@ -88,5 +90,6 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   one modifying agent at a time.
 - 2026-08-24: Integrated backend test-contract fix `46aad448` and Web fixture
   fix `2ca27720`; awaiting a matching green CI run.
-- 2026-08-24: Integrated visual fixture correction `edf41054`; the next CI run
-  is the final verification for this batch.
+- 2026-08-24: Integrated visual fixture correction `edf41054`; CI
+  `32690671928` at `b6ecee8f` is green across all three jobs. The code batch is
+  closed; runtime/product evidence remains open.
