@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-24 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `e8266e9f` (last CI-verified code commit: `b6ecee8f`)
+**HEAD:** `b1b86af7` (last CI-verified code commit: `b6ecee8f`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -19,17 +19,14 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`R1` — Web review editor/cache** (`in-progress`)
+**`W1` — Watch lifecycle and round recovery** (`in-progress`)
 
-Implement one bounded Web slice: map-first review editing (tap to add a shot,
-drag an existing landing point, add the next shot, delete, reorder, then save
-once) plus the smallest cache/first-frame improvement needed by that flow.
-Reuse the existing correction API and shot-map geometry. Do not combine this
-slice with a broad UI redesign or statistics migration. The slice exits only
-when the implementation, focused tests, and one remote evidence run are
-recorded below.
+Complete one Watch evidence slice covering independent discovery, offline/
+restart behavior, hole advance/Cancel, edit, finish/recover, and 41/45/49 mm
+behavior. Keep the CI-green batch intact and record the complete runtime proof
+before selecting another task.
 
-No other task may become `in-progress` while `R1` is active. When it closes,
+No other task may become `in-progress` while `W1` is active. When it closes,
 select the next stable ID here and update this file before starting work.
 
 ## Task Ledger
@@ -39,9 +36,9 @@ project-level task list; historical plans are reference material.
 
 | ID | State | Scope | Exit evidence |
 |---|---|---|---|
-| `W1` | `evidence-open` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | One complete real or simulator round covering start, hole advance/Cancel, edit, finish/recover, and all three sizes. |
+| `W1` | `in-progress` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | One complete real or simulator round covering start, hole advance/Cancel, edit, finish/recover, and all three sizes. |
 | `S1` | `ci-green-runtime-open` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Metadata → preparing → precise → offline-installed is resumable and the real package distance table matches every client. |
-| `R1` | `in-progress` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
+| `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
 | `REL` | `blocked` | Release and TestFlight gate. | `W1`, `S1`, and `R1`/`R2` evidence complete, production provenance approved, then owner approval. |
 
@@ -72,15 +69,22 @@ means a named external decision or prerequisite is missing; `done` and
   old `phase:'complete', holes:[]` shape. That fixture correction is `edf41054`.
 - CI run `32690671928` at head `b6ecee8f` is green across backend, frontend
   visual smoke and Docker.
+- R1 is complete across `3eed2c56`, `82538984`, `bfc6bb57`, `de11b5db`, and
+  `b1b86af7`: focused Web 38 passed; full Vitest 600 passed/7 skipped; build
+  passed; lint 0 errors/2 existing warnings; history visual smoke 1 passed;
+  final remote review-editor interaction passed in 11.8s on homeserver after
+  temporary browser install, which was removed with no persistent service or
+  tunnel left behind.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Let the bounded `R1` implementation finish; keep the CI-green batch intact.
-2. Record `R1`'s commit, tests, remote evidence, and cleanup result here.
-3. Re-read this ledger and choose the next ID; do not expand the scope
-   mid-slice.
+1. Run the W1 real or simulator round covering start, hole advance/Cancel,
+   edit, finish/recover, offline/restart, and all three watch sizes.
+2. Record W1 runtime evidence and any blocker here; keep the CI-green batch
+   intact and do not expand the slice.
+3. Re-read this ledger and choose the next stable ID only after W1 closes.
 4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
    owner-approval gates before TestFlight.
 
@@ -123,3 +127,8 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - 2026-08-24: Integrated visual fixture correction `edf41054`; CI
   `32690671928` at `b6ecee8f` is green across all three jobs. The code batch is
   closed; runtime/product evidence remains open.
+- 2026-08-24: Closed `R1` as done with commits `3eed2c56`, `82538984`,
+  `bfc6bb57`, `de11b5db`, and `b1b86af7`; focused/full Web tests, build/lint,
+  history visual smoke, and final remote review-editor interaction passed;
+  temporary browser resources were cleaned up. Started `W1` as the sole
+  in-progress slice.
