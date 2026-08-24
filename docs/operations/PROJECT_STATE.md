@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-24 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** current branch tip (last CI-verified code commit: `b6ecee8f`)
+**HEAD:** `e8266e9f` (last CI-verified code commit: `b6ecee8f`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -17,14 +17,42 @@ first round flow across Watch, iOS and Web: reliable start, live scoring,
 course preparation, review, and synchronized history. Preserve existing working
 code; do not restart the old multi-week plan tree.
 
-## Live Queue
+## Current Slice
 
-| Track | State | What is true now | Exit evidence |
+**`R1` — Web review editor/cache** (`queued`)
+
+Implement one bounded Web slice: map-first review editing (tap to add a shot,
+drag an existing landing point, add the next shot, delete, reorder, then save
+once) plus the smallest cache/first-frame improvement needed by that flow.
+Reuse the existing correction API and shot-map geometry. Do not combine this
+slice with a broad UI redesign or statistics migration. The slice exits only
+when the implementation, focused tests, and one remote evidence run are
+recorded below.
+
+No other task may become `in-progress` while `R1` is active. When it closes,
+select the next stable ID here and update this file before starting work.
+
+## Task Ledger
+
+These IDs persist across sessions and context compactions. They are the only
+project-level task list; historical plans are reference material.
+
+| ID | State | Scope | Exit evidence |
 |---|---|---|---|
-| P0 Watch | `evidence-open` | Provisional next-tee shot completion is idempotent (`10d56855`). Core lifecycle, independent discovery, offline/restart, and 41/45/49 mm runtime flow are not fully proven. | One real round (or simulator equivalent) covering start, hole advance/Cancel, edit, finish/recover, and all three sizes. |
-| P1 Sync / Prep / Caddie | `ci-green-runtime-open` | Strategy tiers are deduplicated and ordered (`ca3fa89`). Web prep has the four-state readiness gate (`a1b88a2e`); backend, navigation and visual fixtures are aligned (`46aad448`, `2ca27720`, `edf41054`). CI `32690671928` is green. Production sync provenance and durable background download remain open. | Metadata → preparing → precise → offline-installed is resumable; real package distance table and Garmin-to-client sync are consistent. |
-| P2 Review / Stats | `implementation-partial` | FIR unknown-token semantics merged (`bbc865af`). iOS review editing is largely present; Web editor, first-frame/cache, overlay-first layout, and cross-surface trend entry still need closure. | Half Moon Bay round-by-round facts plus iOS/Web runtime screenshots and edit/save/reload evidence. |
-| Release | `blocked` | Native runtime and production provenance evidence are incomplete. | P0, P1 and P2 gates above, then explicit owner approval. |
+| `W1` | `evidence-open` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | One complete real or simulator round covering start, hole advance/Cancel, edit, finish/recover, and all three sizes. |
+| `S1` | `ci-green-runtime-open` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Metadata → preparing → precise → offline-installed is resumable and the real package distance table matches every client. |
+| `R1` | `queued` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
+| `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
+| `REL` | `blocked` | Release and TestFlight gate. | `W1`, `S1`, and `R1`/`R2` evidence complete, production provenance approved, then owner approval. |
+
+### Status vocabulary
+
+`queued` means defined but not started; `in-progress` means the current slice;
+`evidence-open` means code exists but runtime proof is missing;
+`ci-green-runtime-open` means CI is green but production/runtime proof is
+missing; `implementation-partial` means more code is required; `blocked`
+means a named external decision or prerequisite is missing; `done` and
+`cancelled` are terminal.
 
 ## Completed Evidence
 
@@ -49,13 +77,12 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Keep the CI-green batch intact; do not add unrelated fixture or UI changes
-   before the next evidence slice.
-2. Implement one P2 Web review editor/cache slice, then one evidence run; do not
-   combine unrelated UI redesign work into that slice.
-3. Run the P0/P1/P2 real-data evidence matrix for the two Half Moon Bay rounds.
-4. Resolve remaining native runtime/provenance gates, obtain owner approval, and
-   only then prepare TestFlight.
+1. Start `R1` only; keep the CI-green batch intact.
+2. Record `R1`'s commit, tests, remote evidence, and cleanup result here.
+3. Re-read this ledger and choose the next ID; do not expand the scope
+   mid-slice.
+4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
+   owner-approval gates before TestFlight.
 
 ## Open Blockers / Facts
 
@@ -75,16 +102,18 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - At most one modifying implementation agent and one read-only review snapshot.
 - Every delegated task returns its worktree, commit, tests, resources and
   cleanup result. Temporary resources are removed by their creator.
-- Update this file only when a task changes state or the next action changes.
-  Add a dated one-line entry below; do not paste full command logs here.
+- Update this file only when a task changes state, evidence, blocker, or the
+  current slice changes. Add a dated one-line entry below; do not paste full
+  command logs here.
 - After context compression, read this file first, then run lightweight
   `git status`, `git log -8`, and agent-status checks. Do not recreate a new
   master checklist from memory.
 
 ## State Changes
 
-- 2026-08-24: Integrated `bbc865af`; started the bounded Web prep readiness
-  task. Echo-style shell output is not a project task or process.
+- 2026-08-24: Replaced the chat-sized plan with stable task IDs and set `R1`
+  as the only queued next slice. Echo-style shell output is intentionally not
+  tracked as project state.
 - 2026-08-24: Integrated `a1b88a2e`; CI `32689037776` passed Docker but exposed
   one Web fixture failure and two backend assertion failures. Fixes are queued
   one modifying agent at a time.

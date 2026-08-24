@@ -57,8 +57,21 @@ defines ownership and resource lifetime, not a new product plan.
 Read [`docs/operations/PROJECT_STATE.md`](docs/operations/PROJECT_STATE.md)
 before resuming work after a context compaction or session restart. It is the
 durable live source of truth for the active queue, completed evidence, blockers,
-and next action. Keep long reviews and historical plans as reference; do not
-recreate a competing master checklist in chat.
+and next action. The ledger's stable task IDs and status values are
+authoritative; chat checkboxes, progress prose, and shell output are not. Keep
+long reviews and historical plans as reference; do not recreate a competing
+master checklist in chat.
+
+After compaction, follow this recovery sequence exactly:
+
+1. Read `PROJECT_STATE.md`.
+2. Inspect `git status`, the last few commits, and delegated-agent status.
+3. Resume the single task named by `Current slice`; do not start another slice
+   merely because context was compacted.
+4. Update the ledger only when the slice changes state, evidence, or blocker.
+
+There must be at most one `in-progress` task in the ledger. A task is either
+`queued`, `in-progress`, `blocked`, `evidence-open`, `done`, or `cancelled`.
 
 ## 6. Required handoff
 
