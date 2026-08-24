@@ -9869,9 +9869,9 @@ textarea {
 }
 
 /* Small, local editor affordances; the existing review layout remains unchanged when read-only. */
-.review-canvas-svg--editing { cursor: crosshair; pointer-events: all; }
+.review-canvas-svg--editing { cursor: crosshair; pointer-events: all; touch-action: none; }
 .review-canvas-svg--editing polyline, .review-canvas-svg--editing line { pointer-events: none; }
-.review-shot-marker--editable { cursor: grab; pointer-events: all; }
+.review-shot-marker--editable { cursor: grab; pointer-events: all; touch-action: none; }
 .review-shot-marker--editable:active { cursor: grabbing; }
 .review-editor { display: grid; gap: 10px; align-content: start; padding: 12px; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; background: rgba(7,16,24,.62); }
 .review-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }

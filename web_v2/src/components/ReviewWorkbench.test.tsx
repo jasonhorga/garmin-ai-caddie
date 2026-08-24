@@ -51,6 +51,8 @@ function shotMap(hole: number): RoundHoleShotMapResponse {
       image: 'data:image/png;base64,AAAA',
       overlay: { w: 300, h: 470, ppm: 1, ln: 400, route: [[150, 455, 0], [150, 72, 400]] },
     },
+    mapKind: 'prodgeometry',
+    geometryRevision: 'test-geometry-revision',
     shots: [
       { start: [150, 455], end: [128, 270], club: '一号木', lie: 'TeeBox', endLie: 'Fairway', shotType: 'TEE', order: 1, synthetic: false },
       { start: [128, 270], end: [182, 120], club: '五号木', lie: 'Fairway', endLie: 'Bunker', shotType: 'APPROACH', order: 2, synthetic: false },
@@ -274,5 +276,56 @@ describe('ReviewWorkbench', () => {
     if (!payload) throw new Error('save payload missing')
     expect(payload).toMatchObject({ op: 'replaceHoleShots', hole: 1, manualPenalty: 0 })
     expect(payload.shots).toHaveLength(3)
+  })
+
+  it('does not promote an inferred synthetic tee into the saved snapshot', async () => {
+    const inferred = shotMap(1)
+    inferred.shots = [
+      { ...inferred.shots[0], id: null, synthetic: true },
+      ...inferred.shots.slice(1),
+    ]
+    const fetchShotMap = vi.fn(async () => inferred)
+    const saveCorrection = vi.fn(async (roundRef: string, correction: RoundCorrectionRequest) => {
+      void roundRef
+      void correction
+    })
+    render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} saveCorrection={saveCorrection} />)
+    await screen.findByLabelText('第1洞落点图')
+    await userEvent.click(screen.getByRole('button', { name: '编辑落点' }))
+    await userEvent.click(screen.getByRole('button', { name: '保存全部修改' }))
+    await waitFor(() => expect(saveCorrection).toHaveBeenCalledTimes(1))
+    const payload = saveCorrection.mock.calls[0]?.[1] as RoundCorrectionRequest | undefined
+    expect(payload?.shots).toHaveLength(2)
+    expect(payload?.shots?.every((shot) => shot.synthetic !== true)).toBe(true)
+  })
+
+  it('keeps CourseView-only frames read-only instead of saving pixel edits', async () => {
+    const lightweight = { ...shotMap(1), mapKind: 'courseData' as const, geometryRevision: null }
+    const fetchShotMap = vi.fn(async () => lightweight)
+    const saveCorrection = vi.fn(async (roundRef: string, correction: RoundCorrectionRequest) => {
+      void roundRef
+      void correction
+    })
+    render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} saveCorrection={saveCorrection} />)
+    await screen.findByLabelText('第1洞落点图')
+    expect(screen.queryByRole('button', { name: '编辑落点' })).toBeNull()
+  })
+
+  it('does not retry the mutation when the post-save refresh read fails', async () => {
+    const fetchShotMap = vi.fn(async (_ref: string, hole: number) => {
+      if (fetchShotMap.mock.calls.length > 1) throw new Error('refresh unavailable')
+      return shotMap(hole)
+    })
+    const saveCorrection = vi.fn(async (roundRef: string, correction: RoundCorrectionRequest) => {
+      void roundRef
+      void correction
+    })
+    render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} saveCorrection={saveCorrection} />)
+    await screen.findByLabelText('第1洞落点图')
+    await userEvent.click(screen.getByRole('button', { name: '编辑落点' }))
+    await userEvent.click(screen.getByRole('button', { name: '保存全部修改' }))
+    await waitFor(() => expect(saveCorrection).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('button', { name: '保存全部修改' })).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })

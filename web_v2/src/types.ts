@@ -558,6 +558,7 @@ export interface RoundHoleShotMapResponse {
   globalId?: number | null
   localHole?: number | null
   geometryRevision?: string | null
+  mapKind?: 'prodgeometry' | 'courseData' | null
   map: { image: string; overlay: CoursePrepOverlay } | null
   shots: RoundHoleShot[]
   // 这一洞用户手填的罚杆数(复盘修改层,默认 0)。只读展示:>0 时在洞信息区显示「本洞手填罚杆 +N」。

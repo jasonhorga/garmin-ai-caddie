@@ -23,7 +23,7 @@ function draftId(index: number): string {
 }
 
 function editableShots(shots: RoundHoleShot[]): RoundHoleShot[] {
-  return shots.map((shot, index) => ({ ...shot, id: shot.id ?? `web-source-${index + 1}` }))
+  return shots.map((shot, index) => ({ ...shot, id: shot.id ?? (shot.synthetic ? null : `web-source-${index + 1}`) }))
 }
 
 function reconnectShots(shots: RoundHoleShot[]): RoundHoleShot[] {
@@ -32,6 +32,10 @@ function reconnectShots(shots: RoundHoleShot[]): RoundHoleShot[] {
     order: index + 1,
     start: index > 0 && shots[index - 1].end ? shots[index - 1].end : shot.start,
   }))
+}
+
+function canEditPositions(data: RoundHoleShotMapResponse): boolean {
+  return data.mapKind === 'prodgeometry' && Boolean(data.geometryRevision) && data.map !== null
 }
 
 function formatToPar(value: number | null): string {
@@ -204,6 +208,7 @@ export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection }: Review
       ? { status: 'nogeo', message: '这局暂无逐洞成绩，无法展示落点图。' }
       : deriveShotMapState(shotMapKey === null ? undefined : shotMaps[shotMapKey], shotMapFailure, shotMapKey)
   const activeCell = holes.find((cell) => cell.hole === validHole) ?? null
+  const editableMap = shotMapState.status === 'ready' && canEditPositions(shotMapState.data)
   const currentDraft = shotMapKey !== null ? drafts[shotMapKey] : undefined
   const isEditing = editingKey === shotMapKey && currentDraft !== undefined && shotMapState.status === 'ready'
   const displayedShotMapState: ReviewShotMapState =
@@ -217,7 +222,7 @@ export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection }: Review
   const roundToPar = selectedRound.toPar ?? null
 
   function beginEditing(): void {
-    if (shotMapKey === null || shotMapState.status !== 'ready') return
+    if (!saveCorrection || shotMapKey === null || shotMapState.status !== 'ready' || !canEditPositions(shotMapState.data)) return
     setDrafts((previous) => ({
       ...previous,
       [shotMapKey]: previous[shotMapKey] ?? {
@@ -293,13 +298,15 @@ export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection }: Review
   }
 
   async function saveDraft(): Promise<void> {
-    if (!isEditing || !currentDraft || shotMapKey === null || shotMapState.status !== 'ready') return
+    if (!saveCorrection || !isEditing || !currentDraft || shotMapKey === null || shotMapState.status !== 'ready' || !canEditPositions(shotMapState.data)) return
     setSaveState('saving')
     const roundRef = validRoundId ?? shotMapState.data.roundRef
     const correction: RoundCorrectionRequest = {
       op: 'replaceHoleShots',
       hole: validHole ?? shotMapState.data.hole,
-      shots: currentDraft.shots.map((shot, index) => ({
+      // Synthetic route anchors are inferred display aids, not recorded strokes. Keep them in the
+      // draft for context, but never promote them into an approved whole-hole snapshot.
+      shots: currentDraft.shots.filter((shot) => !shot.synthetic).map((shot, index) => ({
         id: shot.id ?? `web-source-${index + 1}`,
         start: shot.start,
         end: shot.end,
@@ -315,9 +322,22 @@ export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection }: Review
       clientMutationId: draftId(0),
     }
     try {
-      await saveCorrection?.(roundRef, correction)
-      const fresh = await fetchRef.current(roundRef, validHole ?? shotMapState.data.hole)
-      setShotMaps((previous) => ({ ...previous, [shotMapKey]: fresh }))
+      await saveCorrection(roundRef, correction)
+      // The POST is the sole mutation. Publish an optimistic canonical draft immediately; a
+      // failed follow-up GET must not turn a committed save into a retryable error/duplicate write.
+      const optimistic = {
+        ...shotMapState.data,
+        shots: currentDraft.shots.filter((shot) => !shot.synthetic),
+        manualPenalty: currentDraft.manualPenalty,
+      }
+      setShotMaps((previous) => ({ ...previous, [shotMapKey]: optimistic }))
+      try {
+        const fresh = await fetchRef.current(roundRef, validHole ?? shotMapState.data.hole)
+        setShotMaps((previous) => ({ ...previous, [shotMapKey]: fresh }))
+      } catch {
+        // Keep the optimistic response and leave the editor closed; the next normal visit can retry
+        // the read without re-posting this already accepted mutation.
+      }
       setDrafts((previous) => {
         const next = { ...previous }
         delete next[shotMapKey]
@@ -425,7 +445,7 @@ export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection }: Review
           manualPenalty={manualPenalty}
         />
 
-        <div className="review-editor" aria-label="复盘编辑">
+        {saveCorrection && editableMap ? <div className="review-editor" aria-label="复盘编辑">
           {!isEditing ? (
             <button type="button" className="review-editor-button" onClick={beginEditing} disabled={shotMapState.status !== 'ready'}>
               编辑落点
@@ -458,7 +478,7 @@ export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection }: Review
               </ol>
             </>
           )}
-        </div>
+        </div> : null}
 
       </div>
     </section>
