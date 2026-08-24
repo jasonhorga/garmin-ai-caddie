@@ -35,6 +35,7 @@ import {
   fetchReportIndex,
   fetchRoundReport,
   fetchRoundHoleShotMap,
+  postRoundCorrection,
   fetchHoleReport,
   fetchClubReport,
   fetchTrendReport,
@@ -1343,6 +1344,7 @@ export default function App() {
           <ReviewWorkbench
             rounds={[round]}
             fetchShotMap={(roundRef, hole) => fetchRoundHoleShotMap(roundRef, hole, currentAdminToken())}
+            saveCorrection={(roundRef, correction) => postRoundCorrection(roundRef, correction, currentAdminToken())}
           />
           <HistoryRoundDetailPanel
             state={reviewRoundDetailState}

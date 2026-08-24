@@ -56,6 +56,7 @@ import type {
   ReviewReportIndexResponse,
   ReviewReportResponse,
   RoundHoleShotMapResponse,
+  RoundCorrectionRequest,
   StatsWindow,
   SyncRunResponse,
   SyncStatusResponse,
@@ -380,6 +381,19 @@ export function fetchHistoryRoundDetail(roundRef: string, adminToken?: string): 
 export function fetchRoundHoleShotMap(roundRef: string, hole: number, adminToken?: string): Promise<RoundHoleShotMapResponse> {
   return getJson<RoundHoleShotMapResponse>(
     `/api/v2/history/rounds/${encodeURIComponent(roundRef)}/holes/${encodeURIComponent(String(hole))}/shotmap`,
+    adminToken,
+  )
+}
+
+/** Persist one approved whole-hole review draft. The server keeps this append-only and idempotent. */
+export function postRoundCorrection(
+  roundRef: string,
+  correction: RoundCorrectionRequest,
+  adminToken?: string,
+): Promise<{ schema: string; stored: Record<string, unknown> }> {
+  return postJson<{ schema: string; stored: Record<string, unknown> }>(
+    `/api/v2/history/rounds/${encodeURIComponent(roundRef)}/corrections`,
+    correction,
     adminToken,
   )
 }

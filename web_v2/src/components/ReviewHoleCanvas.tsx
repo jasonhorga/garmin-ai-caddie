@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, MouseEvent, PointerEvent } from 'react'
 import type { RoundHoleShotMapResponse } from '../types'
 import { topoImageUrl } from '../api'
 import { HoleBaseImage } from './HoleBaseImage'
@@ -17,6 +17,9 @@ interface ReviewHoleCanvasProps {
   par: number | null
   score: number | null
   state: ReviewShotMapState
+  editing?: boolean
+  onMapClick?: (px: [number, number]) => void
+  onShotMove?: (shotId: string, px: [number, number]) => void
 }
 
 function statusNote(state: ReviewShotMapState): { text: string; tone: 'muted' | 'error' } | null {
@@ -30,7 +33,16 @@ function statusNote(state: ReviewShotMapState): { text: string; tone: 'muted' | 
 // ACTUAL shots (yellow trajectory + landing dots) drawn over the caddie-recommended
 // playing line (faint white dashes = overlay.route). Distance chips float over each
 // full-shot landing. Geometry may be missing for a hole → a graceful placeholder.
-export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasProps): React.ReactElement {
+function eventPixel(event: PointerEvent<SVGSVGElement | SVGCircleElement> | MouseEvent<SVGSVGElement>, w: number, h: number): [number, number] {
+  const rect = (event.currentTarget.ownerSVGElement ?? event.currentTarget).getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return [0, 0]
+  return [
+    Math.max(0, Math.min(w, ((event.clientX - rect.left) / rect.width) * w)),
+    Math.max(0, Math.min(h, ((event.clientY - rect.top) / rect.height) * h)),
+  ]
+}
+
+export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onMapClick, onShotMove }: ReviewHoleCanvasProps): React.ReactElement {
   const note = statusNote(state)
   const map = state.status === 'ready' ? state.data.map : null
   const shots = state.status === 'ready' ? state.data.shots : []
@@ -69,7 +81,15 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
     const labels = dodgeLabels(labelRows, { w, h })
 
     svg = (
-      <svg viewBox={`0 0 ${w} ${h}`} className="review-canvas-svg" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        className={editing ? 'review-canvas-svg review-canvas-svg--editing' : 'review-canvas-svg'}
+        preserveAspectRatio="xMidYMid meet"
+        aria-hidden={!editing}
+        onClick={(event) => {
+          if (editing && event.target === event.currentTarget) onMapClick?.(eventPixel(event, w, h))
+        }}
+      >
         {/* Caddie-recommended line — the ideal playing route, faint + dashed. */}
         {route.length > 1 ? (
           <polyline points={routePoints} fill="none" stroke="#fff" strokeOpacity={0.55} strokeWidth={2.4} strokeDasharray="6 5" strokeLinejoin="round" />
@@ -93,9 +113,38 @@ export function ReviewHoleCanvas({ hole, par, score, state }: ReviewHoleCanvasPr
         )}
         {trajPoints ? <polyline points={trajPoints} fill="none" stroke="none" /> : null}
         {geo.tee ? <circle cx={geo.tee[0]} cy={geo.tee[1]} r={6} fill="#fff" stroke="#333" strokeWidth={2} /> : null}
-        {geo.landings.map((p, index) => (
-          <circle key={`dot-${index}`} cx={p[0]} cy={p[1]} r={7} fill="#ffd447" stroke="#7a5b00" strokeWidth={1.6} />
-        ))}
+        {shots.map((shot, index) => {
+          if (!shot.end) return null
+          const shotId = shot.id ?? null
+          return (
+            <circle
+              key={`dot-${shotId ?? index}`}
+              data-shot-id={shotId ?? undefined}
+              cx={shot.end[0]}
+              cy={shot.end[1]}
+              r={editing ? 9 : 7}
+              fill="#ffd447"
+              stroke={editing ? '#fff2a6' : '#7a5b00'}
+              strokeWidth={editing ? 2.4 : 1.6}
+              className={editing ? 'review-shot-marker review-shot-marker--editable' : 'review-shot-marker'}
+              role={editing && shotId ? 'button' : undefined}
+              tabIndex={editing && shotId ? 0 : undefined}
+              aria-label={editing && shotId ? `第${shot.order ?? index + 1}杆落点` : undefined}
+              onPointerDown={(event) => {
+                if (!editing || !shotId) return
+                event.stopPropagation()
+                event.currentTarget.setPointerCapture?.(event.pointerId)
+              }}
+              onPointerMove={(event) => {
+                if (!editing || !shotId || event.buttons === 0) return
+                event.stopPropagation()
+                onShotMove?.(shotId, eventPixel(event, w, h))
+              }}
+              onPointerUp={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            />
+          )
+        })}
         {geo.hole ? <circle cx={geo.hole[0]} cy={geo.hole[1]} r={6} fill="#e43a3a" stroke="#fff" strokeWidth={1.8} /> : null}
       </svg>
     )

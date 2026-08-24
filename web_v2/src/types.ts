@@ -514,6 +514,8 @@ export interface HistoryRoundDetailResponse {
 // actual trajectory + landing dots can be drawn on top. Synthetic shots (a drive
 // the watch never recorded) are flagged so they render honestly (faded).
 export interface RoundHoleShot {
+  /** Stable correction-layer identity. Synthetic route anchors may omit it. */
+  id?: string | null
   start: [number, number] | null
   end: [number, number] | null
   club: string | null
@@ -526,6 +528,23 @@ export interface RoundHoleShot {
   // 后端只在真正改过的杆上下发,所以据此显示「已修正」不会恒空、也不会误标原始杆。
   clubSource?: 'manual' | null
   lieSource?: 'manual' | null
+}
+
+export interface RoundCorrectionRequest {
+  op: 'replaceHoleShots' | 'replaceHoleFacts' | 'addShot' | 'editField' | 'deleteShot' | 'reorderShot' | 'setHolePenalty'
+  hole?: number
+  shots?: Array<Record<string, unknown>>
+  manualPenalty?: number
+  geometryRevision?: string | null
+  clientMutationId?: string
+  shotId?: string
+  field?: string
+  value?: unknown
+  px?: [number, number]
+  club?: string | null
+  lie?: string | null
+  insertAfterShotId?: string | null
+  order?: string[]
 }
 
 export interface RoundHoleShotMapResponse {

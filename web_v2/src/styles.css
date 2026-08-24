@@ -9868,6 +9868,25 @@ textarea {
   backdrop-filter: blur(10px);
 }
 
+/* Small, local editor affordances; the existing review layout remains unchanged when read-only. */
+.review-canvas-svg--editing { cursor: crosshair; pointer-events: all; }
+.review-canvas-svg--editing polyline, .review-canvas-svg--editing line { pointer-events: none; }
+.review-shot-marker--editable { cursor: grab; pointer-events: all; }
+.review-shot-marker--editable:active { cursor: grabbing; }
+.review-editor { display: grid; gap: 10px; align-content: start; padding: 12px; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; background: rgba(7,16,24,.62); }
+.review-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.review-editor-button { min-height: 34px; padding: 7px 11px; border: 1px solid rgba(255,255,255,.2); border-radius: 7px; background: rgba(255,255,255,.08); color: inherit; font: inherit; cursor: pointer; }
+.review-editor-button:disabled { cursor: not-allowed; opacity: .5; }
+.review-editor-button--primary { border-color: rgba(255,212,71,.55); color: #ffe28b; }
+.review-editor-hint, .review-editor-error { margin: 0; font-size: 12px; color: rgba(255,255,255,.68); }
+.review-editor-error { color: #ffb4a8; }
+.review-editor-shots { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.review-editor-shot { display: grid; grid-template-columns: minmax(62px, auto) 1fr auto auto auto; align-items: center; gap: 6px; min-height: 34px; font-size: 12px; }
+.review-editor-shot button { padding: 4px 6px; border: 1px solid rgba(255,255,255,.16); border-radius: 5px; background: transparent; color: inherit; cursor: pointer; }
+.review-editor-shot button:disabled { opacity: .35; cursor: not-allowed; }
+.review-editor-shot-label { color: #ffe28b; font-weight: 700; }
+.review-editor-shot-club { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,.8); }
+
 .review-map-hole-facts {
   top: 12px;
   left: 12px;

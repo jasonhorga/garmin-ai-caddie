@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { RoundCard, RoundHoleShotMapResponse, ScoreStripCell } from '../types'
+import type { RoundCard, RoundCorrectionRequest, RoundHoleShot, RoundHoleShotMapResponse, ScoreStripCell } from '../types'
 import { prefetchTopoImage, topoImageUrl } from '../api'
 import { cleanCourseName, shortRoundDate } from '../units'
 import { ReviewHoleCanvas, type ReviewShotMapState } from './ReviewHoleCanvas'
@@ -9,6 +9,29 @@ import { buildTimeline, chipShape, chipShapeZh, type ChipShape } from './reviewS
 interface ReviewWorkbenchProps {
   rounds: RoundCard[]
   fetchShotMap: (roundRef: string, hole: number) => Promise<RoundHoleShotMapResponse>
+  saveCorrection?: (roundRef: string, correction: RoundCorrectionRequest) => Promise<unknown>
+}
+
+interface ReviewDraft {
+  shots: RoundHoleShot[]
+  manualPenalty: number
+}
+
+function draftId(index: number): string {
+  const uuid = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${index}`
+  return `web-draft-${uuid}`
+}
+
+function editableShots(shots: RoundHoleShot[]): RoundHoleShot[] {
+  return shots.map((shot, index) => ({ ...shot, id: shot.id ?? `web-source-${index + 1}` }))
+}
+
+function reconnectShots(shots: RoundHoleShot[]): RoundHoleShot[] {
+  return shots.map((shot, index) => ({
+    ...shot,
+    order: index + 1,
+    start: index > 0 && shots[index - 1].end ? shots[index - 1].end : shot.start,
+  }))
 }
 
 function formatToPar(value: number | null): string {
@@ -98,7 +121,7 @@ type ShotMapFailure = { key: string; message: string }
 // and the 杆序 timeline on the right. Selection lives here so the three panes stay
 // in sync; the shot map is fetched lazily per hole and kept per round+hole so
 // stepping back to a visited hole paints its first frame without a refetch.
-export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps): React.ReactElement {
+export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection }: ReviewWorkbenchProps): React.ReactElement {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(() => rounds[0]?.id ?? null)
   const [selectedHole, setSelectedHole] = useState<number | null>(null)
   // Session cache of shot-map RESPONSES keyed `${roundRef}:${hole}`. Only resolved responses land
@@ -107,6 +130,9 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
   // reusing it is what makes the hole strip feel instant on the second visit.
   const [shotMaps, setShotMaps] = useState<Record<string, RoundHoleShotMapResponse>>({})
   const [shotMapFailure, setShotMapFailure] = useState<ShotMapFailure | null>(null)
+  const [drafts, setDrafts] = useState<Record<string, ReviewDraft>>({})
+  const [editingKey, setEditingKey] = useState<string | null>(null)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle')
   // Keep the fetcher in a ref so the shot-map effect keys only off round+hole+cache and
   // never refetches just because the parent handed a fresh closure identity.
   const fetchRef = useRef(fetchShotMap)
@@ -178,11 +204,142 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
       ? { status: 'nogeo', message: '这局暂无逐洞成绩，无法展示落点图。' }
       : deriveShotMapState(shotMapKey === null ? undefined : shotMaps[shotMapKey], shotMapFailure, shotMapKey)
   const activeCell = holes.find((cell) => cell.hole === validHole) ?? null
+  const currentDraft = shotMapKey !== null ? drafts[shotMapKey] : undefined
+  const isEditing = editingKey === shotMapKey && currentDraft !== undefined && shotMapState.status === 'ready'
+  const displayedShotMapState: ReviewShotMapState =
+    isEditing && shotMapState.status === 'ready' && currentDraft
+      ? { ...shotMapState, data: { ...shotMapState.data, shots: currentDraft.shots, manualPenalty: currentDraft.manualPenalty } }
+      : shotMapState
   const ppm = shotMapState.status === 'ready' ? shotMapState.data.map?.overlay.ppm ?? null : null
-  const timeline = shotMapState.status === 'ready' ? buildTimeline(shotMapState.data.shots, ppm) : []
-  const manualPenalty = shotMapState.status === 'ready' ? shotMapState.data.manualPenalty ?? 0 : 0
+  const timeline = displayedShotMapState.status === 'ready' ? buildTimeline(displayedShotMapState.data.shots, ppm) : []
+  const manualPenalty = displayedShotMapState.status === 'ready' ? displayedShotMapState.data.manualPenalty ?? 0 : 0
   const roundScore = selectedRound.score ?? null
   const roundToPar = selectedRound.toPar ?? null
+
+  function beginEditing(): void {
+    if (shotMapKey === null || shotMapState.status !== 'ready') return
+    setDrafts((previous) => ({
+      ...previous,
+      [shotMapKey]: previous[shotMapKey] ?? {
+        shots: editableShots(shotMapState.data.shots),
+        manualPenalty: shotMapState.data.manualPenalty ?? 0,
+      },
+    }))
+    setEditingKey(shotMapKey)
+    setSaveState('idle')
+  }
+
+  function updateDraft(transform: (draft: ReviewDraft) => ReviewDraft): void {
+    if (shotMapKey === null) return
+    setDrafts((previous) => {
+      const draft = previous[shotMapKey]
+      return draft ? { ...previous, [shotMapKey]: transform(draft) } : previous
+    })
+  }
+
+  function addDraftShot(px: [number, number]): void {
+    if (!isEditing || !currentDraft) return
+    const previous = currentDraft.shots[currentDraft.shots.length - 1]
+    const start = previous?.end ?? (shotMapState.status === 'ready' ? shotMapState.data.map?.overlay.route[0]?.slice(0, 2) as [number, number] | undefined : undefined) ?? px
+    const shot: RoundHoleShot = {
+      id: draftId(currentDraft.shots.length),
+      start,
+      end: px,
+      club: null,
+      lie: previous?.endLie ?? previous?.lie ?? null,
+      endLie: null,
+      shotType: 'MANUAL',
+      order: currentDraft.shots.length + 1,
+      synthetic: false,
+    }
+    updateDraft((draft) => ({ ...draft, shots: reconnectShots([...draft.shots, shot]) }))
+  }
+
+  function addNextDraftShot(): void {
+    if (!currentDraft || shotMapState.status !== 'ready') return
+    const overlay = shotMapState.data.map?.overlay
+    const last = currentDraft.shots[currentDraft.shots.length - 1]?.end
+    const fallback = overlay?.route[overlay.route.length - 1]?.slice(0, 2) as [number, number] | undefined
+    const base = last ?? fallback ?? [0, 0]
+    const px: [number, number] = overlay
+      ? [Math.max(0, Math.min(overlay.w, base[0] + 12)), Math.max(0, Math.min(overlay.h, base[1] - 28))]
+      : [base[0] + 1, base[1] + 1]
+    addDraftShot(px)
+  }
+
+  function moveDraftShot(shotId: string, px: [number, number]): void {
+    if (!isEditing) return
+    updateDraft((draft) => {
+      const index = draft.shots.findIndex((shot) => shot.id === shotId)
+      if (index < 0) return draft
+      const shots = draft.shots.map((shot, shotIndex) => (shotIndex === index ? { ...shot, end: px } : shot))
+      return { ...draft, shots: reconnectShots(shots) }
+    })
+  }
+
+  function deleteDraftShot(shotId: string): void {
+    if (!isEditing) return
+    updateDraft((draft) => ({ ...draft, shots: reconnectShots(draft.shots.filter((shot) => shot.id !== shotId)) }))
+  }
+
+  function reorderDraftShot(index: number, direction: -1 | 1): void {
+    if (!isEditing || !currentDraft) return
+    const target = index + direction
+    if (target < 0 || target >= currentDraft.shots.length) return
+    const shots = [...currentDraft.shots]
+    const [moved] = shots.splice(index, 1)
+    shots.splice(target, 0, moved)
+    updateDraft((draft) => ({ ...draft, shots: reconnectShots(shots) }))
+  }
+
+  async function saveDraft(): Promise<void> {
+    if (!isEditing || !currentDraft || shotMapKey === null || shotMapState.status !== 'ready') return
+    setSaveState('saving')
+    const roundRef = validRoundId ?? shotMapState.data.roundRef
+    const correction: RoundCorrectionRequest = {
+      op: 'replaceHoleShots',
+      hole: validHole ?? shotMapState.data.hole,
+      shots: currentDraft.shots.map((shot, index) => ({
+        id: shot.id ?? `web-source-${index + 1}`,
+        start: shot.start,
+        end: shot.end,
+        club: shot.club,
+        lie: shot.lie,
+        endLie: shot.endLie,
+        shotType: shot.shotType,
+        order: index + 1,
+        synthetic: shot.synthetic,
+      })),
+      manualPenalty: currentDraft.manualPenalty,
+      geometryRevision: shotMapState.data.geometryRevision ?? undefined,
+      clientMutationId: draftId(0),
+    }
+    try {
+      await saveCorrection?.(roundRef, correction)
+      const fresh = await fetchRef.current(roundRef, validHole ?? shotMapState.data.hole)
+      setShotMaps((previous) => ({ ...previous, [shotMapKey]: fresh }))
+      setDrafts((previous) => {
+        const next = { ...previous }
+        delete next[shotMapKey]
+        return next
+      })
+      setEditingKey(null)
+      setSaveState('idle')
+    } catch {
+      setSaveState('error')
+    }
+  }
+
+  function cancelDraft(): void {
+    if (shotMapKey === null) return
+    setDrafts((previous) => {
+      const next = { ...previous }
+      delete next[shotMapKey]
+      return next
+    })
+    setEditingKey(null)
+    setSaveState('idle')
+  }
 
   return (
     <section className="review-page review-workbench-page" aria-label="复盘">
@@ -247,7 +404,15 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
           </ul>
         </div>
 
-        <ReviewHoleCanvas hole={validHole ?? 0} par={activeCell?.par ?? null} score={activeCell?.score ?? null} state={shotMapState} />
+        <ReviewHoleCanvas
+          hole={validHole ?? 0}
+          par={activeCell?.par ?? null}
+          score={activeCell?.score ?? null}
+          state={displayedShotMapState}
+          editing={isEditing}
+          onMapClick={addDraftShot}
+          onShotMove={moveDraftShot}
+        />
 
         <ReviewInspector
           hole={validHole ?? 0}
@@ -256,9 +421,44 @@ export function ReviewWorkbench({ rounds, fetchShotMap }: ReviewWorkbenchProps):
           toPar={activeCell?.toPar ?? null}
           timeline={timeline}
           decision={null}
-          shotsLoading={shotMapState.status === 'loading'}
+          shotsLoading={displayedShotMapState.status === 'loading'}
           manualPenalty={manualPenalty}
         />
+
+        <div className="review-editor" aria-label="复盘编辑">
+          {!isEditing ? (
+            <button type="button" className="review-editor-button" onClick={beginEditing} disabled={shotMapState.status !== 'ready'}>
+              编辑落点
+            </button>
+          ) : (
+            <>
+              <div className="review-editor-actions">
+                <button type="button" className="review-editor-button review-editor-button--primary" onClick={addNextDraftShot}>
+                  添加下一杆
+                </button>
+                <button type="button" className="review-editor-button review-editor-button--primary" onClick={() => void saveDraft()} disabled={saveState === 'saving'}>
+                  {saveState === 'saving' ? '保存中…' : '保存全部修改'}
+                </button>
+                <button type="button" className="review-editor-button" onClick={cancelDraft} disabled={saveState === 'saving'}>
+                  取消
+                </button>
+              </div>
+              <p className="review-editor-hint">点击地图添加落点，拖动黄色落点调整位置。</p>
+              {saveState === 'error' ? <p className="review-editor-error" role="alert">保存失败，修改仍保留在草稿中。</p> : null}
+              <ol className="review-editor-shots" aria-label="编辑杆序">
+                {(currentDraft?.shots ?? []).map((shot, index) => (
+                  <li key={shot.id ?? `shot-${index}`} className="review-editor-shot">
+                    <span className="review-editor-shot-label">第 {index + 1} 杆</span>
+                    <span className="review-editor-shot-club">{shot.club || '未选球杆'}</span>
+                    <button type="button" aria-label={`第${index + 1}杆上移`} onClick={() => reorderDraftShot(index, -1)} disabled={index === 0}>上移</button>
+                    <button type="button" aria-label={`第${index + 1}杆下移`} onClick={() => reorderDraftShot(index, 1)} disabled={index === (currentDraft?.shots.length ?? 1) - 1}>下移</button>
+                    <button type="button" aria-label={`删除第${index + 1}杆`} onClick={() => shot.id && deleteDraftShot(shot.id)}>删除</button>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+        </div>
 
       </div>
     </section>

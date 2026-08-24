@@ -1,8 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ReviewWorkbench } from './ReviewWorkbench'
-import type { RoundCard, RoundHoleShotMapResponse, ScoreStripCell } from '../types'
+import type { RoundCard, RoundCorrectionRequest, RoundHoleShotMapResponse, ScoreStripCell } from '../types'
 
 const apiMocks = vi.hoisted(() => ({ prefetchTopoImage: vi.fn() }))
 
@@ -245,5 +245,34 @@ describe('ReviewWorkbench', () => {
     }))
     render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} />)
     expect(await screen.findByText('这一洞暂无球场几何,画不了落点图')).toBeInTheDocument()
+  })
+
+  it('keeps map edits local until one whole-hole save', async () => {
+    const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
+    const saveCorrection = vi.fn(async (roundRef: string, correction: RoundCorrectionRequest) => {
+      void roundRef
+      void correction
+    })
+    render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} saveCorrection={saveCorrection} />)
+
+    const canvas = await screen.findByLabelText('第1洞落点图')
+    await userEvent.click(screen.getByRole('button', { name: '编辑落点' }))
+    expect(screen.getByRole('list', { name: '编辑杆序' })).toBeInTheDocument()
+
+    // A click on empty SVG space adds a draft landing without touching the API.
+    const svg = canvas.querySelector('svg') as SVGSVGElement
+    fireEvent.click(svg, { clientX: 120, clientY: 180 })
+    expect(screen.getByRole('button', { name: '删除第4杆' })).toBeInTheDocument()
+    expect(saveCorrection).not.toHaveBeenCalled()
+
+    // Reorder and delete also stay in the draft; Save emits one atomic snapshot.
+    await userEvent.click(screen.getByRole('button', { name: '第2杆下移' }))
+    await userEvent.click(screen.getByRole('button', { name: '删除第1杆' }))
+    await userEvent.click(screen.getByRole('button', { name: '保存全部修改' }))
+    await waitFor(() => expect(saveCorrection).toHaveBeenCalledTimes(1))
+    const payload = saveCorrection.mock.calls[0]?.[1] as { op?: string; hole?: number; manualPenalty?: number; shots?: unknown[] } | undefined
+    if (!payload) throw new Error('save payload missing')
+    expect(payload).toMatchObject({ op: 'replaceHoleShots', hole: 1, manualPenalty: 0 })
+    expect(payload.shots).toHaveLength(3)
   })
 })
