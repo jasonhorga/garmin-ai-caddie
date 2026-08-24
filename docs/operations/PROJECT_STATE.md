@@ -19,7 +19,7 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`R1` — Web review editor/cache** (`queued`)
+**`R1` — Web review editor/cache** (`in-progress`)
 
 Implement one bounded Web slice: map-first review editing (tap to add a shot,
 drag an existing landing point, add the next shot, delete, reorder, then save
@@ -41,7 +41,7 @@ project-level task list; historical plans are reference material.
 |---|---|---|---|
 | `W1` | `evidence-open` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | One complete real or simulator round covering start, hole advance/Cancel, edit, finish/recover, and all three sizes. |
 | `S1` | `ci-green-runtime-open` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Metadata → preparing → precise → offline-installed is resumable and the real package distance table matches every client. |
-| `R1` | `queued` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
+| `R1` | `in-progress` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
 | `REL` | `blocked` | Release and TestFlight gate. | `W1`, `S1`, and `R1`/`R2` evidence complete, production provenance approved, then owner approval. |
 
@@ -77,7 +77,7 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Start `R1` only; keep the CI-green batch intact.
+1. Let the bounded `R1` implementation finish; keep the CI-green batch intact.
 2. Record `R1`'s commit, tests, remote evidence, and cleanup result here.
 3. Re-read this ledger and choose the next ID; do not expand the scope
    mid-slice.
@@ -114,6 +114,7 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - 2026-08-24: Replaced the chat-sized plan with stable task IDs and set `R1`
   as the only queued next slice. Echo-style shell output is intentionally not
   tracked as project state.
+- 2026-08-24: Started bounded `R1`; no other modifying task is active.
 - 2026-08-24: Integrated `a1b88a2e`; CI `32689037776` passed Docker but exposed
   one Web fixture failure and two backend assertion failures. Fixes are queued
   one modifying agent at a time.
