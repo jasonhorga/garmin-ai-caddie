@@ -1164,12 +1164,18 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
           globalId: 31795,
           teeBox: 'blue',
           nine: 'all',
-          phase: 'complete',
-          stage: 'ready',
+          phase: 'ready',
+          stage: 'complete',
           totalHoles: 3,
           geometryReady: 3,
           topoReady: 3,
-          holes: [],
+          holes: [1, 2, 7].map((hole) => ({
+            globalId: 31795,
+            localHole: hole,
+            displayHole: hole,
+            geometry: 'ready',
+            topo: 'ready',
+          })),
         },
       })
     }
