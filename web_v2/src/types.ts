@@ -1242,6 +1242,9 @@ export interface CoursePrepResponse {
   holes: CoursePrepHole[]
 }
 
+/** Web prep is intentionally staged: precise geometry is not enough to open the workbench. */
+export type PrepReadinessState = 'metadata' | 'preparing' | 'precise_ready' | 'offline_installed'
+
 export type StatsWindow = 'all' | '12m' | 'last20' | 'last10'
 
 export interface CourseSearchMatch {

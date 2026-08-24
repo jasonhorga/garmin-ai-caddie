@@ -11,7 +11,7 @@ import type {
   PrepTipsResponse,
 } from '../types'
 import { fetchCourseInstallStatus, fetchCoursePrep, fetchMobileCoursePackage, fetchPrepTips } from '../api'
-import { PrepPage, courseReadyForWorkbench } from './PrepPage'
+import { PrepPage, courseReadyForWorkbench, prepReadinessState } from './PrepPage'
 
 vi.mock('../api', () => ({
   fetchCourseInstallStatus: vi.fn(),
@@ -34,6 +34,27 @@ describe('courseReadyForWorkbench', () => {
     expect(courseReadyForWorkbench({ ...prepResponse(1), holes: [] })).toBe(false)
     expect(courseReadyForWorkbench({ ...prepResponse(1), holes: [prepHole(1, 4, 380, { geometryCoverage: 'partial' })] })).toBe(false)
     expect(courseReadyForWorkbench(prepResponse(1))).toBe(true)
+  })
+})
+
+describe('prepReadinessState', () => {
+  it('requires precise geometry and a complete offline install before the workbench', () => {
+    expect(prepReadinessState(null, null)).toBe('metadata')
+    expect(prepReadinessState({ ...prepResponse(1), holes: [prepHole(1, 4, 380, { geometryCoverage: 'partial' })] }, null)).toBe('preparing')
+    expect(prepReadinessState(prepResponse(1), null)).toBe('precise_ready')
+    expect(prepReadinessState(prepResponse(1), {
+      schema: 'ai-caddie-course-install-v1', jobId: 'job', globalId: 1, teeBox: 'blue', nine: 'all',
+      phase: 'running', stage: 'topo', totalHoles: 2, geometryReady: 2, topoReady: 1,
+      holes: [],
+    })).toBe('precise_ready')
+    expect(prepReadinessState(prepResponse(1), {
+      schema: 'ai-caddie-course-install-v1', jobId: 'job', globalId: 1, teeBox: 'blue', nine: 'all',
+      phase: 'ready', stage: 'complete', totalHoles: 2, geometryReady: 2, topoReady: 2,
+      holes: [
+        { globalId: 1, localHole: 1, displayHole: 1, geometry: 'ready', topo: 'ready' },
+        { globalId: 1, localHole: 2, displayHole: 2, geometry: 'ready', topo: 'ready' },
+      ],
+    })).toBe('offline_installed')
   })
 })
 
@@ -197,7 +218,14 @@ beforeEach(() => {
       { number: 2, sourceGlobalId: globalId, sourceLocalHole: 2 },
     ],
   } as unknown as LiveRoundPackageResponse))
-  fetchCourseInstallStatusMock.mockRejectedValue(new Error('install status unavailable'))
+  fetchCourseInstallStatusMock.mockImplementation(async (globalId: number) => ({
+    schema: 'ai-caddie-course-install-v1', jobId: `job-${globalId}`, globalId, teeBox: 'blue', nine: 'all',
+    phase: 'ready', stage: 'complete', totalHoles: 2, geometryReady: 2, topoReady: 2,
+    holes: [
+      { globalId, localHole: 1, displayHole: 1, geometry: 'ready', topo: 'ready' },
+      { globalId, localHole: 2, displayHole: 2, geometry: 'ready', topo: 'ready' },
+    ],
+  }))
   fetchCoursePrepMock.mockImplementation(async (globalId: number) => prepResponse(globalId))
   fetchPrepTipsMock.mockImplementation(async () => tipsResponse())
 })
@@ -349,6 +377,33 @@ describe('PrepPage workbench', () => {
     expect(screen.getByText('球场攻略加载中…')).toBeInTheDocument()
     expect(screen.queryByText(/PAR/)).not.toBeInTheDocument()
     expect(screen.queryByLabelText('球童试算')).not.toBeInTheDocument()
+  })
+
+  it('keeps precise geometry behind the offline install gate', async () => {
+    fetchCourseInstallStatusMock.mockResolvedValueOnce({
+      schema: 'ai-caddie-course-install-v1', jobId: 'job-running', globalId: 31795, teeBox: 'blue', nine: 'all',
+      phase: 'running', stage: 'topo', totalHoles: 2, geometryReady: 2, topoReady: 1,
+      holes: [],
+    })
+    renderPrep()
+
+    await screen.findByText('精确地图已就绪，正在安装离线球场包…')
+    expect(screen.queryByText(/PAR 9/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('球童试算')).not.toBeInTheDocument()
+  })
+
+  it('offers a recoverable retry when the offline install fails', async () => {
+    fetchCourseInstallStatusMock.mockResolvedValueOnce({
+      schema: 'ai-caddie-course-install-v1', jobId: 'job-failed', globalId: 31795, teeBox: 'blue', nine: 'all',
+      phase: 'failed', stage: 'error', totalHoles: 2, geometryReady: 2, topoReady: 1,
+      error: 'topo unavailable', holes: [],
+    })
+    renderPrep()
+
+    const panel = await screen.findByLabelText('球场包准备失败')
+    expect(within(panel).getByText('topo unavailable')).toBeInTheDocument()
+    await userEvent.click(within(panel).getByRole('button', { name: '重试下载' }))
+    expect(await screen.findByText('PAR 9 · 900 码')).toBeInTheDocument()
   })
 
   it('surfaces a prep error with 重试 that refetches', async () => {

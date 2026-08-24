@@ -9,6 +9,7 @@ import type {
   LiveRoundPackageResponse,
   MobileCourseOption,
   MobileCourseOptionsResponse,
+  PrepReadinessState,
   PrepTipsResponse,
 } from '../types'
 import { CourseFinder } from './CourseFinder'
@@ -55,6 +56,7 @@ async function fetchPreparedCourse(
 ): Promise<{ data: CoursePrepResponse; install: CourseInstallStatus | null }> {
   let packageError: unknown = null
   let holes: number[] = []
+  let packageInstall: CourseInstallStatus | null = null
   try {
     const coursePackage = await fetchMobileCoursePackage(
       globalId,
@@ -66,6 +68,7 @@ async function fetchPreparedCourse(
       adminToken,
     )
     holes = packageHoleNumbers(coursePackage, globalId)
+    packageInstall = coursePackage.courseInstallJob ?? null
   } catch (error: unknown) {
     // Existing cached prep remains useful during a transient package failure. If it has no map
     // authority at all, surface the acquisition failure below instead of painting fake readiness.
@@ -84,6 +87,7 @@ async function fetchPreparedCourse(
   } catch {
     // Older servers and courses without a queued install simply omit progress.
   }
+  if (!install && packageInstall) install = packageInstall
   return { data, install }
 }
 
@@ -137,6 +141,22 @@ export function courseReadyForWorkbench(data: CoursePrepResponse | null): boolea
       data.holes.length > 0 &&
       data.holes.every((hole) => hole.geometryCoverage === 'ready'),
   )
+}
+
+export function prepReadinessState(
+  data: CoursePrepResponse | null,
+  install: CourseInstallStatus | null,
+): PrepReadinessState {
+  if (!data) return 'metadata'
+  const precise = courseReadyForWorkbench(data)
+  if (!precise) return 'preparing'
+  if (
+    install?.phase === 'ready' &&
+    install.topoReady >= data.holes.length &&
+    install.holes.length >= data.holes.length &&
+    install.holes.every((hole) => hole.topo === 'ready' && hole.geometry === 'ready')
+  ) return 'offline_installed'
+  return 'precise_ready'
 }
 
 // stats.holes rows that belong to this course (joined via courseOptions courseKey).
@@ -272,30 +292,30 @@ export function PrepPage({
   }, [globalId, adminToken, prepAttempt])
 
   const installCurrent = prepKey !== null && installDone?.key === prepKey ? installDone.data : null
-  const prepComplete = courseReadyForWorkbench(prepData)
+  const readiness = prepReadinessState(prepData, installCurrent)
+  const prepComplete = readiness === 'offline_installed'
 
-  // Partial CourseView data is a download state, never a full Web workbench. Poll the durable
-  // install journal and refresh factual prep until every selected hole is precise.
+  // Partial CourseView data and an incomplete install are download states, never a full Web
+  // workbench. Poll the durable install journal and factual prep until the offline package is
+  // complete. A missing status remains recoverable rather than opening on geometry alone.
   useEffect(() => {
-    if (globalId === null || prepKey === null || prepComplete) return
+    if (globalId === null || prepKey === null || readiness === 'offline_installed') return
     const holes = prepData?.holes.map((hole) => hole.hole) ?? []
-    if (holes.length === 0) return
     const timer = window.setTimeout(() => {
-      const seq = ++prepSeq.current
-      void fetchCoursePrep(globalId, { holes, render: false, includeShots: true }, adminToken)
-        .then((data) => {
-          if (prepSeq.current !== seq) return
-          setPrepDone({ key: prepKey, result: { data } })
-          void fetchCourseInstallStatus(globalId, {}, adminToken)
-            .then((status) => setInstallDone({ key: prepKey, data: status }))
-            .catch(() => {})
-        })
-        .catch(() => {
-          // The lightweight map remains the honest current state; the next mounted cycle retries.
-        })
+      if (holes.length > 0 && readiness !== 'precise_ready') {
+        const seq = ++prepSeq.current
+        void fetchCoursePrep(globalId, { holes, render: false, includeShots: true }, adminToken)
+          .then((data) => {
+            if (prepSeq.current === seq) setPrepDone({ key: prepKey, result: { data } })
+          })
+          .catch(() => {})
+      }
+      void fetchCourseInstallStatus(globalId, {}, adminToken)
+        .then((status) => setInstallDone({ key: prepKey, data: status }))
+        .catch(() => {})
     }, PRECISE_MAP_POLL_MS)
     return () => window.clearTimeout(timer)
-  }, [globalId, adminToken, prepData, prepKey, prepComplete])
+  }, [globalId, adminToken, prepData, prepKey, readiness])
 
   // On course select, kick a background render of ALL the course's hole topo bitmaps so browsing
   // holes hits a warm cache instead of paying ~6–10s on each hole's first view. Fire-and-forget:
@@ -380,6 +400,14 @@ export function PrepPage({
             重试
           </button>
         </section>
+      ) : installCurrent?.phase === 'failed' ? (
+        <section className="panel empty-state prep-load-error" aria-label="球场包准备失败">
+          <h2>球场包准备失败</h2>
+          <p>{installCurrent.error ?? '离线球场包安装失败'}</p>
+          <button type="button" onClick={() => setPrepAttempt((attempt) => attempt + 1)}>
+            重试下载
+          </button>
+        </section>
       ) : prepData && prepComplete ? (
         <PrepWorkbench
           prepData={prepData}
@@ -392,8 +420,8 @@ export function PrepPage({
         />
       ) : prepData ? (
         <section className="panel prep-loading" aria-label="球场包准备中">
-          <p>球场地图准备中，完成后进入备战…</p>
-          <p>{installCurrent ? `${installCurrent.topoReady}/${installCurrent.totalHoles} 洞地图已完成` : `${prepData.holes.filter((hole) => hole.geometryCoverage === 'ready').length}/${prepData.holes.length} 洞已完成`}</p>
+          <p>{readiness === 'precise_ready' ? '精确地图已就绪，正在安装离线球场包…' : '球场地图准备中，完成后进入备战…'}</p>
+          <p>{installCurrent ? `${installCurrent.topoReady}/${installCurrent.totalHoles} 洞离线地图已完成` : `${prepData.holes.filter((hole) => hole.geometryCoverage === 'ready').length}/${prepData.holes.length} 洞已完成`}</p>
         </section>
       ) : (
         <section className="panel prep-loading" aria-label="球场攻略加载中">
