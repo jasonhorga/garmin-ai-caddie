@@ -184,21 +184,28 @@ public enum WatchCourseTemplateBuilder {
         return WatchCourseDownload(template: template, images: images)
     }
 
-    /// Build the three on-watch route choices from facts already downloaded for offline play: the
-    /// player's measured bag, the prepared Tee club and this hole's real route length. These are
-    /// deterministic planning choices, not success probabilities or fabricated shot dispersion.
+    /// Build the available on-watch route choices from facts already downloaded for offline play.
+    /// A mode is emitted only when it has a distinct measured first club; a one-club bag therefore
+    /// produces one honest standard route instead of three labels for the same shot.
     static func preparedCaddieOptions(
         clubs: [WatchClubOption],
         suggestedClub: String?,
         routeDistanceM: Double,
         landingM: Double?
     ) -> [WatchCaddieOption] {
-        let usable = clubs
+        let measured = clubs
             .filter { option in
                 guard let carry = option.medianM else { return false }
                 return carry.isFinite && carry > 0
             }
             .sorted { ($0.medianM ?? 0) > ($1.medianM ?? 0) }
+        var seenClubKeys = Set<String>()
+        let usable = measured.filter { option in
+            let key = strategyClubKey(option.clubName)
+            guard !seenClubKeys.contains(key) else { return false }
+            seenClubKeys.insert(key)
+            return true
+        }
         guard routeDistanceM.isFinite, routeDistanceM > 0, !usable.isEmpty else { return [] }
 
         let normalizedSuggestion = suggestedClub?
@@ -223,16 +230,17 @@ public enum WatchCourseTemplateBuilder {
             return lhsDelta < rhsDelta
         }
         let stockIndex = suggestedIndex ?? nearestIndex ?? usable.startIndex
-
-        let safeIndex = min(stockIndex + 1, usable.index(before: usable.endIndex))
-        let attackIndex = max(stockIndex - 1, usable.startIndex)
-        let variants: [(id: String, label: String, first: WatchClubOption, bias: Double)] = [
-            // Match iPhone: lead with the selected recommendation, then compare the lower-risk
-            // alternative before the aggressive route.
-            ("stock", "推荐", usable[stockIndex], 0.92),
-            ("safe", "保守", usable[safeIndex], 0.84),
-            ("attack", "进攻", usable[attackIndex], 1.05),
-        ]
+        var variants: [(id: String, label: String, first: WatchClubOption, bias: Double)] = []
+        // ``usable`` is longest-first.  The immediate shorter/longer clubs are the factual safe and
+        // attack alternatives around the standard recommendation.  At an edge, omit the missing
+        // tier instead of clamping it back to the same club.
+        if stockIndex + 1 < usable.endIndex {
+            variants.append(("safe", "稳妥", usable[stockIndex + 1], 0.84))
+        }
+        variants.append(("stock", "标准", usable[stockIndex], 0.92))
+        if stockIndex > usable.startIndex {
+            variants.append(("attack", "进攻", usable[stockIndex - 1], 1.05))
+        }
 
         return variants.map { variant in
             let plan = preparedPlan(
@@ -250,6 +258,15 @@ public enum WatchCourseTemplateBuilder {
                 confidence: "offline"
             )
         }
+    }
+
+    private static func strategyClubKey(_ raw: String) -> String {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let compact = value.lowercased().replacingOccurrences(of: " ", with: "")
+        if isDriver(value) { return "driver" }
+        return WatchClubDisplay.shortCode(value).lowercased() == compact
+            ? compact
+            : WatchClubDisplay.shortCode(value).lowercased()
     }
 
     private static func preparedPlan(

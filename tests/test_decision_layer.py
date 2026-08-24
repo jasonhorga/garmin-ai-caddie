@@ -295,6 +295,93 @@ class DecisionLayerTests(unittest.TestCase):
         plan = build_decision_plan(analysis_fixture(stock_risk=3))
         self.assertEqual(plan["selectedOptionId"], "safe")
 
+    def test_tee_strategy_dedupe_keeps_safe_first_for_duplicate_driver_aliases(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context["clubProfiles"] = {}
+        context["candidateRoutes"] = [
+            {
+                "id": "aggressive_line",
+                "label": "attack line",
+                "club": "Driver",
+                "carry_m": 220.0,
+                "landingLocal": [0.0, 220.0],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 3,
+            },
+            {
+                "id": "stock_line",
+                "label": "stock line",
+                "club": "1W",
+                "carry_m": 220.0,
+                "landingLocal": [0.0, 220.0],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 1,
+            },
+            {
+                "id": "conservative_layup",
+                "label": "safe line",
+                "club": "1D",
+                "carry_m": 220.0,
+                "landingLocal": [0.0, 220.0],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 0,
+            },
+        ]
+
+        plan = build_decision_plan(context)
+
+        self.assertEqual([option["id"] for option in plan["options"]], ["safe"])
+        self.assertEqual(plan["options"][0]["routeId"], "conservative_layup")
+        self.assertEqual(
+            plan["options"][0]["clubRecommendation"]["clubs"][0]["clubName"],
+            "1D",
+        )
+
+    def test_tee_legacy_routes_keep_distinct_carries_when_club_identity_is_missing(self) -> None:
+        context = analysis_fixture(stock_risk=1)
+        context["candidateRoutes"] = [
+            {
+                "id": "conservative_layup",
+                "label": "safe layup",
+                "carry_m": 170.0,
+                "landingLocal": [0.0, 170.0],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 0,
+            },
+            {
+                "id": "stock_line",
+                "label": "stock line",
+                "carry_m": 180.0,
+                "landingLocal": [0.0, 180.0],
+                "expectedSurface": {"kind": "fairway"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 1,
+            },
+            {
+                "id": "aggressive_line",
+                "label": "attack line",
+                "carry_m": 220.0,
+                "landingLocal": [0.0, 220.0],
+                "expectedSurface": {"kind": "rough"},
+                "nearRisks": [],
+                "lineRisks": [],
+                "riskScore": 3,
+            },
+        ]
+
+        plan = build_decision_plan(context)
+
+        self.assertEqual([option["id"] for option in plan["options"]], ["safe", "stock", "attack"])
+
     def test_recommends_clubs_near_option_carry(self) -> None:
         plan = build_decision_plan(analysis_fixture(stock_risk=1))
         clubs = [club["clubName"] for club in plan["selectedOption"]["clubRecommendation"]["clubs"]]

@@ -1496,22 +1496,55 @@ def lightweight_prep_hole(
 def _candidate_routes(ladder: list[tuple[str, int]], hazards: dict) -> list[dict]:
     if not ladder:
         return []
-    # Keep all three routes on the measured ladder. With three or more playable clubs the
-    # conservative route is the shorter stable club, stock is the next club, and attack is the
-    # longest club; this prevents a fake strategy menu where stock and attack are the same shot.
-    longest_name, longest_m = ladder[0]
+    # A strategy is only viable when it has a distinct measured club/carry.  Repeating the longest
+    # club under two labels makes a small bag look more certain than it is (and was the source of
+    # the old stock/attack duplicate on long holes).  Keep the usual full-shot threshold when it
+    # gives us candidates, but retain shorter measured clubs for a player whose entire bag is below
+    # that threshold rather than inventing a route.
     playable = [row for row in ladder if row[1] >= 120]
+    if not playable:
+        playable = [row for row in ladder if row[1] > 0]
+    if not playable:
+        return []
+
+    # ``ladder`` is longest-first.  The middle tier is the standard route; the shortest and
+    # longest tiers are the honest conservative/aggressive alternatives.  With one or two tiers,
+    # return only the modes represented by the bag, in the same stable public order.
+    tiers: list[tuple[str, tuple[str, int]]] = []
     if len(playable) >= 3:
-        safe_name, safe_m = playable[2]
-        stock_name, stock_m = playable[1]
+        tiers = [
+            ("safe", playable[2]),
+            ("stock", playable[1]),
+            ("attack", playable[0]),
+        ]
+    elif len(playable) == 2:
+        tiers = [("safe", playable[1]), ("stock", playable[0])]
     else:
-        safe_name, safe_m = next((row for row in ladder[1:] if row[1] >= 120), ladder[0])
-        stock_name, stock_m = longest_name, longest_m
+        tiers = [("stock", playable[0])]
+
+    # Be defensive about callers passing aliases or repeated rows despite the normal ladder
+    # canonicalisation.  A duplicate physical club never earns a second strategy label.
+    seen: set[str] = set()
+    distinct: list[tuple[str, tuple[str, int]]] = []
+    for option_id, (club_name, carry_m) in tiers:
+        canonical = club_bag_service.canonical_club_name(club_name)
+        key = canonical or str(club_name).strip().casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        distinct.append((option_id, (club_name, carry_m)))
+
     risk = 3 if (hazards.get("water_carry") or hazards.get("bunkers")) else 1
+    base_risk = {"safe": 0, "stock": 1, "attack": risk}
     return [
-        {"id": "safe", "club": safe_name, "carryM": float(safe_m), "riskScore": 0, "source": "course_prep"},
-        {"id": "stock", "club": stock_name, "carryM": float(stock_m), "riskScore": 1, "source": "course_prep"},
-        {"id": "attack", "club": longest_name, "carryM": float(longest_m), "riskScore": risk, "source": "course_prep"},
+        {
+            "id": option_id,
+            "club": club_name,
+            "carryM": float(carry_m),
+            "riskScore": base_risk[option_id],
+            "source": "course_prep",
+        }
+        for option_id, (club_name, carry_m) in distinct
     ]
 
 

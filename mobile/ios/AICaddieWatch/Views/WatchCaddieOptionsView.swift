@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Garmin-style Virtual Caddie instrument: one route at a time, with the factual hole map and target
-/// as the visual subject. Turning the Crown browses the stable 推荐 → 保守 → 进攻 order; selecting a
+/// as the visual subject. Turning the Crown browses the stable 稳妥 → 标准 → 进攻 order; selecting a
 /// route never moves it to a different slot.
 public struct WatchCaddieOptionsView: View {
     public let hole: Int
@@ -336,8 +336,8 @@ public struct WatchCaddieOptionsView: View {
 
     private func strategyLabel(_ option: WatchCaddieOption) -> String {
         switch Self.strategyKey(option.optionId) {
-        case "stock": return "推荐"
-        case "protect_score": return "保守"
+        case "stock": return "标准"
+        case "protect_score": return "稳妥"
         case "attack": return "进攻"
         default: return option.label
         }
@@ -355,8 +355,8 @@ public struct WatchCaddieOptionsView: View {
 
     private static func strategyRank(_ optionId: String) -> Int {
         switch strategyKey(optionId) {
-        case "stock": return 0
-        case "protect_score": return 1
+        case "protect_score": return 0
+        case "stock": return 1
         case "attack": return 2
         default: return 3
         }

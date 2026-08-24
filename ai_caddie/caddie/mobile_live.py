@@ -1191,24 +1191,49 @@ def _caddie_clean_rows(club_profiles: list[dict[str, Any]]) -> list[dict[str, An
 def _shot_option_clubs(
     rows: list[dict[str, Any]], *, par: int, target_m: float
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
-    """Pick (safe, stock, attack) club profiles for the shot by DISTANCE, not "always the longest".
-    Par 3 → around the green distance (stock=match, safe=one more club, attack=one less); par 4/5 tee
-    → control club / driver / driver. Falls back to the longest-based pick when no target distance."""
+    """Pick distinct (safe, stock, attack) club profiles for the shot by distance.
+
+    A route mode is not viable when it merely reuses another mode's physical club.  For a par 4/5
+    tee, three measured tiers are shortest (safe), middle (stock), and longest (attack); a two-club
+    bag yields safe + stock, and a one-club bag yields stock only.  Par 3 keeps the target-distance
+    behaviour, selecting each tier from a distinct profile.
+    """
     if not rows:
         return None, None, None
+
+    def key(profile: dict[str, Any]) -> str:
+        from ai_caddie.caddie.club_bag import canonical_club_name
+
+        name = str(profile.get("clubName") or "").strip()
+        return canonical_club_name(name) or name.casefold()
+
+    def nearest(
+        candidates: list[dict[str, Any]], target: float, excluded: set[str] | None = None
+    ) -> dict[str, Any] | None:
+        available = [row for row in candidates if key(row) not in (excluded or set())]
+        return _club_nearest(available, target) if available else None
+
     longest = rows[0]
-    if not target_m or target_m <= 0:
-        safe = next((row for row in rows[1:] if float(row.get("median_m") or 0) >= 120.0), longest)
-        return safe, longest, longest
     if par == 3:
-        stock = _club_nearest(rows, target_m)
-        safe = _club_nearest(rows, target_m + 9.0)  # one more club — don't come up short
-        attack = _club_nearest(rows, max(50.0, target_m - 9.0))  # one less — aggressive
-    else:
-        stock = longest
-        attack = longest  # same club off the tee, aggressive carry/line (see riskScore)
-        safe = _club_nearest(rows, float(longest.get("median_m") or 0) * 0.82)  # control / lay-up club
-    return safe, stock, attack
+        target = target_m if target_m and target_m > 0 else float(longest.get("median_m") or 0)
+        stock = nearest(rows, target)
+        used = {key(stock)} if stock else set()
+        safe = nearest(rows, target + 9.0, used)  # one more club — do not come up short
+        if safe:
+            used.add(key(safe))
+        attack = nearest(rows, max(50.0, target - 9.0), used)  # one less — aggressive
+        return safe, stock, attack
+
+    if len(rows) >= 3:
+        # rows are longest-first; reserve the middle tier for the standard line so the attack route
+        # is a real longer club instead of the same Driver at a fabricated second distance.
+        attack = longest
+        stock = rows[1]
+        safe = nearest(rows[2:], float(longest.get("median_m") or 0) * 0.82) or rows[-1]
+        return safe, stock, attack
+    if len(rows) == 2:
+        return rows[1], rows[0], None
+    return None, rows[0], None
 
 
 def _option_risks(avoid_zones: list[dict[str, Any]] | None, carry_m: float) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -1274,41 +1299,46 @@ def _tee_candidate_routes(
     # Only when route geometry has NO distance-aware avoid zones, fall back to the hole's mapped hazard.
     if not avoid_zones and hazards and not attack_line:
         attack_line = [{"kind": str((hazards[0] or {}).get("kind") or "hazard"), "id": str((hazards[0] or {}).get("id") or "mapped_hazard")}]
-    return [
-        {
-            "id": "conservative_layup",
-            "label": "safe layup",
-            "carry_m": safe_carry,
-            "landingLocal": None,
-            "expectedSurface": {"kind": "fairway"},
-            "nearRisks": safe_near,
-            "lineRisks": safe_line,
-            "riskScore": round(len(safe_near) * 1.5 + len(safe_line), 1),
-            "source": "offline_package_seed",
-        },
-        {
-            "id": "stock_line",
-            "label": "stock line",
-            "carry_m": stock_carry,
-            "landingLocal": None,
-            "expectedSurface": {"kind": "fairway"},
-            "nearRisks": stock_near,
-            "lineRisks": stock_line,
-            "riskScore": round(1 + len(stock_near) * 1.5 + len(stock_line), 1),
-            "source": "offline_package_seed",
-        },
-        {
-            "id": "aggressive_line",
-            "label": "attack line",
-            "carry_m": attack_carry,
-            "landingLocal": None,
-            "expectedSurface": {"kind": "risk_edge" if (attack_near or attack_line) else "fairway"},
-            "nearRisks": attack_near,
-            "lineRisks": attack_line,
-            "riskScore": round(3 + len(attack_near) * 1.5 + len(attack_line), 1),
-            "source": "offline_package_seed",
-        },
+    specs = [
+        ("conservative_layup", "safe layup", safe_p, safe_carry, safe_near, safe_line, 0.0, {"kind": "fairway"}),
+        ("stock_line", "stock line", stock_p, stock_carry, stock_near, stock_line, 1.0, {"kind": "fairway"}),
+        (
+            "aggressive_line",
+            "attack line",
+            attack_p,
+            attack_carry,
+            attack_near,
+            attack_line,
+            3.0,
+            {"kind": "risk_edge" if (attack_near or attack_line) else "fairway"},
+        ),
     ]
+    seen: set[str] = set()
+    routes: list[dict[str, Any]] = []
+    for route_id, label, profile, carry, near_risks, line_risks, base_risk, surface in specs:
+        if profile is None or carry <= 0:
+            continue
+        from ai_caddie.caddie.club_bag import canonical_club_name
+
+        club_key = canonical_club_name(str(profile.get("clubName") or "")) or str(profile.get("clubName") or "").strip().casefold()
+        if club_key in seen:
+            continue
+        seen.add(club_key)
+        routes.append(
+            {
+                "id": route_id,
+                "label": label,
+                "club": str(profile.get("clubName") or ""),
+                "carry_m": carry,
+                "landingLocal": None,
+                "expectedSurface": surface,
+                "nearRisks": near_risks,
+                "lineRisks": line_risks,
+                "riskScore": round(base_risk + len(near_risks) * 1.5 + len(line_risks), 1),
+                "source": "offline_package_seed",
+            }
+        )
+    return routes
 
 
 def _offline_caddie_options(
@@ -1329,13 +1359,23 @@ def _offline_caddie_options(
     base_risk = {"safe": 0.8, "stock": 1.5, "attack": 3.0}
     option_specs = [("safe", "Safe", safe_p), ("stock", "Stock", stock_p), ("attack", "Attack", attack_p)]
     options: list[dict[str, Any]] = []
+    seen_clubs: set[str] = set()
     for option_id, label, profile in option_specs:
         if profile is None:
             continue
+        from ai_caddie.caddie.club_bag import canonical_club_name
+
+        club_name = str(profile.get("clubName") or "")
+        club_key = canonical_club_name(club_name) or club_name.strip().casefold()
+        if club_key in seen_clubs:
+            continue
+        seen_clubs.add(club_key)
         median = float(profile.get("median_m") or 0)
         p10 = float(profile.get("p10_m") or median)
         p90 = float(profile.get("p90_m") or median)
-        carry = max(median, p90) if option_id == "attack" else median
+        # One physical club has one expected carry.  Attack is differentiated by the route/risk
+        # tier, while p10/p90 remain the measured dispersion facts for the same club.
+        carry = median
         near_risks, line_risks = _option_risks(avoid_zones, carry)
         risk_score = base_risk[option_id] + len(near_risks) * 1.5 + len(line_risks) * 1.0
         sample_size = int(profile.get("sampleSize") or 0)
@@ -1345,7 +1385,7 @@ def _offline_caddie_options(
             {
                 "id": option_id,
                 "label": label,
-                "clubName": str(profile.get("clubName") or ""),
+                "clubName": club_name,
                 "carryM": round(carry, 1),
                 "p10M": round(p10, 1),
                 "p90M": round(p90, 1),

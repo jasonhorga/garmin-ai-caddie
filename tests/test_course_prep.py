@@ -233,8 +233,34 @@ class PureLogicTests(unittest.TestCase):
         self.assertTrue(row["greenOutline"]["available"])
         self.assertEqual(row["greenOutline"]["source"], "prodgeometry.Green.drc.boundary")
         self.assertEqual(len(row["greenOutline"]["pointsPx"]), 4)
-        self.assertEqual([row["id"] for row in row["candidateRoutes"]], ["safe", "stock", "attack"])
+        self.assertEqual([row["id"] for row in row["candidateRoutes"]], ["safe", "stock"])
+        self.assertEqual([row["club"] for row in row["candidateRoutes"]], ["7I", "1W"])
         self.assertTrue(any(target["kind"] == "landing" for target in row["carryTargets"]))
+
+    def test_candidate_routes_emit_only_distinct_modes_in_safe_stock_attack_order(self) -> None:
+        hazards = {"water_carry": [], "bunkers": []}
+
+        one = cp._candidate_routes([("1W", 200)], hazards)
+        self.assertEqual([route["id"] for route in one], ["stock"])
+        self.assertEqual([route["club"] for route in one], ["1W"])
+
+        two = cp._candidate_routes([("1W", 200), ("7I", 128)], hazards)
+        self.assertEqual([route["id"] for route in two], ["safe", "stock"])
+        self.assertEqual([route["club"] for route in two], ["7I", "1W"])
+
+        three = cp._candidate_routes([("1W", 200), ("7I", 128), ("8I", 122)], hazards)
+        self.assertEqual([route["id"] for route in three], ["safe", "stock", "attack"])
+        self.assertEqual([route["club"] for route in three], ["8I", "7I", "1W"])
+
+    def test_candidate_routes_collapse_duplicate_physical_club_aliases(self) -> None:
+        routes = cp._candidate_routes(
+            [("1W", 220), ("Driver", 219), ("3W", 190)],
+            {"water_carry": [], "bunkers": []},
+        )
+
+        self.assertEqual([route["id"] for route in routes], ["safe", "stock"])
+        self.assertEqual([route["club"] for route in routes], ["3W", "Driver"])
+        self.assertEqual(len({cp.club_bag_service.canonical_club_name(route["club"]) for route in routes}), len(routes))
 
     def test_missing_prodgeometry_uses_cached_course_data_without_guessing_unknown_codes(self) -> None:
         course_data = {
