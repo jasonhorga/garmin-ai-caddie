@@ -52,20 +52,20 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testCaddieOrderStaysRecommendationSafeAttackRegardlessOfPayloadOrder() {
         let options = [
             WatchCaddieOption(optionId: "attack", label: "进攻"),
-            WatchCaddieOption(optionId: "safe", label: "保守"),
-            WatchCaddieOption(optionId: "stock", label: "推荐"),
+            WatchCaddieOption(optionId: "safe", label: "稳妥"),
+            WatchCaddieOption(optionId: "stock", label: "标准"),
         ]
 
         XCTAssertEqual(
             WatchCaddieOptionsView.ordered(options).map(\.optionId),
-            ["stock", "safe", "attack"]
+            ["safe", "stock", "attack"]
         )
     }
 
     func testCompactCaddieClubChainKeepsEveryPlannedShotVisible() {
         let option = WatchCaddieOption(
             optionId: "stock",
-            label: "推荐",
+            label: "标准",
             plan: [
                 WatchCaddiePlanStep(clubName: "1W", carryM: 201.2),
                 WatchCaddiePlanStep(clubName: "3W", carryM: 183),
@@ -170,8 +170,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
             suggestedClub: "3号木", selectedClub: nil,
             offlineOptionId: "stock",
             caddieOptions: [
-                WatchCaddieOption(optionId: "stock", label: "推荐", clubName: "8号铁", carryM: 192, carryP10M: 176, carryP90M: 208, sampleSize: 28, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "8I", carryM: 142)], confidence: "high"),
-                WatchCaddieOption(optionId: "safe", label: "保守", clubName: "9号铁", carryM: 172, carryP10M: 160, carryP90M: 184, sampleSize: 31, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 172), WatchCaddiePlanStep(clubName: "9I", carryM: 128)], confidence: "high"),
+                WatchCaddieOption(optionId: "stock", label: "标准", clubName: "8号铁", carryM: 192, carryP10M: 176, carryP90M: 208, sampleSize: 28, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 192), WatchCaddiePlanStep(clubName: "8I", carryM: 142)], confidence: "high"),
+                WatchCaddieOption(optionId: "safe", label: "稳妥", clubName: "9号铁", carryM: 172, carryP10M: 160, carryP90M: 184, sampleSize: 31, plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 172), WatchCaddiePlanStep(clubName: "9I", carryM: 128)], confidence: "high"),
                 WatchCaddieOption(optionId: "attack", label: "进攻", clubName: "7号铁", carryM: 205, carryP10M: 181, carryP90M: 224, sampleSize: 24, plan: [WatchCaddiePlanStep(clubName: "1W", carryM: 205), WatchCaddiePlanStep(clubName: "PW", carryM: 118)], confidence: "medium"),
             ],
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "high"

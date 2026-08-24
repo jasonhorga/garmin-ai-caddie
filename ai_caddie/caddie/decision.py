@@ -863,9 +863,10 @@ def _sequence_evidence(sequences: list[dict[str, Any]], selected_sequence: dict[
 
 def _fallback_club(route: dict[str, Any], analysis: dict[str, Any]) -> list[dict[str, Any]]:
     first_club = ((analysis.get("shots") or [{}])[0] or {}).get("clubName")
+    route_club = route.get("club") or route.get("clubName")
     label = str(route.get("label") or "")
     label_token = label.split(" ", 1)[0].strip()
-    club = first_club or (label_token if label_token and label_token.lower() not in {"safe", "stock", "attack"} else None)
+    club = route_club or first_club or (label_token if label_token and label_token.lower() not in {"safe", "stock", "attack"} else None)
     if not club:
         return []
     return [{"clubName": str(club), "sampleSize": 0, "source": "fallback"}]
@@ -1097,6 +1098,10 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
     option = {
         "id": option_id,
         "routeId": route.get("id"),
+        # Preserve an explicit physical club supplied by course/mobile prep.  Do not infer this
+        # identity from a broad carry-matched recommendation: legacy route evidence may quite
+        # legitimately resolve several distances to the same nearest profile.
+        "club": route.get("club") or route.get("clubName"),
         "label": OPTION_LABELS.get(option_id, str(route.get("label") or option_id)),
         "routeLabel": route.get("label"),
         "carry_m": carry_m,
@@ -1121,6 +1126,52 @@ def _option_from_route(route: dict[str, Any], analysis: dict[str, Any]) -> dict[
         "clubRecommendation": club_recommendation,
     }
     return _with_option_contract(option, analysis, route=route)
+
+
+def _strategy_club_key(option: dict[str, Any]) -> str | None:
+    """Return only an explicit route club; recommendations are not route identity evidence."""
+    raw_name = option.get("club") or option.get("clubName")
+    name = str(raw_name or "").strip()
+    if not name:
+        return None
+    try:
+        from ai_caddie.caddie.club_bag import canonical_club_name
+
+        return canonical_club_name(name) or name.casefold()
+    except Exception:
+        return name.casefold()
+
+
+def _dedupe_strategy_options(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop strategy labels that resolve to the same physical first-shot club.
+
+    Candidate route producers are allowed to provide fewer than three modes when the bag or route
+    evidence cannot support distinct choices.  Keeping the first occurrence in the canonical
+    safe/stock/attack order preserves the lower-risk explanation and, importantly, never fabricates
+    a second distance for one Driver.  Options without a club identity remain distinct by carry.
+    """
+    seen_modes: set[str] = set()
+    seen_clubs: set[str] = set()
+    seen_route_carries: set[tuple[str, float]] = set()
+    deduped: list[dict[str, Any]] = []
+    for option in _ordered_options(options):
+        option_id = str(option.get("id") or "").strip().lower()
+        if option_id in seen_modes:
+            continue
+        seen_modes.add(option_id)
+        club_key = _strategy_club_key(option)
+        if club_key:
+            if club_key in seen_clubs:
+                continue
+            seen_clubs.add(club_key)
+        else:
+            carry = round(_float(option.get("carry_m")), 1)
+            route_key = str(option.get("routeId") or option_id).strip().lower()
+            if (route_key, carry) in seen_route_carries:
+                continue
+            seen_route_carries.add((route_key, carry))
+        deduped.append(option)
+    return deduped
 
 
 def _strategy_mode(context: dict[str, Any]) -> str:
@@ -3135,7 +3186,7 @@ def build_decision_plan(analysis: dict[str, Any]) -> dict[str, Any]:
     used_route_evidence = not candidate_routes
     routes = candidate_routes or _routes_from_route_evidence(analysis)
     options = [_option_from_route(route, analysis) for route in routes]
-    options = _ordered_options(options)
+    options = _dedupe_strategy_options(options)
     selected = _select_option(options, _strategy_mode(analysis), analysis)
     forbidden = selected.get("forbiddenZones", []) if selected else []
     sequences = _club_sequences(analysis, options)

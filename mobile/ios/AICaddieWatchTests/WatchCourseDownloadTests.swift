@@ -81,16 +81,63 @@ final class WatchCourseDownloadTests: XCTestCase {
 
         let options = WatchCourseTemplateBuilder.preparedCaddieOptions(
             clubs: clubs,
+            // Keep the measured standard club in the middle so all three factual tiers exist.
+            suggestedClub: "3W",
+            routeDistanceM: 400,
+            landingM: 220
+        )
+
+        XCTAssertEqual(options.map(\.optionId), ["safe", "stock", "attack"])
+        XCTAssertEqual(options.map(\.label), ["稳妥", "标准", "进攻"])
+        XCTAssertEqual(options.map(\.clubName), ["5I", "3W", "1W"])
+        XCTAssertTrue(options.allSatisfy { !($0.plan ?? []).isEmpty })
+        XCTAssertTrue(options.allSatisfy { ($0.plan ?? []).allSatisfy { ($0.carryM ?? 0) > 0 } })
+    }
+
+    func testPreparedCourseWithOneMeasuredClubEmitsOnlyStandardWithoutDuplicates() {
+        let options = WatchCourseTemplateBuilder.preparedCaddieOptions(
+            clubs: [WatchClubOption(clubName: "1W", medianM: 220, source: "course-prep")],
             suggestedClub: "1W",
             routeDistanceM: 400,
             landingM: 220
         )
 
-        XCTAssertEqual(options.map(\.optionId), ["stock", "safe", "attack"])
-        XCTAssertEqual(options.map(\.label), ["推荐", "保守", "进攻"])
-        XCTAssertEqual(options[0].plan?.first?.clubName, "1W")
-        XCTAssertTrue(options.allSatisfy { !($0.plan ?? []).isEmpty })
-        XCTAssertTrue(options.allSatisfy { ($0.plan ?? []).allSatisfy { ($0.carryM ?? 0) > 0 } })
+        XCTAssertEqual(options.map(\.optionId), ["stock"])
+        XCTAssertEqual(options.map(\.label), ["标准"])
+        XCTAssertEqual(Set(options.map(\.clubName)).count, options.count)
+    }
+
+    func testPreparedCourseWithTwoMeasuredClubsEmitsSafeAndStandardWithoutDuplicates() {
+        let options = WatchCourseTemplateBuilder.preparedCaddieOptions(
+            clubs: [
+                WatchClubOption(clubName: "1W", medianM: 220, source: "course-prep"),
+                WatchClubOption(clubName: "3W", medianM: 190, source: "course-prep"),
+            ],
+            suggestedClub: "1W",
+            routeDistanceM: 400,
+            landingM: 220
+        )
+
+        XCTAssertEqual(options.map(\.optionId), ["safe", "stock"])
+        XCTAssertEqual(options.map(\.clubName), ["3W", "1W"])
+        XCTAssertEqual(Set(options.map(\.clubName)).count, options.count)
+    }
+
+    func testPreparedCourseCollapsesDriverAliasesBeforeBuildingTiers() {
+        let options = WatchCourseTemplateBuilder.preparedCaddieOptions(
+            clubs: [
+                WatchClubOption(clubName: "1W", medianM: 220, source: "course-prep"),
+                WatchClubOption(clubName: "Driver", medianM: 219, source: "course-prep"),
+                WatchClubOption(clubName: "3W", medianM: 190, source: "course-prep"),
+            ],
+            suggestedClub: "1W",
+            routeDistanceM: 400,
+            landingM: 220
+        )
+
+        XCTAssertEqual(options.map(\.optionId), ["safe", "stock"])
+        XCTAssertEqual(options.map(\.clubName), ["3W", "1W"])
+        XCTAssertEqual(Set(options.map(\.clubName)).count, options.count)
     }
 
     func testPreparedLongParFiveNeverRepeatsDriverAfterTeeShot() throws {
