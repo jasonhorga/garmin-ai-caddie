@@ -835,7 +835,9 @@ jobs:
           needs.watch-runtime.result == 'success' &&
           (
             github.event_name != 'workflow_dispatch' ||
-            (github.event.inputs.runtime_scope != 'setup-visual' && github.event.inputs.runtime_scope != 'real-course-visual')
+            (github.event.inputs.runtime_scope != 'setup-visual'
+              && github.event.inputs.runtime_scope != 'real-course-visual'
+              && github.event.inputs.runtime_scope != 'recovery-only')
           )
         )
       )
