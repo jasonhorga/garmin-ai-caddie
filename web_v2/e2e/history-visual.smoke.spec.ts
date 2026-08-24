@@ -1081,6 +1081,7 @@ interface MockApiRecords {
   caddieContextQueries: URLSearchParams[]
   caddieDecisionBodies: RecordedDecisionRequest[]
   correctionBodies: Array<Record<string, unknown>>
+  shotMapResponses: Array<Record<string, unknown>>
 }
 
 // Keep this duplicate smoke walk visually honest as well: a transparent response only proves that
@@ -1096,15 +1097,22 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
   const caddieContextQueries: URLSearchParams[] = []
   const caddieDecisionBodies: RecordedDecisionRequest[] = []
   const correctionBodies: Array<Record<string, unknown>> = []
+  const shotMapResponses: Array<Record<string, unknown>> = []
+  let persistedShotMap: Record<string, unknown> = roundShotMapPayload
   await page.route('**/api/v2/**', async (route) => {
     const requestUrl = new URL(route.request().url())
     const path = requestUrl.pathname
     if (path === '/api/v2/history/overview') return route.fulfill({ json: overviewPayload })
     if (path === '/api/v2/history/rounds') return route.fulfill({ json: roundsPayload })
-    if (/\/holes\/\d+\/shotmap$/.test(path) && route.request().method() === 'GET') return route.fulfill({ json: roundShotMapPayload })
+    if (/\/holes\/\d+\/shotmap$/.test(path) && route.request().method() === 'GET') {
+      shotMapResponses.push(persistedShotMap)
+      return route.fulfill({ json: persistedShotMap })
+    }
     if (path === '/api/v2/history/rounds/900001/corrections' && route.request().method() === 'POST') {
       const body = route.request().postDataJSON() as Record<string, unknown>
       correctionBodies.push(body)
+      // The refresh GET is a mocked server read of the accepted whole-hole snapshot.
+      persistedShotMap = { ...roundShotMapPayload, shots: body.shots }
       return route.fulfill({ status: 201, json: { schema: 'ai-caddie-round-correction-v1', stored: body } })
     }
     // Realistic-topo base bitmap: on the real homeserver a course WITH CourseView geometry (e.g.
@@ -1187,7 +1195,7 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
     if (/^\/api\/v2\/players\/[^/]+\/clubs\/bag$/.test(path)) return route.fulfill({ json: effectiveClubBagPayload })
     return route.fulfill({ status: 404, json: { detail: `Unhandled test route: ${path}` } })
   })
-  return { prepIncludeShots, caddieContextQueries, caddieDecisionBodies, correctionBodies }
+  return { prepIncludeShots, caddieContextQueries, caddieDecisionBodies, correctionBodies, shotMapResponses }
 }
 
 async function assertNoViewportOverflow(page: Page) {
@@ -1220,7 +1228,7 @@ async function captureSmokeScreenshot(page: Page, testInfo: TestInfo, name: stri
 }
 
 test('review editor saves one map-first draft after browser interactions', async ({ page }) => {
-  const { correctionBodies } = await mockApi(page)
+  const { correctionBodies, shotMapResponses } = await mockApi(page)
   await page.goto('/')
   await page.getByRole('button', { name: '全部球局', exact: true }).click()
   await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
@@ -1232,10 +1240,19 @@ test('review editor saves one map-first draft after browser interactions', async
   await expect(editor).toBeVisible()
   const canvas = page.getByLabel('第1洞落点图')
   const svg = canvas.locator('svg.review-canvas-svg')
+  const originalShotIds = await canvas.locator('circle[data-shot-id]').evaluateAll((markers) => markers.map((marker) => marker.getAttribute('data-shot-id')))
+  expect(originalShotIds).toHaveLength(3)
   await svg.click({ position: { x: 260, y: 420 } })
   await expect(editor.getByRole('button', { name: '删除第4杆' })).toBeVisible()
+  const addedShotId = await canvas.locator('circle[data-shot-id]').nth(3).getAttribute('data-shot-id')
+  expect(addedShotId).toMatch(/^web-draft-/)
 
-  const marker = canvas.locator('circle[data-shot-id]').first()
+  // Drag the second existing shot so it remains in the saved snapshot after deleting shot 1.
+  const marker = canvas.locator('circle[data-shot-id]').nth(1)
+  const draggedShotId = await marker.getAttribute('data-shot-id')
+  expect(draggedShotId).toBeTruthy()
+  const initialX = Number(await marker.getAttribute('cx'))
+  const initialY = Number(await marker.getAttribute('cy'))
   const box = await marker.boundingBox()
   expect(box).not.toBeNull()
   if (!box) throw new Error('editable landing marker has no box')
@@ -1243,6 +1260,10 @@ test('review editor saves one map-first draft after browser interactions', async
   await page.mouse.down()
   await page.mouse.move(box.x + box.width / 2 + 24, box.y + box.height / 2 + 16)
   await page.mouse.up()
+  await expect.poll(async () => Number(await marker.getAttribute('cx'))).not.toBe(initialX)
+  await expect.poll(async () => Number(await marker.getAttribute('cy'))).not.toBe(initialY)
+  const draggedX = Number(await marker.getAttribute('cx'))
+  const draggedY = Number(await marker.getAttribute('cy'))
 
   await editor.getByRole('button', { name: '第2杆下移' }).click()
   await editor.getByRole('button', { name: '删除第1杆' }).click()
@@ -1250,8 +1271,22 @@ test('review editor saves one map-first draft after browser interactions', async
   await expect(editor.getByRole('button', { name: '编辑落点' })).toBeVisible()
   await expect.poll(() => correctionBodies.length).toBe(1)
   expect(correctionBodies[0]).toMatchObject({ op: 'replaceHoleShots', hole: 1 })
-  expect((correctionBodies[0]?.shots as unknown[] | undefined)?.length).toBe(3)
-  // POST success triggers one canonical shotmap GET; no second correction is emitted.
+  const postedShots = correctionBodies[0]?.shots as Array<{ id?: string; end?: [number, number] }> | undefined
+  expect(postedShots).toHaveLength(3)
+  expect(postedShots?.map((shot) => shot.id)).toEqual([originalShotIds[2], draggedShotId, addedShotId])
+  const postedDraggedShot = postedShots?.find((shot) => shot.id === draggedShotId)
+  expect(postedDraggedShot).toBeDefined()
+  expect(postedDraggedShot?.end?.[0]).toBeCloseTo(draggedX, 3)
+  expect(postedDraggedShot?.end?.[1]).toBeCloseTo(draggedY, 3)
+
+  // POST success triggers one canonical shotmap GET whose mocked response carries the saved coords.
+  await expect.poll(() => shotMapResponses.length).toBeGreaterThan(1)
+  const refreshedShots = shotMapResponses.at(-1)?.shots as Array<{ id?: string; end?: [number, number] }> | undefined
+  expect(shotMapResponses.at(-1)).toMatchObject({ mapKind: 'prodgeometry', geometryRevision: 'visual-fixture' })
+  const refreshedDraggedShot = refreshedShots?.find((shot) => shot.id === draggedShotId)
+  expect(refreshedDraggedShot).toBeDefined()
+  expect(refreshedDraggedShot?.end?.[0]).toBeCloseTo(draggedX, 3)
+  expect(refreshedDraggedShot?.end?.[1]).toBeCloseTo(draggedY, 3)
   await expect(canvas).toContainText('第 1 洞')
   expect(correctionBodies).toHaveLength(1)
 })
