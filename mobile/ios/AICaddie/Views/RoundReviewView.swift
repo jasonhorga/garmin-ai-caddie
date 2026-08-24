@@ -1,6 +1,35 @@
 import Foundation
 import SwiftUI
 
+/// Closed Garmin fairway vocabulary. Unknown or absent values are not misses and
+/// must stay out of the FIR denominator.
+func roundReviewFairwayOutcome(_ raw: String?) -> Bool? {
+    guard let raw else { return nil }
+    switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "hit", "fairway", "center", "centre", "true", "1": return true
+    case "left", "right", "miss", "false", "0": return false
+    default: return nil
+    }
+}
+
+func roundReviewFairwayCounts(_ values: [String?]) -> (hit: Int, recorded: Int) {
+    let outcomes = values.compactMap(roundReviewFairwayOutcome)
+    return (outcomes.filter { $0 }.count, outcomes.count)
+}
+
+func roundReviewFairwayLabel(_ raw: String?) -> String {
+    switch roundReviewFairwayOutcome(raw) {
+    case .some(true): return "球道✓"
+    case .some(false):
+        switch raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "left": return "偏左"
+        case "right": return "偏右"
+        default: return "球道✗"
+        }
+    case .none: return "未记录"
+    }
+}
+
 /// 单场复盘:点一场历史球局进来,先看本场核心指标，再从紧凑的前九/后九网格点进任一
 /// 球洞查看落点。缺数据时优雅兜底(显示已有的 + 为什么缺),绝不空白白屏
 /// (用户痛点:"复盘点进去没数据")。数据来自 /api/v2/history/rounds/{ref}。
@@ -228,12 +257,11 @@ struct RoundReviewContent: View {
         var metrics: [ReviewMetric] = []
         let girHoles = holes.filter { $0.gir != nil }
         let girHit = girHoles.filter { $0.gir == true }.count
-        let fairwayHoles = holes.filter { ($0.fairway.map { !$0.isEmpty }) ?? false }
-        let fairwayHit = fairwayHoles.filter { isFairwayHit($0.fairway) }.count
-        if !fairwayHoles.isEmpty {
+        let fairwayCounts = roundReviewFairwayCounts(holes.map(\.fairway))
+        if fairwayCounts.recorded > 0 {
             metrics.append(ReviewMetric(
-                id: "fairway", title: "球道命中", value: "\(percent(fairwayHit, fairwayHoles.count))%",
-                detail: "\(fairwayHit)/\(fairwayHoles.count)", icon: "arrow.up.to.line.compact"
+                id: "fairway", title: "球道命中", value: "\(percent(fairwayCounts.hit, fairwayCounts.recorded))%",
+                detail: "\(fairwayCounts.hit)/\(fairwayCounts.recorded)", icon: "arrow.up.to.line.compact"
             ))
         } else if let tee = phaseMetrics("tee", in: detail),
                   let hit = tee.fairwaysHit,
@@ -321,13 +349,6 @@ struct RoundReviewContent: View {
     private func percent(_ hit: Int, _ total: Int) -> Int {
         guard total > 0 else { return 0 }
         return Int((Double(hit) / Double(total) * 100).rounded())
-    }
-
-    private func isFairwayHit(_ fairway: String?) -> Bool {
-        switch (fairway ?? "").lowercased() {
-        case "hit", "fairway", "center", "centre", "true", "1": return true
-        default: return false
-        }
     }
 
     // MARK: Garmin-style front/back-nine scorecard (every score opens its shot map)
@@ -490,13 +511,7 @@ struct RoundReviewContent: View {
     }
 
     private func zhFairway(_ value: String) -> String {
-        switch value.lowercased() {
-        case "hit", "fairway", "center", "centre", "true", "1": return "球道✓"
-        case "left": return "偏左"
-        case "right": return "偏右"
-        case "miss", "false", "0": return "球道✗"
-        default: return value
-        }
+        roundReviewFairwayLabel(value)
     }
 
     private func zhMissingLabel(_ label: String) -> String {
