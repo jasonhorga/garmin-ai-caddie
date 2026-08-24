@@ -1137,6 +1137,45 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.recordedShotCount, 1)
     }
 
+    func testNextTeeProvisionalShotIsAcceptedAndCompletedOnlyOnce() {
+        let model = seededModel(holes: [
+            hole(1, par: 4, teeLatitude: 40.0, teeLongitude: 116.0),
+            hole(2, par: 5, teeLatitude: 40.001, teeLongitude: 116.0),
+        ])
+
+        model.beginManualShot(
+            latitude: 40.001,
+            longitude: 116.0,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-07-26T09:00:00Z"
+        )
+
+        // The GPS fact is provisional: it must not end hole 1 or enter the event queue yet.
+        XCTAssertEqual(model.activeHole, 1)
+        XCTAssertEqual(model.scoringHole, 1)
+        XCTAssertEqual(model.pendingManualShot?.hole, 2)
+        XCTAssertEqual(model.pendingManualShot?.candidateFromHole, 1)
+        XCTAssertTrue(model.round?.pendingEvents.isEmpty == true)
+
+        // A double tap on the recommended score is still one score decision.
+        model.acceptRecommendedScore()
+        model.acceptRecommendedScore()
+        XCTAssertEqual(model.activeHole, 2)
+        XCTAssertEqual(model.pendingManualShot?.hole, 2)
+        XCTAssertNil(model.pendingManualShot?.candidateFromHole)
+        XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.score, .putt])
+
+        // Completing the staged shot twice cannot duplicate the same GPS location event.
+        model.completePendingManualShot(clubName: "一号木")
+        model.completePendingManualShot(clubName: "7I")
+
+        XCTAssertEqual(model.round?.pendingEvents.map(\.kind), [.score, .putt, .club, .location])
+        XCTAssertEqual(model.round?.pendingEvents.filter { $0.kind == .location }.count, 1)
+        XCTAssertEqual(model.round?.pendingEvents.last?.hole, 2)
+        XCTAssertEqual(model.recordedShotCount, 1)
+        XCTAssertNil(model.pendingManualShot)
+    }
+
     func testCancelPreviousScoreKeepsCandidateShotOnPreviousHole() {
         let model = seededModel(holes: [
             hole(1, teeLatitude: 40.0, teeLongitude: 116.0, shotType: "approach"),
