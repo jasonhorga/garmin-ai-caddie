@@ -19,12 +19,10 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`W1` — Watch lifecycle and round recovery** (`in-progress`)
+**`W1` — Watch lifecycle and round recovery** (`evidence-open`)
 
-Complete one Watch evidence slice covering independent discovery, offline/
-restart behavior, hole advance/Cancel, edit, finish/recover, and 41/45/49 mm
-behavior. Keep the CI-green batch intact and record the complete runtime proof
-before selecting another task.
+W1 runtime code is CI-verified; production 18-hole/current-head journey evidence
+remains open because external API returned 502.
 
 No other task may become `in-progress` while `W1` is active. When it closes,
 select the next stable ID here and update this file before starting work.
@@ -36,7 +34,7 @@ project-level task list; historical plans are reference material.
 
 | ID | State | Scope | Exit evidence |
 |---|---|---|---|
-| `W1` | `in-progress` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | One complete real or simulator round covering start, hole advance/Cancel, edit, finish/recover, and all three sizes. |
+| `W1` | `evidence-open` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | One complete real or simulator round covering start, hole advance/Cancel, edit, finish/recover, and all three sizes; successful run `32707001002` at head `ca2b2d7a` with artifact `9513235658`. |
 | `S1` | `ci-green-runtime-open` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Metadata → preparing → precise → offline-installed is resumable and the real package distance table matches every client. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
@@ -75,13 +73,15 @@ means a named external decision or prerequisite is missing; `done` and
   final remote review-editor interaction passed in 11.8s on homeserver after
   temporary browser install, which was removed with no persistent service or
   tunnel left behind.
+- Watch runtime run `32707001002` succeeded at head `ca2b2d7a` (artifact
+  `9513235658`), covering 41/45/49 mm runtime boundaries and all five stateful
+  recovery markers.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Run the W1 real or simulator round covering start, hole advance/Cancel,
-   edit, finish/recover, offline/restart, and all three watch sizes.
+1. 恢复 API 后在当前 HEAD 重跑 `full`/`real-course journey`；成功后才可关闭 W1。
 2. Record W1 runtime evidence and any blocker here; keep the CI-green batch
    intact and do not expand the slice.
 3. Re-read this ledger and choose the next stable ID only after W1 closes.
@@ -96,6 +96,11 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   operation; do not trigger production synchronization as a test.
 - The focused green baked fixture is still 1024 px; do not stretch it and call
   it a 1280 px evidence asset.
+- The external API returned 502 during the production 18-hole/current-head
+  journey, so that runtime evidence remains open.
+- Three runtime evidence boundaries remain open: Cancel has not completed the
+  recovery-rod flow; the old-seed tombstone has not been runtime-verified; and
+  deferred-finish network retry remains unit-only.
 - Existing user files `.codex-tmp/` and
   `.mockups/watch-shot-tracking.html` are untracked and must be preserved.
 - Keep historical Claude/superpowers worktrees unless a separate allow-list
@@ -132,3 +137,7 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   history visual smoke, and final remote review-editor interaction passed;
   temporary browser resources were cleaned up. Started `W1` as the sole
   in-progress slice.
+- 2026-08-24: W1 runtime code reached `evidence-open`: run `32707001002` at
+  head `ca2b2d7a` succeeded for 41/45/49 mm and five recovery markers, while
+  the production journey remained open after an external API 502 and the
+  three evidence boundaries listed above.
