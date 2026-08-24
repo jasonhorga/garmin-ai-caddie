@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-24 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `edf41054`
+**HEAD:** current branch tip (last CI-verified code commit: `b6ecee8f`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
