@@ -12,6 +12,7 @@ on:
           - full
           - setup-visual
           - real-course-visual
+          - recovery-only
           - web-only
       api_base_url:
         description: Optional public API origin shared by Watch and Web evidence
@@ -322,7 +323,10 @@ jobs:
           xcrun simctl shutdown "$ULTRA_DEVICE"
 
       - name: Preflight live course discovery
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.runtime_scope != 'setup-visual'
+        if: >-
+          github.event_name != 'workflow_dispatch'
+          || (github.event.inputs.runtime_scope != 'setup-visual'
+              && github.event.inputs.runtime_scope != 'recovery-only')
         env:
           AI_CADDIE_PREFLIGHT_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
           AI_CADDIE_PREFLIGHT_AUTH_MODE: bearer
@@ -360,7 +364,8 @@ jobs:
           mkdir -p watch-runtime-artifacts
           JOURNEY_ROUND_ID=""
 
-          if [[ "$WATCH_RUNTIME_SCOPE" != "setup-visual" ]]; then
+          if [[ "$WATCH_RUNTIME_SCOPE" != "setup-visual" \
+                && "$WATCH_RUNTIME_SCOPE" != "recovery-only" ]]; then
             test "${#REAL_COURSE_PLAYER_TOKEN}" -ge 32
             test "$REAL_COURSE_PLAYER_TOKEN" != "-"
           fi
@@ -540,6 +545,18 @@ jobs:
             xcrun simctl terminate "$WATCH_UDID" "$BID"
           }
 
+          run_runtime_recovery() {
+            # Stateful W1 recovery gates on the authoritative 45mm simulator. Each mode is a separate
+            # process so the assertions cover persisted model/store state after relaunch.
+            # Deferred-finish network failure/retry remains unit-only: this workflow does not invent a
+            # fake network response or alter the production client configuration.
+            launch_and_capture runtime-cancel-seed watch-runtime-cancel-seeded.png
+            launch_and_capture runtime-cancel-recovery watch-runtime-cancel-recovered.png
+            launch_and_capture runtime-abandon-seed watch-runtime-abandon-seeded.png
+            launch_and_capture runtime-abandon-confirm watch-runtime-abandon-confirmation.png
+            launch_and_capture runtime-abandon-restore watch-runtime-abandon-recovered.png
+          }
+
           launch_and_capture standalone-course-seed watch-standalone-course-seeded.png
           # No reinstall, network, phone seed, or second course write: load the persisted round + map.
           launch_and_capture standalone-course-restore watch-standalone-course-restored.png
@@ -604,6 +621,13 @@ jobs:
             swift mobile/ios/scripts/verify_watch_aod_geometry.swift \
               watch-runtime-artifacts/watch-always-on-distance-runtime.png
             echo "Setup and club-prompt visual evidence complete; skipping real-course and score-writing journey."
+            exit 0
+          fi
+          if [[ "$WATCH_RUNTIME_SCOPE" == "recovery-only" ]]; then
+            run_runtime_recovery
+            swift mobile/ios/scripts/verify_watch_aod_geometry.swift \
+              watch-runtime-artifacts/watch-always-on-distance-runtime.png
+            echo "Stateful recovery evidence complete; skipping credentialed real-course and score-writing journey."
             exit 0
           fi
           swift mobile/ios/scripts/verify_watch_aod_geometry.swift \
@@ -727,15 +751,7 @@ jobs:
             watch-runtime-artifacts/watch-journey-finished-home.png
           xcrun simctl terminate "$WATCH_UDID" "$BID"
 
-          # Stateful W1 recovery gates on the authoritative 45mm simulator. Each mode is a separate
-          # process so the assertions cover persisted model/store state after relaunch.
-          # Deferred-finish network failure/retry remains unit-only: this workflow does not invent a
-          # fake network response or alter the production client configuration.
-          launch_and_capture runtime-cancel-seed watch-runtime-cancel-seeded.png
-          launch_and_capture runtime-cancel-recovery watch-runtime-cancel-recovered.png
-          launch_and_capture runtime-abandon-seed watch-runtime-abandon-seeded.png
-          launch_and_capture runtime-abandon-confirm watch-runtime-abandon-confirmation.png
-          launch_and_capture runtime-abandon-restore watch-runtime-abandon-recovered.png
+          run_runtime_recovery
 
           launch_and_capture milestone-seed watch-round-seeded.png
           # Do not reinstall or reseed here: the second process must load the first launch's stored round.
