@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-24 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `b1b86af7` (last CI-verified code commit: `b6ecee8f`)
+**HEAD:** `309d7232` (runtime-verified code baseline: `ca2b2d7a`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -34,7 +34,7 @@ project-level task list; historical plans are reference material.
 
 | ID | State | Scope | Exit evidence |
 |---|---|---|---|
-| `W1` | `evidence-open` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | One complete real or simulator round covering start, hole advance/Cancel, edit, finish/recover, and all three sizes; successful run `32707001002` at head `ca2b2d7a` with artifact `9513235658`. |
+| `W1` | `evidence-open` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Current simulator evidence is run `32707001002` at head `ca2b2d7a` with artifact `9513235658`; close only after a current-head production 18-hole journey also passes. |
 | `S1` | `ci-green-runtime-open` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Metadata → preparing → precise → offline-installed is resumable and the real package distance table matches every client. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
@@ -82,8 +82,7 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 ## Exact Next Actions
 
 1. 恢复 API 后在当前 HEAD 重跑 `full`/`real-course journey`；成功后才可关闭 W1。
-2. Record W1 runtime evidence and any blocker here; keep the CI-green batch
-   intact and do not expand the slice.
+2. Keep the CI-green batch intact and do not start S1/R2 while W1 evidence is open.
 3. Re-read this ledger and choose the next stable ID only after W1 closes.
 4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
    owner-approval gates before TestFlight.
