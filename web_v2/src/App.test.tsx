@@ -427,6 +427,25 @@ function coursePrepPayload() {
   }
 }
 
+function courseInstallStatusPayload(globalId = 31795) {
+  return {
+    schema: 'ai-caddie-course-install-v1',
+    jobId: `fixture-install-${globalId}`,
+    globalId,
+    teeBox: 'blue',
+    nine: 'all',
+    phase: 'ready',
+    stage: 'complete',
+    totalHoles: 2,
+    geometryReady: 2,
+    topoReady: 2,
+    holes: [
+      { globalId, localHole: 1, displayHole: 1, geometry: 'ready', topo: 'ready' },
+      { globalId, localHole: 2, displayHole: 2, geometry: 'ready', topo: 'ready' },
+    ],
+  }
+}
+
 function prepTipsPayload() {
   return {
     schema: 'ai-caddie-prep-tips-v1',
@@ -1479,6 +1498,7 @@ describe('App navigation', () => {
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         if (path === '/api/v2/courses/31795/prep?render=false&include_shots=true') return coursePrepPayload()
         if (path === '/api/v2/courses/31795/prep-tips') return prepTipsPayload()
+        if (path === '/api/v2/courses/31795/install/status') return courseInstallStatusPayload()
         return overviewPayload()
       },
     }))
@@ -1539,6 +1559,7 @@ describe('App navigation', () => {
         if (path === '/api/v2/sync/status') return syncStatusPayload()
         if (path === '/api/v2/courses/31795/prep?render=false&include_shots=true') return coursePrepPayload()
         if (path === '/api/v2/courses/31795/prep-tips') return prepTipsPayload()
+        if (path === '/api/v2/courses/31795/install/status') return courseInstallStatusPayload()
         return overviewPayload()
       },
     }))
@@ -1575,6 +1596,7 @@ describe('App navigation', () => {
         }
         if (path === '/api/v2/courses/31870/prep?render=false&include_shots=true') return coursePrepPayload()
         if (path === '/api/v2/courses/31870/prep-tips') return prepTipsPayload()
+        if (path === '/api/v2/courses/31870/install/status') return courseInstallStatusPayload(31870)
         return overviewPayload()
       },
     }))
