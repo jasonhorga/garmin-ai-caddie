@@ -52,7 +52,15 @@ defines ownership and resource lifetime, not a new product plan.
 - BuildKit cache may be pruned on a schedule; containers, images, named
   volumes and source worktrees require an explicit manifest and approval.
 
-## 5. Required handoff
+## 5. Persistent execution state
+
+Read [`docs/operations/PROJECT_STATE.md`](docs/operations/PROJECT_STATE.md)
+before resuming work after a context compaction or session restart. It is the
+durable live source of truth for the active queue, completed evidence, blockers,
+and next action. Keep long reviews and historical plans as reference; do not
+recreate a competing master checklist in chat.
+
+## 6. Required handoff
 
 Every delegated session must report:
 
