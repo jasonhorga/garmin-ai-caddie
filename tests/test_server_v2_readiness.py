@@ -656,13 +656,12 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(seed_quality["seedCount"], 18)
         self.assertEqual(seed_quality["selectedOptionCount"], 18)
         self.assertEqual(seed_quality["optionCount"], 54)
-        # Distance-aware club selection (mobile_live._shot_option_clubs) now picks the club that fits
-        # each hole's distance rather than always the longest, so some holes (e.g. par 3 / short
-        # approaches) select a less-sampled club → 14 medium + 4 low (was a flat 18 medium when every
-        # hole selected the same long, well-sampled club). Counts still sum to the 18 selected options.
+        # The fixture has only one or two recorded shots per club. Scarcity-aware tier selection
+        # therefore keeps every selected option low-confidence; readiness remains degraded while
+        # all 18 holes still have a selected offline option.
         selected_conf = seed_quality["selectedConfidenceCounts"]
-        self.assertEqual(selected_conf["medium"], 14)
-        self.assertEqual(selected_conf["low"], 4)
+        self.assertEqual(selected_conf["medium"], 0)
+        self.assertEqual(selected_conf["low"], 18)
         self.assertEqual(sum(selected_conf.values()), 18)
         self.assertEqual(seed_quality["minSelectedCoveragePct"], 10.0)
         self.assertEqual(seed_quality["state"], "degraded")

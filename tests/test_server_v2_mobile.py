@@ -142,7 +142,7 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(refreshed["holeRemaining_m"], 313.1)
         self.assertEqual(
             [row["id"] for row in refreshed["candidateRoutes"]],
-            ["conservative_layup", "stock_line", "aggressive_line"],
+            ["conservative_layup", "stock_line"],
         )
         self.assertEqual(refreshed["candidateRoutes"][1]["lineRisks"][0]["id"], "water-near")
         self.assertEqual(refreshed["candidateRoutes"][1]["lineRisks"][0]["carryToClear_m"], 200.0)
