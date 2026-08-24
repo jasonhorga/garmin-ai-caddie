@@ -758,6 +758,7 @@ const roundShotMapPayload = {
   globalId: 31795,
   localHole: 1,
   geometryRevision: 'visual-fixture',
+  mapKind: 'prodgeometry',
   map: {
     image: TRANSPARENT_PNG,
     overlay: { w: 300, h: 470, ppm: 1, ln: 400, route: [[150, 455, 0], [150, 72, 400]] },
@@ -1079,6 +1080,7 @@ interface MockApiRecords {
   prepIncludeShots: Array<string | null>
   caddieContextQueries: URLSearchParams[]
   caddieDecisionBodies: RecordedDecisionRequest[]
+  correctionBodies: Array<Record<string, unknown>>
 }
 
 // Keep this duplicate smoke walk visually honest as well: a transparent response only proves that
@@ -1093,12 +1095,18 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
   // so the 实战 walk can assert exactly what the sandbox requested.
   const caddieContextQueries: URLSearchParams[] = []
   const caddieDecisionBodies: RecordedDecisionRequest[] = []
+  const correctionBodies: Array<Record<string, unknown>> = []
   await page.route('**/api/v2/**', async (route) => {
     const requestUrl = new URL(route.request().url())
     const path = requestUrl.pathname
     if (path === '/api/v2/history/overview') return route.fulfill({ json: overviewPayload })
     if (path === '/api/v2/history/rounds') return route.fulfill({ json: roundsPayload })
-    if (/\/holes\/\d+\/shotmap$/.test(path)) return route.fulfill({ json: roundShotMapPayload })
+    if (/\/holes\/\d+\/shotmap$/.test(path) && route.request().method() === 'GET') return route.fulfill({ json: roundShotMapPayload })
+    if (path === '/api/v2/history/rounds/900001/corrections' && route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      correctionBodies.push(body)
+      return route.fulfill({ status: 201, json: { schema: 'ai-caddie-round-correction-v1', stored: body } })
+    }
     // Realistic-topo base bitmap: on the real homeserver a course WITH CourseView geometry (e.g.
     // gid31795) returns a PNG here; serve a stub so the hole canvas' base <img> loads (no 404) and
     // the topo path is exercised. A geometry-less course would 404 → the canvas falls back.
@@ -1179,7 +1187,7 @@ async function mockApi(page: Page): Promise<MockApiRecords> {
     if (/^\/api\/v2\/players\/[^/]+\/clubs\/bag$/.test(path)) return route.fulfill({ json: effectiveClubBagPayload })
     return route.fulfill({ status: 404, json: { detail: `Unhandled test route: ${path}` } })
   })
-  return { prepIncludeShots, caddieContextQueries, caddieDecisionBodies }
+  return { prepIncludeShots, caddieContextQueries, caddieDecisionBodies, correctionBodies }
 }
 
 async function assertNoViewportOverflow(page: Page) {
@@ -1210,3 +1218,40 @@ async function captureSmokeScreenshot(page: Page, testInfo: TestInfo, name: stri
     animations: 'disabled',
   })
 }
+
+test('review editor saves one map-first draft after browser interactions', async ({ page }) => {
+  const { correctionBodies } = await mockApi(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: '全部球局', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
+  await page.getByRole('button', { name: /打开球局 Black Knight B/ }).click()
+  await expect(page.getByLabel('第1洞落点图')).toBeVisible()
+
+  await page.getByRole('button', { name: '编辑落点' }).click()
+  const editor = page.locator('[aria-label="复盘编辑"]')
+  await expect(editor).toBeVisible()
+  const canvas = page.getByLabel('第1洞落点图')
+  const svg = canvas.locator('svg.review-canvas-svg')
+  await svg.click({ position: { x: 260, y: 420 } })
+  await expect(editor.getByRole('button', { name: '删除第4杆' })).toBeVisible()
+
+  const marker = canvas.locator('circle[data-shot-id]').first()
+  const box = await marker.boundingBox()
+  expect(box).not.toBeNull()
+  if (!box) throw new Error('editable landing marker has no box')
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2 + 24, box.y + box.height / 2 + 16)
+  await page.mouse.up()
+
+  await editor.getByRole('button', { name: '第2杆下移' }).click()
+  await editor.getByRole('button', { name: '删除第1杆' }).click()
+  await editor.getByRole('button', { name: '保存全部修改' }).click()
+  await expect(editor.getByRole('button', { name: '编辑落点' })).toBeVisible()
+  await expect.poll(() => correctionBodies.length).toBe(1)
+  expect(correctionBodies[0]).toMatchObject({ op: 'replaceHoleShots', hole: 1 })
+  expect((correctionBodies[0]?.shots as unknown[] | undefined)?.length).toBe(3)
+  // POST success triggers one canonical shotmap GET; no second correction is emitted.
+  await expect(canvas).toContainText('第 1 洞')
+  expect(correctionBodies).toHaveLength(1)
+})
