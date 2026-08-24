@@ -402,6 +402,12 @@ jobs:
               elif [[ "$mode" == real-course-journey-* ]]; then
                 marker="real-course-journey-ready"
                 failed_marker="real-course-journey-failed"
+              elif [[ "$mode" == "runtime-cancel-seed" || "$mode" == "runtime-cancel-recovery" ]]; then
+                marker="runtime-cancel-ready"
+                failed_marker="runtime-harness-failed"
+              elif [[ "$mode" == "runtime-abandon-seed" || "$mode" == "runtime-abandon-confirm" || "$mode" == "runtime-abandon-restore" ]]; then
+                marker="runtime-abandon-ready"
+                failed_marker="runtime-harness-failed"
               fi
               if [ -n "$marker" ]; then
                 local existing_container
@@ -482,6 +488,44 @@ jobs:
                   test ! -f "$app_container/Documents/watch-round/round.json"
                   test ! -f "$app_container/Documents/watch-round/deferred-finishes.json"
                 fi
+              elif [[ "$mode" == "runtime-cancel-seed" ]]; then
+                grep -qx 'stage=seeded' "$app_container/Documents/$marker"
+                grep -qx 'round_id=ci-runtime-cancel-recovery-round' "$app_container/Documents/$marker"
+                grep -qx 'active_hole=1' "$app_container/Documents/$marker"
+                grep -qx 'persisted_round=present' "$app_container/Documents/$marker"
+              elif [[ "$mode" == "runtime-cancel-recovery" ]]; then
+                grep -qx 'stage=cancel-recovery' "$app_container/Documents/$marker"
+                grep -qx 'round_id=ci-runtime-cancel-recovery-round' "$app_container/Documents/$marker"
+                grep -qx 'active_hole=1' "$app_container/Documents/$marker"
+                grep -qx 'candidate_before_hole=2' "$app_container/Documents/$marker"
+                grep -qx 'candidate_before_from_hole=1' "$app_container/Documents/$marker"
+                grep -qx 'pending_shot_hole=1' "$app_container/Documents/$marker"
+                grep -qx 'candidate_from_hole=none' "$app_container/Documents/$marker"
+                grep -qx 'shot_type=recovery' "$app_container/Documents/$marker"
+                grep -qx 'screen_after=clubPrompt' "$app_container/Documents/$marker"
+                grep -qx 'recovery=true' "$app_container/Documents/$marker"
+              elif [[ "$mode" == "runtime-abandon-seed" ]]; then
+                grep -qx 'stage=seeded' "$app_container/Documents/$marker"
+                grep -qx 'round_id=ci-runtime-abandon-recovery-round' "$app_container/Documents/$marker"
+                grep -qx 'active_hole=1' "$app_container/Documents/$marker"
+                grep -qx 'persisted_round=present' "$app_container/Documents/$marker"
+              elif [[ "$mode" == "runtime-abandon-confirm" ]]; then
+                grep -qx 'stage=abandon-confirmation' "$app_container/Documents/$marker"
+                grep -qx 'round_id=ci-runtime-abandon-recovery-round' "$app_container/Documents/$marker"
+                grep -qx 'persisted_round=present' "$app_container/Documents/$marker"
+                grep -qx 'screen_after=abandonConfirmation' "$app_container/Documents/$marker"
+              elif [[ "$mode" == "runtime-abandon-restore" ]]; then
+                grep -qx 'stage=abandon-confirmed-after-relaunch' "$app_container/Documents/$marker"
+                grep -qx 'round_id=ci-runtime-abandon-recovery-round' "$app_container/Documents/$marker"
+                grep -qx 'persisted_round_after=absent' "$app_container/Documents/$marker"
+                grep -qx 'deferred_finishes_after=0' "$app_container/Documents/$marker"
+                grep -qx 'closure_disposition=abandoned' "$app_container/Documents/$marker"
+                grep -qx 'screen_after=home' "$app_container/Documents/$marker"
+                test ! -f "$app_container/Documents/watch-round/round.json"
+              fi
+              if [[ "$mode" == runtime-cancel-* || "$mode" == runtime-abandon-* ]]; then
+                cp "$app_container/Documents/$marker" \
+                  "watch-runtime-artifacts/${screenshot%.png}-evidence.txt"
               fi
             else
               sleep 5
@@ -682,6 +726,16 @@ jobs:
           xcrun simctl io "$WATCH_UDID" screenshot \
             watch-runtime-artifacts/watch-journey-finished-home.png
           xcrun simctl terminate "$WATCH_UDID" "$BID"
+
+          # Stateful W1 recovery gates on the authoritative 45mm simulator. Each mode is a separate
+          # process so the assertions cover persisted model/store state after relaunch.
+          # Deferred-finish network failure/retry remains unit-only: this workflow does not invent a
+          # fake network response or alter the production client configuration.
+          launch_and_capture runtime-cancel-seed watch-runtime-cancel-seeded.png
+          launch_and_capture runtime-cancel-recovery watch-runtime-cancel-recovered.png
+          launch_and_capture runtime-abandon-seed watch-runtime-abandon-seeded.png
+          launch_and_capture runtime-abandon-confirm watch-runtime-abandon-confirmation.png
+          launch_and_capture runtime-abandon-restore watch-runtime-abandon-recovered.png
 
           launch_and_capture milestone-seed watch-round-seeded.png
           # Do not reinstall or reseed here: the second process must load the first launch's stored round.

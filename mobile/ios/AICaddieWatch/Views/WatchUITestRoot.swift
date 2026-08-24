@@ -13,6 +13,7 @@ public struct WatchUITestRoot: View {
     @ObservedObject private var model: WatchRoundModel
     @State private var realCourseTaskStarted = false
     @State private var realCourseStatus: String?
+    @State private var runtimeHarnessTaskStarted = false
 
     private static let realCourseGlobalId = 3881
 
@@ -59,6 +60,9 @@ public struct WatchUITestRoot: View {
              "real-course-journey-finish", "real-course-journey-finish-confirmation",
              "real-course-journey-finish-confirm":
             realCourseRound
+        case "runtime-cancel-seed", "runtime-cancel-recovery",
+             "runtime-abandon-seed", "runtime-abandon-confirm", "runtime-abandon-restore":
+            runtimeRecoveryRound
         case "course-picker":
             cachedCoursePicker
         case "course-search-results":
@@ -438,6 +442,213 @@ public struct WatchUITestRoot: View {
                 }
             }
         }
+    }
+
+    /// DEBUG-only lifecycle evidence for the stateful recovery paths that are difficult to prove
+    /// with static root views. Each mode is launched in a separate process by watch-runtime.yml so
+    /// the following mode must load the prior mode's persisted WatchRoundStore state.
+    private var runtimeRecoveryRound: some View {
+        Group {
+            if model.round != nil {
+                WatchRoundContainerView(model: model)
+            } else {
+                WatchStartView(phoneReachable: false)
+            }
+        }
+        .onAppear {
+            guard !runtimeHarnessTaskStarted else { return }
+            runtimeHarnessTaskStarted = true
+            switch screen {
+            case "runtime-cancel-seed":
+                seedRuntimeCancelRound()
+            case "runtime-cancel-recovery":
+                exerciseRuntimeCancelRecovery()
+            case "runtime-abandon-seed":
+                seedRuntimeAbandonRound()
+            case "runtime-abandon-confirm":
+                showRuntimeAbandonConfirmation()
+            case "runtime-abandon-restore":
+                confirmRuntimeAbandonAfterRelaunch()
+            default:
+                break
+            }
+        }
+    }
+
+    private static let runtimeCancelRoundId = "ci-runtime-cancel-recovery-round"
+    private static let runtimeAbandonRoundId = "ci-runtime-abandon-recovery-round"
+
+    private static func runtimeRoundStates(roundId: String) -> [WatchRoundState] {
+        [
+            WatchRoundState(
+                roundId: roundId, hole: 1, par: 4, distanceM: 360,
+                teeLatitude: 40.0, teeLongitude: 116.0,
+                selectedClub: nil, score: roundId == runtimeAbandonRoundId ? 4 : 0,
+                putts: roundId == runtimeAbandonRoundId ? 2 : 0,
+                penaltyCount: 0, caddieConfidence: "offline"
+            ),
+            WatchRoundState(
+                roundId: roundId, hole: 2, par: 5, distanceM: 475,
+                teeLatitude: 40.001, teeLongitude: 116.0,
+                selectedClub: nil, score: 0, putts: 0, penaltyCount: 0,
+                caddieConfidence: "offline"
+            ),
+        ]
+    }
+
+    @MainActor
+    private func seedRuntimeCancelRound() {
+        model.seedRound(
+            Self.runtimeRoundStates(roundId: Self.runtimeCancelRoundId),
+            activeHole: 1,
+            courseName: "W1 Cancel Recovery"
+        )
+        guard let round = model.round,
+              round.roundId == Self.runtimeCancelRoundId,
+              model.activeHole == 1,
+              WatchRoundStore().load()?.roundId == Self.runtimeCancelRoundId else {
+            failRuntimeHarness("runtime cancel seed did not persist")
+            return
+        }
+        writeRuntimeMarker("runtime-cancel-ready", contents: [
+            "stage=seeded",
+            "round_id=\(round.roundId)",
+            "active_hole=\(model.activeHole)",
+            "persisted_round=present",
+        ].joined(separator: "\n"))
+    }
+
+    @MainActor
+    private func exerciseRuntimeCancelRecovery() {
+        guard model.round?.roundId == Self.runtimeCancelRoundId else {
+            failRuntimeHarness("runtime cancel recovery did not reload the seeded round")
+            return
+        }
+        model.resumeRound()
+        let location = CLLocationCoordinate2D(latitude: 40.001, longitude: 116.0)
+        model.beginManualShot(
+            latitude: location.latitude,
+            longitude: location.longitude,
+            horizontalAccuracyM: 5,
+            capturedAt: "2026-08-24T00:01:00Z"
+        )
+        guard model.screen == .scoring,
+              model.scoringHole == 1,
+              let candidate = model.pendingManualShot,
+              candidate.hole == 2,
+              candidate.candidateFromHole == 1 else {
+            failRuntimeHarness("next-tee candidate did not enter scoring")
+            return
+        }
+        model.cancelScoring()
+        guard let recovered = model.pendingManualShot,
+              model.round?.roundId == Self.runtimeCancelRoundId,
+              model.activeHole == 1,
+              model.screen == .clubPrompt,
+              recovered.hole == 1,
+              recovered.candidateFromHole == nil,
+              recovered.shotType == "recovery",
+              WatchRoundStore().load()?.pendingManualShot == recovered else {
+            failRuntimeHarness("Cancel did not reassign the next-tee shot as recovery")
+            return
+        }
+        writeRuntimeMarker("runtime-cancel-ready", contents: [
+            "stage=cancel-recovery",
+            "round_id=\(Self.runtimeCancelRoundId)",
+            "active_hole=\(model.activeHole)",
+            "candidate_before_hole=\(candidate.hole)",
+            "candidate_before_from_hole=\(candidate.candidateFromHole ?? -1)",
+            "pending_shot_hole=\(recovered.hole)",
+            "candidate_from_hole=none",
+            "shot_type=\(recovered.shotType)",
+            "screen_after=clubPrompt",
+            "recovery=true",
+        ].joined(separator: "\n"))
+    }
+
+    @MainActor
+    private func seedRuntimeAbandonRound() {
+        model.seedRound(
+            Self.runtimeRoundStates(roundId: Self.runtimeAbandonRoundId),
+            activeHole: 1,
+            courseName: "W1 Abandon Recovery"
+        )
+        guard let round = model.round,
+              round.roundId == Self.runtimeAbandonRoundId,
+              round.holeStates.first?.score == 4,
+              WatchRoundStore().load()?.roundId == Self.runtimeAbandonRoundId else {
+            failRuntimeHarness("runtime abandon seed did not persist")
+            return
+        }
+        writeRuntimeMarker("runtime-abandon-ready", contents: [
+            "stage=seeded",
+            "round_id=\(round.roundId)",
+            "active_hole=\(model.activeHole)",
+            "persisted_round=present",
+        ].joined(separator: "\n"))
+    }
+
+    @MainActor
+    private func showRuntimeAbandonConfirmation() {
+        guard model.round?.roundId == Self.runtimeAbandonRoundId else {
+            failRuntimeHarness("abandon confirmation did not reload the seeded round")
+            return
+        }
+        model.resumeRound()
+        model.requestAbandon()
+        guard model.screen == .abandonConfirmation,
+              WatchRoundStore().load()?.roundId == Self.runtimeAbandonRoundId else {
+            failRuntimeHarness("abandon confirmation was not entered from persisted state")
+            return
+        }
+        writeRuntimeMarker("runtime-abandon-ready", contents: [
+            "stage=abandon-confirmation",
+            "round_id=\(Self.runtimeAbandonRoundId)",
+            "persisted_round=present",
+            "screen_after=abandonConfirmation",
+        ].joined(separator: "\n"))
+    }
+
+    @MainActor
+    private func confirmRuntimeAbandonAfterRelaunch() {
+        guard model.round?.roundId == Self.runtimeAbandonRoundId else {
+            failRuntimeHarness("abandon confirm relaunch lost the active round")
+            return
+        }
+        model.resumeRound()
+        model.requestAbandon()
+        model.confirmAbandon()
+        let store = WatchRoundStore()
+        let closure = store.closure(roundId: Self.runtimeAbandonRoundId)
+        guard model.round == nil,
+              store.load() == nil,
+              store.loadDeferredFinishes().isEmpty,
+              closure?.disposition == .abandoned,
+              model.lastRoundClosure?.roundId == Self.runtimeAbandonRoundId,
+              model.screen == .home else {
+            failRuntimeHarness("abandon confirm did not close the persisted round")
+            return
+        }
+        writeRuntimeMarker("runtime-abandon-ready", contents: [
+            "stage=abandon-confirmed-after-relaunch",
+            "round_id=\(Self.runtimeAbandonRoundId)",
+            "persisted_round_after=absent",
+            "deferred_finishes_after=0",
+            "closure_disposition=\(closure?.disposition.rawValue ?? "missing")",
+            "screen_after=home",
+        ].joined(separator: "\n"))
+    }
+
+    private func runtimeMarkerURL(_ name: String) -> URL {
+        realCourseMarkerURL(name)
+    }
+
+    private func writeRuntimeMarker(_ name: String, contents: String? = nil) {
+        try? Data((contents ?? name).utf8).write(to: runtimeMarkerURL(name), options: .atomic)
+    }
+
+    private func failRuntimeHarness(_ message: String) {
+        writeRuntimeMarker("runtime-harness-failed", contents: message)
     }
 
     private var isRealCourseHazardScreen: Bool {
