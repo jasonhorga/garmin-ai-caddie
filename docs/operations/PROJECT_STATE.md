@@ -4,9 +4,9 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-08-24 UTC  
-**Branch:** `codex/p0-p1-p2-checkpoint-20260823`  
-**HEAD:** `bbc865af`  
+**Updated:** 2026-08-24 UTC
+**Branch:** `codex/p0-p1-p2-checkpoint-20260823`
+**HEAD:** `46aad448`
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -22,7 +22,7 @@ code; do not restart the old multi-week plan tree.
 | Track | State | What is true now | Exit evidence |
 |---|---|---|---|
 | P0 Watch | `evidence-open` | Provisional next-tee shot completion is idempotent (`10d56855`). Core lifecycle, independent discovery, offline/restart, and 41/45/49 mm runtime flow are not fully proven. | One real round (or simulator equivalent) covering start, hole advance/Cancel, edit, finish/recover, and all three sizes. |
-| P1 Sync / Prep / Caddie | `implementation-active` | Strategy tiers are deduplicated and ordered (`ca3fa89`). Web prep readiness is the current bounded implementation task. Production sync provenance and durable background download remain open. | Metadata → preparing → precise → offline-installed is resumable; real package distance table and Garmin-to-client sync are consistent. |
+| P1 Sync / Prep / Caddie | `ci-fix-active` | Strategy tiers are deduplicated and ordered (`ca3fa89`). Web prep now has the four-state readiness gate (`a1b88a2e`); the first integrated CI exposed one stale Web fixture and two stale backend assertions. Production sync provenance and durable background download remain open. | Metadata → preparing → precise → offline-installed is resumable; real package distance table and Garmin-to-client sync are consistent. |
 | P2 Review / Stats | `implementation-partial` | FIR unknown-token semantics merged (`bbc865af`). iOS review editing is largely present; Web editor, first-frame/cache, overlay-first layout, and cross-surface trend entry still need closure. | Half Moon Bay round-by-round facts plus iOS/Web runtime screenshots and edit/save/reload evidence. |
 | Release | `blocked` | Native runtime and production provenance evidence are incomplete. | P0, P1 and P2 gates above, then explicit owner approval. |
 
@@ -34,19 +34,20 @@ code; do not restart the old multi-week plan tree.
   tests reported 106 passed, 2 skipped.
 - `bbc865af`: FIR denominator excludes unknown/empty tokens while preserving
   real `0` as a miss; XCTest coverage added (GitHub verification pending).
+- CI run `32689037776` was run against `a1b88a2e`: Docker passed; frontend failed
+  because an older `App.test.tsx` mock omits install status; backend failed two
+  assertions that still encode pre-`ca3fa89` strategy/readiness expectations.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Receive and review the single active Web prep sub-agent commit; cherry-pick
-   only the bounded change and its tests.
-2. Push the integrated branch and run the relevant GitHub Actions (frontend,
-   backend, and native only when the workflow is explicitly requested).
-3. Implement one P2 Web review editor/cache slice, then one evidence run; do not
+1. Close the three CI regressions from run `32689037776`, rerun the same workflow,
+   and require the head SHA to match before declaring the batch green.
+2. Implement one P2 Web review editor/cache slice, then one evidence run; do not
    combine unrelated UI redesign work into that slice.
-4. Run the P0/P1/P2 real-data evidence matrix for the two Half Moon Bay rounds.
-5. Resolve remaining native runtime/provenance gates, obtain owner approval, and
+3. Run the P0/P1/P2 real-data evidence matrix for the two Half Moon Bay rounds.
+4. Resolve remaining native runtime/provenance gates, obtain owner approval, and
    only then prepare TestFlight.
 
 ## Open Blockers / Facts
@@ -77,3 +78,6 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 - 2026-08-24: Integrated `bbc865af`; started the bounded Web prep readiness
   task. Echo-style shell output is not a project task or process.
+- 2026-08-24: Integrated `a1b88a2e`; CI `32689037776` passed Docker but exposed
+  one Web fixture failure and two backend assertion failures. Fixes are queued
+  one modifying agent at a time.
