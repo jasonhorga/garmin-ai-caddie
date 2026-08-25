@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `9bd4ce64` (Watch multiline fixture delimiter fix; Native run `32832956274` reached Watch compile but failed delimiter placement)
+**HEAD:** `bf84ea8a` (Native Mobile CI run `32837705596` passed the full iOS/Watch gate)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -19,13 +19,11 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`S1` — Sync provenance and resumable course delivery** (`in-progress`)
+**`R2` — iOS/Web review parity and live evidence** (`in-progress`)
 
-`W1` is closed with isolated current-head runtime evidence. The public service
-still runs revision `6a6080c6...`; no production deployment or data
-synchronization was performed. S1 has completed its read-only audit and its
-first bounded implementation slices; native iOS/Watch verification remains
-open.
+`W1` and `S1` are closed with isolated current-head evidence. The public
+service still runs revision `6a6080c6...`; no production deployment or data
+synchronization was performed. R2 is now the only active slice.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
@@ -38,7 +36,7 @@ project-level task list; historical plans are reference material.
 | ID | State | Scope | Exit evidence |
 |---|---|---|---|
 | `W1` | `done` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Run `32806892801` watch-runtime job succeeded at head `8a3ee8ba`: 41/45/49 mm captures, real Cypress 18-hole install/restore, same-round 1–18 journey, hole-1 history edit while live on hole 10, finish confirmation, 57 queued records acknowledged, remote finish success, plus Cancel recovery and abandon/tombstone markers. |
-| `S1` | `in-progress` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Provenance, Watch install-status, keyboard-focus, and review-reorder gates are verified; a full macOS run covering Watch tests/screenshots is still required. |
+| `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
 | `REL` | `blocked` | Release and TestFlight gate. | `W1`, `S1`, and `R1`/`R2` evidence complete, production provenance approved, then owner approval. |
@@ -155,17 +153,25 @@ means a named external decision or prerequisite is missing; `done` and
   JSON content (`WatchBackendClientTests.swift:334,351`); Watch XCTest and
   runtime screenshots were skipped. Correction `9bd4ce64` places both
   delimiters on their own lines. No production code changed.
+- Full Native Mobile CI run `32837705596` at `bf84ea8a` passed. iOS XCTest
+  executed 257 tests and Watch XCTest executed 315 tests, all with zero
+  failures. XcodeGen, SwiftJCS boundary checks, iOS/Watch design snapshots,
+  real iOS flow/video, and 11 Watch runtime seed/restore/interaction
+  screenshots all passed secret-byte scans and uploaded successfully. The
+  `watch-real-screenshots` artifact (ID `9561062102`, 289,202 bytes) and
+  `native-build-evidence` artifact (ID `9561063172`, 452 bytes) are present
+  and non-empty; runtime artifact zip digest is
+  `4aa5db2479484c95d120b3cd0def14260c35d616387c4fc07472a909653d7f4d`.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Push `9bd4ce64` and dispatch a new full Native Mobile CI run with
-   `capture_scope=full` and `require_live_preflight=false`. Record Watch XCTest,
-   Watch design snapshots, and real Watch round screenshots; do not claim native
-   verification from Linux or focused Python/Web tests.
-2. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
+1. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
    the Web/R2 track; do not treat the failed Quick Tunnel as product proof.
+2. Close the remaining R2 implementation and evidence gaps: iOS/Web review
+   parity, first-frame/cache behavior, overlay-first layout, and unified trend
+   entry, using Half Moon Bay round-by-round facts and approved screenshots.
 3. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
 4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
@@ -296,3 +302,7 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   fixture because Swift requires multiline content and closing delimiters to
   start on their own lines. Integrated the bounded test-only correction
   `9bd4ce64`; no Watch runtime evidence is claimed until the next run.
+- 2026-08-25: Full Native run `32837705596` at `bf84ea8a` passed all iOS and
+  Watch tests, design/runtime screenshot gates, secret scans, and artifact
+  uploads. Closed S1 and started R2 as the sole in-progress slice; production
+  revision and TestFlight state remain unchanged.
