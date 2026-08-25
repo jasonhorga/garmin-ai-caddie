@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `1f0bc607` (source CI run `32844906468` passed backend, Web, visual smoke, and Docker)
+**HEAD:** `769e3609` (source CI run `32847741048` passed after the Web review cache slice)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -190,19 +190,43 @@ means a named external decision or prerequisite is missing; `done` and
   `c7993aa100be4c4fbb12be135ed90c473fb5e76d6e5b744dc6a9f09871b8efe7`.
   Secret-byte scanning passed. This proves the stable Web transport and real
   player journey, not an iOS runtime or an HMB-specific cross-client match.
+- Web ReviewWorkbench cache slice `6a865217` now persists only successful
+  `found=true` maps for a short bounded window (player + round + hole key,
+  geometry revision, 5-minute TTL, 24-entry/1.5 MB cap). Storage failures and
+  malformed entries are ignored; failed/no-geometry responses are never stored;
+  a successful correction evicts both persistent and in-memory entries. Focused
+  Vitest was 24/24, lint had 0 errors with 2 pre-existing warnings, and build
+  passed on homeserver.
+- Source CI run `32847741048` at `769e3609` passed all jobs after that slice:
+  backend/private trial, Web component tests (601 passed, 7 skipped), lint,
+  TypeScript/Vite build, Playwright visual smoke, and Docker image/health/
+  geometry checks.
+- Current-head Web-only runtime run `32847990023` passed through the stable
+  Funnel endpoint: overview/detail/shotmap/topo all returned 200, Playwright
+  1/1 passed, and six 1440x980 PNGs passed secret-byte scanning. Artifact
+  `9563119622` is 828,730 bytes with zip SHA256
+  `81954f0a9065668fb6bbaac7885d709f9f33e3bdfa15f5d2c2a81b39abc850ec`.
+
+- HMB provenance probe completed read-only: candidate `/prep` GETs for course
+  IDs `6022` and `6023` returned HTTP 401 without a player/admin token. No
+  credential was sought, printed, or persisted, and no write endpoint was
+  called. The source chain from Garmin club fields through backend ladder and
+  `/prep` provenance to iOS/Web decoding is present, but there is no HMB
+  `3W`/`3H`/Driver value or client display evidence to claim yet. Shot labels in
+  the two rounds are facts only and cannot substitute for club-distance data.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Run Web live evidence through the stable Funnel endpoint as part of
-   the Web/R2 track; do not treat the failed Quick Tunnel as product proof.
-2. Close the remaining R2 implementation and evidence gaps: iOS/Web review
+1. Close the remaining R2 implementation and evidence gaps: iOS/Web review
    parity, first-frame/cache behavior, overlay-first layout, and unified trend
    entry, using Half Moon Bay round-by-round facts and approved screenshots.
-3. Keep production revision `6a6080c6...` unchanged until a deployment or
+   Treat the HMB club-distance provenance item as an explicit credential gate;
+   do not fill it with catalog defaults or infer it from shot labels.
+2. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
-4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
+3. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
    owner-approval gates before TestFlight.
 
 ## Open Blockers / Facts
@@ -258,6 +282,10 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   the prior Quick Tunnel transport failure is closed for Web. R2 remains open
   for HMB cross-client parity, iOS runtime evidence, and the explicitly scoped
   cache/provenance gaps.
+- 2026-08-25: Integrated Web review cache `6a865217` as `769e3609`; source CI
+  `32847741048` and current-head stable Web runtime `32847990023` both passed.
+  R2 remains open only for the documented HMB/iOS cross-client and provenance
+  evidence, plus owner visual approval.
 - 2026-08-24: Integrated backend test-contract fix `46aad448` and Web fixture
   fix `2ca27720`; awaiting a matching green CI run.
 - 2026-08-24: Integrated visual fixture correction `edf41054`; CI
@@ -348,3 +376,7 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   Current-head CI `32843227361` then found one stale backend contract assertion
   and one Web fixture type error; a single bounded fix agent is handling those
   before R2 runtime evidence continues.
+- 2026-08-25: Completed the bounded HMB provenance probe. Unauthenticated
+  `/prep` requests for course IDs `6022`/`6023` returned 401; no token or write
+  operation was used. Recorded the explicit credential blocker and the existing
+  Garmin-to-client source chain in the HMB review; R2 remains open.

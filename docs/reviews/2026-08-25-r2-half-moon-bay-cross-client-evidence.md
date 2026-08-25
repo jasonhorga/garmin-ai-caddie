@@ -70,3 +70,23 @@
 - 趋势页面点击真实 HMB round 后是否正确落到对应复盘洞；
 - 3W/3H 的 Garmin 原始杆距到 `/prep` provenance 再到各客户端显示的证据表。
 
+## 杆距 provenance 受控核查
+
+2026-08-25 对与公开 revision 对齐的 candidate API 做了只读、受控的
+`GET` 核查。`/api/v2/courses/6022/prep` 和
+`/api/v2/courses/6023/prep` 在没有 player/admin 授权头时均返回 HTTP 401。
+本轮没有寻找、打印或落盘 token，也没有调用任何写接口。因此当前没有
+可引用的 HMB `/prep` 响应，也不能从这两场 round 的 shot label 反推出球杆
+距离。
+
+源码链路本身已存在并通过静态检查：Garmin `/club/player` 与 `/club/types`
+字段会持久化；`adviceDistance` 优先于 `averageDistance`；后端 ladder 会
+标注 `garmin_advice`、`garmin_average`、`history_median`、`manual`、
+`catalog_default` 或 `unresolved`；`/prep` 会返回 `distanceSource`、
+`sampleSize` 和 `confidence`，客户端也有对应解码路径。尚未证明的是这些
+字段在 HMB 的真实响应中取了什么值，以及 iOS/Web 是否按同一值显示。
+
+结论：HMB 两场的 shot facts 已完整证明；3W/3H/Driver 的真实数值仍是
+明确的凭据阻塞，不是“缺失数据”或可以用默认值填充的问题。解除该阻塞
+需要一次用户授权的 `/club/player`/`/club/types` 捕获、匹配的 `/prep`
+响应，以及同一 HMB round 的 iOS/Web runtime 对账。
