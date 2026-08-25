@@ -162,19 +162,35 @@ means a named external decision or prerequisite is missing; `done` and
   `native-build-evidence` artifact (ID `9561063172`, 452 bytes) are present
   and non-empty; runtime artifact zip digest is
   `4aa5db2479484c95d120b3cd0def14260c35d616387c4fc07472a909653d7f4d`.
+- Read-only Half Moon Bay evidence was collected against revision
+  `6a6080c6...` for rounds `17603881` (Ocean, 102, 58 shots) and `17601656`
+  (Old, 96, 53 shots). Both have 18/18 hole details and shotmaps, matching
+  shot counts/refs and sequential order; all maps are `prodgeometry`, GPS is
+  complete, and no hole reports missing data or synthetic shots. The detailed
+  checksums and remaining cross-client limits are in
+  `docs/reviews/2026-08-25-r2-half-moon-bay-cross-client-evidence.md`; raw
+  responses remain private under the homeserver project data directory.
+- Current-head source CI run `32843227361` at `a4f80eb9` exposed two bounded
+  integration regressions: one backend source-contract assertion still expects
+  the pre-reorder XCUITest string, and Web build rejects a test fixture whose
+  optional `map.image` no longer satisfies `CoursePrepHole`. Docker passed;
+  Web component tests (601 passed, 7 skipped) and lint passed. No release or
+  production state changed.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
+1. Close and rerun the two source-CI contract failures from run `32843227361`;
+   do not begin runtime evidence on a failing source baseline.
+2. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
    the Web/R2 track; do not treat the failed Quick Tunnel as product proof.
-2. Close the remaining R2 implementation and evidence gaps: iOS/Web review
+3. Close the remaining R2 implementation and evidence gaps: iOS/Web review
    parity, first-frame/cache behavior, overlay-first layout, and unified trend
    entry, using Half Moon Bay round-by-round facts and approved screenshots.
-3. Keep production revision `6a6080c6...` unchanged until a deployment or
+4. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
-4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
+5. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
    owner-approval gates before TestFlight.
 
 ## Open Blockers / Facts
@@ -306,3 +322,9 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   Watch tests, design/runtime screenshot gates, secret scans, and artifact
   uploads. Closed S1 and started R2 as the sole in-progress slice; production
   revision and TestFlight state remain unchanged.
+- 2026-08-25: Collected read-only HMB round/shotmap evidence for `17603881`
+  and `17601656`; both are complete and `prodgeometry`-backed. Added the
+  durable summary in `docs/reviews/2026-08-25-r2-half-moon-bay-cross-client-evidence.md`.
+  Current-head CI `32843227361` then found one stale backend contract assertion
+  and one Web fixture type error; a single bounded fix agent is handling those
+  before R2 runtime evidence continues.
