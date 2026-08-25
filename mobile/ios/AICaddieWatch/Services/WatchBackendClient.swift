@@ -51,6 +51,91 @@ public struct WatchRoundFinishMetadata: Equatable {
     }
 }
 
+/// Public, player-scoped progress for the durable server-side course install journal.  These
+/// structures intentionally mirror the iPhone contract: the Watch can observe server progress,
+/// but the existing WatchCourseStore and WatchHoleImageStore remain the local install authority.
+public struct WatchCourseInstallHoleStatus: Codable, Equatable {
+    public let globalId: Int
+    public let localHole: Int
+    public let displayHole: Int
+    public let geometry: String
+    public let geometryRevision: String?
+    public let topo: String
+    public let topoRevision: String?
+    public let error: String?
+
+    public init(
+        globalId: Int,
+        localHole: Int,
+        displayHole: Int,
+        geometry: String,
+        topo: String,
+        geometryRevision: String? = nil,
+        topoRevision: String? = nil,
+        error: String? = nil
+    ) {
+        self.globalId = globalId
+        self.localHole = localHole
+        self.displayHole = displayHole
+        self.geometry = geometry
+        self.geometryRevision = geometryRevision
+        self.topo = topo
+        self.topoRevision = topoRevision
+        self.error = error
+    }
+}
+
+public struct WatchCourseInstallStatus: Codable, Equatable {
+    public let schema: String
+    public let jobId: String
+    public let globalId: Int
+    public let teeBox: String
+    public let nine: String
+    public let phase: String
+    public let stage: String
+    public let totalHoles: Int
+    public let geometryReady: Int
+    public let topoReady: Int
+    public let updatedAt: String?
+    public let error: String?
+    public let holes: [WatchCourseInstallHoleStatus]
+
+    public init(
+        schema: String,
+        jobId: String,
+        globalId: Int,
+        teeBox: String,
+        nine: String,
+        phase: String,
+        stage: String,
+        totalHoles: Int,
+        geometryReady: Int,
+        topoReady: Int,
+        updatedAt: String? = nil,
+        error: String? = nil,
+        holes: [WatchCourseInstallHoleStatus] = []
+    ) {
+        self.schema = schema
+        self.jobId = jobId
+        self.globalId = globalId
+        self.teeBox = teeBox
+        self.nine = nine
+        self.phase = phase
+        self.stage = stage
+        self.totalHoles = totalHoles
+        self.geometryReady = geometryReady
+        self.topoReady = topoReady
+        self.updatedAt = updatedAt
+        self.error = error
+        self.holes = holes
+    }
+}
+
+// Keep the cross-client contract discoverable under the iPhone's unprefixed names as well. The
+// Watch-prefixed structs remain the preferred spelling inside this target.
+public typealias CourseInstallHoleStatus = WatchCourseInstallHoleStatus
+public typealias CourseInstallStatus = WatchCourseInstallStatus
+
 public enum WatchBackendClientError: Error {
     case invalidShotLocation
     case coursePrepBatchTooLarge
@@ -301,6 +386,36 @@ public final class WatchBackendClient {
         return request
     }
 
+    public func makeCourseInstallStatusRequest(
+        globalId: Int,
+        teeBox: String,
+        nine: String = "all",
+        backGlobalId: Int? = nil
+    ) throws -> URLRequest {
+        guard var components = URLComponents(
+            url: endpointURL("/api/v2/courses/\(globalId)/install/status"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            throw URLError(.badURL)
+        }
+        var queryItems = [
+            URLQueryItem(name: "tee_box", value: teeBox),
+            URLQueryItem(name: "nine", value: nine),
+        ]
+        if let backGlobalId, backGlobalId > 0 {
+            queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId)))
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        // Status is a best-effort scheduler hint. Keep it bounded so a missing/slow journal never
+        // blocks a Watch round or its existing local partial cache.
+        request.timeoutInterval = Self.nearbyDiscoveryTimeoutInterval
+        applyAuth(&request)
+        return request
+    }
+
     public func makeCoursePrepRequest(globalId: Int, localHoles: [Int]) throws -> URLRequest {
         guard localHoles.count <= Self.maximumCoursePrepHolesPerRequest else {
             throw WatchBackendClientError.coursePrepBatchTooLarge
@@ -399,6 +514,10 @@ public final class WatchBackendClient {
         try JSONDecoder().decode(WatchCoursePackage.self, from: data)
     }
 
+    public func decodeCourseInstallStatus(_ data: Data) throws -> WatchCourseInstallStatus {
+        try JSONDecoder().decode(WatchCourseInstallStatus.self, from: data)
+    }
+
     public func decodeCoursePrep(_ data: Data) throws -> WatchCoursePrepResponse {
         try JSONDecoder().decode(WatchCoursePrepResponse.self, from: data)
     }
@@ -453,6 +572,32 @@ public final class WatchBackendClient {
         )
         let data = try await sendForData(request, retryingTransientFailures: true)
         return try decodeCoursePackage(data)
+    }
+
+    /// Read the durable server preparation journal. A missing row is normal before the first
+    /// package enqueue, and older deployments may not expose this route at all; both cases return
+    /// nil so the Watch continues with its existing package/cache retry path.
+    public func fetchCourseInstallStatus(
+        globalId: Int,
+        teeBox: String,
+        nine: String = "all",
+        backGlobalId: Int? = nil
+    ) async throws -> WatchCourseInstallStatus? {
+        let request = try makeCourseInstallStatusRequest(
+            globalId: globalId,
+            teeBox: teeBox,
+            nine: nine,
+            backGlobalId: backGlobalId
+        )
+        do {
+            let data = try await sendForData(request, retryingTransientFailures: true)
+            return try decodeCourseInstallStatus(data)
+        } catch let error as WatchBackendClientError {
+            if case .http(status: 404, body: _) = error {
+                return nil
+            }
+            throw error
+        }
     }
 
     public func fetchCoursePrep(globalId: Int, localHoles: [Int]) async throws -> WatchCoursePrepResponse {

@@ -397,7 +397,24 @@ public final class WatchCourseLibrary: ObservableObject {
                 }
             } catch {
                 // The lightweight template remains playable. Retry below without replacing the
-                // active-round screen with a transient network error.
+                // active-round screen with a transient network error. The status probe below is
+                // read-only, so a failed attempt never clears a partial Watch cache.
+            }
+
+            // The server journal is a scheduler hint, not a second local package store. When the
+            // precise upgrade has to retry, consult it best-effort so a durable queued/running job
+            // does not get re-enqueued on every Watch attempt. A missing route/404 or any transport
+            // error leaves the existing retry and partial-cache behavior unchanged.
+            if attempt < Self.preciseUpgradeMaximumAttempts - 1,
+               let status = await fetchInstallStatus(selection: selection, config: config) {
+                let phase = status.phase.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if ["queued", "running", "ready"].contains(phase) {
+                    shouldQueueGeometry = false
+                }
+                let total = max(status.totalHoles, status.holes.count)
+                diagnosticErrorMessage = total > 0
+                    ? "地图后台补齐中：服务器 \(status.topoReady)/\(total) 洞"
+                    : "地图后台补齐中"
             }
 
             guard attempt < Self.preciseUpgradeRetryDelaysSeconds.count else { break }
@@ -683,6 +700,24 @@ public final class WatchCourseLibrary: ObservableObject {
             sessionToken: config.sessionToken,
             sessionTokenExpiresAt: config.sessionTokenExpiresAt
         )
+    }
+
+    private func fetchInstallStatus(
+        selection: WatchCourseSelection,
+        config: WatchRoundConfig
+    ) async -> WatchCourseInstallStatus? {
+        guard !Task.isCancelled else { return nil }
+        do {
+            return try await makeClient(config).fetchCourseInstallStatus(
+                globalId: selection.front.globalId,
+                teeBox: selection.teeBox,
+                backGlobalId: selection.back?.globalId
+            )
+        } catch {
+            // The endpoint is additive and older deployments may not have it. The local Watch
+            // package/image stores remain authoritative when this probe is unavailable.
+            return nil
+        }
     }
 
     private static func uniqueOptions(from options: [WatchCourseOption]) -> [WatchCourseOption] {

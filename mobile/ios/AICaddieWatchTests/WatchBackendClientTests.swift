@@ -292,6 +292,103 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertNil(green.value(forHTTPHeaderField: "Authorization"))
     }
 
+    func testCourseInstallStatusRequestCarriesCompositeQueryAndAuth() throws {
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            adminToken: "admin-secret"
+        )
+        let request = try client.makeCourseInstallStatusRequest(
+            globalId: 31870,
+            teeBox: "Blue",
+            nine: "all",
+            backGlobalId: 31871
+        )
+
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(request.url?.path, "/api/v2/courses/31870/install/status")
+        let query = try XCTUnwrap(URLComponents(
+            url: try XCTUnwrap(request.url),
+            resolvingAgainstBaseURL: false
+        )?.queryItems)
+        let values = Dictionary(uniqueKeysWithValues: query.map { ($0.name, $0.value ?? "") })
+        XCTAssertEqual(values["tee_box"], "Blue")
+        XCTAssertEqual(values["nine"], "all")
+        XCTAssertEqual(values["back_global_id"], "31871")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
+        XCTAssertEqual(request.timeoutInterval, WatchBackendClient.nearbyDiscoveryTimeoutInterval)
+
+        let frontOnly = try client.makeCourseInstallStatusRequest(
+            globalId: 31870,
+            teeBox: "Blue",
+            nine: "front"
+        )
+        let frontQuery = try XCTUnwrap(URLComponents(
+            url: try XCTUnwrap(frontOnly.url),
+            resolvingAgainstBaseURL: false
+        )?.queryItems)
+        XCTAssertNil(frontQuery.first(where: { $0.name == "back_global_id" }))
+    }
+
+    func testCourseInstallStatusDecodesDurableHoleProgressAndRevisions() throws {
+        let status = try makeClient().decodeCourseInstallStatus(Data(
+            #"{
+              "schema":"ai-caddie-course-install-v1",
+              "jobId":"install-1",
+              "globalId":31870,
+              "teeBox":"blue",
+              "nine":"all",
+              "phase":"running",
+              "stage":"topo",
+              "totalHoles":18,
+              "geometryReady":18,
+              "topoReady":7,
+              "updatedAt":"2026-08-20T10:00:00Z",
+              "error":null,
+              "holes":[
+                {"globalId":31870,"localHole":1,"displayHole":1,"geometry":"ready","geometryRevision":"rev-a","topo":"ready","topoRevision":"rev-a","error":null},
+                {"globalId":31871,"localHole":1,"displayHole":10,"geometry":"ready","geometryRevision":"rev-b","topo":"queued","topoRevision":null,"error":null}
+              ]
+            }"#.utf8
+        ))
+
+        XCTAssertEqual(status.phase, "running")
+        XCTAssertEqual(status.topoReady, 7)
+        XCTAssertEqual(status.holes.count, 2)
+        XCTAssertEqual(status.holes.last?.displayHole, 10)
+        XCTAssertEqual(status.holes.last?.geometryRevision, "rev-b")
+        XCTAssertEqual(status.holes.last?.topo, "queued")
+        XCTAssertNil(status.holes.last?.topoRevision)
+    }
+
+    func testCourseInstallStatus404IsMissingAndDoesNotRetry() async throws {
+        var requestCount = 0
+        let client = WatchBackendClient(
+            baseURL: URL(string: "https://caddie.example")!,
+            dataLoader: { request in
+                requestCount += 1
+                XCTAssertEqual(request.url?.path, "/api/v2/courses/31870/install/status")
+                let response = HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 404,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!
+                return (Data(#"{"detail":"course install job not found"}"#.utf8), response)
+            },
+            retrySleep: { _ in
+                XCTFail("a missing install journal must not retry")
+            }
+        )
+
+        let status = try await client.fetchCourseInstallStatus(
+            globalId: 31870,
+            teeBox: "blue"
+        )
+
+        XCTAssertNil(status)
+        XCTAssertEqual(requestCount, 1)
+    }
+
     func testCourseReleaseRetryPolicyIsBoundedAndCancellationSafe() {
         XCTAssertEqual(WatchBackendClient.courseReleaseMaximumAttempts, 3)
         XCTAssertEqual(WatchBackendClient.courseReleaseRetryDelayNanoseconds(afterAttempt: 1), 500_000_000)
