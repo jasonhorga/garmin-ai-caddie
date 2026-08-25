@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `bf944100` (keyboard-focus fix integrated; targeted and full native runtime verification remain open)
+**HEAD:** `bf944100` (keyboard-focus fix integrated; targeted run exposed a review reorder gate)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -132,16 +132,20 @@ means a named external decision or prerequisite is missing; `done` and
   screenshots were skipped by that failure.
 - Keyboard-focus fix `bf944100` synchronously clears `focusedField` before
   launching manual, nearby, or submit-triggered searches. Review-scope Native
-  run `32821984671` is queued; it is not evidence until it completes.
+  run `32821984671` completed: `RealFlowUITests.testCaptureRealAppFlow` passed,
+  but `ReviewEditUITests.testCaptureReviewEditFlow` failed at line 289 when the
+  last reorder handle did not change the preceding visible shot. Full Native
+  verification remains blocked on that bounded reorder gate.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Finish review-scope run `32821984671`; then run the full GitHub `Native
-   Mobile CI` on `bf944100` (including Watch stages) and record iOS/Watch XCTest
-   plus real screenshots; do not claim native verification from Linux or
-   focused Python/Web tests.
+1. Resolve the bounded review reorder failure from run `32821984671`, rerun its
+   review scope, then run the full GitHub `Native Mobile CI` on the resulting
+   head (including Watch stages) and record iOS/Watch XCTest plus real
+   screenshots; do not claim native verification from Linux or focused
+   Python/Web tests.
 2. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
    the Web/R2 track; do not treat the failed Quick Tunnel as product proof.
 3. Keep production revision `6a6080c6...` unchanged until a deployment or
@@ -254,5 +258,6 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   sole active implementation task before the next native run.
 - 2026-08-25: Integrated keyboard-focus fix `bf944100` from delegated commit
   `44ba73fb`; it synchronously clears the search field before all three search
-  entry paths. Review-scope run `32821984671` was queued after cancelling the
-  superseded duplicate run `32821497400`.
+  entry paths. Review-scope run `32821984671` passed the complete RealFlow
+  search/review journey but failed the ReviewEdit reorder assertion at line
+  289; a second bounded delegated worktree is investigating that behavior.
