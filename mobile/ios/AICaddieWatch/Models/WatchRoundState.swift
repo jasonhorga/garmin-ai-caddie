@@ -4,20 +4,29 @@ public struct WatchClubOption: Codable, Equatable, Identifiable {
     public var id: String { clubName }
 
     public let clubName: String
+    public let token: String?
     public let sampleSize: Int?
     public let medianM: Double?
     public let source: String?
+    public let distanceSource: String?
+    public let confidence: String?
 
     public init(
         clubName: String,
+        token: String? = nil,
         sampleSize: Int? = nil,
         medianM: Double? = nil,
-        source: String? = nil
+        source: String? = nil,
+        distanceSource: String? = nil,
+        confidence: String? = nil
     ) {
         self.clubName = clubName
+        self.token = token
         self.sampleSize = sampleSize
         self.medianM = medianM
         self.source = source
+        self.distanceSource = distanceSource
+        self.confidence = confidence
     }
 }
 

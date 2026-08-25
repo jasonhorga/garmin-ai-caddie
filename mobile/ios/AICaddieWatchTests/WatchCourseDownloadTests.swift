@@ -67,6 +67,21 @@ final class WatchCourseDownloadTests: XCTestCase {
 
     private let client = WatchBackendClient(baseURL: URL(string: "https://caddie.example")!)
 
+    func testCoursePrepClubProvenanceDecodesAndLegacyFieldsRemainOptional() throws {
+        let prep = try client.decodeCoursePrep(Data(
+            #"{"schema":"ai-caddie-course-prep-v1","globalId":1,"holeCount":0,"clubs":[{"name":"3 Wood","token":"wood3","m":188,"yd":206,"distanceSource":"garmin_advice","sampleSize":0,"confidence":"medium"}],"holes":[]}"#.utf8
+        ))
+        XCTAssertEqual(prep.clubs.first?.token, "wood3")
+        XCTAssertEqual(prep.clubs.first?.distanceSource, "garmin_advice")
+        XCTAssertEqual(prep.clubs.first?.confidence, "medium")
+
+        let legacy = try client.decodeCoursePrep(Data(
+            #"{"schema":"ai-caddie-course-prep-v1","globalId":1,"holeCount":0,"clubs":[{"name":"3W","m":171,"yd":187}],"holes":[]}"#.utf8
+        ))
+        XCTAssertNil(legacy.clubs.first?.token)
+        XCTAssertNil(legacy.clubs.first?.distanceSource)
+    }
+
     private func validTopoData() throws -> Data {
         try XCTUnwrap(Data(base64Encoded: WatchHoleMapSample.jpegBase64))
     }

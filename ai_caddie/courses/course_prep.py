@@ -814,6 +814,135 @@ def effective_club_ladder(player_id: str) -> list[tuple[str, int]]:
     return sorted(DEFAULT_LADDER.items(), key=lambda kv: -kv[1])
 
 
+def _provenance_confidence(source: str, sample_size: int) -> str:
+    """Return a small, explainable confidence label for a prep distance.
+
+    This is deliberately source-based rather than a statistical score: the prep endpoint must not
+    imply a calibrated probability that the underlying data does not provide.  History rows use
+    their actual sample count; first-party Garmin/manual values and catalog fallbacks retain their
+    distinct factual source labels.
+    """
+    if source == "history_median":
+        return "high" if sample_size >= 30 else "medium" if sample_size >= 10 else "low"
+    if source in {"garmin_advice", "garmin_average", "manual"}:
+        return "medium"
+    if source == "catalog_default":
+        return "low"
+    return "unknown"
+
+
+def club_ladder_with_provenance(
+    player_id: str = OWNER_ID,
+    *,
+    ladder: list[tuple[str, int]] | None = None,
+) -> list[dict]:
+    """Annotate the existing ladder with its real distance source.
+
+    ``effective_club_ladder`` remains the strategy-facing tuple API.  This adapter intentionally
+    performs no new selection and accepts a precomputed ladder, so callers and old tests keep the
+    same filtering/order semantics while the wire payload can carry provenance.  ``fixture`` is
+    reserved for a caller-provided row that cannot be tied to any persisted source (primarily test
+    fixtures); production paths resolve to one of the explicit sources below.
+    """
+    rows = list(ladder if ladder is not None else effective_club_ladder(player_id))
+    manual = load_manual_club_bag(player_id) or {}
+    manual_by_token: dict[str, dict] = {}
+    manual_by_display: dict[str, dict] = {}
+    for club in manual.get("clubs") or []:
+        if not isinstance(club, dict) or not club.get("token"):
+            continue
+        token = str(club.get("token") or "")
+        manual_by_token[token] = club
+        custom_name = str(club.get("customName") or "").strip().casefold()
+        if custom_name:
+            manual_by_display[custom_name] = club
+
+    # Owner history profiles contain the actual sample count.  A member's history is deliberately
+    # not loaded here: effective_club_ladder already scopes that data, and this response adapter
+    # must never accidentally read another player's tree.
+    history_by_token: dict[str, dict] = {}
+    if player_id == OWNER_ID:
+        try:
+            profiles = build_club_profiles()
+        except Exception:
+            profiles = {}
+    else:
+        profiles = {}
+        if manual:
+            try:
+                from ai_caddie.history.history import _player_shot_sources
+
+                shot_dirs = [shots for _sc, shots in _player_shot_sources(player_id)]
+                profiles = build_club_profiles(shot_dirs=shot_dirs, apply_overrides=False)
+            except Exception:
+                profiles = {}
+    for name, profile in (profiles or {}).items():
+        if not isinstance(profile, dict) or not profile.get("median"):
+            continue
+        token = club_bag_service.canonical_club_name(name)
+        if not token:
+            continue
+        sample_size = int(profile.get("sampleSize") or 0)
+        candidate = {
+            "name": str(name),
+            "m": round(float(profile["median"])),
+            "sampleSize": sample_size,
+        }
+        previous = history_by_token.get(token)
+        if previous is None or candidate["sampleSize"] > previous["sampleSize"]:
+            history_by_token[token] = candidate
+
+    garmin_by_token: dict[str, tuple[int, str]] = {}
+    if player_id == OWNER_ID:
+        for club in (load_club_bag() or {}).get("clubs") or []:
+            if not isinstance(club, dict) or club.get("retired") or club.get("deleted"):
+                continue
+            token = (
+                club_bag_service.canonical_club_name(club.get("customName"))
+                or club_bag_service._CLUBTYPE_CANON.get(club.get("clubTypeId"))
+            )
+            distance = club_bag_service.garmin_distance_m(club)
+            if token and distance is not None:
+                garmin_by_token[token] = distance
+
+    annotated: list[dict] = []
+    for name, distance in rows:
+        display_key = str(name).strip().casefold()
+        token = club_bag_service.canonical_club_name(name)
+        manual_club = manual_by_token.get(token or "") or manual_by_display.get(display_key)
+        if manual_club is not None:
+            # Manual bag tokens are already canonical even when the player supplied an arbitrary
+            # custom display name (for example "My 7 iron").
+            token = str(manual_club.get("token") or token or "")
+        token = token or display_key
+        distance_int = int(round(distance))
+        source = "fixture"
+        sample_size = 0
+
+        if manual_club is not None and manual_club.get("distanceM") is not None:
+            source = "manual"
+        else:
+            history = history_by_token.get(token)
+            garmin = garmin_by_token.get(token)
+            if garmin is not None and garmin[0] == distance_int:
+                source = garmin[1]
+            elif history is not None and history["m"] == distance_int:
+                source = "history_median"
+                sample_size = history["sampleSize"]
+            elif club_catalog.default_distance_m(token) == distance_int:
+                source = "catalog_default"
+
+        annotated.append({
+            "name": name,
+            "token": token,
+            "m": distance_int,
+            "distanceSource": source,
+            "sampleSize": sample_size,
+            "confidence": _provenance_confidence(source, sample_size),
+        })
+    return annotated
+
+
 def club_for(distance_m: float, ladder, *, exclude=()):
     excluded_tokens = {
         club_bag_service.canonical_club_name(name) or str(name).strip().casefold()

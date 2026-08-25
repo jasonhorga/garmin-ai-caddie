@@ -80,7 +80,15 @@ public enum WatchCourseTemplateBuilder {
             let green = prep?.greenDistances?.available == true ? prep?.greenDistances : nil
             let deltaM = prep?.playsLike?.available == true ? prep?.playsLike?.deltaM : nil
             let clubs = (prepResponse?.clubs ?? []).map {
-                WatchClubOption(clubName: $0.name, medianM: $0.m, source: "course-prep")
+                WatchClubOption(
+                    clubName: $0.name,
+                    token: $0.token,
+                    sampleSize: $0.sampleSize,
+                    medianM: $0.m,
+                    source: "course-prep",
+                    distanceSource: $0.distanceSource,
+                    confidence: $0.confidence
+                )
             }
             let preparedOptions = routeDistanceM.map {
                 preparedCaddieOptions(

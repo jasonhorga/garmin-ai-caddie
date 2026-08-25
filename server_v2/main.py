@@ -1003,6 +1003,7 @@ def course_prep_nine(
         # ladder blended from their own logged shots + manual bag — no player's distances leak to
         # another (effective_club_ladder + the player-scoped loaders are isolated per player_id).
         ladder = course_prep.effective_club_ladder(player_id)
+        club_rows = course_prep.club_ladder_with_provenance(player_id, ladder=ladder)
         # Shot scatter is the player's OWN past end positions only: prep_nine reads solely the
         # threaded player_id's tree, so a member sees their own shots and never the owner's.
         nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
@@ -1011,7 +1012,20 @@ def course_prep_nine(
             "schema": "ai-caddie-course-prep-v1",
             "globalId": int(global_id),
             "holeCount": len(nine),
-            "clubs": [{"name": name, "m": dist, "yd": course_prep.yd(dist)} for name, dist in ladder],
+            # The original name/m/yd fields remain unchanged.  Provenance is additive so older
+            # iOS/Watch/Web clients can continue decoding the v1 response without a migration.
+            "clubs": [
+                {
+                    "name": row["name"],
+                    "token": row["token"],
+                    "m": row["m"],
+                    "yd": course_prep.yd(row["m"]),
+                    "distanceSource": row["distanceSource"],
+                    "sampleSize": row["sampleSize"],
+                    "confidence": row["confidence"],
+                }
+                for row in club_rows
+            ],
             "holes": nine,
         }
         logger.info(

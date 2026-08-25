@@ -116,7 +116,16 @@ export function clubDisplay(shot: RoundHoleShot): string {
   const club = shot.club?.trim()
   if (!club) return '未知球杆'
   const token = club.toLowerCase()
-  return CLUB_ZH_BY_TOKEN.get(token) ?? GARMIN_CLUB_ZH[token] ?? club
+  // Garmin's catalog can return spaced names such as "3 Wood"/"3 Iron". Normalize those
+  // aliases to the same canonical token used by the backend and the iOS picker before falling
+  // back to the raw label, so review never shows a second spelling for one physical club.
+  const compact = token.replace(/[\s_-]+/g, '')
+  const normalized = /^(\d+)wood$/.test(compact)
+    ? `wood${compact.match(/^(\d+)wood$/)?.[1]}`
+    : /^(\d+)iron$/.test(compact)
+      ? `iron${compact.match(/^(\d+)iron$/)?.[1]}`
+      : token
+  return CLUB_ZH_BY_TOKEN.get(normalized) ?? GARMIN_CLUB_ZH[normalized] ?? GARMIN_CLUB_ZH[token] ?? club
 }
 
 // A shot the player edited in the 复盘 correction layer: the backend tags a manually

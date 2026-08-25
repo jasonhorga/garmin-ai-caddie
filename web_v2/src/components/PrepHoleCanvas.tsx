@@ -1,5 +1,5 @@
 import { useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
-import type { CoursePrepHole } from '../types'
+import type { CoursePrepClub, CoursePrepHole } from '../types'
 import { topoImageUrl } from '../api'
 import { atCum, layoutHazardLabels, nearestCum, resolveCoursePrepOverlay, routeIntervalReadout } from './coursePrepPanelLogic'
 import { HoleBaseImage } from './HoleBaseImage'
@@ -21,7 +21,7 @@ export interface PrepHoleCanvasProps {
   // geometry (overlay present), the base image is the realistic server topo; otherwise it falls
   // back to the legacy render / placeholder.
   globalId?: number
-  clubs?: Array<{ name: string; m: number; yd: number }>
+  clubs?: CoursePrepClub[]
 }
 
 // The big center canvas of the 备战 workbench: a hole render (real per-hole
@@ -49,6 +49,17 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId, clubs = [] }: PrepH
   const frameStyle: CSSProperties | undefined = overlay
     ? { aspectRatio: `${overlay.w} / ${overlay.h}` }
     : undefined
+  const sourceLabel: Record<string, string> = {
+    history_median: '历史中位',
+    garmin_advice: 'Garmin 建议',
+    garmin_average: 'Garmin 平均',
+    manual: '手动录入',
+    catalog_default: '目录默认',
+    fixture: '测试夹具',
+  }
+  const recommendationSource = recommendedClub?.distanceSource
+    ? sourceLabel[recommendedClub.distanceSource] ?? recommendedClub.distanceSource
+    : null
 
   const onPointer = (event: ReactPointerEvent<SVGSVGElement>): void => {
     if (!overlay || !svgRef.current) return
@@ -236,8 +247,10 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId, clubs = [] }: PrepH
         className="prep-canvas-chip prep-canvas-chip--ball"
         style={chipStyle(ball.x, ball.y)}
         aria-label="地图推荐球杆"
+        data-distance-source={recommendedClub?.distanceSource ?? undefined}
       >
         {recommendedClub ? `${recommendedClub.name} · ` : ''}{distT}码落点
+        {recommendationSource ? ` · 依据 ${recommendationSource}` : ''}
       </div>
     )
   }

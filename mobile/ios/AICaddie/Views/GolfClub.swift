@@ -10,6 +10,10 @@ public func zhClubName(_ raw: String) -> String {
     let s = raw.trimmingCharacters(in: .whitespaces)
     if s.isEmpty { return s }
     let lower = s.lowercased()
+    // Garmin's type catalog sometimes spells the loft before the word ("3 Wood" / "3 Iron").
+    // Strip presentation separators only for alias matching; the original label still falls
+    // through unchanged when it is not a recognized catalog club.
+    let compact = lower.filter { !$0.isWhitespace && $0 != "-" && $0 != "_" }
 
     // Wedge by loft degrees (48/50/52/54/56/58/60…).
     if let degrees = Int(s), (44...64).contains(degrees) {
@@ -42,6 +46,9 @@ public func zhClubName(_ raw: String) -> String {
         return "小鸡腿"
     }
     // Fairway wood: "Nw" / "N号木".
+    if compact.hasSuffix("wood"), compact.dropLast(4).allSatisfy(\.isNumber), let n = firstDigit(compact) {
+        return "\(cnClubNumber[n] ?? n)号木"
+    }
     if lower.hasPrefix("wood"), let n = firstDigit(lower) {
         return "\(cnClubNumber[n] ?? n)号木"
     }
@@ -52,6 +59,9 @@ public func zhClubName(_ raw: String) -> String {
         return "\(cnClubNumber[n] ?? n)号木"
     }
     // Iron: "NI" / "N号铁".
+    if compact.hasSuffix("iron"), compact.dropLast(4).allSatisfy(\.isNumber), let n = firstDigit(compact) {
+        return "\(cnClubNumber[n] ?? n)号铁"
+    }
     if lower.hasPrefix("iron"), let n = firstDigit(lower) {
         return "\(cnClubNumber[n] ?? n)号铁"
     }

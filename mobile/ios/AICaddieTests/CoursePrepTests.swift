@@ -7,7 +7,7 @@ final class CoursePrepTests: XCTestCase {
     func testDecodesPrepResponse() throws {
         let json = """
         {"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":1,
-         "clubs":[{"name":"1W","m":200,"yd":219},{"name":"7I","m":128,"yd":140}],
+         "clubs":[{"name":"3 Wood","token":"wood3","m":188,"yd":206,"distanceSource":"garmin_advice","sampleSize":0,"confidence":"medium"},{"name":"7I","token":"iron7","m":128,"yd":140,"distanceSource":"history_median","sampleSize":12,"confidence":"medium"}],
          "holes":[{"hole":1,"par":5,"par_source":"played","blue_yards":523,"route_len_m":478.4,
            "route":[[100.0,1000.0,0.0],[200.0,100.0,478.4]],
            "geometryCoverage":"ready","geometryRevision":"0123456789abcdef",
@@ -24,8 +24,12 @@ final class CoursePrepTests: XCTestCase {
         let response = try JSONDecoder().decode(CoursePrepResponse.self, from: Data(json.utf8))
         XCTAssertEqual(response.globalId, 31870)
         XCTAssertEqual(response.holeCount, 1)
-        XCTAssertEqual(response.clubs.first?.name, "1W")
-        XCTAssertEqual(response.clubs.first?.yd, 219)
+        XCTAssertEqual(response.clubs.first?.name, "3 Wood")
+        XCTAssertEqual(response.clubs.first?.token, "wood3")
+        XCTAssertEqual(response.clubs.first?.yd, 206)
+        XCTAssertEqual(response.clubs.first?.distanceSource, "garmin_advice")
+        XCTAssertEqual(response.clubs.first?.confidence, "medium")
+        XCTAssertEqual(response.clubs.dropFirst().first?.sampleSize, 12)
 
         let hole = try XCTUnwrap(response.holes.first)
         XCTAssertEqual(hole.par, 5)

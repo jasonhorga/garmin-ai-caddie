@@ -9,8 +9,10 @@ final class ClubNameTests: XCTestCase {
         XCTAssertEqual(zhClubName("1D"), "一号木")
         XCTAssertEqual(zhClubName("一号木杆"), "一号木")
         XCTAssertEqual(zhClubName("3W"), "三号木")
+        XCTAssertEqual(zhClubName("3 Wood"), "三号木")
         XCTAssertEqual(zhClubName("3号木杆"), "三号木")        // same club as 3W → same name
         XCTAssertEqual(zhClubName("5W"), "五号木")
+        XCTAssertEqual(zhClubName("7 wood"), "七号木")
     }
 
     func testHybridIronWedge() {
@@ -18,6 +20,8 @@ final class ClubNameTests: XCTestCase {
         XCTAssertEqual(zhClubName("三号铁木杆"), "三号小鸡腿")
         XCTAssertEqual(zhClubName("2I/Hybrid"), "二号小鸡腿")
         XCTAssertEqual(zhClubName("9I"), "九号铁")
+        XCTAssertEqual(zhClubName("3 Iron"), "三号铁")
+        XCTAssertEqual(zhClubName("7 iron"), "七号铁")
         XCTAssertEqual(zhClubName("50"), "50° 挖起杆")
         XCTAssertEqual(zhClubName("58"), "58° 挖起杆")
     }

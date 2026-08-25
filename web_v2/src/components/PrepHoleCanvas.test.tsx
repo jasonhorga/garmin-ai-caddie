@@ -35,6 +35,41 @@ describe('PrepHoleCanvas', () => {
     expect(canvas.querySelector('.prep-canvas-frame')).toHaveStyle('aspect-ratio: 300 / 470')
   })
 
+  it('surfaces optional club distance provenance while accepting the same legacy shape', () => {
+    const hole = {
+      hole: 1,
+      par: 4,
+      par_source: 'courseview',
+      blue_yards: 430,
+      route_len_m: 393,
+      route: [],
+      geometryCoverage: 'ready',
+      sourceRefs: [],
+      missingData: [],
+      candidateRoutes: [],
+      carryTargets: [],
+      steps: [],
+      cautions: [],
+      landing_m: 215,
+      tee_club: '3W',
+      hazards: { water_carry: [], bunkers: [] },
+      map: { image: undefined, overlay: { w: 300, h: 470, ppm: 1, ln: 393, route: [[150, 455, 0], [150, 72, 393]] } },
+    } as CoursePrepHole
+
+    render(
+      <PrepHoleCanvas
+        hole={hole}
+        cum={0}
+        onCum={vi.fn()}
+        clubs={[{ name: '3W', token: 'wood3', m: 171, yd: 187, distanceSource: 'history_median', sampleSize: 12, confidence: 'medium' }]}
+      />,
+    )
+
+    const recommendation = screen.getByLabelText('地图推荐球杆')
+    expect(recommendation).toHaveAttribute('data-distance-source', 'history_median')
+    expect(recommendation).toHaveTextContent('依据 历史中位')
+  })
+
   it('draws factual CourseView vectors without requesting a precise topo early', () => {
     const hole = {
       hole: 1,

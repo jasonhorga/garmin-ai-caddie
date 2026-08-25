@@ -1250,8 +1250,14 @@ export interface CoursePrepHole {
 
 export interface CoursePrepClub {
   name: string
+  /** Canonical backend token (optional for legacy /prep payloads). */
+  token?: string | null
   m: number
   yd: number
+  /** history_median, garmin_advice, garmin_average, manual, catalog_default, or fixture. */
+  distanceSource?: string | null
+  sampleSize?: number | null
+  confidence?: string | null
 }
 
 export interface CoursePrepResponse {

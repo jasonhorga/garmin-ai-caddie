@@ -298,7 +298,11 @@ public struct WatchCoursePrepResponse: Decodable, Equatable {
 
 public struct WatchCoursePrepClub: Decodable, Equatable {
     public let name: String
+    public let token: String?
     public let m: Double
+    public let distanceSource: String?
+    public let sampleSize: Int?
+    public let confidence: String?
 }
 
 public struct WatchCoursePrepHole: Decodable, Equatable {

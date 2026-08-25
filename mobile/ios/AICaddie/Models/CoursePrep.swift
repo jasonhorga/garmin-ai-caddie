@@ -20,8 +20,31 @@ public struct CoursePrepPackage: Codable, Equatable {
 
 public struct CoursePrepClub: Codable, Equatable {
     public let name: String
+    /// Canonical backend token; optional so pre-provenance /prep payloads still decode.
+    public let token: String?
     public let m: Double
     public let yd: Int
+    public let distanceSource: String?
+    public let sampleSize: Int?
+    public let confidence: String?
+
+    public init(
+        name: String,
+        m: Double,
+        yd: Int,
+        token: String? = nil,
+        distanceSource: String? = nil,
+        sampleSize: Int? = nil,
+        confidence: String? = nil
+    ) {
+        self.name = name
+        self.token = token
+        self.m = m
+        self.yd = yd
+        self.distanceSource = distanceSource
+        self.sampleSize = sampleSize
+        self.confidence = confidence
+    }
 }
 
 public struct CoursePrepStep: Codable, Equatable {

@@ -91,7 +91,11 @@ describe('clubDisplay', () => {
   it('uses the same Chinese names for Garmin shorthand tokens', () => {
     expect(clubDisplay(shot({ club: '1W' }))).toBe('一号木')
     expect(clubDisplay(shot({ club: '3W' }))).toBe('三号木')
+    expect(clubDisplay(shot({ club: '3 Wood' }))).toBe('三号木')
+    expect(clubDisplay(shot({ club: '7 wood' }))).toBe('七号木')
     expect(clubDisplay(shot({ club: '5I' }))).toBe('五号铁')
+    expect(clubDisplay(shot({ club: '3 Iron' }))).toBe('三号铁')
+    expect(clubDisplay(shot({ club: '7 iron' }))).toBe('七号铁')
     expect(clubDisplay(shot({ club: '7I' }))).toBe('七号铁')
     expect(clubDisplay(shot({ club: 'PW' }))).toBe('P杆')
   })
