@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ReviewWorkbench } from './ReviewWorkbench'
 import type { RoundCard, RoundCorrectionRequest, RoundHoleShotMapResponse, ScoreStripCell } from '../types'
+import { REVIEW_SHOT_MAP_CACHE_STORAGE_KEY } from './reviewShotMapCache'
 
 const apiMocks = vi.hoisted(() => ({ prefetchTopoImage: vi.fn() }))
 
@@ -63,7 +64,22 @@ function shotMap(hole: number): RoundHoleShotMapResponse {
 }
 
 describe('ReviewWorkbench', () => {
-  beforeEach(() => apiMocks.prefetchTopoImage.mockClear())
+  beforeEach(() => {
+    apiMocks.prefetchTopoImage.mockClear()
+    window.localStorage.removeItem(REVIEW_SHOT_MAP_CACHE_STORAGE_KEY)
+  })
+
+  it('hydrates a persisted shot map after remount without another network fetch', async () => {
+    const firstFetch = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
+    const first = render(<ReviewWorkbench rounds={[round()]} fetchShotMap={firstFetch} playerNamespace="player-cache-a" />)
+    await first.findByLabelText('第1洞落点图')
+    first.unmount()
+
+    const secondFetch = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
+    render(<ReviewWorkbench rounds={[round()]} fetchShotMap={secondFetch} playerNamespace="player-cache-a" />)
+    expect(await screen.findByLabelText('第1洞落点图')).toBeInTheDocument()
+    expect(secondFetch).not.toHaveBeenCalled()
+  })
 
   it('renders the round selector, total and shape-coded score chips reflecting to-par', async () => {
     const fetchShotMap = vi.fn(async (_ref: string, hole: number) => shotMap(hole))
@@ -210,6 +226,15 @@ describe('ReviewWorkbench', () => {
     ])
   })
 
+  it('does not persist a failed request for a namespaced player', async () => {
+    const firstFetch = vi.fn(async () => {
+      throw new Error('落点图加载失败:网络中断')
+    })
+    render(<ReviewWorkbench rounds={[round()]} fetchShotMap={firstFetch} playerNamespace="player-failure" />)
+    expect(await screen.findByText('落点图加载失败:网络中断')).toBeInTheDocument()
+    expect(window.localStorage.getItem(REVIEW_SHOT_MAP_CACHE_STORAGE_KEY)).toBeNull()
+  })
+
   it('never reuses the selected hole revision when warming adjacent topo images', async () => {
     const currentHole = {
       ...shotMap(2),
@@ -327,5 +352,18 @@ describe('ReviewWorkbench', () => {
     await waitFor(() => expect(saveCorrection).toHaveBeenCalledTimes(1))
     expect(screen.queryByRole('button', { name: '保存全部修改' })).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('evicts the corrected hole and refetches it after a successful save', async () => {
+    const corrected = { ...shotMap(1), geometryRevision: 'after-correction' }
+    const fetchShotMap = vi.fn(async (_ref: string, hole: number) => (fetchShotMap.mock.calls.length === 1 ? shotMap(hole) : corrected))
+    const saveCorrection = vi.fn(async () => undefined)
+    render(<ReviewWorkbench rounds={[round()]} fetchShotMap={fetchShotMap} saveCorrection={saveCorrection} playerNamespace="player-correction" />)
+    await screen.findByLabelText('第1洞落点图')
+    await userEvent.click(screen.getByRole('button', { name: '编辑落点' }))
+    await userEvent.click(screen.getByRole('button', { name: '保存全部修改' }))
+    await waitFor(() => expect(saveCorrection).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(fetchShotMap).toHaveBeenCalledTimes(2))
+    expect(await screen.findByLabelText('第1洞落点图')).toBeInTheDocument()
   })
 })

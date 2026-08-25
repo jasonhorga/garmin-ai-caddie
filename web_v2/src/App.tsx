@@ -1343,6 +1343,7 @@ export default function App() {
         <>
           <ReviewWorkbench
             rounds={[round]}
+            playerNamespace={overviewState.status === 'ready' ? overviewState.data.currentPlayer?.id ?? null : session?.playerId ?? null}
             fetchShotMap={(roundRef, hole) => fetchRoundHoleShotMap(roundRef, hole, currentAdminToken())}
             saveCorrection={(roundRef, correction) => postRoundCorrection(roundRef, correction, currentAdminToken())}
           />

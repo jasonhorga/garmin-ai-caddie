@@ -5,11 +5,19 @@ import { cleanCourseName, shortRoundDate } from '../units'
 import { ReviewHoleCanvas, type ReviewShotMapState } from './ReviewHoleCanvas'
 import { ReviewInspector } from './ReviewInspector'
 import { buildTimeline, chipShape, chipShapeZh, type ChipShape } from './reviewShotMapLogic'
+import {
+  invalidateReviewShotMapCache,
+  isValidRoundHoleShotMapResponse,
+  readReviewShotMapCache,
+  writeReviewShotMapCache,
+} from './reviewShotMapCache'
 
 interface ReviewWorkbenchProps {
   rounds: RoundCard[]
   fetchShotMap: (roundRef: string, hole: number) => Promise<RoundHoleShotMapResponse>
   saveCorrection?: (roundRef: string, correction: RoundCorrectionRequest) => Promise<unknown>
+  /** Stable player id used to isolate the optional browser shot-map cache. */
+  playerNamespace?: string | null
 }
 
 interface ReviewDraft {
@@ -125,14 +133,20 @@ type ShotMapFailure = { key: string; message: string }
 // and the 杆序 timeline on the right. Selection lives here so the three panes stay
 // in sync; the shot map is fetched lazily per hole and kept per round+hole so
 // stepping back to a visited hole paints its first frame without a refetch.
-export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection }: ReviewWorkbenchProps): React.ReactElement {
+export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection, playerNamespace }: ReviewWorkbenchProps): React.ReactElement {
+  const cacheNamespace = playerNamespace?.trim() || null
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(() => rounds[0]?.id ?? null)
   const [selectedHole, setSelectedHole] = useState<number | null>(null)
   // Session cache of shot-map RESPONSES keyed `${roundRef}:${hole}`. Only resolved responses land
   // here; a rejected fetch is held separately in `shotMapFailure` so returning to a hole that failed
   // retries instead of pinning a stale error. A response is per (round, hole) immutable evidence, so
   // reusing it is what makes the hole strip feel instant on the second visit.
-  const [shotMaps, setShotMaps] = useState<Record<string, RoundHoleShotMapResponse>>({})
+  const [shotMaps, setShotMaps] = useState<Record<string, RoundHoleShotMapResponse>>(() => {
+    const firstRound = rounds[0]
+    const firstHole = firstRound?.scoreStrip?.[0]?.hole
+    const cached = firstRound && firstHole !== undefined ? readReviewShotMapCache(cacheNamespace, firstRound.id, firstHole) : undefined
+    return cached ? { [`${firstRound.id}:${firstHole}`]: cached } : {}
+  })
   const [shotMapFailure, setShotMapFailure] = useState<ShotMapFailure | null>(null)
   const [drafts, setDrafts] = useState<Record<string, ReviewDraft>>({})
   const [editingKey, setEditingKey] = useState<string | null>(null)
@@ -144,9 +158,27 @@ export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection }: Review
   // hole resolved), and this stops that re-run from launching a second request for the hole that
   // is still loading.
   const inFlight = useRef<Set<string>>(new Set())
+  const namespaceRef = useRef(cacheNamespace)
+  const [hydratedNamespace, setHydratedNamespace] = useState<string | null>(cacheNamespace)
   useEffect(() => {
     fetchRef.current = fetchShotMap
   })
+
+  // A player switch must discard the previous player's in-memory responses before
+  // the fetch effect is allowed to consult the new namespace's persistent cache.
+  useEffect(() => {
+    if (hydratedNamespace === cacheNamespace) return
+    Promise.resolve().then(() => {
+      namespaceRef.current = cacheNamespace
+      inFlight.current.clear()
+      setShotMaps({})
+      setShotMapFailure(null)
+      setDrafts({})
+      setEditingKey(null)
+      setSaveState('idle')
+      setHydratedNamespace(cacheNamespace)
+    })
+  }, [cacheNamespace, hydratedNamespace])
 
   // Adjust-state-during-render (PrepWorkbench idiom): a rounds change that drops the
   // current pick snaps to the newest round; a round change reseeds the hole to the
@@ -160,15 +192,29 @@ export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection }: Review
   if (validHole !== selectedHole) setSelectedHole(validHole)
 
   useEffect(() => {
-    if (validRoundId === null || validHole === null) return
+    if (hydratedNamespace !== cacheNamespace || validRoundId === null || validHole === null) return
     const key = `${validRoundId}:${validHole}`
-    if (shotMaps[key] !== undefined || inFlight.current.has(key)) return
-    inFlight.current.add(key)
+    const requestKey = `${cacheNamespace ?? 'no-player-cache'}:${key}`
+    if (shotMaps[key] !== undefined || inFlight.current.has(requestKey)) return
+    const persisted = readReviewShotMapCache(cacheNamespace, validRoundId, validHole)
+    if (persisted !== undefined) {
+      // Publish outside the effect body so React's hook lint rule does not treat
+      // storage hydration as a cascading synchronous effect update.
+      Promise.resolve().then(() => {
+        setShotMaps((previous) => (previous[key] === undefined ? { ...previous, [key]: persisted } : previous))
+      })
+      return
+    }
+    const requestNamespace = cacheNamespace
+    inFlight.current.add(requestKey)
     fetchRef
       .current(validRoundId, validHole)
       .then((data) => {
-        inFlight.current.delete(key)
+        if (!isValidRoundHoleShotMapResponse(data, validRoundId, validHole)) throw new Error('落点图响应无效')
+        inFlight.current.delete(requestKey)
+        if (namespaceRef.current !== requestNamespace) return
         setShotMaps((previous) => ({ ...previous, [key]: data }))
+        writeReviewShotMapCache(requestNamespace, data)
         // Prefetch the adjacent holes' topo bitmap so stepping the strip is instant. Revisions are
         // hole-specific: this response only proves the CURRENT hole's revision, so neighbour warm-up
         // must use the revision-free URL. The selected neighbour will use its own revision after its
@@ -184,10 +230,11 @@ export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection }: Review
       .catch((error: unknown) => {
         // Failures are never cached: leaving the key out of `shotMaps` means the next visit to this
         // hole fetches again.
-        inFlight.current.delete(key)
+        inFlight.current.delete(requestKey)
+        if (namespaceRef.current !== requestNamespace) return
         setShotMapFailure({ key, message: error instanceof Error ? error.message : '落点图加载失败' })
       })
-  }, [validRoundId, validHole, shotMaps])
+  }, [cacheNamespace, hydratedNamespace, validRoundId, validHole, shotMaps])
 
   if (rounds.length === 0 || selectedRound === null) {
     return (
@@ -323,21 +370,15 @@ export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection }: Review
     }
     try {
       await saveCorrection(roundRef, correction)
-      // The POST is the sole mutation. Publish an optimistic canonical draft immediately; a
-      // failed follow-up GET must not turn a committed save into a retryable error/duplicate write.
-      const optimistic = {
-        ...shotMapState.data,
-        shots: currentDraft.shots.filter((shot) => !shot.synthetic),
-        manualPenalty: currentDraft.manualPenalty,
-      }
-      setShotMaps((previous) => ({ ...previous, [shotMapKey]: optimistic }))
-      try {
-        const fresh = await fetchRef.current(roundRef, validHole ?? shotMapState.data.hole)
-        setShotMaps((previous) => ({ ...previous, [shotMapKey]: fresh }))
-      } catch {
-        // Keep the optimistic response and leave the editor closed; the next normal visit can retry
-        // the read without re-posting this already accepted mutation.
-      }
+      // A correction changes the canonical response. Evict both layers so the next
+      // visit performs a fresh read instead of showing stale geometry/shots.
+      const correctedHole = validHole ?? shotMapState.data.hole
+      invalidateReviewShotMapCache(cacheNamespace, roundRef, correctedHole)
+      setShotMaps((previous) => {
+        const next = { ...previous }
+        delete next[shotMapKey]
+        return next
+      })
       setDrafts((previous) => {
         const next = { ...previous }
         delete next[shotMapKey]
