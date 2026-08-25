@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `bf84ea8a` (Native Mobile CI run `32837705596` passed the full iOS/Watch gate)
+**HEAD:** `1f0bc607` (source CI run `32844906468` passed backend, Web, visual smoke, and Docker)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -176,21 +176,33 @@ means a named external decision or prerequisite is missing; `done` and
   optional `map.image` no longer satisfies `CoursePrepHole`. Docker passed;
   Web component tests (601 passed, 7 skipped) and lint passed. No release or
   production state changed.
+- Source CI run `32844906468` at `1f0bc607` passed all jobs: backend tests and
+  private trial smoke, Web component tests (601 passed, 7 skipped), lint,
+  TypeScript/Vite build, Playwright visual smoke, and both Docker image/health/
+  geometry checks. The two fixes are test/fixture-only in `cf06d587`; production
+  code and production revision were unchanged.
+- Web-only runtime run `32845282260` at `1f0bc607` passed the real CI-player
+  journey through the stable Funnel endpoint. Overview, time trends,
+  performance, rounds list, review workbench, and round review all rendered;
+  protected overview/detail/shotmap/topo requests returned 200, and the first
+  live topo was course `3881` hole 1. The six PNGs are 1440x980 and non-empty;
+  artifact `9562076813` is 828,730 bytes with zip SHA256
+  `c7993aa100be4c4fbb12be135ed90c473fb5e76d6e5b744dc6a9f09871b8efe7`.
+  Secret-byte scanning passed. This proves the stable Web transport and real
+  player journey, not an iOS runtime or an HMB-specific cross-client match.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Close and rerun the two source-CI contract failures from run `32843227361`;
-   do not begin runtime evidence on a failing source baseline.
-2. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
+1. Run Web live evidence through the stable Funnel endpoint as part of
    the Web/R2 track; do not treat the failed Quick Tunnel as product proof.
-3. Close the remaining R2 implementation and evidence gaps: iOS/Web review
+2. Close the remaining R2 implementation and evidence gaps: iOS/Web review
    parity, first-frame/cache behavior, overlay-first layout, and unified trend
    entry, using Half Moon Bay round-by-round facts and approved screenshots.
-4. Keep production revision `6a6080c6...` unchanged until a deployment or
+3. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
-5. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
+4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
    owner-approval gates before TestFlight.
 
 ## Open Blockers / Facts
@@ -238,6 +250,14 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - 2026-08-24: Integrated `a1b88a2e`; CI `32689037776` passed Docker but exposed
   one Web fixture failure and two backend assertion failures. Fixes are queued
   one modifying agent at a time.
+- 2026-08-25: Integrated bounded CI contract fix `cf06d587` as `1f0bc607`,
+  pushed the canonical branch, and passed source CI `32844906468`; R2 now has
+  a green source baseline and remains open only for real Web/iOS evidence and
+  the documented parity/cache gaps.
+- 2026-08-25: Stable Funnel Web runtime evidence passed in run `32845282260`;
+  the prior Quick Tunnel transport failure is closed for Web. R2 remains open
+  for HMB cross-client parity, iOS runtime evidence, and the explicitly scoped
+  cache/provenance gaps.
 - 2026-08-24: Integrated backend test-contract fix `46aad448` and Web fixture
   fix `2ca27720`; awaiting a matching green CI run.
 - 2026-08-24: Integrated visual fixture correction `edf41054`; CI
