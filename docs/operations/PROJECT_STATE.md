@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `578969f4` (runtime-verified code baseline: `84a53752`)
+**HEAD:** `8a3ee8ba` (runtime-verified code baseline: `8a3ee8ba`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -34,7 +34,7 @@ project-level task list; historical plans are reference material.
 
 | ID | State | Scope | Exit evidence |
 |---|---|---|---|
-| `W1` | `evidence-open` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Recovery-only run `32791049667` at head `84a53752` passes 41/45/49 mm plus Cancel/tombstone markers; close only after a current-head production 18-hole journey also passes. |
+| `W1` | `evidence-open` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Recovery-only run `32791049667` at head `84a53752` passes 41/45/49 mm plus Cancel/tombstone markers; current head `8a3ee8ba` is CI-green, but close only after its production 18-hole journey also passes. |
 | `S1` | `ci-green-runtime-open` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Metadata → preparing → precise → offline-installed is resumable and the real package distance table matches every client. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
@@ -82,6 +82,9 @@ means a named external decision or prerequisite is missing; `done` and
   Its markers prove the Cancel recovery location event is persisted and the
   abandoned round's stale seed is rejected after relaunch. Web evidence was
   correctly skipped.
+- CI run `32796906679` at head `8a3ee8ba` passed frontend, backend, and Docker;
+  this advances the verified code baseline but does not close W1's production
+  18-hole/current-head journey evidence.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
@@ -160,3 +163,6 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   in GitHub run `32791049667`; W1 remains evidence-open because production
   18-hole/current-head evidence and deferred-finish network retry runtime
   evidence are still open.
+- 2026-08-25: CI run `32796906679` passed frontend, backend, and Docker at
+  `8a3ee8ba`; W1 remains evidence-open with the external API 502 blocker and
+  current-head production journey still required.
