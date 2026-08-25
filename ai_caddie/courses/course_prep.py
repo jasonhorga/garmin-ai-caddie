@@ -889,7 +889,9 @@ def club_ladder_with_provenance(
             "sampleSize": sample_size,
         }
         previous = history_by_token.get(token)
-        if previous is None or candidate["sampleSize"] > previous["sampleSize"]:
+        if previous is None or (candidate["sampleSize"], candidate["m"]) > (
+            previous["sampleSize"], previous["m"]
+        ):
             history_by_token[token] = candidate
 
     garmin_by_token: dict[str, tuple[int, str]] = {}

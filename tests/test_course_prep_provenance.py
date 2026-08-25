@@ -48,6 +48,20 @@ class CoursePrepProvenanceTests(unittest.TestCase):
         unresolved = self._annotate([("custom club", 177)])[0]
         self.assertEqual(unresolved["distanceSource"], "unresolved")
 
+    def test_history_alias_tie_break_matches_club_ladder(self) -> None:
+        # Equal samples use the higher median, matching club_ladder's alias selection.
+        row = self._annotate(
+            [("3W", 175)],
+            profiles={
+                "三号木杆": {"median": 173, "sampleSize": 12},
+                "3W": {"median": 175, "sampleSize": 12},
+            },
+        )[0]
+
+        self.assertEqual(row["distanceSource"], "history_median")
+        self.assertEqual(row["sampleSize"], 12)
+        self.assertEqual(row["m"], 175)
+
     def test_prep_response_appends_provenance_without_removing_legacy_fields(self) -> None:
         prep_cache.clear()
         self.addCleanup(prep_cache.clear)
