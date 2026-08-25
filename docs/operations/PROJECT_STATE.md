@@ -230,14 +230,17 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Close the remaining R2 implementation and evidence gaps: iOS/Web review
-   parity, first-frame/cache behavior, overlay-first layout, and unified trend
-   entry, using Half Moon Bay round-by-round facts and approved screenshots.
-   Treat the HMB club-distance provenance item as an explicit credential gate;
-   do not fill it with catalog defaults or infer it from shot labels.
-2. Keep production revision `6a6080c6...` unchanged until a deployment or
+1. Resolve the named runtime blocker first: obtain explicit approval for the
+   smallest recovery of the known `garmin-ai-caddie-api-1` service, or provide
+   another healthy authorized runtime. Verify health and immutable revision
+   before any further browser/native evidence.
+2. Close R2's remaining evidence gaps: same-round Half Moon Bay iOS/Web
+   request and first-frame parity, approved runtime screenshots, and the
+   Garmin club-distance provenance capture. Do not fill missing 3W/3H/Driver
+   values with catalog defaults or infer them from shot labels.
+3. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
-3. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
+4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
    owner-approval gates before TestFlight.
 
 ## Open Blockers / Facts
