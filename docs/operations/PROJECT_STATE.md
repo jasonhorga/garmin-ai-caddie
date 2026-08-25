@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `769e3609` (source CI run `32847741048` passed after the Web review cache slice)
+**Source baseline:** `b2688f3c` (docs-only state commits after source CI run `32847741048` passed at `769e3609`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -19,7 +19,7 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`R2` — iOS/Web review parity and live evidence** (`in-progress`)
+**`R2` — iOS/Web review parity and live evidence** (`evidence-open`)
 
 `W1` and `S1` are closed with isolated current-head evidence. The public
 service still runs revision `6a6080c6...`; no production deployment or data
@@ -207,40 +207,31 @@ means a named external decision or prerequisite is missing; `done` and
   `9563119622` is 828,730 bytes with zip SHA256
   `81954f0a9065668fb6bbaac7885d709f9f33e3bdfa15f5d2c2a81b39abc850ec`.
 
-- HMB provenance probe completed read-only: candidate `/prep` GETs for course
-  IDs `6022` and `6023` returned 401 without authorization, then 200 with the
-  container's existing admin credential. The authorized responses contain 18
-  holes and per-hole geometry revisions, but no club rows; `/history/clubs/bag`
-  also returns an empty `clubs` array. No credential was printed or persisted,
-  and no write endpoint was called. The source chain from Garmin club fields
-  through backend ladder and `/prep` provenance to iOS/Web decoding is present,
-  but there is no HMB `3W`/`3H`/Driver value or client display evidence to claim.
-  Shot labels in the two rounds are facts only and cannot substitute for club
-  distance data.
-
-- Runtime evidence is currently blocked by the environment, not a new source
-  code failure: the production API container `garmin-ai-caddie-api-1` is
-  `unhealthy` with Docker health checks timing out, while the isolated candidate
-  remains healthy. Do not restart, redeploy, or synchronize production as a test
-  without explicit approval. The candidate has geometry for HMB course IDs but
-  an empty player club bag, so it cannot supply the missing Garmin distance
-  provenance or a same-round HMB client journey.
+- HMB club provenance is now proved read-only against the production data volume.
+  Garmin Driver/3W/3H each have `adviceDistance=0` and `averageDistance=0`, and
+  no manual bag is present. Current HEAD canonicalizes aliases and selects
+  AutoShot history medians: Driver 197m/215yd (n=3155), 3W 171m/187yd (n=535),
+  and 3H 159m/174yd (n=236), all `history_median` with high confidence. The
+  production image's old ladder retains duplicate `3W`/`3号木杆` rows, uses
+  `3号小鸡腿` for hybrid3, includes Putter, and has no provenance fields. The
+  private evidence SHA is `04ef01cca74b075882abe43cff25a4791f58857c8017086bc0d99e9f7ea44e2e`.
+- The production API recovered without intervention: on 2026-08-25 the
+  `garmin-ai-caddie-api-1` container was `healthy`, local and public health GETs
+  returned 200, and its `StartedAt` remained `2026-08-04T18:59:17Z`. No restart,
+  deployment, synchronization, Funnel change, or production write occurred.
+  R2 remains open for same-round HMB iOS/Web runtime evidence, not backend club
+  provenance or service recovery.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Resolve the named runtime blocker first: obtain explicit approval for the
-   smallest recovery of the known `garmin-ai-caddie-api-1` service, or provide
-   another healthy authorized runtime. Verify health and immutable revision
-   before any further browser/native evidence.
-2. Close R2's remaining evidence gaps: same-round Half Moon Bay iOS/Web
-   request and first-frame parity, approved runtime screenshots, and the
-   Garmin club-distance provenance capture. Do not fill missing 3W/3H/Driver
-   values with catalog defaults or infer them from shot labels.
-3. Keep production revision `6a6080c6...` unchanged until a deployment or
+1. Close R2's remaining evidence gaps: same-round Half Moon Bay iOS/Web request,
+   first-frame parity, displayed club-distance/source values, and approved
+   runtime screenshots.
+2. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
-4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
+3. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
    owner-approval gates before TestFlight.
 
 ## Open Blockers / Facts
@@ -254,8 +245,8 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - The public Funnel root route was restored on 2026-08-25 from
   `127.0.0.1:443` to `:8080` under user authorization; the route backup
   directory and before/after SHAs are recorded above. Public endpoint checks
-  returned 200. The public backend remains `6a6080c6...`; the current-head
-  candidate was used only through an isolated, now-cleaned test route.
+  returned 200. The public backend remains `6a6080c6...`; the pre-existing
+  loopback-only candidate on `127.0.0.1:39055` was inspected but not changed.
 - One runtime evidence boundary remains open: deferred-finish network retry is
   still unit-test-only. Cancel completion and old-seed tombstone rejection are
   covered by run `32791049667`.
@@ -390,16 +381,11 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   Current-head CI `32843227361` then found one stale backend contract assertion
   and one Web fixture type error; a single bounded fix agent is handling those
   before R2 runtime evidence continues.
-- 2026-08-25: Completed the bounded HMB provenance probe. Unauthenticated
-  `/prep` requests for course IDs `6022`/`6023` returned 401; the same requests
-  with the existing admin credential returned 200 with 18 geometry-backed holes
-  but an empty club ladder, and `/history/clubs/bag` was empty. No credential was
-  printed or persisted and no write operation was used. Recorded the explicit
-  data-volume blocker and the existing Garmin-to-client source chain in the HMB
-  review; R2 remains open.
-- 2026-08-25: Reclassified R2 from `implementation-partial` to `evidence-open`:
-  the Web cache implementation and existing iOS/cache/map-first code are present;
-  remaining work is real HMB cross-client/runtime proof. The production API was
-  observed unhealthy (health checks timing out), and the isolated candidate's
-  club bag is empty. No restart, deployment, sync, or production mutation was
-  performed.
+- 2026-08-25: Corrected the bounded HMB provenance probe with a current-HEAD,
+  network-disabled container over the production volume mounted read-only. The
+  Garmin bag is non-empty but its Driver/3W/3H advice/average values are zero;
+  current HEAD selects the real AutoShot medians with provenance, while the
+  production image's old ladder has alias duplication, Putter contamination,
+  and no provenance. The production API also returned to healthy without a
+  restart (`StartedAt` unchanged). R2 stays `evidence-open` only for real HMB
+  iOS/Web parity and owner approval; no production/Funnel/sync mutation occurred.

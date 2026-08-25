@@ -15,6 +15,11 @@
 - 没有调用 correction、sync、ingest 或任何写接口
 - 原始响应没有复制到公开 `/home/jason/demos`，也没有写入生产数据卷
 
+杆距复核另使用当前 HEAD `b2688f3c` 的只读源码快照和一个无网络、无端口、
+只读根文件系统的临时容器。生产数据卷只以 `:ro` 挂载；容器没有启动服务，
+只执行 `effective_club_ladder("me")`、`club_ladder_with_provenance("me")`
+和与 `/prep` 相同的 club-row 投影。没有重新请求生产全洞 `/prep`。
+
 ## 结果
 
 | Round | 球场 | 成绩 | 逐洞 | 球杆事实 | shotmap | 地图 authority | 缺失数据 |
@@ -60,6 +65,48 @@
 | `shotmap-summary.json` | `b6d86862867a6e44128769455c18ce5806bbff4aeb62c173cd7c6f1baa5ec443` |
 | `manifest.txt` | `7ed7d00c8dc2e98d7cfc73f8f1709547cb0885cca47cdfbf40c4af2e7655c0e1` |
 | `file-manifest.txt` | `c7e55c68b5dffdaf76ab2320aceb78255dd2f3c878786b17f474a4ca24f2861a` |
+| `club-provenance-current-head.json` | `04ef01cca74b075882abe43cff25a4791f58857c8017086bc0d99e9f7ea44e2e` |
+
+## 杆距 provenance 真实对账
+
+先前记录的“candidate `clubs=[]`”结论不正确。受控授权 GET 实际返回了
+非空 Garmin 球包；旧 `/prep` 也返回了 club rows，只是没有 `token`、
+`distanceSource`、`sampleSize` 或 `confidence`。本次直接对生产数据卷做
+只读纯函数复核，确认 Driver、3W、3H 的 Garmin `adviceDistance` 和
+`averageDistance` 都是 `0`。当前代码只接受 `5...350m` 的 Garmin 值，
+所以这些 `0` 是“Garmin 未提供距离”，不会被标成 `garmin_advice` 或
+`garmin_average`。owner 也没有 manual bag，最终来源是 AutoShot 历史中位数。
+
+| 杆 | Garmin type | advice / average (m) | AutoShot 候选 | 当前 HEAD 选择 | `/prep` club projection |
+|---|---:|---:|---|---|---|
+| Driver | 1 | 0 / 0 | `Driver` 197.0m, n=3155 | `Driver` 197m | 215yd, `history_median`, n=3155, high |
+| 3W | 2 | 0 / 0 | `3W` 170.9m, n=535; `3号木杆` 167.9m, n=358 | `3W` 171m | 187yd, `history_median`, n=535, high |
+| 3H | 6 | 0 / 0 | `3H` 158.6m, n=236; `3号小鸡腿` 153.5m, n=96 | `3H` 159m | 174yd, `history_median`, n=236, high |
+
+当前 HEAD 先按 canonical token 合并 aliases，再以 `(sampleSize, median)` 选
+最强记录，因此每支实体杆只剩一行，Putter 也被排除。上表中的 `/prep`
+列是使用 endpoint 同一映射生成的 `name`、`token`、`m`、`yd`、
+`distanceSource`、`sampleSize` 和 `confidence`，不是再次调用全洞 endpoint。
+
+作为对照，同一只读容器还执行了正在运行的生产镜像
+`garmin-ai-caddie-api:5130f65` 内置 ladder。旧输出为：
+
+| 旧 production ladder row | m / yd | 问题 |
+|---|---:|---|
+| `Driver` | 197 / 215 | 无 provenance |
+| `3W` | 171 / 187 | 与下一行是同一 `wood3` |
+| `3号木杆` | 168 / 184 | 3W alias 重复 |
+| `3号小鸡腿` | 154 / 168 | 以 alias 出现且无来源/样本 |
+| `Putter` | 109 / 119 | 不应进入 full-shot recommendation ladder |
+
+这解释了旧生产显示不一致的最小原因：Garmin 原值并非错误的非零距离；
+旧 ladder 没有合并所有 aliases、混入 Putter，而且 wire payload 缺 provenance。
+当前 HEAD 的后端数值和来源现已由真实数据证明，不需要 catalog default 填充。
+
+客户端边界仍须分开陈述：iOS `CoursePrepClub` 可以解码上述全部字段，但
+当前持久 `CoursePrepPackage` 只保留 holes；Web 会按 `yd` 选最近杆并显示本地化
+来源标签。这里没有 HMB iOS/Web runtime 截图，因此只能证明客户端代码投影，
+不能宣称两个客户端已显示同一行。
 
 ## 尚未证明
 
@@ -68,27 +115,5 @@
 - 同一 round 在 iOS 与 Web 的真实请求/首帧计时和截图并排比较；
 - Web 刷新后 review cache 是否避免重复请求，并按 player、round、hole、geometry revision 隔离；
 - 趋势页面点击真实 HMB round 后是否正确落到对应复盘洞；
-- 3W/3H 的 Garmin 原始杆距到 `/prep` provenance 再到各客户端显示的证据表。
-
-## 杆距 provenance 受控核查
-
-2026-08-25 对与公开 revision 对齐的 candidate API 做了只读、受控的
-`GET` 核查。无授权头时，`/api/v2/courses/6022/prep` 和
-`/api/v2/courses/6023/prep` 均返回 HTTP 401。随后使用容器内已有的 admin
-凭据（只在请求头中使用，未打印或落盘）重新核查：两条请求均返回 HTTP
-200、`holeCount=18`，每洞都有 `geometryRevision`；`/api/v2/history/clubs/bag`
-也返回 200，但 `clubs=[]`。这说明当前 candidate 数据卷没有可引用的
-HMB Garmin 球包值，不能从这两场 round 的 shot label 反推出球杆距离。
-本轮没有调用任何写接口。
-
-源码链路本身已存在并通过静态检查：Garmin `/club/player` 与 `/club/types`
-字段会持久化；`adviceDistance` 优先于 `averageDistance`；后端 ladder 会
-标注 `garmin_advice`、`garmin_average`、`history_median`、`manual`、
-`catalog_default` 或 `unresolved`；`/prep` 会返回 `distanceSource`、
-`sampleSize` 和 `confidence`，客户端也有对应解码路径。尚未证明的是这些
-字段在 HMB 的真实响应中取了什么值，以及 iOS/Web 是否按同一值显示。
-
-结论：HMB 两场的 shot facts 已完整证明；3W/3H/Driver 的真实数值仍是
-明确的凭据阻塞，不是“缺失数据”或可以用默认值填充的问题。解除该阻塞
-需要一次用户授权的 `/club/player`/`/club/types` 捕获、匹配的 `/prep`
-响应，以及同一 HMB round 的 iOS/Web runtime 对账。
+- 同一 HMB round 的 iOS/Web runtime 是否实际显示 Driver 215yd、3W 187yd、
+  3H 174yd 及对应来源。
