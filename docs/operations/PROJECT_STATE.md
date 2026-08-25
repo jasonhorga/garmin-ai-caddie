@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `c5f871b6` (Watch fixture compile fix; full Native run `32827910559` failed before Watch XCTest)
+**HEAD:** `9bd4ce64` (Watch multiline fixture delimiter fix; Native run `32832956274` reached Watch compile but failed delimiter placement)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -147,12 +147,20 @@ means a named external decision or prerequisite is missing; `done` and
   single-line raw-string delimiters; Watch XCTest and runtime screenshots were
   skipped. Test-only correction `c5f871b6` changes the fixture to a valid
   multiline raw string. No production Watch code changed.
+- Full Native Mobile CI run `32832956274` was dispatched at `aa9f9616` with
+  `capture_scope=full` and `require_live_preflight=false`. iOS XCTest (257
+  tests), SwiftJCS boundaries, iOS snapshots, real iOS flow/video, and Watch
+  simulator boot all passed. Watch target compilation then failed because the
+  multiline fixture's opening/closing delimiters were on the same lines as
+  JSON content (`WatchBackendClientTests.swift:334,351`); Watch XCTest and
+  runtime screenshots were skipped. Correction `9bd4ce64` places both
+  delimiters on their own lines. No production code changed.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Push `c5f871b6` and dispatch a new full Native Mobile CI run with
+1. Push `9bd4ce64` and dispatch a new full Native Mobile CI run with
    `capture_scope=full` and `require_live_preflight=false`. Record Watch XCTest,
    Watch design snapshots, and real Watch round screenshots; do not claim native
    verification from Linux or focused Python/Web tests.
@@ -283,3 +291,8 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - 2026-08-25: Integrated test-only Watch fixture correction `c5f871b6` from a
   delegated worktree. The fixture now uses valid multiline raw-string
   delimiters; the next action is a fresh full Native run.
+- 2026-08-25: Full Native run `32832956274` at `aa9f9616` passed all iOS
+  stages and Watch simulator boot, but Watch compilation still rejected the
+  fixture because Swift requires multiline content and closing delimiters to
+  start on their own lines. Integrated the bounded test-only correction
+  `9bd4ce64`; no Watch runtime evidence is claimed until the next run.
