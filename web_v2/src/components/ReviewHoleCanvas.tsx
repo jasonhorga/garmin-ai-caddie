@@ -44,6 +44,7 @@ function eventPixel(event: PointerEvent<SVGSVGElement | SVGCircleElement> | Mous
 }
 
 export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onMapClick, onShotMove }: ReviewHoleCanvasProps): React.ReactElement {
+  // The editor is a single-pointer interaction; activeShotId remains stable when mobile pointer IDs do not.
   const activeShotId = useRef<string | null>(null)
   const suppressNextMapClick = useRef(false)
   const note = statusNote(state)
