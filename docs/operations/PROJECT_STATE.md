@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `5fdb9fff` (keyboard and review-reorder gates verified; full native Watch evidence remains open)
+**HEAD:** `e43a00bf` (keyboard and review-reorder gates verified; full Native run `32827910559` pending)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -139,13 +139,16 @@ means a named external decision or prerequisite is missing; `done` and
 - Test-only reorder commit `5fdb9fff` moves the XCUITest drag destination to
   the preceding row's content center. Edit-scope run `32826478232` passed the
   real reorder flow; no production reorder code changed.
+- Full Native Mobile CI run `32827910559` was dispatched at `e43a00bf` with
+  `capture_scope=full` and the live-revision preflight disabled. It is pending;
+  no Watch XCTest or runtime screenshot claim is made until the run completes.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Run the full GitHub `Native Mobile CI` on `5fdb9fff` (including Watch
-   stages) and record iOS/Watch XCTest plus real screenshots; do not claim
+1. Finish full Native Mobile CI run `32827910559` on `e43a00bf` (including
+   Watch stages) and record iOS/Watch XCTest plus real screenshots; do not claim
    native verification from Linux or focused Python/Web tests.
 2. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
    the Web/R2 track; do not treat the failed Quick Tunnel as product proof.
@@ -266,3 +269,6 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   the XCUITest drag destination from a second reorder handle to the preceding
   row content. Edit-scope run `32826478232` passed; the full native Watch gate
   is next.
+- 2026-08-25: Pushed integrated head `e43a00bf` and dispatched full Native run
+  `32827910559` with `capture_scope=full` and `require_live_preflight=false`;
+  production revision remains unchanged.
