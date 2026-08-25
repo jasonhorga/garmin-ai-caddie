@@ -1,5 +1,5 @@
 import type { CSSProperties, MouseEvent, PointerEvent } from 'react'
-import { useRef } from 'react'
+import { Fragment, useRef } from 'react'
 import type { RoundHoleShotMapResponse } from '../types'
 import { topoImageUrl } from '../api'
 import { HoleBaseImage } from './HoleBaseImage'
@@ -92,8 +92,8 @@ export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onM
         aria-hidden={!editing}
         onPointerDown={(event) => {
           if (!editing || !(event.target instanceof Element)) return
-          const marker = event.target.closest('circle[data-shot-id]')
-          const shotId = marker?.getAttribute('data-shot-id')
+          const marker = event.target.closest('circle[data-shot-id], circle[data-shot-hit-id]')
+          const shotId = marker?.getAttribute('data-shot-id') ?? marker?.getAttribute('data-shot-hit-id')
           if (!shotId) return
           event.stopPropagation()
           activeShotId.current = shotId
@@ -152,45 +152,65 @@ export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onM
         {shots.map((shot, index) => {
           if (!shot.end) return null
           const shotId = shot.id ?? null
+          const markerKey = `dot-${shotId ?? index}`
+          const onPointerDown = (event: PointerEvent<SVGCircleElement>) => {
+            if (!editing || !shotId) return
+            activeShotId.current = shotId
+            event.currentTarget.ownerSVGElement?.setPointerCapture?.(event.pointerId)
+          }
+          const onPointerMove = (event: PointerEvent<SVGCircleElement>) => {
+            if (!editing || !shotId || activeShotId.current !== shotId) return
+            event.stopPropagation()
+            onShotMove?.(shotId, eventPixel(event, w, h))
+          }
+          const onPointerUp = (event: PointerEvent<SVGCircleElement>) => {
+            event.stopPropagation()
+            if (activeShotId.current === shotId) {
+              activeShotId.current = null
+              suppressNextMapClick.current = true
+            }
+          }
+          const onPointerCancel = (event: PointerEvent<SVGCircleElement>) => {
+            event.stopPropagation()
+            if (activeShotId.current === shotId) activeShotId.current = null
+          }
           return (
-            <circle
-              key={`dot-${shotId ?? index}`}
-              data-shot-id={shotId ?? undefined}
-              cx={shot.end[0]}
-              cy={shot.end[1]}
-              r={editing ? 9 : 7}
-              fill="#ffd447"
-              stroke={editing ? '#fff2a6' : '#7a5b00'}
-              strokeWidth={editing ? 2.4 : 1.6}
-              className={editing ? 'review-shot-marker review-shot-marker--editable' : 'review-shot-marker'}
-              role={editing && shotId ? 'button' : undefined}
-              tabIndex={editing && shotId ? 0 : undefined}
-              aria-label={editing && shotId ? `第${shot.order ?? index + 1}杆落点` : undefined}
-              onPointerDown={(event) => {
-                if (!editing || !shotId) return
-                activeShotId.current = shotId
-                event.currentTarget.ownerSVGElement?.setPointerCapture?.(event.pointerId)
-              }}
-              onPointerMove={(event) => {
-                if (!editing || !shotId || activeShotId.current !== shotId) return
-                event.stopPropagation()
-                onShotMove?.(shotId, eventPixel(event, w, h))
-              }}
-              onPointerUp={(event) => {
-                event.stopPropagation()
-                if (activeShotId.current === shotId) {
-                  activeShotId.current = null
-                  suppressNextMapClick.current = true
-                }
-              }}
-              onPointerCancel={(event) => {
-                event.stopPropagation()
-                if (activeShotId.current === shotId) {
-                  activeShotId.current = null
-                }
-              }}
-              onClick={(event) => event.stopPropagation()}
-            />
+            <Fragment key={markerKey}>
+              {editing && shotId ? (
+                <circle
+                  data-shot-hit-id={shotId}
+                  cx={shot.end[0]}
+                  cy={shot.end[1]}
+                  r={22}
+                  fill="transparent"
+                  stroke="none"
+                  pointerEvents="all"
+                  aria-hidden="true"
+                  onPointerDown={onPointerDown}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={onPointerCancel}
+                />
+              ) : null}
+              <circle
+                data-shot-id={shotId ?? undefined}
+                cx={shot.end[0]}
+                cy={shot.end[1]}
+                r={editing ? 9 : 7}
+                fill="#ffd447"
+                stroke={editing ? '#fff2a6' : '#7a5b00'}
+                strokeWidth={editing ? 2.4 : 1.6}
+                className={editing ? 'review-shot-marker review-shot-marker--editable' : 'review-shot-marker'}
+                role={editing && shotId ? 'button' : undefined}
+                tabIndex={editing && shotId ? 0 : undefined}
+                aria-label={editing && shotId ? `第${shot.order ?? index + 1}杆落点` : undefined}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerCancel}
+                onClick={(event) => event.stopPropagation()}
+              />
+            </Fragment>
           )
         })}
         {geo.hole ? <circle cx={geo.hole[0]} cy={geo.hole[1]} r={6} fill="#e43a3a" stroke="#fff" strokeWidth={1.8} /> : null}
