@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `bf944100` (keyboard-focus fix integrated; targeted run exposed a review reorder gate)
+**HEAD:** `5fdb9fff` (keyboard and review-reorder gates verified; full native Watch evidence remains open)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -38,7 +38,7 @@ project-level task list; historical plans are reference material.
 | ID | State | Scope | Exit evidence |
 |---|---|---|---|
 | `W1` | `done` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Run `32806892801` watch-runtime job succeeded at head `8a3ee8ba`: 41/45/49 mm captures, real Cypress 18-hole install/restore, same-round 1–18 journey, hole-1 history edit while live on hole 10, finish confirmation, 57 queued records acknowledged, remote finish success, plus Cancel recovery and abandon/tombstone markers. |
-| `S1` | `in-progress` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Provenance, Watch install-status, and keyboard-focus code are integrated; targeted keyboard proof plus a green macOS run covering iOS + Watch tests/screenshots are still required. |
+| `S1` | `in-progress` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Provenance, Watch install-status, keyboard-focus, and review-reorder gates are verified; a full macOS run covering Watch tests/screenshots is still required. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
 | `REL` | `blocked` | Release and TestFlight gate. | `W1`, `S1`, and `R1`/`R2` evidence complete, production provenance approved, then owner approval. |
@@ -136,16 +136,17 @@ means a named external decision or prerequisite is missing; `done` and
   but `ReviewEditUITests.testCaptureReviewEditFlow` failed at line 289 when the
   last reorder handle did not change the preceding visible shot. Full Native
   verification remains blocked on that bounded reorder gate.
+- Test-only reorder commit `5fdb9fff` moves the XCUITest drag destination to
+  the preceding row's content center. Edit-scope run `32826478232` passed the
+  real reorder flow; no production reorder code changed.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Resolve the bounded review reorder failure from run `32821984671`, rerun its
-   review scope, then run the full GitHub `Native Mobile CI` on the resulting
-   head (including Watch stages) and record iOS/Watch XCTest plus real
-   screenshots; do not claim native verification from Linux or focused
-   Python/Web tests.
+1. Run the full GitHub `Native Mobile CI` on `5fdb9fff` (including Watch
+   stages) and record iOS/Watch XCTest plus real screenshots; do not claim
+   native verification from Linux or focused Python/Web tests.
 2. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
    the Web/R2 track; do not treat the failed Quick Tunnel as product proof.
 3. Keep production revision `6a6080c6...` unchanged until a deployment or
@@ -261,3 +262,7 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   entry paths. Review-scope run `32821984671` passed the complete RealFlow
   search/review journey but failed the ReviewEdit reorder assertion at line
   289; a second bounded delegated worktree is investigating that behavior.
+- 2026-08-25: Test-only reorder fix `5fdb9fff` (delegated `ef5261d2`) changed
+  the XCUITest drag destination from a second reorder handle to the preceding
+  row content. Edit-scope run `32826478232` passed; the full native Watch gate
+  is next.
