@@ -73,11 +73,13 @@
 ## 杆距 provenance 受控核查
 
 2026-08-25 对与公开 revision 对齐的 candidate API 做了只读、受控的
-`GET` 核查。`/api/v2/courses/6022/prep` 和
-`/api/v2/courses/6023/prep` 在没有 player/admin 授权头时均返回 HTTP 401。
-本轮没有寻找、打印或落盘 token，也没有调用任何写接口。因此当前没有
-可引用的 HMB `/prep` 响应，也不能从这两场 round 的 shot label 反推出球杆
-距离。
+`GET` 核查。无授权头时，`/api/v2/courses/6022/prep` 和
+`/api/v2/courses/6023/prep` 均返回 HTTP 401。随后使用容器内已有的 admin
+凭据（只在请求头中使用，未打印或落盘）重新核查：两条请求均返回 HTTP
+200、`holeCount=18`，每洞都有 `geometryRevision`；`/api/v2/history/clubs/bag`
+也返回 200，但 `clubs=[]`。这说明当前 candidate 数据卷没有可引用的
+HMB Garmin 球包值，不能从这两场 round 的 shot label 反推出球杆距离。
+本轮没有调用任何写接口。
 
 源码链路本身已存在并通过静态检查：Garmin `/club/player` 与 `/club/types`
 字段会持久化；`adviceDistance` 优先于 `averageDistance`；后端 ladder 会

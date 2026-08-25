@@ -208,12 +208,15 @@ means a named external decision or prerequisite is missing; `done` and
   `81954f0a9065668fb6bbaac7885d709f9f33e3bdfa15f5d2c2a81b39abc850ec`.
 
 - HMB provenance probe completed read-only: candidate `/prep` GETs for course
-  IDs `6022` and `6023` returned HTTP 401 without a player/admin token. No
-  credential was sought, printed, or persisted, and no write endpoint was
-  called. The source chain from Garmin club fields through backend ladder and
-  `/prep` provenance to iOS/Web decoding is present, but there is no HMB
-  `3W`/`3H`/Driver value or client display evidence to claim yet. Shot labels in
-  the two rounds are facts only and cannot substitute for club-distance data.
+  IDs `6022` and `6023` returned 401 without authorization, then 200 with the
+  container's existing admin credential. The authorized responses contain 18
+  holes and per-hole geometry revisions, but no club rows; `/history/clubs/bag`
+  also returns an empty `clubs` array. No credential was printed or persisted,
+  and no write endpoint was called. The source chain from Garmin club fields
+  through backend ladder and `/prep` provenance to iOS/Web decoding is present,
+  but there is no HMB `3W`/`3H`/Driver value or client display evidence to claim.
+  Shot labels in the two rounds are facts only and cannot substitute for club
+  distance data.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
@@ -377,6 +380,9 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   and one Web fixture type error; a single bounded fix agent is handling those
   before R2 runtime evidence continues.
 - 2026-08-25: Completed the bounded HMB provenance probe. Unauthenticated
-  `/prep` requests for course IDs `6022`/`6023` returned 401; no token or write
-  operation was used. Recorded the explicit credential blocker and the existing
-  Garmin-to-client source chain in the HMB review; R2 remains open.
+  `/prep` requests for course IDs `6022`/`6023` returned 401; the same requests
+  with the existing admin credential returned 200 with 18 geometry-backed holes
+  but an empty club ladder, and `/history/clubs/bag` was empty. No credential was
+  printed or persisted and no write operation was used. Recorded the explicit
+  data-volume blocker and the existing Garmin-to-client source chain in the HMB
+  review; R2 remains open.
