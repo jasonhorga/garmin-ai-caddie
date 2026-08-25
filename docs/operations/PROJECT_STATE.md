@@ -19,11 +19,11 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`S1` — Sync provenance and resumable course delivery** (`queued`)
+**`S1` — Sync provenance and resumable course delivery** (`in-progress`)
 
 `W1` is closed with isolated current-head runtime evidence. The public service
 still runs revision `6a6080c6...`; no production deployment or data
-synchronization was performed. The next slice starts with a bounded audit of
+synchronization was performed. S1 is currently limited to a read-only audit of
 sync provenance, resumable downloads, and real club-distance data.
 
 Only one task may become `in-progress` at a time. Update this file before
@@ -37,7 +37,7 @@ project-level task list; historical plans are reference material.
 | ID | State | Scope | Exit evidence |
 |---|---|---|---|
 | `W1` | `done` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Run `32806892801` watch-runtime job succeeded at head `8a3ee8ba`: 41/45/49 mm captures, real Cypress 18-hole install/restore, same-round 1–18 journey, hole-1 history edit while live on hole 10, finish confirmation, 57 queued records acknowledged, remote finish success, plus Cancel recovery and abandon/tombstone markers. |
-| `S1` | `queued` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Metadata → preparing → precise → offline-installed is resumable and the real package distance table matches every client. |
+| `S1` | `in-progress` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Metadata → preparing → precise → offline-installed is resumable and the real package distance table matches every client. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
 | `REL` | `blocked` | Release and TestFlight gate. | `W1`, `S1`, and `R1`/`R2` evidence complete, production provenance approved, then owner approval. |
@@ -110,8 +110,8 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Start `S1` with a read-only contract/data-flow audit; identify the minimum
-   implementation slice for resumable download and Garmin club-distance
+1. Finish the bounded S1 read-only contract/data-flow audit; identify the
+   minimum implementation slice for resumable download and Garmin club-distance
    provenance before changing code.
 2. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
    the Web/R2 track; do not treat the failed Quick Tunnel as product proof.
@@ -207,3 +207,6 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   the temporary Quick Tunnel with `net::ERR_FAILED`; W1 is nevertheless done,
   and S1 is now the queued next slice. All run-created remote resources were
   cleaned up and public revision/route checks remained unchanged.
+- 2026-08-25: Closed W1 and started S1 as the sole in-progress slice; the first
+  S1 action is a read-only data-flow audit, with no implementation or
+  production synchronization authorized yet.
