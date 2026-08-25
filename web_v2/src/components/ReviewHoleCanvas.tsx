@@ -1,4 +1,4 @@
-import type { CSSProperties, MouseEvent, PointerEvent } from 'react'
+import type { CSSProperties, MouseEvent, PointerEvent, TouchEvent } from 'react'
 import { Fragment, useRef } from 'react'
 import type { RoundHoleShotMapResponse } from '../types'
 import { topoImageUrl } from '../api'
@@ -34,13 +34,23 @@ function statusNote(state: ReviewShotMapState): { text: string; tone: 'muted' | 
 // ACTUAL shots (yellow trajectory + landing dots) drawn over the caddie-recommended
 // playing line (faint white dashes = overlay.route). Distance chips float over each
 // full-shot landing. Geometry may be missing for a hole → a graceful placeholder.
-function eventPixel(event: PointerEvent<SVGSVGElement | SVGCircleElement> | MouseEvent<SVGSVGElement>, w: number, h: number): [number, number] {
-  const rect = (event.currentTarget.ownerSVGElement ?? event.currentTarget).getBoundingClientRect()
+function clientPixel(clientX: number, clientY: number, rect: DOMRect, w: number, h: number): [number, number] {
   if (rect.width <= 0 || rect.height <= 0) return [0, 0]
   return [
-    Math.max(0, Math.min(w, ((event.clientX - rect.left) / rect.width) * w)),
-    Math.max(0, Math.min(h, ((event.clientY - rect.top) / rect.height) * h)),
+    Math.max(0, Math.min(w, ((clientX - rect.left) / rect.width) * w)),
+    Math.max(0, Math.min(h, ((clientY - rect.top) / rect.height) * h)),
   ]
+}
+
+function eventPixel(event: PointerEvent<SVGSVGElement | SVGCircleElement> | MouseEvent<SVGSVGElement>, w: number, h: number): [number, number] {
+  const rect = (event.currentTarget.ownerSVGElement ?? event.currentTarget).getBoundingClientRect()
+  return clientPixel(event.clientX, event.clientY, rect, w, h)
+}
+
+function touchPixel(event: TouchEvent<SVGCircleElement>, w: number, h: number): [number, number] {
+  const touch = event.touches[0] ?? event.changedTouches[0]
+  const rect = (event.currentTarget.ownerSVGElement ?? event.currentTarget).getBoundingClientRect()
+  return touch ? clientPixel(touch.clientX, touch.clientY, rect, w, h) : [0, 0]
 }
 
 export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onMapClick, onShotMove }: ReviewHoleCanvasProps): React.ReactElement {
@@ -174,6 +184,30 @@ export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onM
             event.stopPropagation()
             if (activeShotId.current === shotId) activeShotId.current = null
           }
+          const onTouchStart = (event: TouchEvent<SVGCircleElement>) => {
+            if (!editing || !shotId) return
+            event.preventDefault()
+            activeShotId.current = shotId
+          }
+          const onTouchMove = (event: TouchEvent<SVGCircleElement>) => {
+            if (!editing || !shotId || activeShotId.current !== shotId) return
+            event.preventDefault()
+            event.stopPropagation()
+            onShotMove?.(shotId, touchPixel(event, w, h))
+          }
+          const onTouchEnd = (event: TouchEvent<SVGCircleElement>) => {
+            event.preventDefault()
+            event.stopPropagation()
+            if (activeShotId.current === shotId) {
+              activeShotId.current = null
+              suppressNextMapClick.current = true
+            }
+          }
+          const onTouchCancel = (event: TouchEvent<SVGCircleElement>) => {
+            event.preventDefault()
+            event.stopPropagation()
+            if (activeShotId.current === shotId) activeShotId.current = null
+          }
           return (
             <Fragment key={markerKey}>
               {editing && shotId ? (
@@ -190,6 +224,10 @@ export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onM
                   onPointerMove={onPointerMove}
                   onPointerUp={onPointerUp}
                   onPointerCancel={onPointerCancel}
+                  onTouchStart={onTouchStart}
+                  onTouchMove={onTouchMove}
+                  onTouchEnd={onTouchEnd}
+                  onTouchCancel={onTouchCancel}
                 />
               ) : null}
               <circle
@@ -208,6 +246,10 @@ export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onM
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
                 onPointerCancel={onPointerCancel}
+                onTouchStart={onTouchStart}
+                onTouchMove={onTouchMove}
+                onTouchEnd={onTouchEnd}
+                onTouchCancel={onTouchCancel}
                 onClick={(event) => event.stopPropagation()}
               />
             </Fragment>
