@@ -1254,8 +1254,10 @@ test('review editor saves one map-first draft after browser interactions', async
   const marker = canvas.locator('circle[data-shot-id]').nth(1)
   const draggedShotId = await marker.getAttribute('data-shot-id')
   expect(draggedShotId).toBeTruthy()
+  await marker.scrollIntoViewIfNeeded()
   const initialX = Number(await marker.getAttribute('cx'))
   const initialY = Number(await marker.getAttribute('cy'))
+  await expect.poll(() => marker.boundingBox()).not.toBeNull()
   const box = await marker.boundingBox()
   expect(box).not.toBeNull()
   if (!box) throw new Error('editable landing marker has no box')
@@ -1263,37 +1265,6 @@ test('review editor saves one map-first draft after browser interactions', async
   const startY = box.y + box.height / 2
   const endX = startX + 24
   const endY = startY + 16
-  const dragDiagnosticStart = await page.evaluate(({ startX, startY }) => {
-    const svg = document.querySelector('svg.review-canvas-svg')
-    const target = document.elementFromPoint(startX, startY)
-    const describe = (element: Element | null) =>
-      element
-        ? { tag: element.tagName, shotId: element.getAttribute('data-shot-id'), hitId: element.getAttribute('data-shot-hit-id') }
-        : null
-    const logs: Array<Record<string, unknown>> = []
-    const handlers = ['pointerdown', 'pointermove', 'pointerup', 'touchstart', 'touchmove', 'touchend'].map((type) => {
-      const handler = (event: Event) => {
-        const point = 'touches' in event && event.touches.length > 0 ? event.touches[0] : event
-        logs.push({
-          type,
-          pointerId: 'pointerId' in event ? event.pointerId : null,
-          clientX: 'clientX' in point ? point.clientX : null,
-          clientY: 'clientY' in point ? point.clientY : null,
-          target: describe(event.target instanceof Element ? event.target : null),
-        })
-      }
-      svg?.addEventListener(type, handler, true)
-      return { type, handler }
-    })
-    if (svg) (svg as SVGSVGElement & { __dragDiagnostic?: unknown }).__dragDiagnostic = { logs, handlers }
-    return {
-      hit: describe(target),
-      markerBox: (svg?.querySelector('circle[data-shot-id]') as SVGCircleElement | null)?.getBoundingClientRect().toJSON() ?? null,
-      editableBox: (svg?.querySelector('circle[data-shot-id="web-source-2"]') as SVGCircleElement | null)?.getBoundingClientRect().toJSON() ?? null,
-      hitBox: (svg?.querySelector('circle[data-shot-hit-id="web-source-2"]') as SVGCircleElement | null)?.getBoundingClientRect().toJSON() ?? null,
-    }
-  }, { startX, startY })
-  console.log(`[review-drag-diagnostic-start] ${JSON.stringify(dragDiagnosticStart)}`)
   if (testInfo.project.name === 'mobile-chromium') {
     const cdp = await page.context().newCDPSession(page)
     await cdp.send('Input.dispatchTouchEvent', {
@@ -1312,15 +1283,6 @@ test('review editor saves one map-first draft after browser interactions', async
     await page.mouse.move(endX, endY)
     await page.mouse.up()
   }
-  const dragDiagnosticEvents = await page.evaluate(() => {
-    const svg = document.querySelector('svg.review-canvas-svg') as (SVGSVGElement & { __dragDiagnostic?: { logs: Array<Record<string, unknown>>; handlers: Array<{ type: string; handler: EventListener }> } }) | null
-    const diagnostic = svg?.__dragDiagnostic
-    if (!svg || !diagnostic) return []
-    for (const { type, handler } of diagnostic.handlers) svg.removeEventListener(type, handler, true)
-    delete svg.__dragDiagnostic
-    return diagnostic.logs
-  })
-  console.log(`[review-drag-diagnostic-events] ${JSON.stringify(dragDiagnosticEvents)}`)
   await expect.poll(async () => Number(await marker.getAttribute('cx'))).not.toBe(initialX)
   await expect.poll(async () => Number(await marker.getAttribute('cy'))).not.toBe(initialY)
   const draggedX = Number(await marker.getAttribute('cx'))
