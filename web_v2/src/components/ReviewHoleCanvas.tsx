@@ -44,7 +44,6 @@ function eventPixel(event: PointerEvent<SVGSVGElement | SVGCircleElement> | Mous
 }
 
 export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onMapClick, onShotMove }: ReviewHoleCanvasProps): React.ReactElement {
-  const draggingPointerId = useRef<number | null>(null)
   const activeShotId = useRef<string | null>(null)
   const suppressNextMapClick = useRef(false)
   const note = statusNote(state)
@@ -91,32 +90,30 @@ export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onM
         preserveAspectRatio="xMidYMid meet"
         aria-hidden={!editing}
         onPointerDown={(event) => {
-          if (!editing || !(event.target instanceof SVGCircleElement)) return
-          const shotId = event.target.getAttribute('data-shot-id')
+          if (!editing || !(event.target instanceof Element)) return
+          const marker = event.target.closest('circle[data-shot-id]')
+          const shotId = marker?.getAttribute('data-shot-id')
           if (!shotId) return
           event.stopPropagation()
-          draggingPointerId.current = event.pointerId
           activeShotId.current = shotId
           event.currentTarget.setPointerCapture?.(event.pointerId)
         }}
         onPointerMove={(event) => {
           const shotId = activeShotId.current
-          if (!editing || !shotId || draggingPointerId.current !== event.pointerId) return
+          if (!editing || !shotId) return
           event.stopPropagation()
           onShotMove?.(shotId, eventPixel(event, w, h))
         }}
         onPointerUp={(event) => {
-          if (draggingPointerId.current !== event.pointerId) return
+          if (!activeShotId.current) return
           event.stopPropagation()
-          draggingPointerId.current = null
           activeShotId.current = null
           suppressNextMapClick.current = true
           event.currentTarget.releasePointerCapture?.(event.pointerId)
         }}
         onPointerCancel={(event) => {
-          if (draggingPointerId.current !== event.pointerId) return
+          if (!activeShotId.current) return
           event.stopPropagation()
-          draggingPointerId.current = null
           activeShotId.current = null
           event.currentTarget.releasePointerCapture?.(event.pointerId)
         }}
@@ -170,27 +167,24 @@ export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onM
               aria-label={editing && shotId ? `第${shot.order ?? index + 1}杆落点` : undefined}
               onPointerDown={(event) => {
                 if (!editing || !shotId) return
-                draggingPointerId.current = event.pointerId
                 activeShotId.current = shotId
                 event.currentTarget.ownerSVGElement?.setPointerCapture?.(event.pointerId)
               }}
               onPointerMove={(event) => {
-                if (!editing || !shotId || draggingPointerId.current !== event.pointerId) return
+                if (!editing || !shotId || activeShotId.current !== shotId) return
                 event.stopPropagation()
                 onShotMove?.(shotId, eventPixel(event, w, h))
               }}
               onPointerUp={(event) => {
                 event.stopPropagation()
-                if (draggingPointerId.current === event.pointerId) {
-                  draggingPointerId.current = null
+                if (activeShotId.current === shotId) {
                   activeShotId.current = null
                   suppressNextMapClick.current = true
                 }
               }}
               onPointerCancel={(event) => {
                 event.stopPropagation()
-                if (draggingPointerId.current === event.pointerId) {
-                  draggingPointerId.current = null
+                if (activeShotId.current === shotId) {
                   activeShotId.current = null
                 }
               }}
