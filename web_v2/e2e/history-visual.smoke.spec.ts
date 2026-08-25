@@ -1227,7 +1227,7 @@ async function captureSmokeScreenshot(page: Page, testInfo: TestInfo, name: stri
   })
 }
 
-test('review editor saves one map-first draft after browser interactions', async ({ page }) => {
+test('review editor saves one map-first draft after browser interactions', async ({ page }, testInfo) => {
   const { correctionBodies, shotMapResponses } = await mockApi(page)
   await page.goto('/')
   await page.getByRole('button', { name: '全部球局', exact: true }).click()
@@ -1259,10 +1259,28 @@ test('review editor saves one map-first draft after browser interactions', async
   const box = await marker.boundingBox()
   expect(box).not.toBeNull()
   if (!box) throw new Error('editable landing marker has no box')
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(box.x + box.width / 2 + 24, box.y + box.height / 2 + 16)
-  await page.mouse.up()
+  const startX = box.x + box.width / 2
+  const startY = box.y + box.height / 2
+  const endX = startX + 24
+  const endY = startY + 16
+  if (testInfo.project.name === 'mobile-chromium') {
+    const cdp = await page.context().newCDPSession(page)
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ id: 1, x: startX, y: startY, radiusX: 8, radiusY: 8, force: 1 }],
+    })
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ id: 1, x: endX, y: endY, radiusX: 8, radiusY: 8, force: 1 }],
+    })
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await cdp.detach()
+  } else {
+    await page.mouse.move(startX, startY)
+    await page.mouse.down()
+    await page.mouse.move(endX, endY)
+    await page.mouse.up()
+  }
   await expect.poll(async () => Number(await marker.getAttribute('cx'))).not.toBe(initialX)
   await expect.poll(async () => Number(await marker.getAttribute('cy'))).not.toBe(initialY)
   const draggedX = Number(await marker.getAttribute('cx'))
