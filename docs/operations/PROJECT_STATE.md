@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `11c28972` (S1 Watch install-status slice integrated; native runtime verification remains open)
+**HEAD:** `bf944100` (keyboard-focus fix integrated; targeted and full native runtime verification remain open)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -38,7 +38,7 @@ project-level task list; historical plans are reference material.
 | ID | State | Scope | Exit evidence |
 |---|---|---|---|
 | `W1` | `done` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Run `32806892801` watch-runtime job succeeded at head `8a3ee8ba`: 41/45/49 mm captures, real Cypress 18-hole install/restore, same-round 1–18 journey, hole-1 history edit while live on hole 10, finish confirmation, 57 queued records acknowledged, remote finish success, plus Cancel recovery and abandon/tombstone markers. |
-| `S1` | `in-progress` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Provenance and Watch install-status code are integrated; the keyboard-focus fix and a green macOS run covering iOS + Watch tests/screenshots are still required. |
+| `S1` | `in-progress` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Provenance, Watch install-status, and keyboard-focus code are integrated; targeted keyboard proof plus a green macOS run covering iOS + Watch tests/screenshots are still required. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
 | `REL` | `blocked` | Release and TestFlight gate. | `W1`, `S1`, and `R1`/`R2` evidence complete, production provenance approved, then owner approval. |
@@ -130,13 +130,16 @@ means a named external decision or prerequisite is missing; `done` and
   iOS flow at `RealFlowUITests.swift:292`: the search keyboard remained present
   after tapping the manual search button. Watch XCTest and Watch runtime
   screenshots were skipped by that failure.
+- Keyboard-focus fix `bf944100` synchronously clears `focusedField` before
+  launching manual, nearby, or submit-triggered searches. Review-scope Native
+  run `32821984671` is queued; it is not evidence until it completes.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Integrate and run the bounded manual-search keyboard-focus fix, then rerun
-   GitHub `Native Mobile CI` on the resulting head and record iOS/Watch XCTest
+1. Finish review-scope run `32821984671`; then run the full GitHub `Native
+   Mobile CI` on `bf944100` (including Watch stages) and record iOS/Watch XCTest
    plus real screenshots; do not claim native verification from Linux or
    focused Python/Web tests.
 2. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
@@ -249,3 +252,7 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   but failed the real search flow at line 292 because the keyboard remained
   visible; Watch stages were skipped. A bounded focus-dismissal fix is now the
   sole active implementation task before the next native run.
+- 2026-08-25: Integrated keyboard-focus fix `bf944100` from delegated commit
+  `44ba73fb`; it synchronously clears the search field before all three search
+  entry paths. Review-scope run `32821984671` was queued after cancelling the
+  superseded duplicate run `32821497400`.
