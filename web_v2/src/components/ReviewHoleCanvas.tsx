@@ -1,4 +1,5 @@
 import type { CSSProperties, MouseEvent, PointerEvent } from 'react'
+import { useRef } from 'react'
 import type { RoundHoleShotMapResponse } from '../types'
 import { topoImageUrl } from '../api'
 import { HoleBaseImage } from './HoleBaseImage'
@@ -43,6 +44,7 @@ function eventPixel(event: PointerEvent<SVGSVGElement | SVGCircleElement> | Mous
 }
 
 export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onMapClick, onShotMove }: ReviewHoleCanvasProps): React.ReactElement {
+  const draggingPointerId = useRef<number | null>(null)
   const note = statusNote(state)
   const map = state.status === 'ready' ? state.data.map : null
   const shots = state.status === 'ready' ? state.data.shots : []
@@ -133,14 +135,22 @@ export function ReviewHoleCanvas({ hole, par, score, state, editing = false, onM
               onPointerDown={(event) => {
                 if (!editing || !shotId) return
                 event.stopPropagation()
+                draggingPointerId.current = event.pointerId
                 event.currentTarget.setPointerCapture?.(event.pointerId)
               }}
               onPointerMove={(event) => {
-                if (!editing || !shotId || event.buttons === 0) return
+                if (!editing || !shotId || draggingPointerId.current !== event.pointerId) return
                 event.stopPropagation()
                 onShotMove?.(shotId, eventPixel(event, w, h))
               }}
-              onPointerUp={(event) => event.stopPropagation()}
+              onPointerUp={(event) => {
+                event.stopPropagation()
+                if (draggingPointerId.current === event.pointerId) draggingPointerId.current = null
+              }}
+              onPointerCancel={(event) => {
+                event.stopPropagation()
+                if (draggingPointerId.current === event.pointerId) draggingPointerId.current = null
+              }}
               onClick={(event) => event.stopPropagation()}
             />
           )
