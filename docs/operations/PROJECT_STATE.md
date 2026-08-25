@@ -38,7 +38,7 @@ project-level task list; historical plans are reference material.
 | `W1` | `done` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Run `32806892801` watch-runtime job succeeded at head `8a3ee8ba`: 41/45/49 mm captures, real Cypress 18-hole install/restore, same-round 1–18 journey, hole-1 history edit while live on hole 10, finish confirmation, 57 queued records acknowledged, remote finish success, plus Cancel recovery and abandon/tombstone markers. |
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
-| `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
+| `R2` | `evidence-open` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`; the known code slice is present, but real cross-client proof is still missing. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, and approved runtime screenshots. |
 | `REL` | `blocked` | Release and TestFlight gate. | `W1`, `S1`, and `R1`/`R2` evidence complete, production provenance approved, then owner approval. |
 
 ### Status vocabulary
@@ -218,6 +218,14 @@ means a named external decision or prerequisite is missing; `done` and
   Shot labels in the two rounds are facts only and cannot substitute for club
   distance data.
 
+- Runtime evidence is currently blocked by the environment, not a new source
+  code failure: the production API container `garmin-ai-caddie-api-1` is
+  `unhealthy` with Docker health checks timing out, while the isolated candidate
+  remains healthy. Do not restart, redeploy, or synchronize production as a test
+  without explicit approval. The candidate has geometry for HMB course IDs but
+  an empty player club bag, so it cannot supply the missing Garmin distance
+  provenance or a same-round HMB client journey.
+
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
@@ -386,3 +394,9 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   printed or persisted and no write operation was used. Recorded the explicit
   data-volume blocker and the existing Garmin-to-client source chain in the HMB
   review; R2 remains open.
+- 2026-08-25: Reclassified R2 from `implementation-partial` to `evidence-open`:
+  the Web cache implementation and existing iOS/cache/map-first code are present;
+  remaining work is real HMB cross-client/runtime proof. The production API was
+  observed unhealthy (health checks timing out), and the isolated candidate's
+  club bag is empty. No restart, deployment, sync, or production mutation was
+  performed.
