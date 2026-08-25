@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `fb1c1287` (runtime-verified baseline remains `8a3ee8ba`; S1 native runtime verification pending)
+**HEAD:** `11c28972` (S1 Watch install-status slice integrated; native runtime verification remains open)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -24,8 +24,8 @@ code; do not restart the old multi-week plan tree.
 `W1` is closed with isolated current-head runtime evidence. The public service
 still runs revision `6a6080c6...`; no production deployment or data
 synchronization was performed. S1 has completed its read-only audit and its
-first bounded implementation slice; native iOS/Watch verification and the
-shared install-status slice remain open.
+first bounded implementation slices; native iOS/Watch verification remains
+open.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
@@ -38,7 +38,7 @@ project-level task list; historical plans are reference material.
 | ID | State | Scope | Exit evidence |
 |---|---|---|---|
 | `W1` | `done` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Run `32806892801` watch-runtime job succeeded at head `8a3ee8ba`: 41/45/49 mm captures, real Cypress 18-hole install/restore, same-round 1–18 journey, hole-1 history edit while live on hole 10, finish confirmation, 57 queued records acknowledged, remote finish success, plus Cancel recovery and abandon/tombstone markers. |
-| `S1` | `in-progress` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Provenance commit is green on focused backend/Web gates; macOS native tests pass; then the shared install-status contract and runtime evidence close the slice. |
+| `S1` | `in-progress` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Provenance and Watch install-status code are integrated; the keyboard-focus fix and a green macOS run covering iOS + Watch tests/screenshots are still required. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
 | `REL` | `blocked` | Release and TestFlight gate. | `W1`, `S1`, and `R1`/`R2` evidence complete, production provenance approved, then owner approval. |
@@ -122,22 +122,28 @@ means a named external decision or prerequisite is missing; `done` and
   and cache invalidation when a manual bag changes. Focused remote verification
   reports 78 backend tests passed with 2 geometry skips; Web focused tests and
   build passed on the delegated worktree. iOS/Watch XCTest has not yet run.
+- S1 Watch install-status commit `11c28972` (delegated source `b4688e8a`) adds
+  the Watch-side journal contract, 404-as-missing behavior, and focused
+  request/decode tests; it has not yet received macOS XCTest evidence.
+- Native Mobile CI run `32817814200` at source head `5462f59f` passed XcodeGen,
+  iOS XCTest, SwiftJCS boundaries, and design snapshots, but failed the real
+  iOS flow at `RealFlowUITests.swift:292`: the search keyboard remained present
+  after tapping the manual search button. Watch XCTest and Watch runtime
+  screenshots were skipped by that failure.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Run GitHub `Native Mobile CI` on `bc9ab55e` and record iOS/Watch XCTest
-   results; do not claim native verification from Linux or focused Python/Web
-   tests.
-2. Implement the smallest shared install-status/readiness contract needed to
-   expose backend journal progress and resume a partial package on iOS/Watch;
-   do not replace the existing stores or invent a new package format.
-3. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
+1. Integrate and run the bounded manual-search keyboard-focus fix, then rerun
+   GitHub `Native Mobile CI` on the resulting head and record iOS/Watch XCTest
+   plus real screenshots; do not claim native verification from Linux or
+   focused Python/Web tests.
+2. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
    the Web/R2 track; do not treat the failed Quick Tunnel as product proof.
-4. Keep production revision `6a6080c6...` unchanged until a deployment or
+3. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
-5. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
+4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
    owner-approval gates before TestFlight.
 
 ## Open Blockers / Facts
@@ -238,3 +244,8 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   `bc9ab55e`/`fb1c1287`. Delegated homeserver gates passed (78 backend focused
   tests, 2 geometry skips; Web focused tests/build);
   native iOS/Watch evidence is still pending.
+- 2026-08-25: Integrated Watch install-status slice `11c28972` from delegated
+  commit `b4688e8a`. Native run `32817814200` passed the iOS unit/design gates
+  but failed the real search flow at line 292 because the keyboard remained
+  visible; Watch stages were skipped. A bounded focus-dismissal fix is now the
+  sole active implementation task before the next native run.
