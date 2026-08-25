@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `e43a00bf` (keyboard and review-reorder gates verified; full Native run `32827910559` pending)
+**HEAD:** `c5f871b6` (Watch fixture compile fix; full Native run `32827910559` failed before Watch XCTest)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -140,16 +140,22 @@ means a named external decision or prerequisite is missing; `done` and
   the preceding row's content center. Edit-scope run `32826478232` passed the
   real reorder flow; no production reorder code changed.
 - Full Native Mobile CI run `32827910559` was dispatched at `e43a00bf` with
-  `capture_scope=full` and the live-revision preflight disabled. It is pending;
-  no Watch XCTest or runtime screenshot claim is made until the run completes.
+  `capture_scope=full` and the live-revision preflight disabled. XcodeGen,
+  iOS XCTest (257 tests), SwiftJCS boundaries, design snapshots, and the real
+  iOS flow passed. The Watch test target failed to compile in
+  `WatchBackendClientTests.swift` because a multiline raw JSON fixture used
+  single-line raw-string delimiters; Watch XCTest and runtime screenshots were
+  skipped. Test-only correction `c5f871b6` changes the fixture to a valid
+  multiline raw string. No production Watch code changed.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Finish full Native Mobile CI run `32827910559` on `e43a00bf` (including
-   Watch stages) and record iOS/Watch XCTest plus real screenshots; do not claim
-   native verification from Linux or focused Python/Web tests.
+1. Push `c5f871b6` and dispatch a new full Native Mobile CI run with
+   `capture_scope=full` and `require_live_preflight=false`. Record Watch XCTest,
+   Watch design snapshots, and real Watch round screenshots; do not claim native
+   verification from Linux or focused Python/Web tests.
 2. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
    the Web/R2 track; do not treat the failed Quick Tunnel as product proof.
 3. Keep production revision `6a6080c6...` unchanged until a deployment or
@@ -271,4 +277,9 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   is next.
 - 2026-08-25: Pushed integrated head `e43a00bf` and dispatched full Native run
   `32827910559` with `capture_scope=full` and `require_live_preflight=false`;
-  production revision remains unchanged.
+  production revision remains unchanged. The run passed all iOS stages but
+  failed Watch compilation on the malformed multiline raw JSON fixture, so no
+  Watch XCTest/runtime claim was made.
+- 2026-08-25: Integrated test-only Watch fixture correction `c5f871b6` from a
+  delegated worktree. The fixture now uses valid multiline raw-string
+  delimiters; the next action is a fresh full Native run.
