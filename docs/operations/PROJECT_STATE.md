@@ -21,8 +21,9 @@ code; do not restart the old multi-week plan tree.
 
 **`W1` — Watch lifecycle and round recovery** (`evidence-open`)
 
-W1 runtime code is CI-verified; production 18-hole/current-head journey evidence
-remains open because external API returned 502.
+W1 runtime code is CI-verified; the public route is restored and the production
+18-hole/current-head journey can continue. Journey evidence remains open until
+that run passes.
 
 No other task may become `in-progress` while `W1` is active. When it closes,
 select the next stable ID here and update this file before starting work.
@@ -85,12 +86,18 @@ means a named external decision or prerequisite is missing; `done` and
 - CI run `32796906679` at head `8a3ee8ba` passed frontend, backend, and Docker;
   this advances the verified code baseline but does not close W1's production
   18-hole/current-head journey evidence.
+- 2026-08-25 public Funnel verification passed: `/`, `/api/v2/health`,
+  `/sat/`, `/yoyo/`, `/demos/`, and `/yoyo-api/health` each returned HTTP 200
+  after the root route was restored from `127.0.0.1:443` to `:8080`. The
+  before/after route backups are under
+  `/home/jason/garmin-ai-caddie-data/operations/funnel-backups` (before SHA
+  `6f1bc4...`, after SHA `3ea52c...`).
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. 恢复 API 后在当前 HEAD 重跑 `full`/`real-course journey`；成功后才可关闭 W1。
+1. 在当前 HEAD 继续 `full`/`real-course journey`；成功后才可关闭 W1。
 2. Keep the CI-green batch intact and do not start S1/R2 while W1 evidence is open.
 3. Re-read this ledger and choose the next stable ID only after W1 closes.
 4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
@@ -104,15 +111,10 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   operation; do not trigger production synchronization as a test.
 - The focused green baked fixture is still 1024 px; do not stretch it and call
   it a 1280 px evidence asset.
-- The external API returned 502 during the production 18-hole/current-head
-  journey, so that runtime evidence remains open.
-- 2026-08-24 read-only homeserver diagnosis: the local API is healthy at
-  `http://127.0.0.1:8080/api/v2/health` (and the container is healthy on
-  `127.0.0.1:9000`), but the public Funnel root still proxies to
-  `127.0.0.1:443`; no process listens on that loopback port. The Caddy
-  instance serving the project is configured on `:8080`. This is a shared
-  routing/configuration blocker; do not change the Funnel route without owner
-  approval.
+- The public Funnel root route was restored on 2026-08-25 from
+  `127.0.0.1:443` to `:8080` under user authorization; the route backup
+  directory and before/after SHAs are recorded above. Public endpoint checks
+  returned 200, so W1 production 18-hole/current-head evidence can proceed.
 - One runtime evidence boundary remains open: deferred-finish network retry is
   still unit-test-only. Cancel completion and old-seed tombstone rejection are
   covered by run `32791049667`.
@@ -166,3 +168,10 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - 2026-08-25: CI run `32796906679` passed frontend, backend, and Docker at
   `8a3ee8ba`; W1 remains evidence-open with the external API 502 blocker and
   current-head production journey still required.
+- 2026-08-25: Under user authorization, restored the public Funnel root from
+  `127.0.0.1:443` to `:8080`; backups are in
+  `/home/jason/garmin-ai-caddie-data/operations/funnel-backups` (before
+  `6f1bc4...`, after `3ea52c...`). Public `/`, `/api/v2/health`, `/sat/`,
+  `/yoyo/`, `/demos/`, and `/yoyo-api/health` checks returned 200; W1 can
+  continue its production 18-hole journey, with deferred-finish retry still
+  unit-test-only.
