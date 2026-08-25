@@ -53,7 +53,11 @@ describe('PrepHoleCanvas', () => {
       landing_m: 215,
       tee_club: '3W',
       hazards: { water_carry: [], bunkers: [] },
-      map: { image: undefined, overlay: { w: 300, h: 470, ppm: 1, ln: 393, route: [[150, 455, 0], [150, 72, 393]] } },
+      map: {
+        image:
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        overlay: { w: 300, h: 470, ppm: 1, ln: 393, route: [[150, 455, 0], [150, 72, 393]] },
+      },
     } as CoursePrepHole
 
     render(
