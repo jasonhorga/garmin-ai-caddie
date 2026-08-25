@@ -21,9 +21,10 @@ code; do not restart the old multi-week plan tree.
 
 **`W1` — Watch lifecycle and round recovery** (`evidence-open`)
 
-W1 runtime code is CI-verified; the public route is restored and the production
-18-hole/current-head journey can continue. Journey evidence remains open until
-that run passes.
+W1 runtime code is CI-verified; the public route is restored, but the latest
+production preflight found the backend on revision `6a6080c6...` instead of
+the expected current-head candidate `8a3ee8ba`. Journey evidence remains open
+pending user-authorized deployment or candidate switching.
 
 No other task may become `in-progress` while `W1` is active. When it closes,
 select the next stable ID here and update this file before starting work.
@@ -35,7 +36,7 @@ project-level task list; historical plans are reference material.
 
 | ID | State | Scope | Exit evidence |
 |---|---|---|---|
-| `W1` | `evidence-open` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Recovery-only run `32791049667` at head `84a53752` passes 41/45/49 mm plus Cancel/tombstone markers; current head `8a3ee8ba` is CI-green, but close only after its production 18-hole journey also passes. |
+| `W1` | `evidence-open` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Recovery-only run `32791049667` at head `84a53752` passes 41/45/49 mm plus Cancel/tombstone markers; run `32801079395` at head `8a3ee8ba` passes 41/49 mm but preflight cannot discover the live course until the backend revision matches the current-head candidate. |
 | `S1` | `ci-green-runtime-open` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Metadata → preparing → precise → offline-installed is resumable and the real package distance table matches every client. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
@@ -92,12 +93,18 @@ means a named external decision or prerequisite is missing; `done` and
   before/after route backups are under
   `/home/jason/garmin-ai-caddie-data/operations/funnel-backups` (before SHA
   `6f1bc4...`, after SHA `3ea52c...`).
+- Watch runtime run `32801079395` at head `8a3ee8ba` passed the 41/49 mm
+  coverage, but Preflight live course discovery failed because the public API
+  is on backend revision `6a6080c6...` while the expected current-head
+  candidate is `8a3ee8ba`; this does not close W1.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. 在当前 HEAD 继续 `full`/`real-course journey`；成功后才可关闭 W1。
+1. Obtain user authorization to deploy or switch the current-head candidate
+   `8a3ee8ba` so backend revision matches, then rerun `full`/`real-course
+   journey`; success is required before closing W1.
 2. Keep the CI-green batch intact and do not start S1/R2 while W1 evidence is open.
 3. Re-read this ledger and choose the next stable ID only after W1 closes.
 4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
@@ -114,7 +121,9 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - The public Funnel root route was restored on 2026-08-25 from
   `127.0.0.1:443` to `:8080` under user authorization; the route backup
   directory and before/after SHAs are recorded above. Public endpoint checks
-  returned 200, so W1 production 18-hole/current-head evidence can proceed.
+  returned 200, but W1 is blocked on user authorization to deploy or switch
+  the current-head candidate: public backend revision `6a6080c6...` does not
+  match expected `8a3ee8ba`, so live course discovery preflight cannot pass.
 - One runtime evidence boundary remains open: deferred-finish network retry is
   still unit-test-only. Cancel completion and old-seed tombstone rejection are
   covered by run `32791049667`.
@@ -175,3 +184,8 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   `/yoyo/`, `/demos/`, and `/yoyo-api/health` checks returned 200; W1 can
   continue its production 18-hole journey, with deferred-finish retry still
   unit-test-only.
+- 2026-08-25: Watch runtime run `32801079395` at `8a3ee8ba` passed 41/49 mm,
+  but Preflight live course discovery failed on backend revision mismatch
+  (`6a6080c6...` public vs `8a3ee8ba` expected). W1 remains evidence-open and
+  requires user authorization to deploy/switch the current-head candidate;
+  deferred-finish retry remains unit-test-only.
