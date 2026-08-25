@@ -95,6 +95,7 @@ public struct MobileCourseSearchView: View {
                     .pickerStyle(.segmented)
 
                     Button {
+                        focusedField = nil
                         Task { await searchNearby() }
                     } label: {
                         HStack(spacing: 8) {
@@ -133,6 +134,7 @@ public struct MobileCourseSearchView: View {
                     .onSubmit { submitSearch() }
 
                 Button {
+                    focusedField = nil
                     Task { await search() }
                 } label: {
                     HStack(spacing: 8) {
@@ -409,6 +411,7 @@ public struct MobileCourseSearchView: View {
 
     private func submitSearch() {
         guard canSearch else { return }
+        focusedField = nil
         Task { await search() }
     }
 
