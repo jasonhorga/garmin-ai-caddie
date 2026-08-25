@@ -105,19 +105,31 @@ means a named external decision or prerequisite is missing; `done` and
   `/api/v2/history/overview` (`net::ERR_FAILED`) through the temporary Quick
   Tunnel; this is a separate Web transport/evidence gap, not a Watch W1
   failure, and produced no Web artifact.
+- S1 read-only audit (snapshot `e8JaMj`, cleaned after handoff) found that the
+  backend install journal, iOS prep queue, and Watch course store each track a
+  different readiness model; there is no shared `precise/offline-installed`
+  contract. The iOS queue has finite background grace rather than a durable OS
+  transfer, while the backend journal itself is resumable.
+- The same audit traced club distances to Garmin advice/average, AutoShot
+  history medians, manual bag, and catalog fallback. `/prep` currently drops
+  the distance source, and iOS/Web do not normalize spaced Garmin names such as
+  `3 Wood`/`3 Iron`; this is the confirmed minimum explanation for the 3-wood/
+  3-iron inconsistency. No production runtime mutation was used.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Finish the bounded S1 read-only contract/data-flow audit; identify the
-   minimum implementation slice for resumable download and Garmin club-distance
-   provenance before changing code.
-2. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
+1. Implement the bounded club-name normalization and distance-provenance
+   slice across backend, iOS, Watch, and Web, with focused contract tests.
+2. Implement the smallest shared install-status/readiness contract needed to
+   expose backend journal progress and resume a partial package on iOS/Watch;
+   do not replace the existing stores or invent a new package format.
+3. Re-run Web live evidence through a stable, CORS-valid endpoint as part of
    the Web/R2 track; do not treat the failed Quick Tunnel as product proof.
-3. Keep production revision `6a6080c6...` unchanged until a deployment or
+4. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
-4. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
+5. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
    owner-approval gates before TestFlight.
 
 ## Open Blockers / Facts
@@ -210,3 +222,6 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - 2026-08-25: Closed W1 and started S1 as the sole in-progress slice; the first
   S1 action is a read-only data-flow audit, with no implementation or
   production synchronization authorized yet.
+- 2026-08-25: S1 audit completed without code changes. It confirmed the
+  cross-client readiness-contract gap and the spaced Garmin club-name/source
+  gap; the next work is two bounded implementation slices with focused tests.
