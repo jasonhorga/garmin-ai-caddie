@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `84a53752` (runtime-verified code baseline: `ca2b2d7a`)
+**HEAD:** `578969f4` (runtime-verified code baseline: `84a53752`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
