@@ -74,6 +74,49 @@ class PrepCacheTests(unittest.TestCase):
             self.assertEqual(before[0], after[0], "file count must be unchanged (the trap)")
             self.assertNotEqual(before, after, "in-place edit of a non-newest file must change the sig")
 
+    def test_manual_bag_write_invalidates_owner_and_member_prep_cache(self) -> None:
+        """A saved typed distance must rebuild /prep instead of serving the prior ladder."""
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            original_data = prep_cache.DATA_DIR
+            prep_cache.DATA_DIR = data_root
+            self.addCleanup(setattr, prep_cache, "DATA_DIR", original_data)
+
+            calls = {"n": 0}
+
+            def build() -> dict:
+                calls["n"] += 1
+                return {"build": calls["n"]}
+
+            kwargs = dict(
+                global_id=31794,
+                requested=[1],
+                render=False,
+                include_shots=False,
+                build=build,
+            )
+
+            prep_cache.cached_course_prep(player_id="me", **kwargs)
+            prep_cache.cached_course_prep(player_id="me", **kwargs)
+            self.assertEqual(calls["n"], 1)
+            (data_root / "club_bag_manual.json").write_text(
+                '{"clubs":[{"token":"wood3","distanceM":180}]}', encoding="utf-8"
+            )
+            prep_cache.cached_course_prep(player_id="me", **kwargs)
+            self.assertEqual(calls["n"], 2, "owner manual bag edits must invalidate the cached prep")
+
+            member_dir = data_root / "players" / "memberA"
+            member_dir.mkdir(parents=True)
+            member_kwargs = {**kwargs, "player_id": "memberA"}
+            prep_cache.cached_course_prep(**member_kwargs)
+            prep_cache.cached_course_prep(**member_kwargs)
+            self.assertEqual(calls["n"], 3)
+            (member_dir / "club_bag_manual.json").write_text(
+                '{"clubs":[{"token":"iron7","distanceM":130}]}', encoding="utf-8"
+            )
+            prep_cache.cached_course_prep(**member_kwargs)
+            self.assertEqual(calls["n"], 4, "member manual bag edits must invalidate the cached prep")
+
     def test_course_data_sig_tracks_only_the_selected_course_authority(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)

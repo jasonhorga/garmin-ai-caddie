@@ -55,7 +55,7 @@ export function PrepHoleCanvas({ hole, cum, onCum, globalId, clubs = [] }: PrepH
     garmin_average: 'Garmin 平均',
     manual: '手动录入',
     catalog_default: '目录默认',
-    fixture: '测试夹具',
+    unresolved: '来源未解析',
   }
   const recommendationSource = recommendedClub?.distanceSource
     ? sourceLabel[recommendedClub.distanceSource] ?? recommendedClub.distanceSource

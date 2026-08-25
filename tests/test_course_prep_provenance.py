@@ -45,6 +45,9 @@ class CoursePrepProvenanceTests(unittest.TestCase):
         self.assertEqual(fallback["distanceSource"], "catalog_default")
         self.assertEqual(fallback["confidence"], "low")
 
+        unresolved = self._annotate([("custom club", 177)])[0]
+        self.assertEqual(unresolved["distanceSource"], "unresolved")
+
     def test_prep_response_appends_provenance_without_removing_legacy_fields(self) -> None:
         prep_cache.clear()
         self.addCleanup(prep_cache.clear)

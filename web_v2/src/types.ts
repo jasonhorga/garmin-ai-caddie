@@ -1254,7 +1254,7 @@ export interface CoursePrepClub {
   token?: string | null
   m: number
   yd: number
-  /** history_median, garmin_advice, garmin_average, manual, catalog_default, or fixture. */
+  /** history_median, garmin_advice, garmin_average, manual, catalog_default, or unresolved. */
   distanceSource?: string | null
   sampleSize?: number | null
   confidence?: string | null

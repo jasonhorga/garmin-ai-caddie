@@ -840,9 +840,9 @@ def club_ladder_with_provenance(
 
     ``effective_club_ladder`` remains the strategy-facing tuple API.  This adapter intentionally
     performs no new selection and accepts a precomputed ladder, so callers and old tests keep the
-    same filtering/order semantics while the wire payload can carry provenance.  ``fixture`` is
-    reserved for a caller-provided row that cannot be tied to any persisted source (primarily test
-    fixtures); production paths resolve to one of the explicit sources below.
+    same filtering/order semantics while the wire payload can carry provenance. Rows that cannot
+    be tied to a persisted source are marked ``unresolved`` rather than being presented as a
+    fixture or another fabricated source.
     """
     rows = list(ladder if ladder is not None else effective_club_ladder(player_id))
     manual = load_manual_club_bag(player_id) or {}
@@ -916,7 +916,7 @@ def club_ladder_with_provenance(
             token = str(manual_club.get("token") or token or "")
         token = token or display_key
         distance_int = int(round(distance))
-        source = "fixture"
+        source = "unresolved"
         sample_size = 0
 
         if manual_club is not None and manual_club.get("distanceM") is not None:

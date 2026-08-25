@@ -11,7 +11,7 @@ mirroring ``stats_cache``:
   - requested-hole geometry files (mesh + hazards + release authority) — feed route / hazards /
     F/M/B / map and decide whether those precise facts still belong to Garmin's current release,
   - the selected course's release + ``courseData`` cache — feed the lightweight map,
-  - the owner's shot dir + club-bag file — feed the club ladder + your-shots scatter,
+  - the player's shot dir + synced/manual club-bag files — feed the club ladder + your-shots scatter,
   - the per-course par record (``data/courses/<gid>.json``).
 
 If a future change makes ``course_prep`` read a NEW source, add it to ``_fingerprint`` or the cache
@@ -107,6 +107,21 @@ def _file_sig(path: Path) -> tuple[int, int] | None:
     return (st.st_mtime_ns, st.st_size)
 
 
+def _manual_bag_sig(player_id: str) -> tuple[int, int] | None:
+    """Fingerprint the manual bag path used by ``manual_club_bag_file``.
+
+    Keep the path rooted in this module's ``DATA_DIR`` snapshot, just like the other cache
+    dependencies, so tests and deployments that redirect the prep data root move the fingerprint
+    and the loader together.  Owner and member bags are separate inputs to the ladder.
+    """
+    path = (
+        DATA_DIR / "club_bag_manual.json"
+        if player_id == OWNER_ID
+        else DATA_DIR / "players" / player_id / "club_bag_manual.json"
+    )
+    return _file_sig(path)
+
+
 def _course_data_sig(global_id: int) -> tuple[int, str]:
     """Fingerprint only this course's release-bound lightweight authority files."""
     gid = int(global_id)
@@ -175,6 +190,7 @@ def _fingerprint(
             _dir_sig(SHOT_DIR),                              # club ladder (profiles) + your-shots scatter
             _dir_sig(SCORECARD_DIR),                         # your-shots scatter reads scorecards too
             _file_sig(CLUBS_BAG_FILE),                       # restrict_to_bag (real Garmin bag)
+            _manual_bag_sig(OWNER_ID),                       # manual distance/selection overrides
             _file_sig(CLUBS_FILE),                           # manual club-name overrides (clubs.json)
             par_sig,
             _course_data_sig(global_id),                    # CourseView route/green/hazard facts
@@ -187,7 +203,7 @@ def _fingerprint(
         geometry_sig,
         _dir_sig(base / "shots"),                            # their measured ladder + scatter
         _dir_sig(base / "scorecards"),                       # their scatter reads scorecards too
-        _file_sig(base / "club_bag_manual.json"),            # their manual bag (selection + typed dist)
+        _manual_bag_sig(player_id),                           # their manual bag (selection + typed dist)
         par_sig,
         _course_data_sig(global_id),                         # shared CourseView lightweight map
     )
