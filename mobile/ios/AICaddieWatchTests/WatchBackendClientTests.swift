@@ -331,7 +331,8 @@ final class WatchBackendClientTests: XCTestCase {
 
     func testCourseInstallStatusDecodesDurableHoleProgressAndRevisions() throws {
         let status = try makeClient().decodeCourseInstallStatus(Data(
-            #"""{
+            #"""
+            {
               "schema":"ai-caddie-course-install-v1",
               "jobId":"install-1",
               "globalId":31870,
@@ -348,7 +349,8 @@ final class WatchBackendClientTests: XCTestCase {
                 {"globalId":31870,"localHole":1,"displayHole":1,"geometry":"ready","geometryRevision":"rev-a","topo":"ready","topoRevision":"rev-a","error":null},
                 {"globalId":31871,"localHole":1,"displayHole":10,"geometry":"ready","geometryRevision":"rev-b","topo":"queued","topoRevision":null,"error":null}
               ]
-            }"""#.utf8
+            }
+            """#.utf8
         ))
 
         XCTAssertEqual(status.phase, "running")
