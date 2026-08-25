@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `8a3ee8ba` (runtime-verified code baseline: `8a3ee8ba`)
+**HEAD:** `fb1c1287` (runtime-verified baseline remains `8a3ee8ba`; S1 native runtime verification pending)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -23,8 +23,9 @@ code; do not restart the old multi-week plan tree.
 
 `W1` is closed with isolated current-head runtime evidence. The public service
 still runs revision `6a6080c6...`; no production deployment or data
-synchronization was performed. S1 is currently limited to a read-only audit of
-sync provenance, resumable downloads, and real club-distance data.
+synchronization was performed. S1 has completed its read-only audit and its
+first bounded implementation slice; native iOS/Watch verification and the
+shared install-status slice remain open.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
@@ -37,7 +38,7 @@ project-level task list; historical plans are reference material.
 | ID | State | Scope | Exit evidence |
 |---|---|---|---|
 | `W1` | `done` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Run `32806892801` watch-runtime job succeeded at head `8a3ee8ba`: 41/45/49 mm captures, real Cypress 18-hole install/restore, same-round 1–18 journey, hole-1 history edit while live on hole 10, finish confirmation, 57 queued records acknowledged, remote finish success, plus Cancel recovery and abandon/tombstone markers. |
-| `S1` | `in-progress` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Metadata → preparing → precise → offline-installed is resumable and the real package distance table matches every client. |
+| `S1` | `in-progress` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Provenance commit is green on focused backend/Web gates; macOS native tests pass; then the shared install-status contract and runtime evidence close the slice. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
 | `REL` | `blocked` | Release and TestFlight gate. | `W1`, `S1`, and `R1`/`R2` evidence complete, production provenance approved, then owner approval. |
@@ -115,13 +116,20 @@ means a named external decision or prerequisite is missing; `done` and
   the distance source, and iOS/Web do not normalize spaced Garmin names such as
   `3 Wood`/`3 Iron`; this is the confirmed minimum explanation for the 3-wood/
   3-iron inconsistency. No production runtime mutation was used.
+- S1 implementation commits `85acb022`, `bc9ab55e`, and `fb1c1287` now add spaced Garmin
+  name normalization, `/prep` distance provenance (`history_median`, Garmin,
+  manual, catalog, or explicit `unresolved`), propagation to iOS/Watch/Web,
+  and cache invalidation when a manual bag changes. Focused remote verification
+  reports 78 backend tests passed with 2 geometry skips; Web focused tests and
+  build passed on the delegated worktree. iOS/Watch XCTest has not yet run.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Implement the bounded club-name normalization and distance-provenance
-   slice across backend, iOS, Watch, and Web, with focused contract tests.
+1. Run GitHub `Native Mobile CI` on `bc9ab55e` and record iOS/Watch XCTest
+   results; do not claim native verification from Linux or focused Python/Web
+   tests.
 2. Implement the smallest shared install-status/readiness contract needed to
    expose backend journal progress and resume a partial package on iOS/Watch;
    do not replace the existing stores or invent a new package format.
@@ -225,3 +233,8 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - 2026-08-25: S1 audit completed without code changes. It confirmed the
   cross-client readiness-contract gap and the spaced Garmin club-name/source
   gap; the next work is two bounded implementation slices with focused tests.
+- 2026-08-25: S1 provenance slice merged as `85acb022`; manual-bag cache,
+  unresolved-source correction, and history-alias tie-break merged as
+  `bc9ab55e`/`fb1c1287`. Delegated homeserver gates passed (78 backend focused
+  tests, 2 geometry skips; Web focused tests/build);
+  native iOS/Watch evidence is still pending.
