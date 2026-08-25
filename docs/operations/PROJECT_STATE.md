@@ -4,9 +4,9 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-08-24 UTC
+**Updated:** 2026-08-25 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**HEAD:** `318708e0` (runtime-verified code baseline: `ca2b2d7a`)
+**HEAD:** `84a53752` (runtime-verified code baseline: `ca2b2d7a`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -34,7 +34,7 @@ project-level task list; historical plans are reference material.
 
 | ID | State | Scope | Exit evidence |
 |---|---|---|---|
-| `W1` | `evidence-open` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Current simulator evidence is run `32707001002` at head `ca2b2d7a` with artifact `9513235658`; close only after a current-head production 18-hole journey also passes. |
+| `W1` | `evidence-open` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Recovery-only run `32791049667` at head `84a53752` passes 41/45/49 mm plus Cancel/tombstone markers; close only after a current-head production 18-hole journey also passes. |
 | `S1` | `ci-green-runtime-open` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Metadata → preparing → precise → offline-installed is resumable and the real package distance table matches every client. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `implementation-partial` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts and approved iOS/Web runtime screenshots. |
@@ -76,6 +76,12 @@ means a named external decision or prerequisite is missing; `done` and
 - Watch runtime run `32707001002` succeeded at head `ca2b2d7a` (artifact
   `9513235658`), covering 41/45/49 mm runtime boundaries and all five stateful
   recovery markers.
+- Watch recovery-only run `32791049667` succeeded at head `84a53752` in 20m12s;
+  artifact `watch-runtime-evidence` ID `9543591961`, digest
+  `sha256:395ecdfdbadba578257737c0f90b667eef9f38c324da257fc02d4bd8e216e381`.
+  Its markers prove the Cancel recovery location event is persisted and the
+  abandoned round's stale seed is rejected after relaunch. Web evidence was
+  correctly skipped.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
@@ -104,9 +110,9 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   instance serving the project is configured on `:8080`. This is a shared
   routing/configuration blocker; do not change the Funnel route without owner
   approval.
-- Three runtime evidence boundaries remain open: Cancel has not completed the
-  recovery-rod flow; the old-seed tombstone has not been runtime-verified; and
-  deferred-finish network retry remains unit-only.
+- One runtime evidence boundary remains open: deferred-finish network retry is
+  still unit-test-only. Cancel completion and old-seed tombstone rejection are
+  covered by run `32791049667`.
 - Existing user files `.codex-tmp/` and
   `.mockups/watch-shot-tracking.html` are untracked and must be preserved.
 - Keep historical Claude/superpowers worktrees unless a separate allow-list
@@ -150,3 +156,7 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - 2026-08-24: Read-only homeserver diagnosis confirmed the 502 is caused by
   Funnel root -> `127.0.0.1:443` while project Caddy listens on `:8080`; no
   routing change was made.
+- 2026-08-25: Integrated `84a53752` and verified its bounded recovery harness
+  in GitHub run `32791049667`; W1 remains evidence-open because production
+  18-hole/current-head evidence and deferred-finish network retry runtime
+  evidence are still open.
