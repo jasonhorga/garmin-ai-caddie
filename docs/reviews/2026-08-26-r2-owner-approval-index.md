@@ -6,7 +6,7 @@ approval remains open.
 
 ## Public Review Page
 
-The owner-approved static review page is publicly available at:
+The static review page for owner approval is publicly available at:
 
 <https://caddie.taile36706.ts.net/demos/garmin-r2-owner-review-20260826/>
 
