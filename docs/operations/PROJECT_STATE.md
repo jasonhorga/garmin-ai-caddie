@@ -25,7 +25,8 @@ code; do not restart the old multi-week plan tree.
 service still runs revision `6a6080c6...`; no production deployment or data
 synchronization was performed. R2 is now the only active slice.
 Its Web HMB runtime evidence is complete; only the same-round iOS simulator
-runtime and owner screenshot approval remain.
+runtime evidence is complete; technical evidence for both clients is complete,
+with only owner screenshot approval remaining.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
@@ -220,6 +221,17 @@ means a named external decision or prerequisite is missing; `done` and
   occurred. The isolated remote directory, dependencies, outputs, and newly
   downloaded browser cache were removed; pre-existing shared cache remains.
 
+- HMB iOS runtime run `32919313329` at head `e484ac37` passed: iOS XCTest
+  257/257, RealFlow 1/1 (324.514s), ReviewEdit 1/1 (208.151s), TeeSelection
+  7/7 (475.026s), selected 9/9 (1007.692s). Resolver evidence is round
+  `17603881`, Half Moon Bay Ocean hole 1, `globalId/localHole=6022/1`,
+  `shotCount=3`, clubs Driver/5I. The real-screenshots artifact contains 32
+  non-empty PNGs; the separate design-snapshots artifact contains 30 files,
+  and all native secret scans passed. Event-latency files are only
+  `round-home.appear` proxies
+  (pending=-1, course=31796, about 1.38--1.65s), not topo first-frame proof.
+  ReviewEdit used default Cancel and RealFlow disabled event sync; no correction,
+  sync, or other write occurred. Preflight was intentionally skipped by input.
 - HMB club provenance is now proved read-only against the production data volume.
   Garmin Driver/3W/3H each have `adviceDistance=0` and `averageDistance=0`, and
   no manual bag is present. Current HEAD canonicalizes aliases and selects
@@ -232,17 +244,16 @@ means a named external decision or prerequisite is missing; `done` and
   `garmin-ai-caddie-api-1` container was `healthy`, local and public health GETs
   returned 200, and its `StartedAt` remained `2026-08-04T18:59:17Z`. No restart,
   deployment, synchronization, Funnel change, or production write occurred.
-  R2 remains open only for same-round HMB iOS runtime evidence and owner
-  screenshot approval, not backend club provenance or service recovery.
+  R2 remains open only for owner screenshot approval, not backend club provenance
+  or runtime technical evidence.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Close R2's remaining evidence gaps: use GitHub Actions macOS simulator for
-   same-round Half Moon Bay iOS request/first-frame/screenshots, confirm the
-   displayed club-distance/source values against the completed Web HMB evidence,
-   then obtain owner approval of the cross-client screenshot comparison.
+1. Obtain owner approval of the cross-client HMB screenshot comparison, including
+   the displayed club-distance/source values; do not treat the round-home latency
+   proxy as a topo first-frame measurement.
 2. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
 3. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and

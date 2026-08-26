@@ -105,8 +105,8 @@
 
 客户端边界仍须分开陈述：iOS `CoursePrepClub` 可以解码上述全部字段，但
 当前持久 `CoursePrepPackage` 只保留 holes；Web 会按 `yd` 选最近杆并显示本地化
-来源标签。这里没有 HMB iOS/Web runtime 截图，因此只能证明客户端代码投影，
-不能宣称两个客户端已显示同一行。
+来源标签；在真实运行证据补齐前，这里只能证明客户端代码投影，不能宣称两个
+客户端已显示同一行。真实运行证据见下文。
 
 ## Web HMB runtime 证据（2026-08-26 UTC）
 
@@ -145,12 +145,47 @@ artifact 均不携带 token。结果为 `1 passed (25.6s)`：
 `chromium-1223` / `chromium_headless_shell-1223` 均已删除；端口 5173 没有残留
 服务。原有共享 Playwright cache 未删除。
 
+## iOS HMB runtime 证据（GitHub Actions run `32919313329`）
+
+运行固定在 head `e484ac3765eef6be353edf11b8e6eb186335a8c3`，参数为
+`capture_scope=review`、`review_round_ref=17603881`、
+`require_live_preflight=false`、`api_base_url=https://caddie.taile36706.ts.net`。
+结果如下：
+
+- iOS XCTest：`257` tests，`0` failures；SwiftJCS consumer boundaries 成功。
+- 真实 iOS simulator selected suite：`9/9`，共 `1007.692s`；其中
+  `RealFlowUITests` `1/1`（`324.514s`）、`ReviewEditUITests` `1/1`
+  （`208.151s`）、`TeeSelectionUITests` `7/7`（`475.026s`）。
+- design snapshots 30 files、real Native evidence 75 files 均通过 secret-byte
+  scan；`real-screenshots` artifact 中 32 张 PNG 均非空。Watch 阶段因 review
+  scope 正确跳过。
+- resolver 诊断确认 `roundRef=17603881`、`courseName=Half Moon Bay Golf Links ~ Ocean`、
+  hole 1、`globalId=6022`、`localHole=1`、`shotCount=3`、clubs `Driver,5I`。
+  health probe 为 200，revision 为 `6a6080c6...`。
+- `ReviewEdit` 流程默认进入编辑后点击 `round-edit-cancel`（label `取消`），生成
+  `04d-edit-cancelled.png`；此次证据没有 correction、sync 或其他写入。
+  `RealFlow` 通过 `UITEST_DISABLE_EVENT_SYNC=1` 运行，事件同步写入关闭。
+- preflight 是按 dispatch 参数有意跳过，不应解释为失败或 live-course 缺口。
+
+五个 event-latency 文件只记录 `round-home.appear pending=-1 course=31796`，
+数值约 `1381.6`、`1420.4`、`1462.9`、`1564.4`、`1647.1ms`（约 1.38--1.65s）。
+它们是 home/round appearance 的延迟代理，**不是**完整 review topo 首帧计时；
+首帧 topo 与逐图视觉状态仍需 owner 逐图审核。
+
+## iOS/Web 对齐边界
+
+Web HMB owner-only run 的 round detail、hole-1 shotmap（`found=true`、
+`globalId=6022`）和 topo 请求均为 200，生成六张非空 1440x980 PNG（
+`116,548--177,241` bytes），并通过 admin-token secret scan。iOS resolver
+与 Web 使用相同 `roundRef=17603881`、hole 1、`globalId/localHole=6022/1`、
+shotCount 3 的事实。截图本身不自动构成视觉一致性结论；owner 仍须逐图确认
+地图、首帧、球杆距离/来源及取消编辑后的状态。
+
 ## 尚未证明
 
-Web HMB 请求、首帧和截图现已有真实 runtime 证据，但这不等于 iOS/Web parity
-已完成。以下仍属于 R2：
+Web 与 iOS HMB 请求和真实截图现已有 runtime 证据，但这不等于视觉 parity
+已获批准。以下仍属于 R2：
 
-- 通过 GitHub Actions macOS simulator 收集同一 HMB round 的 iOS 真实请求、首帧和
-  截图，并与本节的 Web 截图并排审核。
-- iOS/Web runtime 是否实际显示 Driver 215yd、3W 187yd、3H 174yd 及对应来源。
-- owner 对同一 HMB round 的跨端截图与首帧比较作出批准。
+- owner 对同一 HMB round 的 30 张 iOS 与 6 张 Web 截图逐图审核并批准。
+- owner 确认两端实际显示 Driver 215yd、3W 187yd、3H 174yd 及对应来源；上述
+  event-latency 代理指标不得替代 topo 首帧判断。
