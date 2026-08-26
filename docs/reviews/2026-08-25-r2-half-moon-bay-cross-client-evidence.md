@@ -108,12 +108,49 @@
 来源标签。这里没有 HMB iOS/Web runtime 截图，因此只能证明客户端代码投影，
 不能宣称两个客户端已显示同一行。
 
+## Web HMB runtime 证据（2026-08-26 UTC）
+
+在 homeserver 容量门通过后，使用隔离目录和生产 Funnel 当前 revision 对应的
+candidate 容器环境中的 admin token，以裸 URL owner 路径运行一次只读 Playwright：
+
+```bash
+AI_CADDIE_ADMIN_TOKEN=<candidate-container-env> \
+REVIEW_ROUND_REF=17603881 \
+VITE_AI_CADDIE_API_BASE_URL=https://caddie.taile36706.ts.net \
+VITE_AI_CADDIE_REQUIRE_LINK=true \
+npx playwright test e2e/live-ci-player-evidence.spec.ts \
+  --config=playwright.live.config.ts --project=desktop-chromium --reporter=line
+```
+
+`AI_CADDIE_CI_PLAYER_TOKEN` 在这次 owner-only 路径中未设置。测试将 admin token
+只放入 Playwright 隔离 context 的 localStorage；URL、控制台结构化状态、截图和
+artifact 均不携带 token。结果为 `1 passed (25.6s)`：
+
+- `/api/v2/history/overview` 200；round detail 200；round `17603881` hole 1 的
+  shotmap 200，`found=true`、`globalId=6022`；hole 1 和 2 的 topo PNG 均为 200。
+- 生成六张 1440x980 PNG：`results-overview`、`time-trends`、
+  `performance-analysis`、`rounds-list`、`review-workbench`、`round-review`；
+  单文件大小范围为 116,548--177,241 bytes，均非空。
+- `scan_artifacts_for_secrets.py --secret-env AI_CADDIE_ADMIN_TOKEN` 扫描六个
+  artifact 文件通过。测试没有调用 correction、sync、ingest 或其他写接口；没有
+  部署、重启、Funnel 变更或生产写入。
+
+首次尝试从 `garmin-ai-caddie-api-1` 读取 token，浏览器的 overview 请求为
+`net::ERR_FAILED`，而同一 token 对公网 protected endpoints 只读 GET 返回 401。
+随后核对发现该健康容器并非 Funnel 当前 `6a6080c6...` revision 的 candidate；使用
+`aicaddie-release-6a6080c-candidate` 的环境 token 后，公网 overview 与 rounds
+读取均为 200，且上述浏览器运行通过。该诊断没有回显 token 或响应正文。
+
+本次远端 session 目录、`node_modules`、Playwright test output 和本次下载的
+`chromium-1223` / `chromium_headless_shell-1223` 均已删除；端口 5173 没有残留
+服务。原有共享 Playwright cache 未删除。
+
 ## 尚未证明
 
-本轮是后端事实与 shotmap 对账，不等于 iOS/Web runtime 验收。以下仍属于 R2：
+Web HMB 请求、首帧和截图现已有真实 runtime 证据，但这不等于 iOS/Web parity
+已完成。以下仍属于 R2：
 
-- 同一 round 在 iOS 与 Web 的真实请求/首帧计时和截图并排比较；
-- Web 刷新后 review cache 是否避免重复请求，并按 player、round、hole、geometry revision 隔离；
-- 趋势页面点击真实 HMB round 后是否正确落到对应复盘洞；
-- 同一 HMB round 的 iOS/Web runtime 是否实际显示 Driver 215yd、3W 187yd、
-  3H 174yd 及对应来源。
+- 通过 GitHub Actions macOS simulator 收集同一 HMB round 的 iOS 真实请求、首帧和
+  截图，并与本节的 Web 截图并排审核。
+- iOS/Web runtime 是否实际显示 Driver 215yd、3W 187yd、3H 174yd 及对应来源。
+- owner 对同一 HMB round 的跨端截图与首帧比较作出批准。

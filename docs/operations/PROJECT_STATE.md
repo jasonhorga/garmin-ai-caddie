@@ -24,6 +24,8 @@ code; do not restart the old multi-week plan tree.
 `W1` and `S1` are closed with isolated current-head evidence. The public
 service still runs revision `6a6080c6...`; no production deployment or data
 synchronization was performed. R2 is now the only active slice.
+Its Web HMB runtime evidence is complete; only the same-round iOS simulator
+runtime and owner screenshot approval remain.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
@@ -206,6 +208,17 @@ means a named external decision or prerequisite is missing; `done` and
   1/1 passed, and six 1440x980 PNGs passed secret-byte scanning. Artifact
   `9563119622` is 828,730 bytes with zip SHA256
   `81954f0a9065668fb6bbaac7885d709f9f33e3bdfa15f5d2c2a81b39abc850ec`.
+- HMB Web runtime evidence completed on 2026-08-26 against the public Funnel
+  revision `6a6080c6...`: owner-admin Playwright with `REVIEW_ROUND_REF=17603881`
+  passed 1/1 in 25.6s. Overview, round detail, hole-1 shotmap (`found=true`,
+  `globalId=6022`) and topo responses were all 200; six non-empty 1440x980 PNGs
+  were 116,548--177,241 bytes and the admin-token secret-byte scan passed. The
+  first browser attempt used the non-Funnel container token and got a protected
+  endpoint 401/`net::ERR_FAILED`; the Funnel revision's candidate-container
+  token resolved that revision mismatch. No token was logged or placed in URLs/
+  screenshots, and no production write, deploy, restart, sync, or Funnel change
+  occurred. The isolated remote directory, dependencies, outputs, and newly
+  downloaded browser cache were removed; pre-existing shared cache remains.
 
 - HMB club provenance is now proved read-only against the production data volume.
   Garmin Driver/3W/3H each have `adviceDistance=0` and `averageDistance=0`, and
@@ -226,9 +239,10 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Close R2's remaining evidence gaps: same-round Half Moon Bay iOS/Web request,
-   first-frame parity, displayed club-distance/source values, and approved
-   runtime screenshots.
+1. Close R2's remaining evidence gaps: use GitHub Actions macOS simulator for
+   same-round Half Moon Bay iOS request/first-frame/screenshots, confirm the
+   displayed club-distance/source values against the completed Web HMB evidence,
+   then obtain owner approval of the cross-client screenshot comparison.
 2. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
 3. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
