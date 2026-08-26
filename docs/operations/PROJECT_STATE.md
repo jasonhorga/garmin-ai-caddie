@@ -4,7 +4,7 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-08-25 UTC
+**Updated:** 2026-08-26 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
 **Source baseline:** `b2688f3c` (docs-only state commits after source CI run `32847741048` passed at `769e3609`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
@@ -24,9 +24,9 @@ code; do not restart the old multi-week plan tree.
 `W1` and `S1` are closed with isolated current-head evidence. The public
 service still runs revision `6a6080c6...`; no production deployment or data
 synchronization was performed. R2 is now the only active slice.
-Its Web HMB runtime evidence is complete; only the same-round iOS simulator
-runtime evidence is complete; technical evidence for both clients is complete,
-with only owner screenshot approval remaining.
+Its Web HMB and same-round iOS simulator runtime evidence are complete;
+technical evidence for both clients is complete, with only owner visual approval
+remaining.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
@@ -41,7 +41,7 @@ project-level task list; historical plans are reference material.
 | `W1` | `done` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Run `32806892801` watch-runtime job succeeded at head `8a3ee8ba`: 41/45/49 mm captures, real Cypress 18-hole install/restore, same-round 1–18 journey, hole-1 history edit while live on hole 10, finish confirmation, 57 queued records acknowledged, remote finish success, plus Cancel recovery and abandon/tombstone markers. |
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
-| `R2` | `evidence-open` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`; the known code slice is present, but real cross-client proof is still missing. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, and approved runtime screenshots. |
+| `R2` | `evidence-open` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`; technical evidence is complete, with only owner visual approval remaining. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, and approved runtime screenshots. |
 | `REL` | `blocked` | Release and TestFlight gate. | `W1`, `S1`, and `R1`/`R2` evidence complete, production provenance approved, then owner approval. |
 
 ### Status vocabulary
