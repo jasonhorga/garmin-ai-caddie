@@ -157,22 +157,21 @@ test.describe('real isolated CI player evidence', () => {
     if (reviewRoundRef) {
       const apiOrigin = process.env.VITE_AI_CADDIE_API_BASE_URL?.trim()
       if (!apiOrigin) throw new Error('VITE_AI_CADDIE_API_BASE_URL is required with REVIEW_ROUND_REF')
-      const roundsResponse = await page.request.get(
-        `${apiOrigin.replace(/\/$/, '')}/api/v2/history/rounds?hasShots=true&limit=2000`,
+      const roundDetailResponse = await page.request.get(
+        `${apiOrigin.replace(/\/$/, '')}/api/v2/history/rounds/${encodeURIComponent(reviewRoundRef)}`,
         {
           headers: useOwnerEvidence
             ? { 'x-ai-caddie-admin-token': adminToken! }
             : { 'x-ai-caddie-player-token': playerToken! },
         },
       )
-      expect(roundsResponse.ok(), 'target round lookup must authorize').toBeTruthy()
-      const roundsPayload = (await roundsResponse.json()) as {
-        groups?: Array<{ rounds?: Array<{ id?: string; courseName?: string; date?: string | null; score?: number | null }> }>
+      expect(roundDetailResponse.ok(), 'target round lookup must authorize').toBeTruthy()
+      const roundDetailPayload = (await roundDetailResponse.json()) as {
+        found?: boolean
+        round?: { id?: string; courseName?: string; date?: string | null; score?: number | null } | null
       }
-      const target = (roundsPayload.groups ?? [])
-        .flatMap((group) => group.rounds ?? [])
-        .find((round) => round.id === reviewRoundRef)
-      if (!target) throw new Error(`review round ${reviewRoundRef} was not returned by history rounds`)
+      const target = roundDetailPayload.found ? roundDetailPayload.round : null
+      if (!target || target.id !== reviewRoundRef) throw new Error(`review round ${reviewRoundRef} was not returned by history round detail`)
       const course = (target.courseName ?? '未知球场').replace(/\s*~\s*/g, ' · ').replace(/\s+-\s+/g, ' · ')
       const date = target.date?.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? '未知日期'
       targetCourseName = course
