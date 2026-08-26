@@ -232,8 +232,8 @@ means a named external decision or prerequisite is missing; `done` and
   `garmin-ai-caddie-api-1` container was `healthy`, local and public health GETs
   returned 200, and its `StartedAt` remained `2026-08-04T18:59:17Z`. No restart,
   deployment, synchronization, Funnel change, or production write occurred.
-  R2 remains open for same-round HMB iOS/Web runtime evidence, not backend club
-  provenance or service recovery.
+  R2 remains open only for same-round HMB iOS runtime evidence and owner
+  screenshot approval, not backend club provenance or service recovery.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
