@@ -19,6 +19,11 @@ on:
         type: string
         required: false
         default: ''
+      review_round_ref:
+        description: Optional exact Garmin round reference for deterministic Web review evidence
+        type: string
+        required: false
+        default: ''
   # The workflow is new on this branch, so GitHub cannot dispatch it until it reaches the default
   # branch. Keep the current implementation branch self-testing while the runtime check is built.
   push:
@@ -847,8 +852,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AI_CADDIE_CI_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+      AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
       VITE_AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
       VITE_AI_CADDIE_REQUIRE_LINK: 'true'
+      REVIEW_ROUND_REF: ${{ github.event.inputs.review_round_ref || '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -870,7 +877,10 @@ jobs:
         working-directory: web_v2
         run: |
           set -euo pipefail
-          test -n "$AI_CADDIE_CI_PLAYER_TOKEN"
+          if [[ -z "$AI_CADDIE_CI_PLAYER_TOKEN" ]]; then
+            test -n "$AI_CADDIE_ADMIN_TOKEN"
+            test -n "$REVIEW_ROUND_REF"
+          fi
           npx playwright test e2e/live-ci-player-evidence.spec.ts \
             --config=playwright.live.config.ts \
             --project=desktop-chromium \
@@ -882,6 +892,7 @@ jobs:
         run: >-
           python3 .github/scripts/scan_artifacts_for_secrets.py
           --secret-env AI_CADDIE_CI_PLAYER_TOKEN
+          --secret-env AI_CADDIE_ADMIN_TOKEN
           web_v2/web-live-evidence
 
       - name: Upload real Web player evidence

@@ -82,7 +82,7 @@ final class RealEvidenceRoundResolver {
         self.requestTimeout = requestTimeout
     }
 
-    func resolve() throws -> RealEvidenceRound {
+    func resolve(preferredRoundRef: String? = nil) throws -> RealEvidenceRound {
         let roundsRoot = try getJSON(
             path: "/api/v2/history/rounds",
             queryItems: [
@@ -93,12 +93,16 @@ final class RealEvidenceRoundResolver {
         guard let groups = roundsRoot["groups"] as? [[String: Any]] else {
             throw RealEvidenceRoundResolverError.malformed("/api/v2/history/rounds")
         }
-        let cards = groups
+        let allCards = groups
             .flatMap { ($0["rounds"] as? [[String: Any]]) ?? [] }
             // Manual rounds can contain simulator/test shots. Legacy cards with no source predate
             // the marker and are Garmin-backed, so reject only an explicit manual source here.
             .filter { nonEmptyString($0["source"])?.lowercased() != "manual" }
             .sorted(by: evidenceCardPrecedes)
+        let requestedRef = preferredRoundRef?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cards = requestedRef.map { ref in
+            allCards.filter { nonEmptyString($0["id"]) == ref }
+        } ?? allCards
 
         var shotMapRequests = 0
         // This is a screenshot precondition, not a history crawler. Inspect a bounded recent set;

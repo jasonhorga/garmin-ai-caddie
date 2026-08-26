@@ -1,11 +1,14 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const playerToken = process.env.AI_CADDIE_CI_PLAYER_TOKEN?.trim()
+const adminToken = process.env.AI_CADDIE_ADMIN_TOKEN?.trim()
+const reviewRoundRef = process.env.REVIEW_ROUND_REF?.trim()
+const useOwnerEvidence = Boolean(adminToken && reviewRoundRef)
 
 test.use({ trace: 'off', screenshot: 'off', video: 'off' })
 
 test.describe('real isolated CI player evidence', () => {
-  test.skip(!playerToken, 'AI_CADDIE_CI_PLAYER_TOKEN is required for real evidence')
+  test.skip(!playerToken && !useOwnerEvidence, 'a CI player token or owner admin token is required for real evidence')
 
   async function captureWithoutCredentialInLocation(
     page: Page,
@@ -31,7 +34,7 @@ test.describe('real isolated CI player evidence', () => {
   }
 
   test('captures the real results journey from overview through round detail', async ({ page }) => {
-    if (!playerToken) return
+    if (!playerToken && !useOwnerEvidence) return
 
     // Keep failure evidence useful without ever printing the capability token or request headers.
     // The prior run only said that the topo <img> disappeared; these two boundaries distinguish an
@@ -91,7 +94,16 @@ test.describe('real isolated CI player evidence', () => {
       },
       { timeout: 60_000 },
     )
-    await page.goto(`/p/${encodeURIComponent(playerToken)}`, { waitUntil: 'domcontentloaded' })
+    if (useOwnerEvidence) {
+      // Keep the owner token in Playwright's isolated localStorage only. The app's bare-URL owner
+      // path sends it as an admin header; no capability token is placed in the URL or screenshots.
+      await page.addInitScript((token) => {
+        window.localStorage.setItem('ai-caddie.admin-token', token)
+      }, adminToken)
+      await page.goto('/', { waitUntil: 'domcontentloaded' })
+    } else {
+      await page.goto(`/p/${encodeURIComponent(playerToken!)}`, { waitUntil: 'domcontentloaded' })
+    }
     const overviewResponse = await overviewResponsePromise
     const overviewPath = new URL(overviewResponse.url()).pathname
     console.log(
@@ -104,7 +116,9 @@ test.describe('real isolated CI player evidence', () => {
 
     const resultsLanding = page.locator('section[aria-label="成绩主页"]')
     await expect(resultsLanding).toBeVisible({ timeout: 60_000 })
-    await expect(resultsLanding).toContainText('Cypress Point')
+    if (!useOwnerEvidence) {
+      await expect(resultsLanding).toContainText('Cypress Point')
+    }
     await captureWithoutCredentialInLocation(
       page,
       'results-overview.png',
@@ -128,18 +142,46 @@ test.describe('real isolated CI player evidence', () => {
 
     await resultsSubnav.getByRole('button', { name: '全部球局', exact: true }).click()
     await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
-    const firstRound = page.getByRole('button', { name: /^打开球局 / }).first()
+    let targetRoundLabel: string | null = null
+    let targetCourseName: string | null = null
+    if (reviewRoundRef) {
+      const apiOrigin = process.env.VITE_AI_CADDIE_API_BASE_URL?.trim()
+      if (!apiOrigin) throw new Error('VITE_AI_CADDIE_API_BASE_URL is required with REVIEW_ROUND_REF')
+      const roundsResponse = await page.request.get(
+        `${apiOrigin.replace(/\/$/, '')}/api/v2/history/rounds?hasShots=true&limit=2000`,
+        {
+          headers: useOwnerEvidence
+            ? { 'x-ai-caddie-admin-token': adminToken! }
+            : { 'x-ai-caddie-player-token': playerToken! },
+        },
+      )
+      expect(roundsResponse.ok(), 'target round lookup must authorize').toBeTruthy()
+      const roundsPayload = (await roundsResponse.json()) as {
+        groups?: Array<{ rounds?: Array<{ id?: string; courseName?: string; date?: string | null; score?: number | null }> }>
+      }
+      const target = (roundsPayload.groups ?? [])
+        .flatMap((group) => group.rounds ?? [])
+        .find((round) => round.id === reviewRoundRef)
+      if (!target) throw new Error(`review round ${reviewRoundRef} was not returned by history rounds`)
+      const course = (target.courseName ?? '未知球场').replace(/\s*~\s*/g, ' · ').replace(/\s+-\s+/g, ' · ')
+      const date = target.date?.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? '未知日期'
+      targetCourseName = course
+      targetRoundLabel = `打开球局 ${course}，${date}，成绩 ${target.score ?? '-'}`
+    }
+    const firstRound = targetRoundLabel
+      ? page.getByRole('button', { name: targetRoundLabel, exact: true })
+      : page.getByRole('button', { name: /^打开球局 / }).first()
     try {
       await expect(firstRound).toBeVisible({ timeout: 60_000 })
     } catch (error) {
       await captureWithoutCredentialInLocation(page, 'rounds-list-load-failure.png')
       throw error
     }
-    await expect(firstRound).toHaveAccessibleName(/Cypress Point/)
+    await expect(firstRound).toHaveAccessibleName(targetRoundLabel ? targetRoundLabel : /Cypress Point/)
     await captureWithoutCredentialInLocation(page, 'rounds-list.png')
 
     await firstRound.click()
-    await expect(page.locator('[aria-label="选择球局"]')).toContainText('Cypress Point')
+    await expect(page.locator('[aria-label="选择球局"]')).toContainText(targetCourseName ?? 'Cypress Point')
     await expect(page.locator('[aria-label="第1洞落点图"]')).toBeVisible()
     try {
       await expect(page.locator('.hole-base-topo.is-ready')).toBeVisible({ timeout: 60_000 })
@@ -161,7 +203,7 @@ test.describe('real isolated CI player evidence', () => {
       await captureWithoutCredentialInLocation(page, 'round-review-load-failure.png', roundDetailHeading)
       throw error
     }
-    await expect(roundDetail).toContainText('Cypress Point Club')
+    await expect(roundDetail).toContainText(targetCourseName ?? 'Cypress Point Club')
     await expect(roundDetail.getByText('正在加载球局…')).toHaveCount(0)
     // The product scroll target owns a sticky-bar-safe scroll margin. Exercise that real behavior
     // and compare against the rendered bar instead of baking its old 54 px height into the gate.
