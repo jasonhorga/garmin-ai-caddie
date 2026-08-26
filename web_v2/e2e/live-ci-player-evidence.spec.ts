@@ -140,8 +140,18 @@ test.describe('real isolated CI player evidence', () => {
     await expect(page.getByText('表现分析加载失败')).toHaveCount(0)
     await captureWithoutCredentialInLocation(page, 'performance-analysis.png', performanceHeading)
 
-    await resultsSubnav.getByRole('button', { name: '全部球局', exact: true }).click()
-    await expect(page.getByRole('heading', { name: '球局', exact: true, level: 1 })).toBeVisible()
+    const roundsNavButton = resultsSubnav.getByRole('button', { name: '全部球局', exact: true })
+    const roundsHeading = page.getByRole('heading', { name: '球局', exact: true, level: 1 })
+    const roundsLoadingHeading = page.getByRole('heading', { name: '球局加载中', exact: true })
+    const roundsErrorHeading = page.getByRole('heading', { name: '球局数据不可用', exact: true })
+    await expect(roundsNavButton).toBeVisible({ timeout: 60_000 })
+    await roundsNavButton.click()
+    // Navigation renders an observable loading shell before the rounds request resolves. Wait for
+    // that state transition before asserting the ready heading, while surfacing an actual error
+    // immediately instead of masking it as a timeout.
+    await expect(roundsHeading.or(roundsLoadingHeading).or(roundsErrorHeading)).toBeVisible({ timeout: 60_000 })
+    await expect(roundsErrorHeading).toHaveCount(0)
+    await expect(roundsHeading).toBeVisible({ timeout: 60_000 })
     let targetRoundLabel: string | null = null
     let targetCourseName: string | null = null
     if (reviewRoundRef) {
