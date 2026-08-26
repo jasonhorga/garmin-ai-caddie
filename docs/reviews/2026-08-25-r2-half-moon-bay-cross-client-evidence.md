@@ -172,6 +172,24 @@ artifact 均不携带 token。结果为 `1 passed (25.6s)`：
 它们是 home/round appearance 的延迟代理，**不是**完整 review topo 首帧计时；
 首帧 topo 与逐图视觉状态仍需 owner 逐图审核。
 
+## GitHub Web-only runtime 证据（2026-08-26 UTC）
+
+当前 HEAD `8419840b` 的 GitHub Actions run `32944143003` 中，job
+`98101156667` 的 Web-only 证据为 `1/1 passed (39.8s)`。artifact
+`9597641080` 共 6 个文件、821,477 bytes，zip SHA-256 为
+`d321b5816904214abcc37c1f231e02fb844ed7dc2a47e667d83d0b04f454f375`；secret
+scan 通过。
+
+- overview、detail、shotmap、topo 请求均为 HTTP 200。
+- hole 1 shotmap 为 `found=true`、`globalId=6022`、`localHole=1`。
+- topo hole 1 和 hole 2 均为 `image/png`。
+
+前两次 GitHub 尝试 `32942764978`、`32943661246` 都在 overview 的 60 秒
+transport wait 处失败；服务诊断没有发现 5xx。它们应记录为传输/证据采集失败，
+不能冒充产品错误。第三次 `32944143003` 成功，现作为 Web 主证据；此前
+homeserver owner-only run 保留为补充历史。截图仍需 owner 视觉审批，不能据此
+声称视觉审批已经完成。
+
 ## iOS/Web 对齐边界
 
 Web HMB owner-only run 的 round detail、hole-1 shotmap（`found=true`、

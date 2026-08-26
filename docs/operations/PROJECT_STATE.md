@@ -246,6 +246,18 @@ means a named external decision or prerequisite is missing; `done` and
   deployment, synchronization, Funnel change, or production write occurred.
   R2 remains open only for owner screenshot approval, not backend club provenance
   or runtime technical evidence.
+- GitHub Web-only HMB runtime run `32944143003` at head `8419840b` passed: job
+  `98101156667` completed `1/1` in 39.8s and artifact `9597641080` contains
+  six files (821,477 bytes). Overview/detail/shotmap/topo returned 200;
+  shotmap found `true` with `globalId=6022`, `localHole=1`; topo holes 1/2
+  were `image/png`. Secret scanning passed and the artifact zip SHA-256 is
+  `d321b5816904214abcc37c1f231e02fb844ed7dc2a47e667d83d0b04f454f375`.
+  Earlier runs `32942764978` and `32943661246` failed at the overview 60s
+  transport wait; service diagnosis found no 5xx. Those failures are transport
+  evidence gaps, not product errors. The successful GitHub run supersedes the
+  homeserver owner-only run as the Web evidence source; that run remains
+  supplementary history. R2 remains `evidence-open`, with only owner visual
+  approval remaining; `REL` remains `blocked`.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
@@ -316,6 +328,11 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   `32847741048` and current-head stable Web runtime `32847990023` both passed.
   R2 remains open only for the documented HMB/iOS cross-client and provenance
   evidence, plus owner visual approval.
+- 2026-08-26: GitHub Web-only HMB run `32944143003` passed at head `8419840b`
+  (job `98101156667`, artifact `9597641080`, `1/1` in 39.8s). The first two
+  runs failed at the overview 60s transport wait, with no service 5xx found;
+  the third run is successful Web evidence, while owner visual approval stays
+  open and `REL` stays blocked.
 - 2026-08-24: Integrated backend test-contract fix `46aad448` and Web fixture
   fix `2ca27720`; awaiting a matching green CI run.
 - 2026-08-24: Integrated visual fixture correction `edf41054`; CI
