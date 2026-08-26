@@ -19,14 +19,14 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`R2` — iOS/Web review parity and live evidence** (`evidence-open`)
+**`REL` — release readiness and TestFlight gate** (`in-progress`)
 
 `W1` and `S1` are closed with isolated current-head evidence. The public
 service still runs revision `6a6080c6...`; no production deployment or data
-synchronization was performed. R2 is now the only active slice.
-Its Web HMB and same-round iOS simulator runtime evidence are complete;
-technical evidence for both clients is complete, with only owner visual approval
-remaining.
+synchronization was performed. R2 Web HMB and same-round iOS simulator runtime
+evidence are complete, and the owner's `go` instruction on 2026-08-26 is
+recorded as approval to advance the evidence gate. REL now checks the external
+release prerequisites; no TestFlight upload is performed by this transition.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
@@ -41,8 +41,8 @@ project-level task list; historical plans are reference material.
 | `W1` | `done` | Watch lifecycle, independent discovery, offline/restart, and 41/45/49 mm behavior. | Run `32806892801` watch-runtime job succeeded at head `8a3ee8ba`: 41/45/49 mm captures, real Cypress 18-hole install/restore, same-round 1–18 journey, hole-1 history edit while live on hole 10, finish confirmation, 57 queued records acknowledged, remote finish success, plus Cancel recovery and abandon/tombstone markers. |
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
-| `R2` | `evidence-open` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`; technical evidence is complete, with only owner visual approval remaining. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, and approved runtime screenshots. |
-| `REL` | `blocked` | Release and TestFlight gate. | `W1`, `S1`, and `R1`/`R2` evidence complete, production provenance approved, then owner approval. |
+| `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
+| `REL` | `in-progress` | Release and TestFlight gate; artifact-only readiness first. | Verify source/native gates, production provenance, signing/TestFlight readiness, then request explicit upload confirmation. |
 
 ### Status vocabulary
 
@@ -271,13 +271,12 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Obtain owner approval of the cross-client HMB screenshot comparison, including
-   the displayed club-distance/source values; do not treat the round-home latency
-   proxy as a topo first-frame measurement.
+1. Run the artifact-only native release build and the external Phase 6 readiness
+   audit; record every missing prerequisite without uploading or deploying.
 2. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
-3. Run the P0/P1/P2 real-data evidence matrix, then resolve provenance and
-   owner-approval gates before TestFlight.
+3. Request a separate explicit confirmation before setting
+   `upload_to_testflight=true`; a readiness pass alone never uploads a binary.
 
 ## Open Blockers / Facts
 
@@ -439,3 +438,8 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   and no provenance. The production API also returned to healthy without a
   restart (`StartedAt` unchanged). R2 stays `evidence-open` only for real HMB
   iOS/Web parity and owner approval; no production/Funnel/sync mutation occurred.
+- 2026-08-26: Owner said `go` after the public R2 comparison page was verified;
+  interpreted as approval of the R2 evidence gate. Closed R2 and started REL
+  as the sole active slice. The next action is an artifact-only release audit;
+  no TestFlight upload, production deployment, synchronization, or Funnel
+  change is authorized by this state transition.
