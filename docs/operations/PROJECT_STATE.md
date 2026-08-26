@@ -258,6 +258,14 @@ means a named external decision or prerequisite is missing; `done` and
   homeserver owner-only run as the Web evidence source; that run remains
   supplementary history. R2 remains `evidence-open`, with only owner visual
   approval remaining; `REL` remains `blocked`.
+- The R2 owner review page is publicly published at
+  `https://caddie.taile36706.ts.net/demos/garmin-r2-owner-review-20260826/`.
+  It contains exactly 39 public files (the index plus 38 PNGs); external
+  verification returned HTTP 200 for the index and all image URLs, and the
+  image SHA-256 values match the private staging copy. No production app route,
+  data, or Funnel configuration was changed; this is a static evidence
+  publication only. Watch evidence remains separate and is not implied by this
+  page.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 

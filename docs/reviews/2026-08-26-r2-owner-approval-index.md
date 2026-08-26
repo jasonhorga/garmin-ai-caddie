@@ -4,6 +4,21 @@
 Technical evidence is complete for the deterministic Half Moon Bay round; owner
 approval remains open.
 
+## Public Review Page
+
+The owner-approved static review page is publicly available at:
+
+<https://caddie.taile36706.ts.net/demos/garmin-r2-owner-review-20260826/>
+
+It contains only `index.html`, six Web PNGs, and 32 iOS PNGs (39 files total).
+The page returned HTTP 200, all 38 image URLs returned HTTP 200 with
+`image/png`, and every published image matched the private staging copy by
+SHA-256. The public directory contains no ZIPs, logs, diagnostics, source
+data, credentials, or write endpoints. This is an evidence publication only;
+it does not deploy the app or write production data. The page is intentionally
+limited to Web and iOS R2 evidence; Watch evidence remains in its separate
+artifact and is not represented as approved here.
+
 ## Evidence Sources
 
 | Surface | Run / artifact | Technical facts already verified | Owner decision still required |
