@@ -683,3 +683,16 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   authority test. A read-only public health probe still reports backend
   `6a6080c6...`; no Native rerun, production deployment, restart, release,
   signing, or upload was performed.
+- 2026-08-27: Native Mobile CI run `33092239960` was dispatched with explicit
+  `api_base_url=https://caddie.taile36706.ts.net` and backend revision
+  `6a6080c6...`; its head was app/workflow SHA
+  `27ab374275c822f4274b062017219ab7c9bf55d9`. XcodeGen, all deterministic
+  iOS tests, SwiftJCS boundaries, design snapshots, preflight, and all seven
+  `TeeSelectionUITests` passed, including
+  `testDeniedGPSStillOffersCatalogueSearchInsteadOfHistory`. RealFlow and
+  ReviewEdit each failed with `noEligibleRound` in
+  `RealEvidenceRoundResolver.swift:208`, so Watch runtime stages were skipped.
+  This is missing qualifying live history evidence, not a source or endpoint
+  contract failure. The run uploaded a real video of 77,030,383 bytes; no
+  large artifact was retained locally. No release, deploy, signing, or upload
+  workflow was dispatched.
