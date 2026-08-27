@@ -87,6 +87,19 @@ SHA256 `d0b53e2a719d60b6dbcd54eba0b8286a2b494eb7b3f8de8de5b6cdc8b8ecba38`.
 Phase 6 dispatch run `33071919393` failed before execution because GitHub
 rejected the workflow expression `runner.temp`; no Phase 6 evidence was
 produced. TestFlight/release/deploy/signing workflows remain unrun.
+Native rerun `33074266179` at pushed HEAD
+`d2cacff788bc842e4b8488dd3cce4469df9ba964` passed XcodeGen, iOS target tests,
+SwiftJCS boundaries, and design snapshot secret scans, but failed the live iOS
+XCUITest step. `RealFlowUITests` and `ReviewEditUITests` timed out fetching
+`/api/v2/history/rounds?hasShots=true&limit=120` from the public API, while
+`TeeSelectionUITests.testAuthorizedGPSWithoutFixStillOffersCompleteCatalogueFallback`
+failed its home new-round availability assertion. The same run's real screenshot,
+design snapshot, and video artifacts were uploaded; Watch stages were skipped
+after the iOS failure. This does not establish a source regression: the two
+transport failures are live-ingress/runtime evidence, and the remaining
+TeeSelection assertion requires a focused reproduction before any code change.
+Native runtime evidence therefore remains open and TestFlight workflows remain
+unrun.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
@@ -557,3 +570,8 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   while `33029475105` passed the backend probe. No route/container/data
   mutation was made; REL remains open only for revision consistency and the
   manual tester/device gates.
+- 2026-08-27: Native rerun `33074266179` at `d2cacff7` passed deterministic iOS
+  gates but failed live XCUITest execution: two public history-request timeouts
+  and one authorized-GPS tee-selector availability assertion. Screenshot,
+  design-snapshot, and video artifacts uploaded; Watch runtime stages were
+  skipped. No product code change was made pending focused reproduction.
