@@ -126,9 +126,14 @@ the existing city-search/long-result behavior while making the selected course
 ID, fresh live round ID, and tee state explicit before dismissing the sheet. A
 deterministic `StartRoundDiscoveryTests` case covers selecting the final item
 from a 200-row catalogue and retaining the resulting start-round state. The
-homeserver is Linux and cannot run `xcodebuild`; macOS Native Mobile CI is
-required for runtime confirmation. No release, deploy, signing, or upload
-workflow is dispatched.
+ homeserver is Linux and cannot run `xcodebuild`; macOS Native Mobile CI is
+ required for runtime confirmation. The single verification dispatch
+ `33089327124` was pinned to `87780b3e2083cbaee4162663048d9b95872f467c` but
+ failed during Swift compilation because two existing segment/venue callers
+ still used the removed `globalIdText:` argument; iOS tests and all Watch
+ stages were skipped, so it provides no behavioral evidence. Those callers are
+ corrected in the next pushed commit. No release, deploy, signing, or upload
+ workflow is dispatched.
 
 ## Task Ledger
 

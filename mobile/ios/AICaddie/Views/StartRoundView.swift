@@ -286,11 +286,10 @@ public struct StartRoundView: View {
         if userInitiated {
             userPickedVenue = true
         }
-        courseGlobalIdText = String(first.globalId)
         backGlobalIdText = ""
         fetchedTees = []
         teeLoadFailed = false
-        applySelectedCourse(globalIdText: courseGlobalIdText)
+        applySelectedCourse(first)
     }
 
     /// S70 only auto-selects when GPS finds one nearby venue. With more than one, the player chooses
@@ -516,11 +515,10 @@ public struct StartRoundView: View {
         let selected = String(segment.globalId) == courseGlobalIdText
         Button {
             userPickedVenue = true
-            courseGlobalIdText = String(segment.globalId)
             backGlobalIdText = ""  // changing the front loop resets any "add second nine" choice
             fetchedTees = []
             teeLoadFailed = false
-            applySelectedCourse(globalIdText: courseGlobalIdText)
+            applySelectedCourse(segment)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: selected ? "largecircle.fill.circle" : "circle")
