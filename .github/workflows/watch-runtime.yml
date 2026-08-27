@@ -877,10 +877,7 @@ jobs:
         working-directory: web_v2
         run: |
           set -euo pipefail
-          if [[ -z "$AI_CADDIE_CI_PLAYER_TOKEN" ]]; then
-            test -n "$AI_CADDIE_ADMIN_TOKEN"
-            test -n "$REVIEW_ROUND_REF"
-          fi
+          test -n "$AI_CADDIE_CI_PLAYER_TOKEN"
           npx playwright test e2e/live-ci-player-evidence.spec.ts \
             --config=playwright.live.config.ts \
             --project=desktop-chromium \

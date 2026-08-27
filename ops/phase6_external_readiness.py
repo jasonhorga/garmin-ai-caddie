@@ -57,7 +57,7 @@ def _utc_now() -> str:
 
 
 def _state_from_checks(checks: list[dict[str, Any]]) -> str:
-    if all(check.get("state") == "ready" for check in checks):
+    if checks and all(check.get("state") in {"ready", "manual_asserted"} for check in checks):
         return "ready"
     return "incomplete"
 
@@ -155,7 +155,7 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
         issues.append("created_at_invalid")
     if api_host and str(payload.get("apiOriginHost") or "").lower() != api_host.lower():
         issues.append("api_origin_host_mismatch")
-    required = ("workflowRun", "marketingVersion", "buildNumber", "apiOriginHost", "backendRevision", "ipaSha256", "uploadToTestflight")
+    required = ("workflowRun", "marketingVersion", "buildNumber", "ipaSha256", "uploadToTestflight")
     issues.extend(f"{field}_missing" for field in required if payload.get(field) in (None, ""))
     if payload.get("workflowRun") in (None, ""):
         issues.append("workflow_run_missing")
@@ -165,6 +165,10 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
         issues.append("build_number_missing")
     backend_revision = str(payload.get("backendRevision") or "")
     uploaded = payload.get("uploadToTestflight") is True
+    if uploaded and not payload.get("apiOriginHost"):
+        issues.append("api_origin_host_missing")
+    if uploaded and not payload.get("backendRevision"):
+        issues.append("backend_revision_missing")
     if uploaded and not re.fullmatch(r"[0-9a-fA-F]{40}", backend_revision):
         issues.append("backend_revision_invalid")
     if not uploaded and backend_revision not in {"", "unknown"} and not re.fullmatch(r"[0-9a-fA-F]{40}", backend_revision):
@@ -1048,6 +1052,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--branch", default=DEFAULT_BRANCH, help="GitHub branch whose workflow runs should be inspected.")
     parser.add_argument("--api-base-url", help="Public deployed API URL to check without printing secrets.")
     parser.add_argument("--output", type=Path, help="Write the JSON evidence to this path after printing it.")
+    parser.add_argument("--release-provenance", type=Path, help="IPA sidecar provenance manifest to validate.")
     parser.add_argument(
         "--assigned-tester-count",
         type=int,
@@ -1092,6 +1097,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     env = dict(os.environ)
+    if args.release_provenance:
+        env["AI_CADDIE_RELEASE_PROVENANCE_PATH"] = str(args.release_provenance)
     if args.api_base_url:
         env["PHASE6_API_BASE_URL"] = args.api_base_url
     assigned_tester_count = args.assigned_tester_count

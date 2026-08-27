@@ -57,8 +57,8 @@ def _build_number(ipa: Path) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ipa", type=Path, required=True)
-    parser.add_argument("--api-origin", required=True)
-    parser.add_argument("--backend-revision", required=True)
+    parser.add_argument("--api-origin", default="")
+    parser.add_argument("--backend-revision", default="")
     parser.add_argument("--commit", required=True)
     parser.add_argument("--workflow-run", required=True)
     parser.add_argument("--marketing-version", required=True)
@@ -71,7 +71,9 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--commit must be a 40-character hexadecimal revision")
     if not args.ipa.is_file():
         raise SystemExit("IPA does not exist")
-    backend_revision = args.backend_revision.strip().lower()
+    backend_revision = args.backend_revision.strip().lower() or None
+    if args.upload_to_testflight and not args.api_origin:
+        raise SystemExit("--api-origin is required for TestFlight upload")
     if args.upload_to_testflight and not re.fullmatch(r"[0-9a-f]{40}", backend_revision):
         raise SystemExit("--backend-revision must be a 40-character hexadecimal revision")
     if not str(args.workflow_run).strip() or not str(args.marketing_version).strip():
@@ -83,8 +85,9 @@ def main(argv: list[str] | None = None) -> int:
         "workflowRun": str(args.workflow_run),
         "marketingVersion": str(args.marketing_version),
         "buildNumber": str(args.build_number or _build_number(args.ipa)),
-        "apiOriginHost": _origin_host(args.api_origin),
+        "apiOriginHost": _origin_host(args.api_origin) if args.api_origin else None,
         "backendRevision": backend_revision,
+        "backendRevisionVerified": bool(args.upload_to_testflight and backend_revision),
         "ipaSha256": _sha256(args.ipa),
         "uploadToTestflight": bool(args.upload_to_testflight),
     }

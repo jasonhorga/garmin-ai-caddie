@@ -98,6 +98,7 @@ platform :ios do
 
   def preflight_backend!
     origin = ENV["AI_CADDIE_API_BASE_URL"].to_s.strip
+    return {} if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") != "true"
     UI.user_error!("AI_CADDIE_API_BASE_URL must be a public HTTPS origin for upload") if origin.empty?
     parsed = URI.parse(origin)
     UI.user_error!("AI_CADDIE_API_BASE_URL must be an origin-only HTTPS URL") unless parsed.scheme == "https" && parsed.host && parsed.path.to_s.sub(%r{/\z}, "").empty? && parsed.query.nil? && parsed.fragment.nil? && parsed.user.nil? && parsed.password.nil?

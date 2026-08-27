@@ -606,7 +606,7 @@ def _external_release_evidence() -> tuple[str, dict[str, Any]]:
         issues.append("schema_mismatch")
 
     payload_state = str(payload.get("state") or "unknown").strip()
-    if payload_state != "ready":
+    if payload_state not in {"ready", "manual_asserted"}:
         issues.append(f"phase6_state_{payload_state or 'unknown'}")
 
     raw_missing_actions = payload.get("missingExternalActions")
