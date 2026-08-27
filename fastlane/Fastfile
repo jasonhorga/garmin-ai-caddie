@@ -120,7 +120,7 @@ platform :ios do
     UI.user_error!("backend revision mismatch") unless health["revision"].to_s == expected
     readiness = JSON.parse(sh("curl #{header_args} #{auth_header} #{Shellwords.escape(origin + '/api/v2/readiness')}"))
     checks = readiness["checks"]
-    UI.user_error!("backend readiness authentication/schema invalid") unless readiness["schema"] == "ai-caddie-readiness-v1" && readiness["authenticated"] == true && %w[ready degraded].include?(readiness["status"]) && checks.is_a?(Array) && !checks.empty? && checks.all? { |row| row.is_a?(Hash) && !row["label"].to_s.strip.empty? }
+    UI.user_error!("backend readiness authentication/schema invalid") unless readiness["schema"] == "ai-caddie-readiness-v1" && readiness["authenticated"] == true && readiness["runtimeStatus"] == "ready" && readiness["status"] == "ready" && checks.is_a?(Array) && !checks.empty? && checks.all? { |row| row.is_a?(Hash) && !row["label"].to_s.strip.empty? }
     health.merge("readiness" => readiness)
   rescue URI::InvalidURIError
     UI.user_error!("invalid AI_CADDIE_API_BASE_URL")

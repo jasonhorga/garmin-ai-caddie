@@ -153,7 +153,7 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
             issues.append("stale")
     except (ValueError, TypeError):
         issues.append("created_at_invalid")
-    if api_host and str(payload.get("apiOriginHost") or "").lower() != api_host.lower():
+    if api_host and payload.get("apiOriginHost") and str(payload.get("apiOriginHost")).lower() != api_host.lower():
         issues.append("api_origin_host_mismatch")
     required = ("workflowRun", "marketingVersion", "buildNumber", "ipaSha256", "uploadToTestflight")
     issues.extend(f"{field}_missing" for field in required if payload.get(field) in (None, ""))
@@ -164,7 +164,13 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
     if payload.get("buildNumber") in (None, ""):
         issues.append("build_number_missing")
     backend_revision = str(payload.get("backendRevision") or "")
-    uploaded = payload.get("uploadToTestflight") is True
+    uploaded = payload.get("uploadCompleted") is True or payload.get("uploadToTestflight") is True
+    expected_commit = str(env.get("AI_CADDIE_RELEASE_COMMIT") or env.get("GITHUB_SHA") or "").strip()
+    if expected_commit and commit.lower() != expected_commit.lower():
+        issues.append("commit_mismatch")
+    expected_build = str(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER") or "").strip()
+    if expected_build and str(payload.get("buildNumber") or "") != expected_build:
+        issues.append("build_number_mismatch")
     if uploaded and not payload.get("apiOriginHost"):
         issues.append("api_origin_host_missing")
     if uploaded and not payload.get("backendRevision"):
@@ -176,7 +182,7 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
     ipa_sha = str(payload.get("ipaSha256") or "")
     if not re.fullmatch(r"[0-9a-fA-F]{64}", ipa_sha):
         issues.append("ipa_sha256_invalid")
-    safe = {key: payload.get(key) for key in ("schema", "commit", "workflowRun", "marketingVersion", "buildNumber", "apiOriginHost", "backendRevision", "ipaSha256", "uploadToTestflight", "createdAt")}
+    safe = {key: payload.get(key) for key in ("schema", "commit", "workflowRun", "marketingVersion", "buildNumber", "apiOriginHost", "backendRevision", "backendRevisionVerified", "ipaSha256", "uploadToTestflight", "uploadRequested", "uploadCompleted", "createdAt")}
     return {"label": "release_provenance", "state": "ready" if not issues else "degraded", "reason": None if not issues else "invalid release provenance manifest", "evidence": {**safe, "issues": sorted(set(issues))}}
 
 
