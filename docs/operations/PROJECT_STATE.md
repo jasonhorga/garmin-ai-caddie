@@ -173,6 +173,17 @@ Local Python compilation and `git diff --check` pass; a remote FastAPI-backed
 rerun passed 18/18 and remote Python compilation passed. The remote scratch was
 removed after verification. Swift compile/Codable and macOS Watch runtime remain
 unverified and require the Native workflow.
+The subsequent full-entry identity pass is implemented in the current follow-up:
+fixture round aliases are structurally parsed and encoded course/query conflicts
+fail closed; package, history-detail, and shot-map routes bind front/back course,
+segment, and tee context; Home previous-round, Results recent/archive/trend, and
+Stats drill-in entries carry round identity into the review pager/repository/edit
+refresh chain; and `RoundDetailHole` retains physical course/local-hole,
+back-course, and source-reference fields. Local checks ran 20 tests (6 passed,
+14 skipped without FastAPI); the homeserver FastAPI-backed suite passed 20/20,
+with remote Python compilation and diff-check passing. Native Swift compile and
+Codable/runtime evidence remain open; no workflow, deployment, signing, upload,
+or TestFlight action was performed.
 expected Opus fixture-contract review report at
 `/home/jason/garmin-ai-caddie-data/operations/opus-fixture-contract-review-20260827.md`
 was checked and does not exist; no report hash is claimed. This remains source

@@ -11,7 +11,7 @@ public enum HubRoute: Hashable {
     case start
     case hole(Int)
     case history
-    case roundReview(roundRef: String, courseName: String?)
+    case roundReview(roundRef: String, courseName: String?, globalId: Int?, backGlobalId: Int?, nine: String?, teeBox: String?)
 }
 
 public struct RoundHomeView: View {
@@ -183,7 +183,11 @@ public struct RoundHomeView: View {
                 .history,
                 .roundReview(
                     roundRef: roundRef,
-                    courseName: environment["UITEST_REVIEW_COURSE_NAME"]
+                    courseName: environment["UITEST_REVIEW_COURSE_NAME"],
+                    globalId: nil,
+                    backGlobalId: nil,
+                    nine: nil,
+                    teeBox: nil
                 ),
             ])
         }
@@ -228,12 +232,16 @@ public struct RoundHomeView: View {
                         apiBaseURL: apiBaseURL,
                         adminToken: adminToken
                     )
-                case .roundReview(let roundRef, let courseName):
+                case .roundReview(let roundRef, let courseName, let globalId, let backGlobalId, let nine, let teeBox):
                     RoundReviewView(
                         roundRef: roundRef,
                         fallbackCourseName: courseName,
                         apiBaseURL: apiBaseURL,
-                        adminToken: adminToken
+                        adminToken: adminToken,
+                        globalId: globalId,
+                        backGlobalId: backGlobalId,
+                        nine: nine,
+                        teeBox: teeBox
                     )
                 }
             }
@@ -456,7 +464,11 @@ public struct RoundHomeView: View {
                 NavigationLink(
                     value: HubRoute.roundReview(
                         roundRef: last.roundId,
-                        courseName: last.courseName
+                        courseName: last.courseName,
+                        globalId: last.globalId ?? package.course.globalId,
+                        backGlobalId: package.holes.lazy.compactMap(\.sourceGlobalId).first { $0 != package.course.globalId },
+                        nine: package.nine,
+                        teeBox: package.course.teeBox
                     )
                 ) {
                     HubLastRoundCard(

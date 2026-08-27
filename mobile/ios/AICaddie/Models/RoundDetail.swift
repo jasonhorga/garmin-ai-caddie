@@ -66,6 +66,11 @@ public struct RoundDetailHole: Codable, Equatable, Identifiable {
     public let gir: Bool?
     public let fairway: String?
     public let status: String?
+    public let globalId: Int?
+    public let localHole: Int?
+    public let backGlobalId: Int?
+    public let sourceRef: String?
+    public let shotRefs: [String]
 
     public init(from decoder: Decoder) throws {
         // Tolerant: Garmin gir/fairway are sometimes null / odd types — never fail the whole round.
@@ -80,11 +85,17 @@ public struct RoundDetailHole: Codable, Equatable, Identifiable {
         gir = try? c.decodeIfPresent(Bool.self, forKey: .gir)
         fairway = try? c.decodeIfPresent(String.self, forKey: .fairway)
         status = try? c.decodeIfPresent(String.self, forKey: .status)
+        globalId = try? c.decodeIfPresent(Int.self, forKey: .globalId)
+        localHole = try? c.decodeIfPresent(Int.self, forKey: .localHole)
+        backGlobalId = try? c.decodeIfPresent(Int.self, forKey: .backGlobalId)
+        sourceRef = try? c.decodeIfPresent(String.self, forKey: .sourceRef)
+        shotRefs = (try? c.decodeIfPresent([String].self, forKey: .shotRefs)) ?? []
     }
 
     public init(hole: Int, par: Int? = nil, score: Int? = nil, toPar: Int? = nil, className: String? = nil,
                 putts: Int? = nil, penalties: Int? = nil, gir: Bool? = nil, fairway: String? = nil,
-                status: String? = nil) {
+                status: String? = nil, globalId: Int? = nil, localHole: Int? = nil, backGlobalId: Int? = nil,
+                sourceRef: String? = nil, shotRefs: [String] = []) {
         self.hole = hole
         self.par = par
         self.score = score
@@ -95,10 +106,15 @@ public struct RoundDetailHole: Codable, Equatable, Identifiable {
         self.gir = gir
         self.fairway = fairway
         self.status = status
+        self.globalId = globalId
+        self.localHole = localHole
+        self.backGlobalId = backGlobalId
+        self.sourceRef = sourceRef
+        self.shotRefs = shotRefs
     }
 
     private enum CodingKeys: String, CodingKey {
-        case hole, par, score, toPar, className, putts, penalties, gir, fairway, status
+        case hole, par, score, toPar, className, putts, penalties, gir, fairway, status, globalId, localHole, backGlobalId, sourceRef, shotRefs
     }
 }
 

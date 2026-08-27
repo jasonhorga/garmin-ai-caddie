@@ -63,6 +63,10 @@ public struct StatsTrendPoint: Codable, Equatable, Identifiable {
     public let bogeys: Int?
     public let doublesPlus: Int?
     public let roundId: String?
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let nine: String?
+    public let teeBox: String?
 }
 
 public struct StatsSummary: Codable, Equatable {
@@ -276,6 +280,9 @@ public struct StatsCourse: Codable, Equatable, Identifiable {
     public let nineBreakdown: [StatsNineBreakdown]?
     /// Every round at this course (newest→oldest) for the drill-in list: 时间·成绩, tap → 单场复盘.
     public let rounds: [StatsCourseRound]?
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let teeBox: String?
 }
 
 /// One round in a course's drill-in list (date + score; opens 单场复盘 on tap).
@@ -287,6 +294,9 @@ public struct StatsCourseRound: Codable, Equatable, Identifiable {
     public let holesCompleted: Int?
     public let toPar: Int?
     public let nine: String?
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let teeBox: String?
 }
 
 public struct StatsNineBreakdown: Codable, Equatable, Identifiable {

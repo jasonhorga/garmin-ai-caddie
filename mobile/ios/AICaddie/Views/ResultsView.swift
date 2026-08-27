@@ -163,8 +163,10 @@ struct ResultsLandingContent: View {
                 }
                 ForEach(rounds.prefix(3)) { round in
                     NavigationLink {
-                        RoundReviewView(roundRef: round.id, fallbackCourseName: round.courseName,
-                                        apiBaseURL: apiBaseURL, adminToken: adminToken)
+                    RoundReviewView(roundRef: round.id, fallbackCourseName: round.courseName,
+                                    apiBaseURL: apiBaseURL, adminToken: adminToken,
+                                    globalId: round.globalId, backGlobalId: round.backGlobalId,
+                                    nine: round.nine, teeBox: round.teeBox)
                     } label: { ResultsRoundRow(round: round, showsScoreStrip: true) }
                     .buttonStyle(.plain)
                     .foregroundStyle(.primary)
@@ -301,8 +303,10 @@ public struct ResultsArchiveView: View {
                         VStack(spacing: 0) {
                             ForEach(group.rounds) { round in
                                 NavigationLink {
-                                    RoundReviewView(roundRef: round.id, fallbackCourseName: round.courseName,
-                                                    apiBaseURL: apiBaseURL, adminToken: adminToken)
+                                RoundReviewView(roundRef: round.id, fallbackCourseName: round.courseName,
+                                                apiBaseURL: apiBaseURL, adminToken: adminToken,
+                                                globalId: round.globalId, backGlobalId: round.backGlobalId,
+                                                nine: round.nine, teeBox: round.teeBox)
                                 } label: { ResultsRoundRow(round: round, showsScoreStrip: true) }
                                 .buttonStyle(.plain).foregroundStyle(.primary)
                                 if round.id != group.rounds.last?.id { Divider() }
@@ -495,11 +499,11 @@ private enum ResultsTrendGrain: String, CaseIterable, Identifiable {
 }
 
 private enum ResultsTrendDestination: Hashable, Identifiable {
-    case round(String)
+    case round(String, globalId: Int?, backGlobalId: Int?, nine: String?, teeBox: String?)
     case period(String)
     var id: String {
         switch self {
-        case let .round(value): return "round:\(value)"
+        case let .round(value, _, _, _, _): return "round:\(value)"
         case let .period(value): return "period:\(value)"
         }
     }
@@ -541,9 +545,10 @@ public struct ResultsTrendView: View {
 
     @ViewBuilder private func destinationView(_ value: ResultsTrendDestination) -> some View {
         switch value {
-        case let .round(roundId):
+        case let .round(roundId, globalId, backGlobalId, nine, teeBox):
             RoundReviewView(roundRef: roundId, fallbackCourseName: nil,
-                            apiBaseURL: apiBaseURL, adminToken: adminToken)
+                            apiBaseURL: apiBaseURL, adminToken: adminToken,
+                            globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox)
         case let .period(period):
             ResultsArchiveView(apiBaseURL: apiBaseURL, adminToken: adminToken, initialPeriod: period)
         }
@@ -710,7 +715,9 @@ public struct ResultsTrendView: View {
             return (stats.trend?.points ?? []).compactMap { point in
                 guard let score = point.score, let roundId = point.roundId else { return nil }
                 return ResultsTrendChartPoint(id: roundId, label: String(point.date.prefix(10)),
-                                              value: Double(score), destination: .round(roundId))
+                                              value: Double(score), destination: .round(roundId, globalId: point.globalId,
+                                                                                     backGlobalId: point.backGlobalId,
+                                                                                     nine: point.nine, teeBox: point.teeBox))
             }
         }
         return periods(for: stats).reversed().compactMap { period in

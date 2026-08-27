@@ -57,6 +57,10 @@ public struct HistoryRoundCard: Codable, Equatable, Identifiable {
     public let scoreStrip: [HistoryScoreCell]
     public let badges: [HistoryDataBadge]
     public let source: String?
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let nine: String?
+    public let teeBox: String?
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -71,10 +75,14 @@ public struct HistoryRoundCard: Codable, Equatable, Identifiable {
         scoreStrip = (try? c.decode([HistoryScoreCell].self, forKey: .scoreStrip)) ?? []
         badges = (try? c.decode([HistoryDataBadge].self, forKey: .badges)) ?? []
         source = try? c.decodeIfPresent(String.self, forKey: .source)
+        globalId = try? c.decodeIfPresent(Int.self, forKey: .globalId)
+        backGlobalId = try? c.decodeIfPresent(Int.self, forKey: .backGlobalId)
+        nine = try? c.decodeIfPresent(String.self, forKey: .nine)
+        teeBox = try? c.decodeIfPresent(String.self, forKey: .teeBox)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, date, courseName, courseKey, holesCompleted, score, par, toPar, scoreStrip, badges, source
+        case id, date, courseName, courseKey, holesCompleted, score, par, toPar, scoreStrip, badges, source, globalId, backGlobalId, nine, teeBox
     }
 }
 

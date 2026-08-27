@@ -346,6 +346,9 @@ public struct PackageReadinessCheck: Codable, Equatable, Identifiable {
     public let total: Int
     public let reason: String
     public let sourceRefs: [String]
+    public let backGlobalId: Int? = nil
+    public let nine: String? = nil
+    public let teeBox: String? = nil
 }
 
 public struct CaddieContextSeed: Codable, Equatable, Identifiable {
@@ -697,6 +700,9 @@ public struct RecentRoundSummary: Codable, Equatable, Identifiable {
     /// 旧 payload 无此字段 → 合成 Codable 解码为 nil → 卡片回退纯文字,绝不造图。
     public let globalId: Int?
     public let sourceRefs: [String]
+    public let backGlobalId: Int?
+    public let nine: String?
+    public let teeBox: String?
 }
 
 public struct CourseRecentHistory: Codable, Equatable {

@@ -725,8 +725,11 @@ struct CourseStatsDetailView: View {
                 ForEach(rounds) { r in
                     if let ref = r.roundId, !ref.isEmpty {
                         NavigationLink {
-                            RoundReviewView(roundRef: ref, fallbackCourseName: course.courseName,
-                                            apiBaseURL: apiBaseURL, adminToken: adminToken)
+                        RoundReviewView(roundRef: ref, fallbackCourseName: course.courseName,
+                                        apiBaseURL: apiBaseURL, adminToken: adminToken,
+                                        globalId: r.globalId ?? course.globalId,
+                                        backGlobalId: r.backGlobalId ?? course.backGlobalId,
+                                        nine: r.nine, teeBox: r.teeBox ?? course.teeBox)
                         } label: { roundRow(r) }
                         .buttonStyle(.plain).foregroundStyle(.primary)
                     } else {

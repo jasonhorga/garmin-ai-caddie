@@ -250,6 +250,38 @@ class CIFixtureContractTests(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 _round_id(value)
 
+    def test_fixture_dynamic_identity_mismatches_fail_closed(self) -> None:
+        try:
+            from fastapi import HTTPException
+            from server_v2.ci_fixture import caddie_decision, course_package, history_detail, round_package, shotmap
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        watch = "watch-12345678-1234-4234-8234-123456789abc"
+        live = "live-3881-12345678-1234-4234-8234-123456789abc"
+        for call in (
+            lambda: round_package(watch),
+            lambda: course_package(31795, round_id=live, tee_box="blue"),
+            lambda: history_detail(live, global_id=31795),
+            lambda: shotmap(live, 1, global_id=31795),
+            lambda: caddie_decision({"context": {"roundId": watch, "hole": 1, "sourceRef": f"{watch}:1"}}),
+            lambda: caddie_decision({"context": {"roundId": live, "globalId": 31795, "hole": 1, "sourceRef": f"{live}:1"}}),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                call()
+            self.assertIn(raised.exception.status_code, (400, 404))
+
+    def test_history_scorecard_preserves_physical_identity(self) -> None:
+        try:
+            from server_v2.ci_fixture import history_detail
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        rows = history_detail("home-31795", global_id=31795, back_global_id=3881)["scorecard"]
+        back = next(row for row in rows if row["hole"] == 10)
+        self.assertEqual(back["globalId"], 3881)
+        self.assertEqual(back["localHole"], 1)
+        self.assertEqual(back["backGlobalId"], 3881)
+        self.assertEqual(back["sourceRef"], "home-31795:10")
+
     def test_native_history_callers_expose_resolved_identity_query(self) -> None:
         source = Path("mobile/ios/AICaddie/Services/SyncClient.swift").read_text(encoding="utf-8")
         self.assertIn("fetchRoundShotMap(roundRef: String, hole: Int, globalId: Int? = nil, backGlobalId: Int? = nil", source)
@@ -260,6 +292,14 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertIn("fetchRoundDetail(roundRef: roundRef, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox)", review)
         shot_map = Path("mobile/ios/AICaddie/Views/RoundShotMapView.swift").read_text(encoding="utf-8")
         self.assertIn("fetchRoundShotMap(roundRef: roundRef, hole: hole, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox)", shot_map)
+        for relative, snippets in {
+            "mobile/ios/AICaddie/Views/ResultsView.swift": ("globalId: round.globalId", "backGlobalId: round.backGlobalId"),
+            "mobile/ios/AICaddie/Views/StatsView.swift": ("globalId: r.globalId ?? course.globalId", "backGlobalId: r.backGlobalId ?? course.backGlobalId"),
+            "mobile/ios/AICaddie/Views/RoundHomeView.swift": ("backGlobalId: package.holes.lazy.compactMap", "case .roundReview(let roundRef, let courseName, let globalId"),
+        }.items():
+            caller = Path(relative).read_text(encoding="utf-8")
+            for snippet in snippets:
+                self.assertIn(snippet, caller)
 
     def test_package_template_has_every_required_live_round_key(self) -> None:
         package = json.loads(Path("mobile/ios/AICaddie/Fixtures/live_round_package.fixture.json").read_text(encoding="utf-8"))
