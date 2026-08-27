@@ -364,6 +364,7 @@ public final class RoundEditModel: ObservableObject {
             par: source.par,
             globalId: source.globalId,
             localHole: source.localHole,
+            sourceRef: source.sourceRef,
             geometryRevision: source.geometryRevision,
             mapKind: source.mapKind,
             map: source.map,

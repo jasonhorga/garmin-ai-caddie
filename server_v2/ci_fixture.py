@@ -195,18 +195,17 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
         hole["number"] = number
         # Composite rounds expose front-nine numbers 1..9 and back-nine numbers
         # 10..18, while the geometry service addresses the back course locally.
-        if requested_back is not None and number >= 10:
-            hole["sourceGlobalId"] = requested_back
-            hole["sourceLocalHole"] = number - 9
-        else:
-            hole["sourceGlobalId"] = requested_course
-            hole["sourceLocalHole"] = number
+        display_hole, local_hole, source_course = _resolve_hole(nine, number, requested_course, requested_back)
+        hole["number"] = display_hole
+        hole["sourceGlobalId"] = source_course
+        hole["sourceLocalHole"] = local_hole
         payload["holes"].append(hole)
     payload["geometryCoverage"]["totalHoles"] = len(segment_holes)
     payload["geometryCoverage"]["readyHoles"] = len(segment_holes)
     payload["geometryCoverage"]["state"] = "ready"
-    source_holes = [hole - 9 if requested_back is not None and hole >= 10 else hole for hole in segment_holes]
-    source_courses = [requested_back if requested_back is not None and hole >= 10 else requested_course for hole in segment_holes]
+    resolved_holes = [_resolve_hole(nine, hole, requested_course, requested_back) for hole in segment_holes]
+    source_holes = [local for _, local, _ in resolved_holes]
+    source_courses = [course for _, _, course in resolved_holes]
     source_refs = [f"{requested_round}:{hole}" for hole in segment_holes]
     payload["sourceCoverage"].update({"requestedRoundId": requested_round, "selectedRoundId": requested_round, "roundFound": True, "holeCount": len(segment_holes), "geometryReadyHoles": len(segment_holes), "geometryTotalHoles": len(segment_holes), "clubProfileCount": 1, "sourceGlobalIds": source_courses, "sourceLocalHoles": source_holes})
     payload["readinessChecks"] = [{"label": "source", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture round source is available", "sourceRefs": source_refs}, {"label": "geometry", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture geometry is available", "sourceRefs": [f"geometry:{course}:{local}" for course, local in zip(source_courses, source_holes)]}, {"label": "caddie_seeds", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture caddie seeds are available", "sourceRefs": source_refs}]
@@ -217,8 +216,7 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
         seed_ref = f"{requested_round}:{hole}"
         seed["hole"] = hole
         seed["sourceRef"] = seed_ref
-        local_hole = hole - 9 if requested_back is not None and hole >= 10 else hole
-        source_course = requested_back if requested_back is not None and hole >= 10 else requested_course
+        _, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
         seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": hole, "globalId": source_course, "localHole": local_hole})
         seed["context"].setdefault("geometry", {}).update({"coverage": "ready", "sourceGlobalId": source_course, "sourceLocalHole": local_hole})
         seeds.append(seed)
@@ -394,7 +392,7 @@ def install_status(global_id: int, tee_box: str = "blue", nine: str = "all", bac
     if tee_box not in {"blue", "white"}:
         raise HTTPException(status_code=404, detail="fixture install target not found")
     segment_holes = _segment_holes(nine)
-    rows = [{"globalId": requested_back if requested_back is not None and hole >= 10 else requested_course, "localHole": hole - 9 if requested_back is not None and hole >= 10 else hole, "displayHole": hole, "geometry": "ready", "geometryRevision": FIXTURE_REVISION, "topo": "ready", "topoRevision": FIXTURE_REVISION, "error": None} for hole in segment_holes]
+    rows = [{"globalId": course, "localHole": local, "displayHole": display, "geometry": "ready", "geometryRevision": FIXTURE_REVISION, "topo": "ready", "topoRevision": FIXTURE_REVISION, "error": None} for display, local, course in (_resolve_hole(nine, hole, requested_course, requested_back) for hole in segment_holes)]
     return _with_markers({"schema": "ai-caddie-course-install-v1", "jobId": "fixture-install", "globalId": requested_course,
                           "teeBox": tee_box, "nine": nine, "phase": "ready", "stage": "complete",
                           "totalHoles": len(segment_holes), "geometryReady": len(segment_holes), "topoReady": len(segment_holes), "updatedAt": "2026-08-27T00:00:00Z",

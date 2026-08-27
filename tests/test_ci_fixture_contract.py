@@ -305,6 +305,20 @@ class CIFixtureContractTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             prep(31795, holes=[1], nine="back")
 
+    def test_install_status_uses_same_segment_resolver(self) -> None:
+        try:
+            from fastapi import HTTPException
+            from server_v2.ci_fixture import install_status
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        rows = install_status(31795, nine="back", back_global_id=3881)["holes"]
+        self.assertEqual(rows[0]["displayHole"], 10)
+        self.assertEqual(rows[0]["localHole"], 1)
+        self.assertEqual(rows[0]["globalId"], 3881)
+        for args in (("front", 3881), ("back", None)):
+            with self.assertRaises(HTTPException):
+                install_status(31795, nine=args[0], back_global_id=args[1])
+
     def test_native_history_callers_expose_resolved_identity_query(self) -> None:
         source = Path("mobile/ios/AICaddie/Services/SyncClient.swift").read_text(encoding="utf-8")
         self.assertIn("fetchRoundShotMap(roundRef: String, hole: Int, globalId: Int? = nil, backGlobalId: Int? = nil", source)
@@ -323,6 +337,8 @@ class CIFixtureContractTests(unittest.TestCase):
             caller = Path(relative).read_text(encoding="utf-8")
             for snippet in snippets:
                 self.assertIn(snippet, caller)
+        edit = Path("mobile/ios/AICaddie/Models/RoundEditModel.swift").read_text(encoding="utf-8")
+        self.assertIn("sourceRef: source.sourceRef", edit)
 
     def test_package_template_has_every_required_live_round_key(self) -> None:
         package = json.loads(Path("mobile/ios/AICaddie/Fixtures/live_round_package.fixture.json").read_text(encoding="utf-8"))

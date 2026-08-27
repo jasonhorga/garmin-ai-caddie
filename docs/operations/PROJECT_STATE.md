@@ -199,6 +199,16 @@ FastAPI-backed suite passed 21/21 with remote Python compilation and
 `git diff --check` passing. Native Swift compile/Codable/runtime evidence
 remains open; no workflow, deployment, signing, upload, or TestFlight action
 was performed.
+The final Opus boundary follow-up applies the shared hole resolver to package,
+install/status, prep, coverage, history, shotmap, and caddie generation. Caddie
+course identity is checked after segment normalization, and editable shot-map
+copies preserve top-level source provenance. Segment matrix tests cover front
+1-9, back local 1-9/display 10-18, missing back identity, and invalid ranges.
+Local checks ran 22 tests (6 passed, 16 skipped without FastAPI); homeserver
+FastAPI-backed tests passed 22/22 with remote Python compilation and
+`git diff --check` passing. Native Swift compile/Codable/runtime evidence
+remains open; no workflow, deployment, signing, upload, or TestFlight action
+was performed.
 
 The denied-GPS city-only catalogue failure has a minimal source fix on the
 current branch: `StartRoundView` now applies the resolved search option
