@@ -852,7 +852,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AI_CADDIE_CI_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
-      AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
       VITE_AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
       VITE_AI_CADDIE_REQUIRE_LINK: 'true'
       REVIEW_ROUND_REF: ${{ github.event.inputs.review_round_ref || '' }}
@@ -886,6 +885,8 @@ jobs:
       - name: Scan real Web evidence for secret bytes
         id: scan_web_live_evidence
         if: always()
+        env:
+          AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: >-
           python3 .github/scripts/scan_artifacts_for_secrets.py
           --secret-env AI_CADDIE_CI_PLAYER_TOKEN

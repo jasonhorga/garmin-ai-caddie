@@ -1201,11 +1201,14 @@ def build_readiness_response() -> dict[str, Any]:
         )
     )
 
-    overall = "ready" if all(check["state"] == "ready" for check in checks) else "degraded"
+    packaging_labels = {"external_release", "roadmap_completion", "operations", "native_mobile"}
+    runtime_checks = [check for check in checks if check.get("label") not in packaging_labels]
+    runtime_status = "ready" if runtime_checks and all(check["state"] in {"ready", "manual_asserted"} for check in runtime_checks) else "degraded"
+    overall = "ready" if all(check["state"] in {"ready", "manual_asserted"} for check in checks) else "degraded"
     return {
         "schema": "ai-caddie-readiness-v1",
         "status": overall,
-        "runtimeStatus": "ready",
+        "runtimeStatus": runtime_status,
         "evidenceStatus": overall,
         "checks": checks,
     }

@@ -80,6 +80,10 @@ def main(argv: list[str] | None = None) -> int:
     if not str(args.workflow_run).strip() or not str(args.marketing_version).strip():
         raise SystemExit("workflow run and marketing version are required")
     upload_completed = bool(args.upload_to_testflight)
+    try:
+        api_origin_host = _origin_host(args.api_origin) if args.api_origin else None
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     manifest = {
         "schema": SCHEMA,
         "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -87,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         "workflowRun": str(args.workflow_run),
         "marketingVersion": str(args.marketing_version),
         "buildNumber": str(args.build_number or _build_number(args.ipa)),
-        "apiOriginHost": _origin_host(args.api_origin) if args.api_origin else None,
+        "apiOriginHost": api_origin_host,
         "backendRevision": backend_revision,
         "backendRevisionVerified": bool(upload_completed and backend_revision),
         "ipaSha256": _sha256(args.ipa),

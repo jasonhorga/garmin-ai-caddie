@@ -195,7 +195,7 @@ platform :ios do
 
     backend = preflight_backend! if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
     backend_revision = backend && backend["revision"].to_s.strip
-    backend_revision = ENV.fetch("EXPECTED_BACKEND_REVISION", "unknown") if backend_revision.to_s.empty?
+    backend_revision = ENV.fetch("EXPECTED_BACKEND_REVISION", "").to_s.strip if backend_revision.to_s.empty?
     upload_requested = ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
     api_origin = ENV.fetch("AI_CADDIE_API_BASE_URL", "").to_s.strip
     provenance_args = [
