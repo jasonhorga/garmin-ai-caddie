@@ -60,6 +60,18 @@ def _round_request(value: str) -> str:
     return str(value)
 
 
+def _round_course(value: str) -> int:
+    value = str(value)
+    if value in ROUND_ALIASES:
+        return GLOBAL_ID
+    match = re.fullmatch(r"(?:live|home)-([0-9]+)(?:-" + UUID_RE + r")?", value, re.IGNORECASE)
+    if match:
+        return _course_request(int(match.group(1)))
+    if re.fullmatch(r"watch-" + UUID_RE, value, re.IGNORECASE):
+        return GLOBAL_ID
+    raise HTTPException(status_code=404, detail="fixture round not found")
+
+
 def _segment_holes(nine: str) -> list[int]:
     if nine == "front":
         return list(range(1, 10))
@@ -189,22 +201,24 @@ def history_detail(round_ref: str) -> dict:
         resolved_round = _round_id(round_ref)
     except HTTPException:
         return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": round_ref, "requestedRef": round_ref, "found": False})
+    requested_course = _round_course(round_ref)
     details = []
     scorecard = []
     for hole in range(1, 19):
         shots = [{"ref": f"{resolved_round}:{hole}:0", "hole": hole, "order": 1, "club": "1D", "synthetic": False, "end": [hole * 3, hole * 3]}, {"ref": f"{resolved_round}:{hole}:1", "hole": hole, "order": 2, "club": "8I", "synthetic": False, "end": [hole * 3 + 1, hole * 3 + 2]}]
-        scorecard.append({"hole": hole, "score": 4, "globalId": GLOBAL_ID, "localHole": hole, "shotRefs": [shot["ref"] for shot in shots]})
+        scorecard.append({"hole": hole, "score": 4, "globalId": requested_course, "localHole": hole, "shotRefs": [shot["ref"] for shot in shots]})
         details.append({"hole": hole, "shotCount": len(shots), "shots": shots})
-    return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": str(round_ref), "requestedRef": str(round_ref), "found": True, "round": {"id": str(round_ref), "courseName": "Black Knight B/C", "date": "2026-05-18", "score": 78}, "scorecard": scorecard, "holeDetails": details})
+    return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": str(round_ref), "requestedRef": str(round_ref), "found": True, "round": {"id": str(round_ref), "globalId": requested_course, "courseName": "Black Knight B/C", "date": "2026-05-18", "score": 78}, "scorecard": scorecard, "holeDetails": details})
 
 
 @ROUTE.get("/api/v2/history/rounds/{round_ref}/holes/{hole}/shotmap")
 def shotmap(round_ref: str, hole: int, includeImage: bool = True) -> dict:
     _round_id(round_ref)
+    requested_course = _round_course(round_ref)
     if hole < 1 or hole > 18:
         raise HTTPException(status_code=404, detail="fixture hole not found")
     map_body = {"image": _png_data_uri(seed=hole) if includeImage else None, "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + hole, "route": [[4, 4, 0], [60, 60, 220 + hole]]}}
-    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": hole, "par": 4, "globalId": GLOBAL_ID, "localHole": hole, "geometryRevision": FIXTURE_REVISION, "mapKind": "courseData", "map": map_body, "shots": [{"id": f"s{hole}-1", "club": "1D", "synthetic": False, "end": [8 + hole, 8]}, {"id": f"s{hole}-2", "club": "8I", "synthetic": False, "end": [56, 56 - hole]}], "manualPenalty": 0, "missingData": []})
+    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": hole, "par": 4, "globalId": requested_course, "localHole": hole, "sourceRef": f"{round_ref}:{hole}", "geometryRevision": FIXTURE_REVISION, "mapKind": "courseData", "map": map_body, "shots": [{"id": f"s{hole}-1", "club": "1D", "synthetic": False, "end": [8 + hole, 8]}, {"id": f"s{hole}-2", "club": "8I", "synthetic": False, "end": [56, 56 - hole]}], "manualPenalty": 0, "missingData": []})
 
 
 @ROUTE.get("/api/v2/courses/search")
@@ -230,7 +244,7 @@ def coverage(global_id: int, holes: list[int] | None = Query(default=None)) -> d
 
 @ROUTE.get("/api/v2/geometry/hole/{global_id}/{local_hole}")
 def geometry_hole(global_id: int, local_hole: int, source_ref: str | None = None) -> dict:
-    if _course_id(global_id) != GLOBAL_ID or local_hole < 1 or local_hole > 18:
+    if local_hole < 1 or local_hole > 18:
         raise HTTPException(status_code=404, detail="fixture geometry not found")
     requested_course = _course_request(global_id)
     return _with_markers({"schema": "ai-caddie-geometry-evidence-v1", "globalId": requested_course, "localHole": local_hole, "coverage": "ready", "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + local_hole, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 374.0 + local_hole]]}, "sourceRef": source_ref or f"geometry:{requested_course}:{local_hole}"})
