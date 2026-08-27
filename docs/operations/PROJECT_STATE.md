@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-27 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**Source baseline:** `ce473220` (release readiness hardening candidate; verification rerun in progress)
+**Source baseline:** `cc2ad861` (canonical cherry-pick of candidate `1aed8f50e46b49a9f56dcc98fdf242a0bbd51a30`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -35,6 +35,33 @@ candidate and production upstreams, Caddy, and the public Funnel all returning
 200; the earlier ingress timeout was transient. The candidate remains the
 public upstream, but its revision is not yet proven identical to the IPA and
 the first GitHub-runner readiness probe timed out once; a strict rerun passed.
+
+Canonical now includes the full release candidate chain through `cc2ad861`.
+Opus supplied a final GO verdict in the handoff; no repository report path or
+report hash was supplied, so none is claimed here. The release-specific
+homeserver suite passed 100 tests, with remote Python compilation and
+`git diff --check` also passing. External GitHub API, macOS native/TestFlight
+execution, IPA signing/upload, and App Store Connect facts remain unverified.
+Release-preflight verification on canonical HEAD `cc2ad861200f4c4aee74a8063aff4f57948a8b09`
+used a short-lived homeserver scratch checkout with Git metadata: the focused
+release suite passed 100/100, and full Python test discovery passed 1,974 tests
+with 13 skips. Full-tree Python compilation passed. The real fixture-based
+artifact-only provenance dry run produced a hashed IPA and exercised both
+pre-upload and post-upload evidence contracts without network or production
+writes. Source CI, Native Mobile CI, Phase 6 GitHub-runner validation, and
+macOS/TestFlight artifact signing/upload remain to be run externally.
+The same Linux scratch ran full Python discovery successfully; `web_v2` Vitest
+reported 608 passed, 7 skipped, and one timeout in the existing stale-trends
+refresh test (`src/App.test.tsx:1622`). Web lint passed with two existing
+Fast Refresh warnings, and the production Vite build passed. The repository
+root `npm test` remains a historical placeholder that exits with
+`Error: no test specified`; the actual `web_v2` checks were run separately.
+An external Actions orchestration attempt on 2026-08-27 listed available
+workflows, but GitHub returned `No commit found for SHA` for canonical
+`cc2ad861200f4c4aee74a8063aff4f57948a8b09`. Pushing this local-only candidate
+was not authorized, so no source CI, Native Mobile CI, or Phase 6 run was
+dispatched and no run ID or artifact is claimed. TestFlight, release, deploy,
+and signing workflows were not dispatched.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
