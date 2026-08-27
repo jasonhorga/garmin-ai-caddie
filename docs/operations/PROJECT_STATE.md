@@ -747,3 +747,11 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   the homeserver; the workflow contract run remains environment-limited by a
   missing `pathspec` dependency. Current status: awaiting Opus re-review; no
   Native dispatch, deployment, release, signing, or upload was performed.
+- 2026-08-27: Closed the remaining fixture P1 entity-binding finding. Package,
+  course-prep/tees/install, geometry, and shot-map fixture routes now validate
+  requested course `31795`, round `900001`, and supported hole/segment IDs;
+  mismatches and unknown IDs return 404 instead of silently substituting the
+  fixture entities. Happy-path and wrong-ID contract tests cover package
+  navigation and nested reference consistency. Commit `99baf324` is pushed;
+  current status remains awaiting Opus re-review, with no Native dispatch or
+  production/release action.
