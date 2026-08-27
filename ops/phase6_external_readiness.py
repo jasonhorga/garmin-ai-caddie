@@ -507,19 +507,24 @@ def probe_backend_url(
         }
     authenticated = bool(admin_token) and readiness.get("authenticated") is True
     readiness_checks = readiness.get("checks")
-    checks_valid = isinstance(readiness_checks, list) and all(isinstance(row, dict) for row in readiness_checks)
+    checks_valid = (
+        isinstance(readiness_checks, list)
+        and bool(readiness_checks)
+        and all(isinstance(row, dict) and str(row.get("label") or "").strip() and row.get("state") in {"ready", "degraded", "error", "unknown"} for row in readiness_checks)
+    )
+    readiness_status_valid = readiness.get("status") in {"ready", "degraded"}
     schemas_match = (
         health.get("schema") == EXPECTED_HEALTH_SCHEMA
         and readiness.get("schema") == EXPECTED_READINESS_SCHEMA
     )
-    ready = health_status == 200 and readiness_status == 200 and schemas_match and authenticated and checks_valid
+    ready = health_status == 200 and readiness_status == 200 and schemas_match and authenticated and checks_valid and readiness_status_valid
     reason = None
     if not ready:
         reason = (
             "unexpected backend schema"
             if health_status == 200 and readiness_status == 200 and not schemas_match
             else "authenticated readiness evidence missing"
-            if not authenticated or not checks_valid
+            if not authenticated or not checks_valid or not readiness_status_valid
             else "unexpected backend status"
         )
     return {
