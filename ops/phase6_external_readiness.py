@@ -311,6 +311,14 @@ def _github_log_message(line: str) -> str:
     return ANSI_ESCAPE_RE.sub("", without_timestamp).strip()
 
 
+def _recent_run(created_at: str, *, max_age: timedelta = timedelta(days=3)) -> bool:
+    try:
+        age = datetime.now(UTC) - datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+    return timedelta(0) <= age <= max_age
+
+
 def _testflight_log_summary(run: dict[str, Any], text: str) -> dict[str, Any] | None:
     run_id = str(run.get("id") or "").strip()
     if not run_id:
@@ -321,28 +329,36 @@ def _testflight_log_summary(run: dict[str, Any], text: str) -> dict[str, Any] | 
         "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
         "runId": run_id,
         "runCreatedAt": str(run.get("created_at") or ""),
+        "runConclusion": str(run.get("conclusion") or ""),
+        "runBranch": str(run.get("head_branch") or ""),
+        "runHeadSha": str(run.get("head_sha") or ""),
+        "workflowName": str(run.get("name") or ""),
+        "workflowPath": str(run.get("path") or ""),
     }
     in_tester_group = False
     app_tester_count = 0
     for line in text.splitlines():
         message = _github_log_message(line)
         if (
-            f"externalState={TESTFLIGHT_READY_EXTERNAL_STATE}" in line
-            and "state=VALID" in line
-            and "betaReviewReady=true" in line
+            f"externalState={TESTFLIGHT_READY_EXTERNAL_STATE}" in message
+            and re.search(r"\bstate=VALID(?:\s|$)", message)
+            and re.search(r"\bbetaReviewReady=true(?:\s|$)", message)
         ):
-            build_match = re.search(r"-\s+([^\s]+)\s+\(([^)]+)\)", line)
-            summary.update(
-                {
-                    "build": f"{build_match.group(1)} ({build_match.group(2)})" if build_match else None,
-                    "processingState": _value_after("state", line),
-                    "externalState": _value_after("externalState", line),
-                    "betaReviewReady": _value_after("betaReviewReady", line) == "true",
-                    "usesNonExemptEncryption": _value_after("usesNonExemptEncryption", line) == "false",
-                    "readyForBetaSubmission": True,
-                    "source": f"{source_prefix}:{TESTFLIGHT_READY_EXTERNAL_STATE}",
-                }
-            )
+            build_match = re.search(r"-\s+([^\s]+)\s+\(([^()\s]+)\)", message)
+            if build_match and "buildNumber" not in summary:
+                summary.update(
+                    {
+                        "marketingVersion": build_match.group(1),
+                        "buildNumber": build_match.group(2),
+                        "build": f"{build_match.group(1)} ({build_match.group(2)})",
+                        "processingState": _value_after("state", line),
+                        "externalState": _value_after("externalState", line),
+                        "betaReviewReady": _value_after("betaReviewReady", line) == "true",
+                        "usesNonExemptEncryption": _value_after("usesNonExemptEncryption", line) == "false",
+                        "readyForBetaSubmission": True,
+                        "source": f"{source_prefix}:{TESTFLIGHT_READY_EXTERNAL_STATE}",
+                    }
+                )
 
         if (
             message == "Beta App test info already has description and feedback email."
@@ -404,6 +420,8 @@ def fetch_testflight_actions_summary(
     branch: str = DEFAULT_BRANCH,
     timeout_s: float = 20.0,
     expected_build: str | None = None,
+    expected_commit: str | None = None,
+    expected_marketing_version: str | None = None,
 ) -> dict[str, Any]:
     runs_payload = _github_api_get(
         repo,
@@ -419,19 +437,41 @@ def fetch_testflight_actions_summary(
         and run.get("conclusion") == "success"
         and str(run.get("logs_url") or "").strip()
     ]
+    expected_build = str(expected_build or "").strip() or None
+    expected_commit = str(expected_commit or "").strip().lower() or None
+    expected_marketing_version = str(expected_marketing_version or "").strip() or None
     aggregate: dict[str, Any] = {
         "available": bool(runs),
         "workflow": TESTFLIGHT_TESTERS_WORKFLOW_NAME,
         "readyForBetaSubmission": False,
     }
     for run in relevant_runs[:TESTFLIGHT_ACTIONS_LOG_SCAN_LIMIT]:
+        if expected_build or expected_commit:
+            created_at = str(run.get("created_at") or "")
+            try:
+                age = datetime.now(UTC) - datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                continue
+            if age < timedelta(0) or age > timedelta(days=3):
+                continue
+            if str(run.get("head_branch") or "") != branch or not branch:
+                continue
+            run_sha = str(run.get("head_sha") or "").lower()
+            if expected_commit and run_sha != expected_commit:
+                continue
+            if not run_sha:
+                continue
+            if str(run.get("path") or "") != ".github/workflows/ios-testflight-testers.yml":
+                continue
         try:
             logs = _github_api_get_bytes(str(run["logs_url"]), token, timeout_s=timeout_s)
             summary = _testflight_summary_from_log_zip(run, logs)
         except (OSError, error.URLError, TimeoutError, zipfile.BadZipFile):
             summary = None
         if summary is not None:
-            if expected_build and str(summary.get("build") or "").split(" ", 1)[0].strip("(") != expected_build:
+            if expected_build and str(summary.get("buildNumber") or "") != expected_build:
+                continue
+            if expected_marketing_version and str(summary.get("marketingVersion") or "") != expected_marketing_version:
                 continue
             if summary.get("readyForBetaSubmission") is True and aggregate.get("readyForBetaSubmission") is not True:
                 aggregate.update({
@@ -441,7 +481,14 @@ def fetch_testflight_actions_summary(
                     in {
                         "runId",
                         "runCreatedAt",
+                        "runConclusion",
                         "build",
+                        "buildNumber",
+                        "marketingVersion",
+                        "runBranch",
+                        "runHeadSha",
+                        "workflowName",
+                        "workflowPath",
                         "processingState",
                         "externalState",
                         "betaReviewReady",
@@ -481,6 +528,8 @@ def fetch_github_snapshot(
     token: str | None = None,
     branch: str = DEFAULT_BRANCH,
     timeout_s: float = 20.0,
+    expected_commit: str | None = None,
+    expected_marketing_version: str | None = None,
 ) -> dict[str, Any]:
     token = (token or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or "").strip()
     if not token:
@@ -512,7 +561,17 @@ def fetch_github_snapshot(
         partial_reasons["variableNames"] = _github_error_reason("GitHub Actions variables metadata", exc)
 
     try:
-        testflight_actions = fetch_testflight_actions_summary(repo=repo, token=token, branch=branch, timeout_s=timeout_s, expected_build=os.environ.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER"))
+        testflight_actions = fetch_testflight_actions_summary(
+            repo=repo,
+            token=token,
+            branch=branch,
+            timeout_s=timeout_s,
+            expected_build=os.environ.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER"),
+            # GITHUB_SHA is the Phase 6 dispatch commit, not necessarily the
+            # iOS candidate. The workflow exports the candidate from provenance.
+            expected_commit=expected_commit or os.environ.get("AI_CADDIE_RELEASE_COMMIT"),
+            expected_marketing_version=expected_marketing_version or os.environ.get("AI_CADDIE_MARKETING_VERSION"),
+        )
     except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         testflight_actions = {
             "available": False,
@@ -790,6 +849,34 @@ def _github_testflight_tester_observations(github_snapshot: dict[str, Any] | Non
     }
 
 
+def _trusted_testflight_actions(
+    github_snapshot: dict[str, Any] | None,
+    env: dict[str, str],
+    *,
+    branch: str,
+) -> bool:
+    """Only workflow evidence bound to this candidate can promote readiness."""
+    actions = (github_snapshot or {}).get("testflightActions")
+    if not isinstance(actions, dict) or not (
+        actions.get("readyForBetaSubmission") is True or actions.get("betaReviewSubmitted") is True
+    ):
+        return False
+    build = str(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER") or "").strip()
+    commit = str(env.get("AI_CADDIE_RELEASE_COMMIT") or "").strip().lower()
+    return bool(
+        build
+        and commit
+        and str(actions.get("buildNumber") or "") == build
+        and str(actions.get("runHeadSha") or "").lower() == commit
+        and str(actions.get("runBranch") or "") == branch
+        and str(actions.get("workflowName") or "") == TESTFLIGHT_TESTERS_WORKFLOW_NAME
+        and str(actions.get("workflowPath") or "") == ".github/workflows/ios-testflight-testers.yml"
+        and str(actions.get("runConclusion") or "") == "success"
+        and str(actions.get("runId") or "").isdigit()
+        and _recent_run(str(actions.get("runCreatedAt") or ""))
+    )
+
+
 def build_phase6_external_readiness(
     *,
     env: dict[str, str] | None = None,
@@ -841,6 +928,10 @@ def build_phase6_external_readiness(
     github_beta_review_submitted, github_beta_review_submission_source = (
         _github_beta_review_submission_source(github_snapshot)
     )
+    github_evidence_trusted = _trusted_testflight_actions(github_snapshot, env, branch=branch)
+    if not github_evidence_trusted:
+        github_beta_review_ready = False
+        github_beta_review_submitted = False
     beta_review_ready_source = _confirmation_source(
         env,
         value_key="AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY",

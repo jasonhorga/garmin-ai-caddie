@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -17,6 +18,8 @@ from ops.phase6_external_readiness import (
     REQUIRED_SIGNING_SECRETS,
     build_phase6_external_readiness,
     fetch_github_snapshot,
+    fetch_testflight_actions_summary,
+    _testflight_log_summary,
     main,
     probe_backend_url,
 )
@@ -50,6 +53,98 @@ def _zip_log(text: str) -> bytes:
 
 
 class Phase6ExternalReadinessTests(unittest.TestCase):
+    def test_testflight_parser_binds_numeric_build_and_keeps_first_matching_build(self) -> None:
+        summary = _testflight_log_summary(
+            {
+                "id": 123,
+                "name": "iOS TestFlight Testers",
+                "path": ".github/workflows/ios-testflight-testers.yml",
+                "conclusion": "success",
+                "head_branch": "main",
+                "head_sha": "a" * 40,
+                "created_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            },
+            """
+            - 0.1.0 (42) state=VALID betaReviewReady=true externalState=READY_FOR_BETA_SUBMISSION
+            - 0.1.0 (41) state=VALID betaReviewReady=true externalState=READY_FOR_BETA_SUBMISSION
+            """,
+        )
+        assert summary is not None
+        self.assertEqual(summary["marketingVersion"], "0.1.0")
+        self.assertEqual(summary["buildNumber"], "42")
+        self.assertEqual(summary["build"], "0.1.0 (42)")
+
+    def test_unbound_testflight_log_cannot_become_ready_without_candidate_build(self) -> None:
+        actions = {
+            "readyForBetaSubmission": True,
+            "source": "github_actions_log:123:READY_FOR_BETA_SUBMISSION",
+            "buildNumber": "42",
+            "runId": "123",
+            "runCreatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "runBranch": "main",
+            "runHeadSha": "a" * 40,
+            "runConclusion": "success",
+            "workflowName": "iOS TestFlight Testers",
+            "workflowPath": ".github/workflows/ios-testflight-testers.yml",
+        }
+        payload = build_phase6_external_readiness(
+            env={"AI_CADDIE_RELEASE_COMMIT": "a" * 40},
+            github_snapshot=_github_snapshot(testflight_actions=actions),
+            branch="main",
+        )
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
+
+    def test_bound_testflight_log_promotes_readiness_for_candidate_build(self) -> None:
+        actions = {
+            "readyForBetaSubmission": True,
+            "source": "github_actions_log:123:READY_FOR_BETA_SUBMISSION",
+            "buildNumber": "42",
+            "runId": "123",
+            "runCreatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "runBranch": "main",
+            "runHeadSha": "a" * 40,
+            "runConclusion": "success",
+            "workflowName": "iOS TestFlight Testers",
+            "workflowPath": ".github/workflows/ios-testflight-testers.yml",
+        }
+        payload = build_phase6_external_readiness(
+            env={"AI_CADDIE_RELEASE_COMMIT": "a" * 40, "AI_CADDIE_TESTFLIGHT_BUILD_NUMBER": "42"},
+            github_snapshot=_github_snapshot(testflight_actions=actions),
+            branch="main",
+        )
+        checks = {row["label"]: row for row in payload["checks"]}
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+
+    def test_fetch_ignores_old_or_wrongly_bound_runs_and_accepts_matching_version(self) -> None:
+        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        candidate_sha = "a" * 40
+        runs = [
+            {
+                "id": 1, "name": "iOS TestFlight Testers", "path": ".github/workflows/ios-testflight-testers.yml",
+                "conclusion": "success", "head_branch": "main", "head_sha": "b" * 40,
+                "created_at": now, "logs_url": "https://logs/old-sha",
+            },
+            {
+                "id": 2, "name": "iOS TestFlight Testers", "path": ".github/workflows/ios-testflight-testers.yml",
+                "conclusion": "success", "head_branch": "main", "head_sha": candidate_sha,
+                "created_at": now, "logs_url": "https://logs/candidate",
+            },
+        ]
+        log = _zip_log("- 1.2.3 (42) state=VALID betaReviewReady=true externalState=READY_FOR_BETA_SUBMISSION")
+        with (
+            patch("ops.phase6_external_readiness._github_api_get", return_value={"workflow_runs": runs}),
+            patch("ops.phase6_external_readiness._github_api_get_bytes", return_value=log),
+        ):
+            summary = fetch_testflight_actions_summary(
+                token="gh-token", branch="main", expected_build="42", expected_commit=candidate_sha,
+                expected_marketing_version="1.2.3",
+            )
+        self.assertTrue(summary["readyForBetaSubmission"])
+        self.assertEqual(summary["runId"], "2")
+        self.assertEqual(summary["buildNumber"], "42")
+        self.assertEqual(summary["marketingVersion"], "1.2.3")
+
     def test_backend_probe_degrades_when_backend_schema_does_not_match(self) -> None:
         class Response:
             def __init__(self, status: int, payload: dict[str, object]) -> None:
@@ -312,7 +407,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertNotIn("owner@example.test", rendered_payload)
         checks = {row["label"]: row for row in payload["checks"]}
         self.assertEqual(checks["external_beta_review_feedback"]["state"], "missing")
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertEqual(
             checks["external_beta_review_submission_ready"]["evidence"]["source"],
             "github_actions_log:27069928781:READY_FOR_BETA_SUBMISSION",
@@ -384,7 +479,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertNotIn("github_metadata", checks)
         self.assertEqual(checks["signing_secrets"]["state"], "unknown")
         self.assertEqual(checks["external_beta_review_feedback"]["state"], "unknown")
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertEqual(checks["external_testers"]["state"], "manual_required")
 
     def test_github_actions_log_scan_keeps_older_assignment_evidence(self) -> None:
@@ -638,8 +733,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
-        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertEqual(
             checks["external_beta_review_submission"]["evidence"]["source"],
             "github_actions_log:27090000001:beta_review_submission",

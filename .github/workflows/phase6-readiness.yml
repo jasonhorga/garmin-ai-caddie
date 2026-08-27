@@ -124,6 +124,10 @@ jobs:
           test "$(jq -r .name <<<"$run_json")" = 'iOS TestFlight (CD)'
           test "$(jq -r .head_branch <<<"$run_json")" = "$GITHUB_REF_NAME"
           test "$(jq -r .path <<<"$run_json")" = '.github/workflows/ios-testflight.yml'
+          candidate_sha=$(jq -r .commit "$AI_CADDIE_RELEASE_PROVENANCE_PATH")
+          test "$candidate_sha" != null
+          test "$candidate_sha" = "$(jq -r .head_sha <<<"$run_json")"
+          printf 'AI_CADDIE_RELEASE_COMMIT=%s\n' "$candidate_sha" >> "$GITHUB_ENV"
 
       - name: Install Python dependencies
         run: uv sync --frozen
