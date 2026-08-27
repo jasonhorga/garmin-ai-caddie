@@ -127,13 +127,21 @@ ID, fresh live round ID, and tee state explicit before dismissing the sheet. A
 deterministic `StartRoundDiscoveryTests` case covers selecting the final item
 from a 200-row catalogue and retaining the resulting start-round state. The
  homeserver is Linux and cannot run `xcodebuild`; macOS Native Mobile CI is
- required for runtime confirmation. The single verification dispatch
+ required for runtime confirmation. The first verification dispatch
  `33089327124` was pinned to `87780b3e2083cbaee4162663048d9b95872f467c` but
  failed during Swift compilation because two existing segment/venue callers
  still used the removed `globalIdText:` argument; iOS tests and all Watch
- stages were skipped, so it provides no behavioral evidence. Those callers are
- corrected in the next pushed commit. No release, deploy, signing, or upload
- workflow is dispatched.
+ stages were skipped, so it provides no behavioral evidence. Those callers
+ were corrected in `8521f862`. The single rerun `33089934893` was pinned to
+ `8521f8621e70a14115ed40f008eafe23e6ed5c77`: XcodeGen, simulator inventory,
+ the complete iOS app target, SwiftJCS boundaries, design snapshots, and
+ secret scans passed. Its live preflight then failed before all RealFlow,
+ ReviewEdit, TeeSelection, and Watch runtime stages because the expected
+ backend revision was `8521f862...` while the public backend reported
+ `6a6080c6f6867513ed461d20e98a29113bd65433`. This is an external provenance
+ gate, not source/fixture behavior evidence; no additional rerun is justified
+ until the public backend revision is aligned. No release, deploy, signing, or
+ upload workflow is dispatched.
 
 ## Task Ledger
 
