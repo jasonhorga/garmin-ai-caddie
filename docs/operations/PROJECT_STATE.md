@@ -118,19 +118,24 @@ The current release-hardening candidate requires a fresh remote verification
 of the focused readiness/provenance/workflow suites. No production service,
 TestFlight upload, or signing resource is created by this source transition.
 
-Fixture-contract hardening after `95d3c1e7` is implemented in the working tree:
-decision requests now require an exact caller `sourceRef`; course aliases now
-return their canonical resolver id; package/prep
-composite holes preserve `sourceGlobalId` and `sourceLocalHole`; prep serves a
-non-null three-anchor `holeImageProjection`; and the fixture mirrors the
-parameterized `/api/v2/players/{playerId}/clubs/bag` GET route and allowlist.
-The supported dynamic identities remain the explicit aliases in
-`COURSE_ALIASES`/`ROUND_ALIASES`; no `live-<gid>-<UUID>`, `watch-<UUID>`, or
-`home-<gid>` forms were found in the client source or added by guesswork.
-Local compilation and the focused fixture suite ran 15 tests (5 passed, 10
-FastAPI-dependent tests skipped). A remote scratch rerun of the fixture,
-entrypoint, and native-evidence modules ran 24 tests (14 passed, 10 skipped)
-and remote Python compilation passed. The
+Fixture-contract P1 hardening after `95d3c1e7` is implemented in commit
+`7ed11cb0` plus the current follow-up: decision requests require an exact
+caller `sourceRef`; course aliases return their canonical resolver id;
+package/prep composite holes preserve `sourceGlobalId` and `sourceLocalHole`;
+prep serves a non-null three-anchor `holeImageProjection`; and the fixture
+mirrors the parameterized `/api/v2/players/{playerId}/clubs/bag` GET route and
+allowlist. The caller-to-route matrix is now explicit: Watch
+`WatchCourseLibrary` generates `watch-<UUID>` round IDs, iOS home fallback
+generates `home-<gid>`, and iOS live fallback generates
+`live-<gid>-<UUID>`; these are accepted only with UUID syntax and a
+`COURSE_ALIASES` course ID. Course `3881` is present in search/nearby/options.
+The fixture generates independent package/prep/coverage/install/geometry/
+shotmap/history rows for holes 1-18 with distinct overlays/images and correct
+front/back/all filtering. Local compilation and the focused fixture suite ran
+17 tests (5 passed, 12 skipped without FastAPI). An exact-SHA remote scratch
+with a temporary uv venv containing FastAPI ran the same 17 tests (17 passed)
+and remote Python compilation/diff-check passed. macOS Codable decode and
+Watch runtime evidence remain open; this is fixture evidence only.
 expected Opus fixture-contract review report at
 `/home/jason/garmin-ai-caddie-data/operations/opus-fixture-contract-review-20260827.md`
 was checked and does not exist; no report hash is claimed. This remains source

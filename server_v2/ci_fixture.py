@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 from pathlib import Path
+import re
 import struct
 import zlib
 
@@ -21,6 +22,7 @@ GLOBAL_ID = 31795
 LOCAL_HOLE = 1
 COURSE_ALIASES = {31795: GLOBAL_ID, 3881: GLOBAL_ID, 31670: GLOBAL_ID, 31871: GLOBAL_ID}
 ROUND_ALIASES = {"900001": ROUND_REF, "live-31795": ROUND_REF, "live-round-1": ROUND_REF, "fixture-round-1": ROUND_REF}
+UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 
 
 def _course_id(value: int) -> int:
@@ -37,10 +39,20 @@ def _course_request(value: int) -> int:
 
 
 def _round_id(value: str) -> str:
-    try:
-        return ROUND_ALIASES[str(value)]
-    except KeyError:
-        raise HTTPException(status_code=404, detail="fixture round not found")
+    value = str(value)
+    if value in ROUND_ALIASES:
+        return ROUND_ALIASES[value]
+    if re.fullmatch(rf"watch-{UUID_RE}", value, re.IGNORECASE):
+        return ROUND_REF
+    match = re.fullmatch(rf"live-([0-9]+)-({UUID_RE})", value, re.IGNORECASE)
+    if match:
+        _course_id(int(match.group(1)))
+        return ROUND_REF
+    match = re.fullmatch(r"home-([0-9]+)", value, re.IGNORECASE)
+    if match:
+        _course_id(int(match.group(1)))
+        return ROUND_REF
+    raise HTTPException(status_code=404, detail="fixture round not found")
 
 
 def _round_request(value: str) -> str:
@@ -58,12 +70,12 @@ def _segment_holes(nine: str) -> list[int]:
     raise HTTPException(status_code=404, detail="fixture segment not found")
 
 
-def _png_data_uri(width: int = 64, height: int = 64) -> str:
+def _png_data_uri(width: int = 64, height: int = 64, seed: int = 0) -> str:
     rows = []
     for y in range(height):
         row = bytearray(b"\x00")
         for x in range(width):
-            row.extend((112 + ((x * 17 + y * 11) % 31), 168, 104, 255))
+            row.extend((112 + ((x * 17 + y * 11 + seed * 7) % 31), 168, 104, 255))
         rows.append(bytes(row))
     raw = b"".join(rows)
     def chunk(kind: bytes, payload: bytes) -> bytes:
@@ -150,7 +162,7 @@ def readiness() -> dict:
 def history_rounds(hasShots: bool | None = Query(default=None), limit: int = Query(default=120)) -> dict:
     data = fixture_history_data()
     rows = [row for row in data.rounds if hasShots is None or bool(row.get("hasShots")) == hasShots]
-    card = {"id": ROUND_REF, "courseName": "Black Knight B/C", "date": "2026-05-18", "score": 78, "holesCompleted": 18, "hasShots": True, "source": "garmin"}
+    card = {"id": ROUND_REF, "courseName": "Black Knight B/C", "date": "2026-05-18", "score": 78, "holesCompleted": 18, "hasShots": True, "source": "garmin", "globalId": GLOBAL_ID}
     return _with_markers({"schema": "ai-caddie-history-rounds-v2", "total": len(rows), "groups": [{"key": "2026-05", "label": "May 2026", "count": 1, "rounds": [card]}], "availableYears": ["2026"], "availableCourses": [{"key": "black_knight", "label": "Black Knight B/C"}], "courses": [card]})
 
 
@@ -160,34 +172,39 @@ def history_detail(round_ref: str) -> dict:
         resolved_round = _round_id(round_ref)
     except HTTPException:
         return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": round_ref, "requestedRef": round_ref, "found": False})
-    shots = [{"ref": "900001:1:0", "hole": 1, "order": 1, "club": "1D"}, {"ref": "900001:1:1", "hole": 1, "order": 2, "club": "8I"}]
-    return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": resolved_round, "requestedRef": resolved_round, "found": True, "round": {"id": ROUND_REF, "courseName": "Black Knight B/C", "date": "2026-05-18", "score": 78}, "scorecard": [{"hole": 1, "score": 4, "globalId": GLOBAL_ID, "localHole": LOCAL_HOLE, "shotRefs": [shot["ref"] for shot in shots]}], "holeDetails": [{"hole": 1, "shotCount": 2, "shots": shots}]})
+    details = []
+    scorecard = []
+    for hole in range(1, 19):
+        shots = [{"ref": f"{resolved_round}:{hole}:0", "hole": hole, "order": 1, "club": "1D", "synthetic": False, "end": [hole * 3, hole * 3]}, {"ref": f"{resolved_round}:{hole}:1", "hole": hole, "order": 2, "club": "8I", "synthetic": False, "end": [hole * 3 + 1, hole * 3 + 2]}]
+        scorecard.append({"hole": hole, "score": 4, "globalId": GLOBAL_ID, "localHole": hole, "shotRefs": [shot["ref"] for shot in shots]})
+        details.append({"hole": hole, "shotCount": len(shots), "shots": shots})
+    return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": str(round_ref), "requestedRef": str(round_ref), "found": True, "round": {"id": str(round_ref), "courseName": "Black Knight B/C", "date": "2026-05-18", "score": 78}, "scorecard": scorecard, "holeDetails": details})
 
 
 @ROUTE.get("/api/v2/history/rounds/{round_ref}/holes/{hole}/shotmap")
 def shotmap(round_ref: str, hole: int, includeImage: bool = True) -> dict:
     _round_id(round_ref)
-    if hole != LOCAL_HOLE:
+    if hole < 1 or hole > 18:
         raise HTTPException(status_code=404, detail="fixture hole not found")
-    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": hole, "par": 4, "globalId": GLOBAL_ID, "localHole": hole, "geometryRevision": FIXTURE_REVISION, "mapKind": "courseData", "map": {"image": IMAGE, "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 375.0, "route": [[4, 4, 0], [60, 60, 220]]}}, "shots": [{"id": "s1", "club": "1D", "synthetic": False, "end": [8, 8]}, {"id": "s2", "club": "8I", "synthetic": False, "end": [56, 56]}], "manualPenalty": 0, "missingData": []})
+    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": hole, "par": 4, "globalId": GLOBAL_ID, "localHole": hole, "geometryRevision": FIXTURE_REVISION, "mapKind": "courseData", "map": {"image": _png_data_uri(seed=hole), "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + hole, "route": [[4, 4, 0], [60, 60, 220 + hole]]}}, "shots": [{"id": f"s{hole}-1", "club": "1D", "synthetic": False, "end": [8 + hole, 8]}, {"id": f"s{hole}-2", "club": "8I", "synthetic": False, "end": [56, 56 - hole]}], "manualPenalty": 0, "missingData": []})
 
 
 @ROUTE.get("/api/v2/courses/search")
 def course_search(name: str, latitude: float | None = None, longitude: float | None = None, city: str | None = None, holes: int | None = None) -> dict:
-    match = {"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 1.0}
-    return _with_markers({"schema": "ai-caddie-course-search-v1", "query": name, "matches": [match], "courses": [match]})
+    matches = [{"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 1.0}, {"globalId": 3881, "name": "Cypress Point Club", "holes": holes or 18, "city": city or "Monterey", "province": "California", "ratio": 0.9}]
+    return _with_markers({"schema": "ai-caddie-course-search-v1", "query": name, "matches": matches, "courses": matches})
 
 
 @ROUTE.get("/api/v2/courses/nearby")
 def nearby(latitude: float, longitude: float, radius_km: int = 50) -> dict:
-    match = {"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 1.0, "latitude": latitude, "longitude": longitude, "distanceKm": 1.0}
-    return _with_markers({"schema": "ai-caddie-course-nearby-v1", "radiusKm": radius_km, "complete": True, "matches": [match], "courses": [match]})
+    matches = [{"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 1.0, "latitude": latitude, "longitude": longitude, "distanceKm": 1.0}, {"globalId": 3881, "name": "Cypress Point Club", "holes": 18, "city": "Monterey", "province": "California", "ratio": 0.9, "latitude": latitude, "longitude": longitude, "distanceKm": 2.0}]
+    return _with_markers({"schema": "ai-caddie-course-nearby-v1", "radiusKm": radius_km, "complete": True, "matches": matches, "courses": matches})
 
 
 @ROUTE.get("/api/v2/geometry/course/{global_id}/coverage")
 def coverage(global_id: int, holes: list[int] | None = Query(default=None)) -> dict:
     requested_course = _course_request(global_id)
-    requested = [LOCAL_HOLE] if holes is None else holes
+    requested = [LOCAL_HOLE] if holes is None or not isinstance(holes, list) else holes
     if any(hole < 1 or hole > 18 for hole in requested):
         raise HTTPException(status_code=404, detail="fixture geometry not found")
     return _with_markers({"schema": "ai-caddie-course-geometry-coverage-v1", "globalId": requested_course, "coverage": "ready", "readyHoles": len(requested), "partialHoles": 0, "totalHoles": 18, "holes": [{"globalId": requested_course, "localHole": hole, "coverage": "ready"} for hole in requested]})
@@ -197,7 +214,8 @@ def coverage(global_id: int, holes: list[int] | None = Query(default=None)) -> d
 def geometry_hole(global_id: int, local_hole: int, source_ref: str | None = None) -> dict:
     if _course_id(global_id) != GLOBAL_ID or local_hole < 1 or local_hole > 18:
         raise HTTPException(status_code=404, detail="fixture geometry not found")
-    return _with_markers({"schema": "ai-caddie-geometry-evidence-v1", "globalId": GLOBAL_ID, "localHole": local_hole, "coverage": "ready", "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 375.0}, "sourceRef": source_ref})
+    requested_course = _course_request(global_id)
+    return _with_markers({"schema": "ai-caddie-geometry-evidence-v1", "globalId": requested_course, "localHole": local_hole, "coverage": "ready", "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + local_hole, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 374.0 + local_hole]]}, "sourceRef": source_ref or f"geometry:{requested_course}:{local_hole}"})
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/prep")
@@ -205,7 +223,7 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
     requested_course = _course_request(global_id)
     requested_back = _course_request(back_global_id) if back_global_id is not None else None
     segment_holes = _segment_holes(nine)
-    requested = segment_holes if holes is None else holes
+    requested = segment_holes if holes is None or not isinstance(holes, list) else holes
     if any(hole not in segment_holes for hole in requested):
         raise HTTPException(status_code=404, detail="fixture hole/segment mismatch")
     if any(hole < 1 or hole > 18 for hole in requested):
@@ -216,7 +234,7 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
             "sourceRefs": ["900001:1"], "missingData": [], "candidateRoutes": [], "carryTargets": [],
             "steps": [], "cautions": [], "landing_m": 210.0, "tee_club": "1D",
             "hazards": {"water_carry": [], "bunkers": [], "details": []},
-            "map": {"image": IMAGE, "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 375.0, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 375.0]]}},
+            "map": {"image": _png_data_uri(seed=number), "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + number, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 374.0 + number]]}},
             "greenDistances": {"available": True, "frontM": 122.0, "middleM": 130.0, "backM": 138.0, "frontLat": 39.9001, "frontLon": 116.4001, "middleLat": 39.9002, "middleLon": 116.4002, "backLat": 39.9003, "backLon": 116.4003}, "playsLike": {"available": True, "deltaM": 0.0},
             "holeImageProjection": {"available": True, "widthPx": 64, "heightPx": 64, "refs": [{"lat": 39.9000, "lon": 116.4000, "px": 0.0, "py": 64.0}, {"lat": 39.9000, "lon": 116.4008, "px": 64.0, "py": 64.0}, {"lat": 39.9008, "lon": 116.4000, "px": 0.0, "py": 0.0}]},
             "greenOutline": {"available": True, "source": "ci_fixture", "distanceUnit": "metres", "pointsPx": [[52.0, 52.0], [60.0, 52.0], [60.0, 60.0], [52.0, 60.0] ]}}
@@ -242,7 +260,9 @@ def tees(global_id: int, ensure_release: bool = False) -> dict:
 
 @ROUTE.get("/api/v2/mobile/courses/options")
 def options() -> dict:
-    return _with_markers({"schema": "ai-caddie-mobile-course-options-v1", "dataMode": "ci_fixture", "total": 0, "courses": [], "options": [], "generatedAt": "2026-08-27T00:00:00Z"})
+    rows = [{"globalId": GLOBAL_ID, "courseKey": "31795", "name": "Black Knight B/C", "roundCount": 1, "latestRoundId": ROUND_REF, "latestRoundDate": "2026-05-18", "templateRoundId": ROUND_REF, "suggestedLiveRoundId": "home-31795", "holes": 18, "teeBox": "blue", "geometryCoverage": "ready", "sourceRefs": [ROUND_REF], "venueName": "Black Knight", "segmentLabel": None, "segmentHoles": 18, "latitude": 39.9, "longitude": 116.4, "tees": ["blue", "white"]}, {"globalId": 3881, "courseKey": "3881", "name": "Cypress Point Club", "roundCount": 0, "latestRoundId": None, "latestRoundDate": None, "templateRoundId": ROUND_REF, "suggestedLiveRoundId": "home-3881", "holes": 18, "teeBox": "blue", "geometryCoverage": "ready", "sourceRefs": ["fixture-course:3881"], "venueName": "Cypress Point Club", "segmentLabel": None, "segmentHoles": 18, "latitude": 36.58, "longitude": -121.97, "tees": ["blue", "white"]}]
+    rows = [rows[1]]
+    return _with_markers({"schema": "ai-caddie-mobile-course-options-v1", "dataMode": "ci_fixture", "total": len(rows), "courses": rows, "options": rows, "generatedAt": "2026-08-27T00:00:00Z"})
 
 
 @ROUTE.get("/api/v2/history/stats/mobile")

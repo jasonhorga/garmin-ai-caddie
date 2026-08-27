@@ -68,7 +68,7 @@ class CIFixtureContractTests(unittest.TestCase):
         front = course_package(3881, round_id="fixture-round-1", tee_box="white", nine="front")
         self.assertEqual(front["geometryCoverage"]["totalHoles"], 9)
         self.assertEqual(len(front["holes"]), 9)
-        self.assertEqual(front["course"]["globalId"], GLOBAL_ID)
+        self.assertEqual(front["course"]["globalId"], 3881)
         self.assertEqual(front["course"]["teeBox"], "white")
         self.assertEqual(front["holes"][0]["number"], 1)
         self.assertEqual(front["holes"][-1]["number"], 9)
@@ -112,6 +112,7 @@ class CIFixtureContractTests(unittest.TestCase):
 
     def test_dynamic_aliases_preserve_caller_identity_across_package_and_decision(self) -> None:
         try:
+            from fastapi import HTTPException
             from server_v2.ci_fixture import caddie_decision, course_package
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
@@ -163,8 +164,8 @@ class CIFixtureContractTests(unittest.TestCase):
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
         for call in (
-            lambda: coverage(99999), lambda: geometry_hole(31795, 2),
-            lambda: prep(99999), lambda: tees(99999), lambda: shotmap("900001", 2),
+            lambda: coverage(99999), lambda: geometry_hole(31795, 19),
+            lambda: prep(99999), lambda: tees(99999), lambda: shotmap("900001", 19),
             lambda: coverage(31795, holes=[19]), lambda: prep(31795, holes=[19]),
             lambda: prep(31795, holes=[10], nine="front"),
             lambda: topo_png(31795, 19), lambda: green_png(31795, 19),
@@ -195,6 +196,38 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertTrue(hole["greenDistances"]["available"])
         self.assertEqual(len(prep(31795, nine="front")["holes"]), 9)
         self.assertEqual(len(prep(31795, nine="all")["holes"]), 18)
+
+    def test_fixture_round_is_a_distinct_eighteen_hole_contract(self) -> None:
+        try:
+            from server_v2.ci_fixture import coverage, geometry_hole, history_detail, prep, shotmap
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        package = __import__("server_v2.ci_fixture", fromlist=["course_package"]).course_package(
+            3881, round_id="watch-12345678-1234-4234-8234-123456789abc", tee_box="blue"
+        )
+        self.assertEqual([row["number"] for row in package["holes"]], list(range(1, 19)))
+        self.assertEqual({row["sourceLocalHole"] for row in package["holes"]}, set(range(1, 19)))
+        self.assertEqual(coverage(3881, holes=list(range(1, 19)))["readyHoles"], 18)
+        prep_rows = prep(3881, holes=list(range(1, 19)))["holes"]
+        self.assertEqual({row["hole"] for row in prep_rows}, set(range(1, 19)))
+        self.assertEqual({geometry_hole(3881, hole)["localHole"] for hole in range(1, 19)}, set(range(1, 19)))
+        maps = [shotmap("watch-12345678-1234-4234-8234-123456789abc", hole) for hole in range(1, 19)]
+        self.assertEqual({body["hole"] for body in maps}, set(range(1, 19)))
+        self.assertEqual(len({body["map"]["overlay"]["ln"] for body in maps}), 18)
+        detail = history_detail("home-3881")
+        self.assertEqual({row["hole"] for row in detail["holeDetails"]}, set(range(1, 19)))
+
+    def test_fixture_dynamic_round_forms_are_strictly_scoped(self) -> None:
+        try:
+            from fastapi import HTTPException
+            from server_v2.ci_fixture import _round_id
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        for value in ("watch-12345678-1234-4234-8234-123456789abc", "live-3881-12345678-1234-4234-8234-123456789abc", "home-3881"):
+            self.assertEqual(_round_id(value), "900001")
+        for value in ("watch-not-a-uuid", "live-99999-12345678-1234-4234-8234-123456789abc", "home-99999"):
+            with self.assertRaises(HTTPException):
+                _round_id(value)
 
     def test_package_template_has_every_required_live_round_key(self) -> None:
         package = json.loads(Path("mobile/ios/AICaddie/Fixtures/live_round_package.fixture.json").read_text(encoding="utf-8"))
