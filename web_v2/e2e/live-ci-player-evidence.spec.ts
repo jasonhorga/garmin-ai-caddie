@@ -1,14 +1,12 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const playerToken = process.env.AI_CADDIE_CI_PLAYER_TOKEN?.trim()
-const adminToken = process.env.AI_CADDIE_ADMIN_TOKEN?.trim()
 const reviewRoundRef = process.env.REVIEW_ROUND_REF?.trim()
-const useOwnerEvidence = Boolean(adminToken && reviewRoundRef)
 
 test.use({ trace: 'off', screenshot: 'off', video: 'off' })
 
 test.describe('real isolated CI player evidence', () => {
-  test.skip(!playerToken && !useOwnerEvidence, 'a CI player token or owner admin token is required for real evidence')
+  test.skip(!playerToken, 'AI_CADDIE_CI_PLAYER_TOKEN is required for scoped real evidence')
 
   async function captureWithoutCredentialInLocation(
     page: Page,
@@ -34,7 +32,7 @@ test.describe('real isolated CI player evidence', () => {
   }
 
   test('captures the real results journey from overview through round detail', async ({ page }) => {
-    if (!playerToken && !useOwnerEvidence) return
+    if (!playerToken) return
 
     // Keep failure evidence useful without ever printing the capability token or request headers.
     // The prior run only said that the topo <img> disappeared; these two boundaries distinguish an
@@ -94,16 +92,7 @@ test.describe('real isolated CI player evidence', () => {
       },
       { timeout: 60_000 },
     )
-    if (useOwnerEvidence) {
-      // Keep the owner token in Playwright's isolated localStorage only. The app's bare-URL owner
-      // path sends it as an admin header; no capability token is placed in the URL or screenshots.
-      await page.addInitScript((token) => {
-        window.localStorage.setItem('ai-caddie.admin-token', token)
-      }, adminToken)
-      await page.goto('/', { waitUntil: 'domcontentloaded' })
-    } else {
-      await page.goto(`/p/${encodeURIComponent(playerToken!)}`, { waitUntil: 'domcontentloaded' })
-    }
+    await page.goto(`/p/${encodeURIComponent(playerToken!)}`, { waitUntil: 'domcontentloaded' })
     const overviewResponse = await overviewResponsePromise
     const overviewPath = new URL(overviewResponse.url()).pathname
     console.log(
@@ -116,9 +105,7 @@ test.describe('real isolated CI player evidence', () => {
 
     const resultsLanding = page.locator('section[aria-label="成绩主页"]')
     await expect(resultsLanding).toBeVisible({ timeout: 60_000 })
-    if (!useOwnerEvidence) {
-      await expect(resultsLanding).toContainText('Cypress Point')
-    }
+    await expect(resultsLanding).toContainText('Cypress Point')
     await captureWithoutCredentialInLocation(
       page,
       'results-overview.png',
@@ -160,9 +147,7 @@ test.describe('real isolated CI player evidence', () => {
       const roundDetailResponse = await page.request.get(
         `${apiOrigin.replace(/\/$/, '')}/api/v2/history/rounds/${encodeURIComponent(reviewRoundRef)}`,
         {
-          headers: useOwnerEvidence
-            ? { 'x-ai-caddie-admin-token': adminToken! }
-            : { 'x-ai-caddie-player-token': playerToken! },
+          headers: { 'x-ai-caddie-player-token': playerToken! },
         },
       )
       expect(roundDetailResponse.ok(), 'target round lookup must authorize').toBeTruthy()

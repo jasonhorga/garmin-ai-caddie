@@ -196,8 +196,8 @@ platform :ios do
     backend = preflight_backend! if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
     backend_revision = backend && backend["revision"].to_s.strip
     backend_revision = ENV.fetch("EXPECTED_BACKEND_REVISION", "unknown") if backend_revision.to_s.empty?
+    upload_requested = ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
     api_origin = ENV.fetch("AI_CADDIE_API_BASE_URL", "").to_s.strip
-    UI.user_error!("AI_CADDIE_API_BASE_URL is required for release provenance") if api_origin.empty?
     provenance_args = [
       "python3 ops/write_release_provenance.py",
       "--ipa #{Shellwords.escape(File.join('build/ios', OUTPUT_IPA))}",
@@ -208,14 +208,14 @@ platform :ios do
       "--marketing-version #{Shellwords.escape(get_version_number(xcodeproj: XCODE_PROJECT))}",
       "--build-number #{Shellwords.escape(get_build_number(xcodeproj: XCODE_PROJECT))}"
     ]
-    provenance_args << "--upload-to-testflight" if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
     sh(provenance_args.join(" "))
 
-    if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
+    if upload_requested
       upload_to_testflight(
         api_key: api_key, skip_waiting_for_build_processing: true,
         distribute_external: false, changelog: ENV.fetch("RELEASE_NOTES", "Automated CI build")
       )
+      sh("#{provenance_args.join(' ')} --upload-to-testflight")
     else
       UI.success("Signed IPA built; TestFlight upload was not requested.")
     end
