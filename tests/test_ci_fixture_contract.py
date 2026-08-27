@@ -182,7 +182,7 @@ class CIFixtureContractTests(unittest.TestCase):
         cov = coverage(31795, holes=[1])
         self.assertEqual({"schema", "globalId", "coverage", "readyHoles", "partialHoles", "totalHoles", "holes"}, set(cov) - {"dataMode", "source", "fixtureRevision"})
         self.assertEqual((cov["readyHoles"], cov["partialHoles"], cov["totalHoles"]), (1, 0, 18))
-        self.assertEqual(cov["holes"][0], {"globalId": 31795, "localHole": 1, "coverage": "ready"})
+        self.assertEqual(cov["holes"][0], {"globalId": 31795, "localHole": 1, "displayHole": 1, "coverage": "ready"})
         body = prep(31795, holes=[1])
         self.assertEqual(body["globalId"], 31795)
         self.assertEqual(len(body["clubs"]), 1)
@@ -281,6 +281,29 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(back["localHole"], 1)
         self.assertEqual(back["backGlobalId"], 3881)
         self.assertEqual(back["sourceRef"], "home-31795:10")
+
+    def test_fixture_segment_hole_matrix_is_bound(self) -> None:
+        try:
+            from fastapi import HTTPException
+            from server_v2.ci_fixture import caddie_decision, history_detail, prep, shotmap
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        for nine, back, valid, invalid in (("front", None, (1, 9), (10,)), ("back", 3881, (1, 10, 18), (0, 19))):
+            for hole in valid:
+                detail = history_detail("home-31795", global_id=31795, back_global_id=back, nine=nine, tee_box="blue")
+                prep(31795, holes=[hole], nine=nine, back_global_id=back)
+                mapped = shotmap("home-31795", hole, global_id=31795, back_global_id=back, nine=nine, tee_box="blue")
+                expected_local = hole if nine == "front" or hole < 10 else hole - 9
+                expected_course = 3881 if nine == "back" else 31795
+                self.assertEqual(mapped["localHole"], expected_local)
+                self.assertEqual(mapped["globalId"], expected_course)
+                detail_row = next(row for row in detail["scorecard"] if row["hole"] == (hole + 9 if nine == "back" and hole < 10 else hole))
+                self.assertEqual(detail_row["localHole"], expected_local)
+            for hole in invalid:
+                with self.assertRaises(HTTPException):
+                    prep(31795, holes=[hole], nine=nine, back_global_id=back)
+        with self.assertRaises(HTTPException):
+            prep(31795, holes=[1], nine="back")
 
     def test_native_history_callers_expose_resolved_identity_query(self) -> None:
         source = Path("mobile/ios/AICaddie/Services/SyncClient.swift").read_text(encoding="utf-8")

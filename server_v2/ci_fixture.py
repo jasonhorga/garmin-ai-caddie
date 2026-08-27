@@ -107,6 +107,29 @@ def _segment_holes(nine: str) -> list[int]:
     raise HTTPException(status_code=404, detail="fixture segment not found")
 
 
+def _resolve_hole(nine: str, hole: int, front_global_id: int = GLOBAL_ID, back_global_id: int | None = None) -> tuple[int, int, int]:
+    """Return (display hole, physical local hole, physical course id)."""
+    if not isinstance(hole, int):
+        raise HTTPException(status_code=422, detail="fixture hole must be an integer")
+    if nine == "front":
+        if back_global_id is not None or hole < 1 or hole > 9:
+            raise HTTPException(status_code=404, detail="fixture front hole/segment mismatch")
+        return hole, hole, front_global_id
+    if nine == "back":
+        if back_global_id is None:
+            raise HTTPException(status_code=400, detail="fixture back segment requires back_global_id")
+        if 1 <= hole <= 9:
+            return hole + 9, hole, back_global_id
+        if 10 <= hole <= 18:
+            return hole, hole - 9, back_global_id
+        raise HTTPException(status_code=404, detail="fixture back hole not found")
+    if nine != "all" or hole < 1 or hole > 18:
+        raise HTTPException(status_code=404, detail="fixture hole/segment mismatch")
+    if back_global_id is not None and hole >= 10:
+        return hole, hole - 9, back_global_id
+    return hole, hole, front_global_id
+
+
 def _png_data_uri(width: int = 64, height: int = 64, seed: int = 0) -> str:
     rows = []
     for y in range(height):
@@ -230,14 +253,13 @@ def history_detail(round_ref: str, global_id: int | None = None, back_global_id:
     resolved_round, requested_course, requested_back = _bound_round_context(round_ref, global_id, back_global_id, nine, tee_box)
     details = []
     scorecard = []
-    for hole in range(1, 19):
+    for hole in _segment_holes(nine):
         shots = [{"ref": f"{resolved_round}:{hole}:0", "hole": hole, "order": 1, "club": "1D", "synthetic": False, "end": [hole * 3, hole * 3]}, {"ref": f"{resolved_round}:{hole}:1", "hole": hole, "order": 2, "club": "8I", "synthetic": False, "end": [hole * 3 + 1, hole * 3 + 2]}]
-        source_course = requested_back if requested_back is not None and hole >= 10 else requested_course
-        local_hole = hole - 9 if requested_back is not None and hole >= 10 else hole
+        display_hole, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
         for shot in shots:
             shot["ref"] = f"{round_ref}:{hole}:{shot['order'] - 1}"
-        scorecard.append({"hole": hole, "score": 4, "globalId": source_course, "localHole": local_hole,
-                          "backGlobalId": requested_back, "sourceRef": f"{round_ref}:{hole}",
+        scorecard.append({"hole": display_hole, "score": 4, "globalId": source_course, "localHole": local_hole,
+                          "backGlobalId": requested_back, "sourceRef": f"{round_ref}:{display_hole}",
                           "shotRefs": [shot["ref"] for shot in shots]})
         details.append({"hole": hole, "shotCount": len(shots), "shots": shots})
     return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": str(round_ref), "requestedRef": str(round_ref), "found": True, "round": {"id": str(round_ref), "globalId": requested_course, "courseName": "Black Knight B/C", "date": "2026-05-18", "score": 78}, "scorecard": scorecard, "holeDetails": details})
@@ -247,12 +269,9 @@ def history_detail(round_ref: str, global_id: int | None = None, back_global_id:
 def shotmap(round_ref: str, hole: int, includeImage: bool = True, global_id: int | None = None, back_global_id: int | None = None,
            nine: str = "all", tee_box: str | None = None) -> dict:
     _, requested_course, requested_back = _bound_round_context(round_ref, global_id, back_global_id, nine, tee_box)
-    if hole < 1 or hole > 18:
-        raise HTTPException(status_code=404, detail="fixture hole not found")
-    source_course = requested_back if requested_back is not None and hole >= 10 else requested_course
-    local_hole = hole - 9 if requested_back is not None and hole >= 10 else hole
+    display_hole, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
     map_body = {"image": _png_data_uri(seed=hole) if includeImage else None, "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + hole, "route": [[4, 4, 0], [60, 60, 220 + hole]]}}
-    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": hole, "par": 4, "globalId": source_course, "localHole": local_hole, "sourceRef": f"{round_ref}:{hole}", "geometryRevision": FIXTURE_REVISION, "mapKind": "courseData", "map": map_body, "shots": [{"id": f"s{hole}-1", "club": "1D", "synthetic": False, "end": [8 + hole, 8], "sourceRef": f"{round_ref}:{hole}:0"}, {"id": f"s{hole}-2", "club": "8I", "synthetic": False, "end": [56, 56 - hole], "sourceRef": f"{round_ref}:{hole}:1"}], "manualPenalty": 0, "missingData": []})
+    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": display_hole, "par": 4, "globalId": source_course, "localHole": local_hole, "sourceRef": f"{round_ref}:{display_hole}", "geometryRevision": FIXTURE_REVISION, "mapKind": "courseData", "map": map_body, "shots": [{"id": f"s{display_hole}-1", "club": "1D", "synthetic": False, "end": [8 + display_hole, 8], "sourceRef": f"{round_ref}:{display_hole}:0"}, {"id": f"s{display_hole}-2", "club": "8I", "synthetic": False, "end": [56, 56 - display_hole], "sourceRef": f"{round_ref}:{display_hole}:1"}], "manualPenalty": 0, "missingData": []})
 
 
 @ROUTE.get("/api/v2/courses/search")
@@ -268,12 +287,14 @@ def nearby(latitude: float, longitude: float, radius_km: int = 50) -> dict:
 
 
 @ROUTE.get("/api/v2/geometry/course/{global_id}/coverage")
-def coverage(global_id: int, holes: list[int] | None = Query(default=None)) -> dict:
+def coverage(global_id: int, holes: list[int] | None = Query(default=None), nine: str = "all", back_global_id: int | None = None,
+             tee_box: str | None = None) -> dict:
     requested_course = _course_request(global_id)
+    if tee_box is not None and tee_box not in {"blue", "white"}:
+        raise HTTPException(status_code=404, detail="fixture tee not found")
     requested = [LOCAL_HOLE] if holes is None or not isinstance(holes, list) else holes
-    if any(hole < 1 or hole > 18 for hole in requested):
-        raise HTTPException(status_code=404, detail="fixture geometry not found")
-    return _with_markers({"schema": "ai-caddie-course-geometry-coverage-v1", "globalId": requested_course, "coverage": "ready", "readyHoles": len(requested), "partialHoles": 0, "totalHoles": 18, "holes": [{"globalId": requested_course, "localHole": hole, "coverage": "ready"} for hole in requested]})
+    resolved = [_resolve_hole(nine, hole, requested_course, _course_request(back_global_id) if back_global_id is not None else None) for hole in requested]
+    return _with_markers({"schema": "ai-caddie-course-geometry-coverage-v1", "globalId": requested_course, "coverage": "ready", "readyHoles": len(resolved), "partialHoles": 0, "totalHoles": 18, "holes": [{"globalId": course, "localHole": local, "displayHole": display, "coverage": "ready"} for display, local, course in resolved]})
 
 
 @ROUTE.get("/api/v2/geometry/hole/{global_id}/{local_hole}")
@@ -290,10 +311,7 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
     requested_back = _course_request(back_global_id) if back_global_id is not None else None
     segment_holes = _segment_holes(nine)
     requested = segment_holes if holes is None or not isinstance(holes, list) else holes
-    if any(hole not in segment_holes for hole in requested):
-        raise HTTPException(status_code=404, detail="fixture hole/segment mismatch")
-    if any(hole < 1 or hole > 18 for hole in requested):
-        raise HTTPException(status_code=404, detail="fixture hole not found")
+    resolved_requested = [_resolve_hole(nine, hole, requested_course, requested_back) for hole in requested]
     def prep_hole(number: int) -> dict:
         hole = {"hole": number, "par": 4, "par_source": "garmin", "blue_yards": 410, "route_len_m": 375.0,
             "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 375.0]], "geometryCoverage": "ready", "geometryRevision": FIXTURE_REVISION,
@@ -311,7 +329,7 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
         hole["sourceLocalHole"] = local_hole
         return hole
     return _with_markers({"schema": "ai-caddie-course-prep-v1", "globalId": requested_course, "holeCount": len(requested),
-                          "clubs": [{"name": "1D", "token": "1D", "m": 210.0, "yd": 230, "distanceSource": "fixture", "sampleSize": 1, "confidence": "high"}], "holes": [prep_hole(number) for number in requested]})
+                          "clubs": [{"name": "1D", "token": "1D", "m": 210.0, "yd": 230, "distanceSource": "fixture", "sampleSize": 1, "confidence": "high"}], "holes": [prep_hole(display) for display, _, _ in resolved_requested]})
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/tees")
@@ -436,16 +454,17 @@ def caddie_decision(body: dict) -> dict:
         raise HTTPException(status_code=400, detail="fixture decision course mismatch")
     if hole >= 10 and context.get("nine") == "back" and requested_back is None:
         raise HTTPException(status_code=400, detail="fixture back hole requires back_global_id")
-    course_identity = requested_back if requested_back is not None and hole >= 10 else requested_course
-    expected_local = hole - 9 if context.get("backGlobalId") is not None and hole >= 10 else hole
+    display_hole, expected_local, course_identity = _resolve_hole(context.get("nine", "all"), hole, requested_course, requested_back)
     if context.get("localHole") is not None and context["localHole"] != expected_local:
         raise HTTPException(status_code=404, detail="fixture local hole mismatch")
-    source_ref = f"{round_id}:{hole}"
+    if context.get("displayHole") is not None and context["displayHole"] != display_hole:
+        raise HTTPException(status_code=404, detail="fixture display hole mismatch")
+    source_ref = f"{round_id}:{display_hole}"
     supplied_source_ref = context.get("sourceRef")
     if not isinstance(supplied_source_ref, str) or supplied_source_ref != source_ref:
         raise HTTPException(status_code=400, detail="fixture sourceRef missing or inconsistent")
     context = {"source": "ios_live", "roundId": round_id, "globalId": int(context["globalId"]), "hole": hole, "guidanceMode": "automatic", "currentLocation": {"latitude": 39.9, "longitude": 116.4, "horizontalAccuracyM": 5.0, "capturedAt": "2026-08-27T00:00:00Z"}, **context}
-    option = {"id": f"stock-{hole}", "clubName": "8I", "carry_m": 144.0 + hole, "p10M": 132.0 + hole, "p90M": 153.0 + hole, "sampleSize": 24, "confidence": "high", "source": "ci_fixture", "dispersion": {"state": "modeled", "clubName": "8I", "carryP10_m": 132.0 + hole, "carryP90_m": 153.0 + hole, "sampleSize": 24, "sourceRef": source_ref, "courseGlobalId": course_identity, "localHole": expected_local, "displayHole": hole}, "courseGlobalId": course_identity, "localHole": expected_local, "displayHole": hole, "roundId": round_id, "sourceRef": source_ref}
+    option = {"id": f"stock-{display_hole}", "clubName": "8I", "carry_m": 144.0 + display_hole, "p10M": 132.0 + display_hole, "p90M": 153.0 + display_hole, "sampleSize": 24, "confidence": "high", "source": "ci_fixture", "dispersion": {"state": "modeled", "clubName": "8I", "carryP10_m": 132.0 + display_hole, "carryP90_m": 153.0 + display_hole, "sampleSize": 24, "sourceRef": source_ref, "courseGlobalId": course_identity, "localHole": expected_local, "displayHole": display_hole}, "courseGlobalId": course_identity, "localHole": expected_local, "displayHole": display_hole, "roundId": round_id, "sourceRef": source_ref}
     return _with_markers({"schema": "ai-caddie-decision-v2", "decisionId": f"fixture-decision-{round_id}-{hole}", "sourceRef": source_ref, "evidenceRefs": [source_ref], "shotType": shot_type, "phase": "approach", "context": context, "options": [option], "selected": option, "selectedOptionId": option["id"], "selectedOption": option, "sequences": [{"id": option["id"], "clubName": "8I", "sourceRef": source_ref}], "selectedSequence": {"id": option["id"], "clubName": "8I", "sourceRef": source_ref}, "avoidZones": [], "forbiddenZones": [], "acceptableMiss": {"side": "short"}, "evidence": [{"label": "fixture", "value": "non_production", "sourceRef": source_ref}], "confidence": {"level": "high", "source": "ci_fixture"}, "missingData": [], "auditCriteria": []})
 
 

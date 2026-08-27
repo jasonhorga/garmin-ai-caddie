@@ -12,6 +12,7 @@ public struct RoundHoleShotMap: Codable, Equatable {
     /// to fetch the realistic topo base bitmap for the 复盘 canvas.
     public let globalId: Int?
     public let localHole: Int?
+    public let sourceRef: String?
     public let geometryRevision: String?
     /// `prodgeometry` is the precise editable pixel frame; `courseData` is a factual read-only
     /// Garmin affine fallback while precise assets are being prepared. nil tolerates older servers.
@@ -32,6 +33,7 @@ public struct RoundHoleShotMap: Codable, Equatable {
         par = try? c.decodeIfPresent(Int.self, forKey: .par)
         globalId = try? c.decodeIfPresent(Int.self, forKey: .globalId)
         localHole = try? c.decodeIfPresent(Int.self, forKey: .localHole)
+        sourceRef = try? c.decodeIfPresent(String.self, forKey: .sourceRef)
         geometryRevision = try? c.decodeIfPresent(String.self, forKey: .geometryRevision)
         mapKind = try? c.decodeIfPresent(String.self, forKey: .mapKind)
         map = try? c.decodeIfPresent(CoursePrepMap.self, forKey: .map)
@@ -40,7 +42,7 @@ public struct RoundHoleShotMap: Codable, Equatable {
         missingData = (try? c.decodeIfPresent([RoundShotMapMissing].self, forKey: .missingData)) ?? []
     }
 
-    public init(found: Bool, hole: Int, par: Int? = nil, globalId: Int? = nil, localHole: Int? = nil,
+    public init(found: Bool, hole: Int, par: Int? = nil, globalId: Int? = nil, localHole: Int? = nil, sourceRef: String? = nil,
                 geometryRevision: String? = nil,
                 mapKind: String? = nil,
                 map: CoursePrepMap? = nil, shots: [RoundShot] = [], manualPenalty: Int = 0,
@@ -50,6 +52,7 @@ public struct RoundHoleShotMap: Codable, Equatable {
         self.par = par
         self.globalId = globalId
         self.localHole = localHole
+        self.sourceRef = sourceRef
         self.geometryRevision = geometryRevision
         self.mapKind = mapKind
         self.map = map
@@ -59,7 +62,7 @@ public struct RoundHoleShotMap: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case found, hole, par, globalId, localHole, geometryRevision, mapKind, map, shots, manualPenalty, missingData
+        case found, hole, par, globalId, localHole, sourceRef, geometryRevision, mapKind, map, shots, manualPenalty, missingData
     }
 
     public var usesCourseDataFrame: Bool { mapKind == "courseData" }

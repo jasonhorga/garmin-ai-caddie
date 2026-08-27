@@ -189,6 +189,16 @@ expected Opus fixture-contract review report at
 was checked and does not exist; no report hash is claimed. This remains source
 and fixture evidence only; no workflow, deployment, signing, upload, or
 TestFlight action was performed.
+The follow-up identity-boundary pass unifies segment/display/local-hole
+resolution across fixture package, prep, coverage, history, shotmap, and caddie
+routes. It rejects front/back segment conflicts, requires back-course identity
+for back segments, preserves physical identity in `RoundDetailHole` and
+`RoundHoleShotMap`, and adds a nine/holes/back-course matrix contract. Local
+checks ran 21 tests (6 passed, 15 skipped without FastAPI); the homeserver
+FastAPI-backed suite passed 21/21 with remote Python compilation and
+`git diff --check` passing. Native Swift compile/Codable/runtime evidence
+remains open; no workflow, deployment, signing, upload, or TestFlight action
+was performed.
 
 The denied-GPS city-only catalogue failure has a minimal source fix on the
 current branch: `StartRoundView` now applies the resolved search option
