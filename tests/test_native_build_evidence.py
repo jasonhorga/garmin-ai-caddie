@@ -16,6 +16,7 @@ class NativeBuildEvidenceTests(unittest.TestCase):
                 created_at="2026-05-28T10:20:30Z",
                 commit="abc123",
                 workflow_run_id="1001",
+                ios_status="passed",
                 ios_destination="platform=iOS Simulator,name=iPhone 16,OS=latest",
                 watch_destination="platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest",
                 ios_test_count=8,
@@ -43,6 +44,18 @@ class NativeBuildEvidenceTests(unittest.TestCase):
         payload = build_native_build_evidence(watch_status="passed")
 
         self.assertEqual(payload["watch"]["status"], "passed")
+
+    def test_writer_defaults_unattested_ios_to_skipped(self) -> None:
+        payload = build_native_build_evidence()
+
+        self.assertEqual(payload["ios"]["status"], "skipped")
+
+    def test_writer_preserves_failed_and_cancelled_mapping_from_producer(self) -> None:
+        for status in ("failed", "cancelled", "skipped"):
+            with self.subTest(status=status):
+                payload = build_native_build_evidence(ios_status=status, watch_status=status)
+                self.assertEqual(payload["ios"]["status"], status)
+                self.assertEqual(payload["watch"]["status"], status)
 
     def test_writer_rejects_private_paths_and_secret_markers(self) -> None:
         with self.assertRaises(ValueError):
@@ -78,6 +91,7 @@ class NativeBuildEvidenceTests(unittest.TestCase):
             workflow_run_id="1001",
             ios_destination="platform=iOS Simulator,name=iPhone 16,OS=latest",
             watch_destination="platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest",
+            ios_status="passed",
             watch_status="skipped",
         )
 

@@ -64,6 +64,7 @@ jobs:
       - name: Show simulator inventory
         run: xcrun simctl list devices available
       - name: Test iOS app target
+        id: test_ios_app
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit'
         run: |
           xcodebuild test \
@@ -224,6 +225,7 @@ jobs:
           AI_CADDIE_PREFLIGHT_EXPECTED_REVISION: ${{ github.event.inputs.backend_revision || vars.AI_CADDIE_BACKEND_REVISION || '' }}
         run: python3 .github/scripts/preflight_live_course_catalogue.py
       - name: Real-simulator screenshots (iOS, XCUITest against live backend)
+        id: real_ios_capture
         # On-demand only (XCUITest + live-funnel + watch simctl add ~10min) — trigger with
         # `gh workflow run native-mobile.yml --ref <branch>`; regular PRs stay fast.
         if: github.event_name == 'workflow_dispatch'
@@ -493,15 +495,28 @@ jobs:
         env:
           NATIVE_EVENT_NAME: ${{ github.event_name }}
           NATIVE_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
+          IOS_TARGET_OUTCOME: ${{ steps.test_ios_app.outcome }}
+          IOS_CAPTURE_OUTCOME: ${{ steps.real_ios_capture.outcome }}
           WATCH_TEST_OUTCOME: ${{ steps.test_watch_app.outcome }}
         run: |
+          status_from_outcome() {
+            case "$1" in
+              success) echo "passed" ;;
+              failure) echo "failed" ;;
+              cancelled|skipped|*) echo "skipped" ;;
+            esac
+          }
+          ios_status="$(status_from_outcome "$IOS_TARGET_OUTCOME")"
+          if [[ "$IOS_TARGET_OUTCOME" == "success" && "$NATIVE_EVENT_NAME" == "workflow_dispatch" ]]; then
+            ios_status="$(status_from_outcome "$IOS_CAPTURE_OUTCOME")"
+          fi
           watch_status="passed"
           if [[ "$NATIVE_EVENT_NAME" == "workflow_dispatch" && "$NATIVE_CAPTURE_SCOPE" != "full" ]]; then
             watch_status="skipped"
-          elif [[ "$WATCH_TEST_OUTCOME" != "success" ]]; then
-            watch_status="failed"
+          else
+            watch_status="$(status_from_outcome "$WATCH_TEST_OUTCOME")"
           fi
-          python3 ops/write_native_build_evidence.py --watch-status "$watch_status"
+          python3 ops/write_native_build_evidence.py --ios-status "$ios_status" --watch-status "$watch_status"
       - name: Scan native build evidence for secret bytes
         id: scan_native_build_evidence
         if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit'
