@@ -216,8 +216,8 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
         seed_ref = f"{requested_round}:{hole}"
         seed["hole"] = hole
         seed["sourceRef"] = seed_ref
-        _, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
-        seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": hole, "globalId": source_course, "localHole": local_hole})
+        display_hole, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
+        seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": display_hole, "displayHole": display_hole, "globalId": requested_course, "localHole": local_hole, "backGlobalId": requested_back, "nine": nine, "teeBox": tee_box})
         seed["context"].setdefault("geometry", {}).update({"coverage": "ready", "sourceGlobalId": source_course, "sourceLocalHole": local_hole})
         seeds.append(seed)
     payload["caddieContextSeeds"] = seeds
@@ -448,11 +448,9 @@ def caddie_decision(body: dict) -> dict:
     if not isinstance(hole, int) or hole < 1 or hole > 18:
         raise HTTPException(status_code=404, detail="fixture hole not found")
     _, requested_course, requested_back = _bound_round_context(round_id, int(context["globalId"]), context.get("backGlobalId"), context.get("nine", "all"), context.get("teeBox"))
-    if context.get("courseGlobalId") is not None and _course_request(int(context["courseGlobalId"])) != (requested_back if requested_back is not None and hole >= 10 else requested_course):
-        raise HTTPException(status_code=400, detail="fixture decision course mismatch")
-    if hole >= 10 and context.get("nine") == "back" and requested_back is None:
-        raise HTTPException(status_code=400, detail="fixture back hole requires back_global_id")
     display_hole, expected_local, course_identity = _resolve_hole(context.get("nine", "all"), hole, requested_course, requested_back)
+    if context.get("courseGlobalId") is not None and _course_request(int(context["courseGlobalId"])) != course_identity:
+        raise HTTPException(status_code=400, detail="fixture decision course mismatch")
     if context.get("localHole") is not None and context["localHole"] != expected_local:
         raise HTTPException(status_code=404, detail="fixture local hole mismatch")
     if context.get("displayHole") is not None and context["displayHole"] != display_hole:

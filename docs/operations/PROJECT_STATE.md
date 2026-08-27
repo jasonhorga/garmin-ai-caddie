@@ -209,6 +209,15 @@ FastAPI-backed tests passed 22/22 with remote Python compilation and
 `git diff --check` passing. Native Swift compile/Codable/runtime evidence
 remains open; no workflow, deployment, signing, upload, or TestFlight action
 was performed.
+The final caddie identity follow-up propagates segment, front/back course,
+tee, display/local hole, round, and source reference fields through fixture
+`CaddieContextSeed` generation and the Native request builder. Caddie now
+normalizes local/display holes before validating `courseGlobalId`; executable
+tests cover both back-hole forms and reject front/back mismatches. Local checks
+ran 23 tests (6 passed, 17 skipped without FastAPI); homeserver FastAPI-backed
+tests passed 23/23 with remote Python compilation and `git diff --check`
+passing. Native Swift compile/Codable/runtime evidence remains open; no
+workflow, deployment, signing, upload, or TestFlight action was performed.
 
 The denied-GPS city-only catalogue failure has a minimal source fix on the
 current branch: `StartRoundView` now applies the resolved search option

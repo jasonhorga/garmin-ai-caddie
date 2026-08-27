@@ -305,6 +305,26 @@ class CIFixtureContractTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             prep(31795, holes=[1], nine="back")
 
+    def test_seed_identity_round_trips_into_caddie_request(self) -> None:
+        try:
+            from fastapi import HTTPException
+            from server_v2.ci_fixture import caddie_decision, course_package
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        package = course_package(31795, round_id="home-31795", tee_box="blue", nine="all", back_global_id=3881)
+        seed = next(seed for seed in package["caddieContextSeeds"] if seed["hole"] == 10)
+        context = seed["context"]
+        for key, value in (("roundId", "home-31795"), ("globalId", 31795), ("backGlobalId", 3881), ("nine", "all"), ("teeBox", "blue"), ("localHole", 1), ("displayHole", 10)):
+            self.assertEqual(context[key], value)
+        response = caddie_decision({"shotType": "approach", "context": context})
+        self.assertEqual(response["selected"]["courseGlobalId"], 3881)
+        self.assertEqual(response["selected"]["localHole"], 1)
+        self.assertEqual(response["selected"]["displayHole"], 10)
+        back_local = dict(context, hole=1, displayHole=10, sourceRef="home-31795:10", nine="back")
+        back_response = caddie_decision({"shotType": "approach", "context": back_local})
+        self.assertEqual(back_response["selected"]["localHole"], 1)
+        self.assertEqual(back_response["selected"]["displayHole"], 10)
+
     def test_install_status_uses_same_segment_resolver(self) -> None:
         try:
             from fastapi import HTTPException
