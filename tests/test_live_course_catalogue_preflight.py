@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 
 SCRIPT = Path(".github/scripts/preflight_live_course_catalogue.py")
@@ -87,6 +89,30 @@ class LiveCourseCataloguePreflightTests(unittest.TestCase):
                 {"schema": "ai-caddie-health-v2", "revision": "old456"},
                 expected_revision="abc123",
             )
+
+    def test_revisions_are_explicit_independent_40_character_git_ids(self) -> None:
+        app = "a" * 40
+        backend = "b" * 40
+        self.assertEqual(preflight.validate_revision(app, label="app revision"), app)
+        self.assertEqual(preflight.validate_revision(backend, label="backend revision"), backend)
+        self.assertNotEqual(app, backend)
+        for value in (None, "", "github.sha", "0" * 39, "g" * 40):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                preflight.validate_revision(value, label="backend revision")
+
+    def test_main_fails_closed_when_revision_inputs_are_missing(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AI_CADDIE_PREFLIGHT_BASE_URL": "https://example.invalid",
+                "AI_CADDIE_PREFLIGHT_TOKEN": "redacted-test-token",
+            },
+            clear=False,
+        ):
+            os.environ.pop("AI_CADDIE_PREFLIGHT_APP_REVISION", None)
+            os.environ.pop("AI_CADDIE_PREFLIGHT_EXPECTED_REVISION", None)
+            with self.assertRaisesRegex(ValueError, "app revision"):
+                preflight.main()
 
 
 if __name__ == "__main__":

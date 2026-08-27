@@ -671,3 +671,15 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   product semantic failure. The 50 MB screenshot artifact and 155 MB app log
   were inspected only for this trace and then deleted; no source change or
   rerun was made.
+- 2026-08-27: Implemented the independent backend revision contract in Native
+  and Watch workflows. Both now accept an auditable `backend_revision`
+  dispatch input, falling back only to protected `AI_CADDIE_BACKEND_REVISION`,
+  while passing app SHA separately as `AI_CADDIE_PREFLIGHT_APP_REVISION`.
+  Preflight rejects missing/non-40-hex revisions, retains the
+  `ai-caddie-health-v2` schema gate, and records independent app/backend IDs.
+  Remote exact-SHA compilation and the focused preflight suite passed 7/7.
+  The broader CI workflow suite passed 37/38; its sole failure was the remote
+  environment missing the pre-existing `pathspec` dependency in a canonical
+  authority test. A read-only public health probe still reports backend
+  `6a6080c6...`; no Native rerun, production deployment, restart, release,
+  signing, or upload was performed.

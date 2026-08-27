@@ -19,6 +19,11 @@ on:
         type: string
         required: false
         default: ''
+      backend_revision:
+        description: Expected deployed backend Git revision (40 hex characters); falls back to protected AI_CADDIE_BACKEND_REVISION
+        type: string
+        required: false
+        default: ''
       review_round_ref:
         description: Optional exact Garmin round reference for deterministic Web review evidence
         type: string
@@ -339,7 +344,8 @@ jobs:
           AI_CADDIE_PREFLIGHT_SEARCH_NAME: Cypress Point
           AI_CADDIE_PREFLIGHT_NEARBY_GID: '31793'
           AI_CADDIE_PREFLIGHT_SEARCH_GID: '3881'
-          AI_CADDIE_PREFLIGHT_EXPECTED_REVISION: ${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}
+          AI_CADDIE_PREFLIGHT_APP_REVISION: ${{ github.sha }}
+          AI_CADDIE_PREFLIGHT_EXPECTED_REVISION: ${{ github.event.inputs.backend_revision || vars.AI_CADDIE_BACKEND_REVISION || '' }}
         run: python3 .github/scripts/preflight_live_course_catalogue.py
 
       - name: Seed and restore a real Watch round

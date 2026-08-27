@@ -12,6 +12,9 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+HEALTH_SCHEMA = "ai-caddie-health-v2"
+REVISION_LENGTH = 40
+
 
 def _require(condition: bool, message: str) -> None:
     if not condition:
@@ -20,7 +23,7 @@ def _require(condition: bool, message: str) -> None:
 
 def validate_health(payload: Any, *, expected_revision: str | None = None) -> None:
     _require(isinstance(payload, dict), "health response must be an object")
-    _require(payload.get("schema") == "ai-caddie-health-v2", "health schema mismatch")
+    _require(payload.get("schema") == HEALTH_SCHEMA, "health schema mismatch")
     revision = payload.get("revision")
     _require(isinstance(revision, str) and bool(revision.strip()), "health revision is missing")
     if expected_revision is not None:
@@ -28,6 +31,15 @@ def validate_health(payload: Any, *, expected_revision: str | None = None) -> No
             revision == expected_revision,
             f"backend revision mismatch: expected {expected_revision}, got {revision}",
         )
+
+
+def validate_revision(value: str | None, *, label: str) -> str:
+    revision = (value or "").strip().lower()
+    _require(
+        len(revision) == REVISION_LENGTH and all(char in "0123456789abcdef" for char in revision),
+        f"{label} must be a 40-character hexadecimal Git revision",
+    )
+    return revision
 
 
 def validate_matches(
@@ -106,7 +118,12 @@ def main() -> int:
     search_name = os.environ.get("AI_CADDIE_PREFLIGHT_SEARCH_NAME", "北京丽宫")
     nearby_gid = int(os.environ.get("AI_CADDIE_PREFLIGHT_NEARBY_GID", "31793"))
     search_gid = int(os.environ.get("AI_CADDIE_PREFLIGHT_SEARCH_GID", str(nearby_gid)))
-    expected_revision = os.environ.get("AI_CADDIE_PREFLIGHT_EXPECTED_REVISION", "").strip() or None
+    app_revision = validate_revision(
+        os.environ.get("AI_CADDIE_PREFLIGHT_APP_REVISION"), label="app revision"
+    )
+    expected_revision = validate_revision(
+        os.environ.get("AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"), label="backend revision"
+    )
 
     health = _get_json(base_url, "/api/v2/health", None, {})
     validate_health(health, expected_revision=expected_revision)
@@ -142,7 +159,8 @@ def main() -> int:
     )
     print(
         "course-catalogue-preflight ok "
-        f"health={health['schema']} nearby={len(nearby_matches)} empty=0 search={len(search_matches)}"
+        f"app={app_revision} backend={expected_revision} health={health['schema']} "
+        f"nearby={len(nearby_matches)} empty=0 search={len(search_matches)}"
     )
     return 0
 

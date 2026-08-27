@@ -553,6 +553,9 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("api_base_url", inputs)
         self.assertFalse(inputs["api_base_url"]["required"])
         self.assertEqual("", inputs["api_base_url"]["default"])
+        self.assertIn("backend_revision", inputs)
+        self.assertFalse(inputs["backend_revision"]["required"])
+        self.assertEqual("", inputs["backend_revision"]["default"])
         self.assertIn("require_live_preflight", inputs)
         self.assertEqual("boolean", inputs["require_live_preflight"]["type"])
         self.assertTrue(inputs["require_live_preflight"]["default"])
@@ -599,11 +602,14 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertEqual("bearer", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_AUTH_MODE"])
         self.assertIn("AI_CADDIE_ADMIN_TOKEN", native_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
         self.assertIn("AI_CADDIE_CI_PLAYER_TOKEN", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_TOKEN"])
-        self.assertEqual("${{ github.sha }}", native_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
-        self.assertIn(
-            "github.event_name == 'workflow_dispatch'",
-            watch_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"],
-        )
+        self.assertIn("github.event.inputs.backend_revision", native_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
+        self.assertIn("vars.AI_CADDIE_BACKEND_REVISION", native_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
+        self.assertNotIn("github.sha", native_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
+        self.assertIn("github.event.inputs.backend_revision", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
+        self.assertIn("vars.AI_CADDIE_BACKEND_REVISION", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
+        self.assertNotIn("github.sha", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_EXPECTED_REVISION"])
+        self.assertEqual("${{ github.sha }}", native_preflight["env"]["AI_CADDIE_PREFLIGHT_APP_REVISION"])
+        self.assertEqual("${{ github.sha }}", watch_preflight["env"]["AI_CADDIE_PREFLIGHT_APP_REVISION"])
         self.assertLess(
             list(native_steps).index("Preflight live course discovery"),
             list(native_steps).index("Real-simulator screenshots (iOS, XCUITest against live backend)"),
