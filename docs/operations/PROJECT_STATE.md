@@ -725,3 +725,13 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   revisions remain independent. Live validation still uses the explicit
   backend URL/token; fixture validation remains an isolated, opt-in path and
   no Native workflow was dispatched by this change.
+- 2026-08-27: Added the opt-in CI fixture HTTP seam. `AI_CADDIE_FIXTURE_MODE=1`
+  registers only the non-production fixture router, which serves deterministic
+  health, readiness, history/detail/shotmap, course search/nearby/prep,
+  geometry, mobile package, caddie context, media, and review-read endpoints.
+  Responses carry `dataMode=ci_fixture`, `source=non_production`, and a fixed
+  fixture revision; Native fixture evidence uses a distinct schema and artifact
+  name. The launcher is CI/debug-only, private-token-only, loopback-only, and
+  the workflow waits for health and verifies shutdown. Live mode and its
+  explicit backend revision gate remain unchanged. This is a bounded skeleton
+  pending Opus review; no Native dispatch or production action was performed.

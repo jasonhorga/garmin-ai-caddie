@@ -228,7 +228,7 @@ jobs:
         id: scan_design_snapshots
         if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit'
         env:
-          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          ARTIFACT_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN design-snapshots
       - name: Upload design snapshots
         if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_design_snapshots.outcome == 'success'))
@@ -355,7 +355,7 @@ jobs:
         id: scan_real_native_evidence
         if: always() && github.event_name == 'workflow_dispatch'
         env:
-          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          ARTIFACT_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: >-
           python3 .github/scripts/scan_artifacts_for_secrets.py
           --secret-env ARTIFACT_ADMIN_TOKEN
@@ -386,7 +386,11 @@ jobs:
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
         run: |
           if [ -f "$RUNNER_TEMP/ai-caddie-fixture.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/ai-caddie-fixture.pid")" 2>/dev/null || true
+            pid="$(cat "$RUNNER_TEMP/ai-caddie-fixture.pid")"
+            kill "$pid" 2>/dev/null || true
+            for _ in {1..20}; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+            if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+            ! curl --silent --show-error http://127.0.0.1:9000/api/v2/health >/dev/null 2>&1 || { echo "fixture port still serving" >&2; exit 1; }
             rm -f "$RUNNER_TEMP/ai-caddie-fixture.pid"
           fi
       - name: Resolve and boot Watch test simulator
@@ -429,7 +433,7 @@ jobs:
         id: scan_watch_snapshots
         if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full'
         env:
-          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          ARTIFACT_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-snapshots
       - name: Upload Watch design snapshots
         if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope == 'full' && steps.scan_watch_snapshots.outcome == 'success'))
@@ -513,7 +517,7 @@ jobs:
         id: scan_watch_real_screenshots
         if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success'
         env:
-          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          ARTIFACT_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-real-screenshots
       - name: Upload watch real screenshots
         if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && steps.scan_watch_real_screenshots.outcome == 'success'
@@ -548,16 +552,18 @@ jobs:
           else
             watch_status="$(status_from_outcome "$WATCH_TEST_OUTCOME")"
           fi
-          python3 ops/write_native_build_evidence.py --ios-status "$ios_status" --watch-status "$watch_status"
+          fixture_arg=""
+          if [[ "${{ inputs.fixture_mode }}" == "true" ]]; then fixture_arg="--data-mode ci_fixture"; fi
+          python3 ops/write_native_build_evidence.py --ios-status "$ios_status" --watch-status "$watch_status" $fixture_arg
       - name: Scan native build evidence for secret bytes
         id: scan_native_build_evidence
         if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit'
         env:
-          ARTIFACT_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          ARTIFACT_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN mobile/ios/native_build_evidence.json
       - name: Upload native build evidence
         if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_native_build_evidence.outcome == 'success'))
         uses: actions/upload-artifact@v4
         with:
-          name: native-build-evidence
+          name: ${{ inputs.fixture_mode && 'native-build-evidence-ci-fixture' || 'native-build-evidence' }}
           path: mobile/ios/native_build_evidence.json

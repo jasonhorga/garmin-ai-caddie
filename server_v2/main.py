@@ -185,6 +185,12 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="AI Caddie v2", version="0.1.0", lifespan=_lifespan)
+if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
+    # Fixture routes are absent from production processes; this prevents a fixture response from
+    # shadowing the real loaders when the environment is not explicitly opted in.
+    from .ci_fixture import ROUTE as ci_fixture_router
+
+    app.include_router(ci_fixture_router)
 app.include_router(admin_router)
 app.include_router(auth_router)
 

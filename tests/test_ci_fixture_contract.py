@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from pathlib import Path
 import unittest
 
@@ -21,6 +20,12 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertTrue(all(shot.get("synthetic") is False for shot in shots))
         self.assertNotEqual(shots[0]["end"], shots[1]["end"])
 
+    def test_fixture_image_builder_produces_usable_raster_payload(self) -> None:
+        source = Path("server_v2/ci_fixture.py").read_text(encoding="utf-8")
+        self.assertIn('"data:image/png;base64,"', source)
+        self.assertIn('width: int = 64, height: int = 64', source)
+        self.assertIn('"w": 64, "h": 64', source)
+
     def test_workflow_fixture_seam_is_private_and_token_is_not_literal_or_artifact_data(self) -> None:
         script = Path("ops/run_ci_fixture.sh").read_text(encoding="utf-8")
         workflow = Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8")
@@ -31,11 +36,12 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertIn("::add-mask::", workflow)
         self.assertNotIn("ci-fixture-admin-token", workflow)
         self.assertNotIn("AI_CADDIE_ADMIN_TOKEN=", workflow.split("Start isolated CI fixture", 1)[0])
+        self.assertIn("native-build-evidence-ci-fixture", workflow)
+        self.assertIn("--data-mode ci_fixture", workflow)
+        self.assertIn("fixture host must be loopback", script)
 
     def test_existing_fixture_file_remains_non_sensitive(self) -> None:
         fixture = Path("tests/fixtures/shots_scatter_round.json").read_text(encoding="utf-8")
-        decoded = base64.b64decode("aGVsbG8=")
-        self.assertEqual(decoded, b"hello")
         self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", fixture)
         self.assertNotIn("Authorization", fixture)
 

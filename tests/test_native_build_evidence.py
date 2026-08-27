@@ -50,6 +50,15 @@ class NativeBuildEvidenceTests(unittest.TestCase):
 
         self.assertEqual(payload["ios"]["status"], "skipped")
 
+    def test_fixture_evidence_has_distinct_schema_and_provenance(self) -> None:
+        payload = build_native_build_evidence(data_mode="ci_fixture", ios_status="passed")
+
+        self.assertEqual(payload["schema"], "ai-caddie-native-build-evidence-ci-fixture-v1")
+        self.assertEqual(payload["dataMode"], "ci_fixture")
+        self.assertEqual(payload["source"], "non_production")
+        self.assertEqual(payload["artifactName"], "native-build-evidence-ci-fixture")
+        self.assertTrue(payload["fixtureRevision"])
+
     def test_writer_preserves_failed_and_cancelled_mapping_from_producer(self) -> None:
         for status in ("failed", "cancelled", "skipped"):
             with self.subTest(status=status):

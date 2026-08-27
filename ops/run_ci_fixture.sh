@@ -14,9 +14,15 @@ fi
 
 export AI_CADDIE_DATA_MODE=fixture
 export AI_CADDIE_SECURITY_PROFILE=private
-export AI_CADDIE_BUILD_REVISION="${AI_CADDIE_BUILD_REVISION:-ci-fixture}"
+export AI_CADDIE_BUILD_REVISION="${AI_CADDIE_BUILD_REVISION:-ci-fixture-20260827-v1}"
 export AI_CADDIE_FIXTURE_MODE=1
 
+fixture_host="${AI_CADDIE_FIXTURE_HOST:-127.0.0.1}"
+case "$fixture_host" in
+  127.0.0.1|localhost|::1) ;;
+  *) echo "fixture host must be loopback" >&2; exit 64 ;;
+esac
+
 exec uv run uvicorn server_v2.main:app \
-  --host "${AI_CADDIE_FIXTURE_HOST:-127.0.0.1}" \
+  --host "$fixture_host" \
   --port "${AI_CADDIE_FIXTURE_PORT:-9000}"
