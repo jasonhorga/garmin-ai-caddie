@@ -64,7 +64,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--marketing-version", required=True)
     parser.add_argument("--build-number")
     parser.add_argument("--upload-to-testflight", action="store_true")
-    parser.add_argument("--upload-requested", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     commit = args.commit.strip().lower()
@@ -75,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     backend_revision = args.backend_revision.strip().lower() or None
     if args.upload_to_testflight and not args.api_origin:
         raise SystemExit("--api-origin is required for TestFlight upload")
-    if args.upload_to_testflight and not re.fullmatch(r"[0-9a-f]{40}", backend_revision):
+    if args.upload_to_testflight and (not backend_revision or not re.fullmatch(r"[0-9a-f]{40}", backend_revision)):
         raise SystemExit("--backend-revision must be a 40-character hexadecimal revision")
     if not str(args.workflow_run).strip() or not str(args.marketing_version).strip():
         raise SystemExit("workflow run and marketing version are required")

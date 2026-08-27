@@ -1209,6 +1209,7 @@ def build_readiness_response() -> dict[str, Any]:
         "schema": "ai-caddie-readiness-v1",
         "status": overall,
         "runtimeStatus": runtime_status,
+        "serviceStatus": runtime_status,
         "evidenceStatus": overall,
         "checks": checks,
     }

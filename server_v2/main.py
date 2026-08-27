@@ -487,13 +487,13 @@ def readiness(request: Request) -> dict[str, object]:
             # ``status=ok`` is retained for legacy clients; the split fields are
             # consumed by newer probes.
             "runtimeStatus": "ready",
+            "serviceStatus": "ready",
             "evidenceStatus": "unknown",
             "reason": "packaging evidence is owner-only",
             "checks": [],
         }
     payload = build_readiness_response()
     payload["authenticated"] = True
-    payload["runtimeStatus"] = "ready"
     payload["evidenceStatus"] = payload.get("status", "unknown")
     return payload
 
