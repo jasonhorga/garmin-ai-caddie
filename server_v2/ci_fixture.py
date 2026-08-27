@@ -28,12 +28,12 @@ def _course_id(value: int) -> int:
         resolved = COURSE_ALIASES[int(value)]
     except (KeyError, TypeError, ValueError):
         raise HTTPException(status_code=404, detail="fixture course not found")
+    return resolved
 
 
 def _course_request(value: int) -> int:
     _course_id(value)
     return int(value)
-    return resolved
 
 
 def _round_id(value: str) -> str:
@@ -122,6 +122,14 @@ def _package(round_id: str, global_id: int = GLOBAL_ID, nine: str = "all", back_
     for number in segment_holes:
         hole = json.loads(json.dumps(template_hole))
         hole["number"] = number
+        # Composite rounds expose front-nine numbers 1..9 and back-nine numbers
+        # 10..18, while the geometry service addresses the back course locally.
+        if requested_back is not None and number >= 10:
+            hole["sourceGlobalId"] = requested_back
+            hole["sourceLocalHole"] = number - 9
+        else:
+            hole["sourceGlobalId"] = requested_course
+            hole["sourceLocalHole"] = number
         payload["holes"].append(hole)
     payload["geometryCoverage"]["totalHoles"] = len(segment_holes)
     payload["geometryCoverage"]["readyHoles"] = len(segment_holes)
@@ -193,8 +201,9 @@ def geometry_hole(global_id: int, local_hole: int, source_ref: str | None = None
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/prep")
-def prep(global_id: int, holes: list[int] | None = Query(default=None), render: bool = False, nine: str = "all") -> dict:
+def prep(global_id: int, holes: list[int] | None = Query(default=None), render: bool = False, nine: str = "all", back_global_id: int | None = None) -> dict:
     requested_course = _course_request(global_id)
+    requested_back = _course_request(back_global_id) if back_global_id is not None else None
     segment_holes = _segment_holes(nine)
     requested = segment_holes if holes is None else holes
     if any(hole not in segment_holes for hole in requested):
@@ -208,9 +217,14 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
             "steps": [], "cautions": [], "landing_m": 210.0, "tee_club": "1D",
             "hazards": {"water_carry": [], "bunkers": [], "details": []},
             "map": {"image": IMAGE, "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 375.0, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 375.0]]}},
-            "greenDistances": {"available": True, "frontM": 122.0, "middleM": 130.0, "backM": 138.0, "frontLat": 39.9001, "frontLon": 116.4001, "middleLat": 39.9002, "middleLon": 116.4002, "backLat": 39.9003, "backLon": 116.4003}, "playsLike": {"available": True, "deltaM": 0.0}, "holeImageProjection": None,
+            "greenDistances": {"available": True, "frontM": 122.0, "middleM": 130.0, "backM": 138.0, "frontLat": 39.9001, "frontLon": 116.4001, "middleLat": 39.9002, "middleLon": 116.4002, "backLat": 39.9003, "backLon": 116.4003}, "playsLike": {"available": True, "deltaM": 0.0},
+            "holeImageProjection": {"available": True, "widthPx": 64, "heightPx": 64, "refs": [{"lat": 39.9000, "lon": 116.4000, "px": 0.0, "py": 64.0}, {"lat": 39.9000, "lon": 116.4008, "px": 64.0, "py": 64.0}, {"lat": 39.9008, "lon": 116.4000, "px": 0.0, "py": 0.0}]},
             "greenOutline": {"available": True, "source": "ci_fixture", "distanceUnit": "metres", "pointsPx": [[52.0, 52.0], [60.0, 52.0], [60.0, 60.0], [52.0, 60.0] ]}}
-        hole["sourceRefs"] = [f"{ROUND_REF}:{number}"]
+        local_hole = number - 9 if requested_back is not None and number >= 10 else number
+        source_course = requested_back if requested_back is not None and number >= 10 else requested_course
+        hole["sourceRefs"] = [f"{ROUND_REF}:{local_hole}"]
+        hole["sourceGlobalId"] = source_course
+        hole["sourceLocalHole"] = local_hole
         return hole
     return _with_markers({"schema": "ai-caddie-course-prep-v1", "globalId": requested_course, "holeCount": len(requested),
                           "clubs": [{"name": "1D", "token": "1D", "m": 210.0, "yd": 230, "distanceSource": "fixture", "sampleSize": 1, "confidence": "high"}], "holes": [prep_hole(number) for number in requested]})
@@ -248,6 +262,15 @@ def history_stats_mobile(window: str = "all") -> dict:
 def history_clubs_bag() -> dict:
     return _with_markers({"schema": "ai-caddie-club-bag-v1", "found": True, "playerProfileId": 1,
                           "clubs": [{"clubTypeId": 1, "customName": "1D", "standardName": "Driver", "loft": 10.5, "retired": False, "deleted": False}]})
+
+
+@ROUTE.get("/api/v2/players/{player_id}/clubs/bag")
+def player_clubs_bag(player_id: str) -> dict:
+    if not player_id or "/" in player_id:
+        raise HTTPException(status_code=404, detail="fixture player not found")
+    return _with_markers({"schema": "ai-caddie-effective-club-bag-v1", "source": "garmin", "found": True,
+                          "clubs": [{"token": "driver", "zhName": "一号木", "customName": "1D", "clubTypeId": 1,
+                                     "distanceM": 210.0, "distanceSource": "garmin_advice"}]})
 
 
 @ROUTE.get("/api/v2/history/overview")
@@ -345,6 +368,9 @@ def caddie_decision(body: dict) -> dict:
     round_identity = str(context["roundId"])
     course_identity = int(context["globalId"])
     source_ref = f"{round_identity}:{context['hole']}"
+    supplied_source_ref = context.get("sourceRef")
+    if not isinstance(supplied_source_ref, str) or supplied_source_ref != source_ref:
+        raise HTTPException(status_code=400, detail="fixture sourceRef missing or inconsistent")
     option = {"id": "stock", "clubName": "8I", "carry_m": 144.0, "p10M": 132.0, "p90M": 153.0, "sampleSize": 24, "confidence": "high", "source": "ci_fixture", "dispersion": {"state": "modeled", "clubName": "8I", "carryP10_m": 132.0, "carryP90_m": 153.0, "sampleSize": 24}, "courseGlobalId": course_identity, "roundId": round_identity}
     return _with_markers({"schema": "ai-caddie-decision-v2", "decisionId": f"fixture-decision-{round_identity}-{context['hole']}", "sourceRef": source_ref, "evidenceRefs": [source_ref], "shotType": shot_type, "phase": "approach", "context": context, "options": [option], "selected": option, "selectedOptionId": "stock", "selectedOption": option, "sequences": [{"id": "stock", "clubName": "8I"}], "selectedSequence": {"id": "stock", "clubName": "8I"}, "avoidZones": [], "forbiddenZones": [], "acceptableMiss": {"side": "short"}, "evidence": [{"label": "fixture", "value": "non_production"}], "confidence": {"level": "high", "source": "ci_fixture"}, "missingData": [], "auditCriteria": []})
 

@@ -118,6 +118,25 @@ The current release-hardening candidate requires a fresh remote verification
 of the focused readiness/provenance/workflow suites. No production service,
 TestFlight upload, or signing resource is created by this source transition.
 
+Fixture-contract hardening after `95d3c1e7` is implemented in the working tree:
+decision requests now require an exact caller `sourceRef`; course aliases now
+return their canonical resolver id; package/prep
+composite holes preserve `sourceGlobalId` and `sourceLocalHole`; prep serves a
+non-null three-anchor `holeImageProjection`; and the fixture mirrors the
+parameterized `/api/v2/players/{playerId}/clubs/bag` GET route and allowlist.
+The supported dynamic identities remain the explicit aliases in
+`COURSE_ALIASES`/`ROUND_ALIASES`; no `live-<gid>-<UUID>`, `watch-<UUID>`, or
+`home-<gid>` forms were found in the client source or added by guesswork.
+Local compilation and the focused fixture suite ran 15 tests (5 passed, 10
+FastAPI-dependent tests skipped). A remote scratch rerun of the fixture,
+entrypoint, and native-evidence modules ran 24 tests (14 passed, 10 skipped)
+and remote Python compilation passed. The
+expected Opus fixture-contract review report at
+`/home/jason/garmin-ai-caddie-data/operations/opus-fixture-contract-review-20260827.md`
+was checked and does not exist; no report hash is claimed. This remains source
+and fixture evidence only; no workflow, deployment, signing, upload, or
+TestFlight action was performed.
+
 The denied-GPS city-only catalogue failure has a minimal source fix on the
 current branch: `StartRoundView` now applies the resolved search option
 directly when a result is tapped, instead of writing `remoteCourseOptions` and

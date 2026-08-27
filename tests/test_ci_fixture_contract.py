@@ -47,16 +47,16 @@ class CIFixtureContractTests(unittest.TestCase):
             from server_v2.ci_fixture import _package
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
-        package = _package("anything", 99999)
+        package = _package("fixture-round-1", 3881)
         encoded = json.dumps(package)
         self.assertNotIn("live-round-1", encoded)
         self.assertNotIn("round-a", encoded)
         self.assertNotIn("round-b", encoded)
         self.assertNotIn("round-c", encoded)
-        self.assertEqual(package["roundId"], "900001")
+        self.assertEqual(package["roundId"], "fixture-round-1")
         self.assertEqual(package["dataMode"], "ci_fixture")
         self.assertEqual(package["sourceCoverage"]["dataMode"], "ci_fixture")
-        self.assertEqual(package["course"]["globalId"], 31795)
+        self.assertEqual(package["course"]["globalId"], 3881)
 
     def test_package_routes_bind_supported_ids_and_reject_mismatches(self) -> None:
         try:
@@ -90,10 +90,11 @@ class CIFixtureContractTests(unittest.TestCase):
 
     def test_fixture_decision_and_shotmap_shapes_are_decodable_contracts(self) -> None:
         try:
+            from fastapi import HTTPException
             from server_v2.ci_fixture import caddie_decision, shotmap
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
-        decision = caddie_decision({"shotType": "approach", "context": {"hole": 1}})
+        decision = caddie_decision({"shotType": "approach", "context": {"roundId": "fixture-round-1", "globalId": 31795, "hole": 1, "sourceRef": "fixture-round-1:1"}})
         self.assertEqual(decision["schema"], "ai-caddie-decision-v2")
         for key in ("shotType", "phase", "context", "options", "avoidZones", "forbiddenZones", "acceptableMiss", "evidence", "confidence", "missingData", "auditCriteria"):
             self.assertIn(key, decision)
@@ -102,6 +103,12 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(map_body["hole"], 1)
         self.assertEqual(map_body["map"]["overlay"]["ppm"], 0.17)
         self.assertEqual(map_body["map"]["overlay"]["ln"], 375.0)
+        for bad in (None, "900001:2", "fixture-round-1:1:extra"):
+            context = {"roundId": "fixture-round-1", "globalId": 31795, "hole": 1}
+            if bad is not None:
+                context["sourceRef"] = bad
+            with self.assertRaises(HTTPException):
+                caddie_decision({"shotType": "approach", "context": context})
 
     def test_dynamic_aliases_preserve_caller_identity_across_package_and_decision(self) -> None:
         try:
@@ -113,12 +120,27 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(package["course"]["globalId"], 3881)
         self.assertEqual(package["backGlobalId"], 31871)
         self.assertEqual(len(package["holes"]), 9)
-        decision = caddie_decision({"shotType": "tee", "context": {"roundId": "live-round-1", "globalId": 3881, "hole": 1, "teeBox": "white"}})
+        self.assertEqual(package["holes"][0]["sourceGlobalId"], 31871)
+        self.assertEqual(package["holes"][0]["sourceLocalHole"], 1)
+        decision = caddie_decision({"shotType": "tee", "context": {"roundId": "live-round-1", "globalId": 3881, "hole": 1, "teeBox": "white", "sourceRef": "live-round-1:1"}})
         self.assertEqual(decision["context"]["roundId"], "live-round-1")
         self.assertEqual(decision["context"]["globalId"], 3881)
         self.assertEqual(decision["sourceRef"], "live-round-1:1")
         with self.assertRaises(HTTPException):
-            caddie_decision({"shotType": "tee", "context": {"globalId": 99999, "hole": 1}})
+            caddie_decision({"shotType": "tee", "context": {"globalId": 99999, "hole": 1, "sourceRef": "900001:1"}})
+
+    def test_fixture_prep_projection_and_effective_bag_contracts(self) -> None:
+        try:
+            from server_v2.ci_fixture import player_clubs_bag, prep
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        hole = prep(3881, holes=[1])["holes"][0]
+        projection = hole["holeImageProjection"]
+        self.assertTrue(projection["available"])
+        self.assertEqual((projection["widthPx"], projection["heightPx"]), (64, 64))
+        self.assertEqual(len(projection["refs"]), 3)
+        self.assertEqual(player_clubs_bag("me")["schema"], "ai-caddie-effective-club-bag-v1")
+        self.assertTrue(player_clubs_bag("me")["clubs"])
 
     def test_fixture_review_and_asset_identity_is_fail_closed(self) -> None:
         try:
