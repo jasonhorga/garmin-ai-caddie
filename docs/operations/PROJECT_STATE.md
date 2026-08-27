@@ -27,6 +27,9 @@ synchronization was performed. R2 Web HMB and same-round iOS simulator runtime
 evidence are complete, and the owner's `go` instruction on 2026-08-26 is
 recorded as approval to advance the evidence gate. REL now checks the external
 release prerequisites; no TestFlight upload is performed by this transition.
+Candidate artifacts and production uploads are separate gates. Release provenance
+binds commit, workflow/build, API origin host, backend revision, IPA hash, and upload
+flag; tester/install assertions are manual and build-number-bound.
 The artifact-only build is green. A fresh homeserver probe found the existing
 candidate and production upstreams, Caddy, and the public Funnel all returning
 200; the earlier ingress timeout was transient. The candidate remains the

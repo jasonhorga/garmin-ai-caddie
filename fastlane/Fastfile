@@ -11,6 +11,8 @@
 require "spaceship/connect_api"
 require "securerandom"
 require "shellwords"
+require "json"
+require "uri"
 
 default_platform(:ios)
 
@@ -93,6 +95,23 @@ platform :ios do
     args.join(" ")
   end
 
+  def preflight_backend!
+    origin = ENV["AI_CADDIE_API_BASE_URL"].to_s.strip
+    UI.user_error!("AI_CADDIE_API_BASE_URL must be a public HTTPS origin for upload") if origin.empty?
+    parsed = URI.parse(origin)
+    UI.user_error!("AI_CADDIE_API_BASE_URL must be an origin-only HTTPS URL") unless parsed.scheme == "https" && parsed.host && parsed.path.to_s.sub(%r{/\\z}, "").empty? && parsed.query.nil? && parsed.fragment.nil? && parsed.user.nil? && parsed.password.nil?
+    headers = ["-fsS", "-H", "Accept: application/json"]
+    token = ENV["AI_CADDIE_ADMIN_TOKEN"].to_s.strip
+    headers += ["-H", "X-AI-Caddie-Admin-Token: #{token}"] unless token.empty?
+    health = JSON.parse(sh("curl #{headers.map { |h| Shellwords.escape(h) }.join(' ')} #{Shellwords.escape(origin + '/api/v2/health')}"))
+    UI.user_error!("backend health schema mismatch") unless health["schema"] == "ai-caddie-health-v2"
+    expected = ENV["EXPECTED_BACKEND_REVISION"].to_s.strip
+    UI.user_error!("backend revision mismatch") if !expected.empty? && health["revision"].to_s != expected
+    health
+  rescue URI::InvalidURIError
+    UI.user_error!("invalid AI_CADDIE_API_BASE_URL")
+  end
+
   desc "One-time: create the App Store Connect app record (idempotent) + app/watch signing assets"
   lane :bootstrap_signing do
     api_key = load_asc_api_key!
@@ -159,6 +178,22 @@ platform :ios do
       },
       xcargs: build_xcargs
     )
+
+    backend = preflight_backend! if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
+    backend_revision = backend && backend["revision"].to_s.strip
+    backend_revision = ENV.fetch("EXPECTED_BACKEND_REVISION", "unknown") if backend_revision.to_s.empty?
+    provenance_args = [
+      "python3 ops/write_release_provenance.py",
+      "--ipa #{Shellwords.escape(File.join('build/ios', OUTPUT_IPA))}",
+      "--api-origin #{Shellwords.escape(ENV.fetch('AI_CADDIE_API_BASE_URL', '').to_s.strip.empty? ? 'https://offline.invalid' : ENV.fetch('AI_CADDIE_API_BASE_URL'))}",
+      "--backend-revision #{Shellwords.escape(backend_revision)}",
+      "--commit #{Shellwords.escape(ENV.fetch('GITHUB_SHA', `git rev-parse HEAD`).strip)}",
+      "--workflow-run #{Shellwords.escape(ENV.fetch('GITHUB_RUN_ID', 'local'))}",
+      "--marketing-version #{Shellwords.escape(get_version_number(xcodeproj: XCODE_PROJECT))}",
+      "--build-number #{Shellwords.escape(get_build_number(xcodeproj: XCODE_PROJECT))}"
+    ]
+    provenance_args << "--upload-to-testflight" if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
+    sh(provenance_args.join(" "))
 
     if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
       upload_to_testflight(

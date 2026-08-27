@@ -479,8 +479,20 @@ def readiness(request: Request) -> dict[str, object]:
     # family member (Phase 1b made members resolve) — gets liveness only: both a data-leak
     # fix and a no-auth DoS-amplifier fix. (Liveness lives at GET /api/v2/health.)
     if resolve_request_player(request) != OWNER_ID:
-        return {"schema": "ai-caddie-readiness-v1", "status": "ok"}
-    return build_readiness_response()
+        return {
+            "schema": "ai-caddie-readiness-v1",
+            "status": "ok",
+            "authenticated": False,
+            "runtimeStatus": "unknown",
+            "evidenceStatus": "unknown",
+            "reason": "packaging evidence is owner-only",
+            "checks": [],
+        }
+    payload = build_readiness_response()
+    payload["authenticated"] = True
+    payload["runtimeStatus"] = "ready"
+    payload["evidenceStatus"] = payload.get("status", "unknown")
+    return payload
 
 
 @app.get("/api/v2/settings/product")

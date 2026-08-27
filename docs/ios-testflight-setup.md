@@ -29,6 +29,12 @@ but does not create a new app record for this account.
 
 ## Shipping a build
 
+Candidate and production are separate gates. Every IPA is accompanied by
+`release-provenance.json` containing the 40-character commit, workflow run,
+marketing/build numbers, API origin host, backend revision, IPA SHA-256, and
+upload flag. Tester/install assertions must name the build number and remain
+manual evidence.
+
 - Before uploading a connected build, run the external release preflight from
   `docs/deployment/private-trial.md` and keep the generated evidence file:
   ```bash
@@ -39,7 +45,7 @@ but does not create a new app record for this account.
   ```
   A fully connected external trial should not be considered ready until this
   reports `state=ready`.
-- Run the `iOS TestFlight (CD)` workflow manually from `integration/v2` with
+- Run the `iOS TestFlight (CD)` workflow manually from the intended release branch with
   optional release notes and optional origin-only `api_base_url`. It runs
   `xcodegen generate` → `fastlane ios beta` → archives the app (with embedded
   watch app) → uploads to TestFlight.

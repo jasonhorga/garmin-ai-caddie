@@ -27,6 +27,11 @@ workflow `api_base_url` input or the repo variable `AI_CADDIE_API_BASE_URL`. The
 is baked into the iOS `Info.plist` as `AICaddieAPIBaseURL`; leaving it blank preserves
 the offline/fixture fallback.
 
+Candidate and production are separate gates. The candidate IPA is artifact-only
+and carries `release-provenance.json`; production upload additionally requires
+an origin-only public HTTPS API URL and authenticated backend preflight. Device
+installation and tester coverage are build-number-bound manual evidence.
+
 TestFlight/Release builds never embed the owner admin token. They authenticate
 through Sign in with Apple and forward that scoped session to the Watch. The
 runtime Backend screen remains a DEBUG/CI aid for simulator verification; its

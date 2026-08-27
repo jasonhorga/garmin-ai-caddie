@@ -1205,5 +1205,7 @@ def build_readiness_response() -> dict[str, Any]:
     return {
         "schema": "ai-caddie-readiness-v1",
         "status": overall,
+        "runtimeStatus": "ready",
+        "evidenceStatus": overall,
         "checks": checks,
     }
