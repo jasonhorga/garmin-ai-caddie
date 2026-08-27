@@ -58,6 +58,37 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(package["sourceCoverage"]["dataMode"], "ci_fixture")
         self.assertEqual(package["course"]["globalId"], 31795)
 
+    def test_package_routes_bind_supported_ids_and_reject_mismatches(self) -> None:
+        try:
+            from fastapi import HTTPException
+            from server_v2.ci_fixture import GLOBAL_ID, ROUND_REF, _package, course_package, round_package
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        self.assertEqual(course_package(GLOBAL_ID)["roundId"], ROUND_REF)
+        self.assertEqual(round_package(ROUND_REF)["course"]["globalId"], GLOBAL_ID)
+        for args in (("wrong-round", GLOBAL_ID), (ROUND_REF, 99999)):
+            with self.assertRaises(HTTPException) as raised:
+                _package(*args)
+            self.assertEqual(raised.exception.status_code, 404)
+        with self.assertRaises(HTTPException):
+            course_package(99999)
+        with self.assertRaises(HTTPException):
+            round_package("wrong-round")
+
+    def test_fixture_geometry_and_hole_routes_fail_closed_for_wrong_entities(self) -> None:
+        try:
+            from fastapi import HTTPException
+            from server_v2.ci_fixture import coverage, geometry_hole, prep, shotmap, tees
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        for call in (
+            lambda: coverage(99999), lambda: geometry_hole(31795, 2),
+            lambda: prep(99999), lambda: tees(99999), lambda: shotmap("900001", 2),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                call()
+            self.assertEqual(raised.exception.status_code, 404)
+
     def test_package_template_has_every_required_live_round_key(self) -> None:
         package = json.loads(Path("mobile/ios/AICaddie/Fixtures/live_round_package.fixture.json").read_text(encoding="utf-8"))
         required = {

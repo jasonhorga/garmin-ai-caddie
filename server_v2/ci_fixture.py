@@ -11,7 +11,7 @@ from pathlib import Path
 import struct
 import zlib
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from ai_caddie.core.fixtures import fixture_history_data
 
@@ -48,6 +48,10 @@ def _with_markers(payload: dict) -> dict:
 
 
 def _package(round_id: str, global_id: int = GLOBAL_ID) -> dict:
+    if str(round_id) != ROUND_REF:
+        raise HTTPException(status_code=404, detail="fixture round not found")
+    if int(global_id) != GLOBAL_ID:
+        raise HTTPException(status_code=404, detail="fixture course not found")
     payload = json.loads(json.dumps(PACKAGE_TEMPLATE))
     # Keep every nested provenance/reference field on the same deterministic fixture entities.
     def normalize(value: object, key: str | None = None) -> object:
@@ -101,8 +105,10 @@ def history_detail(round_ref: str) -> dict:
 
 @ROUTE.get("/api/v2/history/rounds/{round_ref}/holes/{hole}/shotmap")
 def shotmap(round_ref: str, hole: int, includeImage: bool = True) -> dict:
-    if round_ref != ROUND_REF or hole != 1:
-        return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": False})
+    if round_ref != ROUND_REF:
+        raise HTTPException(status_code=404, detail="fixture round not found")
+    if hole != LOCAL_HOLE:
+        raise HTTPException(status_code=404, detail="fixture hole not found")
     return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "globalId": GLOBAL_ID, "localHole": LOCAL_HOLE, "map": {"image": IMAGE if includeImage else None, "overlay": {"w": 64, "h": 64, "route": [[4, 4, 0], [60, 60, 220]]}}, "shots": [{"id": "s1", "club": "1D", "synthetic": False, "end": [8, 8]}, {"id": "s2", "club": "8I", "synthetic": False, "end": [56, 56]}]})
 
 
@@ -120,21 +126,29 @@ def nearby(latitude: float, longitude: float, radius_km: int = 50) -> dict:
 
 @ROUTE.get("/api/v2/geometry/course/{global_id}/coverage")
 def coverage(global_id: int) -> dict:
+    if global_id != GLOBAL_ID:
+        raise HTTPException(status_code=404, detail="fixture course not found")
     return _with_markers({"schema": "ai-caddie-course-geometry-coverage-v1", "globalId": global_id, "coverage": "ready", "holes": [{"localHole": 1, "coverage": "ready"}]})
 
 
 @ROUTE.get("/api/v2/geometry/hole/{global_id}/{local_hole}")
 def geometry_hole(global_id: int, local_hole: int, source_ref: str | None = None) -> dict:
+    if global_id != GLOBAL_ID or local_hole != LOCAL_HOLE:
+        raise HTTPException(status_code=404, detail="fixture geometry not found")
     return _with_markers({"schema": "ai-caddie-geometry-evidence-v1", "globalId": global_id, "localHole": local_hole, "coverage": "ready", "overlay": {"w": 64, "h": 64}, "sourceRef": source_ref})
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/prep")
 def prep(global_id: int) -> dict:
+    if global_id != GLOBAL_ID:
+        raise HTTPException(status_code=404, detail="fixture course not found")
     return _with_markers({"schema": "ai-caddie-course-prep-v1", "globalId": global_id, "holeCount": 1, "holes": [{"hole": 1, "par": 4, "globalId": global_id, "localHole": 1, "overlay": {"w": 64, "h": 64}, "image": IMAGE}]})
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/tees")
 def tees(global_id: int, ensure_release: bool = False) -> dict:
+    if global_id != GLOBAL_ID:
+        raise HTTPException(status_code=404, detail="fixture course not found")
     rows = [
         {"teeBox": "blue", "name": "Blue", "set": 1, "yards": 6400, "holeCount": 18, "courseRating": 72.1, "slopeRating": 131, "default": True},
         {"teeBox": "white", "name": "White", "set": 2, "yards": 5900, "holeCount": 18, "courseRating": 69.8, "slopeRating": 124, "default": False},
@@ -144,8 +158,7 @@ def tees(global_id: int, ensure_release: bool = False) -> dict:
 
 @ROUTE.get("/api/v2/mobile/courses/options")
 def options() -> dict:
-    installed = {"globalId": 41825, "courseKey": "installed-fixture", "name": "Installed Practice", "roundCount": 1, "holes": 18, "teeBox": "white", "geometryCoverage": "ready", "sourceRefs": [ROUND_REF], "venueName": "Installed Practice", "segmentHoles": 18, "tees": ["white"]}
-    return _with_markers({"schema": "ai-caddie-mobile-course-options-v1", "dataMode": "ci_fixture", "total": 1, "courses": [installed], "options": [installed], "generatedAt": "2026-08-27T00:00:00Z"})
+    return _with_markers({"schema": "ai-caddie-mobile-course-options-v1", "dataMode": "ci_fixture", "total": 0, "courses": [], "options": [], "generatedAt": "2026-08-27T00:00:00Z"})
 
 
 @ROUTE.get("/api/v2/history/stats/mobile")
@@ -173,6 +186,8 @@ def sync_status() -> dict:
 
 @ROUTE.get("/api/v2/courses/{global_id}/install/status")
 def install_status(global_id: int, tee_box: str = "blue", nine: str = "all") -> dict:
+    if global_id != GLOBAL_ID or nine not in {"all", "front", "back"}:
+        raise HTTPException(status_code=404, detail="fixture install target not found")
     return _with_markers({"schema": "ai-caddie-course-install-v1", "jobId": "fixture-install", "globalId": global_id,
                           "teeBox": tee_box, "nine": nine, "phase": "ready", "stage": "complete",
                           "totalHoles": 18, "geometryReady": 18, "topoReady": 18, "updatedAt": "2026-08-27T00:00:00Z",
@@ -181,12 +196,12 @@ def install_status(global_id: int, tee_box: str = "blue", nine: str = "all") -> 
 
 @ROUTE.get("/api/v2/mobile/courses/{global_id}/package")
 def course_package(global_id: int) -> dict:
-    return _package("live-31795", global_id)
+    return _package(ROUND_REF, global_id)
 
 
 @ROUTE.get("/api/v2/mobile/rounds/{round_id}/package")
 def round_package(round_id: str) -> dict:
-    return _package(ROUND_REF)
+    return _package(round_id, GLOBAL_ID)
 
 
 @ROUTE.get("/api/v2/caddie/context")
