@@ -4,7 +4,7 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-08-26 UTC
+**Updated:** 2026-08-27 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
 **Source baseline:** `b2688f3c` (docs-only state commits after source CI run `32847741048` passed at `769e3609`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
@@ -27,9 +27,11 @@ synchronization was performed. R2 Web HMB and same-round iOS simulator runtime
 evidence are complete, and the owner's `go` instruction on 2026-08-26 is
 recorded as approval to advance the evidence gate. REL now checks the external
 release prerequisites; no TestFlight upload is performed by this transition.
-The artifact-only build is green, but the public API ingress is currently
-blocked by a non-responsive current-revision candidate upstream; no route or
-container mutation is being made without explicit authorization.
+The artifact-only build is green. A fresh homeserver probe found the existing
+candidate and production upstreams, Caddy, and the public Funnel all returning
+200; the earlier ingress timeout was transient. The candidate remains the
+public upstream, but its revision is not yet proven identical to the IPA and
+the GitHub-runner readiness probe still needs an explanation for its timeout.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
@@ -285,16 +287,33 @@ means a named external decision or prerequisite is missing; `done` and
   `6a6080c0-candidate`, started 2026-08-21); no restart, route switch, or
   production write was performed. REL remains blocked on ingress stability and
   the two manual gates.
+- Homeserver ingress re-audit on 2026-08-27 was read-only: candidate `:39055`
+  (20/20 HTTP 200, p50 19 ms, p95 37.5 ms), production `:9000` (20/20,
+  p50 12 ms, p95 33.5 ms), Caddy `:8080` (20/20, p50 26.4 ms, p95 69.5 ms),
+  and public Funnel (10/10, p50 219 ms, p95 579 ms). Candidate authenticated
+  overview/round/shotmap requests returned 200. Caddy validation was `Valid`,
+  no upstream errors appeared in the last 30 minutes, and no route/container/
+  database mutation occurred. Candidate has no Docker healthcheck and uses a
+  restart entrypoint that runs Alembic/identity seed against a writable shared
+  database, so it was intentionally not restarted or replaced.
+- Strict Phase 6 rerun `33029186839` at `10e1a7be` preserved the honest result:
+  signing, URL, App Store metadata, and review gates were ready, but the
+  GitHub-runner backend probe again returned `TimeoutError`; target tester
+  assignment and physical iPhone/Watch installation remain manual-required.
+  The run did not upload TestFlight. This runner-only timeout is now a separate
+  evidence gap from the healthy homeserver/public probes and must be resolved
+  or explicitly bounded before release.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Resolve or explicitly authorize the shared homeserver ingress action for the
-   stalled `:39055` candidate upstream; first re-probe, then choose a documented
-   route switch or candidate restart. Do not change it implicitly.
-2. Re-run Phase 6 with a stable ingress and record tester coverage/device
-   installation evidence after the artifact is available.
+1. Diagnose the GitHub-runner `backend_probe` timeout (including token/origin
+   and `/readiness` response behavior) and add a strict revision/origin check;
+   do not switch the healthy route or restart the candidate without new
+   evidence.
+2. Record target tester coverage and physical iPhone/Watch installation against
+   the exact signed artifact.
 3. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
 4. Request a separate explicit confirmation before setting
@@ -466,8 +485,8 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   no TestFlight upload, production deployment, synchronization, or Funnel
   change is authorized by this state transition.
 - 2026-08-27: Artifact-only release run `33024982596` passed and produced a
-  signed IPA without uploading. Phase 6 run `33024993745` exposed a real public
-  ingress timeout: Caddy `:8080` proxies to the stalled candidate `:39055`,
-  while direct production `:9000` remains healthy. REL is blocked pending an
-  explicitly authorized ingress decision and the remaining manual tester/device
-  gates.
+  signed IPA without uploading. The initial Phase 6 run `33024993745` reported
+  an ingress timeout; the subsequent read-only homeserver audit showed the
+  route healthy, while strict rerun `33029186839` reproduced a timeout only from
+  the GitHub runner. No route/container/data mutation was made; REL remains
+  blocked on runner-probe evidence and the manual tester/device gates.
