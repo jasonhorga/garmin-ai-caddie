@@ -143,6 +143,24 @@ from a 200-row catalogue and retaining the resulting start-round state. The
  until the public backend revision is aligned. No release, deploy, signing, or
  upload workflow is dispatched.
 
+Bounded provenance diagnosis confirms this is a workflow/environment contract
+issue, not a safe reason to weaken the gate. `native-mobile.yml` and
+`watch-runtime.yml` set `AI_CADDIE_PREFLIGHT_EXPECTED_REVISION` to
+`${{ github.sha }}`, which is the app/workflow checkout SHA, while the API
+health endpoint reports the independently deployed `AI_CADDIE_BUILD_REVISION`.
+The backend deploy workflow sets that value from its own `$GITHUB_SHA`; it is
+therefore correct for the public service to report a different revision until
+that backend commit is deployed. Direct read-only health probing on 2026-08-27
+returned schema `ai-caddie-health-v2`, status `ok`, service `server_v2`, and
+revision `6a6080c6...`, matching Native preflight run `33089934893`. The
+preflight validators and workflow contract tests pass in an exact-SHA remote
+scratch through Python compilation; `pytest` was unavailable there, so no
+Python test result is claimed. The minimal safe resolution is an owner-
+authorized backend deployment of the compatible backend revision, or an
+explicit separately supplied backend revision input/variable for Native CI;
+do not substitute the observed revision or remove the check. No production
+data, service, or deployment was modified.
+
 ## Task Ledger
 
 These IDs persist across sessions and context compactions. They are the only
