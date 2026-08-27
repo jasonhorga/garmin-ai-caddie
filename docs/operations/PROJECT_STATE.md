@@ -898,3 +898,33 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   club-bag bootstrap is explicitly fixture-backed. Runtime route/Codable
   execution remains blocked only by missing homeserver `fastapi`; current
   status awaits Opus re-review.
+- 2026-08-27: After the owner-authorized Opus GO, ran the single fixture-mode
+  Native Mobile CI validation `33123361136` from branch
+  `codex/p0-p1-p2-checkpoint-20260823`; run metadata confirms exact app
+  `headSha=4f69666ae3d4ee539d0b55f675f00017e88c6bcd`. Inputs were
+  `capture_scope=full`, `fixture_mode=true`, `review_round_ref=home-31795`,
+  blank API/backend inputs, and `require_live_preflight=false`; no production
+  URL or token was supplied. XcodeGen, project generation, simulator
+  inventory, Watch target compilation, Watch design snapshots, Watch runtime
+  seed/restore capture, secret scans, native evidence generation, and cleanup
+  passed. Watch conclusions are therefore positive for the deterministic
+  Native/Watch stages, but do not prove fixture-backed Watch behavior because
+  the fixture never started.
+- 2026-08-27: Run `33123361136` concluded `failure` for orchestration reasons.
+  `Start isolated CI fixture` exited immediately at `test -n
+  "$AI_CADDIE_ADMIN_TOKEN"`; the runner log shows the secret empty, so the
+  loopback fixture health check was never reached and no fixture revision or
+  round evidence was produced. iOS app target and live preflight/runtime were
+  skipped. `Verify SwiftJCS consumer boundaries` also failed secondarily:
+  its positive SwiftPM consumer built, but the expected Xcode DerivedData
+  `AICaddieDomain.framework` was absent because the iOS target was skipped
+  (`find .../DerivedData: No such file or directory`). This is classified as
+  workflow secret/step-dependency infrastructure evidence, not a proven source
+  regression; no source fix or rerun is justified by this run.
+- 2026-08-27: Available run artifacts were `native-build-evidence-ci-fixture`
+  (514 bytes), `watch-real-screenshots` (295,697 bytes),
+  `watch-snapshots` (2,151,345 bytes), and `real-screenshots` (366 bytes), all
+  unexpired. The run annotations also note that optional `real-videos/` and
+  `design-snapshots/` paths were empty. No artifact was retained locally.
+  TestFlight, release, deploy, signing, production mutation, and production
+  data synchronization were not performed.
