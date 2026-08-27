@@ -64,6 +64,16 @@ enum RealEvidenceRoundResolverError: LocalizedError {
     }
 }
 
+struct RealEvidenceRoundRejection: Equatable, CustomStringConvertible {
+    let roundRef: String
+    let hole: Int?
+    let reason: String
+
+    var description: String {
+        "roundRef=\(roundRef) hole=\(hole.map(String.init) ?? \"-\") reason=\(reason)"
+    }
+}
+
 /// Resolves live review evidence from the current owner history instead of treating one mutable
 /// Garmin import id as a permanent fixture. Selection stays read-only and fail-closed: a candidate
 /// must have a real scorecard row, a real topo/overlay, and two non-synthetic club-labelled landings
@@ -72,6 +82,11 @@ final class RealEvidenceRoundResolver {
     private let baseURL: URL
     private let adminToken: String
     private let requestTimeout: TimeInterval
+    private(set) var rejections: [RealEvidenceRoundRejection] = []
+
+    var diagnosticsText: String {
+        rejections.isEmpty ? "no candidate rejection recorded" : rejections.map(\.description).joined(separator: "\n")
+    }
 
     init(baseURL: String, adminToken: String, requestTimeout: TimeInterval = 75) throws {
         guard let url = URL(string: baseURL), url.scheme != nil, url.host != nil else {
@@ -83,6 +98,7 @@ final class RealEvidenceRoundResolver {
     }
 
     func resolve(preferredRoundRef: String? = nil) throws -> RealEvidenceRound {
+        rejections.removeAll(keepingCapacity: true)
         let roundsRoot = try getJSON(
             path: "/api/v2/history/rounds",
             queryItems: [
@@ -116,6 +132,7 @@ final class RealEvidenceRoundResolver {
             guard detail["found"] as? Bool == true,
                   let scorecard = detail["scorecard"] as? [[String: Any]],
                   !scorecard.isEmpty else {
+                record(roundRef, nil, "missing scored hole/detail")
                 continue
             }
 
@@ -160,10 +177,17 @@ final class RealEvidenceRoundResolver {
                     return lhs.hole < rhs.hole
                 }
 
+            if holes.isEmpty {
+                record(roundRef, nil, scorecard.contains { integer($0["score"]) == nil }
+                    ? "no scored hole with at least two club-labelled shots"
+                    : "no scored hole met the two-shot club-label requirement")
+            }
+
             for scoredHole in holes.prefix(18) {
                 let hole = scoredHole.hole
                 shotMapRequests += 1
                 guard shotMapRequests <= 24 else {
+                    record(roundRef, hole, "shot-map budget exhausted (24)")
                     throw RealEvidenceRoundResolverError.noEligibleRound
                 }
                 let shotMapPath = "\(detailPath)/holes/\(hole)/shotmap"
@@ -179,12 +203,16 @@ final class RealEvidenceRoundResolver {
                       let height = number(overlay["h"]), height > 0,
                       usableMapImage(map["image"], width: width, height: height),
                       let shots = shotMap["shots"] as? [[String: Any]] else {
+                    record(roundRef, hole, "shotmap mismatch or missing geometry/image")
                     continue
                 }
 
                 let recorded = recordedLandings(shots)
                 guard let pair = mostSeparatedPair(recorded),
                       pair.distance >= max(24, min(width, height) * 0.035) else {
+                    record(roundRef, hole, recorded.count < 2
+                        ? "fewer than two non-synthetic club-labelled landings"
+                        : "club-labelled landings are not spatially separated")
                     continue
                 }
 
@@ -206,6 +234,10 @@ final class RealEvidenceRoundResolver {
             }
         }
         throw RealEvidenceRoundResolverError.noEligibleRound
+    }
+
+    private func record(_ roundRef: String, _ hole: Int?, _ reason: String) {
+        rejections.append(RealEvidenceRoundRejection(roundRef: roundRef, hole: hole, reason: reason))
     }
 
     private func getJSON(

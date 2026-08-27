@@ -3323,6 +3323,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("horizontalAccuracyM", location_provider)
 
     def test_ios_round_review_runtime_capture_uses_stable_navigation_identifiers(self) -> None:
+        resolver = _read_required_source(
+            self, Path("mobile") / "ios" / "AICaddieUITests" / "RealEvidenceRoundResolver.swift"
+        )
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
         recent_review = _read_required_source(self, IOS_DIR / "Views" / "RecentRoundReviewView.swift")
         round_review = _read_required_source(self, IOS_DIR / "Views" / "RoundReviewView.swift")
@@ -3359,6 +3362,12 @@ class MobileContractTests(unittest.TestCase):
             self.assertIn('app.buttons["关闭"]', ui_test)
             self.assertNotIn('identifier CONTAINS "落点"', ui_test)
             self.assertIn('matching(identifier: "topo-hole-base-ready")', ui_test)
+        self.assertIn("struct RealEvidenceRoundRejection", resolver)
+        self.assertIn("private(set) var rejections", resolver)
+        self.assertIn("shot-map budget exhausted (24)", resolver)
+        self.assertIn("missing geometry/image", resolver)
+        self.assertIn("non-synthetic club-labelled landings", resolver)
+        self.assertIn("not spatially separated", resolver)
         self.assertIn('app.buttons["Reorder 2"]', real_flow)
         self.assertIn('identifier: "shot-draft-row-\\(reviewEvidence.shotCount)"', review_edit)
         self.assertIn('identifier: allowWrites ? "round-edit-save" : "round-edit-cancel"', review_edit)

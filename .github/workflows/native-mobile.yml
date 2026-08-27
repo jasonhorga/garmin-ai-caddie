@@ -356,7 +356,7 @@ jobs:
             xcrun simctl uninstall "$UDID" com.ai-caddie.mobile 2>/dev/null || true
           fi
       - name: Resolve and boot Watch test simulator
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full'
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') }}
         run: |
           set -euo pipefail
           WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
@@ -378,7 +378,8 @@ jobs:
           xcrun simctl boot "$NATIVE_WATCH_UDID" 2>/dev/null || true
           xcrun simctl bootstatus "$NATIVE_WATCH_UDID" -b
       - name: Test Watch app target
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full'
+        id: test_watch_app
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') }}
         run: |
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
@@ -405,7 +406,7 @@ jobs:
           if-no-files-found: warn
       - name: Real Watch round seed and restore screenshots
         id: capture_watch_real_screenshots
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full'
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' }}
         run: |
           set -euo pipefail
           WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
@@ -488,14 +489,17 @@ jobs:
           path: watch-real-screenshots/
           if-no-files-found: error
       - name: Write native build evidence
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit'
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') }}
         env:
           NATIVE_EVENT_NAME: ${{ github.event_name }}
           NATIVE_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
+          WATCH_TEST_OUTCOME: ${{ steps.test_watch_app.outcome }}
         run: |
           watch_status="passed"
           if [[ "$NATIVE_EVENT_NAME" == "workflow_dispatch" && "$NATIVE_CAPTURE_SCOPE" != "full" ]]; then
             watch_status="skipped"
+          elif [[ "$WATCH_TEST_OUTCOME" != "success" ]]; then
+            watch_status="failed"
           fi
           python3 ops/write_native_build_evidence.py --watch-status "$watch_status"
       - name: Scan native build evidence for secret bytes

@@ -1608,7 +1608,15 @@ final class RealFlowUITests: XCTestCase {
             baseURL: cfg("AI_CADDIE_API_BASE_URL") ?? "",
             adminToken: cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
         )
-        let evidence = try resolver.resolve(preferredRoundRef: cfg("UITEST_REVIEW_ROUND_REF"))
+        let evidence: RealEvidenceRound
+        do {
+            evidence = try resolver.resolve(preferredRoundRef: cfg("UITEST_REVIEW_ROUND_REF"))
+        } catch {
+            if let data = resolver.diagnosticsText.data(using: .utf8) {
+                try? data.write(to: realShotsDir().appendingPathComponent("review-evidence-rejections.txt"))
+            }
+            throw error
+        }
         if let data = evidence.diagnosticText.data(using: .utf8) {
             try data.write(to: realShotsDir().appendingPathComponent("review-evidence-round.txt"))
         }

@@ -525,11 +525,16 @@ class CIWorkflowTests(unittest.TestCase):
             {
                 "NATIVE_EVENT_NAME": "${{ github.event_name }}",
                 "NATIVE_CAPTURE_SCOPE": "${{ github.event.inputs.capture_scope || 'full' }}",
+                "WATCH_TEST_OUTCOME": "${{ steps.test_watch_app.outcome }}",
             },
             evidence_step["env"],
         )
+        self.assertTrue(steps["Resolve and boot Watch test simulator"]["if"].startswith("${{ always()"))
+        self.assertTrue(steps["Test Watch app target"]["if"].startswith("${{ always()"))
+        self.assertTrue(steps["Real Watch round seed and restore screenshots"]["if"].startswith("${{ always()"))
         self.assertIn('watch_status="passed"', evidence_step["run"])
         self.assertIn('watch_status="skipped"', evidence_step["run"])
+        self.assertIn('watch_status="failed"', evidence_step["run"])
         self.assertIn(
             'python3 ops/write_native_build_evidence.py --watch-status "$watch_status"',
             evidence_step["run"],

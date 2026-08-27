@@ -711,3 +711,15 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   isolated CI backend/fixture endpoint (with explicit URL and token) that
   serves this contract without writing production history; otherwise the
   live review gate remains blocked on qualifying backend history evidence.
+- 2026-08-27: Added fail-closed resolver diagnostics without changing the
+  evidence contract or the 24 shot-map request budget. Each inspected round
+  now records an auditable rejection reason (missing scored/labelled shots,
+  shot-map or geometry/image mismatch, insufficient or non-separated recorded
+  landings, and budget exhaustion); RealFlow and ReviewEdit persist these
+  diagnostics when resolution fails. Native Watch validation and runtime
+  capture now use `always()` conditions so an iOS live-review failure does not
+  short-circuit independent Watch validation, while native evidence reports
+  Watch test failure rather than falsely marking it passed. App and backend
+  revisions remain independent. Live validation still uses the explicit
+  backend URL/token; fixture validation remains an isolated, opt-in path and
+  no Native workflow was dispatched by this change.
