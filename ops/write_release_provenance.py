@@ -64,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--marketing-version", required=True)
     parser.add_argument("--build-number")
     parser.add_argument("--upload-to-testflight", action="store_true")
+    parser.add_argument("--upload-requested", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     commit = args.commit.strip().lower()
@@ -78,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--backend-revision must be a 40-character hexadecimal revision")
     if not str(args.workflow_run).strip() or not str(args.marketing_version).strip():
         raise SystemExit("workflow run and marketing version are required")
+    upload_completed = bool(args.upload_to_testflight)
     manifest = {
         "schema": SCHEMA,
         "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -87,9 +89,11 @@ def main(argv: list[str] | None = None) -> int:
         "buildNumber": str(args.build_number or _build_number(args.ipa)),
         "apiOriginHost": _origin_host(args.api_origin) if args.api_origin else None,
         "backendRevision": backend_revision,
-        "backendRevisionVerified": bool(args.upload_to_testflight and backend_revision),
+        "backendRevisionVerified": bool(upload_completed and backend_revision),
         "ipaSha256": _sha256(args.ipa),
-        "uploadToTestflight": bool(args.upload_to_testflight),
+        "uploadToTestflight": upload_completed,
+        "uploadRequested": upload_completed,
+        "uploadCompleted": upload_completed,
     }
     if not manifest["buildNumber"]:
         raise SystemExit("build number is required or must be extractable from IPA")
