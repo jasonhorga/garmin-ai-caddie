@@ -406,6 +406,7 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertIn("native-build-evidence-ci-fixture", workflow)
         self.assertIn("--data-mode ci_fixture", workflow)
         self.assertIn("fixture host must be loopback", script)
+        self.assertIn("uv run --frozen python -m uvicorn server_v2.main:app", script)
         self.assertIn("fixture route not implemented", Path("server_v2/main.py").read_text(encoding="utf-8"))
 
     def test_fixture_entrypoint_rejects_empty_token_at_runtime(self) -> None:

@@ -23,6 +23,6 @@ case "$fixture_host" in
   *) echo "fixture host must be loopback" >&2; exit 64 ;;
 esac
 
-exec uv run uvicorn server_v2.main:app \
+exec uv run --frozen python -m uvicorn server_v2.main:app \
   --host "$fixture_host" \
   --port "${AI_CADDIE_FIXTURE_PORT:-9000}"

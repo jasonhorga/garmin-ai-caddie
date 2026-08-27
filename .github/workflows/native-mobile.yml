@@ -68,6 +68,9 @@ jobs:
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
       - name: Show simulator inventory
         run: xcrun simctl list devices available
+      - name: Install uv for isolated CI fixture
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
+        run: brew install uv
       - name: Start isolated CI fixture
         id: start_fixture
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
@@ -84,7 +87,10 @@ jobs:
             printf 'ARTIFACT_ADMIN_TOKEN=%s\n' "$FIXTURE_TOKEN"
           } >> "$GITHUB_ENV"
           export CI=true AI_CADDIE_FIXTURE_PORT=9000
-          nohup ops/run_ci_fixture.sh > "$RUNNER_TEMP/ai-caddie-fixture.log" 2>&1 &
+          command -v uv >/dev/null 2>&1 || { echo "uv is required for fixture startup" >&2; exit 1; }
+          uv --version
+          python3 --version
+          nohup bash ops/run_ci_fixture.sh > "$RUNNER_TEMP/ai-caddie-fixture.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/ai-caddie-fixture.pid"
           for _ in {1..30}; do
             if curl --fail --silent --show-error http://127.0.0.1:9000/api/v2/health > /dev/null; then
@@ -93,7 +99,29 @@ jobs:
             sleep 2
           done
           echo "fixture health check failed" >&2
+          if [ -f "$RUNNER_TEMP/ai-caddie-fixture.log" ]; then
+            python3 -c 'import os, pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"ai-caddie-fixture.log"; t=p.read_text(errors="replace"); token=os.environ.get("AI_CADDIE_ADMIN_TOKEN", ""); print(t.replace(token, "[REDACTED]"))'
+          fi
           exit 1
+      - name: Upload fixture startup diagnostics
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.fixture_mode && steps.start_fixture.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          mkdir -p fixture-startup-diagnostics
+          if [ -f "$RUNNER_TEMP/ai-caddie-fixture.log" ]; then
+            python3 -c 'import os, pathlib; src=pathlib.Path(os.environ["RUNNER_TEMP"])/"ai-caddie-fixture.log"; dst=pathlib.Path("fixture-startup-diagnostics/stderr.log"); token=os.environ.get("AI_CADDIE_ADMIN_TOKEN", ""); dst.write_text(src.read_text(errors="replace").replace(token, "[REDACTED]"), encoding="utf-8")'
+          else
+            printf '%s\n' 'fixture launcher produced no stderr log' > fixture-startup-diagnostics/stderr.log
+          fi
+          printf '%s\n' 'fixture startup diagnostics; secrets redacted' > fixture-startup-diagnostics/README.txt
+        continue-on-error: true
+      - name: Upload fixture startup diagnostics artifact
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.fixture_mode && steps.start_fixture.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixture-startup-diagnostics
+          path: fixture-startup-diagnostics/
+          if-no-files-found: error
       - name: Configure live native auth
         if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
         env:

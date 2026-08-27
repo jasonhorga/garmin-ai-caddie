@@ -504,6 +504,8 @@ class CIWorkflowTests(unittest.TestCase):
 
         steps = {step.get("name"): step for step in native["steps"]}
         self.assertIn("Start isolated CI fixture", steps)
+        self.assertEqual("brew install uv", steps["Install uv for isolated CI fixture"]["run"])
+        self.assertIn("inputs.fixture_mode", steps["Install uv for isolated CI fixture"]["if"])
         self.assertEqual("start_fixture", steps["Start isolated CI fixture"]["id"])
         fixture_start = steps["Start isolated CI fixture"]["run"]
         self.assertIn("openssl rand -hex 32", fixture_start)
@@ -516,6 +518,13 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertNotIn("AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN", fixture_start)
         self.assertIn("Configure live native auth", steps)
         self.assertIn("secrets.AI_CADDIE_ADMIN_TOKEN", steps["Configure live native auth"]["env"]["LIVE_ADMIN_TOKEN"])
+        self.assertIn("command -v uv", fixture_start)
+        self.assertIn("uv --version", fixture_start)
+        self.assertIn("python3 --version", fixture_start)
+        self.assertIn("nohup bash ops/run_ci_fixture.sh", fixture_start)
+        self.assertIn("Upload fixture startup diagnostics", steps)
+        self.assertIn("fixture-startup-diagnostics", steps["Upload fixture startup diagnostics artifact"]["with"]["name"])
+        self.assertIn("[REDACTED]", steps["Upload fixture startup diagnostics"]["run"])
         self.assertEqual("brew install xcodegen", steps["Install XcodeGen"]["run"])
         self.assertEqual(
             "xcodegen generate --spec mobile/ios/project.yml --project-root .",

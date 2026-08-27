@@ -961,6 +961,16 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   iOS and Watch evidence markers; never print the token or reuse the production
   `AI_CADDIE_ADMIN_TOKEN`. No release, TestFlight, deploy, signing, or
   production mutation occurred.
+- 2026-08-27: Diagnosed Native fixture run `33126223345` startup failure with
+  a homeserver reproduction: `uv` was unavailable (`command -v uv` empty), and
+  the launcher stderr was `nohup: failed to run command 'uv': No such file or
+  directory`. The same missing precondition existed on the macOS workflow,
+  which invoked `uv run` without installing uv. Added fixture-only
+  `Install uv for isolated CI fixture` (`brew install uv`) before startup;
+  launcher remains `uv run --frozen python -m uvicorn` and is invoked through
+  `bash` because the tracked launcher is not executable, while the startup
+  gate still requires loopback health. Added a small redacted startup
+  diagnostics artifact on failure. No Native rerun was dispatched.
 - 2026-08-27: Replaced the missing-secret dependency with self-contained
   fixture-mode token wiring. Native workflow fixture startup now generates one
   64-hex-byte token from runner `openssl rand -hex 32`, fail-closes when
