@@ -771,3 +771,17 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   the 18-hole course. Unknown IDs, holes, segments, and back-course IDs fail
   closed. Runtime route/decode verification remains dependency-gated on the
   homeserver (`fastapi` unavailable); current status awaits Opus re-review.
+- 2026-08-27: Recorded the fixture route-to-model matrix for the latest
+  bounded review. `mobile/courses/{gid}/package` and
+  `mobile/rounds/{rid}/package` feed `LiveRoundPackage`/Watch package models;
+  `courses/{gid}/prep` feeds `CoursePrepResponse` and
+  `WatchCoursePrepResponse`; geometry coverage feeds
+  `CourseGeometryCoverageResponse`; history shotmap plus
+  `courses/{gid}/holes/{hole}/{topo,green}.png` feed `RoundHoleShotMap`,
+  `CoursePrepMap`, and Watch map models; caddie decision POST feeds
+  `CaddieDecisionResponse` and its Watch live gate. Actual callers pass course
+  `3881/31670/31871`, round aliases including `live-round-1`, tee `blue/white`,
+  and segments `front/back/all`; fixture aliases and filters cover these forms
+  while unknown cross-entity values fail closed. Runtime Codable tests remain
+  pending the missing homeserver FastAPI dependency; current status awaits Opus
+  re-review.

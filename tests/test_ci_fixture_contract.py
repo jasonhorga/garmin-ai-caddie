@@ -65,7 +65,13 @@ class CIFixtureContractTests(unittest.TestCase):
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
         self.assertEqual(course_package(GLOBAL_ID, round_id=ROUND_REF, tee_box="blue")["roundId"], ROUND_REF)
-        self.assertEqual(course_package(3881, round_id="fixture-round-1", tee_box="white", nine="front")["geometryCoverage"]["totalHoles"], 9)
+        front = course_package(3881, round_id="fixture-round-1", tee_box="white", nine="front")
+        self.assertEqual(front["geometryCoverage"]["totalHoles"], 9)
+        self.assertEqual(len(front["holes"]), 9)
+        self.assertEqual(front["course"]["globalId"], GLOBAL_ID)
+        self.assertEqual(front["course"]["teeBox"], "white")
+        self.assertEqual(front["holes"][0]["number"], 1)
+        self.assertEqual(front["holes"][-1]["number"], 9)
         self.assertEqual(round_package(ROUND_REF)["course"]["globalId"], GLOBAL_ID)
         for args in (("wrong-round", GLOBAL_ID), (ROUND_REF, 99999)):
             with self.assertRaises(HTTPException) as raised:
@@ -131,6 +137,8 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(hole["map"]["overlay"]["w"], 64)
         self.assertEqual(hole["map"]["overlay"]["h"], 64)
         self.assertEqual(hole["map"]["overlay"]["ppm"], 0.17)
+        self.assertTrue(hole["map"]["image"].startswith("data:image/png;base64,"))
+        self.assertTrue(hole["greenDistances"]["available"])
         self.assertEqual(len(prep(31795, nine="front")["holes"]), 9)
         self.assertEqual(len(prep(31795, nine="all")["holes"]), 18)
 
