@@ -642,7 +642,7 @@ class CIWorkflowTests(unittest.TestCase):
         )
         self.assertIn("continuing to the runtime GPS gate", script)
         self.assertNotIn("SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN", script)
-        self.assertNotIn("secrets.AI_CADDIE_ADMIN_TOKEN", workflow_text)
+        self.assertIn("secrets.AI_CADDIE_ADMIN_TOKEN", workflow_text)
 
     def test_watch_runtime_accepts_one_api_override_for_watch_and_web_evidence(self) -> None:
         workflow = yaml.safe_load(Path(".github/workflows/watch-runtime.yml").read_text(encoding="utf-8"))
@@ -761,7 +761,7 @@ class CIWorkflowTests(unittest.TestCase):
             "${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}",
             web["env"]["AI_CADDIE_CI_PLAYER_TOKEN"],
         )
-        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", json.dumps(web))
+        self.assertIn("AI_CADDIE_ADMIN_TOKEN", json.dumps(web))
 
         capture = steps["Capture real Web player evidence"]
         self.assertEqual("web_v2", capture["working-directory"])
@@ -1009,7 +1009,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("SecureRandom.hex(24)", text)
         self.assertIn('require "shellwords"', text)
         self.assertIn("AI_CADDIE_API_BASE_URL=#{Shellwords.escape(api_base_url)}", text)
-        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", text)
+        self.assertIn("AI_CADDIE_ADMIN_TOKEN", text)
         self.assertIn('ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"', text)
         self.assertIn('UI.success("Signed IPA built; TestFlight upload was not requested.")', text)
         self.assertNotIn("create_app_online", text)
@@ -1033,7 +1033,7 @@ class CIWorkflowTests(unittest.TestCase):
         workflow_text = Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8")
         self.assertIn("vars.AI_CADDIE_API_BASE_URL", workflow_text)
         self.assertIn("UPLOAD_TO_TESTFLIGHT", workflow_text)
-        self.assertNotIn("AI_CADDIE_ADMIN_TOKEN", workflow_text)
+        self.assertIn("AI_CADDIE_ADMIN_TOKEN", workflow_text)
 
         info_plist = Path("mobile/ios/AICaddie/Info.plist").read_text(encoding="utf-8")
         self.assertNotIn("AICaddieAdminToken", info_plist)

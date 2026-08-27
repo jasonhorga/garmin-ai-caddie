@@ -6,7 +6,7 @@
 
 **Updated:** 2026-08-27 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**Source baseline:** `b2688f3c` (docs-only state commits after source CI run `32847741048` passed at `769e3609`)
+**Source baseline:** `ce473220` (release readiness hardening candidate; verification rerun in progress)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -38,6 +38,10 @@ the first GitHub-runner readiness probe timed out once; a strict rerun passed.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
+
+The current release-hardening candidate requires a fresh remote verification
+of the focused readiness/provenance/workflow suites. No production service,
+TestFlight upload, or signing resource is created by this source transition.
 
 ## Task Ledger
 

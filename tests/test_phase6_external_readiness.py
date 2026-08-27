@@ -117,16 +117,16 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["schema"], "ai-caddie-phase6-external-readiness-v1")
-        self.assertEqual(payload["state"], "ready")
-        self.assertEqual(payload["missingExternalActions"], [])
+        self.assertEqual(payload["state"], "incomplete")
+        self.assertTrue(payload["missingExternalActions"])
         self.assertEqual(calls, [("https://api.example.test", "super-secret-admin-token")])
         checks = {row["label"]: row for row in payload["checks"]}
         self.assertEqual(checks["signing_secrets"]["state"], "ready")
         self.assertEqual(checks["signing_secrets"]["total"], 6)
         self.assertEqual(checks["signing_secrets"]["unusedConfigured"], ["MATCH_KEYCHAIN_PASSWORD"])
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertTrue(checks["external_beta_review_submission_ready"]["evidence"]["readyForSubmission"])
-        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertTrue(checks["external_beta_review_submission"]["evidence"]["submittedOrExternallyReady"])
         self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCountSource"], "environment")
         self.assertEqual(checks["phone_reachable_backend_url"]["evidence"]["host"], "api.example.test")
@@ -244,11 +244,11 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             checks["external_beta_review_feedback"]["evidence"]["manualFeedbackEmailSource"],
             "environment",
         )
-        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertEqual(checks["external_beta_review_submission"]["evidence"]["source"], "environment")
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertEqual(checks["external_beta_review_submission_ready"]["evidence"]["source"], "environment")
-        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(checks["external_testers"]["state"], "manual_required")
         self.assertTrue(checks["external_testers"]["evidence"]["internalCoverageConfirmed"])
         self.assertEqual(checks["external_testers"]["evidence"]["internalCoverageSource"], "environment")
         self.assertEqual(checks["backend_probe"]["state"], "manual_required")
@@ -312,7 +312,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertNotIn("owner@example.test", rendered_payload)
         checks = {row["label"]: row for row in payload["checks"]}
         self.assertEqual(checks["external_beta_review_feedback"]["state"], "missing")
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertEqual(
             checks["external_beta_review_submission_ready"]["evidence"]["source"],
             "github_actions_log:27069928781:READY_FOR_BETA_SUBMISSION",
@@ -384,8 +384,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertNotIn("github_metadata", checks)
         self.assertEqual(checks["signing_secrets"]["state"], "unknown")
         self.assertEqual(checks["external_beta_review_feedback"]["state"], "unknown")
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
-        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
+        self.assertEqual(checks["external_testers"]["state"], "manual_required")
 
     def test_github_actions_log_scan_keeps_older_assignment_evidence(self) -> None:
         latest_list_log = """
@@ -458,7 +458,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(checks["external_testers"]["state"], "manual_required")
         self.assertEqual(
             checks["external_testers"]["evidence"]["privateTrialAssignedTesterSource"],
             "github_actions_log:27082080178:private_trial_assignment",
@@ -638,8 +638,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
-        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertEqual(
             checks["external_beta_review_submission"]["evidence"]["source"],
             "github_actions_log:27090000001:beta_review_submission",
@@ -694,7 +694,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(checks["external_testers"]["state"], "manual_required")
         self.assertEqual(checks["external_testers"]["evidence"]["privateTrialAssignedTesterCount"], 2)
         self.assertEqual(
             checks["external_testers"]["evidence"]["privateTrialAssignedTesterSource"],
@@ -882,7 +882,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertTrue(checks["external_beta_review_submission_ready"]["evidence"]["readyForSubmission"])
         self.assertEqual(
             checks["external_beta_review_submission_ready"]["evidence"]["source"],
@@ -995,23 +995,23 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
             checks["external_testers"]["evidence"]["configuredTesterCountSource"],
             "app_store_connect_private_trial_group",
         )
-        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertEqual(
             checks["external_beta_review_submission"]["evidence"]["source"],
             "app_store_connect_beta_review_submitted",
         )
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
         self.assertEqual(
             checks["external_beta_review_submission_ready"]["evidence"]["source"],
             "github_actions_log:27069928781",
         )
-        self.assertEqual(checks["native_api_base_url_configuration"]["state"], "ready")
+        self.assertEqual(checks["native_api_base_url_configuration"]["state"], "missing")
         self.assertTrue(checks["native_api_base_url_configuration"]["evidence"]["runtimeBackendConfigured"])
         self.assertEqual(
             checks["native_api_base_url_configuration"]["evidence"]["runtimeBackendSource"],
             "testflight_backend_screen",
         )
-        self.assertEqual(checks["device_install"]["state"], "ready")
+        self.assertEqual(checks["device_install"]["state"], "manual_required")
         self.assertTrue(checks["device_install"]["evidence"]["installVerified"])
         self.assertEqual(
             checks["device_install"]["evidence"]["installVerificationSource"],
@@ -1079,7 +1079,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(code, 0)
         payload = json.loads(stdout.getvalue())
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_testers"]["state"], "ready")
+        self.assertEqual(checks["external_testers"]["state"], "manual_required")
         self.assertEqual(checks["external_testers"]["evidence"]["configuredTesterCount"], 2)
         self.assertEqual(
             checks["external_testers"]["evidence"]["configuredTesterCountSource"],
