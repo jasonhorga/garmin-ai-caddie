@@ -62,6 +62,18 @@ workflows, but GitHub returned `No commit found for SHA` for canonical
 was not authorized, so no source CI, Native Mobile CI, or Phase 6 run was
 dispatched and no run ID or artifact is claimed. TestFlight, release, deploy,
 and signing workflows were not dispatched.
+After the owner-authorized push of `91d91694ea1bd3d2318bd93f62fe851e19204ffc`
+to `codex/p0-p1-p2-checkpoint-20260823`, source CI run `33071951190` completed
+successfully (backend, frontend, Docker, and visual smoke). Native Mobile CI
+run `33071953908` completed failure at `Real-simulator screenshots (iOS,
+XCUITest against live backend)`; its small artifacts were retained only long
+enough to verify: `real-flow.mp4` 760,395 bytes,
+SHA256 `96f345d980c7c81194d0a8089f8dc4764112ba74b4ff997c45117e4097eecc6c`,
+and `ios-app.log` 88 bytes,
+SHA256 `d0b53e2a719d60b6dbcd54eba0b8286a2b494eb7b3f8de8de5b6cdc8b8ecba38`.
+Phase 6 dispatch run `33071919393` failed before execution because GitHub
+rejected the workflow expression `runner.temp`; no Phase 6 evidence was
+produced. TestFlight/release/deploy/signing workflows remain unrun.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
