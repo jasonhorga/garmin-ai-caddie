@@ -27,6 +27,9 @@ synchronization was performed. R2 Web HMB and same-round iOS simulator runtime
 evidence are complete, and the owner's `go` instruction on 2026-08-26 is
 recorded as approval to advance the evidence gate. REL now checks the external
 release prerequisites; no TestFlight upload is performed by this transition.
+The artifact-only build is green, but the public API ingress is currently
+blocked by a non-responsive current-revision candidate upstream; no route or
+container mutation is being made without explicit authorization.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
@@ -42,7 +45,7 @@ project-level task list; historical plans are reference material.
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
-| `REL` | `in-progress` | Release and TestFlight gate; artifact-only readiness first. | Verify source/native gates, production provenance, signing/TestFlight readiness, then request explicit upload confirmation. |
+| `REL` | `in-progress` | Release and TestFlight gate; artifact-only readiness first. | Verify source/native gates, production provenance, signing/TestFlight readiness, then request explicit upload confirmation. Current ingress blocker must be resolved before upload. |
 
 ### Status vocabulary
 
@@ -266,16 +269,35 @@ means a named external decision or prerequisite is missing; `done` and
   data, or Funnel configuration was changed; this is a static evidence
   publication only. Watch evidence remains separate and is not implied by this
   page.
+- Artifact-only release workflow `33024982596` at `ec73527f` passed on the
+  GitHub macOS runner. XcodeGen, signing-secret presence, fastlane archive and
+  IPA export all passed; the signed IPA artifact is `9628147722` (9,915,969
+  bytes; zip digest `1eb0a823692db8bd72fc322fa3ca4437f844fb7764633e272b7970079798fc6d`).
+  The log explicitly says `TestFlight upload was not requested`; no binary was
+  uploaded to TestFlight.
+- Phase 6 read-only audit `33024993745` passed as a workflow but reported an
+  incomplete readiness state: all six signing secrets, the public HTTPS URL,
+  App Store Connect metadata/review observations were ready, while the backend
+  probe timed out and tester coverage/device installation remain manual. Direct
+  read-only probes showed the production API at `127.0.0.1:9000` healthy, but
+  the public Caddy `:8080` route and candidate host port `:39055` timed out.
+  Caddy's current `/api/*` upstream is `127.0.0.1:39055` (candidate image
+  `6a6080c0-candidate`, started 2026-08-21); no restart, route switch, or
+  production write was performed. REL remains blocked on ingress stability and
+  the two manual gates.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Run the artifact-only native release build and the external Phase 6 readiness
-   audit; record every missing prerequisite without uploading or deploying.
-2. Keep production revision `6a6080c6...` unchanged until a deployment or
+1. Resolve or explicitly authorize the shared homeserver ingress action for the
+   stalled `:39055` candidate upstream; first re-probe, then choose a documented
+   route switch or candidate restart. Do not change it implicitly.
+2. Re-run Phase 6 with a stable ingress and record tester coverage/device
+   installation evidence after the artifact is available.
+3. Keep production revision `6a6080c6...` unchanged until a deployment or
    synchronization operation is explicitly approved.
-3. Request a separate explicit confirmation before setting
+4. Request a separate explicit confirmation before setting
    `upload_to_testflight=true`; a readiness pass alone never uploads a binary.
 
 ## Open Blockers / Facts
@@ -443,3 +465,9 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   as the sole active slice. The next action is an artifact-only release audit;
   no TestFlight upload, production deployment, synchronization, or Funnel
   change is authorized by this state transition.
+- 2026-08-27: Artifact-only release run `33024982596` passed and produced a
+  signed IPA without uploading. Phase 6 run `33024993745` exposed a real public
+  ingress timeout: Caddy `:8080` proxies to the stalled candidate `:39055`,
+  while direct production `:9000` remains healthy. REL is blocked pending an
+  explicitly authorized ingress decision and the remaining manual tester/device
+  gates.
