@@ -43,7 +43,7 @@ class ReadinessSyncStatusGatingTests(unittest.TestCase):
         self.assertEqual(sync.status_code, 200)
         self.assertLessEqual(set(readiness.json().keys()), {"schema", "status", "authenticated", "runtimeStatus", "serviceStatus", "evidenceStatus", "reason", "checks"})
         self.assertEqual(sync.json(), {"schema": "ai-caddie-sync-status-v2", "status": "ok"})
-        self.assertEqual(readiness.json()["runtimeStatus"], "ready")
+        self.assertEqual(readiness.json()["runtimeStatus"], "unknown")
         for term in _OWNER_LEAK_TERMS:
             self.assertNotIn(term, readiness.text)
             self.assertNotIn(term, sync.text)
@@ -69,7 +69,7 @@ class ReadinessSyncStatusGatingTests(unittest.TestCase):
         self.assertEqual(readiness.status_code, 200)
         self.assertEqual(sync.status_code, 200)
         self.assertEqual(sync.json(), {"schema": "ai-caddie-sync-status-v2", "status": "ok"})
-        self.assertEqual(readiness.json()["runtimeStatus"], "ready")
+        self.assertEqual(readiness.json()["runtimeStatus"], "unknown")
         self.assertLessEqual(set(readiness.json().keys()), {"schema", "status", "authenticated", "runtimeStatus", "serviceStatus", "evidenceStatus", "reason", "checks"})
         for term in _OWNER_LEAK_TERMS:
             self.assertNotIn(term, readiness.text)

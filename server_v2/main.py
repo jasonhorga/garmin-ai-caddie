@@ -486,7 +486,7 @@ def readiness(request: Request) -> dict[str, object]:
             # Keep liveness independent from owner-only packaging evidence.
             # ``status=ok`` is retained for legacy clients; the split fields are
             # consumed by newer probes.
-            "runtimeStatus": "ready",
+            "runtimeStatus": "unknown",
             "serviceStatus": "ready",
             "evidenceStatus": "unknown",
             "reason": "packaging evidence is owner-only",

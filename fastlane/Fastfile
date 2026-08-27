@@ -208,6 +208,7 @@ platform :ios do
       "--marketing-version #{Shellwords.escape(get_version_number(xcodeproj: XCODE_PROJECT))}",
       "--build-number #{Shellwords.escape(get_build_number(xcodeproj: XCODE_PROJECT))}"
     ]
+    provenance_args << "--upload-requested" if upload_requested
     sh(provenance_args.join(" "))
 
     if upload_requested

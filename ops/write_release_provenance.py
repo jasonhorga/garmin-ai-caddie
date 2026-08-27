@@ -45,7 +45,10 @@ def _sha256(path: Path) -> str:
 def _build_number(ipa: Path) -> str:
     try:
         with zipfile.ZipFile(ipa) as archive:
-            candidates = [name for name in archive.namelist() if name.endswith(".app/Info.plist")]
+            candidates = sorted(
+                (name for name in archive.namelist() if name.endswith(".app/Info.plist")),
+                key=lambda name: (name.count("/"), name),
+            )
             if candidates:
                 payload = plistlib.loads(archive.read(candidates[0]))
                 return str(payload.get("CFBundleVersion") or "")
@@ -64,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--marketing-version", required=True)
     parser.add_argument("--build-number")
     parser.add_argument("--upload-to-testflight", action="store_true")
+    parser.add_argument("--upload-requested", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     commit = args.commit.strip().lower()
@@ -78,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--backend-revision must be a 40-character hexadecimal revision")
     if not str(args.workflow_run).strip() or not str(args.marketing_version).strip():
         raise SystemExit("workflow run and marketing version are required")
+    upload_requested = bool(args.upload_requested or args.upload_to_testflight)
     upload_completed = bool(args.upload_to_testflight)
     try:
         api_origin_host = _origin_host(args.api_origin) if args.api_origin else None
@@ -95,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         "backendRevisionVerified": bool(upload_completed and backend_revision),
         "ipaSha256": _sha256(args.ipa),
         "uploadToTestflight": upload_completed,
-        "uploadRequested": upload_completed,
+        "uploadRequested": upload_requested,
         "uploadCompleted": upload_completed,
     }
     if not manifest["buildNumber"]:

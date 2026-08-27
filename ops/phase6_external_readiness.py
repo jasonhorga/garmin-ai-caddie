@@ -22,7 +22,7 @@ if str(REPO_ROOT) not in sys.path:
 
 SCHEMA = "ai-caddie-phase6-external-readiness-v1"
 DEFAULT_REPO = "jasonhorga/garmin-ai-caddie"
-DEFAULT_BRANCH = ""
+DEFAULT_BRANCH = "main"
 REQUIRED_SIGNING_SECRETS = (
     "ASC_KEY_ID",
     "ASC_ISSUER_ID",
@@ -164,7 +164,14 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
     if payload.get("buildNumber") in (None, ""):
         issues.append("build_number_missing")
     backend_revision = str(payload.get("backendRevision") or "")
-    uploaded = payload.get("uploadCompleted") is True or payload.get("uploadToTestflight") is True
+    requested = payload.get("uploadRequested") is True
+    completed = payload.get("uploadCompleted") is True
+    legacy_uploaded = payload.get("uploadToTestflight") is True
+    uploaded = completed or legacy_uploaded
+    if requested and not completed:
+        issues.append("upload_incomplete")
+    if completed != legacy_uploaded:
+        issues.append("upload_state_inconsistent")
     expected_commit = str(env.get("AI_CADDIE_RELEASE_COMMIT") or env.get("GITHUB_SHA") or "").strip()
     if expected_commit and commit.lower() != expected_commit.lower():
         issues.append("commit_mismatch")
