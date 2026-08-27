@@ -154,6 +154,18 @@ and shotmap rows on back-course local holes 1-9 while preserving display holes
 requests fail closed without explicit course context; with explicit 31795/3881
 context they retain the selected course identity. Remote FastAPI verification
 after this correction remained 17/17 passed.
+Opus final review `opus-fixture-contract-review-f88b58dc-20260827.md` identified
+two remaining P1s. They are addressed in the current follow-up: back-nine
+caddie options/dispersion now expose physical `localHole` 1-9 plus
+`displayHole` 10-18, and `SyncClient.fetchRoundDetail`/
+`fetchRoundShotMap` now accept and send optional `global_id`,
+`back_global_id`, `nine`, and `tee_box` context while retaining old call
+signatures through defaults. The fixture rejects dynamic Watch round
+requests without explicit course context. Local fixture tests ran 18 tests
+(6 passed, 12 skipped without FastAPI); the correctly synchronized remote uv
+venv with FastAPI ran 18/18 passed, plus py_compile and diff-check. Swift
+compile/Codable and macOS Watch runtime remain unverified and require the
+Native workflow.
 expected Opus fixture-contract review report at
 `/home/jason/garmin-ai-caddie-data/operations/opus-fixture-contract-review-20260827.md`
 was checked and does not exist; no report hash is claimed. This remains source

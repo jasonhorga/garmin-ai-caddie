@@ -622,13 +622,18 @@ public final class SyncClient {
     /// Per-hole 复盘 shot map (`GET /api/v2/history/rounds/{ref}/holes/{hole}/shotmap`): this round's
     /// actual shots projected onto the hole's 2D render. The round screen prefetches all holes, so
     /// omit the duplicate embedded topo; its revision-bound PNG is fetched once through URLCache.
-    public func fetchRoundShotMap(roundRef: String, hole: Int) async throws -> RoundHoleShotMap {
+    public func fetchRoundShotMap(roundRef: String, hole: Int, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) async throws -> RoundHoleShotMap {
         let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
         let endpoint = endpointURL("/api/v2/history/rounds/\(encoded)/holes/\(hole)/shotmap")
         guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
             throw URLError(.badURL)
         }
-        components.queryItems = [URLQueryItem(name: "includeImage", value: "false")]
+        var queryItems = [URLQueryItem(name: "includeImage", value: "false")]
+        if let globalId { queryItems.append(URLQueryItem(name: "global_id", value: String(globalId))) }
+        if let backGlobalId { queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId))) }
+        if let nine { queryItems.append(URLQueryItem(name: "nine", value: nine)) }
+        if let teeBox { queryItems.append(URLQueryItem(name: "tee_box", value: teeBox)) }
+        components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         applyAuth(to: &request)
@@ -654,9 +659,17 @@ public final class SyncClient {
 
     /// Single-round 复盘 detail (`GET /api/v2/history/rounds/{ref}`): hole-by-hole scorecard +
     /// phase summary + graceful missing-data. Used by RoundReviewView when the player taps a round.
-    public func fetchRoundDetail(roundRef: String) async throws -> RoundDetail {
+    public func fetchRoundDetail(roundRef: String, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) async throws -> RoundDetail {
         let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
-        var request = URLRequest(url: endpointURL("/api/v2/history/rounds/\(encoded)"))
+        var components = URLComponents(url: endpointURL("/api/v2/history/rounds/\(encoded)"), resolvingAgainstBaseURL: false)
+        var queryItems: [URLQueryItem] = []
+        if let globalId { queryItems.append(URLQueryItem(name: "global_id", value: String(globalId))) }
+        if let backGlobalId { queryItems.append(URLQueryItem(name: "back_global_id", value: String(backGlobalId))) }
+        if let nine { queryItems.append(URLQueryItem(name: "nine", value: nine)) }
+        if let teeBox { queryItems.append(URLQueryItem(name: "tee_box", value: teeBox)) }
+        components?.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = components?.url else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
         applyAuth(to: &request)
         // A round review should not become a permanent error screen because its first idempotent
         // GET crossed a one-off Funnel/DNS/TLS interruption. Reuse the bounded transient-only

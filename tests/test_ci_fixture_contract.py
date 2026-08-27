@@ -234,6 +234,9 @@ class CIFixtureContractTests(unittest.TestCase):
         back_decision = __import__("server_v2.ci_fixture", fromlist=["caddie_decision"]).caddie_decision({"shotType": "approach", "context": {"roundId": "home-31795", "globalId": 31795, "backGlobalId": 3881, "hole": 10, "localHole": 1, "sourceRef": "home-31795:10"}})
         self.assertEqual(back_decision["context"]["globalId"], 31795)
         self.assertEqual(back_decision["selected"]["courseGlobalId"], 3881)
+        self.assertEqual(back_decision["selected"]["localHole"], 1)
+        self.assertEqual(back_decision["selected"]["displayHole"], 10)
+        self.assertEqual(back_decision["selected"]["dispersion"]["localHole"], 1)
 
     def test_fixture_dynamic_round_forms_are_strictly_scoped(self) -> None:
         try:
@@ -246,6 +249,12 @@ class CIFixtureContractTests(unittest.TestCase):
         for value in ("watch-not-a-uuid", "live-99999-12345678-1234-4234-8234-123456789abc", "home-99999"):
             with self.assertRaises(HTTPException):
                 _round_id(value)
+
+    def test_native_history_callers_expose_resolved_identity_query(self) -> None:
+        source = Path("mobile/ios/AICaddie/Services/SyncClient.swift").read_text(encoding="utf-8")
+        self.assertIn("fetchRoundShotMap(roundRef: String, hole: Int, globalId: Int? = nil, backGlobalId: Int? = nil", source)
+        self.assertIn('URLQueryItem(name: "back_global_id"', source)
+        self.assertIn("fetchRoundDetail(roundRef: String, globalId: Int? = nil, backGlobalId: Int? = nil", source)
 
     def test_package_template_has_every_required_live_round_key(self) -> None:
         package = json.loads(Path("mobile/ios/AICaddie/Fixtures/live_round_package.fixture.json").read_text(encoding="utf-8"))
