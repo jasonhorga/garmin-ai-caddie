@@ -12,6 +12,11 @@ on:
           - full
           - review
           - edit
+      fixture_mode:
+        description: "Run native UI validation against the isolated CI fixture"
+        required: false
+        default: false
+        type: boolean
       api_base_url:
         description: Optional public API origin for live simulator capture
         type: string
@@ -63,6 +68,26 @@ jobs:
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
       - name: Show simulator inventory
         run: xcrun simctl list devices available
+      - name: Start isolated CI fixture
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
+        env:
+          AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$AI_CADDIE_ADMIN_TOKEN"
+          echo "::add-mask::$AI_CADDIE_ADMIN_TOKEN"
+          echo "AI_CADDIE_ADMIN_TOKEN=$AI_CADDIE_ADMIN_TOKEN" >> "$GITHUB_ENV"
+          export CI=true AI_CADDIE_FIXTURE_PORT=9000
+          nohup ops/run_ci_fixture.sh > "$RUNNER_TEMP/ai-caddie-fixture.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/ai-caddie-fixture.pid"
+          for _ in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:9000/api/v2/health > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "fixture health check failed" >&2
+          exit 1
       - name: Test iOS app target
         id: test_ios_app
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit'
@@ -213,7 +238,7 @@ jobs:
           path: design-snapshots/
           if-no-files-found: warn
       - name: Preflight live course discovery
-        if: github.event_name == 'workflow_dispatch' && inputs.require_live_preflight
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.require_live_preflight && !inputs.fixture_mode }}
         env:
           AI_CADDIE_PREFLIGHT_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
           AI_CADDIE_PREFLIGHT_AUTH_MODE: admin
@@ -233,15 +258,15 @@ jobs:
         env:
           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
           # (the plain forms are a fallback in case they propagate too). The test reads both.
-          TEST_RUNNER_AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
-          TEST_RUNNER_AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          TEST_RUNNER_AI_CADDIE_API_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          TEST_RUNNER_AI_CADDIE_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
           TEST_RUNNER_UITEST_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
           TEST_RUNNER_UITEST_REVIEW_ROUND_REF: ${{ github.event.inputs.review_round_ref || '' }}
           # 北京丽宫第 1 洞蓝 T (from the decoded CourseView hole anchor + tee coordinates).
           TEST_RUNNER_UITEST_GPS_LAT: '40.0454995'
           TEST_RUNNER_UITEST_GPS_LON: '116.5461531'
-          AI_CADDIE_API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
-          AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+          AI_CADDIE_API_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          AI_CADDIE_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
           UITEST_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
           UITEST_REVIEW_ROUND_REF: ${{ github.event.inputs.review_round_ref || '' }}
           UITEST_GPS_LAT: '40.0454995'
@@ -356,6 +381,13 @@ jobs:
           if [ -n "$UDID" ]; then
             xcrun simctl terminate "$UDID" com.ai-caddie.mobile 2>/dev/null || true
             xcrun simctl uninstall "$UDID" com.ai-caddie.mobile 2>/dev/null || true
+          fi
+      - name: Stop isolated CI fixture
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
+        run: |
+          if [ -f "$RUNNER_TEMP/ai-caddie-fixture.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/ai-caddie-fixture.pid")" 2>/dev/null || true
+            rm -f "$RUNNER_TEMP/ai-caddie-fixture.pid"
           fi
       - name: Resolve and boot Watch test simulator
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') }}

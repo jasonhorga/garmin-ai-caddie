@@ -40,6 +40,8 @@ def fixture_history_data() -> HistoryData:
             "holes": _holes(black_scores_good, pars18),
             "hasShots": True,
             "shotStatus": "fixture shots ready",
+            "source": "garmin",
+            "provenance": {"source": "garmin", "confidence": "high"},
         },
         {
             "id": 900002,
@@ -75,8 +77,8 @@ def fixture_history_data() -> HistoryData:
         },
     ]
     shots = [
-        {"roundId": 900001, "hole": 1, "club": "1D", "distance": 238, "surface": "fairway"},
-        {"roundId": 900001, "hole": 1, "club": "8I", "distance": 142, "surface": "green"},
+        {"roundId": 900001, "hole": 1, "club": "1D", "clubName": "1D", "distance": 238, "surface": "fairway", "synthetic": False, "end": {"lat": 40.0459, "lon": 116.5464}},
+        {"roundId": 900001, "hole": 1, "club": "8I", "clubName": "8I", "distance": 142, "surface": "green", "synthetic": False, "end": {"lat": 40.0468, "lon": 116.5472}},
         {"roundId": 900001, "hole": 2, "club": "3W", "distance": 211, "surface": "fairway"},
         {"roundId": 900001, "hole": 2, "club": "58", "distance": 76, "surface": "green"},
         {"roundId": 900002, "hole": 5, "club": "1D", "distance": 225, "surface": "rough"},

@@ -486,6 +486,8 @@ class CIWorkflowTests(unittest.TestCase):
         native = workflow["jobs"]["native-mobile"]
 
         self.assertIn("workflow_dispatch", triggers)
+        self.assertIn("fixture_mode", triggers["workflow_dispatch"]["inputs"])
+        self.assertFalse(triggers["workflow_dispatch"]["inputs"]["fixture_mode"]["default"])
         self.assertNotIn("push", triggers)
         paths = triggers["pull_request"]["paths"]
         self.assertIn("mobile/ios/**", paths)
@@ -501,6 +503,7 @@ class CIWorkflowTests(unittest.TestCase):
         )
 
         steps = {step.get("name"): step for step in native["steps"]}
+        self.assertIn("Start isolated CI fixture", steps)
         self.assertEqual("brew install xcodegen", steps["Install XcodeGen"]["run"])
         self.assertEqual(
             "xcodegen generate --spec mobile/ios/project.yml --project-root .",
