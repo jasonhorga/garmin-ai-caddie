@@ -70,9 +70,10 @@ def _manual_state(asserted: bool, build_number: str | None) -> str:
 def _assertion_state(asserted: bool, source: str | None, *, build_number: str | None = None) -> str:
     if not asserted:
         return "manual_required"
-    if source and (source.startswith("github_actions_log:") or source.startswith("workflow:")):
-        return "ready"
-    return "manual_asserted" if (build_number or source) else "manual_required"
+    # Review/tester/install attestations are human evidence.  A caller supplied
+    # source label, including a forged workflow-looking string, never promotes
+    # them to automated readiness.  They must also identify the candidate build.
+    return "manual_asserted" if build_number else "manual_required"
 
 
 def _bool_env(env: dict[str, str], key: str) -> bool:
@@ -154,6 +155,20 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
         issues.append("api_origin_host_mismatch")
     required = ("workflowRun", "marketingVersion", "buildNumber", "apiOriginHost", "backendRevision", "ipaSha256", "uploadToTestflight")
     issues.extend(f"{field}_missing" for field in required if payload.get(field) in (None, ""))
+    if payload.get("workflowRun") in (None, ""):
+        issues.append("workflow_run_missing")
+    if payload.get("marketingVersion") in (None, ""):
+        issues.append("marketing_version_missing")
+    if payload.get("buildNumber") in (None, ""):
+        issues.append("build_number_missing")
+    backend_revision = str(payload.get("backendRevision") or "")
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", backend_revision):
+        issues.append("backend_revision_invalid")
+    ipa_sha = str(payload.get("ipaSha256") or "")
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", ipa_sha):
+        issues.append("ipa_sha256_invalid")
+    if payload.get("uploadToTestflight") is not True:
+        issues.append("upload_not_requested")
     safe = {key: payload.get(key) for key in ("schema", "commit", "workflowRun", "marketingVersion", "buildNumber", "apiOriginHost", "backendRevision", "ipaSha256", "uploadToTestflight", "createdAt")}
     return {"label": "release_provenance", "state": "ready" if not issues else "degraded", "reason": None if not issues else "invalid release provenance manifest", "evidence": {**safe, "issues": sorted(set(issues))}}
 
@@ -827,23 +842,25 @@ def build_phase6_external_readiness(
         feedback_email_source=feedback_email_source,
         branch=branch,
     )
+    candidate_build = str(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER") or "").strip() or None
     checks.append(
         {
             "label": "external_beta_review_submission_ready",
-            "state": _assertion_state(beta_review_ready or beta_review_submitted, beta_review_ready_source or beta_review_submission_source),
+            "state": _assertion_state(beta_review_ready or beta_review_submitted, beta_review_ready_source or beta_review_submission_source, build_number=candidate_build),
             "reason": None
             if beta_review_ready or beta_review_submitted
             else "confirm App Store Connect shows READY_FOR_BETA_SUBMISSION before external Beta App Review",
             "evidence": {
                 "readyForSubmission": beta_review_ready or beta_review_submitted,
                 "source": beta_review_ready_source or beta_review_submission_source,
+                "buildNumber": candidate_build,
             },
         }
     )
     checks.append(
         {
             "label": "external_beta_review_submission",
-            "state": _assertion_state(beta_review_submitted, beta_review_submission_source),
+            "state": _assertion_state(beta_review_submitted, beta_review_submission_source, build_number=candidate_build),
             "reason": None
             if beta_review_submitted
             else (
@@ -854,6 +871,7 @@ def build_phase6_external_readiness(
             "evidence": {
                 "submittedOrExternallyReady": beta_review_submitted,
                 "source": beta_review_submission_source,
+                "buildNumber": candidate_build,
             },
         }
     )
@@ -920,6 +938,9 @@ def build_phase6_external_readiness(
                     "readinessStatus": probe.get("readinessStatus"),
                     "readinessSchema": probe.get("readinessSchema"),
                     "readinessState": probe.get("readinessState"),
+                    "authenticated": probe.get("authenticated") is True,
+                    "checksValid": probe.get("checksValid") is True,
+                    "readinessCheckCount": len(probe.get("readinessChecks") or []) if isinstance(probe.get("readinessChecks"), list) else 0,
                     "adminTokenProvided": bool(env.get("AI_CADDIE_ADMIN_TOKEN")),
                 },
             }
@@ -938,7 +959,7 @@ def build_phase6_external_readiness(
     checks.append(
         {
             "label": "external_testers",
-            "state": _manual_state(testers_ready, str(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER") or "").strip()),
+            "state": _manual_state(testers_ready, candidate_build),
             "reason": None
             if testers_ready
             else (

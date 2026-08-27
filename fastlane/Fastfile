@@ -13,6 +13,7 @@ require "securerandom"
 require "shellwords"
 require "json"
 require "uri"
+require "ipaddr"
 
 default_platform(:ios)
 
@@ -100,14 +101,26 @@ platform :ios do
     UI.user_error!("AI_CADDIE_API_BASE_URL must be a public HTTPS origin for upload") if origin.empty?
     parsed = URI.parse(origin)
     UI.user_error!("AI_CADDIE_API_BASE_URL must be an origin-only HTTPS URL") unless parsed.scheme == "https" && parsed.host && parsed.path.to_s.sub(%r{/\\z}, "").empty? && parsed.query.nil? && parsed.fragment.nil? && parsed.user.nil? && parsed.password.nil?
-    headers = ["-fsS", "-H", "Accept: application/json"]
     token = ENV["AI_CADDIE_ADMIN_TOKEN"].to_s.strip
-    headers += ["-H", "X-AI-Caddie-Admin-Token: #{token}"] unless token.empty?
-    health = JSON.parse(sh("curl #{headers.map { |h| Shellwords.escape(h) }.join(' ')} #{Shellwords.escape(origin + '/api/v2/health')}"))
+    UI.user_error!("AI_CADDIE_ADMIN_TOKEN is required for authenticated backend preflight") if token.empty?
+    begin
+      address = IPAddr.new(parsed.host)
+      UI.user_error!("AI_CADDIE_API_BASE_URL must use a public address") if address.private? || address.loopback? || address.link_local? || address.multicast? || address.reserved?
+    rescue IPAddr::InvalidAddressError
+      UI.user_error!("AI_CADDIE_API_BASE_URL must use a public address") if parsed.host == "localhost" || parsed.host.end_with?(".local")
+    end
+    headers = ["-fsS", "-H", "Accept: application/json"]
+    header_args = headers.map { |h| Shellwords.escape(h) }.join(" ")
+    auth_header = '-H "X-AI-Caddie-Admin-Token: ${AI_CADDIE_ADMIN_TOKEN}"'
+    health = JSON.parse(sh("curl #{header_args} #{auth_header} #{Shellwords.escape(origin + '/api/v2/health')}"))
     UI.user_error!("backend health schema mismatch") unless health["schema"] == "ai-caddie-health-v2"
     expected = ENV["EXPECTED_BACKEND_REVISION"].to_s.strip
-    UI.user_error!("backend revision mismatch") if !expected.empty? && health["revision"].to_s != expected
-    health
+    UI.user_error!("EXPECTED_BACKEND_REVISION must be a 40-character revision") unless expected.match?(/\A[0-9a-fA-F]{40}\z/)
+    UI.user_error!("backend revision mismatch") unless health["revision"].to_s == expected
+    readiness = JSON.parse(sh("curl #{header_args} #{auth_header} #{Shellwords.escape(origin + '/api/v2/readiness')}"))
+    checks = readiness["checks"]
+    UI.user_error!("backend readiness authentication/schema invalid") unless readiness["schema"] == "ai-caddie-readiness-v1" && readiness["authenticated"] == true && %w[ready degraded].include?(readiness["status"]) && checks.is_a?(Array) && !checks.empty? && checks.all? { |row| row.is_a?(Hash) && !row["label"].to_s.strip.empty? }
+    health.merge("readiness" => readiness)
   rescue URI::InvalidURIError
     UI.user_error!("invalid AI_CADDIE_API_BASE_URL")
   end
@@ -182,10 +195,12 @@ platform :ios do
     backend = preflight_backend! if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
     backend_revision = backend && backend["revision"].to_s.strip
     backend_revision = ENV.fetch("EXPECTED_BACKEND_REVISION", "unknown") if backend_revision.to_s.empty?
+    api_origin = ENV.fetch("AI_CADDIE_API_BASE_URL", "").to_s.strip
+    UI.user_error!("AI_CADDIE_API_BASE_URL is required for release provenance") if api_origin.empty?
     provenance_args = [
       "python3 ops/write_release_provenance.py",
       "--ipa #{Shellwords.escape(File.join('build/ios', OUTPUT_IPA))}",
-      "--api-origin #{Shellwords.escape(ENV.fetch('AI_CADDIE_API_BASE_URL', '').to_s.strip.empty? ? 'https://offline.invalid' : ENV.fetch('AI_CADDIE_API_BASE_URL'))}",
+      "--api-origin #{Shellwords.escape(api_origin)}",
       "--backend-revision #{Shellwords.escape(backend_revision)}",
       "--commit #{Shellwords.escape(ENV.fetch('GITHUB_SHA', `git rev-parse HEAD`).strip)}",
       "--workflow-run #{Shellwords.escape(ENV.fetch('GITHUB_RUN_ID', 'local'))}",

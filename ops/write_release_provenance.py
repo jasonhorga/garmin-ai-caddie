@@ -8,7 +8,9 @@ import hashlib
 import json
 from pathlib import Path
 import plistlib
+import re
 from urllib.parse import urlparse
+import ipaddress
 import zipfile
 
 SCHEMA = "ai-caddie-release-provenance-v1"
@@ -20,7 +22,16 @@ def _origin_host(value: str) -> str:
         raise ValueError("api origin must be public HTTPS without credentials")
     if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
         raise ValueError("api origin must not include path, query, or fragment")
-    return parsed.hostname.lower()
+    host = parsed.hostname.lower()
+    if host in {"localhost", "localhost.localdomain"} or host.endswith(".local"):
+        raise ValueError("api origin must be publicly reachable")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast:
+        raise ValueError("api origin must be publicly reachable")
+    return host
 
 
 def _sha256(path: Path) -> str:
@@ -60,6 +71,11 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--commit must be a 40-character hexadecimal revision")
     if not args.ipa.is_file():
         raise SystemExit("IPA does not exist")
+    backend_revision = args.backend_revision.strip().lower()
+    if args.upload_to_testflight and not re.fullmatch(r"[0-9a-f]{40}", backend_revision):
+        raise SystemExit("--backend-revision must be a 40-character hexadecimal revision")
+    if not str(args.workflow_run).strip() or not str(args.marketing_version).strip():
+        raise SystemExit("workflow run and marketing version are required")
     manifest = {
         "schema": SCHEMA,
         "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -68,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         "marketingVersion": str(args.marketing_version),
         "buildNumber": str(args.build_number or _build_number(args.ipa)),
         "apiOriginHost": _origin_host(args.api_origin),
-        "backendRevision": str(args.backend_revision),
+        "backendRevision": backend_revision,
         "ipaSha256": _sha256(args.ipa),
         "uploadToTestflight": bool(args.upload_to_testflight),
     }

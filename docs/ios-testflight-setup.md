@@ -124,3 +124,16 @@ screen, record the manual evidence with
 The archive/sign/upload path runs on the GitHub macOS runner, not in this Linux workspace.
 Run `iOS TestFlight (CD)` and use the Actions log as the source of truth for signing,
 archive, export, and App Store Connect upload status.
+
+Each build also emits `build/ios/release-provenance.json` beside the IPA. It binds
+the IPA SHA-256, app/backend 40-character revisions, workflow run, marketing
+version, build number, and API origin host. Phase 6 accepts this manifest only
+when it is fresh and marked `uploadToTestflight: true`; artifact-only (`false`)
+builds remain incomplete candidates. Manual review, tester, and install evidence
+must name the same TestFlight build number. The runtime Backend-screen checkbox
+is always a manual attestation and is never inferred from the build URL.
+
+Before an upload, Fastlane requires all six signing secrets, a public HTTPS
+origin, and an authenticated `/api/v2/health` plus `/api/v2/readiness` preflight
+with the expected backend revision. Tokens are passed to curl through the
+environment and are not written to logs or provenance.

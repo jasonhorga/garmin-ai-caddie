@@ -40,6 +40,10 @@ on:
         description: 'Optional confirmed target tester count assigned to Private Trial'
         required: false
         default: ''
+      testflight_build_number:
+        description: 'TestFlight build number to which manual evidence applies'
+        required: false
+        default: ''
       tester_coverage_confirmed:
         description: 'Internal/external tester coverage has been independently confirmed'
         required: true
@@ -82,6 +86,7 @@ jobs:
       BETA_REVIEW_SUBMITTED: ${{ github.event.inputs.beta_review_submitted }}
       NATIVE_RUNTIME_API_CONFIGURED: ${{ github.event.inputs.native_runtime_api_configured }}
       ASSIGNED_TESTER_COUNT: ${{ github.event.inputs.assigned_tester_count }}
+      AI_CADDIE_TESTFLIGHT_BUILD_NUMBER: ${{ github.event.inputs.testflight_build_number }}
       TESTER_COVERAGE_CONFIRMED: ${{ github.event.inputs.tester_coverage_confirmed }}
       INSTALL_VERIFIED: ${{ github.event.inputs.install_verified }}
       FAIL_WHEN_INCOMPLETE: ${{ github.event.inputs.fail_when_incomplete }}
@@ -99,6 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           args=(ops/phase6_external_readiness.py)
+          args+=(--branch "$GITHUB_REF_NAME")
           if [ -n "$PHASE6_API_BASE_URL_INPUT" ]; then
             args+=(--api-base-url "$PHASE6_API_BASE_URL_INPUT")
           fi
