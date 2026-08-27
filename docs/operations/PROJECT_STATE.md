@@ -118,6 +118,18 @@ The current release-hardening candidate requires a fresh remote verification
 of the focused readiness/provenance/workflow suites. No production service,
 TestFlight upload, or signing resource is created by this source transition.
 
+The denied-GPS city-only catalogue failure has a minimal source fix on the
+current branch: `StartRoundView` now applies the resolved search option
+directly when a result is tapped, instead of writing `remoteCourseOptions` and
+immediately looking the option up again through coalesced `@State`. This keeps
+the existing city-search/long-result behavior while making the selected course
+ID, fresh live round ID, and tee state explicit before dismissing the sheet. A
+deterministic `StartRoundDiscoveryTests` case covers selecting the final item
+from a 200-row catalogue and retaining the resulting start-round state. The
+homeserver is Linux and cannot run `xcodebuild`; macOS Native Mobile CI is
+required for runtime confirmation. No release, deploy, signing, or upload
+workflow is dispatched.
+
 ## Task Ledger
 
 These IDs persist across sessions and context compactions. They are the only

@@ -150,6 +150,29 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    func testTailSearchSelectionCarriesCourseIntoStartRoundState() {
+        let tail = MobileCourseOption(
+            globalId: 31793,
+            name: "Shadow Creek Golf Club ~ 18 洞",
+            holes: 18,
+            teeBox: "unknown",
+            tees: ["white", "blue"]
+        )
+        let candidates = (1...199).map { id in
+            MobileCourseOption(globalId: id, name: "北京球场 \(id)", holes: 18)
+        } + [tail]
+
+        let state = StartRoundView.selectionState(
+            for: candidates.last!,
+            currentTeeBox: "",
+            uuid: UUID(uuidString: "00000000-0000-0000-0000-000000000317")!
+        )
+
+        XCTAssertEqual(state.globalIdText, "31793")
+        XCTAssertEqual(state.roundId, "live-31793-00000000-0000-0000-0000-000000000317")
+        XCTAssertEqual(state.teeBox, "white")
+    }
+
     func testRoundDisplayNameRetainsSingleAndCompositeLoopIdentity() {
         let loopA = MobileCourseOption(
             globalId: 31783,

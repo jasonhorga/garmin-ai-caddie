@@ -4,6 +4,11 @@ import SwiftUI
 /// 附近只有一个球场时自动进入该球场的洞组/发球台选择，多个时由玩家选择。
 /// 手动 ID / 仅刷新离线包 / 后端连接等工程项收进折叠的「高级设置」,默认不打扰。
 public struct StartRoundView: View {
+    struct CourseSelectionState: Equatable {
+        let globalIdText: String
+        let roundId: String
+        let teeBox: String
+    }
     public let defaultRoundId: String
     public let courseOptions: [MobileCourseOption]
     public let downloadedCourseOptions: [MobileCourseOption]
@@ -767,20 +772,32 @@ public struct StartRoundView: View {
         name.components(separatedBy: " ~ ").first?.trimmingCharacters(in: .whitespaces) ?? name
     }
 
-    private func applySelectedCourse(globalIdText: String) {
-        guard let globalId = Int(globalIdText),
-              let option = courseLookupOptions.first(where: { $0.globalId == globalId }) else {
-            return
-        }
-        roundId = Self.freshLiveRoundId(globalId: option.globalId)
+    static func selectionState(
+        for option: MobileCourseOption,
+        currentTeeBox: String,
+        uuid: UUID = UUID()
+    ) -> CourseSelectionState {
+        var selectedTee = currentTeeBox
         if let optionTeeBox = option.teeBox, optionTeeBox != "unknown" {
-            teeBox = optionTeeBox
+            selectedTee = optionTeeBox
         }
         // Default to a sensible real tee for the chosen course (Blue/White, else the first).
         let tees = option.tees ?? []
-        if !tees.isEmpty, !tees.contains(where: { $0.lowercased() == teeBox.lowercased() }) {
-            teeBox = tees.first(where: { ["blue", "white"].contains($0.lowercased()) }) ?? tees.first ?? teeBox
+        if !tees.isEmpty, !tees.contains(where: { $0.lowercased() == selectedTee.lowercased() }) {
+            selectedTee = tees.first(where: { ["blue", "white"].contains($0.lowercased()) }) ?? tees.first ?? selectedTee
         }
+        return CourseSelectionState(
+            globalIdText: String(option.globalId),
+            roundId: Self.freshLiveRoundId(globalId: option.globalId, uuid: uuid),
+            teeBox: selectedTee
+        )
+    }
+
+    private func applySelectedCourse(_ option: MobileCourseOption) {
+        let state = Self.selectionState(for: option, currentTeeBox: teeBox)
+        courseGlobalIdText = state.globalIdText
+        roundId = state.roundId
+        teeBox = state.teeBox
     }
 
     static func freshLiveRoundId(globalId: Int, uuid: UUID = UUID()) -> String {
@@ -815,7 +832,6 @@ public struct StartRoundView: View {
             candidates: matches.compactMap { resolvedOption(for: $0) }
         )
         userPickedVenue = true
-        courseGlobalIdText = String(selected.globalId)
         backGlobalIdText = ""
         // Re-selecting the same search result (for example nearby first, then name search) keeps
         // its already-fetched Tee authority. Clearing it would not retrigger `.task(id:)` because
@@ -825,7 +841,10 @@ public struct StartRoundView: View {
             teeBox = ""
             teeLoadFailed = false
         }
-        applySelectedCourse(globalIdText: courseGlobalIdText)
+        // Apply the resolved option directly. State writes are coalesced by SwiftUI, so looking
+        // the option up again immediately after assigning remoteCourseOptions can observe the
+        // previous candidate list when a long virtualized search result is being dismissed.
+        applySelectedCourse(option)
     }
 
     /// Selecting one catalogue row returns to the compact start form, but the sibling loops from
