@@ -928,3 +928,36 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   `design-snapshots/` paths were empty. No artifact was retained locally.
   TestFlight, release, deploy, signing, production mutation, and production
   data synchronization were not performed.
+- 2026-08-27: Audited the fixture-token blocker for Native run `33123361136`
+  using GitHub metadata only; no secret values were read or printed. Repository
+  Actions secrets include `AI_CADDIE_ADMIN_TOKEN` and
+  `AI_CADDIE_CI_PLAYER_TOKEN`, but the required
+  `AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN` is absent. Repository variables expose
+  only `AI_CADDIE_API_BASE_URL`; no environment-scoped secret or variable
+  supplies the fixture token. The workflow references the correct exact name
+  in its fixture start, simulator, scan, and evidence paths, and the run log
+  confirms the expression resolved to empty. Default workflow permissions are
+  read-only; no environment protection or permissions issue explains the
+  missing value. The fixture launcher and private API intentionally require a
+  non-empty admin bearer and loopback/private profile; a generic read-only
+  token cannot replace it without changing the authentication contract or
+  opening anonymous write-capable routes.
+- 2026-08-27: Hardened `.github/workflows/native-mobile.yml` fail-closed
+  behavior. The fixture start step now has `id: start_fixture`; SwiftJCS
+  boundary verification requires a successful iOS target; and all fixture-mode
+  Watch boot/build/snapshot/runtime stages require
+  `steps.start_fixture.outcome == 'success'`. Thus a missing token produces
+  explicit skipped iOS/Watch dependent stages and skipped native evidence,
+  rather than a secondary SwiftJCS failure or passed Watch fixture evidence.
+  The existing non-empty token guard, loopback restriction, private security
+  profile, and no-anonymous-write behavior are unchanged. Remote focused
+  workflow contract test passed 1/1. No Native rerun was dispatched.
+- 2026-08-27: Owner action remains required before fixture validation can run:
+  configure protected repository secret `AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN`
+  (exact name, Actions-readable, unavailable to pull requests/forks) with a
+  high-entropy random CI-only token shared only by the fixture process and the
+  Native workflow. Verification should inspect only metadata, dispatch one
+  fixture-mode run on the intended branch, and confirm fixture health plus
+  iOS and Watch evidence markers; never print the token or reuse the production
+  `AI_CADDIE_ADMIN_TOKEN`. No release, TestFlight, deploy, signing, or
+  production mutation occurred.

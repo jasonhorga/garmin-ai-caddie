@@ -69,6 +69,7 @@ jobs:
       - name: Show simulator inventory
         run: xcrun simctl list devices available
       - name: Start isolated CI fixture
+        id: start_fixture
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
         env:
           AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN }}
@@ -97,7 +98,7 @@ jobs:
             -scheme AICaddie \
             -destination "$IOS_DESTINATION"
       - name: Verify SwiftJCS consumer boundaries
-        if: always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit')
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') && steps.test_ios_app.outcome == 'success' }}
         run: |
           set -euo pipefail
 
@@ -394,7 +395,7 @@ jobs:
             rm -f "$RUNNER_TEMP/ai-caddie-fixture.pid"
           fi
       - name: Resolve and boot Watch test simulator
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') }}
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         run: |
           set -euo pipefail
           WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
@@ -417,26 +418,26 @@ jobs:
           xcrun simctl bootstatus "$NATIVE_WATCH_UDID" -b
       - name: Test Watch app target
         id: test_watch_app
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') }}
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         run: |
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -destination "platform=watchOS Simulator,id=$NATIVE_WATCH_UDID"
       - name: Collect Watch design snapshots
-        if: always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full')
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         run: |
           mkdir -p watch-snapshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/watch-snapshots/*.png" -exec cp {} watch-snapshots/ \; 2>/dev/null || true
           ls -la watch-snapshots || true
       - name: Scan Watch design snapshots for secret bytes
         id: scan_watch_snapshots
-        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full'
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
           ARTIFACT_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-snapshots
       - name: Upload Watch design snapshots
-        if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope == 'full' && steps.scan_watch_snapshots.outcome == 'success'))
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope == 'full' && steps.scan_watch_snapshots.outcome == 'success')) && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         uses: actions/upload-artifact@v4
         with:
           name: watch-snapshots
@@ -444,7 +445,7 @@ jobs:
           if-no-files-found: warn
       - name: Real Watch round seed and restore screenshots
         id: capture_watch_real_screenshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         run: |
           set -euo pipefail
           WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
@@ -515,12 +516,12 @@ jobs:
           launch_and_capture club-prompt watch-club-prompt.png
       - name: Scan Watch runtime screenshots for secret bytes
         id: scan_watch_real_screenshots
-        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success'
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         env:
           ARTIFACT_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-real-screenshots
       - name: Upload watch real screenshots
-        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && steps.scan_watch_real_screenshots.outcome == 'success'
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && steps.scan_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         uses: actions/upload-artifact@v4
         with:
           name: watch-real-screenshots

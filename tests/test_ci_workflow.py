@@ -504,6 +504,8 @@ class CIWorkflowTests(unittest.TestCase):
 
         steps = {step.get("name"): step for step in native["steps"]}
         self.assertIn("Start isolated CI fixture", steps)
+        self.assertEqual("start_fixture", steps["Start isolated CI fixture"]["id"])
+        self.assertIn("AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN", steps["Start isolated CI fixture"]["env"]["AI_CADDIE_ADMIN_TOKEN"])
         self.assertEqual("brew install xcodegen", steps["Install XcodeGen"]["run"])
         self.assertEqual(
             "xcodegen generate --spec mobile/ios/project.yml --project-root .",
@@ -537,6 +539,14 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertTrue(steps["Resolve and boot Watch test simulator"]["if"].startswith("${{ always()"))
         self.assertTrue(steps["Test Watch app target"]["if"].startswith("${{ always()"))
         self.assertTrue(steps["Real Watch round seed and restore screenshots"]["if"].startswith("${{ always()"))
+        for name in (
+            "Resolve and boot Watch test simulator",
+            "Test Watch app target",
+            "Collect Watch design snapshots",
+            "Real Watch round seed and restore screenshots",
+        ):
+            self.assertIn("steps.start_fixture.outcome == 'success'", steps[name]["if"])
+        self.assertIn("steps.test_ios_app.outcome == 'success'", steps["Verify SwiftJCS consumer boundaries"]["if"])
         self.assertEqual("test_ios_app", steps["Test iOS app target"]["id"])
         self.assertEqual("real_ios_capture", steps["Real-simulator screenshots (iOS, XCUITest against live backend)"]["id"])
         self.assertIn('watch_status="passed"', evidence_step["run"])
