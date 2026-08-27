@@ -993,3 +993,25 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   passed, and local YAML/bash syntax plus `git diff --check` passed. No Native
   rerun, release, TestFlight, deploy, signing, or production action occurred;
   the temporary homeserver snapshot was removed.
+- 2026-08-27: After Opus GO, dispatched the single authorized fixture-mode
+  Native Mobile CI run `33126223345` from the protected branch; run metadata
+  confirms exact `headSha=a255f347fe5f967b1831831a34a9c247394240bc`. Inputs were
+  `capture_scope=full`, `fixture_mode=true`, `review_round_ref=900001`, blank
+  API/backend inputs, and `require_live_preflight=false`; no production
+  endpoint/token or release flags were used. Runner-side `openssl rand -hex
+  32` generation, validation, masking, and environment setup executed, but
+  fixture health never became available: all 30 loopback probes returned
+  connection refused and the step ended `fixture health check failed`.
+- 2026-08-27: Run `33126223345` concluded `failure`, classified as fixture
+  startup/runner environment infrastructure, not an app or fixture schema
+  regression. Because startup failed, iOS target, SwiftJCS/Codable boundary,
+  iOS RealFlow/ReviewEdit/TeeSelection, Watch build/snapshot/runtime, and all
+  secret scans were explicitly skipped by the new gates. Native evidence
+  writer ran and mapped both surfaces to `skipped`; no fixture revision,
+  round/course identity, 18-hole/map/caddie consumption, or behavioral pass is
+  claimed. Cleanup and post-checkout passed; the run exposed no artifacts.
+  No blind rerun was made. The likely next diagnostic is to expose the
+  already-redacted `$RUNNER_TEMP/ai-caddie-fixture.log` on startup failure or
+  add an explicit macOS `uv` availability/install gate, but that requires a
+  separate reviewed change. No release, TestFlight, deploy, signing, or
+  production mutation occurred.
