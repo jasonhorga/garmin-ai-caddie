@@ -65,6 +65,13 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _normalized_build_number(raw: Any) -> str | None:
+    text = str(raw or "").strip()
+    if not re.fullmatch(r"[0-9]+", text):
+        return None
+    return str(int(text))
+
+
 def _state_from_checks(checks: list[dict[str, Any]]) -> str:
     if checks and all(check.get("state") in {"ready", "manual_asserted"} for check in checks):
         return "ready"
@@ -187,8 +194,11 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
     expected_commit = str(env.get("AI_CADDIE_RELEASE_COMMIT") or env.get("GITHUB_SHA") or "").strip()
     if expected_commit and commit.lower() != expected_commit.lower():
         issues.append("commit_mismatch")
-    expected_build = str(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER") or "").strip()
-    if expected_build and str(payload.get("buildNumber") or "") != expected_build:
+    expected_build = _normalized_build_number(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER"))
+    manifest_build = _normalized_build_number(payload.get("buildNumber"))
+    if manifest_build is None:
+        issues.append("build_number_invalid")
+    if expected_build and manifest_build != expected_build:
         issues.append("build_number_mismatch")
     if uploaded and not payload.get("apiOriginHost"):
         issues.append("api_origin_host_missing")
@@ -349,8 +359,8 @@ def _testflight_log_summary(run: dict[str, Any], text: str) -> dict[str, Any] | 
                 summary.update(
                     {
                         "marketingVersion": build_match.group(1),
-                        "buildNumber": build_match.group(2),
-                        "build": f"{build_match.group(1)} ({build_match.group(2)})",
+                        "buildNumber": _normalized_build_number(build_match.group(2)),
+                        "build": f"{build_match.group(1)} ({_normalized_build_number(build_match.group(2))})",
                         "processingState": _value_after("state", line),
                         "externalState": _value_after("externalState", line),
                         "betaReviewReady": _value_after("betaReviewReady", line) == "true",
@@ -437,7 +447,7 @@ def fetch_testflight_actions_summary(
         and run.get("conclusion") == "success"
         and str(run.get("logs_url") or "").strip()
     ]
-    expected_build = str(expected_build or "").strip() or None
+    expected_build = _normalized_build_number(expected_build)
     expected_commit = str(expected_commit or "").strip().lower() or None
     expected_marketing_version = str(expected_marketing_version or "").strip() or None
     aggregate: dict[str, Any] = {
@@ -469,7 +479,7 @@ def fetch_testflight_actions_summary(
         except (OSError, error.URLError, TimeoutError, zipfile.BadZipFile):
             summary = None
         if summary is not None:
-            if expected_build and str(summary.get("buildNumber") or "") != expected_build:
+            if expected_build and _normalized_build_number(summary.get("buildNumber")) != expected_build:
                 continue
             if expected_marketing_version and str(summary.get("marketingVersion") or "") != expected_marketing_version:
                 continue
@@ -861,12 +871,12 @@ def _trusted_testflight_actions(
         actions.get("readyForBetaSubmission") is True or actions.get("betaReviewSubmitted") is True
     ):
         return False
-    build = str(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER") or "").strip()
+    build = _normalized_build_number(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER"))
     commit = str(env.get("AI_CADDIE_RELEASE_COMMIT") or "").strip().lower()
     return bool(
         build
         and commit
-        and str(actions.get("buildNumber") or "") == build
+        and _normalized_build_number(actions.get("buildNumber")) == build
         and str(actions.get("runHeadSha") or "").lower() == commit
         and str(actions.get("runBranch") or "") == branch
         and str(actions.get("workflowName") or "") == TESTFLIGHT_TESTERS_WORKFLOW_NAME
@@ -975,7 +985,7 @@ def build_phase6_external_readiness(
         feedback_email_source=feedback_email_source,
         branch=branch,
     )
-    candidate_build = str(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER") or "").strip() or None
+    candidate_build = _normalized_build_number(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER"))
     checks.append(
         {
             "label": "external_beta_review_submission_ready",
@@ -1115,7 +1125,7 @@ def build_phase6_external_readiness(
         }
     )
     install_verified = _bool_env(env, "AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED")
-    install_build = str(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER") or "").strip()
+    install_build = _normalized_build_number(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER")) or ""
     checks.append(
         {
             "label": "device_install",

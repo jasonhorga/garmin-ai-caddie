@@ -57,6 +57,13 @@ def _build_number(ipa: Path) -> str:
     return ""
 
 
+def _normalized_build_number(raw: object) -> str | None:
+    text = str(raw or "").strip()
+    if not re.fullmatch(r"[0-9]+", text):
+        return None
+    return str(int(text))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ipa", type=Path, required=True)
@@ -88,13 +95,16 @@ def main(argv: list[str] | None = None) -> int:
         api_origin_host = _origin_host(args.api_origin) if args.api_origin else None
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    build_number = _normalized_build_number(args.build_number or _build_number(args.ipa))
+    if build_number is None:
+        raise SystemExit("build number must be a decimal integer")
     manifest = {
         "schema": SCHEMA,
         "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "commit": commit,
         "workflowRun": str(args.workflow_run),
         "marketingVersion": str(args.marketing_version),
-        "buildNumber": str(args.build_number or _build_number(args.ipa)),
+        "buildNumber": build_number,
         "apiOriginHost": api_origin_host,
         "backendRevision": backend_revision,
         "backendRevisionVerified": bool(upload_completed and backend_revision),
@@ -103,8 +113,6 @@ def main(argv: list[str] | None = None) -> int:
         "uploadRequested": upload_requested,
         "uploadCompleted": upload_completed,
     }
-    if not manifest["buildNumber"]:
-        raise SystemExit("build number is required or must be extractable from IPA")
     output = args.output or args.ipa.with_name("release-provenance.json")
     output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({"schema": SCHEMA, "path": output.name, "ipaSha256": manifest["ipaSha256"], "buildNumber": manifest["buildNumber"]}, sort_keys=True))
