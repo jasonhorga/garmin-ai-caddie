@@ -785,3 +785,15 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   while unknown cross-entity values fail closed. Runtime Codable tests remain
   pending the missing homeserver FastAPI dependency; current status awaits Opus
   re-review.
+- 2026-08-27: Completed the full caller/model pass for the fixture route
+  matrix. Actual Watch/iOS callers use front course `3881`, composite back
+  courses `31670`/`31871`, round aliases including `live-round-1`, tee
+  `blue/white`, and `front/back/all`; fixture mappings preserve those caller
+  identities independently while retaining canonical `31795/900001` as the
+  resolver seed. Package/prep/coverage/install rows filter to the requested
+  segment; prep and shotmap provide non-optional map images, projections,
+  green F/M/B distances, and overlay `ppm`/`ln`; decision POST preserves
+  caller identity and supplies the Watch live dispersion/location gate; and
+  club-bag bootstrap is explicitly fixture-backed. Runtime route/Codable
+  execution remains blocked only by missing homeserver `fastapi`; current
+  status awaits Opus re-review.

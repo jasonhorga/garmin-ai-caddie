@@ -199,6 +199,7 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
         allowed = {
             "/api/v2/health", "/api/v2/readiness", "/api/v2/history/rounds",
             "/api/v2/history/overview", "/api/v2/history/stats/mobile",
+            "/api/v2/history/clubs/bag",
             "/api/v2/sync/status",
             "/api/v2/courses/search", "/api/v2/courses/nearby",
             "/api/v2/mobile/courses/options", "/api/v2/caddie/context",

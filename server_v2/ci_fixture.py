@@ -28,6 +28,11 @@ def _course_id(value: int) -> int:
         resolved = COURSE_ALIASES[int(value)]
     except (KeyError, TypeError, ValueError):
         raise HTTPException(status_code=404, detail="fixture course not found")
+
+
+def _course_request(value: int) -> int:
+    _course_id(value)
+    return int(value)
     return resolved
 
 
@@ -36,6 +41,11 @@ def _round_id(value: str) -> str:
         return ROUND_ALIASES[str(value)]
     except KeyError:
         raise HTTPException(status_code=404, detail="fixture round not found")
+
+
+def _round_request(value: str) -> str:
+    _round_id(value)
+    return str(value)
 
 
 def _segment_holes(nine: str) -> list[int]:
@@ -75,11 +85,10 @@ def _with_markers(payload: dict) -> dict:
 
 
 def _package(round_id: str, global_id: int = GLOBAL_ID, nine: str = "all", back_global_id: int | None = None, tee_box: str = "blue") -> dict:
-    _round_id(round_id)
-    _course_id(global_id)
+    requested_round = _round_request(round_id)
+    requested_course = _course_request(global_id)
     segment_holes = _segment_holes(nine)
-    if back_global_id is not None:
-        _course_id(back_global_id)
+    requested_back = _course_request(back_global_id) if back_global_id is not None else None
     payload = json.loads(json.dumps(PACKAGE_TEMPLATE))
     # Keep every nested provenance/reference field on the same deterministic fixture entities.
     def normalize(value: object, key: str | None = None) -> object:
@@ -88,24 +97,26 @@ def _package(round_id: str, global_id: int = GLOBAL_ID, nine: str = "all", back_
         if isinstance(value, list):
             return [normalize(v, key) for v in value]
         if isinstance(value, str):
-            value = value.replace("live-round-1", ROUND_REF).replace("round-a", ROUND_REF)
-            value = value.replace("round-b", ROUND_REF).replace("round-c", ROUND_REF)
+            value = value.replace(ROUND_REF, requested_round).replace("live-round-1", requested_round).replace("round-a", requested_round)
+            value = value.replace("round-b", requested_round).replace("round-c", requested_round)
             if key in {"roundId", "roundRef", "requestedRoundId", "selectedRoundId", "recentRoundId"}:
-                return ROUND_REF
+                return requested_round
             return value
         if key == "globalId" and isinstance(value, int):
-            return GLOBAL_ID
+            return requested_course
         return value
 
     payload = normalize(payload)
-    payload["roundId"] = ROUND_REF
+    payload["roundId"] = requested_round
     payload["dataMode"] = "ci_fixture"
     payload["sourceCoverage"]["dataMode"] = "ci_fixture"
-    payload["course"]["globalId"] = GLOBAL_ID
+    payload["course"]["globalId"] = requested_course
     payload["course"]["teeBox"] = tee_box
     payload["nine"] = nine
-    if back_global_id is not None:
-        payload["backGlobalId"] = GLOBAL_ID
+    payload["frontCourseGlobalId"] = requested_course
+    if requested_back is not None:
+        payload["backGlobalId"] = requested_back
+        payload["backCourseGlobalId"] = requested_back
     template_hole = payload["holes"][0]
     payload["holes"] = []
     for number in segment_holes:
@@ -147,10 +158,10 @@ def history_detail(round_ref: str) -> dict:
 
 @ROUTE.get("/api/v2/history/rounds/{round_ref}/holes/{hole}/shotmap")
 def shotmap(round_ref: str, hole: int, includeImage: bool = True) -> dict:
-    resolved_round = _round_id(round_ref)
+    _round_id(round_ref)
     if hole != LOCAL_HOLE:
         raise HTTPException(status_code=404, detail="fixture hole not found")
-    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": resolved_round, "hole": hole, "par": 4, "globalId": GLOBAL_ID, "localHole": hole, "geometryRevision": FIXTURE_REVISION, "mapKind": "courseData", "map": {"image": IMAGE, "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 375.0, "route": [[4, 4, 0], [60, 60, 220]]}}, "shots": [{"id": "s1", "club": "1D", "synthetic": False, "end": [8, 8]}, {"id": "s2", "club": "8I", "synthetic": False, "end": [56, 56]}], "manualPenalty": 0, "missingData": []})
+    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": hole, "par": 4, "globalId": GLOBAL_ID, "localHole": hole, "geometryRevision": FIXTURE_REVISION, "mapKind": "courseData", "map": {"image": IMAGE, "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 375.0, "route": [[4, 4, 0], [60, 60, 220]]}}, "shots": [{"id": "s1", "club": "1D", "synthetic": False, "end": [8, 8]}, {"id": "s2", "club": "8I", "synthetic": False, "end": [56, 56]}], "manualPenalty": 0, "missingData": []})
 
 
 @ROUTE.get("/api/v2/courses/search")
@@ -167,11 +178,11 @@ def nearby(latitude: float, longitude: float, radius_km: int = 50) -> dict:
 
 @ROUTE.get("/api/v2/geometry/course/{global_id}/coverage")
 def coverage(global_id: int, holes: list[int] | None = Query(default=None)) -> dict:
-    _course_id(global_id)
+    requested_course = _course_request(global_id)
     requested = [LOCAL_HOLE] if holes is None else holes
     if any(hole < 1 or hole > 18 for hole in requested):
         raise HTTPException(status_code=404, detail="fixture geometry not found")
-    return _with_markers({"schema": "ai-caddie-course-geometry-coverage-v1", "globalId": GLOBAL_ID, "coverage": "ready", "readyHoles": len(requested), "partialHoles": 0, "totalHoles": 18, "holes": [{"globalId": GLOBAL_ID, "localHole": hole, "coverage": "ready"} for hole in requested]})
+    return _with_markers({"schema": "ai-caddie-course-geometry-coverage-v1", "globalId": requested_course, "coverage": "ready", "readyHoles": len(requested), "partialHoles": 0, "totalHoles": 18, "holes": [{"globalId": requested_course, "localHole": hole, "coverage": "ready"} for hole in requested]})
 
 
 @ROUTE.get("/api/v2/geometry/hole/{global_id}/{local_hole}")
@@ -183,8 +194,11 @@ def geometry_hole(global_id: int, local_hole: int, source_ref: str | None = None
 
 @ROUTE.get("/api/v2/courses/{global_id}/prep")
 def prep(global_id: int, holes: list[int] | None = Query(default=None), render: bool = False, nine: str = "all") -> dict:
-    _course_id(global_id)
-    requested = _segment_holes(nine) if holes is None else holes
+    requested_course = _course_request(global_id)
+    segment_holes = _segment_holes(nine)
+    requested = segment_holes if holes is None else holes
+    if any(hole not in segment_holes for hole in requested):
+        raise HTTPException(status_code=404, detail="fixture hole/segment mismatch")
     if any(hole < 1 or hole > 18 for hole in requested):
         raise HTTPException(status_code=404, detail="fixture hole not found")
     def prep_hole(number: int) -> dict:
@@ -198,18 +212,18 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
             "greenOutline": {"available": True, "source": "ci_fixture", "distanceUnit": "metres", "pointsPx": [[52.0, 52.0], [60.0, 52.0], [60.0, 60.0], [52.0, 60.0] ]}}
         hole["sourceRefs"] = [f"{ROUND_REF}:{number}"]
         return hole
-    return _with_markers({"schema": "ai-caddie-course-prep-v1", "globalId": GLOBAL_ID, "holeCount": len(requested),
+    return _with_markers({"schema": "ai-caddie-course-prep-v1", "globalId": requested_course, "holeCount": len(requested),
                           "clubs": [{"name": "1D", "token": "1D", "m": 210.0, "yd": 230, "distanceSource": "fixture", "sampleSize": 1, "confidence": "high"}], "holes": [prep_hole(number) for number in requested]})
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/tees")
 def tees(global_id: int, ensure_release: bool = False) -> dict:
-    _course_id(global_id)
+    requested_course = _course_request(global_id)
     rows = [
         {"teeBox": "blue", "name": "Blue", "set": 1, "yards": 6400, "holeCount": 18, "courseRating": 72.1, "slopeRating": 131, "default": True},
         {"teeBox": "white", "name": "White", "set": 2, "yards": 5900, "holeCount": 18, "courseRating": 69.8, "slopeRating": 124, "default": False},
     ]
-    return _with_markers({"schema": "ai-caddie-course-tees-v1", "globalId": GLOBAL_ID, "defaultTeeBox": "blue", "tees": rows})
+    return _with_markers({"schema": "ai-caddie-course-tees-v1", "globalId": requested_course, "defaultTeeBox": "blue", "tees": rows})
 
 
 @ROUTE.get("/api/v2/mobile/courses/options")
@@ -230,6 +244,12 @@ def history_stats_mobile(window: str = "all") -> dict:
     })
 
 
+@ROUTE.get("/api/v2/history/clubs/bag")
+def history_clubs_bag() -> dict:
+    return _with_markers({"schema": "ai-caddie-club-bag-v1", "found": True, "playerProfileId": 1,
+                          "clubs": [{"clubTypeId": 1, "customName": "1D", "standardName": "Driver", "loft": 10.5, "retired": False, "deleted": False}]})
+
+
 @ROUTE.get("/api/v2/history/overview")
 def history_overview() -> dict:
     return _with_markers({"schema": "ai-caddie-history-overview-v1", "summary": {"totalRounds": 1}, "recentRounds": []})
@@ -242,32 +262,41 @@ def sync_status() -> dict:
 
 @ROUTE.get("/api/v2/courses/{global_id}/install/status")
 def install_status(global_id: int, tee_box: str = "blue", nine: str = "all") -> dict:
-    _course_id(global_id)
+    requested_course = _course_request(global_id)
     if tee_box not in {"blue", "white"}:
         raise HTTPException(status_code=404, detail="fixture install target not found")
     segment_holes = _segment_holes(nine)
-    rows = [{"globalId": GLOBAL_ID, "localHole": hole, "displayHole": hole, "geometry": "ready", "geometryRevision": FIXTURE_REVISION, "topo": "ready", "topoRevision": FIXTURE_REVISION, "error": None} for hole in segment_holes]
-    return _with_markers({"schema": "ai-caddie-course-install-v1", "jobId": "fixture-install", "globalId": GLOBAL_ID,
+    rows = [{"globalId": requested_course, "localHole": hole, "displayHole": hole, "geometry": "ready", "geometryRevision": FIXTURE_REVISION, "topo": "ready", "topoRevision": FIXTURE_REVISION, "error": None} for hole in segment_holes]
+    return _with_markers({"schema": "ai-caddie-course-install-v1", "jobId": "fixture-install", "globalId": requested_course,
                           "teeBox": tee_box, "nine": nine, "phase": "ready", "stage": "complete",
                           "totalHoles": len(segment_holes), "geometryReady": len(segment_holes), "topoReady": len(segment_holes), "updatedAt": "2026-08-27T00:00:00Z",
                           "error": None, "holes": rows})
 
 
-def _fixture_png(global_id: int, hole: int) -> Response:
+def _fixture_png(global_id: int, hole: int, width: int = 64, height: int = 64) -> Response:
     _course_id(global_id)
     if hole < 1 or hole > 18:
         raise HTTPException(status_code=404, detail="fixture image not found")
-    return Response(content=base64.b64decode(IMAGE.split(",", 1)[1]), media_type="image/png")
+    image = IMAGE if width == 64 and height == 64 else _png_data_uri(width, height)
+    return Response(content=base64.b64decode(image.split(",", 1)[1]), media_type="image/png")
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/topo.png")
 def topo_png(global_id: int, hole: int, v: str | None = None, r: str | None = None) -> Response:
+    if v is not None and v != "topo-v8":
+        raise HTTPException(status_code=409, detail="fixture topo renderer version unsupported")
     return _fixture_png(global_id, hole)
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/green.png")
 def green_png(global_id: int, hole: int, x: float = 0, y: float = 0, width: float = 64, height: float = 64, size: int = 64, v: str | None = None, g: str | None = None, r: str | None = None) -> Response:
-    return _fixture_png(global_id, hole)
+    if v is not None and v != "topo-v8":
+        raise HTTPException(status_code=409, detail="fixture topo renderer version unsupported")
+    if g is not None and g != "green-v3":
+        raise HTTPException(status_code=409, detail="fixture green renderer version unsupported")
+    if size < 64 or size > 1280 or width < 20 or height < 20:
+        raise HTTPException(status_code=422, detail="fixture green crop unsupported")
+    return _fixture_png(global_id, hole, size, size)
 
 
 @ROUTE.get("/api/v2/mobile/courses/{global_id}/package")
@@ -298,9 +327,26 @@ def round_package(round_id: str, tee_box: str | None = None, nine: str = "all", 
 def caddie_decision(body: dict) -> dict:
     shot_type = str(body.get("shotType") or "approach")
     context = body.get("context") if isinstance(body.get("context"), dict) else {}
-    context = {**context, "source": "ios_live", "roundId": ROUND_REF, "globalId": GLOBAL_ID, "hole": 1, "guidanceMode": "automatic", "currentLocation": {"latitude": 39.9, "longitude": 116.4, "horizontalAccuracyM": 5.0, "capturedAt": "2026-08-27T00:00:00Z"}}
-    option = {"id": "stock", "clubName": "8I", "carry_m": 144.0, "p10M": 132.0, "p90M": 153.0, "sampleSize": 24, "confidence": "high", "source": "ci_fixture", "dispersion": {"state": "modeled", "clubName": "8I", "carryP10_m": 132.0, "carryP90_m": 153.0, "sampleSize": 24}}
-    return _with_markers({"schema": "ai-caddie-decision-v2", "decisionId": "fixture-decision-900001-1", "sourceRef": f"{ROUND_REF}:1", "evidenceRefs": [f"{ROUND_REF}:1"], "shotType": shot_type, "phase": "approach", "context": context, "options": [option], "selected": option, "selectedOptionId": "stock", "selectedOption": option, "sequences": [{"id": "stock", "clubName": "8I"}], "selectedSequence": {"id": "stock", "clubName": "8I"}, "avoidZones": [], "forbiddenZones": [], "acceptableMiss": {"side": "short"}, "evidence": [{"label": "fixture", "value": "non_production"}], "confidence": {"level": "high", "source": "ci_fixture"}, "missingData": [], "auditCriteria": []})
+    if "roundId" in context:
+        _round_id(context["roundId"])
+    if "globalId" in context:
+        _course_id(context["globalId"])
+    if "courseGlobalId" in context:
+        _course_id(context["courseGlobalId"])
+    if "hole" in context and context["hole"] != LOCAL_HOLE:
+        raise HTTPException(status_code=404, detail="fixture hole not found")
+    if context.get("teeBox") is not None and context["teeBox"] not in {"blue", "white"}:
+        raise HTTPException(status_code=404, detail="fixture tee not found")
+    if context.get("nine") is not None:
+        _segment_holes(context["nine"])
+    if context.get("backGlobalId") is not None:
+        _course_id(context["backGlobalId"])
+    context = {"source": "ios_live", "roundId": ROUND_REF, "globalId": GLOBAL_ID, "hole": LOCAL_HOLE, "guidanceMode": "automatic", "currentLocation": {"latitude": 39.9, "longitude": 116.4, "horizontalAccuracyM": 5.0, "capturedAt": "2026-08-27T00:00:00Z"}, **context}
+    round_identity = str(context["roundId"])
+    course_identity = int(context["globalId"])
+    source_ref = f"{round_identity}:{context['hole']}"
+    option = {"id": "stock", "clubName": "8I", "carry_m": 144.0, "p10M": 132.0, "p90M": 153.0, "sampleSize": 24, "confidence": "high", "source": "ci_fixture", "dispersion": {"state": "modeled", "clubName": "8I", "carryP10_m": 132.0, "carryP90_m": 153.0, "sampleSize": 24}, "courseGlobalId": course_identity, "roundId": round_identity}
+    return _with_markers({"schema": "ai-caddie-decision-v2", "decisionId": f"fixture-decision-{round_identity}-{context['hole']}", "sourceRef": source_ref, "evidenceRefs": [source_ref], "shotType": shot_type, "phase": "approach", "context": context, "options": [option], "selected": option, "selectedOptionId": "stock", "selectedOption": option, "sequences": [{"id": "stock", "clubName": "8I"}], "selectedSequence": {"id": "stock", "clubName": "8I"}, "avoidZones": [], "forbiddenZones": [], "acceptableMiss": {"side": "short"}, "evidence": [{"label": "fixture", "value": "non_production"}], "confidence": {"level": "high", "source": "ci_fixture"}, "missingData": [], "auditCriteria": []})
 
 
 @ROUTE.get("/api/v2/caddie/context")
@@ -315,4 +361,5 @@ def media(target_type: str, target_id: str) -> dict:
 
 @ROUTE.get("/api/v2/reports/round/{round_id}")
 def review(round_id: str) -> dict:
-    return _with_markers({"schema": "ai-caddie-review-report-v1", "roundId": round_id, "status": "ready", "sections": []})
+    requested_round = _round_request(round_id)
+    return _with_markers({"schema": "ai-caddie-review-report-v1", "roundId": requested_round, "status": "ready", "sections": []})

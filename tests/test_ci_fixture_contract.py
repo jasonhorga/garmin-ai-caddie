@@ -98,10 +98,41 @@ class CIFixtureContractTests(unittest.TestCase):
         for key in ("shotType", "phase", "context", "options", "avoidZones", "forbiddenZones", "acceptableMiss", "evidence", "confidence", "missingData", "auditCriteria"):
             self.assertIn(key, decision)
         map_body = shotmap("fixture-round-1", 1)
-        self.assertEqual(map_body["roundRef"], "900001")
+        self.assertEqual(map_body["roundRef"], "fixture-round-1")
         self.assertEqual(map_body["hole"], 1)
         self.assertEqual(map_body["map"]["overlay"]["ppm"], 0.17)
         self.assertEqual(map_body["map"]["overlay"]["ln"], 375.0)
+
+    def test_dynamic_aliases_preserve_caller_identity_across_package_and_decision(self) -> None:
+        try:
+            from server_v2.ci_fixture import caddie_decision, course_package
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        package = course_package(3881, round_id="live-round-1", tee_box="white", nine="back", back_global_id=31871)
+        self.assertEqual(package["roundId"], "live-round-1")
+        self.assertEqual(package["course"]["globalId"], 3881)
+        self.assertEqual(package["backGlobalId"], 31871)
+        self.assertEqual(len(package["holes"]), 9)
+        decision = caddie_decision({"shotType": "tee", "context": {"roundId": "live-round-1", "globalId": 3881, "hole": 1, "teeBox": "white"}})
+        self.assertEqual(decision["context"]["roundId"], "live-round-1")
+        self.assertEqual(decision["context"]["globalId"], 3881)
+        self.assertEqual(decision["sourceRef"], "live-round-1:1")
+        with self.assertRaises(HTTPException):
+            caddie_decision({"shotType": "tee", "context": {"globalId": 99999, "hole": 1}})
+
+    def test_fixture_review_and_asset_identity_is_fail_closed(self) -> None:
+        try:
+            from fastapi import HTTPException
+            from server_v2.ci_fixture import green_png, review, topo_png
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        self.assertEqual(review("live-round-1")["roundId"], "live-round-1")
+        with self.assertRaises(HTTPException):
+            review("unknown-round")
+        with self.assertRaises(HTTPException):
+            topo_png(31795, 1, v="future-version")
+        with self.assertRaises(HTTPException):
+            green_png(31795, 1, g="future-version")
 
     def test_fixture_geometry_and_hole_routes_fail_closed_for_wrong_entities(self) -> None:
         try:
@@ -113,6 +144,7 @@ class CIFixtureContractTests(unittest.TestCase):
             lambda: coverage(99999), lambda: geometry_hole(31795, 2),
             lambda: prep(99999), lambda: tees(99999), lambda: shotmap("900001", 2),
             lambda: coverage(31795, holes=[19]), lambda: prep(31795, holes=[19]),
+            lambda: prep(31795, holes=[10], nine="front"),
             lambda: topo_png(31795, 19), lambda: green_png(31795, 19),
         ):
             with self.assertRaises(HTTPException) as raised:
