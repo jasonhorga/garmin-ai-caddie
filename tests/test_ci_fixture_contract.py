@@ -2,11 +2,24 @@ from __future__ import annotations
 
 from pathlib import Path
 import unittest
+import json
 
 from ai_caddie.core.fixtures import fixture_history_data
 
 
 class CIFixtureContractTests(unittest.TestCase):
+    def test_package_template_has_every_required_live_round_key(self) -> None:
+        package = json.loads(Path("mobile/ios/AICaddie/Fixtures/live_round_package.fixture.json").read_text(encoding="utf-8"))
+        required = {
+            "schema", "roundId", "dataMode", "sourceCoverage", "missingData", "playerProfile",
+            "course", "holes", "geometryCoverage", "readinessChecks", "caddieContextSeeds",
+            "weatherSnapshot", "clubProfiles", "caddieDecisionEndpoint", "offlinePackageStatus",
+            "eventCursor", "recentHistory", "cachedCaddieRules", "generatedAt",
+        }
+        self.assertTrue(required.issubset(package))
+        self.assertEqual(package["schema"], "ai-caddie-live-round-package-v1")
+        self.assertIsInstance(package["holes"], list)
+        self.assertIsInstance(package["readinessChecks"], list)
     def test_fixture_round_is_explicitly_non_manual_and_resolver_ready_metadata(self) -> None:
         data = fixture_history_data()
         round_row = next(row for row in data.rounds if str(row["id"]) == "900001")
@@ -39,6 +52,7 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertIn("native-build-evidence-ci-fixture", workflow)
         self.assertIn("--data-mode ci_fixture", workflow)
         self.assertIn("fixture host must be loopback", script)
+        self.assertIn("fixture route not implemented", Path("server_v2/main.py").read_text(encoding="utf-8"))
 
     def test_existing_fixture_file_remains_non_sensitive(self) -> None:
         fixture = Path("tests/fixtures/shots_scatter_round.json").read_text(encoding="utf-8")

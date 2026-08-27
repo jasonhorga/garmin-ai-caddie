@@ -191,6 +191,31 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
     from .ci_fixture import ROUTE as ci_fixture_router
 
     app.include_router(ci_fixture_router)
+
+    @app.middleware("http")
+    async def reject_unimplemented_fixture_routes(request: Request, call_next):
+        path = request.url.path
+        allowed = {
+            "/api/v2/health",
+            "/api/v2/readiness",
+            "/api/v2/history/rounds",
+            "/api/v2/courses/search",
+            "/api/v2/courses/nearby",
+            "/api/v2/mobile/courses/options",
+            "/api/v2/caddie/context",
+        }
+        prefixes = (
+            "/api/v2/history/rounds/",
+            "/api/v2/courses/",
+            "/api/v2/geometry/",
+            "/api/v2/mobile/courses/",
+            "/api/v2/mobile/rounds/",
+            "/api/v2/media/target/",
+            "/api/v2/reports/round/",
+        )
+        if path.startswith("/api/v2/") and path not in allowed and not path.startswith(prefixes):
+            return JSONResponse(status_code=404, content={"detail": "fixture route not implemented"})
+        return await call_next(request)
 app.include_router(admin_router)
 app.include_router(auth_router)
 
