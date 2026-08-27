@@ -65,6 +65,7 @@ class CIFixtureContractTests(unittest.TestCase):
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
         self.assertEqual(course_package(GLOBAL_ID, round_id=ROUND_REF, tee_box="blue")["roundId"], ROUND_REF)
+        self.assertEqual(course_package(3881, round_id="fixture-round-1", tee_box="white", nine="front")["geometryCoverage"]["totalHoles"], 9)
         self.assertEqual(round_package(ROUND_REF)["course"]["globalId"], GLOBAL_ID)
         for args in (("wrong-round", GLOBAL_ID), (ROUND_REF, 99999)):
             with self.assertRaises(HTTPException) as raised:
@@ -81,6 +82,21 @@ class CIFixtureContractTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             round_package(ROUND_REF, back_global_id=99999)
 
+    def test_fixture_decision_and_shotmap_shapes_are_decodable_contracts(self) -> None:
+        try:
+            from server_v2.ci_fixture import caddie_decision, shotmap
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        decision = caddie_decision({"shotType": "approach", "context": {"hole": 1}})
+        self.assertEqual(decision["schema"], "ai-caddie-decision-v2")
+        for key in ("shotType", "phase", "context", "options", "avoidZones", "forbiddenZones", "acceptableMiss", "evidence", "confidence", "missingData", "auditCriteria"):
+            self.assertIn(key, decision)
+        map_body = shotmap("fixture-round-1", 1)
+        self.assertEqual(map_body["roundRef"], "900001")
+        self.assertEqual(map_body["hole"], 1)
+        self.assertEqual(map_body["map"]["overlay"]["ppm"], 0.17)
+        self.assertEqual(map_body["map"]["overlay"]["ln"], 375.0)
+
     def test_fixture_geometry_and_hole_routes_fail_closed_for_wrong_entities(self) -> None:
         try:
             from fastapi import HTTPException
@@ -90,8 +106,8 @@ class CIFixtureContractTests(unittest.TestCase):
         for call in (
             lambda: coverage(99999), lambda: geometry_hole(31795, 2),
             lambda: prep(99999), lambda: tees(99999), lambda: shotmap("900001", 2),
-            lambda: coverage(31795, holes=[2]), lambda: prep(31795, holes=[2]),
-            lambda: topo_png(31795, 2), lambda: green_png(31795, 2),
+            lambda: coverage(31795, holes=[19]), lambda: prep(31795, holes=[19]),
+            lambda: topo_png(31795, 19), lambda: green_png(31795, 19),
         ):
             with self.assertRaises(HTTPException) as raised:
                 call()
@@ -115,6 +131,8 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(hole["map"]["overlay"]["w"], 64)
         self.assertEqual(hole["map"]["overlay"]["h"], 64)
         self.assertEqual(hole["map"]["overlay"]["ppm"], 0.17)
+        self.assertEqual(len(prep(31795, nine="front")["holes"]), 9)
+        self.assertEqual(len(prep(31795, nine="all")["holes"]), 18)
 
     def test_package_template_has_every_required_live_round_key(self) -> None:
         package = json.loads(Path("mobile/ios/AICaddie/Fixtures/live_round_package.fixture.json").read_text(encoding="utf-8"))

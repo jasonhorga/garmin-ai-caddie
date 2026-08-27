@@ -763,3 +763,11 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   fixture holes. Happy and fail-closed route tests cover these contracts.
   Current HEAD is awaiting Opus re-review; no Native dispatch, deployment,
   release, signing, or upload was performed.
+- 2026-08-27: Closed the latest fixture P1 contract set: explicit dynamic
+  aliases map to the canonical fixture entities; package/prep front/back/all
+  segments return matching 9/18 hole rows; caddie decision POST and complete
+  shotmap overlay fields are fixture-backed; deterministic topo/green assets
+  are isolated and identity-checked; and install/coverage counts align with
+  the 18-hole course. Unknown IDs, holes, segments, and back-course IDs fail
+  closed. Runtime route/decode verification remains dependency-gated on the
+  homeserver (`fastapi` unavailable); current status awaits Opus re-review.

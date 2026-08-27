@@ -202,6 +202,7 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
             "/api/v2/sync/status",
             "/api/v2/courses/search", "/api/v2/courses/nearby",
             "/api/v2/mobile/courses/options", "/api/v2/caddie/context",
+            "/api/v2/caddie/decision",
         }
         parameterized = (
             r"/api/v2/history/rounds/[^/]+",
