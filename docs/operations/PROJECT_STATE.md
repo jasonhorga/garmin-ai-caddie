@@ -696,3 +696,18 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   contract failure. The run uploaded a real video of 77,030,383 bytes; no
   large artifact was retained locally. No release, deploy, signing, or upload
   workflow was dispatched.
+- 2026-08-27: Evaluated the remaining `noEligibleRound` fixture gap. The
+  resolver contract requires one non-manual history round with a scored hole,
+  at least two non-`Unknown` club-labelled shots in that hole's detail, and a
+  matching shotmap with usable image/overlay geometry plus two non-synthetic
+  spatially separated landings. Existing repository fixtures such as
+  `shots_scatter_round.json` are synthetic Garmin-shaped data and are not an
+  HTTP history/detail/shotmap service; the existing DEBUG round-ref seed still
+  depends on a backend round and does not inject fixture state into iOS.
+  A CI-only mock would need to implement the full history, geometry, package,
+  caddie, and media surface used by RealFlow/ReviewEdit, so it is not a
+  bounded safe change for this slice. No fixture implementation or Native
+  rerun was made. The next defensible option is an owner-authorized,
+  isolated CI backend/fixture endpoint (with explicit URL and token) that
+  serves this contract without writing production history; otherwise the
+  live review gate remains blocked on qualifying backend history evidence.
