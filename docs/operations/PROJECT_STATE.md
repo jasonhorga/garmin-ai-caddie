@@ -617,3 +617,14 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   assertion weakening, or product change is justified without a focused
   reproduction. Remote exact-SHA Python compileall and `git diff --check`
   passed; the temporary scratch was removed.
+- 2026-08-27: Bounded artifact trace of run `33082852454` refined the failure
+  classification. In the denied-GPS process, city-only search returned a long
+  virtualized SwiftUI List; the 31793 row was visible near 93% scroll position
+  and the XCTest log confirmed a tap on `course-catalog-result-31793`. No API,
+  permission, Task cancellation, or package/Tee error followed, but the
+  post-dismissal StartRound tree contained no segment row. Keyword-search
+  cases with shorter result sets passed. This is consistent with a
+  scroll/virtualization locator-action race in the test path, not a proven
+  product semantic failure. The 50 MB screenshot artifact and 155 MB app log
+  were inspected only for this trace and then deleted; no source change or
+  rerun was made.
