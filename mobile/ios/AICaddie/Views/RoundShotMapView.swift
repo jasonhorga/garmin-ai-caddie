@@ -580,12 +580,20 @@ final class RoundShotMapRepository: ObservableObject {
     @Published private var errors: [Int: String] = [:]
 
     private let roundRef: String
+    private let globalId: Int?
+    private let backGlobalId: Int?
+    private let nine: String?
+    private let teeBox: String?
     private let client: SyncClient?
     private var inFlight: [Int: Task<LoadResult, Never>] = [:]
 
-    init(roundRef: String, apiBaseURL: URL?, adminToken: String?) {
+    init(roundRef: String, apiBaseURL: URL?, adminToken: String?, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) {
         self.roundRef = roundRef
         self.client = apiBaseURL.map { SyncClient(baseURL: $0, adminToken: adminToken) }
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.nine = nine
+        self.teeBox = teeBox
     }
 
     func map(for hole: Int) -> RoundHoleShotMap? { maps[hole] }
@@ -631,9 +639,9 @@ final class RoundShotMapRepository: ObservableObject {
         } else {
             errors[hole] = nil
             loadingHoles.insert(hole)
-            task = Task { [roundRef] in
+            task = Task { [roundRef, globalId, backGlobalId, nine, teeBox] in
                 do {
-                    return .success(try await client.fetchRoundShotMap(roundRef: roundRef, hole: hole))
+                    return .success(try await client.fetchRoundShotMap(roundRef: roundRef, hole: hole, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox))
                 } catch {
                     return .failure
                 }
@@ -715,6 +723,10 @@ public struct RoundHoleShotMapScreen: View {
     public let hole: Int
     public let apiBaseURL: URL?
     public let adminToken: String?
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let nine: String?
+    public let teeBox: String?
     /// The pager owns the title (current hole); a standalone screen sets its own.
     public let showsNavigationTitle: Bool
     /// Called when this hole enters/leaves edit mode, so the pager can lock horizontal 翻洞 while editing
@@ -726,30 +738,42 @@ public struct RoundHoleShotMapScreen: View {
     @State private var isEditing = false
     @State private var isSaving = false
 
-    public init(roundRef: String, hole: Int, apiBaseURL: URL? = nil, adminToken: String? = nil,
+    public init(roundRef: String, hole: Int, apiBaseURL: URL? = nil, adminToken: String? = nil, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil,
                 showsNavigationTitle: Bool = true, onEditingChange: ((Bool) -> Void)? = nil) {
         self.roundRef = roundRef
         self.hole = hole
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.nine = nine
+        self.teeBox = teeBox
         self.showsNavigationTitle = showsNavigationTitle
         self.onEditingChange = onEditingChange
         _mapRepository = StateObject(
             wrappedValue: RoundShotMapRepository(
                 roundRef: roundRef,
                 apiBaseURL: apiBaseURL,
-                adminToken: adminToken
+                adminToken: adminToken,
+                globalId: globalId,
+                backGlobalId: backGlobalId,
+                nine: nine,
+                teeBox: teeBox
             )
         )
     }
 
     init(roundRef: String, hole: Int, apiBaseURL: URL?, adminToken: String?,
          showsNavigationTitle: Bool, onEditingChange: ((Bool) -> Void)?,
-         mapRepository: RoundShotMapRepository) {
+         mapRepository: RoundShotMapRepository, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) {
         self.roundRef = roundRef
         self.hole = hole
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.nine = nine
+        self.teeBox = teeBox
         self.showsNavigationTitle = showsNavigationTitle
         self.onEditingChange = onEditingChange
         _mapRepository = StateObject(wrappedValue: mapRepository)
@@ -930,7 +954,11 @@ public struct RoundHoleShotMapScreen: View {
             ? RoundEditModel(
                 map: map,
                 sync: SyncClient(baseURL: apiBaseURL, adminToken: adminToken),
-                roundRef: roundRef
+                roundRef: roundRef,
+                globalId: globalId,
+                backGlobalId: backGlobalId,
+                nine: nine,
+                teeBox: teeBox
             )
             : nil
     }
@@ -972,6 +1000,10 @@ public struct RoundShotMapPagerScreen: View {
     public let holes: [Int]
     public let apiBaseURL: URL?
     public let adminToken: String?
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let nine: String?
+    public let teeBox: String?
     public let onClose: (() -> Void)?
     @StateObject private var mapRepository: RoundShotMapRepository
     @State private var current: Int
@@ -984,18 +1016,30 @@ public struct RoundShotMapPagerScreen: View {
         startHole: Int,
         apiBaseURL: URL? = nil,
         adminToken: String? = nil,
+        globalId: Int? = nil,
+        backGlobalId: Int? = nil,
+        nine: String? = nil,
+        teeBox: String? = nil,
         onClose: (() -> Void)? = nil
     ) {
         self.roundRef = roundRef
         self.holes = holes
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.nine = nine
+        self.teeBox = teeBox
         self.onClose = onClose
         _mapRepository = StateObject(
             wrappedValue: RoundShotMapRepository(
                 roundRef: roundRef,
                 apiBaseURL: apiBaseURL,
-                adminToken: adminToken
+                adminToken: adminToken,
+                globalId: globalId,
+                backGlobalId: backGlobalId,
+                nine: nine,
+                teeBox: teeBox
             )
         )
         _current = State(initialValue: holes.contains(startHole) ? startHole : (holes.first ?? startHole))
@@ -1008,12 +1052,20 @@ public struct RoundShotMapPagerScreen: View {
         apiBaseURL: URL?,
         adminToken: String?,
         onClose: (() -> Void)?,
-        mapRepository: RoundShotMapRepository
+        mapRepository: RoundShotMapRepository,
+        globalId: Int? = nil,
+        backGlobalId: Int? = nil,
+        nine: String? = nil,
+        teeBox: String? = nil
     ) {
         self.roundRef = roundRef
         self.holes = holes
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.nine = nine
+        self.teeBox = teeBox
         self.onClose = onClose
         _mapRepository = StateObject(wrappedValue: mapRepository)
         _current = State(initialValue: holes.contains(startHole) ? startHole : (holes.first ?? startHole))
@@ -1037,6 +1089,10 @@ public struct RoundShotMapPagerScreen: View {
             hole: current,
             apiBaseURL: apiBaseURL,
             adminToken: adminToken,
+            globalId: globalId,
+            backGlobalId: backGlobalId,
+            nine: nine,
+            teeBox: teeBox,
             showsNavigationTitle: false,
             onEditingChange: { editing in
                 if editing { editingHoles.insert(current) } else { editingHoles.remove(current) }

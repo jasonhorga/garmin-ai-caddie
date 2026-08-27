@@ -256,6 +256,11 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertIn('URLQueryItem(name: "back_global_id"', source)
         self.assertIn("fetchRoundDetail(roundRef: String, globalId: Int? = nil, backGlobalId: Int? = nil", source)
 
+        review = Path("mobile/ios/AICaddie/Views/RoundReviewView.swift").read_text(encoding="utf-8")
+        self.assertIn("fetchRoundDetail(roundRef: roundRef, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox)", review)
+        shot_map = Path("mobile/ios/AICaddie/Views/RoundShotMapView.swift").read_text(encoding="utf-8")
+        self.assertIn("fetchRoundShotMap(roundRef: roundRef, hole: hole, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox)", shot_map)
+
     def test_package_template_has_every_required_live_round_key(self) -> None:
         package = json.loads(Path("mobile/ios/AICaddie/Fixtures/live_round_package.fixture.json").read_text(encoding="utf-8"))
         required = {

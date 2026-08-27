@@ -38,6 +38,10 @@ public struct RoundReviewView: View {
     public let fallbackCourseName: String?
     public let apiBaseURL: URL?
     public let adminToken: String?
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let nine: String?
+    public let teeBox: String?
 
     @State private var detail: RoundDetail?
     @State private var isLoading = true
@@ -45,16 +49,24 @@ public struct RoundReviewView: View {
     @State private var shotMapHole: ShotMapHole?
     @StateObject private var shotMapRepository: RoundShotMapRepository
 
-    public init(roundRef: String, fallbackCourseName: String? = nil, apiBaseURL: URL? = nil, adminToken: String? = nil) {
+    public init(roundRef: String, fallbackCourseName: String? = nil, apiBaseURL: URL? = nil, adminToken: String? = nil, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) {
         self.roundRef = roundRef
         self.fallbackCourseName = fallbackCourseName
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.nine = nine
+        self.teeBox = teeBox
         _shotMapRepository = StateObject(
             wrappedValue: RoundShotMapRepository(
                 roundRef: roundRef,
                 apiBaseURL: apiBaseURL,
-                adminToken: adminToken
+                adminToken: adminToken,
+                globalId: globalId,
+                backGlobalId: backGlobalId,
+                nine: nine,
+                teeBox: teeBox
             )
         )
     }
@@ -86,7 +98,11 @@ public struct RoundReviewView: View {
                     roundRef: roundRef, holes: roundHoles, startHole: item.hole,
                     apiBaseURL: apiBaseURL, adminToken: adminToken,
                     onClose: { shotMapHole = nil },
-                    mapRepository: shotMapRepository
+                    mapRepository: shotMapRepository,
+                    globalId: globalId,
+                    backGlobalId: backGlobalId,
+                    nine: nine,
+                    teeBox: teeBox
                 )
             }
         }
@@ -120,7 +136,7 @@ public struct RoundReviewView: View {
         isLoading = detail == nil
         errorText = nil
         do {
-            let fresh = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).fetchRoundDetail(roundRef: roundRef)
+            let fresh = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).fetchRoundDetail(roundRef: roundRef, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox)
             detail = fresh
             RoundReviewDiskCache.saveDetail(fresh, roundRef: roundRef)
         } catch {

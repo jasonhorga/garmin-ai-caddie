@@ -166,6 +166,13 @@ requests without explicit course context. Local fixture tests ran 18 tests
 venv with FastAPI ran 18/18 passed, plus py_compile and diff-check. Swift
 compile/Codable and macOS Watch runtime remain unverified and require the
 Native workflow.
+The final native caller follow-up threads this identity through `RoundReviewView`,
+the shot-map pager/repository, edit refreshes, and recent-round review; recent
+composite packages derive the back-course id from per-hole source identity.
+Local Python compilation and `git diff --check` pass; a remote FastAPI-backed
+rerun passed 18/18 and remote Python compilation passed. The remote scratch was
+removed after verification. Swift compile/Codable and macOS Watch runtime remain
+unverified and require the Native workflow.
 expected Opus fixture-contract review report at
 `/home/jason/garmin-ai-caddie-data/operations/opus-fixture-contract-review-20260827.md`
 was checked and does not exist; no report hash is claimed. This remains source

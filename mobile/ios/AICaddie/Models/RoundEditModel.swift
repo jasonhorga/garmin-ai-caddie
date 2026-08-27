@@ -25,15 +25,23 @@ public final class RoundEditModel: ObservableObject {
 
     private let sync: SyncClient
     private let roundRef: String
+    private let globalId: Int?
+    private let backGlobalId: Int?
+    private let nine: String?
+    private let teeBox: String?
     private var originalMap: RoundHoleShotMap
     private var routeOrigin: [Int]?
     private var pendingSaveOp: RoundCorrectionOp?
 
-    public init(map: RoundHoleShotMap, sync: SyncClient, roundRef: String) {
+    public init(map: RoundHoleShotMap, sync: SyncClient, roundRef: String, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) {
         self.map = map
         self.originalMap = map
         self.sync = sync
         self.roundRef = roundRef
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.nine = nine
+        self.teeBox = teeBox
         self.routeOrigin = Self.resolvedRouteOrigin(in: map)
     }
 
@@ -217,7 +225,7 @@ public final class RoundEditModel: ObservableObject {
         pendingSaveOp = operation
         do {
             try await sync.postRoundCorrection(roundRef: roundRef, operation)
-            if let fresh = try? await sync.fetchRoundShotMap(roundRef: roundRef, hole: map.hole) {
+            if let fresh = try? await sync.fetchRoundShotMap(roundRef: roundRef, hole: map.hole, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox) {
                 map = fresh
                 originalMap = fresh
             } else {
@@ -241,7 +249,7 @@ public final class RoundEditModel: ObservableObject {
     /// Refresh only outside edit mode; an async read must never overwrite an unsaved draft.
     public func refetch() async {
         guard !isEditing,
-              let fresh = try? await sync.fetchRoundShotMap(roundRef: roundRef, hole: map.hole) else {
+              let fresh = try? await sync.fetchRoundShotMap(roundRef: roundRef, hole: map.hole, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox) else {
             return
         }
         map = fresh

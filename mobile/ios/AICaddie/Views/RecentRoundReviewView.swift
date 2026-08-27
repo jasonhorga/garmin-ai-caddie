@@ -81,7 +81,11 @@ struct RecentReviewContent: View {
                             roundRef: round.roundId,
                             fallbackCourseName: round.courseName,
                             apiBaseURL: apiBaseURL,
-                            adminToken: adminToken
+                            adminToken: adminToken,
+                            globalId: round.globalId ?? package.course.globalId,
+                            backGlobalId: packageBackGlobalId,
+                            nine: package.nine,
+                            teeBox: package.course.teeBox
                         )
                     } label: {
                         roundRow(round)
@@ -141,6 +145,13 @@ struct RecentReviewContent: View {
 
     private var courseHistory: CourseRecentHistory {
         package.recentHistory.course
+    }
+
+    /// Composite packages identify back-nine geometry on each physical hole. Reuse that
+    /// identity when opening a recent round so the review endpoints do not guess the course.
+    private var packageBackGlobalId: Int? {
+        let front = package.course.globalId
+        return package.holes.lazy.compactMap(\.sourceGlobalId).first { $0 != front }
     }
 
     private func toParText(_ toPar: Int?) -> String {
