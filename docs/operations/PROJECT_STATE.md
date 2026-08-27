@@ -148,6 +148,12 @@ contract verification ran 17/17 tests, plus remote py_compile and diff-check;
 the local dependency-gated run remains 17 tests with 12 FastAPI skips. The
 latest exact-SHA remote run after the geometry/round identity correction also
 remains 17/17 passed.
+The latest correction keeps composite back-nine metadata, decision, history,
+and shotmap rows on back-course local holes 1-9 while preserving display holes
+10-18 and caller round refs. Dynamic `watch-<UUID>` package and shotmap
+requests fail closed without explicit course context; with explicit 31795/3881
+context they retain the selected course identity. Remote FastAPI verification
+after this correction remained 17/17 passed.
 expected Opus fixture-contract review report at
 `/home/jason/garmin-ai-caddie-data/operations/opus-fixture-contract-review-20260827.md`
 was checked and does not exist; no report hash is claimed. This remains source

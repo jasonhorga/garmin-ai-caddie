@@ -199,6 +199,7 @@ class CIFixtureContractTests(unittest.TestCase):
 
     def test_fixture_round_is_a_distinct_eighteen_hole_contract(self) -> None:
         try:
+            from fastapi import HTTPException
             from server_v2.ci_fixture import coverage, geometry_hole, history_detail, prep, shotmap
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
@@ -211,7 +212,7 @@ class CIFixtureContractTests(unittest.TestCase):
         prep_rows = prep(3881, holes=list(range(1, 19)))["holes"]
         self.assertEqual({row["hole"] for row in prep_rows}, set(range(1, 19)))
         self.assertEqual({geometry_hole(3881, hole)["localHole"] for hole in range(1, 19)}, set(range(1, 19)))
-        maps = [shotmap("watch-12345678-1234-4234-8234-123456789abc", hole) for hole in range(1, 19)]
+        maps = [shotmap("watch-12345678-1234-4234-8234-123456789abc", hole, global_id=3881) for hole in range(1, 19)]
         self.assertEqual({body["hole"] for body in maps}, set(range(1, 19)))
         self.assertEqual(len({body["map"]["overlay"]["ln"] for body in maps}), 18)
         detail = history_detail("home-3881")
@@ -224,6 +225,15 @@ class CIFixtureContractTests(unittest.TestCase):
             self.assertEqual(decision["context"]["globalId"], 3881)
             self.assertEqual(decision["sourceRef"], f"home-3881:{hole}")
             self.assertEqual(decision["selected"]["sourceRef"], f"home-3881:{hole}")
+        with self.assertRaises(HTTPException):
+            __import__("server_v2.ci_fixture", fromlist=["shotmap"]).shotmap("watch-12345678-1234-4234-8234-123456789abc", 1)
+        composite = __import__("server_v2.ci_fixture", fromlist=["course_package"]).course_package(31795, round_id="home-31795", tee_box="blue", nine="all", back_global_id=3881)
+        back_holes = [row for row in composite["holes"] if row["number"] >= 10]
+        self.assertEqual({row["sourceGlobalId"] for row in back_holes}, {3881})
+        self.assertEqual({row["sourceLocalHole"] for row in back_holes}, set(range(1, 10)))
+        back_decision = __import__("server_v2.ci_fixture", fromlist=["caddie_decision"]).caddie_decision({"shotType": "approach", "context": {"roundId": "home-31795", "globalId": 31795, "backGlobalId": 3881, "hole": 10, "localHole": 1, "sourceRef": "home-31795:10"}})
+        self.assertEqual(back_decision["context"]["globalId"], 31795)
+        self.assertEqual(back_decision["selected"]["courseGlobalId"], 3881)
 
     def test_fixture_dynamic_round_forms_are_strictly_scoped(self) -> None:
         try:

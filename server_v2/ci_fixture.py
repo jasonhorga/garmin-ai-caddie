@@ -68,7 +68,7 @@ def _round_course(value: str) -> int:
     if match:
         return _course_request(int(match.group(1)))
     if re.fullmatch(r"watch-" + UUID_RE, value, re.IGNORECASE):
-        return GLOBAL_ID
+        raise HTTPException(status_code=404, detail="fixture watch round requires course context")
     raise HTTPException(status_code=404, detail="fixture round not found")
 
 
@@ -158,8 +158,11 @@ def _package(round_id: str, global_id: int = GLOBAL_ID, nine: str = "all", back_
     payload["geometryCoverage"]["totalHoles"] = len(segment_holes)
     payload["geometryCoverage"]["readyHoles"] = len(segment_holes)
     payload["geometryCoverage"]["state"] = "ready"
-    payload["sourceCoverage"].update({"requestedRoundId": requested_round, "selectedRoundId": requested_round, "roundFound": True, "holeCount": len(segment_holes), "geometryReadyHoles": len(segment_holes), "geometryTotalHoles": len(segment_holes), "clubProfileCount": 1})
-    payload["readinessChecks"] = [{"label": "source", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture round source is available", "sourceRefs": [f"{requested_round}:{hole}" for hole in segment_holes]}, {"label": "geometry", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture geometry is available", "sourceRefs": [f"geometry:{requested_course}:{hole}" for hole in segment_holes]}, {"label": "caddie_seeds", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture caddie seeds are available", "sourceRefs": [f"{requested_round}:{hole}" for hole in segment_holes]}]
+    source_holes = [hole - 9 if requested_back is not None and hole >= 10 else hole for hole in segment_holes]
+    source_courses = [requested_back if requested_back is not None and hole >= 10 else requested_course for hole in segment_holes]
+    source_refs = [f"{requested_round}:{hole}" for hole in segment_holes]
+    payload["sourceCoverage"].update({"requestedRoundId": requested_round, "selectedRoundId": requested_round, "roundFound": True, "holeCount": len(segment_holes), "geometryReadyHoles": len(segment_holes), "geometryTotalHoles": len(segment_holes), "clubProfileCount": 1, "sourceGlobalIds": source_courses, "sourceLocalHoles": source_holes})
+    payload["readinessChecks"] = [{"label": "source", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture round source is available", "sourceRefs": source_refs}, {"label": "geometry", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture geometry is available", "sourceRefs": [f"geometry:{course}:{local}" for course, local in zip(source_courses, source_holes)]}, {"label": "caddie_seeds", "state": "ready", "ready": len(segment_holes), "total": len(segment_holes), "reason": "fixture caddie seeds are available", "sourceRefs": source_refs}]
     seeds = []
     template_seed = payload.get("caddieContextSeeds", [{}])[0]
     for hole in segment_holes:
@@ -167,8 +170,10 @@ def _package(round_id: str, global_id: int = GLOBAL_ID, nine: str = "all", back_
         seed_ref = f"{requested_round}:{hole}"
         seed["hole"] = hole
         seed["sourceRef"] = seed_ref
-        seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": hole, "globalId": requested_course, "localHole": hole})
-        seed["context"].setdefault("geometry", {}).update({"coverage": "ready", "sourceGlobalId": requested_course, "sourceLocalHole": hole})
+        local_hole = hole - 9 if requested_back is not None and hole >= 10 else hole
+        source_course = requested_back if requested_back is not None and hole >= 10 else requested_course
+        seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": hole, "globalId": source_course, "localHole": local_hole})
+        seed["context"].setdefault("geometry", {}).update({"coverage": "ready", "sourceGlobalId": source_course, "sourceLocalHole": local_hole})
         seeds.append(seed)
     payload["caddieContextSeeds"] = seeds
     payload["recentHistory"]["holes"] = [{"number": hole, "sampleCount": 3, "averageToPar": 0.2, "repeatedIssues": []} for hole in segment_holes]
@@ -196,29 +201,37 @@ def history_rounds(hasShots: bool | None = Query(default=None), limit: int = Que
 
 
 @ROUTE.get("/api/v2/history/rounds/{round_ref}")
-def history_detail(round_ref: str) -> dict:
+def history_detail(round_ref: str, global_id: int | None = None, back_global_id: int | None = None) -> dict:
     try:
         resolved_round = _round_id(round_ref)
     except HTTPException:
         return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": round_ref, "requestedRef": round_ref, "found": False})
-    requested_course = _round_course(round_ref)
+    requested_course = _course_request(global_id) if global_id is not None else _round_course(round_ref)
+    requested_back = _course_request(back_global_id) if back_global_id is not None else None
     details = []
     scorecard = []
     for hole in range(1, 19):
         shots = [{"ref": f"{resolved_round}:{hole}:0", "hole": hole, "order": 1, "club": "1D", "synthetic": False, "end": [hole * 3, hole * 3]}, {"ref": f"{resolved_round}:{hole}:1", "hole": hole, "order": 2, "club": "8I", "synthetic": False, "end": [hole * 3 + 1, hole * 3 + 2]}]
-        scorecard.append({"hole": hole, "score": 4, "globalId": requested_course, "localHole": hole, "shotRefs": [shot["ref"] for shot in shots]})
+        source_course = requested_back if requested_back is not None and hole >= 10 else requested_course
+        local_hole = hole - 9 if requested_back is not None and hole >= 10 else hole
+        for shot in shots:
+            shot["ref"] = f"{round_ref}:{hole}:{shot['order'] - 1}"
+        scorecard.append({"hole": hole, "score": 4, "globalId": source_course, "localHole": local_hole, "shotRefs": [shot["ref"] for shot in shots]})
         details.append({"hole": hole, "shotCount": len(shots), "shots": shots})
     return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": str(round_ref), "requestedRef": str(round_ref), "found": True, "round": {"id": str(round_ref), "globalId": requested_course, "courseName": "Black Knight B/C", "date": "2026-05-18", "score": 78}, "scorecard": scorecard, "holeDetails": details})
 
 
 @ROUTE.get("/api/v2/history/rounds/{round_ref}/holes/{hole}/shotmap")
-def shotmap(round_ref: str, hole: int, includeImage: bool = True) -> dict:
+def shotmap(round_ref: str, hole: int, includeImage: bool = True, global_id: int | None = None, back_global_id: int | None = None) -> dict:
     _round_id(round_ref)
-    requested_course = _round_course(round_ref)
+    requested_course = _course_request(global_id) if global_id is not None else _round_course(round_ref)
+    requested_back = _course_request(back_global_id) if back_global_id is not None else None
     if hole < 1 or hole > 18:
         raise HTTPException(status_code=404, detail="fixture hole not found")
+    source_course = requested_back if requested_back is not None and hole >= 10 else requested_course
+    local_hole = hole - 9 if requested_back is not None and hole >= 10 else hole
     map_body = {"image": _png_data_uri(seed=hole) if includeImage else None, "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + hole, "route": [[4, 4, 0], [60, 60, 220 + hole]]}}
-    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": hole, "par": 4, "globalId": requested_course, "localHole": hole, "sourceRef": f"{round_ref}:{hole}", "geometryRevision": FIXTURE_REVISION, "mapKind": "courseData", "map": map_body, "shots": [{"id": f"s{hole}-1", "club": "1D", "synthetic": False, "end": [8 + hole, 8]}, {"id": f"s{hole}-2", "club": "8I", "synthetic": False, "end": [56, 56 - hole]}], "manualPenalty": 0, "missingData": []})
+    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": hole, "par": 4, "globalId": source_course, "localHole": local_hole, "sourceRef": f"{round_ref}:{hole}", "geometryRevision": FIXTURE_REVISION, "mapKind": "courseData", "map": map_body, "shots": [{"id": f"s{hole}-1", "club": "1D", "synthetic": False, "end": [8 + hole, 8], "sourceRef": f"{round_ref}:{hole}:0"}, {"id": f"s{hole}-2", "club": "8I", "synthetic": False, "end": [56, 56 - hole], "sourceRef": f"{round_ref}:{hole}:1"}], "manualPenalty": 0, "missingData": []})
 
 
 @ROUTE.get("/api/v2/courses/search")
@@ -389,14 +402,17 @@ def course_package(global_id: int, round_id: str | None = None, tee_box: str | N
 
 
 @ROUTE.get("/api/v2/mobile/rounds/{round_id}/package")
-def round_package(round_id: str, tee_box: str | None = None, nine: str = "all", back_global_id: int | None = None) -> dict:
+def round_package(round_id: str, tee_box: str | None = None, nine: str = "all", back_global_id: int | None = None, global_id: int | None = None) -> dict:
     if tee_box is not None and tee_box not in {"blue", "white"}:
         raise HTTPException(status_code=404, detail="fixture tee not found")
     if nine not in {"all", "front", "back"}:
         raise HTTPException(status_code=404, detail="fixture segment not found")
     if back_global_id is not None:
         _course_id(back_global_id)
-    return _package(round_id, GLOBAL_ID, nine, back_global_id, tee_box or "blue")
+    dynamic_watch = re.fullmatch(r"watch-" + UUID_RE, str(round_id), re.IGNORECASE)
+    if dynamic_watch and global_id is None:
+        raise HTTPException(status_code=404, detail="fixture watch round requires course context")
+    return _package(round_id, global_id or GLOBAL_ID, nine, back_global_id, tee_box or "blue")
 
 
 @ROUTE.post("/api/v2/caddie/decision")
@@ -419,14 +435,15 @@ def caddie_decision(body: dict) -> dict:
         _course_id(context["backGlobalId"])
     context = {"source": "ios_live", "roundId": ROUND_REF, "globalId": GLOBAL_ID, "hole": LOCAL_HOLE, "guidanceMode": "automatic", "currentLocation": {"latitude": 39.9, "longitude": 116.4, "horizontalAccuracyM": 5.0, "capturedAt": "2026-08-27T00:00:00Z"}, **context}
     round_identity = str(context["roundId"])
-    course_identity = int(context["globalId"])
-    if context.get("localHole") is not None and context["localHole"] != context["hole"]:
+    hole = int(context["hole"])
+    course_identity = int(context["backGlobalId"]) if context.get("backGlobalId") is not None and hole >= 10 else int(context["globalId"])
+    expected_local = hole - 9 if context.get("backGlobalId") is not None and hole >= 10 else hole
+    if context.get("localHole") is not None and context["localHole"] != expected_local:
         raise HTTPException(status_code=404, detail="fixture local hole mismatch")
     source_ref = f"{round_identity}:{context['hole']}"
     supplied_source_ref = context.get("sourceRef")
     if not isinstance(supplied_source_ref, str) or supplied_source_ref != source_ref:
         raise HTTPException(status_code=400, detail="fixture sourceRef missing or inconsistent")
-    hole = int(context["hole"])
     option = {"id": f"stock-{hole}", "clubName": "8I", "carry_m": 144.0 + hole, "p10M": 132.0 + hole, "p90M": 153.0 + hole, "sampleSize": 24, "confidence": "high", "source": "ci_fixture", "dispersion": {"state": "modeled", "clubName": "8I", "carryP10_m": 132.0 + hole, "carryP90_m": 153.0 + hole, "sampleSize": 24, "sourceRef": source_ref}, "courseGlobalId": course_identity, "localHole": hole, "roundId": round_identity, "sourceRef": source_ref}
     return _with_markers({"schema": "ai-caddie-decision-v2", "decisionId": f"fixture-decision-{round_identity}-{hole}", "sourceRef": source_ref, "evidenceRefs": [source_ref], "shotType": shot_type, "phase": "approach", "context": context, "options": [option], "selected": option, "selectedOptionId": option["id"], "selectedOption": option, "sequences": [{"id": option["id"], "clubName": "8I", "sourceRef": source_ref}], "selectedSequence": {"id": option["id"], "clubName": "8I", "sourceRef": source_ref}, "avoidZones": [], "forbiddenZones": [], "acceptableMiss": {"side": "short"}, "evidence": [{"label": "fixture", "value": "non_production", "sourceRef": source_ref}], "confidence": {"level": "high", "source": "ci_fixture"}, "missingData": [], "auditCriteria": []})
 
