@@ -755,3 +755,11 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   navigation and nested reference consistency. Commit `99baf324` is pushed;
   current status remains awaiting Opus re-review, with no Native dispatch or
   production/release action.
+- 2026-08-27: Closed the follow-up fixture contract P1s from Opus review.
+  Course and round package queries now bind `round_id`, `tee_box`, `nine`, and
+  `back_global_id`; prep/coverage validate requested holes and expose the full
+  iOS/Watch Codable shape; isolated deterministic `topo.png`/`green.png`
+  resources validate course/hole identity; and install counts cover all 18
+  fixture holes. Happy and fail-closed route tests cover these contracts.
+  Current HEAD is awaiting Opus re-review; no Native dispatch, deployment,
+  release, signing, or upload was performed.

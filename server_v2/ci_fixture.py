@@ -11,7 +11,7 @@ from pathlib import Path
 import struct
 import zlib
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from ai_caddie.core.fixtures import fixture_history_data
 
@@ -50,7 +50,11 @@ def _with_markers(payload: dict) -> dict:
 def _package(round_id: str, global_id: int = GLOBAL_ID) -> dict:
     if str(round_id) != ROUND_REF:
         raise HTTPException(status_code=404, detail="fixture round not found")
-    if int(global_id) != GLOBAL_ID:
+    try:
+        requested_global_id = int(global_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="fixture course not found")
+    if requested_global_id != GLOBAL_ID:
         raise HTTPException(status_code=404, detail="fixture course not found")
     payload = json.loads(json.dumps(PACKAGE_TEMPLATE))
     # Keep every nested provenance/reference field on the same deterministic fixture entities.
@@ -125,10 +129,12 @@ def nearby(latitude: float, longitude: float, radius_km: int = 50) -> dict:
 
 
 @ROUTE.get("/api/v2/geometry/course/{global_id}/coverage")
-def coverage(global_id: int) -> dict:
+def coverage(global_id: int, holes: list[int] | None = Query(default=None)) -> dict:
     if global_id != GLOBAL_ID:
         raise HTTPException(status_code=404, detail="fixture course not found")
-    return _with_markers({"schema": "ai-caddie-course-geometry-coverage-v1", "globalId": global_id, "coverage": "ready", "holes": [{"localHole": 1, "coverage": "ready"}]})
+    if holes is not None and any(hole != LOCAL_HOLE for hole in holes):
+        raise HTTPException(status_code=404, detail="fixture geometry not found")
+    return _with_markers({"schema": "ai-caddie-course-geometry-coverage-v1", "globalId": global_id, "coverage": "ready", "readyHoles": 1, "partialHoles": 0, "totalHoles": 18, "holes": [{"globalId": GLOBAL_ID, "localHole": 1, "coverage": "ready"}]})
 
 
 @ROUTE.get("/api/v2/geometry/hole/{global_id}/{local_hole}")
@@ -139,10 +145,21 @@ def geometry_hole(global_id: int, local_hole: int, source_ref: str | None = None
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/prep")
-def prep(global_id: int) -> dict:
+def prep(global_id: int, holes: list[int] | None = Query(default=None), render: bool = False) -> dict:
     if global_id != GLOBAL_ID:
         raise HTTPException(status_code=404, detail="fixture course not found")
-    return _with_markers({"schema": "ai-caddie-course-prep-v1", "globalId": global_id, "holeCount": 1, "holes": [{"hole": 1, "par": 4, "globalId": global_id, "localHole": 1, "overlay": {"w": 64, "h": 64}, "image": IMAGE}]})
+    if holes is not None and any(hole != LOCAL_HOLE for hole in holes):
+        raise HTTPException(status_code=404, detail="fixture hole not found")
+    hole = {"hole": 1, "par": 4, "par_source": "garmin", "blue_yards": 410, "route_len_m": 375.0,
+            "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 375.0]], "geometryCoverage": "ready", "geometryRevision": FIXTURE_REVISION,
+            "sourceRefs": ["900001:1"], "missingData": [], "candidateRoutes": [], "carryTargets": [],
+            "steps": [], "cautions": [], "landing_m": 210.0, "tee_club": "1D",
+            "hazards": {"water_carry": [], "bunkers": [], "details": []},
+            "map": {"image": IMAGE if render else None, "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 375.0, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 375.0]]}},
+            "greenDistances": None, "playsLike": None, "holeImageProjection": None,
+            "greenOutline": {"available": True, "source": "ci_fixture", "distanceUnit": "metres", "pointsPx": [[52.0, 52.0], [60.0, 52.0], [60.0, 60.0], [52.0, 60.0] ]}}
+    return _with_markers({"schema": "ai-caddie-course-prep-v1", "globalId": global_id, "holeCount": 1,
+                          "clubs": [{"name": "1D", "token": "1D", "m": 210.0, "yd": 230, "distanceSource": "fixture", "sampleSize": 1, "confidence": "high"}], "holes": [hole]})
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/tees")
@@ -188,19 +205,50 @@ def sync_status() -> dict:
 def install_status(global_id: int, tee_box: str = "blue", nine: str = "all") -> dict:
     if global_id != GLOBAL_ID or nine not in {"all", "front", "back"}:
         raise HTTPException(status_code=404, detail="fixture install target not found")
+    rows = [{"globalId": GLOBAL_ID, "localHole": hole, "displayHole": hole, "geometry": "ready", "geometryRevision": FIXTURE_REVISION, "topo": "ready", "topoRevision": FIXTURE_REVISION, "error": None} for hole in range(1, 19)]
     return _with_markers({"schema": "ai-caddie-course-install-v1", "jobId": "fixture-install", "globalId": global_id,
                           "teeBox": tee_box, "nine": nine, "phase": "ready", "stage": "complete",
                           "totalHoles": 18, "geometryReady": 18, "topoReady": 18, "updatedAt": "2026-08-27T00:00:00Z",
-                          "error": None, "holes": []})
+                          "error": None, "holes": rows})
+
+
+def _fixture_png(global_id: int, hole: int) -> Response:
+    if global_id != GLOBAL_ID or hole != LOCAL_HOLE:
+        raise HTTPException(status_code=404, detail="fixture image not found")
+    return Response(content=base64.b64decode(IMAGE.split(",", 1)[1]), media_type="image/png")
+
+
+@ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/topo.png")
+def topo_png(global_id: int, hole: int, v: str | None = None, r: str | None = None) -> Response:
+    return _fixture_png(global_id, hole)
+
+
+@ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/green.png")
+def green_png(global_id: int, hole: int, x: float = 0, y: float = 0, width: float = 64, height: float = 64, size: int = 64, v: str | None = None, g: str | None = None, r: str | None = None) -> Response:
+    return _fixture_png(global_id, hole)
 
 
 @ROUTE.get("/api/v2/mobile/courses/{global_id}/package")
-def course_package(global_id: int) -> dict:
-    return _package(ROUND_REF, global_id)
+def course_package(global_id: int, round_id: str | None = None, tee_box: str | None = None, nine: str = "all", back_global_id: int | None = None) -> dict:
+    if round_id != ROUND_REF:
+        raise HTTPException(status_code=404, detail="fixture round not found")
+    if tee_box not in {"blue", "white"}:
+        raise HTTPException(status_code=404, detail="fixture tee not found")
+    if nine not in {"all", "front", "back"}:
+        raise HTTPException(status_code=404, detail="fixture segment not found")
+    if back_global_id not in {None, GLOBAL_ID}:
+        raise HTTPException(status_code=404, detail="fixture back course not found")
+    return _package(round_id, global_id)
 
 
 @ROUTE.get("/api/v2/mobile/rounds/{round_id}/package")
-def round_package(round_id: str) -> dict:
+def round_package(round_id: str, tee_box: str | None = None, nine: str = "all", back_global_id: int | None = None) -> dict:
+    if tee_box is not None and tee_box not in {"blue", "white"}:
+        raise HTTPException(status_code=404, detail="fixture tee not found")
+    if nine not in {"all", "front", "back"}:
+        raise HTTPException(status_code=404, detail="fixture segment not found")
+    if back_global_id not in {None, GLOBAL_ID}:
+        raise HTTPException(status_code=404, detail="fixture back course not found")
     return _package(round_id, GLOBAL_ID)
 
 

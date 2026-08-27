@@ -207,6 +207,7 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
             r"/api/v2/history/rounds/[^/]+",
             r"/api/v2/history/rounds/[^/]+/holes/[0-9]+/shotmap",
             r"/api/v2/courses/[0-9]+/(?:prep|tees|install/status)",
+            r"/api/v2/courses/[0-9]+/holes/[0-9]+/(?:topo|green)\.png",
             r"/api/v2/geometry/course/[0-9]+/coverage",
             r"/api/v2/geometry/hole/[0-9]+/[0-9]+",
             r"/api/v2/mobile/courses/[0-9]+/package",

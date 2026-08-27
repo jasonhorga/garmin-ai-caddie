@@ -64,30 +64,57 @@ class CIFixtureContractTests(unittest.TestCase):
             from server_v2.ci_fixture import GLOBAL_ID, ROUND_REF, _package, course_package, round_package
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
-        self.assertEqual(course_package(GLOBAL_ID)["roundId"], ROUND_REF)
+        self.assertEqual(course_package(GLOBAL_ID, round_id=ROUND_REF, tee_box="blue")["roundId"], ROUND_REF)
         self.assertEqual(round_package(ROUND_REF)["course"]["globalId"], GLOBAL_ID)
         for args in (("wrong-round", GLOBAL_ID), (ROUND_REF, 99999)):
             with self.assertRaises(HTTPException) as raised:
                 _package(*args)
             self.assertEqual(raised.exception.status_code, 404)
         with self.assertRaises(HTTPException):
-            course_package(99999)
+            course_package(99999, round_id=ROUND_REF, tee_box="blue")
+        with self.assertRaises(HTTPException):
+            course_package(GLOBAL_ID, round_id=ROUND_REF, tee_box="blue", back_global_id=99999)
         with self.assertRaises(HTTPException):
             round_package("wrong-round")
+        with self.assertRaises(HTTPException):
+            round_package(ROUND_REF, tee_box="green")
+        with self.assertRaises(HTTPException):
+            round_package(ROUND_REF, back_global_id=99999)
 
     def test_fixture_geometry_and_hole_routes_fail_closed_for_wrong_entities(self) -> None:
         try:
             from fastapi import HTTPException
-            from server_v2.ci_fixture import coverage, geometry_hole, prep, shotmap, tees
+            from server_v2.ci_fixture import coverage, geometry_hole, prep, shotmap, tees, topo_png, green_png
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
         for call in (
             lambda: coverage(99999), lambda: geometry_hole(31795, 2),
             lambda: prep(99999), lambda: tees(99999), lambda: shotmap("900001", 2),
+            lambda: coverage(31795, holes=[2]), lambda: prep(31795, holes=[2]),
+            lambda: topo_png(31795, 2), lambda: green_png(31795, 2),
         ):
             with self.assertRaises(HTTPException) as raised:
                 call()
             self.assertEqual(raised.exception.status_code, 404)
+
+    def test_fixture_prep_and_coverage_have_real_client_shapes(self) -> None:
+        try:
+            from server_v2.ci_fixture import coverage, prep
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        cov = coverage(31795, holes=[1])
+        self.assertEqual({"schema", "globalId", "coverage", "readyHoles", "partialHoles", "totalHoles", "holes"}, set(cov) - {"dataMode", "source", "fixtureRevision"})
+        self.assertEqual((cov["readyHoles"], cov["partialHoles"], cov["totalHoles"]), (1, 0, 18))
+        self.assertEqual(cov["holes"][0], {"globalId": 31795, "localHole": 1, "coverage": "ready"})
+        body = prep(31795, holes=[1])
+        self.assertEqual(body["globalId"], 31795)
+        self.assertEqual(len(body["clubs"]), 1)
+        hole = body["holes"][0]
+        for key in ("hole", "par", "par_source", "blue_yards", "route_len_m", "route", "geometryCoverage", "sourceRefs", "missingData", "candidateRoutes", "carryTargets", "steps", "cautions", "hazards", "map"):
+            self.assertIn(key, hole)
+        self.assertEqual(hole["map"]["overlay"]["w"], 64)
+        self.assertEqual(hole["map"]["overlay"]["h"], 64)
+        self.assertEqual(hole["map"]["overlay"]["ppm"], 0.17)
 
     def test_package_template_has_every_required_live_round_key(self) -> None:
         package = json.loads(Path("mobile/ios/AICaddie/Fixtures/live_round_package.fixture.json").read_text(encoding="utf-8"))
