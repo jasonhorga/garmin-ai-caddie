@@ -31,7 +31,7 @@ The artifact-only build is green. A fresh homeserver probe found the existing
 candidate and production upstreams, Caddy, and the public Funnel all returning
 200; the earlier ingress timeout was transient. The candidate remains the
 public upstream, but its revision is not yet proven identical to the IPA and
-the GitHub-runner readiness probe still needs an explanation for its timeout.
+the first GitHub-runner readiness probe timed out once; a strict rerun passed.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
@@ -47,7 +47,7 @@ project-level task list; historical plans are reference material.
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
-| `REL` | `in-progress` | Release and TestFlight gate; artifact-only readiness first. | Verify source/native gates, production provenance, signing/TestFlight readiness, then request explicit upload confirmation. Current ingress blocker must be resolved before upload. |
+| `REL` | `in-progress` | Release and TestFlight gate; artifact-only readiness first. | Verify source/native gates, production provenance, signing/TestFlight readiness, then request explicit upload confirmation. Revision consistency and manual tester/device gates remain before upload. |
 
 ### Status vocabulary
 
@@ -285,8 +285,9 @@ means a named external decision or prerequisite is missing; `done` and
   the public Caddy `:8080` route and candidate host port `:39055` timed out.
   Caddy's current `/api/*` upstream is `127.0.0.1:39055` (candidate image
   `6a6080c0-candidate`, started 2026-08-21); no restart, route switch, or
-  production write was performed. REL remains blocked on ingress stability and
-  the two manual gates.
+  production write was performed. At that point REL remained blocked on ingress
+  stability and the two manual gates; the later re-audit below supersedes the
+  ingress portion of that observation.
 - Homeserver ingress re-audit on 2026-08-27 was read-only: candidate `:39055`
   (20/20 HTTP 200, p50 19 ms, p95 37.5 ms), production `:9000` (20/20,
   p50 12 ms, p95 33.5 ms), Caddy `:8080` (20/20, p50 26.4 ms, p95 69.5 ms),
@@ -302,16 +303,22 @@ means a named external decision or prerequisite is missing; `done` and
   assignment and physical iPhone/Watch installation remain manual-required.
   The run did not upload TestFlight. This runner-only timeout is now a separate
   evidence gap from the healthy homeserver/public probes and must be resolved
-  or explicitly bounded before release.
+  or explicitly bounded before release; the successful rerun below supplies
+  that additional evidence.
+- Strict Phase 6 rerun `33029475105` at `30ab509f` passed the backend probe:
+  the GitHub runner received HTTP 200 and the expected health/readiness schemas
+  from `caddie.taile36706.ts.net`. Signing, URL, metadata, and review gates
+  were ready; only target tester assignment and physical iPhone/Watch
+  installation remained `manual_required`. The workflow failed solely because
+  `fail_when_incomplete=true`; it did not upload TestFlight.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Diagnose the GitHub-runner `backend_probe` timeout (including token/origin
-   and `/readiness` response behavior) and add a strict revision/origin check;
-   do not switch the healthy route or restart the candidate without new
-   evidence.
+1. Add/verify a strict revision and API-origin match between the signed IPA,
+   public candidate, and backend before release; keep the healthy route and
+   candidate untouched unless a new failure is observed.
 2. Record target tester coverage and physical iPhone/Watch installation against
    the exact signed artifact.
 3. Keep production revision `6a6080c6...` unchanged until a deployment or
@@ -487,6 +494,7 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - 2026-08-27: Artifact-only release run `33024982596` passed and produced a
   signed IPA without uploading. The initial Phase 6 run `33024993745` reported
   an ingress timeout; the subsequent read-only homeserver audit showed the
-  route healthy, while strict rerun `33029186839` reproduced a timeout only from
-  the GitHub runner. No route/container/data mutation was made; REL remains
-  blocked on runner-probe evidence and the manual tester/device gates.
+  route healthy. Strict rerun `33029186839` reproduced a runner timeout once,
+  while `33029475105` passed the backend probe. No route/container/data
+  mutation was made; REL remains open only for revision consistency and the
+  manual tester/device gates.
