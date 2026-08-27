@@ -200,6 +200,9 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
         issues.append("build_number_invalid")
     if expected_build and manifest_build != expected_build:
         issues.append("build_number_mismatch")
+    expected_marketing = str(env.get("AI_CADDIE_MARKETING_VERSION") or "").strip()
+    if expected_marketing and str(payload.get("marketingVersion") or "") != expected_marketing:
+        issues.append("marketing_version_mismatch")
     if uploaded and not payload.get("apiOriginHost"):
         issues.append("api_origin_host_missing")
     if uploaded and not payload.get("backendRevision"):
@@ -354,7 +357,7 @@ def _testflight_log_summary(run: dict[str, Any], text: str) -> dict[str, Any] | 
             and re.search(r"\bstate=VALID(?:\s|$)", message)
             and re.search(r"\bbetaReviewReady=true(?:\s|$)", message)
         ):
-            build_match = re.search(r"-\s+([^\s]+)\s+\(([^()\s]+)\)", message)
+            build_match = re.search(r"-\s+([^\s]+)\s+\(([0-9]+)\)", message)
             if build_match and "buildNumber" not in summary:
                 summary.update(
                     {
@@ -877,6 +880,7 @@ def _trusted_testflight_actions(
         build
         and commit
         and _normalized_build_number(actions.get("buildNumber")) == build
+        and str(actions.get("marketingVersion") or "") == str(env.get("AI_CADDIE_MARKETING_VERSION") or "").strip()
         and str(actions.get("runHeadSha") or "").lower() == commit
         and str(actions.get("runBranch") or "") == branch
         and str(actions.get("workflowName") or "") == TESTFLIGHT_TESTERS_WORKFLOW_NAME

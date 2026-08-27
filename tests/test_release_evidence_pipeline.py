@@ -18,6 +18,8 @@ from ops.phase6_external_readiness import (
 from ops.roadmap_completion_status import build_status
 from ops.write_release_provenance import main as write_provenance
 from server_v2 import readiness as server_readiness
+from server_v2 import main as server_main
+from starlette.requests import Request
 
 
 class ReleaseEvidencePipelineTests(unittest.TestCase):
@@ -77,6 +79,7 @@ class ReleaseEvidencePipelineTests(unittest.TestCase):
             "AI_CADDIE_RELEASE_PROVENANCE_PATH": str(manifest),
             "AI_CADDIE_RELEASE_IPA_PATH": str(ipa),
             "AI_CADDIE_RELEASE_COMMIT": "a" * 40,
+            "AI_CADDIE_MARKETING_VERSION": "1.2.3",
             "RELEASE_PROVENANCE_RUN_ID": "9001",
             "AI_CADDIE_TESTFLIGHT_BUILD_NUMBER": build,
             "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED": "1",
@@ -123,22 +126,60 @@ class ReleaseEvidencePipelineTests(unittest.TestCase):
                 "AI_CADDIE_RELEASE_COMMIT": "a" * 40,
                 "RELEASE_PROVENANCE_RUN_ID": "9001",
                 "AI_CADDIE_TESTFLIGHT_BUILD_NUMBER": "42",
+                "AI_CADDIE_MARKETING_VERSION": "1.2.3",
             }
             for field, value in {
-                "workflowRun": "9002", "commit": "c" * 40, "buildNumber": "43",
+                "workflowRun": "9002", "commit": "c" * 40, "buildNumber": "43", "marketingVersion": "9.9.9",
                 "ipaSha256": hashlib.sha256(b"wrong").hexdigest(),
             }.items():
                 mutated = dict(baseline)
                 mutated[field] = value
                 manifest.write_text(json.dumps(mutated), encoding="utf-8")
                 check = build_phase6_external_readiness(env=env_base)
-                self.assertEqual(next(row for row in check["checks"] if row["label"] == "release_provenance")["state"], "degraded", field)
+            self.assertEqual(next(row for row in check["checks"] if row["label"] == "release_provenance")["state"], "degraded", field)
             manifest.write_text(json.dumps(baseline), encoding="utf-8")
+
+    def test_testflight_marketing_version_and_run_identity_fail_closed(self) -> None:
+        actions = self._actions()
+        for field, value in {
+            "marketingVersion": "9.9.9",
+            "runBranch": "release/old",
+            "workflowPath": ".github/workflows/other.yml",
+            "runHeadSha": "b" * 40,
+            "runCreatedAt": "2020-01-01T00:00:00Z",
+        }.items():
+            candidate = dict(actions)
+            candidate[field] = value
+            payload = build_phase6_external_readiness(
+                env={"AI_CADDIE_RELEASE_COMMIT": "a" * 40, "AI_CADDIE_MARKETING_VERSION": "1.2.3", "AI_CADDIE_TESTFLIGHT_BUILD_NUMBER": "42"},
+                github_snapshot={"testflightActions": candidate},
+                branch="main",
+            )
+            check = next(row for row in payload["checks"] if row["label"] == "external_beta_review_submission_ready")
+            self.assertNotEqual(check["state"], "ready", field)
+
+        invalid_log = _testflight_log_summary(
+            {
+                "id": 1234, "name": "iOS TestFlight Testers", "path": ".github/workflows/ios-testflight-testers.yml",
+                "conclusion": "success", "head_branch": "main", "head_sha": "a" * 40,
+                "created_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            },
+            "- 1.2.3 (abc) state=VALID betaReviewReady=true externalState=READY_FOR_BETA_SUBMISSION",
+        )
+        self.assertIsNotNone(invalid_log)
+        self.assertFalse(invalid_log.get("readyForBetaSubmission", False))
+        self.assertNotIn("buildNumber", invalid_log)
 
     def test_upload_failure_missing_build_invalid_build_and_unauth_readiness_fail_closed(self) -> None:
         with TemporaryDirectory() as raw:
             directory = Path(raw)
             requested, ipa = self._manifest(directory, upload=False, requested=True)
+            payload = self._phase6(directory, manifest=requested, ipa=ipa, actions=self._actions())
+            self.assertEqual(next(row for row in payload["checks"] if row["label"] == "release_provenance")["state"], "degraded")
+            inconsistent = json.loads(requested.read_text(encoding="utf-8"))
+            inconsistent["uploadToTestflight"] = True
+            inconsistent["uploadCompleted"] = False
+            requested.write_text(json.dumps(inconsistent), encoding="utf-8")
             payload = self._phase6(directory, manifest=requested, ipa=ipa, actions=self._actions())
             self.assertEqual(next(row for row in payload["checks"] if row["label"] == "release_provenance")["state"], "degraded")
 
@@ -152,6 +193,11 @@ class ReleaseEvidencePipelineTests(unittest.TestCase):
             with patch.object(server_readiness, "EXTERNAL_RELEASE_EVIDENCE", missing):
                 state, _evidence = server_readiness._external_release_evidence()
             self.assertEqual(state, "degraded")
+            request = Request({"type": "http", "method": "GET", "path": "/api/v2/readiness", "headers": [], "query_string": b"", "scheme": "http", "server": ("test", 80), "client": ("test", 1)})
+            with patch.object(server_main, "resolve_request_player", return_value=None):
+                anonymous = server_main.readiness(request)
+            self.assertEqual(anonymous["checks"], [])
+            self.assertFalse(anonymous["authenticated"])
 
 
 if __name__ == "__main__":
