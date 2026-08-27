@@ -136,7 +136,8 @@ front/back/all filtering. Local compilation and the focused fixture suite ran
 with a temporary uv venv containing FastAPI ran the same 17 tests (17 passed)
 and remote Python compilation/diff-check passed. macOS Codable decode and
 Watch runtime evidence remain open; this is fixture evidence only.
-Follow-up P1/P2 closure is implemented in the current working tree: caddie
+Follow-up P1/P2 closure is implemented through commits `c7d5e9fc` and
+`1d15c229`: caddie
 decision accepts and validates holes 1-18 with caller round/course/local-hole
 identity and per-hole source refs; package metadata reports segment-sized
 source/geometry/caddie readiness counts and one seed per requested hole;
@@ -144,7 +145,9 @@ history detail, shotmap, geometry, prep, coverage, and install are generated
 per hole with distinct refs/overlays, including back-course local-hole mapping;
 `includeImage=false` is honored by shotmap. Remote FastAPI-backed fixture
 contract verification ran 17/17 tests, plus remote py_compile and diff-check;
-the local dependency-gated run remains 17 tests with 12 FastAPI skips.
+the local dependency-gated run remains 17 tests with 12 FastAPI skips. The
+latest exact-SHA remote run after the geometry/round identity correction also
+remains 17/17 passed.
 expected Opus fixture-contract review report at
 `/home/jason/garmin-ai-caddie-data/operations/opus-fixture-contract-review-20260827.md`
 was checked and does not exist; no report hash is claimed. This remains source
