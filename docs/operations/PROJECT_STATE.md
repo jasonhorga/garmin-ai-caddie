@@ -99,7 +99,11 @@ after the iOS failure. This does not establish a source regression: the two
 transport failures are live-ingress/runtime evidence, and the remaining
 TeeSelection assertion requires a focused reproduction before any code change.
 Native runtime evidence therefore remains open and TestFlight workflows remain
-unrun.
+unrun. The fix was verified by Native rerun `33077525178`: the authorized-GPS
+fallback and all seven `TeeSelectionUITests` passed, but both review resolver
+tests returned `noEligibleRound` because the current public history did not
+contain a qualifying scored hole with two club-labelled spatially separated
+shots and usable geometry.
 The GPS fallback failure is a confirmed startup sequencing bug: when no cached
 package exists, `bootstrap()` kept the root loading gate active while awaiting
 the best-effort course-options refresh. The minimal fix in the current working
@@ -587,3 +591,11 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   post-Phase-1 `isBootstrapping = false` fix in `AICaddieApp.swift`; remote
   homeserver Python compileall passed, while Swift/Xcode verification remains
   pending on Native CI.
+- 2026-08-27: Native rerun `33077525178` at `7002c5f5` verified the startup fix:
+  the no-fix fallback and all seven TeeSelection tests passed. Review and
+  review-edit flows failed immediately with `noEligibleRound` at the resolver,
+  indicating missing qualifying live history evidence rather than transport,
+  simulator, or UI failures. Artifacts uploaded were real-video (77,004,282
+  bytes), real-screenshots (3,948,540 bytes), and design-snapshots (3,699,371
+  bytes); Watch runtime stages were skipped. No production data or release
+  workflow was changed.
