@@ -62,6 +62,19 @@ workflows, but GitHub returned `No commit found for SHA` for canonical
 was not authorized, so no source CI, Native Mobile CI, or Phase 6 run was
 dispatched and no run ID or artifact is claimed. TestFlight, release, deploy,
 and signing workflows were not dispatched.
+The Phase 6 workflow path bug was fixed in `a46f83a7b6ba26d82f0309a1fcfc8cb93c541cef`
+by initializing release evidence paths in a step via `$GITHUB_ENV` instead of
+using the invalid job-level `runner.temp` context. Runs `33073844326` and
+`33073934450` both completed successfully at that SHA; each produced the
+readiness and roadmap artifacts. The downloaded reports were 4,522 and 7,380
+bytes respectively; SHA256s for the first run were
+`f9f8cced6bb6779e87f04dad46f8974cf2277e9a65c328f652a9f628f9b0a844` and
+`3fa7ca2b7a158e9684e5f0b932aeed57ee1b850386cdc96742d994fe1c316636`.
+Both correctly remained `incomplete` because the dispatch supplied no backend,
+ASC, TestFlight build, or provenance inputs. Native run `33071953908` was
+diagnosed as macOS UI-test infrastructure failure:
+`XCTDaemonErrorDomain Code=19` (`AXDisableAccessibilityOnTermination`) with
+`AppleM2ScalerParavirtDriver`; no native source change was made.
 After the owner-authorized push of `91d91694ea1bd3d2318bd93f62fe851e19204ffc`
 to `codex/p0-p1-p2-checkpoint-20260823`, source CI run `33071951190` completed
 successfully (backend, frontend, Docker, and visual smoke). Native Mobile CI
