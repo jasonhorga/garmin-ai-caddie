@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -196,24 +197,24 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
     async def reject_unimplemented_fixture_routes(request: Request, call_next):
         path = request.url.path
         allowed = {
-            "/api/v2/health",
-            "/api/v2/readiness",
-            "/api/v2/history/rounds",
-            "/api/v2/courses/search",
-            "/api/v2/courses/nearby",
-            "/api/v2/mobile/courses/options",
-            "/api/v2/caddie/context",
+            "/api/v2/health", "/api/v2/readiness", "/api/v2/history/rounds",
+            "/api/v2/history/overview", "/api/v2/history/stats/mobile",
+            "/api/v2/sync/status",
+            "/api/v2/courses/search", "/api/v2/courses/nearby",
+            "/api/v2/mobile/courses/options", "/api/v2/caddie/context",
         }
-        prefixes = (
-            "/api/v2/history/rounds/",
-            "/api/v2/courses/",
-            "/api/v2/geometry/",
-            "/api/v2/mobile/courses/",
-            "/api/v2/mobile/rounds/",
-            "/api/v2/media/target/",
-            "/api/v2/reports/round/",
+        parameterized = (
+            r"/api/v2/history/rounds/[^/]+",
+            r"/api/v2/history/rounds/[^/]+/holes/[0-9]+/shotmap",
+            r"/api/v2/courses/[0-9]+/(?:prep|tees|install/status)",
+            r"/api/v2/geometry/course/[0-9]+/coverage",
+            r"/api/v2/geometry/hole/[0-9]+/[0-9]+",
+            r"/api/v2/mobile/courses/[0-9]+/package",
+            r"/api/v2/mobile/rounds/[^/]+/package",
+            r"/api/v2/media/target/[^/]+/[^/]+",
+            r"/api/v2/reports/round/[^/]+",
         )
-        if path.startswith("/api/v2/") and path not in allowed and not path.startswith(prefixes):
+        if path.startswith("/api/v2/") and path not in allowed and not any(re.fullmatch(pattern, path) for pattern in parameterized):
             return JSONResponse(status_code=404, content={"detail": "fixture route not implemented"})
         return await call_next(request)
 app.include_router(admin_router)

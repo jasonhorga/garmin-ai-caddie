@@ -735,3 +735,15 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   the workflow waits for health and verifies shutdown. Live mode and its
   explicit backend revision gate remain unchanged. This is a bounded skeleton
   pending Opus review; no Native dispatch or production action was performed.
+- 2026-08-27: Closed the four Opus P1 fixture findings in the bounded fixture
+  implementation: the options/nearby/search producers now leave course `31795`
+  eligible for `NewCourseEvidenceResolver`; iOS/Watch tee payloads include the
+  complete Codable row shape; mobile stats plus overview/sync/install bootstrap
+  reads are fixture-backed; and fixture route isolation uses exact or
+  parameterized full-path matching with unknown nested paths failing closed.
+  Package normalization recursively binds round/course references to `900001` /
+  `31795` while retaining `ci_fixture`/`non_production` markers. Producer,
+  strict tee, package, compile, and diff-check evidence passed locally and on
+  the homeserver; the workflow contract run remains environment-limited by a
+  missing `pathspec` dependency. Current status: awaiting Opus re-review; no
+  Native dispatch, deployment, release, signing, or upload was performed.

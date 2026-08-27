@@ -49,10 +49,27 @@ def _with_markers(payload: dict) -> dict:
 
 def _package(round_id: str, global_id: int = GLOBAL_ID) -> dict:
     payload = json.loads(json.dumps(PACKAGE_TEMPLATE))
-    payload["roundId"] = round_id
+    # Keep every nested provenance/reference field on the same deterministic fixture entities.
+    def normalize(value: object, key: str | None = None) -> object:
+        if isinstance(value, dict):
+            return {k: normalize(v, k) for k, v in value.items()}
+        if isinstance(value, list):
+            return [normalize(v, key) for v in value]
+        if isinstance(value, str):
+            value = value.replace("live-round-1", ROUND_REF).replace("round-a", ROUND_REF)
+            value = value.replace("round-b", ROUND_REF).replace("round-c", ROUND_REF)
+            if key in {"roundId", "roundRef", "requestedRoundId", "selectedRoundId", "recentRoundId"}:
+                return ROUND_REF
+            return value
+        if key == "globalId" and isinstance(value, int):
+            return GLOBAL_ID
+        return value
+
+    payload = normalize(payload)
+    payload["roundId"] = ROUND_REF
     payload["dataMode"] = "ci_fixture"
     payload["sourceCoverage"]["dataMode"] = "ci_fixture"
-    payload["course"]["globalId"] = global_id
+    payload["course"]["globalId"] = GLOBAL_ID
     return _with_markers(payload)
 
 
@@ -90,7 +107,7 @@ def shotmap(round_ref: str, hole: int, includeImage: bool = True) -> dict:
 
 
 @ROUTE.get("/api/v2/courses/search")
-def course_search(name: str, city: str | None = None, holes: int | None = None) -> dict:
+def course_search(name: str, latitude: float | None = None, longitude: float | None = None, city: str | None = None, holes: int | None = None) -> dict:
     match = {"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 1.0}
     return _with_markers({"schema": "ai-caddie-course-search-v1", "query": name, "matches": [match], "courses": [match]})
 
@@ -118,13 +135,48 @@ def prep(global_id: int) -> dict:
 
 @ROUTE.get("/api/v2/courses/{global_id}/tees")
 def tees(global_id: int, ensure_release: bool = False) -> dict:
-    return _with_markers({"schema": "ai-caddie-course-tees-v1", "globalId": global_id, "tees": [{"teeBox": "blue", "yards": 6400, "isDefault": True}, {"teeBox": "white", "yards": 5900, "isDefault": False}]})
+    rows = [
+        {"teeBox": "blue", "name": "Blue", "set": 1, "yards": 6400, "holeCount": 18, "courseRating": 72.1, "slopeRating": 131, "default": True},
+        {"teeBox": "white", "name": "White", "set": 2, "yards": 5900, "holeCount": 18, "courseRating": 69.8, "slopeRating": 124, "default": False},
+    ]
+    return _with_markers({"schema": "ai-caddie-course-tees-v1", "globalId": global_id, "defaultTeeBox": "blue", "tees": rows})
 
 
 @ROUTE.get("/api/v2/mobile/courses/options")
 def options() -> dict:
-    course = {"globalId": GLOBAL_ID, "courseKey": "black_knight", "name": "Black Knight B/C", "roundCount": 2, "suggestedLiveRoundId": "live-31795", "holes": 18, "teeBox": "blue", "geometryCoverage": "ready", "sourceRefs": [ROUND_REF], "venueName": "Black Knight", "segmentHoles": 18, "tees": ["blue", "white"]}
-    return _with_markers({"schema": "ai-caddie-mobile-course-options-v1", "dataMode": "ci_fixture", "total": 1, "courses": [course], "options": [course], "generatedAt": "2026-08-27T00:00:00Z"})
+    installed = {"globalId": 41825, "courseKey": "installed-fixture", "name": "Installed Practice", "roundCount": 1, "holes": 18, "teeBox": "white", "geometryCoverage": "ready", "sourceRefs": [ROUND_REF], "venueName": "Installed Practice", "segmentHoles": 18, "tees": ["white"]}
+    return _with_markers({"schema": "ai-caddie-mobile-course-options-v1", "dataMode": "ci_fixture", "total": 1, "courses": [installed], "options": [installed], "generatedAt": "2026-08-27T00:00:00Z"})
+
+
+@ROUTE.get("/api/v2/history/stats/mobile")
+def history_stats_mobile(window: str = "all") -> dict:
+    return _with_markers({
+        "schema": "ai-caddie-mobile-stats-v1", "dataMode": "ci_fixture",
+        "summary": {"totalRounds": 1, "eighteenHoleRounds": 1, "average18": 78.0, "bestScore": 78},
+        "time": {"byYear": [], "byQuarter": [], "byMonth": [], "byDay": []},
+        "trend": {"points": [{"date": "2026-05-18", "score": 78, "roundId": ROUND_REF}]},
+        "scoring": {"outcomes": {"par": 10, "bogey": 6, "birdie": 2}},
+        "records": {}, "courses": [{"courseKey": "31795", "courseName": "Black Knight B/C", "roundCount": 1, "recentRoundId": ROUND_REF}],
+        "clubs": [{"club": "1D", "sampleCount": 1, "median": 210.0}], "diagnosis": {}, "playerProfile": {}, "dataQuality": [],
+    })
+
+
+@ROUTE.get("/api/v2/history/overview")
+def history_overview() -> dict:
+    return _with_markers({"schema": "ai-caddie-history-overview-v1", "summary": {"totalRounds": 1}, "recentRounds": []})
+
+
+@ROUTE.get("/api/v2/sync/status")
+def sync_status() -> dict:
+    return _with_markers({"schema": "ai-caddie-sync-status-v2", "status": "ok", "lastRun": None})
+
+
+@ROUTE.get("/api/v2/courses/{global_id}/install/status")
+def install_status(global_id: int, tee_box: str = "blue", nine: str = "all") -> dict:
+    return _with_markers({"schema": "ai-caddie-course-install-v1", "jobId": "fixture-install", "globalId": global_id,
+                          "teeBox": tee_box, "nine": nine, "phase": "ready", "stage": "complete",
+                          "totalHoles": 18, "geometryReady": 18, "topoReady": 18, "updatedAt": "2026-08-27T00:00:00Z",
+                          "error": None, "holes": []})
 
 
 @ROUTE.get("/api/v2/mobile/courses/{global_id}/package")
@@ -134,7 +186,7 @@ def course_package(global_id: int) -> dict:
 
 @ROUTE.get("/api/v2/mobile/rounds/{round_id}/package")
 def round_package(round_id: str) -> dict:
-    return _package(round_id)
+    return _package(ROUND_REF)
 
 
 @ROUTE.get("/api/v2/caddie/context")
