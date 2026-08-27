@@ -100,6 +100,12 @@ transport failures are live-ingress/runtime evidence, and the remaining
 TeeSelection assertion requires a focused reproduction before any code change.
 Native runtime evidence therefore remains open and TestFlight workflows remain
 unrun.
+The GPS fallback failure is a confirmed startup sequencing bug: when no cached
+package exists, `bootstrap()` kept the root loading gate active while awaiting
+the best-effort course-options refresh. The minimal fix in the current working
+tree releases `isBootstrapping` immediately after Phase 1, preserving the
+background refresh and leaving all live API assertions unchanged. A fresh
+Native rerun is required to verify the fix; no release flags are enabled.
 
 Only one task may become `in-progress` at a time. Update this file before
 starting the next slice.
@@ -575,3 +581,9 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   and one authorized-GPS tee-selector availability assertion. Screenshot,
   design-snapshot, and video artifacts uploaded; Watch runtime stages were
   skipped. No product code change was made pending focused reproduction.
+- 2026-08-27: Diagnosed the authorized-GPS failure as a real no-cache startup
+  sequencing bug: Phase 2 network refresh held the root loading gate, hiding
+  the new-round fallback for up to the request timeout. Added the minimal
+  post-Phase-1 `isBootstrapping = false` fix in `AICaddieApp.swift`; remote
+  homeserver Python compileall passed, while Swift/Xcode verification remains
+  pending on Native CI.

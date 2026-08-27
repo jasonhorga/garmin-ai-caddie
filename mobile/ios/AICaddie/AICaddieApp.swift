@@ -677,6 +677,11 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.storage.info("Phase-1 cache bootstrap skipped: \(String(describing: error), privacy: .public)")
         }
 
+        // With no cache, the root can still show the new-round catalogue fallback while the
+        // best-effort course/history refresh runs. A slow or unavailable backend must not hide the
+        // primary start action behind the bootstrap loading screen.
+        isBootstrapping = false
+
         // Phase 2 — BACKGROUND refresh (network): course options + a fresh active/home package.
         // Runs after the menu is already on screen (when a cache existed), so it never delays it.
         await refreshCourseOptions()
