@@ -216,6 +216,14 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(len({body["map"]["overlay"]["ln"] for body in maps}), 18)
         detail = history_detail("home-3881")
         self.assertEqual({row["hole"] for row in detail["holeDetails"]}, set(range(1, 19)))
+        self.assertEqual(package["sourceCoverage"]["holeCount"], 18)
+        self.assertEqual(package["geometryCoverage"], {"state": "ready", "readyHoles": 18, "totalHoles": 18})
+        self.assertEqual({seed["hole"] for seed in package["caddieContextSeeds"]}, set(range(1, 19)))
+        for hole in range(1, 19):
+            decision = __import__("server_v2.ci_fixture", fromlist=["caddie_decision"]).caddie_decision({"shotType": "approach", "context": {"roundId": "home-3881", "globalId": 3881, "hole": hole, "localHole": hole, "sourceRef": f"home-3881:{hole}"}})
+            self.assertEqual(decision["context"]["globalId"], 3881)
+            self.assertEqual(decision["sourceRef"], f"home-3881:{hole}")
+            self.assertEqual(decision["selected"]["sourceRef"], f"home-3881:{hole}")
 
     def test_fixture_dynamic_round_forms_are_strictly_scoped(self) -> None:
         try:
