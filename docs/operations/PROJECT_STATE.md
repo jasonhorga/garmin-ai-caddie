@@ -607,3 +607,13 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   (49,535,922 bytes), and design-snapshots (3,699,371 bytes). Watch setup and
   runtime stages were skipped after the live iOS step failed, so Watch remains
   unverified. No product, production-data, or release-workflow change was made.
+- 2026-08-27: Audited the denied-GPS failure at `dc308361`. The catalogue row
+  `course-catalog-result-31793` was found and tapped, while the following
+  `start-round-course-segment-31793` row never appeared within 12 seconds.
+  `MobileCourseSearchMatch.courseOption`, `selectSearchResult`, and
+  `segmentRow` all preserve the same global ID, so no fixture-ID or
+  accessibility-label mismatch is established. The failure is currently an
+  isolated live SwiftUI state/navigation timing issue; no timeout relaxation,
+  assertion weakening, or product change is justified without a focused
+  reproduction. Remote exact-SHA Python compileall and `git diff --check`
+  passed; the temporary scratch was removed.
