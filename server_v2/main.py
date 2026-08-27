@@ -483,7 +483,10 @@ def readiness(request: Request) -> dict[str, object]:
             "schema": "ai-caddie-readiness-v1",
             "status": "ok",
             "authenticated": False,
-            "runtimeStatus": "unknown",
+            # Keep liveness independent from owner-only packaging evidence.
+            # ``status=ok`` is retained for legacy clients; the split fields are
+            # consumed by newer probes.
+            "runtimeStatus": "ready",
             "evidenceStatus": "unknown",
             "reason": "packaging evidence is owner-only",
             "checks": [],

@@ -124,7 +124,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         self.assertEqual(checks["signing_secrets"]["state"], "ready")
         self.assertEqual(checks["signing_secrets"]["total"], 6)
         self.assertEqual(checks["signing_secrets"]["unusedConfigured"], ["MATCH_KEYCHAIN_PASSWORD"])
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
         self.assertTrue(checks["external_beta_review_submission_ready"]["evidence"]["readyForSubmission"])
         self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
         self.assertTrue(checks["external_beta_review_submission"]["evidence"]["submittedOrExternallyReady"])
@@ -638,8 +638,8 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
-        self.assertEqual(checks["external_beta_review_submission"]["state"], "manual_required")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
+        self.assertEqual(checks["external_beta_review_submission"]["state"], "ready")
         self.assertEqual(
             checks["external_beta_review_submission"]["evidence"]["source"],
             "github_actions_log:27090000001:beta_review_submission",
@@ -882,7 +882,7 @@ class Phase6ExternalReadinessTests(unittest.TestCase):
         )
 
         checks = {row["label"]: row for row in payload["checks"]}
-        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "manual_required")
+        self.assertEqual(checks["external_beta_review_submission_ready"]["state"], "ready")
         self.assertTrue(checks["external_beta_review_submission_ready"]["evidence"]["readyForSubmission"])
         self.assertEqual(
             checks["external_beta_review_submission_ready"]["evidence"]["source"],

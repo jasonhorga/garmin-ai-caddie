@@ -44,6 +44,14 @@ on:
         description: 'TestFlight build number to which manual evidence applies'
         required: false
         default: ''
+      release_provenance_path:
+        description: 'Path to the IPA sidecar release-provenance.json'
+        required: false
+        default: ''
+      release_provenance_run_id:
+        description: 'Completed iOS workflow run ID containing the provenance artifact'
+        required: false
+        default: ''
       tester_coverage_confirmed:
         description: 'Internal/external tester coverage has been independently confirmed'
         required: true
@@ -87,6 +95,7 @@ jobs:
       NATIVE_RUNTIME_API_CONFIGURED: ${{ github.event.inputs.native_runtime_api_configured }}
       ASSIGNED_TESTER_COUNT: ${{ github.event.inputs.assigned_tester_count }}
       AI_CADDIE_TESTFLIGHT_BUILD_NUMBER: ${{ github.event.inputs.testflight_build_number }}
+      AI_CADDIE_RELEASE_PROVENANCE_PATH: ${{ github.event.inputs.release_provenance_path }}
       TESTER_COVERAGE_CONFIRMED: ${{ github.event.inputs.tester_coverage_confirmed }}
       INSTALL_VERIFIED: ${{ github.event.inputs.install_verified }}
       FAIL_WHEN_INCOMPLETE: ${{ github.event.inputs.fail_when_incomplete }}
@@ -97,6 +106,15 @@ jobs:
         with:
           prune-cache: false
 
+      - name: Download release provenance artifact
+        if: ${{ github.event.inputs.release_provenance_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: AICaddie-ipa
+          path: ${{ runner.temp }}/release-provenance
+          github-token: ${{ secrets.PHASE6_GH_TOKEN || github.token }}
+          run-id: ${{ github.event.inputs.release_provenance_run_id }}
+
       - name: Install Python dependencies
         run: uv sync --frozen
 
@@ -105,6 +123,13 @@ jobs:
           set -euo pipefail
           args=(ops/phase6_external_readiness.py)
           args+=(--branch "$GITHUB_REF_NAME")
+          if [ -z "$AI_CADDIE_RELEASE_PROVENANCE_PATH" ] && [ -n "${{ github.event.inputs.release_provenance_run_id }}" ]; then
+            AI_CADDIE_RELEASE_PROVENANCE_PATH="$RUNNER_TEMP/release-provenance/release-provenance.json"
+            export AI_CADDIE_RELEASE_PROVENANCE_PATH
+          fi
+          if [ -n "$AI_CADDIE_RELEASE_PROVENANCE_PATH" ]; then
+            test -f "$AI_CADDIE_RELEASE_PROVENANCE_PATH"
+          fi
           if [ -n "$PHASE6_API_BASE_URL_INPUT" ]; then
             args+=(--api-base-url "$PHASE6_API_BASE_URL_INPUT")
           fi
