@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from datetime import UTC, datetime, timedelta
 import io
 import ipaddress
@@ -54,6 +55,14 @@ GITHUB_NATIVE_API_SOURCE = f"github_variable:{REQUIRED_NATIVE_API_VARIABLE}"
 
 def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _state_from_checks(checks: list[dict[str, Any]]) -> str:
@@ -140,6 +149,9 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
         return {"label": "release_provenance", "state": "degraded", "reason": "release provenance manifest is unreadable"}
     if not isinstance(payload, dict):
         return {"label": "release_provenance", "state": "degraded", "reason": "release provenance manifest is invalid"}
+    expected_run = str(env.get("RELEASE_PROVENANCE_RUN_ID") or "").strip()
+    if expected_run and str(payload.get("workflowRun") or "") != expected_run:
+        return {"label": "release_provenance", "state": "degraded", "reason": "provenance workflow run mismatch"}
     issues: list[str] = []
     if payload.get("schema") != RELEASE_PROVENANCE_SCHEMA:
         issues.append("schema_mismatch")
@@ -189,6 +201,13 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
     ipa_sha = str(payload.get("ipaSha256") or "")
     if not re.fullmatch(r"[0-9a-fA-F]{64}", ipa_sha):
         issues.append("ipa_sha256_invalid")
+    ipa_path = str(env.get("AI_CADDIE_RELEASE_IPA_PATH") or "").strip()
+    if ipa_path:
+        candidate = Path(ipa_path)
+        if not candidate.is_file():
+            issues.append("ipa_missing")
+        elif _sha256(candidate) != ipa_sha:
+            issues.append("ipa_sha256_mismatch")
     safe = {key: payload.get(key) for key in ("schema", "commit", "workflowRun", "marketingVersion", "buildNumber", "apiOriginHost", "backendRevision", "backendRevisionVerified", "ipaSha256", "uploadToTestflight", "uploadRequested", "uploadCompleted", "createdAt")}
     return {"label": "release_provenance", "state": "ready" if not issues else "degraded", "reason": None if not issues else "invalid release provenance manifest", "evidence": {**safe, "issues": sorted(set(issues))}}
 
@@ -384,6 +403,7 @@ def fetch_testflight_actions_summary(
     token: str,
     branch: str = DEFAULT_BRANCH,
     timeout_s: float = 20.0,
+    expected_build: str | None = None,
 ) -> dict[str, Any]:
     runs_payload = _github_api_get(
         repo,
@@ -411,6 +431,8 @@ def fetch_testflight_actions_summary(
         except (OSError, error.URLError, TimeoutError, zipfile.BadZipFile):
             summary = None
         if summary is not None:
+            if expected_build and str(summary.get("build") or "").split(" ", 1)[0].strip("(") != expected_build:
+                continue
             if summary.get("readyForBetaSubmission") is True and aggregate.get("readyForBetaSubmission") is not True:
                 aggregate.update({
                     key: value
@@ -490,7 +512,7 @@ def fetch_github_snapshot(
         partial_reasons["variableNames"] = _github_error_reason("GitHub Actions variables metadata", exc)
 
     try:
-        testflight_actions = fetch_testflight_actions_summary(repo=repo, token=token, branch=branch, timeout_s=timeout_s)
+        testflight_actions = fetch_testflight_actions_summary(repo=repo, token=token, branch=branch, timeout_s=timeout_s, expected_build=os.environ.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER"))
     except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         testflight_actions = {
             "available": False,
