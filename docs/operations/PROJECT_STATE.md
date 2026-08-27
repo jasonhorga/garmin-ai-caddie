@@ -979,3 +979,17 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   rerun was dispatched. The owner no longer needs to configure
   `AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN`; an external fixture endpoint would still
   require its own explicitly protected credential.
+- 2026-08-27: Opus token review P1 follow-up is implemented. Every iOS,
+  real-capture, screenshot collection/scan/upload, and native evidence scan
+  step now explicitly requires `steps.start_fixture.outcome == 'success'` in
+  fixture mode; the evidence writer remains `always()` but receives fixture
+  mode and start outcome and forces both iOS and Watch statuses to `skipped`
+  for failure/cancel/skipped startup, preventing default `passed` evidence.
+  Watch gates remain aligned. Watch runtime token delivery now exports
+  `SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN` once in the shell before `xcrun`; no
+  token assignment appears in the utility command invocation. iOS receives
+  the same masked job environment without token command-line arguments.
+  Remote focused workflow/fixture tests passed 3/3, remote `compileall`
+  passed, and local YAML/bash syntax plus `git diff --check` passed. No Native
+  rerun, release, TestFlight, deploy, signing, or production action occurred;
+  the temporary homeserver snapshot was removed.

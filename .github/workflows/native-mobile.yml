@@ -107,7 +107,7 @@ jobs:
           printf 'ARTIFACT_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
       - name: Test iOS app target
         id: test_ios_app
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit'
+        if: ${{ (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         run: |
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
@@ -236,17 +236,17 @@ jobs:
           test "$FRAMEWORK_STATUS" -ne 0
           grep -F "no such module 'SwiftJCS'" <<< "$FRAMEWORK_DIAGNOSTIC"
       - name: Collect design snapshots
-        if: always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit')
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         run: |
           mkdir -p design-snapshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/design-snapshots/*.png" -exec cp {} design-snapshots/ \; 2>/dev/null || true
           ls -la design-snapshots || true
       - name: Scan design snapshots for secret bytes
         id: scan_design_snapshots
-        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit'
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN design-snapshots
       - name: Upload design snapshots
-        if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_design_snapshots.outcome == 'success'))
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_design_snapshots.outcome == 'success')) && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         uses: actions/upload-artifact@v4
         with:
           name: design-snapshots
@@ -268,7 +268,7 @@ jobs:
         id: real_ios_capture
         # On-demand only (XCUITest + live-funnel + watch simctl add ~10min) — trigger with
         # `gh workflow run native-mobile.yml --ref <branch>`; regular PRs stay fast.
-        if: github.event_name == 'workflow_dispatch'
+        if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         timeout-minutes: 90
         env:
           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
@@ -339,7 +339,7 @@ jobs:
           ls -la real-videos || true
           exit "$TEST_STATUS"
       - name: Collect real screenshots
-        if: always() && github.event_name == 'workflow_dispatch'
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         run: |
           mkdir -p real-screenshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/real-screenshots/*" -exec cp {} real-screenshots/ \; 2>/dev/null || true
@@ -366,20 +366,20 @@ jobs:
           ls -la real-screenshots || true
       - name: Scan real Native evidence for secret bytes
         id: scan_real_native_evidence
-        if: always() && github.event_name == 'workflow_dispatch'
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         run: >-
           python3 .github/scripts/scan_artifacts_for_secrets.py
           --secret-env ARTIFACT_ADMIN_TOKEN
           real-screenshots real-videos
       - name: Upload real screenshots
-        if: always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success'
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         uses: actions/upload-artifact@v4
         with:
           name: real-screenshots
           path: real-screenshots/
           if-no-files-found: warn
       - name: Upload real video
-        if: always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success'
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         uses: actions/upload-artifact@v4
         with:
           name: real-video
@@ -493,13 +493,13 @@ jobs:
           xcrun simctl install "$WATCH_UDID" "$APP"
           xcrun simctl privacy "$WATCH_UDID" grant location "$BID"
           mkdir -p watch-real-screenshots
+          export SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN="$AI_CADDIE_ADMIN_TOKEN"
 
           launch_and_capture() {
             local mode="$1"
             local screenshot="$2"
             local launch_output
             if ! launch_output=$(env \
-              SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN="$AI_CADDIE_ADMIN_TOKEN" \
               SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
               SIMCTL_CHILD_UITEST_GPS_LON=116.5461531 \
               xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$mode" 2>&1); then
@@ -542,6 +542,8 @@ jobs:
           IOS_TARGET_OUTCOME: ${{ steps.test_ios_app.outcome }}
           IOS_CAPTURE_OUTCOME: ${{ steps.real_ios_capture.outcome }}
           WATCH_TEST_OUTCOME: ${{ steps.test_watch_app.outcome }}
+          FIXTURE_MODE: ${{ inputs.fixture_mode }}
+          FIXTURE_START_OUTCOME: ${{ steps.start_fixture.outcome }}
         run: |
           status_from_outcome() {
             case "$1" in
@@ -554,18 +556,24 @@ jobs:
           if [[ "$IOS_TARGET_OUTCOME" == "success" && "$NATIVE_EVENT_NAME" == "workflow_dispatch" ]]; then
             ios_status="$(status_from_outcome "$IOS_CAPTURE_OUTCOME")"
           fi
+          if [[ "$FIXTURE_MODE" == "true" && "$FIXTURE_START_OUTCOME" != "success" ]]; then
+            ios_status="skipped"
+          fi
           watch_status="passed"
           if [[ "$NATIVE_EVENT_NAME" == "workflow_dispatch" && "$NATIVE_CAPTURE_SCOPE" != "full" ]]; then
             watch_status="skipped"
           else
             watch_status="$(status_from_outcome "$WATCH_TEST_OUTCOME")"
           fi
+          if [[ "$FIXTURE_MODE" == "true" && "$FIXTURE_START_OUTCOME" != "success" ]]; then
+            watch_status="skipped"
+          fi
           fixture_arg=""
           if [[ "${{ inputs.fixture_mode }}" == "true" ]]; then fixture_arg="--data-mode ci_fixture"; fi
           python3 ops/write_native_build_evidence.py --ios-status "$ios_status" --watch-status "$watch_status" $fixture_arg
       - name: Scan native build evidence for secret bytes
         id: scan_native_build_evidence
-        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit'
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN mobile/ios/native_build_evidence.json
       - name: Upload native build evidence
         if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_native_build_evidence.outcome == 'success'))

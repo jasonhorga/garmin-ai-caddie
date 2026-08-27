@@ -528,6 +528,17 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("-project mobile/ios/AICaddieNative.xcodeproj", ios_test)
         self.assertIn("-scheme AICaddie", ios_test)
         self.assertIn('-destination "$IOS_DESTINATION"', ios_test)
+        for name in (
+            "Test iOS app target",
+            "Real-simulator screenshots (iOS, XCUITest against live backend)",
+            "Collect design snapshots",
+            "Scan design snapshots for secret bytes",
+            "Scan real Native evidence for secret bytes",
+            "Upload real screenshots",
+            "Upload real video",
+            "Scan native build evidence for secret bytes",
+        ):
+            self.assertIn("steps.start_fixture.outcome == 'success'", steps[name]["if"])
 
         watch_test = steps["Test Watch app target"]["run"]
         self.assertIn("xcodebuild test", watch_test)
@@ -543,9 +554,17 @@ class CIWorkflowTests(unittest.TestCase):
                 "IOS_TARGET_OUTCOME": "${{ steps.test_ios_app.outcome }}",
                 "IOS_CAPTURE_OUTCOME": "${{ steps.real_ios_capture.outcome }}",
                 "WATCH_TEST_OUTCOME": "${{ steps.test_watch_app.outcome }}",
+                "FIXTURE_MODE": "${{ inputs.fixture_mode }}",
+                "FIXTURE_START_OUTCOME": "${{ steps.start_fixture.outcome }}",
             },
             evidence_step["env"],
         )
+        self.assertEqual("${{ inputs.fixture_mode }}", evidence_step["env"]["FIXTURE_MODE"])
+        self.assertEqual("${{ steps.start_fixture.outcome }}", evidence_step["env"]["FIXTURE_START_OUTCOME"])
+        evidence_run = evidence_step["run"]
+        self.assertIn('FIXTURE_START_OUTCOME" != "success"', evidence_run)
+        self.assertIn('ios_status="skipped"', evidence_run)
+        self.assertIn('watch_status="skipped"', evidence_run)
         self.assertTrue(steps["Resolve and boot Watch test simulator"]["if"].startswith("${{ always()"))
         self.assertTrue(steps["Test Watch app target"]["if"].startswith("${{ always()"))
         self.assertTrue(steps["Real Watch round seed and restore screenshots"]["if"].startswith("${{ always()"))
@@ -557,6 +576,9 @@ class CIWorkflowTests(unittest.TestCase):
         ):
             self.assertIn("steps.start_fixture.outcome == 'success'", steps[name]["if"])
         self.assertIn("steps.test_ios_app.outcome == 'success'", steps["Verify SwiftJCS consumer boundaries"]["if"])
+        watch_runtime = steps["Real Watch round seed and restore screenshots"]["run"]
+        self.assertIn('export SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN="$AI_CADDIE_ADMIN_TOKEN"', watch_runtime)
+        self.assertNotIn('SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN=', watch_runtime.split('export SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN=', 1)[1])
         self.assertEqual("test_ios_app", steps["Test iOS app target"]["id"])
         self.assertEqual("real_ios_capture", steps["Real-simulator screenshots (iOS, XCUITest against live backend)"]["id"])
         self.assertIn('watch_status="passed"', evidence_step["run"])
