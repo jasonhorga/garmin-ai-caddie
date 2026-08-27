@@ -91,14 +91,22 @@ jobs:
       NATIVE_RUNTIME_API_CONFIGURED: ${{ github.event.inputs.native_runtime_api_configured }}
       ASSIGNED_TESTER_COUNT: ${{ github.event.inputs.assigned_tester_count }}
       AI_CADDIE_TESTFLIGHT_BUILD_NUMBER: ${{ github.event.inputs.testflight_build_number }}
-      AI_CADDIE_RELEASE_PROVENANCE_PATH: ${{ runner.temp }}/release-provenance/release-provenance.json
-      AI_CADDIE_RELEASE_IPA_PATH: ${{ runner.temp }}/release-provenance/AICaddie.ipa
       RELEASE_PROVENANCE_RUN_ID: ${{ github.event.inputs.release_provenance_run_id }}
       TESTER_COVERAGE_CONFIRMED: ${{ github.event.inputs.tester_coverage_confirmed }}
       INSTALL_VERIFIED: ${{ github.event.inputs.install_verified }}
       FAIL_WHEN_INCOMPLETE: ${{ github.event.inputs.fail_when_incomplete }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Initialize release evidence paths
+        run: |
+          set -euo pipefail
+          evidence_dir="$GITHUB_WORKSPACE/.phase6-release-provenance"
+          mkdir -p "$evidence_dir"
+          {
+            printf 'AI_CADDIE_RELEASE_PROVENANCE_PATH=%s\n' "$evidence_dir/release-provenance.json"
+            printf 'AI_CADDIE_RELEASE_IPA_PATH=%s\n' "$evidence_dir/AICaddie.ipa"
+          } >> "$GITHUB_ENV"
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -109,7 +117,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: AICaddie-ipa
-          path: ${{ runner.temp }}/release-provenance
+          path: ${{ github.workspace }}/.phase6-release-provenance
           github-token: ${{ secrets.PHASE6_GH_TOKEN || github.token }}
           run-id: ${{ env.RELEASE_PROVENANCE_RUN_ID }}
 
