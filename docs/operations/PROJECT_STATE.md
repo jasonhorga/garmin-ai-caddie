@@ -599,3 +599,11 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   bytes), real-screenshots (3,948,540 bytes), and design-snapshots (3,699,371
   bytes); Watch runtime stages were skipped. No production data or release
   workflow was changed.
+- 2026-08-27: Native rerun `33082852454` at `65b47180` passed deterministic iOS
+  gates and the live `RealFlow` and `ReviewEdit` journeys. Six of seven
+  TeeSelection tests passed; `testDeniedGPSStillOffersCatalogueSearchInsteadOfHistory`
+  failed at `TeeSelectionUITests.swift:242` with an `XCTAssertTrue` failure.
+  The run uploaded real-video (228,180,095 bytes), real-screenshots
+  (49,535,922 bytes), and design-snapshots (3,699,371 bytes). Watch setup and
+  runtime stages were skipped after the live iOS step failed, so Watch remains
+  unverified. No product, production-data, or release-workflow change was made.
