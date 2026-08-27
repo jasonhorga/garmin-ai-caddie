@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import plistlib
 from urllib.parse import urlparse
+import zipfile
 
 SCHEMA = "ai-caddie-release-provenance-v1"
 
@@ -32,13 +33,12 @@ def _sha256(path: Path) -> str:
 
 def _build_number(ipa: Path) -> str:
     try:
-        import zipfile
         with zipfile.ZipFile(ipa) as archive:
             candidates = [name for name in archive.namelist() if name.endswith(".app/Info.plist")]
             if candidates:
                 payload = plistlib.loads(archive.read(candidates[0]))
                 return str(payload.get("CFBundleVersion") or "")
-    except (OSError, ValueError, KeyError, plistlib.InvalidFileException):
+    except (OSError, ValueError, KeyError, plistlib.InvalidFileException, zipfile.BadZipFile):
         pass
     return ""
 
