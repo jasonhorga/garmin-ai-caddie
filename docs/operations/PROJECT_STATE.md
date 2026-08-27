@@ -961,3 +961,21 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   iOS and Watch evidence markers; never print the token or reuse the production
   `AI_CADDIE_ADMIN_TOKEN`. No release, TestFlight, deploy, signing, or
   production mutation occurred.
+- 2026-08-27: Replaced the missing-secret dependency with self-contained
+  fixture-mode token wiring. Native workflow fixture startup now generates one
+  64-hex-byte token from runner `openssl rand -hex 32`, fail-closes when
+  `openssl` is unavailable or output format is invalid, masks it immediately,
+  exports it for the launcher, and writes only masked job environment names to
+  `GITHUB_ENV`. The same job-scoped token is inherited by iOS, Watch, and
+  artifact secret scans; Watch launches explicitly forward it through
+  `SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN`. Live mode uses a separate
+  `Configure live native auth` step and the protected `AI_CADDIE_ADMIN_TOKEN`
+  secret, so fixture generation cannot affect live endpoint/token selection.
+  `ops/run_ci_fixture.sh` retains CI/debug, non-empty token, private profile,
+  and loopback guards; no default, CLI token, anonymous route, or production
+  fallback was added. Missing token/start failure leaves dependent iOS/Watch
+  stages skipped and evidence non-passed. Remote focused workflow/fixture
+  behavior tests passed 3/3, remote Python compilation passed, and no Native
+  rerun was dispatched. The owner no longer needs to configure
+  `AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN`; an external fixture endpoint would still
+  require its own explicitly protected credential.

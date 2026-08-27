@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 import json
+import os
+import subprocess
 
 from ai_caddie.core.fixtures import fixture_history_data
 
@@ -397,7 +399,7 @@ class CIFixtureContractTests(unittest.TestCase):
 
         self.assertIn("AI_CADDIE_SECURITY_PROFILE=private", script)
         self.assertIn("AI_CADDIE_DATA_MODE=fixture", script)
-        self.assertIn("AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN", workflow)
+        self.assertNotIn("AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN", workflow)
         self.assertIn("::add-mask::", workflow)
         self.assertNotIn("ci-fixture-admin-token", workflow)
         self.assertNotIn("AI_CADDIE_ADMIN_TOKEN=", workflow.split("Start isolated CI fixture", 1)[0])
@@ -405,6 +407,19 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertIn("--data-mode ci_fixture", workflow)
         self.assertIn("fixture host must be loopback", script)
         self.assertIn("fixture route not implemented", Path("server_v2/main.py").read_text(encoding="utf-8"))
+
+    def test_fixture_entrypoint_rejects_empty_token_at_runtime(self) -> None:
+        result = subprocess.run(
+            ["bash", "ops/run_ci_fixture.sh"],
+            env={"CI": "true", "PATH": os.environ.get("PATH", "")},
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 64)
+        self.assertIn("AI_CADDIE_ADMIN_TOKEN is required", result.stderr)
+        self.assertNotIn("AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN", result.stderr)
 
     def test_existing_fixture_file_remains_non_sensitive(self) -> None:
         fixture = Path("tests/fixtures/shots_scatter_round.json").read_text(encoding="utf-8")

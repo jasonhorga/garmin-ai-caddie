@@ -505,7 +505,17 @@ class CIWorkflowTests(unittest.TestCase):
         steps = {step.get("name"): step for step in native["steps"]}
         self.assertIn("Start isolated CI fixture", steps)
         self.assertEqual("start_fixture", steps["Start isolated CI fixture"]["id"])
-        self.assertIn("AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN", steps["Start isolated CI fixture"]["env"]["AI_CADDIE_ADMIN_TOKEN"])
+        fixture_start = steps["Start isolated CI fixture"]["run"]
+        self.assertIn("openssl rand -hex 32", fixture_start)
+        self.assertIn("command -v openssl", fixture_start)
+        self.assertIn('echo "::add-mask::$FIXTURE_TOKEN"', fixture_start)
+        self.assertIn("AI_CADDIE_ADMIN_TOKEN=%s", fixture_start)
+        self.assertIn("TEST_RUNNER_AI_CADDIE_ADMIN_TOKEN=%s", fixture_start)
+        self.assertIn("ARTIFACT_ADMIN_TOKEN=%s", fixture_start)
+        self.assertIn('export AI_CADDIE_ADMIN_TOKEN="$FIXTURE_TOKEN"', fixture_start)
+        self.assertNotIn("AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN", fixture_start)
+        self.assertIn("Configure live native auth", steps)
+        self.assertIn("secrets.AI_CADDIE_ADMIN_TOKEN", steps["Configure live native auth"]["env"]["LIVE_ADMIN_TOKEN"])
         self.assertEqual("brew install xcodegen", steps["Install XcodeGen"]["run"])
         self.assertEqual(
             "xcodegen generate --spec mobile/ios/project.yml --project-root .",

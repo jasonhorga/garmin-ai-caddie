@@ -71,13 +71,18 @@ jobs:
       - name: Start isolated CI fixture
         id: start_fixture
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.fixture_mode }}
-        env:
-          AI_CADDIE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "$AI_CADDIE_ADMIN_TOKEN"
-          echo "::add-mask::$AI_CADDIE_ADMIN_TOKEN"
-          echo "AI_CADDIE_ADMIN_TOKEN=$AI_CADDIE_ADMIN_TOKEN" >> "$GITHUB_ENV"
+          command -v openssl >/dev/null 2>&1 || { echo "openssl is required for fixture token generation" >&2; exit 1; }
+          FIXTURE_TOKEN="$(openssl rand -hex 32 2>/dev/null)" || { echo "fixture token generation failed" >&2; exit 1; }
+          [[ "$FIXTURE_TOKEN" =~ ^[0-9a-f]{64}$ ]] || { echo "fixture token format validation failed" >&2; exit 1; }
+          echo "::add-mask::$FIXTURE_TOKEN"
+          export AI_CADDIE_ADMIN_TOKEN="$FIXTURE_TOKEN"
+          {
+            printf 'AI_CADDIE_ADMIN_TOKEN=%s\n' "$FIXTURE_TOKEN"
+            printf 'TEST_RUNNER_AI_CADDIE_ADMIN_TOKEN=%s\n' "$FIXTURE_TOKEN"
+            printf 'ARTIFACT_ADMIN_TOKEN=%s\n' "$FIXTURE_TOKEN"
+          } >> "$GITHUB_ENV"
           export CI=true AI_CADDIE_FIXTURE_PORT=9000
           nohup ops/run_ci_fixture.sh > "$RUNNER_TEMP/ai-caddie-fixture.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/ai-caddie-fixture.pid"
@@ -89,6 +94,17 @@ jobs:
           done
           echo "fixture health check failed" >&2
           exit 1
+      - name: Configure live native auth
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.fixture_mode }}
+        env:
+          LIVE_ADMIN_TOKEN: ${{ secrets.AI_CADDIE_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$LIVE_ADMIN_TOKEN"
+          echo "::add-mask::$LIVE_ADMIN_TOKEN"
+          printf 'AI_CADDIE_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
+          printf 'TEST_RUNNER_AI_CADDIE_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
+          printf 'ARTIFACT_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
       - name: Test iOS app target
         id: test_ios_app
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit'
@@ -228,8 +244,6 @@ jobs:
       - name: Scan design snapshots for secret bytes
         id: scan_design_snapshots
         if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit'
-        env:
-          ARTIFACT_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN design-snapshots
       - name: Upload design snapshots
         if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_design_snapshots.outcome == 'success'))
@@ -260,14 +274,12 @@ jobs:
           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
           # (the plain forms are a fallback in case they propagate too). The test reads both.
           TEST_RUNNER_AI_CADDIE_API_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
-          TEST_RUNNER_AI_CADDIE_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
           TEST_RUNNER_UITEST_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
           TEST_RUNNER_UITEST_REVIEW_ROUND_REF: ${{ github.event.inputs.review_round_ref || '' }}
           # 北京丽宫第 1 洞蓝 T (from the decoded CourseView hole anchor + tee coordinates).
           TEST_RUNNER_UITEST_GPS_LAT: '40.0454995'
           TEST_RUNNER_UITEST_GPS_LON: '116.5461531'
           AI_CADDIE_API_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
-          AI_CADDIE_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
           UITEST_CAPTURE_SCOPE: ${{ github.event.inputs.capture_scope || 'full' }}
           UITEST_REVIEW_ROUND_REF: ${{ github.event.inputs.review_round_ref || '' }}
           UITEST_GPS_LAT: '40.0454995'
@@ -355,8 +367,6 @@ jobs:
       - name: Scan real Native evidence for secret bytes
         id: scan_real_native_evidence
         if: always() && github.event_name == 'workflow_dispatch'
-        env:
-          ARTIFACT_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: >-
           python3 .github/scripts/scan_artifacts_for_secrets.py
           --secret-env ARTIFACT_ADMIN_TOKEN
@@ -433,8 +443,6 @@ jobs:
       - name: Scan Watch design snapshots for secret bytes
         id: scan_watch_snapshots
         if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
-        env:
-          ARTIFACT_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-snapshots
       - name: Upload Watch design snapshots
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope == 'full' && steps.scan_watch_snapshots.outcome == 'success')) && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
@@ -491,6 +499,7 @@ jobs:
             local screenshot="$2"
             local launch_output
             if ! launch_output=$(env \
+              SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN="$AI_CADDIE_ADMIN_TOKEN" \
               SIMCTL_CHILD_UITEST_GPS_LAT=40.0454995 \
               SIMCTL_CHILD_UITEST_GPS_LON=116.5461531 \
               xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen "$mode" 2>&1); then
@@ -517,8 +526,6 @@ jobs:
       - name: Scan Watch runtime screenshots for secret bytes
         id: scan_watch_real_screenshots
         if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
-        env:
-          ARTIFACT_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-real-screenshots
       - name: Upload watch real screenshots
         if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && steps.scan_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
@@ -559,8 +566,6 @@ jobs:
       - name: Scan native build evidence for secret bytes
         id: scan_native_build_evidence
         if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit'
-        env:
-          ARTIFACT_ADMIN_TOKEN: ${{ inputs.fixture_mode && secrets.AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN || secrets.AI_CADDIE_ADMIN_TOKEN }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN mobile/ios/native_build_evidence.json
       - name: Upload native build evidence
         if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_native_build_evidence.outcome == 'success'))
