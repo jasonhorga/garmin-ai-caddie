@@ -136,7 +136,11 @@ class ReleaseEvidencePipelineTests(unittest.TestCase):
                 mutated[field] = value
                 manifest.write_text(json.dumps(mutated), encoding="utf-8")
                 check = build_phase6_external_readiness(env=env_base)
-            self.assertEqual(next(row for row in check["checks"] if row["label"] == "release_provenance")["state"], "degraded", field)
+                self.assertEqual(
+                    next(row for row in check["checks"] if row["label"] == "release_provenance")["state"],
+                    "degraded",
+                    field,
+                )
             manifest.write_text(json.dumps(baseline), encoding="utf-8")
 
     def test_testflight_marketing_version_and_run_identity_fail_closed(self) -> None:
