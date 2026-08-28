@@ -2079,7 +2079,10 @@ final class LiveRoundAppModelTests: XCTestCase {
             toPar: 1,
             holesCompleted: 1,
             globalId: fixture.package.course.globalId,
-            sourceRefs: [fixture.package.roundId]
+            sourceRefs: [fixture.package.roundId],
+            backGlobalId: nil,
+            nine: nil,
+            teeBox: nil
         )
         let refreshedHome = package(
             fixture.package,

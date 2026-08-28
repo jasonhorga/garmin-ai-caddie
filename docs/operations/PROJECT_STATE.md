@@ -996,6 +996,18 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   Added a focused source contract covering the sole caller and identity fields.
   Remote focused contract and Python compilation passed. This is a source-only
   correction; no Native rerun has been dispatched pending Opus/owner approval.
+- 2026-08-28: Fixture Native rerun `33129416236` at exact head
+  `c0982e47688bfd733d992d40bfc45d01186f68fa` passed fixture startup/health and
+  stop, XcodeGen, design snapshots, Watch build/snapshots/runtime seed-restore,
+  secret scans, evidence writer, and cleanup. It then exposed a second Swift
+  compile call-site mismatch in
+  `mobile/ios/AICaddieTests/LiveRoundAppModelTests.swift:2073`: the
+  `RecentRoundSummary` test fixture omitted new optional `backGlobalId`, `nine`,
+  and `teeBox` arguments. No iOS behavior stages ran; no fixture/schema or
+  runner failure was found. Artifacts were limited to 512-byte evidence,
+  292,337-byte Watch runtime screenshots, 2,151,345-byte Watch snapshots, and
+  a 366-byte screenshot placeholder. The test fixture is corrected locally;
+  no new Native run has been dispatched pending review.
 - 2026-08-27: Replaced the missing-secret dependency with self-contained
   fixture-mode token wiring. Native workflow fixture startup now generates one
   64-hex-byte token from runner `openssl rand -hex 32`, fail-closes when
