@@ -176,6 +176,36 @@ def _png_data_uri(width: int = 64, height: int = 64, seed: int = 0) -> str:
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
 
 
+def _fixture_prep_hazards() -> dict:
+    """Measured obstacle spans in the same route/pixel frame as the fixture map."""
+    return {
+        "water_carry": [[105.0, 135.0]],
+        "bunkers": [[215.0, 12.0]],
+        "details": [
+            {
+                "kind": "water",
+                "frontM": 105.0,
+                "backM": 135.0,
+                "frontRouteM": 105.0,
+                "backRouteM": 135.0,
+                "frontPx": [17.9, 17.9],
+                "backPx": [23.0, 23.0],
+                "sideM": None,
+            },
+            {
+                "kind": "bunker",
+                "frontM": 215.3,
+                "backM": 245.3,
+                "frontRouteM": 215.0,
+                "backRouteM": 245.0,
+                "frontPx": [35.0, 38.4],
+                "backPx": [40.0, 43.9],
+                "sideM": 12.0,
+            },
+        ],
+    }
+
+
 IMAGE = _png_data_uri()
 MARKERS = {"dataMode": "ci_fixture", "source": "non_production", "fixtureRevision": FIXTURE_REVISION}
 ROUTE = APIRouter()
@@ -384,7 +414,7 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
             "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 375.0]], "geometryCoverage": "ready", "geometryRevision": FIXTURE_REVISION,
             "sourceRefs": ["900001:1"], "missingData": [], "candidateRoutes": [], "carryTargets": [],
             "steps": [], "cautions": [], "landing_m": 210.0, "tee_club": "1D",
-            "hazards": {"water_carry": [], "bunkers": [], "details": []},
+            "hazards": _fixture_prep_hazards(),
             "map": {"image": _png_data_uri(seed=number), "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + number, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 374.0 + number]]}},
             "greenDistances": {"available": True, "frontM": 122.0, "middleM": 130.0, "backM": 138.0, "frontLat": 39.9001, "frontLon": 116.4001, "middleLat": 39.9002, "middleLon": 116.4002, "backLat": 39.9003, "backLon": 116.4003}, "playsLike": {"available": True, "deltaM": 0.0},
             "holeImageProjection": {"available": True, "widthPx": 64, "heightPx": 64, "refs": [{"lat": 39.9000, "lon": 116.4000, "px": 0.0, "py": 64.0}, {"lat": 39.9000, "lon": 116.4008, "px": 64.0, "py": 64.0}, {"lat": 39.9008, "lon": 116.4000, "px": 0.0, "py": 0.0}]},

@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import base64
+import math
 import struct
 
 from ai_caddie.core.fixtures import fixture_history_data
@@ -299,6 +300,58 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertTrue(hole["greenDistances"]["available"])
         self.assertEqual(len(prep(31795, nine="front")["holes"]), 9)
         self.assertEqual(len(prep(31795, nine="all")["holes"]), 18)
+
+    def test_fixture_prep_hazards_are_measured_ordered_and_map_bound(self) -> None:
+        try:
+            from server_v2.ci_fixture import FIXTURE_REVISION, prep
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+
+        body = prep(31793, holes=list(range(1, 19)))
+        self.assertEqual(
+            {body[key] for key in ("dataMode", "source", "fixtureRevision")},
+            {"ci_fixture", "non_production", FIXTURE_REVISION},
+        )
+        self.assertEqual(len(body["holes"]), 18)
+        for hole in body["holes"]:
+            hazards = hole["hazards"]
+            details = hazards["details"]
+            self.assertTrue(details, f"hole {hole['hole']} must expose measured hazard details")
+            self.assertEqual([row["kind"] for row in details], ["water", "bunker"])
+            self.assertEqual(
+                [row["frontRouteM"] for row in details],
+                sorted(row["frontRouteM"] for row in details),
+            )
+            self.assertEqual(hazards["water_carry"], [[105.0, 135.0]])
+            self.assertEqual(hazards["bunkers"], [[215.0, 12.0]])
+            self.assertEqual(
+                [[row["frontRouteM"], row["backRouteM"]] for row in details if row["kind"] == "water"],
+                hazards["water_carry"],
+            )
+            self.assertEqual(
+                [[row["frontRouteM"], row["sideM"]] for row in details if row["kind"] == "bunker"],
+                hazards["bunkers"],
+            )
+            for detail in details:
+                self.assertEqual(
+                    set(detail),
+                    {"kind", "frontM", "backM", "frontRouteM", "backRouteM", "frontPx", "backPx", "sideM"},
+                )
+                self.assertIn(detail["kind"], {"water", "bunker"})
+                self.assertTrue(
+                    all(math.isfinite(detail[key]) for key in ("frontM", "backM", "frontRouteM", "backRouteM"))
+                )
+                self.assertGreaterEqual(detail["frontRouteM"], 0.0)
+                self.assertLessEqual(detail["frontRouteM"], detail["backRouteM"])
+                self.assertLessEqual(detail["backRouteM"], hole["route_len_m"])
+                self.assertLess(detail["frontM"], detail["backM"])
+                for key in ("frontPx", "backPx"):
+                    pixels = detail[key]
+                    self.assertEqual(len(pixels), 2)
+                    self.assertTrue(all(math.isfinite(value) for value in pixels))
+                    self.assertTrue(all(0.0 <= value <= 64.0 for value in pixels))
+            self.assertEqual(hole["geometryRevision"], FIXTURE_REVISION)
+            self.assertTrue(hole["sourceRefs"])
 
     def test_fixture_round_is_a_distinct_eighteen_hole_contract(self) -> None:
         try:
