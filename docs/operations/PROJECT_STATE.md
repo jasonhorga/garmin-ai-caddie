@@ -1008,6 +1008,29 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   292,337-byte Watch runtime screenshots, 2,151,345-byte Watch snapshots, and
   a 366-byte screenshot placeholder. The test fixture is corrected locally;
   no new Native run has been dispatched pending review.
+- 2026-08-28: Per Opus GO, ran exactly one fixture-mode Native workflow
+  `33130426502` at exact head
+  `75b34810590e8b622b27e69e53f16bd16c416cfb`, with `review_round_ref=900001`,
+  ephemeral runner token, blank production inputs, and live preflight disabled.
+  Fixture uv install/start/health and stop passed; the private fixture was
+  reachable, but the real iOS UI-test target did not consume its API payloads
+  because it failed to compile `AICaddieUITests/RealEvidenceRoundResolver.swift:73`
+  (`hole.map(String.init) ?? \"-\"` caused an unterminated interpolation/string).
+  The iOS app target, including `LiveRoundAppModelTests`, SwiftJCS boundaries,
+  and design snapshot secret scan passed. The only failed step was
+  `Real-simulator screenshots (iOS, XCUITest against live backend)`; RealFlow,
+  ReviewEdit, and TeeSelection behavior therefore remain unverified, as do
+  iOS fixtureRevision/dataMode and 18-hole/map/topo/green/caddie API-consumption
+  assertions. Watch target build, snapshots, runtime seed/restore (22 PNGs),
+  Watch secret scan, native evidence writer, and cleanup passed. Artifact zip
+  sizes/hashes: design snapshots 3,702,496 bytes / `a1dd349f82f91a100b3a22472845a2c71c895f88c631b496c28ea2bbae09d769`;
+  real screenshots 213 bytes / `1ece06f79ec64ea508851a96e09e7bf69f49d1459401df76b31c926f7dc2306e`;
+  real video 70,297 bytes / `387f26b1a1dfa012e983236d6750aa5503211633ea4b8b6748159d63647d5a8d`;
+  Watch snapshots 2,151,345 bytes / `1953a5d4ded17654740c429c1b3b99564ba27a9e29c343144a0b0f331b5e0cd0`;
+  Watch runtime 290,324 bytes / `e075b5cf2cb51809615f016160a49e2bf8ec97aee9a4af19ea4f849d7a5b280e`;
+  evidence 515 bytes / `228c301e2fc15fd4f4d0e89a10b72352fab1d2b8b11c0545bb6395261abc983a`.
+  No further rerun, TestFlight, release, deploy, signing, or production action
+  was performed.
 - 2026-08-28: Audited commit `d566eed87c397fea2cb9d17ba09bd0e0e3788251` and
   run `33129416236`. The run was `Native Mobile CI`, workflow_dispatch, exact
   head `c0982e47688bfd733d992d40bfc45d01186f68fa`, and failed only at
