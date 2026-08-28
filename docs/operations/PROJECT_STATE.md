@@ -1632,3 +1632,13 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   tunnels, or persistent data were created. Native run `33150308680` was not
   rerun; Opus read-only re-review and owner-authorized Native validation are
   next, with no release/TestFlight/deploy/signing/production action taken.
+- 2026-08-28: Diagnosed the remaining `33155576631` RealFlow failure as a
+  fixture contract gap. The app's prep-library downloader requests
+  `round_id=prep-library-31793`, but the fixture round identity parser rejected
+  that ID with 404 before prep/topo downloads began. Commit `f44e291f`
+  adds a strictly parsed, course-bound `prep-library-<courseId>` identity,
+  preserving caller refs and rejecting unknown/cross-course IDs. The focused
+  fixture contract suite passed 30/30 on the homeserver, with remote
+  `compileall` passing and local `git diff --check` clean. No Native rerun or
+  release/TestFlight/deploy/signing/production action was performed; Opus
+  read-only re-review is required next.
