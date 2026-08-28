@@ -1423,3 +1423,32 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   Homeserver workflow/fixture tests passed 65/65; remote compileall, YAML
   parsing, bash syntax, and local diff-check passed. The macOS Xcode target
   remains unrerun pending Opus review.
+- 2026-08-28: Ran exactly one authorized fixture-mode Native Mobile CI
+  workflow `33144812162` at exact head
+  `27bb9de69245c57ef2a3cf99402402581e74b50e`, with full capture, fixture mode,
+  review round `900001`, blank live URL/revision, and live preflight disabled.
+  All four launch gates passed, iOS app target compiled and executed, and
+  Watch target/snapshots/runtime/evidence/cleanup passed. The only iOS failure
+  was the intended fixture-isolation test: fixture markers with an explicit
+  `https://production.example.test` URL were accepted by the resolver, so
+  `testFixtureResolutionNeverFallsBackToPersistedOrBundleValues` failed at
+  line 70. This was a production-logic gap, not a runner or compile issue;
+  iOS UI capture remained skipped by the failed target dependency. Fixture URL
+  was `http://127.0.0.1:9000`, revision `ci-fixture-20260827-v1`, and no
+  unconfigured-backend message appeared. Artifacts: native evidence 511 bytes,
+  `sha256:15f5713b36a8613f94562e81f18f177b2400ca6273cb9f751ac3efda6de22470`;
+  Watch runtime 288,519 bytes,
+  `sha256:ca9e85061738d6faf09a6c2b0acced9a01f171db459c09b1ca36931a9139adf2`;
+  Watch snapshots 2,151,345 bytes,
+  `sha256:92ab389f7186bf7dce484ecaf75a4f407ed0c7e88669902a5406839877d29457`;
+  real-screenshot diagnostic 366 bytes,
+  `sha256:77f3dcf8a1a310494771fd24fd4e6fada609eb429ace25ed4ec90e42cd8ac595`;
+  design snapshots 3,694,424 bytes,
+  `sha256:b6138d8b68c02a59e9c6fcbfd2e9dd919b72f952254011883c25e53930f59820`.
+  No rerun or release/TestFlight/deploy/signing/production action occurred.
+- 2026-08-28: Closed the fixture resolver gap by requiring the explicit
+  fixture URL to remain `http` after the existing guarded loopback normalizer;
+  live/non-fixture HTTPS-only candidate resolution is unchanged. Homeserver
+  workflow/fixture tests passed 65/65, remote Python compilation, YAML parsing,
+  bash syntax, and local diff-check passed. No Native rerun was dispatched;
+  Opus read-only review is required before the next workflow action.

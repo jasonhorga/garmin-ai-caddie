@@ -2946,7 +2946,8 @@ public final class LiveRoundAppModel: ObservableObject {
                   sanitizedConfigurationValue(environment["AI_CADDIE_ADMIN_TOKEN"]) != nil,
                   let fixtureURL = BackendConfigurationStore.normalizedAPIBaseURL(
                       from: environment["AI_CADDIE_API_BASE_URL"], allowFixtureLoopback: true
-                  ) else { return nil }
+                  ),
+                  fixtureURL.scheme?.lowercased() == "http" else { return nil }
             return fixtureURL
         }
         #endif
