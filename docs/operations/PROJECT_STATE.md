@@ -1580,3 +1580,17 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   No further workflow dispatch, source change, release/TestFlight/deploy,
   signing, or production action was performed. Native verification remains
   open for topo completion and offline downloaded-nearby behavior.
+- 2026-08-28: Implemented the minimal fixture-data repair in source commit
+  `f0ffa6f11a975041fae85b3952c88dad5374f21d`. Ready shotmap rows now use
+  `mapKind=prodgeometry`, preserving the deterministic PNG, overlay,
+  geometry revision, and hole identity. Package holes now include
+  `teeLatitude`/`teeLongitude` from the resolved source course, including
+  composite back-nine rows and supported aliases. Added focused assertions
+  for all 18 shotmaps, canonical coordinates for 31793/31795/3881/31797, and
+  front/back composite coordinate provenance. On the homeserver scratch
+  `garmin-ai-caddie-fixture-20260828-a7c4`, the full fixture contract module
+  passed 29/29 tests and `python -m compileall -q server_v2 ai_caddie tests`
+  passed. The scratch was cleaned after verification; no containers, ports,
+  tunnels, or persistent data were created. Native run `33150308680` was not
+  rerun; Opus read-only re-review and owner-authorized Native validation are
+  next, with no release/TestFlight/deploy/signing/production action taken.
