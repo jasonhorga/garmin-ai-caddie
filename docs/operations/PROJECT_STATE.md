@@ -1114,6 +1114,25 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   fixture data, or mark failures skipped. No new run, deployment, release,
   signing, TestFlight, or production action was performed during this
   diagnosis.
+- 2026-08-28: Implemented the bounded iOS fixture launch-environment repair
+  after run `33137626371` and diagnosis commit `98a36a53`. Fixture startup now
+  writes the masked ephemeral token, loopback URL, `AI_CADDIE_FIXTURE_MODE=1`,
+  and `AI_CADDIE_DATA_MODE=fixture` to both runner/job variables and
+  `SIMCTL_CHILD_*` variables, so the XCTest runner and the app launched inside
+  the simulator receive the same configuration. RealFlow, ReviewEdit, and
+  TeeSelection harnesses explicitly pass the fixture/data markers alongside
+  their existing URL/token launch environment. Added a fail-fast
+  `Validate native launch environment` workflow step that reports only
+  presence/length booleans, verifies fixture loopback/markers/child-token
+  equality, and gates fixture iOS capture on success; live mode remains on its
+  separate public endpoint/protected token path without fixture fallback.
+  Added workflow contract assertions for the child environment and all three
+  UI-test launch helpers. Homeserver shared `ci-venv` verification passed
+  `tests.test_ci_workflow` + `tests.test_ci_fixture_contract` 64/64, Python
+  `compileall -q server_v2 ai_caddie tests`, YAML parsing, bash syntax, and
+  `git diff --check`. No Native rerun, release, TestFlight, deploy, signing,
+  or production action was performed; Opus read-only review is required before
+  any rerun.
 - 2026-08-27: Diagnosed Native fixture run `33126223345` startup failure with
   a homeserver reproduction: `uv` was unavailable (`command -v uv` empty), and
   the launcher stderr was `nohup: failed to run command 'uv': No such file or

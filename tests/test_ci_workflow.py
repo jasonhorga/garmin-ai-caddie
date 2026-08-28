@@ -514,6 +514,10 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("AI_CADDIE_ADMIN_TOKEN=%s", fixture_start)
         self.assertIn("TEST_RUNNER_AI_CADDIE_ADMIN_TOKEN=%s", fixture_start)
         self.assertIn("ARTIFACT_ADMIN_TOKEN=%s", fixture_start)
+        self.assertIn("SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN=%s", fixture_start)
+        self.assertIn("SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE=1", fixture_start)
+        self.assertIn("SIMCTL_CHILD_AI_CADDIE_DATA_MODE=fixture", fixture_start)
+        self.assertIn("SIMCTL_CHILD_AI_CADDIE_API_BASE_URL=http://127.0.0.1:9000", fixture_start)
         self.assertIn('export AI_CADDIE_ADMIN_TOKEN="$FIXTURE_TOKEN"', fixture_start)
         self.assertNotIn("AI_CADDIE_CI_FIXTURE_ADMIN_TOKEN", fixture_start)
         self.assertIn("Configure live native auth", steps)
@@ -523,6 +527,11 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("python3 --version", fixture_start)
         self.assertIn("nohup bash ops/run_ci_fixture.sh", fixture_start)
         self.assertIn("Upload fixture startup diagnostics", steps)
+        self.assertIn("Validate native launch environment", steps)
+        launch_validation = steps["Validate native launch environment"]["run"]
+        self.assertIn("token_len", launch_validation)
+        self.assertIn("SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE", launch_validation)
+        self.assertIn("SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN", launch_validation)
         self.assertIn("fixture-startup-diagnostics", steps["Upload fixture startup diagnostics artifact"]["with"]["name"])
         self.assertIn("[REDACTED]", steps["Upload fixture startup diagnostics"]["run"])
         self.assertEqual("brew install xcodegen", steps["Install XcodeGen"]["run"])
@@ -612,6 +621,13 @@ class CIWorkflowTests(unittest.TestCase):
         real_flow = Path("mobile/ios/AICaddieUITests/RealFlowUITests.swift").read_text(
             encoding="utf-8"
         )
+        for ui_test in ("RealFlowUITests.swift", "ReviewEditUITests.swift", "TeeSelectionUITests.swift"):
+            harness = Path("mobile/ios/AICaddieUITests") / ui_test
+            source = harness.read_text(encoding="utf-8")
+            self.assertIn('app.launchEnvironment["AI_CADDIE_API_BASE_URL"]', source)
+            self.assertIn('app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"]', source)
+            self.assertIn('app.launchEnvironment["AI_CADDIE_FIXTURE_MODE"]', source)
+            self.assertIn('app.launchEnvironment["AI_CADDIE_DATA_MODE"]', source)
 
         self.assertIn("capture_scope", inputs)
         self.assertEqual(["full", "review", "edit"], inputs["capture_scope"]["options"])
