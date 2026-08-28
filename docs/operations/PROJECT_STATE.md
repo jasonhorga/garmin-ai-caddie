@@ -1344,3 +1344,13 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   contract tests passed 64/64, YAML parsing and remote Python compilation
   passed, and the local working-tree `git diff --check` passed. No Native
   rerun, release, TestFlight, deploy, signing, or production action occurred.
+- 2026-08-28: Opus identified a P1 ordering defect in the preceding gate
+  closure: the authoritative launch-environment step was still declared after
+  iOS and design dependents. The validation is now declared before every iOS,
+  Watch, capture, snapshot, and native-evidence dependent step, and all those
+  fixture conditions require startup, prerequisite, app-target environment,
+  and authoritative environment success. Workflow tests parse step order and
+  exercise success plus failure/cancelled/skipped rejection for each gate.
+  Homeserver verification passed 65/65 focused workflow/fixture tests, remote
+  Python compilation, YAML parsing, and bash syntax; no Native rerun or
+  release/TestFlight/deploy/signing/production action occurred.

@@ -689,6 +689,63 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertGreater(real_flow.index(review_exit), real_flow.index('save("05-last-round-review")'))
         self.assertLess(real_flow.index(review_exit), real_flow.index("// ---- Section 4:"))
 
+    def test_native_fixture_gate_order_and_status_matrix(self) -> None:
+        workflow = yaml.safe_load(
+            Path(".github/workflows/native-mobile.yml").read_text(encoding="utf-8")
+        )
+        steps_list = workflow["jobs"]["native-mobile"]["steps"]
+        positions_by_name = {step.get("name"): index for index, step in enumerate(steps_list)}
+        positions_by_id = {step.get("id"): index for index, step in enumerate(steps_list) if step.get("id")}
+        steps = {step.get("name"): step for step in steps_list}
+        gate_ids = (
+            "start_fixture",
+            "validate_native_launch_prereq",
+            "validate_native_launch_environment_app",
+            "validate_native_launch_environment",
+        )
+        dependent_names = (
+            "Test iOS app target",
+            "Collect design snapshots",
+            "Scan design snapshots for secret bytes",
+            "Upload design snapshots",
+            "Real-simulator screenshots (iOS, XCUITest against live backend)",
+            "Collect real screenshots",
+            "Scan real Native evidence for secret bytes",
+            "Upload real screenshots",
+            "Upload real video",
+            "Resolve and boot Watch test simulator",
+            "Test Watch app target",
+            "Collect Watch design snapshots",
+            "Scan Watch design snapshots for secret bytes",
+            "Upload Watch design snapshots",
+            "Real Watch round seed and restore screenshots",
+            "Scan Watch runtime screenshots for secret bytes",
+            "Upload watch real screenshots",
+            "Scan native build evidence for secret bytes",
+            "Upload native build evidence",
+        )
+        for name in dependent_names:
+            condition = steps[name]["if"]
+            self.assertIn("!inputs.fixture_mode ||", condition, name)
+            for gate_id in gate_ids:
+                self.assertLess(
+                    positions_by_id[gate_id],
+                    positions_by_name[name],
+                    f"{gate_id} must be declared before {name}",
+                )
+                self.assertIn(f"steps.{gate_id}.outcome == 'success'", condition, name)
+
+        def fixture_gate_allows(outcomes: dict[str, str]) -> bool:
+            return all(outcomes[gate_id] == "success" for gate_id in gate_ids)
+
+        success = {gate_id: "success" for gate_id in gate_ids}
+        self.assertTrue(fixture_gate_allows(success))
+        for gate_id in gate_ids:
+            for status in ("failure", "cancelled", "skipped"):
+                outcomes = dict(success)
+                outcomes[gate_id] = status
+                self.assertFalse(fixture_gate_allows(outcomes), f"{gate_id}={status}")
+
     def test_native_journeys_preflight_real_course_discovery_before_launch(self) -> None:
         script_path = Path(".github/scripts/preflight_live_course_catalogue.py")
         self.assertTrue(script_path.is_file())
