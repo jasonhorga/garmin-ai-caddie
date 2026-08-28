@@ -143,9 +143,31 @@ jobs:
           printf 'AI_CADDIE_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
           printf 'TEST_RUNNER_AI_CADDIE_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
           printf 'ARTIFACT_ADMIN_TOKEN=%s\n' "$LIVE_ADMIN_TOKEN" >> "$GITHUB_ENV"
+      - name: Validate native launch prerequisites
+        id: validate_native_launch_prereq
+        if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
+        env:
+          NATIVE_BASE_URL: ${{ inputs.fixture_mode && 'http://127.0.0.1:9000' || github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          NATIVE_FIXTURE_MODE: ${{ inputs.fixture_mode && '1' || '0' }}
+          NATIVE_DATA_MODE: ${{ inputs.fixture_mode && 'fixture' || '' }}
+        run: |
+          set -euo pipefail
+          printf 'native app launch prerequisites: url_present=%s token_present=%s token_len=%s fixture=%s\n' \
+            "$([[ -n "$NATIVE_BASE_URL" ]] && echo true || echo false)" \
+            "$([[ -n "${AI_CADDIE_ADMIN_TOKEN:-}" ]] && echo true || echo false)" \
+            "${#AI_CADDIE_ADMIN_TOKEN}" "$NATIVE_FIXTURE_MODE"
+          test -n "$NATIVE_BASE_URL" && test -n "${AI_CADDIE_ADMIN_TOKEN:-}"
+          if [[ "$NATIVE_FIXTURE_MODE" == "1" ]]; then
+            test "$NATIVE_BASE_URL" = "http://127.0.0.1:9000"
+            test "${AI_CADDIE_FIXTURE_MODE:-}" = "1" && test "${AI_CADDIE_DATA_MODE:-}" = "fixture"
+            test "${SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE:-}" = "1"
+            test "${SIMCTL_CHILD_AI_CADDIE_DATA_MODE:-}" = "fixture"
+            test "${SIMCTL_CHILD_AI_CADDIE_API_BASE_URL:-}" = "$NATIVE_BASE_URL"
+            test "${SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN:-}" = "$AI_CADDIE_ADMIN_TOKEN"
+          fi
       - name: Test iOS app target
         id: test_ios_app
-        if: ${{ (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
+        if: ${{ (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success')) }}
         run: |
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
@@ -335,7 +357,7 @@ jobs:
         id: real_ios_capture
         # On-demand only (XCUITest + live-funnel + watch simctl add ~10min) — trigger with
         # `gh workflow run native-mobile.yml --ref <branch>`; regular PRs stay fast.
-        if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         timeout-minutes: 90
         env:
           # TEST_RUNNER_-prefixed vars are forwarded by xcodebuild into the UI-test runner environment
@@ -410,7 +432,7 @@ jobs:
           ls -la real-videos || true
           exit "$TEST_STATUS"
       - name: Collect real screenshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           mkdir -p real-screenshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/real-screenshots/*" -exec cp {} real-screenshots/ \; 2>/dev/null || true
@@ -437,20 +459,20 @@ jobs:
           ls -la real-screenshots || true
       - name: Scan real Native evidence for secret bytes
         id: scan_real_native_evidence
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: >-
           python3 .github/scripts/scan_artifacts_for_secrets.py
           --secret-env ARTIFACT_ADMIN_TOKEN
           real-screenshots real-videos
       - name: Upload real screenshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
           name: real-screenshots
           path: real-screenshots/
           if-no-files-found: warn
       - name: Upload real video
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && steps.scan_real_native_evidence.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
           name: real-video
@@ -476,7 +498,7 @@ jobs:
             rm -f "$RUNNER_TEMP/ai-caddie-fixture.pid"
           fi
       - name: Resolve and boot Watch test simulator
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           set -euo pipefail
           WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
@@ -499,24 +521,24 @@ jobs:
           xcrun simctl bootstatus "$NATIVE_WATCH_UDID" -b
       - name: Test Watch app target
         id: test_watch_app
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           xcodebuild test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -destination "platform=watchOS Simulator,id=$NATIVE_WATCH_UDID"
       - name: Collect Watch design snapshots
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope == 'full') && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           mkdir -p watch-snapshots
           find ~/Library/Developer/CoreSimulator -path "*Documents/watch-snapshots/*.png" -exec cp {} watch-snapshots/ \; 2>/dev/null || true
           ls -la watch-snapshots || true
       - name: Scan Watch design snapshots for secret bytes
         id: scan_watch_snapshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-snapshots
       - name: Upload Watch design snapshots
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope == 'full' && steps.scan_watch_snapshots.outcome == 'success')) && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope == 'full' && steps.scan_watch_snapshots.outcome == 'success')) && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
           name: watch-snapshots
@@ -524,7 +546,7 @@ jobs:
           if-no-files-found: warn
       - name: Real Watch round seed and restore screenshots
         id: capture_watch_real_screenshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: |
           set -euo pipefail
           WATCH_DEVICE=$(xcrun simctl list devices available -j | jq -c '
@@ -596,10 +618,10 @@ jobs:
           launch_and_capture club-prompt watch-club-prompt.png
       - name: Scan Watch runtime screenshots for secret bytes
         id: scan_watch_real_screenshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN watch-real-screenshots
       - name: Upload watch real screenshots
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && steps.scan_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope == 'full' && steps.capture_watch_real_screenshots.outcome == 'success' && steps.scan_watch_real_screenshots.outcome == 'success' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         uses: actions/upload-artifact@v4
         with:
           name: watch-real-screenshots
@@ -616,6 +638,7 @@ jobs:
           FIXTURE_MODE: ${{ inputs.fixture_mode }}
           FIXTURE_START_OUTCOME: ${{ steps.start_fixture.outcome }}
           LAUNCH_VALIDATION_OUTCOME: ${{ steps.validate_native_launch_environment.outcome }}
+          LAUNCH_PREREQ_OUTCOME: ${{ steps.validate_native_launch_prereq.outcome }}
         run: |
           status_from_outcome() {
             case "$1" in
@@ -634,6 +657,9 @@ jobs:
           if [[ "$FIXTURE_MODE" == "true" && "$LAUNCH_VALIDATION_OUTCOME" != "success" ]]; then
             ios_status="skipped"
           fi
+          if [[ "$FIXTURE_MODE" == "true" && "$LAUNCH_PREREQ_OUTCOME" != "success" ]]; then
+            ios_status="skipped"
+          fi
           watch_status="passed"
           if [[ "$NATIVE_EVENT_NAME" == "workflow_dispatch" && "$NATIVE_CAPTURE_SCOPE" != "full" ]]; then
             watch_status="skipped"
@@ -646,15 +672,18 @@ jobs:
           if [[ "$FIXTURE_MODE" == "true" && "$LAUNCH_VALIDATION_OUTCOME" != "success" ]]; then
             watch_status="skipped"
           fi
+          if [[ "$FIXTURE_MODE" == "true" && "$LAUNCH_PREREQ_OUTCOME" != "success" ]]; then
+            watch_status="skipped"
+          fi
           fixture_arg=""
           if [[ "${{ inputs.fixture_mode }}" == "true" ]]; then fixture_arg="--data-mode ci_fixture"; fi
           python3 ops/write_native_build_evidence.py --ios-status "$ios_status" --watch-status "$watch_status" $fixture_arg
       - name: Scan native build evidence for secret bytes
         id: scan_native_build_evidence
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || steps.start_fixture.outcome == 'success') }}
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.inputs.capture_scope != 'edit' && (!inputs.fixture_mode || (steps.start_fixture.outcome == 'success' && steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success')) }}
         run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_ADMIN_TOKEN mobile/ios/native_build_evidence.json
       - name: Upload native build evidence
-        if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_native_build_evidence.outcome == 'success'))
+        if: always() && (github.event_name != 'workflow_dispatch' || (github.event.inputs.capture_scope != 'edit' && steps.scan_native_build_evidence.outcome == 'success' && (!inputs.fixture_mode || (steps.validate_native_launch_prereq.outcome == 'success' && steps.validate_native_launch_environment.outcome == 'success'))))
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.fixture_mode && 'native-build-evidence-ci-fixture' || 'native-build-evidence' }}

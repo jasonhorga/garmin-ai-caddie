@@ -2905,26 +2905,54 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private static func defaultAPIBaseURL(includePersisted: Bool = true) -> URL? {
-        #if DEBUG
         let environment = ProcessInfo.processInfo.environment
-        let fixtureLoopback = environment["AI_CADDIE_FIXTURE_MODE"] == "1"
-            && environment["AI_CADDIE_DATA_MODE"] == "fixture"
-            && sanitizedConfigurationValue(environment["AI_CADDIE_ADMIN_TOKEN"]) != nil
-        #else
-        let fixtureLoopback = false
-        #endif
-        var candidates: [String?] = [
-            ProcessInfo.processInfo.environment["AI_CADDIE_API_BASE_URL"],
-        ]
-        if includePersisted {
-            candidates.append(BackendConfigurationStore.loadAPIBaseURL()?.absoluteString)
+        let persistedValue: String?
+        let bundleValue: String?
+        #if DEBUG
+        let markerPresent = environment["AI_CADDIE_FIXTURE_MODE"] != nil
+            || environment["AI_CADDIE_DATA_MODE"] != nil
+        if markerPresent {
+            // Fixture mode is isolated from all persisted/build-time configuration. A missing or
+            // mismatched marker must fail closed instead of reaching a public backend.
+            guard environment["AI_CADDIE_FIXTURE_MODE"] == "1",
+                  environment["AI_CADDIE_DATA_MODE"] == "fixture",
+                  sanitizedConfigurationValue(environment["AI_CADDIE_ADMIN_TOKEN"]) != nil else {
+                return nil
+            }
+            persistedValue = nil
+            bundleValue = nil
+        } else {
+            persistedValue = includePersisted ? BackendConfigurationStore.loadAPIBaseURL()?.absoluteString : nil
+            bundleValue = Bundle.main.object(forInfoDictionaryKey: "AICaddieAPIBaseURL") as? String
         }
-        candidates.append(Bundle.main.object(forInfoDictionaryKey: "AICaddieAPIBaseURL") as? String)
+        #else
+        persistedValue = includePersisted ? BackendConfigurationStore.loadAPIBaseURL()?.absoluteString : nil
+        bundleValue = Bundle.main.object(forInfoDictionaryKey: "AICaddieAPIBaseURL") as? String
+        #endif
+        return resolveAPIBaseURL(environment: environment, persistedValue: persistedValue, bundleValue: bundleValue)
+    }
+
+    static func resolveAPIBaseURL(
+        environment: [String: String],
+        persistedValue: String?,
+        bundleValue: String?
+    ) -> URL? {
+        #if DEBUG
+        let markerPresent = environment["AI_CADDIE_FIXTURE_MODE"] != nil
+            || environment["AI_CADDIE_DATA_MODE"] != nil
+        if markerPresent {
+            guard environment["AI_CADDIE_FIXTURE_MODE"] == "1",
+                  environment["AI_CADDIE_DATA_MODE"] == "fixture",
+                  sanitizedConfigurationValue(environment["AI_CADDIE_ADMIN_TOKEN"]) != nil,
+                  let fixtureURL = BackendConfigurationStore.normalizedAPIBaseURL(
+                      from: environment["AI_CADDIE_API_BASE_URL"], allowFixtureLoopback: true
+                  ) else { return nil }
+            return fixtureURL
+        }
+        #endif
+        let candidates: [String?] = [environment["AI_CADDIE_API_BASE_URL"], persistedValue, bundleValue]
         for candidate in candidates {
-            guard let resolvedAPIBaseURL = BackendConfigurationStore.normalizedAPIBaseURL(
-                from: candidate,
-                allowFixtureLoopback: fixtureLoopback
-            ) else {
+            guard let resolvedAPIBaseURL = BackendConfigurationStore.normalizedAPIBaseURL(from: candidate) else {
                 continue
             }
             return resolvedAPIBaseURL

@@ -1183,6 +1183,22 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   untracked reports, `.codex-tmp/`, and mockup files remain preserved. No
   Native dispatch, deployment, upload, signing, release, or TestFlight action
   was performed.
+- 2026-08-28: Opus follow-up isolation hardening is complete in the same
+  repair slice. The explicit fixture-only resolver now refuses to inspect
+  persisted or Info.plist public HTTPS values whenever either fixture marker
+  is present; marker mismatch, missing token, missing URL, non-loopback host,
+  wrong port, and HTTP path/query variants all fail closed. The pre-capture
+  launch prerequisite and app-resolved launch validation outcomes now gate all
+  fixture iOS and Watch build/runtime/snapshot/scan/upload steps, including
+  native evidence scanning/upload; evidence writer receives both outcomes and
+  forces both surfaces to `skipped` when either is not successful. Swift config
+  tests cover explicit fixture acceptance, fallback suppression, marker/token
+  mismatch rejection, live HTTPS acceptance, and live HTTP loopback rejection.
+  Homeserver shared `ci-venv` ran workflow/fixture contracts 64/64, Python
+  compileall, YAML parse, bash syntax, and diff-check successfully. Swift
+  compilation remains an Actions-only gate; no Native rerun, release, deploy,
+  signing, TestFlight, or production action was performed. The follow-up is
+  pushed at the exact HEAD recorded in the handoff below and awaits Opus review.
 - 2026-08-27: Diagnosed Native fixture run `33126223345` startup failure with
   a homeserver reproduction: `uv` was unavailable (`command -v uv` empty), and
   the launcher stderr was `nohup: failed to run command 'uv': No such file or

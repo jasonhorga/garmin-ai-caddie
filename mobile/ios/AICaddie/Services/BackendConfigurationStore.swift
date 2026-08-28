@@ -41,6 +41,7 @@ public struct BackendConfigurationStore {
             && scheme == "http"
             && components.port == 9000
             && ["127.0.0.1", "localhost", "::1"].contains(components.host?.lowercased() ?? "")
+            && (components.percentEncodedPath.isEmpty || components.percentEncodedPath == "/")
         guard (scheme == "https" || isFixtureLoopback),
               components.host?.isEmpty == false,
               components.user == nil,
