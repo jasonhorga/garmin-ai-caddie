@@ -1354,3 +1354,31 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   Homeserver verification passed 65/65 focused workflow/fixture tests, remote
   Python compilation, YAML parsing, and bash syntax; no Native rerun or
   release/TestFlight/deploy/signing/production action occurred.
+- 2026-08-28: After Opus GO, ran exactly one authorized fixture-mode Native
+  Mobile CI workflow `33142832348` at exact head
+  `b244968b93dd4cb5837b673d1d466fceac98a383`, with `capture_scope=full`,
+  `fixture_mode=true`, `review_round_ref=900001`, blank live URL/revision, and
+  `require_live_preflight=false`; no release, deploy, signing, or TestFlight
+  flags/actions were used. All four launch gates passed in runtime order:
+  fixture startup, launch prerequisites, app-target environment, and
+  authoritative environment. The fixture used app URL
+  `http://127.0.0.1:9000` and revision `ci-fixture-20260827-v1`; logs contain no
+  `未配置后端`/unconfigured-backend output. iOS target actually ran but failed
+  to compile because `BackendConfigurationStoreTests` references a missing
+  `AICaddieApp.resolveAPIBaseURL` member; therefore SwiftJCS/Codable and iOS
+  RealFlow/ReviewEdit/TeeSelection behavior were skipped by dependency gates.
+  Design snapshots and scans passed. Watch target, design snapshots, runtime
+  seed/restore (22 snapshots), runtime scan, evidence writer, and cleanup all
+  passed. Native evidence artifact: 512 bytes,
+  `sha256:f69f12709d3ff050f85226cb3a4a4d43d700cb540ed7b69c27ec8db3af1d7c3b`;
+  Watch runtime artifact: 292,443 bytes,
+  `sha256:e35811a1dabdea38cff2bb52f40f41fd8820abcf4a641ac3c7ef59e416c6a04e`;
+  Watch design artifact: 2,151,345 bytes,
+  `sha256:3921ab9bc99277ae2522701cc72d2934168f1eb96683087c9953c8db0e8ee8fc`;
+  real-screenshots diagnostic artifact: 366 bytes,
+  `sha256:4f654a0421902181b23d3b859aff9a0589b73182cb1fe5e3a80ec9458c91bf7f`.
+  The diagnostic says the iOS simulator was not booted during post-capture;
+  no iOS behavior/API request evidence is claimed. No rerun was dispatched;
+  remaining blocker is the compile failure and resulting unverified iOS
+  fixtureRevision/round/course/back identity and 18-hole map/topo/green/
+  caddie consumption.
