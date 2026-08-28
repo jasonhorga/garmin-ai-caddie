@@ -1041,6 +1041,42 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   iOS and Watch evidence markers; never print the token or reuse the production
   `AI_CADDIE_ADMIN_TOKEN`. No release, TestFlight, deploy, signing, or
   production mutation occurred.
+- 2026-08-28: Per the owner-authorized exact-SHA fixture rerun, Native Mobile
+  CI run `33137626371` completed at head
+  `7a648e94f1dd671a591281225e7545d1d52a23a4` on the protected branch. Workflow
+  inputs were `capture_scope=full`, `fixture_mode=true`,
+  `review_round_ref=900001`, `require_live_preflight=false`, blank production
+  endpoint/backend/revision/token inputs, and an ephemeral runner-generated
+  fixture token. Fixture revision was `ci-fixture-20260827-v1`; fixture
+  install/start/health and stop passed. XcodeGen, iOS app target,
+  SwiftJCS boundary verification, design snapshots/secret scan/upload, and
+  all Watch build/snapshot/runtime/evidence stages passed. The iOS real
+  simulator step failed behaviorally with 9/9 tests failing: RealFlow failed
+  its start assertion, ReviewEdit could not open a resolver-verified real hole,
+  and all seven TeeSelection tests could not observe the expected Beijing
+  Palace `31793` identity/nearby/catalogue rows. Thus iOS fixture revision,
+  round `900001`/course `31795` evidence, 18-hole package/map/topo/green/
+  caddie consumption, and the `31797` uninstalled partial-coverage candidate
+  remain unproven by Native UI behavior despite the fixture contract tests.
+  The Watch runtime seed/restore produced its expected screenshots; Watch
+  target, snapshots, runtime, secret scans, native evidence writer/scan/upload,
+  and cleanup all passed. Artifact metadata (unexpired, not downloaded) was:
+  `native-build-evidence-ci-fixture` 509 bytes,
+  `sha256:6db21fb7d40d0b9688c600c586dd9c5328395e2782f0bdc536997c834bcb540f`;
+  `watch-real-screenshots` 287,738 bytes,
+  `sha256:ff3403ffb43431210279d3aecd4d3d62c04688ec4c9c12e70fa1d2c9422de09d`;
+  `watch-snapshots` 2,151,345 bytes,
+  `sha256:9c65c53f93987f59fca3b2fb9628a5b3f664c474e37f72cb543779920909d5c7`;
+  `real-video` 86,349,632 bytes,
+  `sha256:b3dbf2a802ef68d22a88cb5fba84ca25f31adf2f053f1fae69dec5228d747633`;
+  `real-screenshots` 2,756,276 bytes,
+  `sha256:a7722f9fe5a4495e8fc67913b0a37dd33399bfe9448ddb13d3c8ab33fddd4983`;
+  and `design-snapshots` 3,702,496 bytes,
+  `sha256:7102625de7b0dd23fb5e2114f87a6dba51137954fae287127e8b38315865872f`.
+  No further Native run, release, TestFlight, deploy, signing, production
+  mutation, or production data synchronization was performed; the remaining
+  blocker is why the corrected fixture catalogue/history payloads are not
+  consumed by the iOS UI-test process.
 - 2026-08-27: Diagnosed Native fixture run `33126223345` startup failure with
   a homeserver reproduction: `uv` was unavailable (`command -v uv` empty), and
   the launcher stderr was `nohup: failed to run command 'uv': No such file or
