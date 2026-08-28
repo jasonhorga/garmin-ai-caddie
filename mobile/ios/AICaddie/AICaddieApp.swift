@@ -2905,6 +2905,14 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private static func defaultAPIBaseURL(includePersisted: Bool = true) -> URL? {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        let fixtureLoopback = environment["AI_CADDIE_FIXTURE_MODE"] == "1"
+            && environment["AI_CADDIE_DATA_MODE"] == "fixture"
+            && sanitizedConfigurationValue(environment["AI_CADDIE_ADMIN_TOKEN"]) != nil
+        #else
+        let fixtureLoopback = false
+        #endif
         var candidates: [String?] = [
             ProcessInfo.processInfo.environment["AI_CADDIE_API_BASE_URL"],
         ]
@@ -2913,7 +2921,10 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         candidates.append(Bundle.main.object(forInfoDictionaryKey: "AICaddieAPIBaseURL") as? String)
         for candidate in candidates {
-            guard let resolvedAPIBaseURL = BackendConfigurationStore.normalizedAPIBaseURL(from: candidate) else {
+            guard let resolvedAPIBaseURL = BackendConfigurationStore.normalizedAPIBaseURL(
+                from: candidate,
+                allowFixtureLoopback: fixtureLoopback
+            ) else {
                 continue
             }
             return resolvedAPIBaseURL

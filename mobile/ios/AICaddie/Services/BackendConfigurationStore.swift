@@ -28,7 +28,7 @@ public struct BackendConfigurationStore {
         KeychainAdminToken.save(token, service: adminTokenService, account: adminTokenAccount)
     }
 
-    public static func normalizedAPIBaseURL(from value: String?) -> URL? {
+    public static func normalizedAPIBaseURL(from value: String?, allowFixtureLoopback: Bool = false) -> URL? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let trimmed, !trimmed.isEmpty, !trimmed.contains("$(") else {
             return nil
@@ -36,7 +36,12 @@ public struct BackendConfigurationStore {
         guard var components = URLComponents(string: trimmed) else {
             return nil
         }
-        guard components.scheme?.lowercased() == "https",
+        let scheme = components.scheme?.lowercased()
+        let isFixtureLoopback = allowFixtureLoopback
+            && scheme == "http"
+            && components.port == 9000
+            && ["127.0.0.1", "localhost", "::1"].contains(components.host?.lowercased() ?? "")
+        guard (scheme == "https" || isFixtureLoopback),
               components.host?.isEmpty == false,
               components.user == nil,
               components.password == nil,

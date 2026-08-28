@@ -1133,6 +1133,25 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   `git diff --check`. No Native rerun, release, TestFlight, deploy, signing,
   or production action was performed; Opus read-only review is required before
   any rerun.
+- 2026-08-28: Closed the Opus launch blocker in commit `a0688549` follow-up.
+  `BackendConfigurationStore.normalizedAPIBaseURL` still correctly rejects
+  HTTP by default; an explicit `allowFixtureLoopback` opt-in now permits only
+  DEBUG `http://127.0.0.1:9000` (also `localhost`/`[::1]`) and only when
+  `AI_CADDIE_FIXTURE_MODE=1`, `AI_CADDIE_DATA_MODE=fixture`, and a non-empty
+  admin token are present. HTTPS behavior and all non-fixture/live/release
+  paths remain unchanged. Added Swift configuration tests for fixture accept,
+  live loopback reject, bad port/host/query reject, and public HTTPS accept.
+  Opus also required launch validation to gate both surfaces: all fixture Watch
+  build/snapshot/runtime/scan/upload behavior steps now require successful
+  app-resolved launch validation, and native evidence forces both iOS and Watch
+  statuses to `skipped` when validation fails/cancels/skips. Workflow contract
+  tests assert these gates and evidence inputs. Homeserver shared-environment
+  checks before this follow-up had workflow/fixture contracts 64/64 and
+  compile/YAML/bash/diff checks green; the combined mobile contract command
+  was dependency-blocked because shared `ci-venv` lacks `jsonschema`, so Swift
+  compilation remains an Actions gate. No new run, release, deploy, signing,
+  TestFlight, or production action was performed; Opus read-only review is
+  required before rerun.
 - 2026-08-27: Diagnosed Native fixture run `33126223345` startup failure with
   a homeserver reproduction: `uv` was unavailable (`command -v uv` empty), and
   the launcher stderr was `nohup: failed to run command 'uv': No such file or

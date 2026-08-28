@@ -574,11 +574,13 @@ class CIWorkflowTests(unittest.TestCase):
                 "WATCH_TEST_OUTCOME": "${{ steps.test_watch_app.outcome }}",
                 "FIXTURE_MODE": "${{ inputs.fixture_mode }}",
                 "FIXTURE_START_OUTCOME": "${{ steps.start_fixture.outcome }}",
+                "LAUNCH_VALIDATION_OUTCOME": "${{ steps.validate_native_launch_environment.outcome }}",
             },
             evidence_step["env"],
         )
         self.assertEqual("${{ inputs.fixture_mode }}", evidence_step["env"]["FIXTURE_MODE"])
         self.assertEqual("${{ steps.start_fixture.outcome }}", evidence_step["env"]["FIXTURE_START_OUTCOME"])
+        self.assertEqual("${{ steps.validate_native_launch_environment.outcome }}", evidence_step["env"]["LAUNCH_VALIDATION_OUTCOME"])
         evidence_run = evidence_step["run"]
         self.assertIn('FIXTURE_START_OUTCOME" != "success"', evidence_run)
         self.assertIn('ios_status="skipped"', evidence_run)
@@ -594,6 +596,17 @@ class CIWorkflowTests(unittest.TestCase):
         ):
             self.assertIn("steps.start_fixture.outcome == 'success'", steps[name]["if"])
         self.assertIn("steps.test_ios_app.outcome == 'success'", steps["Verify SwiftJCS consumer boundaries"]["if"])
+        for name in (
+            "Resolve and boot Watch test simulator",
+            "Test Watch app target",
+            "Collect Watch design snapshots",
+            "Scan Watch design snapshots for secret bytes",
+            "Upload Watch design snapshots",
+            "Real Watch round seed and restore screenshots",
+            "Scan Watch runtime screenshots for secret bytes",
+            "Upload watch real screenshots",
+        ):
+            self.assertIn("steps.validate_native_launch_environment.outcome == 'success'", steps[name]["if"])
         watch_runtime = steps["Real Watch round seed and restore screenshots"]["run"]
         self.assertIn('export SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN="$AI_CADDIE_ADMIN_TOKEN"', watch_runtime)
         self.assertNotIn('SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN=', watch_runtime.split('export SIMCTL_CHILD_AI_CADDIE_ADMIN_TOKEN=', 1)[1])
