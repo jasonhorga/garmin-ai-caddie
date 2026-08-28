@@ -1471,10 +1471,18 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   scanned; UI-test app data and fixture were stopped and cleaned successfully.
   Watch target passed 315 tests; Watch snapshots, runtime seed/restore,
   runtime secret scan, evidence writer/scan, and uploads passed. Artifacts
-  finalized: `native-build-evidence-ci-fixture` 511 bytes (ID `9676675058`),
-  `watch-real-screenshots` 293,868 bytes, `watch-snapshots` 2,151,345 bytes,
-  `real-screenshots` 8,055,277 bytes, `real-video` 45,364,290 bytes, and
-  `design-snapshots` 3,694,424 bytes. No release/TestFlight/deploy/signing
+  finalized: `native-build-evidence-ci-fixture` 511 bytes (ID `9676675058`,
+  `sha256:c8bcdf3617d952ecb8094d270ae542c787126157d02524636ff44ea91f73e87c`),
+  `watch-real-screenshots` 293,868 bytes (ID `9676674329`,
+  `sha256:2227621b9ed06a8e2b238e16d960e99b37df792fb385c3bb714859e3fd7c8446`),
+  `watch-snapshots` 2,151,345 bytes (ID `9676511561`,
+  `sha256:b510810ca0023614eed02ef33d6ca19e6be516893a04f7e236115ff6204fd26d`),
+  `real-screenshots` 8,055,277 bytes (ID `9676396165`,
+  `sha256:a813174d33b00c3d5d1a64d85caebb4dfd63f562c1d8c65ba7416f165a0214c1`),
+  `real-video` 45,364,290 bytes (ID `9676397268`,
+  `sha256:5929aad7188c01429b16d4df09ca683e6b53fd768039acae2508efd06eb7c9c5`),
+  and `design-snapshots` 3,694,424 bytes (ID `9676034508`,
+  `sha256:41524776c7b91767b068f52647f8768d363d676a47170839b445b6eab51dacbc`). No release/TestFlight/deploy/signing
   action occurred and no further rerun was dispatched. Remaining P2 is the
   four iOS UI behavior assertions and their topo/offline/GPS evidence; this
   run does not claim complete iOS RealFlow/ReviewEdit/TeeSelection evidence.
