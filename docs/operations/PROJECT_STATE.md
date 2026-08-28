@@ -150,6 +150,26 @@ No further rerun, TestFlight, release, deploy, signing, or production action
 was performed; the remaining blocker is the fixture route/data consumption
 needed by iOS review and tee-selection behavior.
 
+Diagnosis of run `33132251561` found two independent fixture contract gaps;
+no source or test change was made and no rerun was dispatched. The resolver
+does receive `UITEST_REVIEW_ROUND_REF=900001` from the workflow, and fixture
+history advertises round `900001` with scored holes and two non-synthetic
+club-labelled shots. However, the fixture's deterministic 64x64 PNG is only
+358 decoded bytes (480 base64 bytes), while
+`RealEvidenceRoundResolver.usableMapImage` requires decoded data larger than
+1,024 bytes; every shotmap therefore rejects with `shotmap mismatch or missing
+geometry/image` before landing separation can pass. Separately,
+`server_v2/ci_fixture.py` course search and nearby return `31795` / “Black
+Knight B/C” and `3881` / “Cypress Point Club”, while `options()` filters to
+`3881`; the three failing TeeSelection assertions require provider course
+`31793` / “Beijing Palace” and accessibility IDs ending in `31793`. The logs
+show the expected catalog IDs were absent, not an action/scroll race. Minimal
+next fix is fixture-only: provide a >1,024-byte valid raster while preserving
+the resolver threshold, and add the exact `31793` Beijing Palace fixture
+catalog/nearby/search identity (with its tee/package bindings) without
+changing assertions or production data. Fixture route/API consumption remains
+unproven until that correction and one owner-authorized rerun.
+
 Fixture-contract P1 hardening after `95d3c1e7` is implemented in commit
 `7ed11cb0` plus the current follow-up: decision requests require an exact
 caller `sourceRef`; course aliases return their canonical resolver id;
