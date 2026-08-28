@@ -1516,6 +1516,34 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   Swift source review found no explicit cancellation path beyond SwiftUI task
   lifecycle, and no independent offline cache-key defect; no Swift change or
   Native rerun was made.
+- 2026-08-28: Bounded read-only diagnosis of Native run `33150308680` found
+  deterministic fixture semantics behind all three iOS failures; no source
+  change, rerun, or workflow dispatch was made. `RealFlowUITests` and
+  `ReviewEditUITests` wait for `topo-hole-base-ready` after the shot-map
+  response. The fixture shotmap route returns a valid 14,183-byte 64x64 PNG
+  and HTTP 200 is available from `/courses/{gid}/holes/{hole}/topo.png`, but
+  it labels the shotmap `mapKind=courseData`. iOS
+  `RoundHoleShotMap.usesCourseDataFrame` therefore makes
+  `RoundShotMapScreen.topoURL(for:)` return nil, so `TopoHoleBaseImage` can
+  only expose `topo-hole-base-fallback`; no image decode or URLSession
+  cancellation is involved in these two review failures. Watch passes because
+  its map/image path does not use this iOS `mapKind` gate. Minimal correction is
+  fixture-only: mark ready shotmap rows `mapKind=prodgeometry` (or omit the
+  field) while retaining the valid raster and existing assertions.
+  The offline test did pass the online `live-hole-offline-course-ready` gate,
+  proving the 18-hole prep/topo bytes were durably written. On relaunch it
+  failed at the expected fallback banner (`附近服务不可用；已显示下载到本机的附近球场。`),
+  before the offline course-row assertion. `refreshDownloadedCourseOptions`
+  derives local-nearby eligibility from the persisted package's first hole
+  `teeLatitude`/`teeLongitude`; the fixture package template has neither, so
+  `locallyAvailableNearbyCourses` drops the downloaded course and the UI
+  correctly renders the no-local-cache failure copy. This is independent of
+  topo task cancellation and persistence keys. Minimal fixture-only correction
+  is to populate package hole tee coordinates from the selected fixture
+  course's canonical coordinates (including 31793) before asserting offline
+  fallback. The run otherwise had 6/7 TeeSelection passes, including `(0,0)`
+  empty/recoverable fallback and real Core Location nearby flow; Watch 315
+  tests/runtime/evidence passed. No production or release action occurred.
 - 2026-08-28: After the bounded nearby fixture correction, ran exactly one
   authorized full fixture-mode Native Mobile CI workflow `33150308680` at
   exact SHA `961e41de4eeca0821f9aa3cca13f6dfe3b7a107f`, with
