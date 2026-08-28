@@ -1,6 +1,7 @@
 import XCTest
 @testable import AICaddie
 
+@MainActor
 final class BackendConfigurationStoreTests: XCTestCase {
     func testNormalizedAPIBaseURLPreservesSafeHTTPSPathPrefix() {
         XCTAssertEqual(

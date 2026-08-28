@@ -1395,3 +1395,31 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   `tests.test_mobile_contracts` suite remains unavailable in the shared
   environment because `jsonschema` is not installed. No Native rerun or
   release/TestFlight/deploy/signing/production action occurred.
+- 2026-08-28: Ran exactly one authorized fixture-mode Native Mobile CI
+  workflow `33144074168` at exact head
+  `819d53791b5491a09994ff42859baa0a8e5b847c`, with full capture, fixture mode,
+  review round `900001`, blank live URL/revision, and live preflight disabled.
+  All four launch gates passed in order, iOS app target compiled and ran, and
+  the Watch target/snapshots/runtime seed-restore/evidence/cleanup all passed.
+  The run still concluded failure because the iOS test target reported six
+  main-actor isolation errors: `LiveRoundAppModel.resolveAPIBaseURL` was called
+  from synchronous `BackendConfigurationStoreTests` methods. Real iOS UI
+  capture was consequently skipped by the failed target dependency; no iOS
+  API request/18-hole fixture consumption evidence is claimed. The fixture
+  URL was `http://127.0.0.1:9000`, revision `ci-fixture-20260827-v1`, and no
+  unconfigured-backend message appeared. Artifacts: native evidence 512 bytes,
+  `sha256:96a74416b6c8f2b2d2023163f815a2218f915e522efb05347013046d43eda6cd`;
+  Watch runtime 292,279 bytes,
+  `sha256:325f5842a3173b5525e36c6cb1b14412ce4f84e6884594bd96f6b423d664e26f`;
+  Watch snapshots 2,151,345 bytes,
+  `sha256:4528de23a1a137948ef7287e1cf7e774df26781bf71fd2d726cd5c2cffe9904b`;
+  real-screenshot diagnostic 366 bytes,
+  `sha256:1dbe97340dbb51c690d31faf15f8f2ecd5812ea3207f14f2b3056d6a1c91be13`.
+  No further Native rerun or release/TestFlight/deploy/signing/production
+  action occurred.
+- 2026-08-28: Fixed the second-level compile issue by annotating
+  `BackendConfigurationStoreTests` with `@MainActor`, matching its production
+  owner isolation. No duplicate API or production URL behavior changed.
+  Homeserver workflow/fixture tests passed 65/65; remote compileall, YAML
+  parsing, bash syntax, and local diff-check passed. The macOS Xcode target
+  remains unrerun pending Opus review.
