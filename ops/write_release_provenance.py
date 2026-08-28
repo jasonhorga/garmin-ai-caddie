@@ -6,6 +6,7 @@ import argparse
 from datetime import UTC, datetime
 import hashlib
 import json
+import os
 from pathlib import Path
 import plistlib
 import re
@@ -14,6 +15,13 @@ import ipaddress
 import zipfile
 
 SCHEMA = "ai-caddie-release-provenance-v1"
+
+
+def _revision(value: str, *, label: str) -> str:
+    revision = str(value or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise SystemExit(f"{label} must be a 40-character hexadecimal revision")
+    return revision
 
 
 def _origin_host(value: str) -> str:
@@ -29,7 +37,14 @@ def _origin_host(value: str) -> str:
         address = ipaddress.ip_address(host)
     except ValueError:
         return host
-    if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast:
+    if (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+        or address.is_unspecified
+    ):
         raise ValueError("api origin must be publicly reachable")
     return host
 
@@ -77,20 +92,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--upload-requested", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
-    commit = args.commit.strip().lower()
-    if len(commit) != 40 or any(ch not in "0123456789abcdef" for ch in commit):
-        raise SystemExit("--commit must be a 40-character hexadecimal revision")
+    commit = _revision(args.commit, label="--commit")
     if not args.ipa.is_file():
         raise SystemExit("IPA does not exist")
-    backend_revision = args.backend_revision.strip().lower() or None
-    if args.upload_to_testflight and not args.api_origin:
-        raise SystemExit("--api-origin is required for TestFlight upload")
-    if args.upload_to_testflight and (not backend_revision or not re.fullmatch(r"[0-9a-f]{40}", backend_revision)):
-        raise SystemExit("--backend-revision must be a 40-character hexadecimal revision")
-    if not str(args.workflow_run).strip() or not str(args.marketing_version).strip():
-        raise SystemExit("workflow run and marketing version are required")
     upload_requested = bool(args.upload_requested or args.upload_to_testflight)
     upload_completed = bool(args.upload_to_testflight)
+    backend_revision = args.backend_revision.strip().lower() or None
+    if backend_revision:
+        backend_revision = _revision(backend_revision, label="--backend-revision")
+    if upload_completed:
+        if not args.api_origin or not backend_revision:
+            raise SystemExit("upload provenance requires origin and a 40-character backend revision")
+        # A release upload must be tied to the immutable workflow revision. Do
+        # not silently substitute a local checkout's HEAD for this path.
+        workflow_commit = os.environ.get("GITHUB_SHA", "").strip()
+        if not workflow_commit:
+            raise SystemExit("GITHUB_SHA is required for TestFlight upload")
+        if _revision(workflow_commit, label="GITHUB_SHA") != commit:
+            raise SystemExit("provenance commit does not match GITHUB_SHA")
+    workflow_run = str(args.workflow_run).strip()
+    marketing_version = str(args.marketing_version).strip()
+    if not workflow_run:
+        raise SystemExit("workflow run is required")
+    if not marketing_version:
+        raise SystemExit("marketing version is required")
     try:
         api_origin_host = _origin_host(args.api_origin) if args.api_origin else None
     except ValueError as exc:
@@ -102,8 +127,8 @@ def main(argv: list[str] | None = None) -> int:
         "schema": SCHEMA,
         "createdAt": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "commit": commit,
-        "workflowRun": str(args.workflow_run),
-        "marketingVersion": str(args.marketing_version),
+        "workflowRun": workflow_run,
+        "marketingVersion": marketing_version,
         "buildNumber": build_number,
         "apiOriginHost": api_origin_host,
         "backendRevision": backend_revision,

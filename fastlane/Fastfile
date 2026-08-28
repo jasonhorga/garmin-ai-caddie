@@ -13,6 +13,7 @@ require "securerandom"
 require "shellwords"
 require "json"
 require "uri"
+require "net/http"
 require "ipaddr"
 
 default_platform(:ios)
@@ -38,6 +39,12 @@ platform :ios do
 
   def ensure_match_env!
     missing = %w[MATCH_GIT_URL MATCH_PASSWORD MATCH_GIT_PRIVATE_KEY].select { |k| ENV[k].to_s.strip.empty? }
+    UI.user_error!("Missing signing env vars: #{missing.join(', ')}") unless missing.empty?
+  end
+
+  def ensure_upload_signing_env!
+    required = %w[ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY MATCH_GIT_URL MATCH_PASSWORD MATCH_GIT_PRIVATE_KEY]
+    missing = required.select { |key| ENV[key].to_s.strip.empty? }
     UI.user_error!("Missing signing env vars: #{missing.join(', ')}") unless missing.empty?
   end
 
@@ -96,34 +103,89 @@ platform :ios do
     args.join(" ")
   end
 
+  def release_commit!(required: false)
+    value = ENV["GITHUB_SHA"].to_s.strip
+    if value.empty?
+      UI.user_error!("GITHUB_SHA is required for TestFlight upload") if required
+      value = `git rev-parse HEAD`.to_s.strip
+    end
+    UI.user_error!("release commit must be a 40-character revision") unless value.match?(/\A[0-9a-fA-F]{40}\z/)
+
+    value.downcase
+  end
+
   def preflight_backend!
     origin = ENV["AI_CADDIE_API_BASE_URL"].to_s.strip
-    return {} if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") != "true"
     UI.user_error!("AI_CADDIE_API_BASE_URL must be a public HTTPS origin for upload") if origin.empty?
     parsed = URI.parse(origin)
-    UI.user_error!("AI_CADDIE_API_BASE_URL must be an origin-only HTTPS URL") unless parsed.scheme == "https" && parsed.host && parsed.path.to_s.sub(%r{/\z}, "").empty? && parsed.query.nil? && parsed.fragment.nil? && parsed.user.nil? && parsed.password.nil?
+    host = parsed.host.to_s.downcase
+    invalid_host = host.empty? || host == "localhost" || host.end_with?(".local")
+    begin
+      ip = IPAddr.new(host)
+      invalid_host ||= ip.private? || ip.loopback? || ip.link_local? || ip.multicast? || ip.unspecified?
+      invalid_host ||= ip.respond_to?(:reserved?) && ip.reserved?
+      invalid_host ||= host.start_with?("240.") if ip.ipv4? && !invalid_host
+    rescue IPAddr::InvalidAddressError
+      # DNS host; public reachability is established by the HTTPS request.
+    end
+    UI.user_error!("AI_CADDIE_API_BASE_URL must be an origin-only public HTTPS URL") unless parsed.scheme == "https" && parsed.host && parsed.path.to_s.sub(%r{/\z}, "").empty? && parsed.query.nil? && parsed.fragment.nil? && parsed.user.nil? && parsed.password.nil? && !invalid_host
     token = ENV["AI_CADDIE_ADMIN_TOKEN"].to_s.strip
     UI.user_error!("AI_CADDIE_ADMIN_TOKEN is required for authenticated backend preflight") if token.empty?
-    begin
-      address = IPAddr.new(parsed.host)
-      UI.user_error!("AI_CADDIE_API_BASE_URL must use a public address") if address.private? || address.loopback? || address.link_local? || address.multicast? || address.reserved?
-    rescue IPAddr::InvalidAddressError
-      UI.user_error!("AI_CADDIE_API_BASE_URL must use a public address") if parsed.host == "localhost" || parsed.host.end_with?(".local")
+
+    fetch_json = lambda do |path|
+      uri = URI.parse(origin + path)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      http.open_timeout = 20
+      http.read_timeout = 20
+      req = Net::HTTP::Get.new(uri)
+      req["Accept"] = "application/json"
+      req["X-AI-Caddie-Admin-Token"] = token
+      response = http.request(req)
+      UI.user_error!("backend preflight HTTP #{response.code}") unless response.code.to_i == 200
+      JSON.parse(response.body)
     end
-    headers = ["-fsS", "-H", "Accept: application/json"]
-    header_args = headers.map { |h| Shellwords.escape(h) }.join(" ")
-    auth_header = '-H "X-AI-Caddie-Admin-Token: ${AI_CADDIE_ADMIN_TOKEN}"'
-    health = JSON.parse(sh("curl #{header_args} #{auth_header} #{Shellwords.escape(origin + '/api/v2/health')}"))
+
+    health = fetch_json.call("/api/v2/health")
     UI.user_error!("backend health schema mismatch") unless health["schema"] == "ai-caddie-health-v2"
-    expected = ENV["EXPECTED_BACKEND_REVISION"].to_s.strip
-    UI.user_error!("EXPECTED_BACKEND_REVISION must be a 40-character revision") unless expected.match?(/\A[0-9a-fA-F]{40}\z/)
-    UI.user_error!("backend revision mismatch") unless health["revision"].to_s == expected
-    readiness = JSON.parse(sh("curl #{header_args} #{auth_header} #{Shellwords.escape(origin + '/api/v2/readiness')}"))
+    readiness = fetch_json.call("/api/v2/readiness")
     checks = readiness["checks"]
-    UI.user_error!("backend readiness authentication/schema invalid") unless readiness["schema"] == "ai-caddie-readiness-v1" && readiness["authenticated"] == true && readiness["runtimeStatus"] == "ready" && readiness["serviceStatus"] == "ready" && checks.is_a?(Array) && !checks.empty? && checks.all? { |row| row.is_a?(Hash) && !row["label"].to_s.strip.empty? }
-    health.merge("readiness" => readiness)
+    UI.user_error!("backend readiness evidence missing") unless readiness["schema"] == "ai-caddie-readiness-v1" && readiness["authenticated"] == true && readiness["runtimeStatus"] == "ready" && readiness["serviceStatus"] == "ready" && %w[ready degraded].include?(readiness["status"]) && checks.is_a?(Array) && !checks.empty? && checks.all? { |row| row.is_a?(Hash) && !row["label"].to_s.strip.empty? && %w[ready degraded error unknown].include?(row["state"]) }
+    actual = health["revision"].to_s.strip.downcase
+    UI.user_error!("backend health revision is missing or invalid") unless actual.match?(/\A[0-9a-fA-F]{40}\z/)
+    expected = ENV["EXPECTED_BACKEND_REVISION"].to_s.strip.downcase
+    unless expected.empty?
+      UI.user_error!("EXPECTED_BACKEND_REVISION must be a 40-character revision") unless expected.match?(/\A[0-9a-f]{40}\z/)
+      UI.user_error!("backend revision mismatch") unless actual == expected
+    end
+    health.merge("revision" => actual)
   rescue URI::InvalidURIError
     UI.user_error!("invalid AI_CADDIE_API_BASE_URL")
+  end
+
+  def validate_release_provenance!(path:, release_commit:, backend_revision:, api_origin:, upload_requested:)
+    payload = JSON.parse(File.read(path))
+    UI.user_error!("release provenance manifest is invalid") unless payload.is_a?(Hash)
+    manifest_commit = payload["commit"].to_s.strip.downcase
+    UI.user_error!("release provenance commit is missing") if manifest_commit.empty?
+    UI.user_error!("release provenance commit is invalid") unless manifest_commit.match?(/\A[0-9a-f]{40}\z/i)
+    UI.user_error!("release provenance commit does not match build commit") unless manifest_commit == release_commit
+
+    requested = payload["uploadRequested"] == true
+    completed = payload["uploadCompleted"] == true || payload["uploadToTestflight"] == true
+    if upload_requested
+      UI.user_error!("release provenance upload flag is missing") unless requested && completed && payload["uploadToTestflight"] == true
+      manifest_backend = payload["backendRevision"].to_s.strip.downcase
+      UI.user_error!("release provenance backend revision is missing") if manifest_backend.empty?
+      UI.user_error!("release provenance backend revision is invalid") unless manifest_backend.match?(/\A[0-9a-f]{40}\z/i)
+      UI.user_error!("release provenance backend revision does not match backend health") unless manifest_backend == backend_revision
+      expected_host = URI.parse(api_origin).host.to_s.downcase
+      UI.user_error!("release provenance API origin does not match build origin") unless expected_host != "" && payload["apiOriginHost"].to_s.strip.downcase == expected_host
+    else
+      UI.user_error!("release provenance upload state is inconsistent") if completed && !requested
+    end
+  rescue Errno::ENOENT, JSON::ParserError, URI::InvalidURIError
+    UI.user_error!("release provenance manifest is unreadable")
   end
 
   desc "One-time: create the App Store Connect app record (idempotent) + app/watch signing assets"
@@ -163,8 +225,11 @@ platform :ios do
 
   desc "Build the app (with embedded watch app) and upload to TestFlight"
   lane :beta do
+    upload_requested = ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
+    release_commit = release_commit!(required: upload_requested)
     api_key = load_asc_api_key!
     ensure_match_env!
+    ensure_upload_signing_env! if upload_requested
     make_keychain!
     match(
       api_key: api_key, type: "appstore", readonly: true, storage_mode: "git",
@@ -193,23 +258,29 @@ platform :ios do
       xcargs: build_xcargs
     )
 
-    backend = preflight_backend! if ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
-    backend_revision = backend && backend["revision"].to_s.strip
-    backend_revision = ENV.fetch("EXPECTED_BACKEND_REVISION", "").to_s.strip if backend_revision.to_s.empty?
-    upload_requested = ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
-    api_origin = ENV.fetch("AI_CADDIE_API_BASE_URL", "").to_s.strip
+    backend = preflight_backend! if upload_requested
+    backend_revision = upload_requested ? backend.fetch("revision") : ""
+    api_origin = ENV["AI_CADDIE_API_BASE_URL"].to_s.strip
     provenance_args = [
       "python3 ops/write_release_provenance.py",
       "--ipa #{Shellwords.escape(File.join('build/ios', OUTPUT_IPA))}",
-      "--api-origin #{Shellwords.escape(api_origin)}",
-      "--backend-revision #{Shellwords.escape(backend_revision)}",
-      "--commit #{Shellwords.escape(ENV.fetch('GITHUB_SHA', `git rev-parse HEAD`).strip)}",
+      "--api-origin #{Shellwords.escape(api_origin)}" unless api_origin.empty?,
+      "--backend-revision #{Shellwords.escape(backend_revision)}" unless backend_revision.empty?,
+      "--commit #{Shellwords.escape(release_commit)}",
       "--workflow-run #{Shellwords.escape(ENV.fetch('GITHUB_RUN_ID', 'local'))}",
       "--marketing-version #{Shellwords.escape(get_version_number(xcodeproj: XCODE_PROJECT))}",
       "--build-number #{Shellwords.escape(get_build_number(xcodeproj: XCODE_PROJECT))}"
-    ]
+    ].compact
     provenance_args << "--upload-requested" if upload_requested
     sh(provenance_args.join(" "))
+
+    validate_release_provenance!(
+      path: File.join("build/ios", "release-provenance.json"),
+      release_commit: release_commit,
+      backend_revision: backend_revision,
+      api_origin: api_origin,
+      upload_requested: false
+    )
 
     if upload_requested
       upload_to_testflight(
@@ -217,6 +288,13 @@ platform :ios do
         distribute_external: false, changelog: ENV.fetch("RELEASE_NOTES", "Automated CI build")
       )
       sh("#{provenance_args.join(' ')} --upload-to-testflight")
+      validate_release_provenance!(
+        path: File.join("build/ios", "release-provenance.json"),
+        release_commit: release_commit,
+        backend_revision: backend_revision,
+        api_origin: api_origin,
+        upload_requested: true
+      )
     else
       UI.success("Signed IPA built; TestFlight upload was not requested.")
     end

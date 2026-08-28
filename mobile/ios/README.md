@@ -29,8 +29,12 @@ the offline/fixture fallback.
 
 Candidate and production are separate gates. The candidate IPA is artifact-only
 and carries `release-provenance.json`; production upload additionally requires
-an origin-only public HTTPS API URL and authenticated backend preflight. Device
-installation and tester coverage are build-number-bound manual evidence.
+an origin-only public HTTPS API URL, authenticated backend preflight, and a
+backend revision match. Device installation and tester coverage are
+build-number-bound manual evidence, and an `upload=false` provenance manifest
+does not satisfy the release gate.
+
+Current branch: `codex/release-hardening-20260827`.
 
 TestFlight/Release builds never embed the owner admin token. They authenticate
 through Sign in with Apple and forward that scoped session to the Watch. The

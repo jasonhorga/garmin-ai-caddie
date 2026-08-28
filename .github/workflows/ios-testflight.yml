@@ -73,17 +73,24 @@ jobs:
         run: |
           python3 - "$API_ORIGIN" <<'PY'
           import sys
+          import ipaddress
           from urllib.parse import urlparse
           p = urlparse(sys.argv[1])
-          if p.scheme != "https" or not p.hostname or p.username or p.password or p.query or p.fragment or p.path not in ("", "/"):
-              raise SystemExit("upload_to_testflight requires an origin-only public HTTPS API URL")
-          import ipaddress
+          host = (p.hostname or "").lower()
           try:
-              address = ipaddress.ip_address(p.hostname)
+              ip = ipaddress.ip_address(host)
+              private = (
+                  ip.is_private
+                  or ip.is_loopback
+                  or ip.is_link_local
+                  or ip.is_reserved
+                  or ip.is_multicast
+                  or ip.is_unspecified
+              )
           except ValueError:
-              address = None
-          if address and (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast):
-              raise SystemExit("upload_to_testflight requires a public HTTPS API URL")
+              private = host == "localhost" or host.endswith(".local")
+          if p.scheme != "https" or not host or private or p.username or p.password or p.query or p.fragment or p.path not in ("", "/"):
+              raise SystemExit("upload_to_testflight requires an origin-only public HTTPS API URL")
           PY
 
       - name: fastlane beta -> TestFlight

@@ -1044,6 +1044,8 @@ class CIWorkflowTests(unittest.TestCase):
             "beta_review_submitted",
             "native_runtime_api_configured",
             "assigned_tester_count",
+            "testflight_build_number",
+            "release_provenance_run_id",
             "tester_coverage_confirmed",
             "install_verified",
             "fail_when_incomplete",
@@ -1066,6 +1068,10 @@ class CIWorkflowTests(unittest.TestCase):
             env["AI_CADDIE_TESTFLIGHT_FEEDBACK_EMAIL_SECRET_SOURCE"],
         )
         self.assertIn("ops/phase6_external_readiness.py", text)
+        self.assertIn('--branch "$GITHUB_REF_NAME"', text)
+        self.assertIn("actions/download-artifact@v4", text)
+        self.assertIn("Validate release workflow identity", text)
+        self.assertIn("AI_CADDIE_RELEASE_COMMIT", text)
         self.assertIn("--probe-backend", text)
         self.assertIn("--feedback-email-filled", text)
         self.assertIn("--beta-review-submitted", text)
@@ -1209,6 +1215,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("vars.AI_CADDIE_API_BASE_URL", workflow_text)
         self.assertIn("UPLOAD_TO_TESTFLIGHT", workflow_text)
         self.assertIn("AI_CADDIE_ADMIN_TOKEN", workflow_text)
+        self.assertIn("expected_backend_revision", inputs)
 
         info_plist = Path("mobile/ios/AICaddie/Info.plist").read_text(encoding="utf-8")
         self.assertNotIn("AICaddieAdminToken", info_plist)

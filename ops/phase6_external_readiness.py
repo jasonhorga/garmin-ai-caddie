@@ -145,7 +145,14 @@ def _configured_value_source(env: dict[str, str], *, value_key: str, source_key:
     return _safe_source_label(env.get(source_key), default="environment")
 
 
-def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> dict[str, Any]:
+def _release_provenance_check(
+    env: dict[str, str],
+    *,
+    api_host: str | None,
+    release_commit: str | None = None,
+    health_revision: str | None = None,
+) -> dict[str, Any]:
+    """Validate the sidecar without allowing local checkout state to prove an upload."""
     raw_path = str(env.get("AI_CADDIE_RELEASE_PROVENANCE_PATH") or "").strip()
     if not raw_path:
         return {"label": "release_provenance", "state": "missing", "reason": "release provenance manifest is required"}
@@ -156,14 +163,14 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
         return {"label": "release_provenance", "state": "degraded", "reason": "release provenance manifest is unreadable"}
     if not isinstance(payload, dict):
         return {"label": "release_provenance", "state": "degraded", "reason": "release provenance manifest is invalid"}
-    expected_run = str(env.get("RELEASE_PROVENANCE_RUN_ID") or "").strip()
-    if expected_run and str(payload.get("workflowRun") or "") != expected_run:
-        return {"label": "release_provenance", "state": "degraded", "reason": "provenance workflow run mismatch"}
+
     issues: list[str] = []
     if payload.get("schema") != RELEASE_PROVENANCE_SCHEMA:
         issues.append("schema_mismatch")
-    commit = str(payload.get("commit") or "")
-    if not re.fullmatch(r"[0-9a-fA-F]{40}", commit):
+    commit = str(payload.get("commit") or "").strip().lower()
+    if not commit:
+        issues.append("commit_missing")
+    elif not re.fullmatch(r"[0-9a-f]{40}", commit):
         issues.append("commit_invalid")
     created = str(payload.get("createdAt") or "")
     try:
@@ -172,28 +179,52 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
             issues.append("stale")
     except (ValueError, TypeError):
         issues.append("created_at_invalid")
-    if api_host and payload.get("apiOriginHost") and str(payload.get("apiOriginHost")).lower() != api_host.lower():
-        issues.append("api_origin_host_mismatch")
-    required = ("workflowRun", "marketingVersion", "buildNumber", "ipaSha256", "uploadToTestflight")
-    issues.extend(f"{field}_missing" for field in required if payload.get(field) in (None, ""))
-    if payload.get("workflowRun") in (None, ""):
+
+    expected_run = str(env.get("RELEASE_PROVENANCE_RUN_ID") or "").strip()
+    if expected_run and str(payload.get("workflowRun") or "") != expected_run:
+        issues.append("provenance_workflow_run_mismatch")
+    if not str(payload.get("workflowRun") or "").strip():
         issues.append("workflow_run_missing")
-    if payload.get("marketingVersion") in (None, ""):
+    if not str(payload.get("marketingVersion") or "").strip():
         issues.append("marketing_version_missing")
-    if payload.get("buildNumber") in (None, ""):
+    if not str(payload.get("buildNumber") or "").strip():
         issues.append("build_number_missing")
-    backend_revision = str(payload.get("backendRevision") or "")
+
+    upload_flag = payload.get("uploadToTestflight")
+    if not isinstance(upload_flag, bool):
+        issues.append("upload_flag_invalid")
+    elif upload_flag is False:
+        # Artifact-only candidates are valid artifacts, but never a release gate.
+        issues.append("upload_flag_false")
+
+    api_origin_host = str(payload.get("apiOriginHost") or "").strip().lower()
+    backend_revision = str(payload.get("backendRevision") or "").strip().lower()
     requested = payload.get("uploadRequested") is True
     completed = payload.get("uploadCompleted") is True
-    legacy_uploaded = payload.get("uploadToTestflight") is True
+    legacy_uploaded = upload_flag is True
     uploaded = completed or legacy_uploaded
     if requested and not completed:
         issues.append("upload_incomplete")
     if completed != legacy_uploaded:
         issues.append("upload_state_inconsistent")
-    expected_commit = str(env.get("AI_CADDIE_RELEASE_COMMIT") or env.get("GITHUB_SHA") or "").strip()
-    if expected_commit and commit.lower() != expected_commit.lower():
+
+    github_sha = str(env.get("GITHUB_SHA") or "").strip().lower()
+    # Phase 6 may inspect an artifact produced by a different workflow run, so
+    # the validated artifact commit is authoritative.  The built-in
+    # GITHUB_SHA is only a fallback for direct, same-workflow invocations; the
+    # upload-producing Fastlane path enforces it separately in the writer.
+    fallback_commit = str(release_commit or env.get("AI_CADDIE_RELEASE_COMMIT") or "").strip().lower()
+    expected_commit = fallback_commit or github_sha
+    if uploaded:
+        if not expected_commit:
+            issues.append("release_commit_missing")
+        elif not re.fullmatch(r"[0-9a-f]{40}", expected_commit):
+            issues.append("release_commit_invalid")
+        elif commit != expected_commit:
+            issues.append("commit_mismatch")
+    elif expected_commit and re.fullmatch(r"[0-9a-f]{40}", expected_commit) and commit != expected_commit:
         issues.append("commit_mismatch")
+
     expected_build = _normalized_build_number(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER"))
     manifest_build = _normalized_build_number(payload.get("buildNumber"))
     if manifest_build is None:
@@ -203,16 +234,30 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
     expected_marketing = str(env.get("AI_CADDIE_MARKETING_VERSION") or "").strip()
     if expected_marketing and str(payload.get("marketingVersion") or "") != expected_marketing:
         issues.append("marketing_version_mismatch")
-    if uploaded and not payload.get("apiOriginHost"):
-        issues.append("api_origin_host_missing")
-    if uploaded and not payload.get("backendRevision"):
-        issues.append("backend_revision_missing")
-    if uploaded and not re.fullmatch(r"[0-9a-fA-F]{40}", backend_revision):
+
+    if api_origin_host and api_host and api_origin_host != api_host.lower():
+        issues.append("api_origin_host_mismatch")
+    probed_health_revision = str(health_revision or "").strip().lower()
+    if uploaded:
+        if not api_origin_host:
+            issues.append("api_origin_host_missing")
+        elif not api_host:
+            issues.append("api_origin_host_unverified")
+        if not backend_revision:
+            issues.append("backend_revision_missing")
+        elif not re.fullmatch(r"[0-9a-f]{40}", backend_revision):
+            issues.append("backend_revision_invalid")
+        if not probed_health_revision:
+            issues.append("health_revision_missing")
+        elif not re.fullmatch(r"[0-9a-f]{40}", probed_health_revision):
+            issues.append("health_revision_invalid")
+        elif re.fullmatch(r"[0-9a-f]{40}", backend_revision) and backend_revision != probed_health_revision:
+            issues.append("backend_revision_mismatch")
+    elif backend_revision and backend_revision != "unknown" and not re.fullmatch(r"[0-9a-f]{40}", backend_revision):
         issues.append("backend_revision_invalid")
-    if not uploaded and backend_revision not in {"", "unknown"} and not re.fullmatch(r"[0-9a-fA-F]{40}", backend_revision):
-        issues.append("backend_revision_invalid")
-    ipa_sha = str(payload.get("ipaSha256") or "")
-    if not re.fullmatch(r"[0-9a-fA-F]{64}", ipa_sha):
+
+    ipa_sha = str(payload.get("ipaSha256") or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", ipa_sha):
         issues.append("ipa_sha256_invalid")
     ipa_path = str(env.get("AI_CADDIE_RELEASE_IPA_PATH") or "").strip()
     if ipa_path:
@@ -221,8 +266,41 @@ def _release_provenance_check(env: dict[str, str], *, api_host: str | None) -> d
             issues.append("ipa_missing")
         elif _sha256(candidate) != ipa_sha:
             issues.append("ipa_sha256_mismatch")
-    safe = {key: payload.get(key) for key in ("schema", "commit", "workflowRun", "marketingVersion", "buildNumber", "apiOriginHost", "backendRevision", "backendRevisionVerified", "ipaSha256", "uploadToTestflight", "uploadRequested", "uploadCompleted", "createdAt")}
-    return {"label": "release_provenance", "state": "ready" if not issues else "degraded", "reason": None if not issues else "invalid release provenance manifest", "evidence": {**safe, "issues": sorted(set(issues))}}
+
+    safe = {
+        key: payload.get(key)
+        for key in (
+            "schema", "commit", "workflowRun", "marketingVersion", "buildNumber",
+            "apiOriginHost", "backendRevision", "backendRevisionVerified", "ipaSha256",
+            "uploadToTestflight", "uploadRequested", "uploadCompleted", "createdAt",
+        )
+    }
+    safe.update(
+        {
+            "expectedCommit": expected_commit or None,
+            "githubSha": github_sha or None,
+            "healthRevision": probed_health_revision or None,
+            "commitMatchesExpected": bool(expected_commit)
+            and bool(re.fullmatch(r"[0-9a-f]{40}", expected_commit))
+            and commit == expected_commit,
+            "commitMatchesGithubSha": bool(github_sha)
+            and bool(re.fullmatch(r"[0-9a-f]{40}", github_sha))
+            and commit == github_sha,
+            "backendRevisionMatchesHealth": bool(probed_health_revision)
+            and bool(re.fullmatch(r"[0-9a-f]{40}", backend_revision))
+            and bool(re.fullmatch(r"[0-9a-f]{40}", probed_health_revision))
+            and backend_revision == probed_health_revision,
+            "apiOriginHostMatches": bool(api_host)
+            and bool(api_origin_host)
+            and api_origin_host == str(api_host).lower(),
+        }
+    )
+    return {
+        "label": "release_provenance",
+        "state": "ready" if not issues else "degraded",
+        "reason": None if not issues else "invalid release provenance manifest",
+        "evidence": {**safe, "issues": sorted(set(issues))},
+    }
 
 
 def _safe_host(raw_url: str) -> tuple[str | None, str | None]:
@@ -242,7 +320,7 @@ def _safe_host(raw_url: str) -> tuple[str | None, str | None]:
         ip = ipaddress.ip_address(host)
     except ValueError:
         return host, None
-    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
         return None, "host is not a public address"
     return host, None
 
@@ -633,9 +711,13 @@ def probe_backend_url(
             "reason": f"backend probe failed: {exc.__class__.__name__}",
             "healthStatus": None,
             "readinessStatus": None,
+            "healthRevision": None,
+            "revision": None,
         }
+    health_revision = str(health.get("revision") or "").strip().lower() or None
     authenticated = bool(admin_token) and readiness.get("authenticated") is True
     readiness_checks = readiness.get("checks")
+    liveness_stub = readiness.get("authenticated") is False and readiness.get("status") == "ok"
     checks_valid = (
         isinstance(readiness_checks, list)
         and bool(readiness_checks)
@@ -652,6 +734,8 @@ def probe_backend_url(
         reason = (
             "unexpected backend schema"
             if health_status == 200 and readiness_status == 200 and not schemas_match
+            else "backend readiness is an owner-only liveness stub"
+            if liveness_stub
             else "authenticated readiness evidence missing"
             if not authenticated or not checks_valid or not readiness_status_valid
             else "unexpected backend status"
@@ -661,12 +745,15 @@ def probe_backend_url(
         "reason": reason,
         "healthStatus": health_status,
         "healthSchema": health.get("schema"),
+        "healthRevision": health_revision,
+        "revision": health_revision,
         "readinessStatus": readiness_status,
         "readinessSchema": readiness.get("schema"),
         "readinessState": readiness.get("status"),
         "authenticated": authenticated,
         "readinessChecks": readiness_checks if checks_valid else None,
         "checksValid": checks_valid,
+        "livenessOnly": liveness_stub,
         "schema": EXPECTED_READINESS_SCHEMA,
     }
 
@@ -735,6 +822,9 @@ def _github_checks(
     if native_api_ready:
         native_api_state = "ready"
         native_api_reason = None
+    elif native_runtime_api_configured:
+        native_api_state = "manual_required"
+        native_api_reason = "runtime Backend-screen configuration does not prove a build-time API origin"
     elif variable_names_unavailable_reason:
         native_api_state = "unknown"
         native_api_reason = variable_names_unavailable_reason
@@ -862,6 +952,16 @@ def _github_testflight_tester_observations(github_snapshot: dict[str, Any] | Non
     }
 
 
+def _github_release_build_number(github_snapshot: dict[str, Any] | None) -> str:
+    """Extract the concrete build number from a successful TestFlight log summary."""
+    actions = (github_snapshot or {}).get("testflightActions")
+    if not isinstance(actions, dict):
+        return ""
+    value = str(actions.get("build") or "").strip()
+    match = re.search(r"\(([^)]+)\)", value)
+    return match.group(1).strip() if match else ""
+
+
 def _trusted_testflight_actions(
     github_snapshot: dict[str, Any] | None,
     env: dict[str, str],
@@ -874,8 +974,13 @@ def _trusted_testflight_actions(
         actions.get("readyForBetaSubmission") is True or actions.get("betaReviewSubmitted") is True
     ):
         return False
-    build = _normalized_build_number(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER"))
-    commit = str(env.get("AI_CADDIE_RELEASE_COMMIT") or "").strip().lower()
+    build = _normalized_build_number(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER")) or _normalized_build_number(
+        _github_release_build_number(github_snapshot)
+    )
+    # Phase 6 may inspect a candidate artifact from a different dispatch
+    # commit; the validated release commit is authoritative for TestFlight log
+    # binding, with GITHUB_SHA as the direct-workflow fallback.
+    commit = str(env.get("AI_CADDIE_RELEASE_COMMIT") or env.get("GITHUB_SHA") or "").strip().lower()
     return bool(
         build
         and commit
@@ -937,6 +1042,13 @@ def build_phase6_external_readiness(
     )
     beta_review_ready = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_READY")
     beta_review_submitted = _bool_env(env, "AI_CADDIE_TESTFLIGHT_BETA_REVIEW_SUBMITTED")
+    # A downloaded release artifact carries its own immutable commit. Prefer
+    # that value over the Phase 6 dispatch checkout SHA; direct invocations can
+    # still use GITHUB_SHA when no artifact authority was supplied.
+    release_commit = str(env.get("AI_CADDIE_RELEASE_COMMIT") or env.get("GITHUB_SHA") or "").strip()
+    release_build_number = str(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER") or "").strip()
+    if not release_build_number:
+        release_build_number = _github_release_build_number(github_snapshot)
     github_beta_review_ready, github_beta_review_ready_source = _github_beta_review_ready_source(github_snapshot)
     github_feedback_email_filled, github_feedback_email_source = _github_feedback_email_source(github_snapshot)
     github_beta_review_submitted, github_beta_review_submission_source = (
@@ -989,7 +1101,7 @@ def build_phase6_external_readiness(
         feedback_email_source=feedback_email_source,
         branch=branch,
     )
-    candidate_build = _normalized_build_number(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER"))
+    candidate_build = _normalized_build_number(release_build_number)
     checks.append(
         {
             "label": "external_beta_review_submission_ready",
@@ -1045,6 +1157,7 @@ def build_phase6_external_readiness(
         }
     checks.append(api_check)
 
+    probed_health_revision: str | None = None
     if api_check["state"] != "ready":
         checks.append(
             {
@@ -1073,6 +1186,9 @@ def build_phase6_external_readiness(
         )
     else:
         probe = backend_probe(raw_api_url, env.get("AI_CADDIE_ADMIN_TOKEN"))
+        probed_health_revision = str(
+            probe.get("healthRevision") or probe.get("revision") or ""
+        ).strip() or None
         checks.append(
             {
                 "label": "backend_probe",
@@ -1082,6 +1198,7 @@ def build_phase6_external_readiness(
                     "host": api_summary["host"],
                     "healthStatus": probe.get("healthStatus"),
                     "healthSchema": probe.get("healthSchema"),
+                    "healthRevision": probed_health_revision,
                     "readinessStatus": probe.get("readinessStatus"),
                     "readinessSchema": probe.get("readinessSchema"),
                     "readinessState": probe.get("readinessState"),
@@ -1124,12 +1241,12 @@ def build_phase6_external_readiness(
                 "internalCoverageConfirmed": tester_coverage_confirmed,
                 "internalCoverageSource": tester_coverage_source,
                 **tester_observations,
-                "buildNumber": str(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER") or "").strip() or None,
+                "buildNumber": release_build_number or None,
             },
         }
     )
     install_verified = _bool_env(env, "AI_CADDIE_TESTFLIGHT_INSTALL_VERIFIED")
-    install_build = _normalized_build_number(env.get("AI_CADDIE_TESTFLIGHT_BUILD_NUMBER")) or ""
+    install_build = candidate_build or ""
     checks.append(
         {
             "label": "device_install",
@@ -1149,7 +1266,12 @@ def build_phase6_external_readiness(
         }
     )
 
-    provenance_check = _release_provenance_check(env, api_host=api_summary.get("host"))
+    provenance_check = _release_provenance_check(
+        env,
+        api_host=api_summary.get("host"),
+        release_commit=release_commit or None,
+        health_revision=probed_health_revision,
+    )
     checks.append(provenance_check)
     if provenance_check.get("state") == "ready" and provenance_check.get("evidence", {}).get("uploadToTestflight") is not True:
         checks.append({

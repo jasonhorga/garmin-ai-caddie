@@ -33,7 +33,10 @@ Candidate and production are separate gates. Every IPA is accompanied by
 `release-provenance.json` containing the 40-character commit, workflow run,
 marketing/build numbers, API origin host, backend revision, IPA SHA-256, and
 upload flag. Tester/install assertions must name the build number and remain
-manual evidence.
+manual evidence. An `upload=false` manifest is allowed for artifact-only
+builds, but it never satisfies the release gate.
+
+Current branch: `codex/release-hardening-20260827`.
 
 - Before uploading a connected build, run the external release preflight from
   `docs/deployment/private-trial.md` and keep the generated evidence file:
@@ -51,6 +54,9 @@ manual evidence.
   watch app) → uploads to TestFlight.
   If `api_base_url` is blank, the workflow falls back to repo variable
   `AI_CADDIE_API_BASE_URL`; if both are blank, the app keeps the offline/fixture fallback.
+  Upload mode requires the six signing secrets, an origin-only public HTTPS API
+  URL, an admin token for authenticated `/api/v2/health` + `/api/v2/readiness`
+  preflight, and a backend revision that matches the deployed host.
   The iPhone app also has a runtime Backend screen for an origin-only `https://`
   API URL and private admin token, so a tester can point an already uploaded
   TestFlight build at a deployed backend without another upload.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import plistlib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,7 +44,8 @@ class ReleaseEvidencePipelineTests(unittest.TestCase):
             args += ["--upload-to-testflight", "--api-origin", "https://api.example.test", "--backend-revision", "b" * 40]
         elif requested:
             args += ["--upload-requested"]
-        self.assertEqual(write_provenance(args), 0)
+        with patch.dict(os.environ, {"GITHUB_SHA": "a" * 40}, clear=False):
+            self.assertEqual(write_provenance(args), 0)
         return output, ipa
 
     def _snapshot(self, actions: dict[str, object]) -> dict[str, object]:
@@ -90,7 +92,7 @@ class ReleaseEvidencePipelineTests(unittest.TestCase):
         return build_phase6_external_readiness(
             env=env,
             github_snapshot=self._snapshot(actions),
-            backend_probe=lambda _url, _token: {"state": "ready", "healthStatus": 200, "healthSchema": "ai-caddie-health-v2", "readinessStatus": 200, "readinessSchema": "ai-caddie-readiness-v1", "readinessState": "ready"},
+            backend_probe=lambda _url, _token: {"state": "ready", "healthStatus": 200, "healthSchema": "ai-caddie-health-v2", "healthRevision": "b" * 40, "readinessStatus": 200, "readinessSchema": "ai-caddie-readiness-v1", "readinessState": "ready"},
             branch="main",
         )
 
