@@ -1152,6 +1152,37 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   compilation remains an Actions gate. No new run, release, deploy, signing,
   TestFlight, or production action was performed; Opus read-only review is
   required before rerun.
+- 2026-08-28: Auditable handoff for the guarded fixture URL and common-gate
+  slice: branch `codex/p0-p1-p2-checkpoint-20260823`, exact HEAD
+  `06164061b7644ac2c1f03304472a857d8af7a5ad`, pushed to origin. Commit
+  `c549c8de7a6e0ebee32bff21e81bd9001ba22d8f` (`Allow guarded iOS fixture
+  loopback configuration`) changed `.github/workflows/native-mobile.yml`,
+  `mobile/ios/AICaddie/AICaddieApp.swift`,
+  `mobile/ios/AICaddie/Services/BackendConfigurationStore.swift`,
+  `mobile/ios/AICaddieTests/BackendConfigurationStoreTests.swift`,
+  `tests/test_ci_workflow.py`, and this ledger; commit
+  `06164061b7644ac2c1f03304472a857d8af7a5ad` (`Cover guarded fixture URL
+  contract`) changed `tests/test_mobile_contracts.py`.
+  Swift URL tests cover fixture `http://127.0.0.1:9000` acceptance only with
+  explicit opt-in, HTTP loopback rejection without opt-in (the live case), bad
+  fixture port/host/query rejection, and public HTTPS acceptance. App source
+  separately requires fixture marker `AI_CADDIE_FIXTURE_MODE=1`, data marker
+  `AI_CADDIE_DATA_MODE=fixture`, and a non-empty token before enabling that
+  opt-in; release builds hard-disable it. Watch common gating covers Resolve
+  and boot simulator, Watch target test, Watch snapshot collection/scan/upload,
+  Watch runtime seed/restore, runtime scan/upload, and native evidence status
+  generation; failed/cancelled/skipped launch validation maps both surfaces to
+  `skipped`.
+  Homeserver results: workflow + fixture contracts 64/64; Python
+  `compileall -q server_v2 ai_caddie tests` passed; YAML parse, `bash -n
+  ops/run_ci_fixture.sh`, and `git diff --check` passed. The broader
+  `tests.test_mobile_contracts` could not import because shared `ci-venv`
+  lacks `jsonschema`; the repository `uv.lock` includes `jsonschema 4.26.0`,
+  but homeserver has no `uv` executable and no lock-backed scratch environment
+  was created or installed in this constrained handoff. All pre-existing
+  untracked reports, `.codex-tmp/`, and mockup files remain preserved. No
+  Native dispatch, deployment, upload, signing, release, or TestFlight action
+  was performed.
 - 2026-08-27: Diagnosed Native fixture run `33126223345` startup failure with
   a homeserver reproduction: `uv` was unavailable (`command -v uv` empty), and
   the launcher stderr was `nohup: failed to run command 'uv': No such file or
