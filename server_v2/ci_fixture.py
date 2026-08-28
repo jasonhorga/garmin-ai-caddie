@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 from pathlib import Path
 import re
 import struct
@@ -41,6 +42,14 @@ def _course_request(value: int) -> int:
 
 def _course_name(value: int) -> str:
     return "Beijing Palace" if int(value) == PALACE_ID else ("Black Knight B/C" if int(value) == GLOBAL_ID else ("Fixture Open Course" if int(value) == 31797 else "Cypress Point Club"))
+
+
+COURSE_COORDINATES = {
+    PALACE_ID: (40.0455, 116.5462),
+    GLOBAL_ID: (39.9000, 116.4000),
+    31797: (40.1200, 116.7000),
+    3881: (36.5800, -121.9700),
+}
 
 
 def _round_id(value: str) -> str:
@@ -291,7 +300,39 @@ def course_search(name: str, latitude: float | None = None, longitude: float | N
 
 @ROUTE.get("/api/v2/courses/nearby")
 def nearby(latitude: float, longitude: float, radius_km: int = 50) -> dict:
-    matches = [{"globalId": PALACE_ID, "name": "Beijing Palace", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 1.0, "latitude": latitude, "longitude": longitude, "distanceKm": 1.0}, {"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 0.95, "latitude": latitude, "longitude": longitude, "distanceKm": 1.5}, {"globalId": 31797, "name": "Fixture Open Course", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 0.92, "latitude": latitude, "longitude": longitude, "distanceKm": 1.8}, {"globalId": 3881, "name": "Cypress Point Club", "holes": 18, "city": "Monterey", "province": "California", "ratio": 0.9, "latitude": latitude, "longitude": longitude, "distanceKm": 2.0}]
+    if not math.isfinite(latitude) or not -90 <= latitude <= 90:
+        raise HTTPException(status_code=422, detail="fixture latitude is invalid")
+    if not math.isfinite(longitude) or not -180 <= longitude <= 180:
+        raise HTTPException(status_code=422, detail="fixture longitude is invalid")
+    if not isinstance(radius_km, int) or radius_km < 1 or radius_km > 200:
+        raise HTTPException(status_code=422, detail="fixture nearby radius is invalid")
+
+    def distance_km(course_latitude: float, course_longitude: float) -> float:
+        latitude_delta = math.radians(course_latitude - latitude)
+        longitude_delta = math.radians(course_longitude - longitude)
+        origin_latitude = math.radians(latitude)
+        target_latitude = math.radians(course_latitude)
+        haversine = (
+            math.sin(latitude_delta / 2) ** 2
+            + math.cos(origin_latitude)
+            * math.cos(target_latitude)
+            * math.sin(longitude_delta / 2) ** 2
+        )
+        return 6371.0088 * 2 * math.asin(math.sqrt(min(1.0, haversine)))
+
+    catalogue = [
+        (PALACE_ID, "Beijing", "Beijing", 1.0),
+        (GLOBAL_ID, "Beijing", "Beijing", 0.95),
+        (31797, "Beijing", "Beijing", 0.92),
+        (3881, "Monterey", "California", 0.9),
+    ]
+    matches = []
+    for global_id, city, province, ratio in catalogue:
+        course_latitude, course_longitude = COURSE_COORDINATES[global_id]
+        distance = distance_km(course_latitude, course_longitude)
+        if distance <= radius_km:
+            matches.append({"globalId": global_id, "name": _course_name(global_id), "holes": 18, "city": city, "province": province, "ratio": ratio, "latitude": course_latitude, "longitude": course_longitude, "distanceKm": round(distance, 3)})
+    matches.sort(key=lambda row: (row["distanceKm"], -row["ratio"], row["globalId"]))
     return _with_markers({"schema": "ai-caddie-course-nearby-v1", "radiusKm": radius_km, "complete": True, "matches": matches, "courses": matches})
 
 

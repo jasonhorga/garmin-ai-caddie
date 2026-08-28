@@ -1486,3 +1486,33 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   action occurred and no further rerun was dispatched. Remaining P2 is the
   four iOS UI behavior assertions and their topo/offline/GPS evidence; this
   run does not claim complete iOS RealFlow/ReviewEdit/TeeSelection evidence.
+- 2026-08-28: Read-only diagnosis of Native fixture run `33146296505` found
+  two confirmed fixture/behavior contract gaps and one unresolved app-side
+  async path. The `(0,0)` no-course case received HTTP 200 with four nearby
+  matches because `server_v2/ci_fixture.py:nearby` returns a fixed list,
+  independent of coordinates; this is fixture data mismatch, not a timeout.
+  The offline case reached the online `live-hole-offline-course-ready` marker,
+  but the first-hole `31793` topo request was then cancelled after HTTP 200;
+  the offline relaunch showed the generic nearby-service-failure state and no
+  retained-download row, so durable prep-library persistence remains
+  unproven. RealFlow and ReviewEdit likewise repeatedly received HTTP 200 topo
+  bytes before app-side cancellation; the evidence distinguishes cancellation
+  from a missing route but does not establish whether SwiftUI task lifecycle
+  or image decode is causal. No source/test change or Native rerun was made;
+  next action is a bounded fixture correction for coordinate-aware nearby
+  emptiness plus focused instrumentation/reproduction of topo persistence.
+- 2026-08-28: Implemented the bounded fixture nearby correction in the current
+  working tree. `server_v2/ci_fixture.py` now validates latitude/longitude and
+  radius, computes haversine distance against the four preset fixture course
+  coordinates, returns actual course coordinates, filters by radius, and sorts
+  by distance; `(0,0)` therefore returns an honest empty result while the
+  Beijing and Monterey fixture ranges retain their supported identities.
+  Added direct contract coverage for Beijing ordering, zero-result ocean
+  coordinates, Monterey identity, radius filtering, and invalid coordinates or
+  radius in `tests/test_ci_fixture_contract.py`. Homeserver verification passed:
+  the fixture contract suite ran 27/27, the HTTP nearby matrix passed 4 valid
+  plus 4 fail-closed cases, and remote `compileall -q server_v2 ai_caddie tests`
+  passed; no local heavy test was run.
+  Swift source review found no explicit cancellation path beyond SwiftUI task
+  lifecycle, and no independent offline cache-key defect; no Swift change or
+  Native rerun was made.

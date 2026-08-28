@@ -48,6 +48,23 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(palace["name"], "Beijing Palace")
         self.assertIn(palace["holes"], (9, 18))
 
+    def test_nearby_uses_real_fixture_coordinates_and_radius(self) -> None:
+        try:
+            from fastapi import HTTPException
+            from server_v2.ci_fixture import nearby
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        beijing = nearby(40.0455, 116.5462, radius_km=50)["matches"]
+        self.assertEqual(beijing[0]["globalId"], 31793)
+        self.assertLessEqual(beijing[0]["distanceKm"], 0.001)
+        self.assertEqual((beijing[0]["latitude"], beijing[0]["longitude"]), (40.0455, 116.5462))
+        self.assertEqual(nearby(0, 0, radius_km=50)["matches"], [])
+        self.assertEqual(nearby(36.58, -121.97, radius_km=1)["matches"][0]["globalId"], 3881)
+        self.assertEqual(nearby(36.58, -121.97, radius_km=1)["matches"][0]["distanceKm"], 0.0)
+        for args in ((91, 0, 50), (0, 181, 50), (0, 0, 0), (0, 0, 201)):
+            with self.assertRaises(HTTPException):
+                nearby(*args)
+
     def test_fixture_tee_rows_strictly_match_ios_and_watch_decoders(self) -> None:
         try:
             from server_v2.ci_fixture import tees
