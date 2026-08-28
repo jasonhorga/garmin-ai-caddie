@@ -61,17 +61,17 @@ final class BackendConfigurationStoreTests: XCTestCase {
             "AI_CADDIE_DATA_MODE": "fixture",
             "AI_CADDIE_ADMIN_TOKEN": "masked-test-token",
         ]
-        XCTAssertNil(AICaddieApp.resolveAPIBaseURL(
+        XCTAssertNil(LiveRoundAppModel.resolveAPIBaseURL(
             environment: fixtureEnvironment,
             persistedValue: persisted,
             bundleValue: persisted
         ))
-        XCTAssertNil(AICaddieApp.resolveAPIBaseURL(
+        XCTAssertNil(LiveRoundAppModel.resolveAPIBaseURL(
             environment: fixtureEnvironment.merging(["AI_CADDIE_API_BASE_URL": "https://production.example.test"]) { _, new in new },
             persistedValue: persisted,
             bundleValue: persisted
         ))
-        XCTAssertEqual(AICaddieApp.resolveAPIBaseURL(
+        XCTAssertEqual(LiveRoundAppModel.resolveAPIBaseURL(
             environment: fixtureEnvironment.merging(["AI_CADDIE_API_BASE_URL": "http://127.0.0.1:9000"]) { _, new in new },
             persistedValue: persisted,
             bundleValue: persisted
@@ -85,17 +85,17 @@ final class BackendConfigurationStoreTests: XCTestCase {
             ["AI_CADDIE_FIXTURE_MODE": "0", "AI_CADDIE_DATA_MODE": "fixture", "AI_CADDIE_ADMIN_TOKEN": "token"],
             ["AI_CADDIE_FIXTURE_MODE": "1", "AI_CADDIE_DATA_MODE": "fixture"],
         ] {
-            XCTAssertNil(AICaddieApp.resolveAPIBaseURL(environment: environment, persistedValue: fallback, bundleValue: fallback))
+            XCTAssertNil(LiveRoundAppModel.resolveAPIBaseURL(environment: environment, persistedValue: fallback, bundleValue: fallback))
         }
     }
 
     func testLiveResolutionKeepsHTTPSOnlyPolicy() {
-        XCTAssertNotNil(AICaddieApp.resolveAPIBaseURL(
+        XCTAssertNotNil(LiveRoundAppModel.resolveAPIBaseURL(
             environment: ["AI_CADDIE_API_BASE_URL": "https://public.example.test"],
             persistedValue: nil,
             bundleValue: nil
         ))
-        XCTAssertNil(AICaddieApp.resolveAPIBaseURL(
+        XCTAssertNil(LiveRoundAppModel.resolveAPIBaseURL(
             environment: ["AI_CADDIE_API_BASE_URL": "http://127.0.0.1:9000"],
             persistedValue: nil,
             bundleValue: nil

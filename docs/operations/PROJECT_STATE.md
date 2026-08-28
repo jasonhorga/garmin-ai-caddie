@@ -1382,3 +1382,16 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   remaining blocker is the compile failure and resulting unverified iOS
   fixtureRevision/round/course/back identity and 18-hole map/topo/green/
   caddie consumption.
+- 2026-08-28: Diagnosed the iOS compile failure from run `33142832348`: the
+  implementation defines `resolveAPIBaseURL` as the internal static helper on
+  `LiveRoundAppModel` in `AICaddieApp.swift`; the new
+  `BackendConfigurationStoreTests` incorrectly called nonexistent
+  `AICaddieApp.resolveAPIBaseURL`. The minimal correction changes only those
+  test calls to `LiveRoundAppModel.resolveAPIBaseURL`, preserving the existing
+  fixture explicit-loopback, fallback suppression, marker/token, and live
+  HTTPS-only assertions. Repository search found no other stale callsites.
+  Homeserver workflow/fixture tests passed 65/65; remote Python compilation,
+  YAML parsing, bash syntax, and local diff-check passed. The broader
+  `tests.test_mobile_contracts` suite remains unavailable in the shared
+  environment because `jsonschema` is not installed. No Native rerun or
+  release/TestFlight/deploy/signing/production action occurred.
