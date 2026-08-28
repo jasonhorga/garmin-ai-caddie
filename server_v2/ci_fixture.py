@@ -25,6 +25,7 @@ LOCAL_HOLE = 1
 COURSE_ALIASES = {PALACE_ID: PALACE_ID, 31795: GLOBAL_ID, 31797: 31797, 3881: 3881, 31670: 31670, 31871: 31871}
 ROUND_ALIASES = {"900001": ROUND_REF, "live-31795": ROUND_REF, "live-round-1": ROUND_REF, "fixture-round-1": ROUND_REF}
 UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+PREP_LIBRARY_RE = r"prep-library-([0-9]+)"
 
 
 def _course_id(value: int) -> int:
@@ -59,6 +60,10 @@ def _round_id(value: str) -> str:
     value = str(value)
     if value in ROUND_ALIASES:
         return ROUND_ALIASES[value]
+    prep_match = re.fullmatch(PREP_LIBRARY_RE, value, re.IGNORECASE)
+    if prep_match:
+        _course_id(int(prep_match.group(1)))
+        return ROUND_REF
     if re.fullmatch(rf"watch-{UUID_RE}", value, re.IGNORECASE):
         return ROUND_REF
     match = re.fullmatch(rf"live-([0-9]+)-({UUID_RE})", value, re.IGNORECASE)
@@ -77,6 +82,11 @@ def _round_identity(value: str) -> tuple[str, int | None]:
     value = str(value)
     if value in ROUND_ALIASES:
         return ROUND_ALIASES[value], None
+    prep_match = re.fullmatch(PREP_LIBRARY_RE, value, re.IGNORECASE)
+    if prep_match:
+        course_id = int(prep_match.group(1))
+        _course_id(course_id)
+        return ROUND_REF, course_id
     if re.fullmatch(rf"watch-{UUID_RE}", value, re.IGNORECASE):
         return ROUND_REF, None
     match = re.fullmatch(rf"live-([0-9]+)-({UUID_RE})", value, re.IGNORECASE)

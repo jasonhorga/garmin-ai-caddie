@@ -159,6 +159,38 @@ class CIFixtureContractTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             round_package(ROUND_REF, back_global_id=99999)
 
+    def test_prep_library_package_binds_course_identity_and_assets(self) -> None:
+        try:
+            from fastapi import HTTPException
+            from server_v2.ci_fixture import FIXTURE_REVISION, course_package, install_status, topo_png
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+
+        package = course_package(31793, round_id="prep-library-31793", tee_box="blue")
+        self.assertEqual(package["roundId"], "prep-library-31793")
+        self.assertEqual(package["course"]["globalId"], 31793)
+        self.assertEqual(len(package["holes"]), 18)
+        self.assertEqual(package["geometryCoverage"]["readyHoles"], 18)
+        source_check = next(check for check in package["readinessChecks"] if check["label"] == "source")
+        self.assertTrue(all(ref.startswith("prep-library-31793:") for ref in source_check["sourceRefs"]))
+        self.assertEqual({hole["teeLatitude"] for hole in package["holes"]}, {40.0455})
+        self.assertEqual({hole["teeLongitude"] for hole in package["holes"]}, {116.5462})
+
+        status = install_status(31793, tee_box="blue", nine="all")
+        self.assertEqual(status["globalId"], 31793)
+        self.assertEqual(status["totalHoles"], 18)
+        self.assertEqual(status["topoReady"], 18)
+
+        asset = topo_png(31793, 1, v="topo-v8", r=FIXTURE_REVISION)
+        self.assertEqual(asset.media_type, "image/png")
+        self.assertGreater(len(asset.body), 1024)
+
+        with self.assertRaises(HTTPException) as raised:
+            course_package(99999, round_id="prep-library-99999", tee_box="blue")
+        self.assertEqual(raised.exception.status_code, 404)
+        with self.assertRaises(HTTPException):
+            course_package(31793, round_id="prep-library-31795", tee_box="blue")
+
     def test_fixture_decision_and_shotmap_shapes_are_decodable_contracts(self) -> None:
         try:
             from fastapi import HTTPException
