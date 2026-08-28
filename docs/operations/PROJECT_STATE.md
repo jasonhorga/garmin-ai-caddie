@@ -1335,3 +1335,12 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   add an explicit macOS `uv` availability/install gate, but that requires a
   separate reviewed change. No release, TestFlight, deploy, signing, or
   production mutation occurred.
+- 2026-08-28: Closed the remaining Native fixture workflow gate isolation gap.
+  The app-target launch environment validation now runs before all iOS target
+  and design-snapshot stages; real iOS capture, screenshot collection/scan/
+  upload, and video upload conditions require both launch validations plus the
+  fixture startup and prerequisite outcomes. This keeps fixture mode fail
+  closed while leaving live-mode branches unchanged. Remote workflow/fixture
+  contract tests passed 64/64, YAML parsing and remote Python compilation
+  passed, and the local working-tree `git diff --check` passed. No Native
+  rerun, release, TestFlight, deploy, signing, or production action occurred.

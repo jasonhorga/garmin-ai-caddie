@@ -528,6 +528,7 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("nohup bash ops/run_ci_fixture.sh", fixture_start)
         self.assertIn("Upload fixture startup diagnostics", steps)
         self.assertIn("Validate native launch environment", steps)
+        self.assertIn("Validate native launch environment (app target)", steps)
         launch_validation = steps["Validate native launch environment"]["run"]
         self.assertIn("token_len", launch_validation)
         self.assertIn("SIMCTL_CHILD_AI_CADDIE_FIXTURE_MODE", launch_validation)
@@ -560,12 +561,16 @@ class CIWorkflowTests(unittest.TestCase):
         for name in (
             "Test iOS app target",
             "Real-simulator screenshots (iOS, XCUITest against live backend)",
+            "Collect design snapshots",
+            "Scan design snapshots for secret bytes",
             "Collect real screenshots",
             "Scan real Native evidence for secret bytes",
             "Upload real screenshots",
             "Upload real video",
         ):
             self.assertIn("steps.validate_native_launch_prereq.outcome == 'success'", steps[name]["if"])
+            self.assertIn("steps.validate_native_launch_environment_app.outcome == 'success'", steps[name]["if"])
+            self.assertIn("steps.validate_native_launch_environment.outcome == 'success'", steps[name]["if"])
 
         watch_test = steps["Test Watch app target"]["run"]
         self.assertIn("xcodebuild test", watch_test)
