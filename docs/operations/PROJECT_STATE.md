@@ -971,6 +971,24 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   `bash` because the tracked launcher is not executable, while the startup
   gate still requires loopback health. Added a small redacted startup
   diagnostics artifact on failure. No Native rerun was dispatched.
+- 2026-08-28: Per Opus GO, dispatched exactly one fixture-mode Native Mobile
+  run `33127924236` at exact head
+  `0545c4aa15bc201a168570c5b622f274e5631736`, with `review_round_ref=900001`,
+  no production endpoint/revision/token, and live preflight/release flags
+  disabled. Fixture install/start/health and stop passed; `uv`/uvicorn startup
+  was therefore verified. XcodeGen, design snapshots, Watch target build,
+  Watch snapshots, Watch runtime seed/restore screenshots, secret scans,
+  native evidence writer, and cleanup passed. iOS app target failed at Swift
+  compile with the source call-site mismatch in
+  `mobile/ios/AICaddie/Views/RoundShotMapView.swift:1087`: argument labels/order
+  for `RoundHoleShotMapScreen` do not match its declaration. SwiftJCS,
+  deterministic iOS, RealFlow, ReviewEdit, and TeeSelection were skipped
+  because the iOS target failed; no behavior pass is claimed. Artifacts were
+  limited to `native-build-evidence-ci-fixture` (514 bytes),
+  `watch-real-screenshots` (294,644 bytes), `watch-snapshots` (2,151,345
+  bytes), and tiny iOS placeholder artifacts; no large artifact was retained.
+  No second Native run, TestFlight, release, deploy, signing, or production
+  action was performed.
 - 2026-08-27: Replaced the missing-secret dependency with self-contained
   fixture-mode token wiring. Native workflow fixture startup now generates one
   64-hex-byte token from runner `openssl rand -hex 32`, fail-closes when
