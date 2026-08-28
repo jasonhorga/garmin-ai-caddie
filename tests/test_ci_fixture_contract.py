@@ -5,24 +5,48 @@ import unittest
 import json
 import os
 import subprocess
+import base64
+import struct
 
 from ai_caddie.core.fixtures import fixture_history_data
 
 
 class CIFixtureContractTests(unittest.TestCase):
+    def test_fixture_images_are_real_decodable_rasters_above_native_gate(self) -> None:
+        try:
+            from server_v2.ci_fixture import _png_data_uri, prep, shotmap
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        for uri in (_png_data_uri(seed=1), prep(31795, holes=[1])["holes"][0]["map"]["image"], shotmap("900001", 1)["map"]["image"]):
+            payload = base64.b64decode(uri.split(",", 1)[1])
+            self.assertGreater(len(payload), 1024)
+            self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n")
+            self.assertEqual(struct.unpack(">II", payload[16:24]), (64, 64))
+
+    def test_beijing_palace_catalogue_and_identity_are_complete(self) -> None:
+        try:
+            from server_v2.ci_fixture import course_search, nearby, options, course_package, prep, coverage, tees
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        for rows in (course_search("北京")['matches'], nearby(40.0455, 116.5462)['matches'], options()['courses']):
+            palace = next(row for row in rows if row['globalId'] == 31793)
+            self.assertEqual(palace['name'], 'Beijing Palace')
+        self.assertEqual(tees(31793)['globalId'], 31793)
+        self.assertEqual(course_package(31793, round_id='home-31793')['course']['globalId'], 31793)
+        self.assertEqual(prep(31793, holes=[1])['globalId'], 31793)
+        self.assertEqual(coverage(31793, holes=[1])['globalId'], 31793)
     def test_fixture_producer_candidate_set_is_resolver_compatible(self) -> None:
         try:
             from server_v2.ci_fixture import course_search, nearby, options
         except ImportError as exc:
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
-        installed = {row["globalId"] for row in options()["courses"]}
         nearby_rows = nearby(39.9, 116.4)["matches"]
-        candidate = next(row for row in nearby_rows if row["globalId"] not in installed)
-        search_rows = course_search(candidate["name"], latitude=39.9, longitude=116.4)["matches"]
-        self.assertEqual(candidate["globalId"], 31795)
-        self.assertIn(candidate["globalId"], {row["globalId"] for row in search_rows})
-        self.assertIn(candidate["holes"], (9, 18))
-        self.assertTrue(candidate["name"])
+        palace = next(row for row in nearby_rows if row["globalId"] == 31793)
+        search_rows = course_search(palace["name"], latitude=39.9, longitude=116.4)["matches"]
+        self.assertIn(31793, {row["globalId"] for row in search_rows})
+        self.assertIn(31793, {row["globalId"] for row in options()["courses"]})
+        self.assertEqual(palace["name"], "Beijing Palace")
+        self.assertIn(palace["holes"], (9, 18))
 
     def test_fixture_tee_rows_strictly_match_ios_and_watch_decoders(self) -> None:
         try:

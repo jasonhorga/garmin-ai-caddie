@@ -19,8 +19,9 @@ from ai_caddie.core.fixtures import fixture_history_data
 FIXTURE_REVISION = "ci-fixture-20260827-v1"
 ROUND_REF = "900001"
 GLOBAL_ID = 31795
+PALACE_ID = 31793
 LOCAL_HOLE = 1
-COURSE_ALIASES = {31795: GLOBAL_ID, 3881: GLOBAL_ID, 31670: GLOBAL_ID, 31871: GLOBAL_ID}
+COURSE_ALIASES = {PALACE_ID: PALACE_ID, 31795: GLOBAL_ID, 3881: 3881, 31670: 31670, 31871: 31871}
 ROUND_ALIASES = {"900001": ROUND_REF, "live-31795": ROUND_REF, "live-round-1": ROUND_REF, "fixture-round-1": ROUND_REF}
 UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 
@@ -36,6 +37,10 @@ def _course_id(value: int) -> int:
 def _course_request(value: int) -> int:
     _course_id(value)
     return int(value)
+
+
+def _course_name(value: int) -> str:
+    return "Beijing Palace" if int(value) == PALACE_ID else ("Black Knight B/C" if int(value) == GLOBAL_ID else "Cypress Point Club")
 
 
 def _round_id(value: str) -> str:
@@ -132,10 +137,15 @@ def _resolve_hole(nine: str, hole: int, front_global_id: int = GLOBAL_ID, back_g
 
 def _png_data_uri(width: int = 64, height: int = 64, seed: int = 0) -> str:
     rows = []
+    state = (seed + 1) & 0xFFFFFFFF
     for y in range(height):
         row = bytearray(b"\x00")
         for x in range(width):
-            row.extend((112 + ((x * 17 + y * 11 + seed * 7) % 31), 168, 104, 255))
+            # Keep this a real, deterministic raster while avoiding an over-compressible
+            # placeholder that the native evidence resolver correctly rejects.
+            state = (1_664_525 * state + 1_013_904_223) & 0xFFFFFFFF
+            value = state
+            row.extend(((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF, 255))
         rows.append(bytes(row))
     raw = b"".join(rows)
     def chunk(kind: bytes, payload: bytes) -> bytes:
@@ -182,6 +192,7 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
     payload["dataMode"] = "ci_fixture"
     payload["sourceCoverage"]["dataMode"] = "ci_fixture"
     payload["course"]["globalId"] = requested_course
+    payload["course"]["name"] = _course_name(requested_course)
     payload["course"]["teeBox"] = tee_box
     payload["nine"] = nine
     payload["frontCourseGlobalId"] = requested_course
@@ -260,7 +271,7 @@ def history_detail(round_ref: str, global_id: int | None = None, back_global_id:
                           "backGlobalId": requested_back, "sourceRef": f"{round_ref}:{display_hole}",
                           "shotRefs": [shot["ref"] for shot in shots]})
         details.append({"hole": hole, "shotCount": len(shots), "shots": shots})
-    return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": str(round_ref), "requestedRef": str(round_ref), "found": True, "round": {"id": str(round_ref), "globalId": requested_course, "courseName": "Black Knight B/C", "date": "2026-05-18", "score": 78}, "scorecard": scorecard, "holeDetails": details})
+    return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": str(round_ref), "requestedRef": str(round_ref), "found": True, "round": {"id": str(round_ref), "globalId": requested_course, "courseName": _course_name(requested_course), "date": "2026-05-18", "score": 78}, "scorecard": scorecard, "holeDetails": details})
 
 
 @ROUTE.get("/api/v2/history/rounds/{round_ref}/holes/{hole}/shotmap")
@@ -274,13 +285,13 @@ def shotmap(round_ref: str, hole: int, includeImage: bool = True, global_id: int
 
 @ROUTE.get("/api/v2/courses/search")
 def course_search(name: str, latitude: float | None = None, longitude: float | None = None, city: str | None = None, holes: int | None = None) -> dict:
-    matches = [{"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 1.0}, {"globalId": 3881, "name": "Cypress Point Club", "holes": holes or 18, "city": city or "Monterey", "province": "California", "ratio": 0.9}]
+    matches = [{"globalId": PALACE_ID, "name": "Beijing Palace", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 1.0}, {"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 0.95}, {"globalId": 3881, "name": "Cypress Point Club", "holes": holes or 18, "city": city or "Monterey", "province": "California", "ratio": 0.9}]
     return _with_markers({"schema": "ai-caddie-course-search-v1", "query": name, "matches": matches, "courses": matches})
 
 
 @ROUTE.get("/api/v2/courses/nearby")
 def nearby(latitude: float, longitude: float, radius_km: int = 50) -> dict:
-    matches = [{"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 1.0, "latitude": latitude, "longitude": longitude, "distanceKm": 1.0}, {"globalId": 3881, "name": "Cypress Point Club", "holes": 18, "city": "Monterey", "province": "California", "ratio": 0.9, "latitude": latitude, "longitude": longitude, "distanceKm": 2.0}]
+    matches = [{"globalId": PALACE_ID, "name": "Beijing Palace", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 1.0, "latitude": latitude, "longitude": longitude, "distanceKm": 1.0}, {"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 0.95, "latitude": latitude, "longitude": longitude, "distanceKm": 1.5}, {"globalId": 3881, "name": "Cypress Point Club", "holes": 18, "city": "Monterey", "province": "California", "ratio": 0.9, "latitude": latitude, "longitude": longitude, "distanceKm": 2.0}]
     return _with_markers({"schema": "ai-caddie-course-nearby-v1", "radiusKm": radius_km, "complete": True, "matches": matches, "courses": matches})
 
 
@@ -342,8 +353,7 @@ def tees(global_id: int, ensure_release: bool = False) -> dict:
 
 @ROUTE.get("/api/v2/mobile/courses/options")
 def options() -> dict:
-    rows = [{"globalId": GLOBAL_ID, "courseKey": "31795", "name": "Black Knight B/C", "roundCount": 1, "latestRoundId": ROUND_REF, "latestRoundDate": "2026-05-18", "templateRoundId": ROUND_REF, "suggestedLiveRoundId": "home-31795", "holes": 18, "teeBox": "blue", "geometryCoverage": "ready", "sourceRefs": [ROUND_REF], "venueName": "Black Knight", "segmentLabel": None, "segmentHoles": 18, "latitude": 39.9, "longitude": 116.4, "tees": ["blue", "white"]}, {"globalId": 3881, "courseKey": "3881", "name": "Cypress Point Club", "roundCount": 0, "latestRoundId": None, "latestRoundDate": None, "templateRoundId": ROUND_REF, "suggestedLiveRoundId": "home-3881", "holes": 18, "teeBox": "blue", "geometryCoverage": "ready", "sourceRefs": ["fixture-course:3881"], "venueName": "Cypress Point Club", "segmentLabel": None, "segmentHoles": 18, "latitude": 36.58, "longitude": -121.97, "tees": ["blue", "white"]}]
-    rows = [rows[1]]
+    rows = [{"globalId": PALACE_ID, "courseKey": "31793", "name": "Beijing Palace", "roundCount": 0, "latestRoundId": None, "latestRoundDate": None, "templateRoundId": ROUND_REF, "suggestedLiveRoundId": "home-31793", "holes": 18, "teeBox": "blue", "geometryCoverage": "ready", "sourceRefs": ["fixture-course:31793"], "venueName": "Beijing Palace", "segmentLabel": None, "segmentHoles": 18, "latitude": 40.0455, "longitude": 116.5462, "tees": ["blue", "white"]}, {"globalId": GLOBAL_ID, "courseKey": "31795", "name": "Black Knight B/C", "roundCount": 1, "latestRoundId": ROUND_REF, "latestRoundDate": "2026-05-18", "templateRoundId": ROUND_REF, "suggestedLiveRoundId": "home-31795", "holes": 18, "teeBox": "blue", "geometryCoverage": "ready", "sourceRefs": [ROUND_REF], "venueName": "Black Knight", "segmentLabel": None, "segmentHoles": 18, "latitude": 39.9, "longitude": 116.4, "tees": ["blue", "white"]}, {"globalId": 3881, "courseKey": "3881", "name": "Cypress Point Club", "roundCount": 0, "latestRoundId": None, "latestRoundDate": None, "templateRoundId": ROUND_REF, "suggestedLiveRoundId": "home-3881", "holes": 18, "teeBox": "blue", "geometryCoverage": "ready", "sourceRefs": ["fixture-course:3881"], "venueName": "Cypress Point Club", "segmentLabel": None, "segmentHoles": 18, "latitude": 36.58, "longitude": -121.97, "tees": ["blue", "white"]}]
     return _with_markers({"schema": "ai-caddie-mobile-course-options-v1", "dataMode": "ci_fixture", "total": len(rows), "courses": rows, "options": rows, "generatedAt": "2026-08-27T00:00:00Z"})
 
 

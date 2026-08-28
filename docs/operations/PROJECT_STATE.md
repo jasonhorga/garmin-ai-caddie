@@ -170,6 +170,22 @@ catalog/nearby/search identity (with its tee/package bindings) without
 changing assertions or production data. Fixture route/API consumption remains
 unproven until that correction and one owner-authorized rerun.
 
+Implemented the bounded fixture-data repair after the `33132251561` diagnosis,
+without changing resolver thresholds, UI assertions, live mode, or production
+data. `server_v2/ci_fixture.py` now emits deterministic valid 64x64 RGBA PNGs
+using a seeded pixel stream; decoded payloads are 14,183 bytes and are reused
+consistently by shotmap, prep, topo, and green resources, satisfying the
+existing `>1,024` byte and raster-dimension gate. Course identity `31793`
+(`Beijing Palace`) is now accepted and preserved through search, nearby,
+options, tees, package, prep, geometry, and round-context routes while
+existing `31795`, `3881`, `31670`, and `31871` aliases remain supported and
+unknown IDs still fail closed. The focused fixture contract suite passes
+26/26 on the homeserver temporary uv/FastAPI environment; loopback HTTP smoke
+with `AI_CADDIE_FIXTURE_MODE=1` returns fixture revision
+`ci-fixture-20260827-v1` and 31793 in both search and nearby; remote
+`compileall -q server_v2 ai_caddie tests` passes. No Native rerun was
+dispatched; Opus read-only re-review is the next gate.
+
 Fixture-contract P1 hardening after `95d3c1e7` is implemented in commit
 `7ed11cb0` plus the current follow-up: decision requests require an exact
 caller `sourceRef`; course aliases return their canonical resolver id;
