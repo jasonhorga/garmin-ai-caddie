@@ -1642,3 +1642,30 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   `compileall` passing and local `git diff --check` clean. No Native rerun or
   release/TestFlight/deploy/signing/production action was performed; Opus
   read-only re-review is required next.
+- 2026-08-28: After Opus GO, dispatched the single authorized full fixture-mode
+  Native Mobile CI run `33160582466` at exact HEAD
+  `5fe14b0ecaad74ca1532ae4c9fea7f1f17dc3b91`, with `capture_scope=full`,
+  `review_round_ref=900001`, blank live inputs, `require_live_preflight=false`,
+  and runner-generated ephemeral masked token. Fixture startup/health, all
+  four launch gates, iOS app target, SwiftJCS, design scans, Watch target,
+  Watch runtime/evidence/scans/uploads, and cleanup passed. `ReviewEdit` and
+  all 7 `TeeSelection` tests passed. `RealFlow` reached the prep-library
+  downloaded course and opened the prep map, proving the `prep-library-31793`
+  alias repair; it then failed only at `RealFlowUITests.swift:407` because the
+  prep map did not expose the expected hazard overlay. No source, assertion,
+  release, TestFlight, deploy, signing, or production action followed.
+  Artifact metadata: native evidence ID `9682431333`, 510 bytes,
+  `sha256:4ec7b21064c4cb5a198084d80cf965146a939b4166ed18839bf1f31cbe44c1d0`;
+  Watch runtime ID `9682430464`, 290,183 bytes,
+  `sha256:de5995e91cde997d87a06b625604fc1e91bd23c7cd63f9a48d772fbe5f2c38ff`;
+  Watch snapshots ID `9682219417`, 2,151,345 bytes,
+  `sha256:205feb4bb8b36faa59a7ccdbeed7de27db55aa3e44553a9a66c47c68c0327c0d`;
+  real screenshots ID `9682082871`, 30,988,063 bytes,
+  `sha256:d758952cedba11ff72e20f3f6e94471ccbf0e29403a2429dd5a035a064306673`;
+  real video ID `9682084718`, 98,093,772 bytes,
+  `sha256:08bb11559c7aff90139473e2ca2f0206e20174af12f03143ba3bbee3be50d8f0`;
+  design snapshots ID `9681605118`, 3,694,424 bytes,
+  `sha256:ddd97c95a5a1a316bab533a556dd98e3bb7eac3411039552e2e1f2dcc51ab768`.
+  Homeserver SSH banner exchange timed out during post-run diagnostics, so no
+  remote resource cleanup was attempted; ambiguous `/tmp` and `/dev/shm`
+  resources remain untouched pending owner-authorized access recovery.
