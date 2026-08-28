@@ -1516,3 +1516,39 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   Swift source review found no explicit cancellation path beyond SwiftUI task
   lifecycle, and no independent offline cache-key defect; no Swift change or
   Native rerun was made.
+- 2026-08-28: After the bounded nearby fixture correction, ran exactly one
+  authorized full fixture-mode Native Mobile CI workflow `33150308680` at
+  exact SHA `961e41de4eeca0821f9aa3cca13f6dfe3b7a107f`, with
+  `capture_scope=full`, `fixture_mode=true`, `review_round_ref=900001`, blank
+  live URL/revision, `require_live_preflight=false`, and an ephemeral masked
+  token. Fixture startup/health, all four launch gates, iOS app target,
+  SwiftJCS boundaries, design snapshots/scan, Watch target, Watch snapshots,
+  Watch runtime seed/restore, secret scans, evidence writer, uploads, and
+  cleanup all passed. The iOS UI target executed 9 tests with 3 failures:
+  `RealFlowUITests.testCaptureRealAppFlow` failed because shot-map topo
+  evidence did not finish loading, `ReviewEditUITests.testCaptureReviewEditFlow`
+  failed because the verified evidence-hole topo did not load, and
+  `TeeSelectionUITests.testDownloadedNearbyCourseStartsACompletelyNewRoundWithAllLiveServicesOffline`
+  failed its assertion. The other six TeeSelection cases passed, including
+  the `(0,0)` no-course empty/recoverable catalogue fallback and real Core
+  Location nearby flow; the fixture coordinate/radius repair is therefore
+  confirmed. Logs show HTTP 200 topo responses followed by app-side evidence
+  failure/cancellation, so topo lifecycle/decode remains unresolved. Offline
+  prep persistence remains unproven: the run logged failed course-options and
+  offline course-facts requests before the offline assertion. Watch runtime
+  evidence passed independently. Artifacts were retained remotely only:
+  native evidence 509 bytes (ID `9678285206`,
+  `sha256:e37c5f66b341d9a5cbcc7e0ce69e1d8d5acf5ee83480381bd280fd48ece6a71e`),
+  Watch runtime 288,686 bytes (ID `9678284448`,
+  `sha256:14bc526f9accb7826e3bf5f18d0501b73bd97047dd4e569ecf252f610be404fe`),
+  Watch snapshots 2,151,345 bytes (ID `9678081245`,
+  `sha256:533ebe5161cf058cafc6cf97e69c7814a2ca785d9acb7c8e3666d5333ba8588f`),
+  real screenshots 8,207,849 bytes (ID `9677970020`,
+  `sha256:648514f555bb1f6bf263d1f4e00e2f711b9522df3f53b38bd4bf455c190946f1`),
+  real video 55,334,926 bytes (ID `9677971653`,
+  `sha256:de459de2f7df00bd8d370867206254e52b5d8b5a7768e2b3c325911f86bc97f3`),
+  and design snapshots 3,694,424 bytes (ID `9677592993`,
+  `sha256:d685349fa9b8ffcab119e767aea6bc7243ef417e0eccfb7441af9dcf08ea1528`).
+  No further workflow dispatch, source change, release/TestFlight/deploy,
+  signing, or production action was performed. Native verification remains
+  open for topo completion and offline downloaded-nearby behavior.
