@@ -126,6 +126,30 @@ fix computes `holeText` before interpolation and preserves the exact diagnostic
 output; the focused mobile contract and remote Python compilation pass. No
 Native workflow rerun was dispatched; Opus/owner review is the next gate.
 
+Per Opus GO, ran exactly one fixture-mode Native Mobile CI validation
+`33132251561` at exact head `23423c406f10a6be55db71e90dd69f302cee84cd`, with
+`capture_scope=full`, `fixture_mode=true`, `review_round_ref=900001`, an
+ephemeral runner token, blank production inputs, and live preflight disabled.
+Fixture uv install/start/health and stop passed; XcodeGen, iOS app target,
+SwiftJCS boundaries, design snapshots/secret scan, Watch target,
+Watch snapshots/secret scan, Watch runtime seed/restore (22 PNGs), runtime
+secret scan, evidence writer, artifact uploads, and cleanup passed. The iOS
+UI-test step failed only in behavior: `RealFlowUITests` and `ReviewEditUITests`
+returned `noEligibleRound`, while three TeeSelection tests could not find the
+Beijing Palace/segment `31793` fixture rows. This run therefore proves the
+source compile fix and independent Watch stages, but not iOS fixtureRevision,
+18-hole package/map/topo/green/caddie/identity consumption or iOS behavior.
+Artifacts were retained remotely only: design snapshots 3,702,496 bytes
+(`sha256:4d229a297217ede1eda957ead04f92414ce8370153e2ff94b07aac1cdf34e6e5`),
+real screenshots 2,237,032 bytes (`sha256:2a8465f33c931b60ae8cf18e37faa17fccf3db9228d5d94683a3cdf277a8306d`),
+real video 92,894,131 bytes (`sha256:572ee63e6380cf38b5445b22d8e1754739805777d1a24fad055310694b3dc87e`),
+Watch snapshots 2,151,345 bytes (`sha256:9fe2ad8aba1cf017f7557fbcfb650d367fc5c1fc9d70170ecdd9295cab730896`),
+Watch runtime 286,672 bytes (`sha256:9cf6ea7d57f7fcd847e37bbbc36b0703179da88fd770203bd73583926afa3379`),
+and native evidence 510 bytes (`sha256:c3847fca4ad78c8485ee0b1998bdfee965d02a8b98b075fd557a6862f212be18`).
+No further rerun, TestFlight, release, deploy, signing, or production action
+was performed; the remaining blocker is the fixture route/data consumption
+needed by iOS review and tee-selection behavior.
+
 Fixture-contract P1 hardening after `95d3c1e7` is implemented in commit
 `7ed11cb0` plus the current follow-up: decision requests require an exact
 caller `sourceRef`; course aliases return their canonical resolver id;
