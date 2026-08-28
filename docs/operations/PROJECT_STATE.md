@@ -4,7 +4,7 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-08-27 UTC
+**Updated:** 2026-08-28 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
 **Source baseline:** `cc2ad861` (canonical cherry-pick of candidate `1aed8f50e46b49a9f56dcc98fdf242a0bbd51a30`)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
@@ -117,6 +117,14 @@ starting the next slice.
 The current release-hardening candidate requires a fresh remote verification
 of the focused readiness/provenance/workflow suites. No production service,
 TestFlight upload, or signing resource is created by this source transition.
+
+Native Mobile CI run `33130426502` at head `75b34810590e8b622b27e69e53f16bd16c416cfb`
+failed in the real iOS simulator screenshot step while compiling
+`RealEvidenceRoundResolver.swift:73`: escaped quotes inside the optional-hole
+string interpolation produced an unterminated string literal. The source-only
+fix computes `holeText` before interpolation and preserves the exact diagnostic
+output; the focused mobile contract and remote Python compilation pass. No
+Native workflow rerun was dispatched; Opus/owner review is the next gate.
 
 Fixture-contract P1 hardening after `95d3c1e7` is implemented in commit
 `7ed11cb0` plus the current follow-up: decision requests require an exact

@@ -3364,6 +3364,8 @@ class MobileContractTests(unittest.TestCase):
             self.assertNotIn('identifier CONTAINS "落点"', ui_test)
             self.assertIn('matching(identifier: "topo-hole-base-ready")', ui_test)
         self.assertIn("struct RealEvidenceRoundRejection", resolver)
+        self.assertIn("let holeText = hole.map(String.init) ?? \"-\"", resolver)
+        self.assertIn('return "roundRef=\\(roundRef) hole=\\(holeText) reason=\\(reason)"', resolver)
         self.assertIn("private(set) var rejections", resolver)
         self.assertIn("shot-map budget exhausted (24)", resolver)
         self.assertIn("missing geometry/image", resolver)

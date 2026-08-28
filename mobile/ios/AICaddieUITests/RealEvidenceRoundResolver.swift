@@ -70,7 +70,8 @@ struct RealEvidenceRoundRejection: Equatable, CustomStringConvertible {
     let reason: String
 
     var description: String {
-        "roundRef=\(roundRef) hole=\(hole.map(String.init) ?? \"-\") reason=\(reason)"
+        let holeText = hole.map(String.init) ?? "-"
+        return "roundRef=\(roundRef) hole=\(holeText) reason=\(reason)"
     }
 }
 
