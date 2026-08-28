@@ -1580,6 +1580,44 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   No further workflow dispatch, source change, release/TestFlight/deploy,
   signing, or production action was performed. Native verification remains
   open for topo completion and offline downloaded-nearby behavior.
+- 2026-08-28: After Opus GO, dispatched exactly one full fixture-mode Native
+  Mobile CI workflow at exact HEAD
+  `91f4bab58259e5781d6c8739d1ef2f5ec4a1e90c`: run `33155576631`, with
+  `capture_scope=full`, `fixture_mode=true`, `review_round_ref=900001`,
+  blank live URL/revision, `require_live_preflight=false`, and an ephemeral
+  masked runner token. Fixture startup/health, all launch gates, iOS app
+  target (263 tests), SwiftJCS boundaries, design snapshots/secret scan,
+  Watch target, Watch snapshots/runtime/evidence/secret scan/uploads, and
+  cleanup passed. Fixture revision was `ci-fixture-20260827-v1` and the
+  launch URL was `http://127.0.0.1:9000`; no release, deploy, signing,
+  TestFlight, or production action occurred.
+  The iOS UI capture step failed only
+  `RealFlowUITests.testCaptureRealAppFlow` at
+  `RealFlowUITests.swift:341`: `the prep map must remain locked until all
+  local facts and topo assets are installed`. `ReviewEditUITests` passed,
+  all 7 `TeeSelectionUITests` passed (including downloaded-nearby offline,
+  31793 catalogue, 31795/3881 identity, and 31797/NewCourse paths), and
+  logs show `topo-hole-base-ready` plus `offline-cache-01-online-ready` and
+  `offline-start-01-new-first-hole` milestones. This isolates the remaining
+  issue to iOS prep readiness sequencing/behavior (P2), not the repaired
+  shotmap map kind or package coordinates; compile, fixture, Codable, and
+  Watch evidence are green. Artifacts were retained only as summaries:
+  `native-build-evidence-ci-fixture` ID `9680712659`, 511 bytes,
+  SHA256 `efa5da988cd7472f2d1b9040c17500fd2931b6c9792d0afb2abd0302c7fb8936`;
+  `real-screenshots` ID `9680299225`, 33,132,122 bytes, SHA256
+  `782cb0afc9ac60c16fb496c2d1ffe13a9da810f6f7ae10e31021742dfa7d8f21`;
+  `real-video` ID `9680301241`, 80,988,016 bytes, SHA256
+  `72460783f0b4622b45b9899a0ad45bf7af99c3b824cf7290041c4c6e8796795b`;
+  `watch-real-screenshots` ID `9680711906`, 291,090 bytes, SHA256
+  `700fd5e3e583beb98c07ad503ae72d316f09b2635ebb1fd3197f46404825041b`;
+  `watch-snapshots` ID `9680447622`, 2,151,345 bytes, SHA256
+  `520b70a4e8ed07ed24cee34c0c9b035a61e9faeaa9e98349089ff28e8aefefb7`;
+  `design-snapshots` ID `9679663462`, 3,694,424 bytes, SHA256
+  `c8c237be68a41601c8b279bb6dae09e7718190d513e6bc08ccb7505f1a44698f`.
+  The full textual run log was used for diagnosis and removed; no large
+  artifact was retained locally. Native verification remains open for the
+  prep readiness assertion and requires a new owner-authorized source change
+  and review before any further workflow action.
 - 2026-08-28: Implemented the minimal fixture-data repair in source commit
   `f0ffa6f11a975041fae85b3952c88dad5374f21d`. Ready shotmap rows now use
   `mapKind=prodgeometry`, preserving the deterministic PNG, overlay,
