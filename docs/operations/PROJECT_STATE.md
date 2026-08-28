@@ -186,6 +186,18 @@ with `AI_CADDIE_FIXTURE_MODE=1` returns fixture revision
 `compileall -q server_v2 ai_caddie tests` passes. No Native rerun was
 dispatched; Opus read-only re-review is the next gate.
 
+The single fixture-mode validation `33134913933` at `ac1e7291` confirmed the
+image repair and 31793 catalogue identity were present, but exposed a separate
+`NewCourseEvidenceResolver` precondition: every nearby row was also listed in
+`options()`, and all coverage responses were `ready`, leaving no uninstalled
+course with a partial first-hole upgrade. The minimal fixture-only correction
+adds supported course `31797` (`Fixture Open Course`) to search/nearby and
+course aliases, deliberately leaves it out of installed options, and returns
+partial/zero-ready coverage only for that course. Existing 31793 Beijing
+Palace and round 900001 data remain unchanged. Homeserver fixture contracts
+remain green at 26/26 with full Python compilation; no Native rerun has been
+dispatched and Opus review is required before any further workflow action.
+
 Fixture-contract P1 hardening after `95d3c1e7` is implemented in commit
 `7ed11cb0` plus the current follow-up: decision requests require an exact
 caller `sourceRef`; course aliases return their canonical resolver id;

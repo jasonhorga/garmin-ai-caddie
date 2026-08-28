@@ -21,7 +21,7 @@ ROUND_REF = "900001"
 GLOBAL_ID = 31795
 PALACE_ID = 31793
 LOCAL_HOLE = 1
-COURSE_ALIASES = {PALACE_ID: PALACE_ID, 31795: GLOBAL_ID, 3881: 3881, 31670: 31670, 31871: 31871}
+COURSE_ALIASES = {PALACE_ID: PALACE_ID, 31795: GLOBAL_ID, 31797: 31797, 3881: 3881, 31670: 31670, 31871: 31871}
 ROUND_ALIASES = {"900001": ROUND_REF, "live-31795": ROUND_REF, "live-round-1": ROUND_REF, "fixture-round-1": ROUND_REF}
 UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 
@@ -40,7 +40,7 @@ def _course_request(value: int) -> int:
 
 
 def _course_name(value: int) -> str:
-    return "Beijing Palace" if int(value) == PALACE_ID else ("Black Knight B/C" if int(value) == GLOBAL_ID else "Cypress Point Club")
+    return "Beijing Palace" if int(value) == PALACE_ID else ("Black Knight B/C" if int(value) == GLOBAL_ID else ("Fixture Open Course" if int(value) == 31797 else "Cypress Point Club"))
 
 
 def _round_id(value: str) -> str:
@@ -285,13 +285,13 @@ def shotmap(round_ref: str, hole: int, includeImage: bool = True, global_id: int
 
 @ROUTE.get("/api/v2/courses/search")
 def course_search(name: str, latitude: float | None = None, longitude: float | None = None, city: str | None = None, holes: int | None = None) -> dict:
-    matches = [{"globalId": PALACE_ID, "name": "Beijing Palace", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 1.0}, {"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 0.95}, {"globalId": 3881, "name": "Cypress Point Club", "holes": holes or 18, "city": city or "Monterey", "province": "California", "ratio": 0.9}]
+    matches = [{"globalId": PALACE_ID, "name": "Beijing Palace", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 1.0}, {"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 0.95}, {"globalId": 31797, "name": "Fixture Open Course", "holes": holes or 18, "city": city or "Beijing", "province": "Beijing", "ratio": 0.92}, {"globalId": 3881, "name": "Cypress Point Club", "holes": holes or 18, "city": city or "Monterey", "province": "California", "ratio": 0.9}]
     return _with_markers({"schema": "ai-caddie-course-search-v1", "query": name, "matches": matches, "courses": matches})
 
 
 @ROUTE.get("/api/v2/courses/nearby")
 def nearby(latitude: float, longitude: float, radius_km: int = 50) -> dict:
-    matches = [{"globalId": PALACE_ID, "name": "Beijing Palace", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 1.0, "latitude": latitude, "longitude": longitude, "distanceKm": 1.0}, {"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 0.95, "latitude": latitude, "longitude": longitude, "distanceKm": 1.5}, {"globalId": 3881, "name": "Cypress Point Club", "holes": 18, "city": "Monterey", "province": "California", "ratio": 0.9, "latitude": latitude, "longitude": longitude, "distanceKm": 2.0}]
+    matches = [{"globalId": PALACE_ID, "name": "Beijing Palace", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 1.0, "latitude": latitude, "longitude": longitude, "distanceKm": 1.0}, {"globalId": GLOBAL_ID, "name": "Black Knight B/C", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 0.95, "latitude": latitude, "longitude": longitude, "distanceKm": 1.5}, {"globalId": 31797, "name": "Fixture Open Course", "holes": 18, "city": "Beijing", "province": "Beijing", "ratio": 0.92, "latitude": latitude, "longitude": longitude, "distanceKm": 1.8}, {"globalId": 3881, "name": "Cypress Point Club", "holes": 18, "city": "Monterey", "province": "California", "ratio": 0.9, "latitude": latitude, "longitude": longitude, "distanceKm": 2.0}]
     return _with_markers({"schema": "ai-caddie-course-nearby-v1", "radiusKm": radius_km, "complete": True, "matches": matches, "courses": matches})
 
 
@@ -303,7 +303,8 @@ def coverage(global_id: int, holes: list[int] | None = Query(default=None), nine
         raise HTTPException(status_code=404, detail="fixture tee not found")
     requested = [LOCAL_HOLE] if holes is None or not isinstance(holes, list) else holes
     resolved = [_resolve_hole(nine, hole, requested_course, _course_request(back_global_id) if back_global_id is not None else None) for hole in requested]
-    return _with_markers({"schema": "ai-caddie-course-geometry-coverage-v1", "globalId": requested_course, "coverage": "ready", "readyHoles": len(resolved), "partialHoles": 0, "totalHoles": 18, "holes": [{"globalId": course, "localHole": local, "displayHole": display, "coverage": "ready"} for display, local, course in resolved]})
+    is_open_candidate = requested_course == 31797
+    return _with_markers({"schema": "ai-caddie-course-geometry-coverage-v1", "globalId": requested_course, "coverage": "partial" if is_open_candidate else "ready", "readyHoles": 0 if is_open_candidate else len(resolved), "partialHoles": len(resolved) if is_open_candidate else 0, "totalHoles": 18, "holes": [{"globalId": course, "localHole": local, "displayHole": display, "coverage": "partial" if is_open_candidate else "ready"} for display, local, course in resolved]})
 
 
 @ROUTE.get("/api/v2/geometry/hole/{global_id}/{local_hole}")
