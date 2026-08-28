@@ -1008,6 +1008,18 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   292,337-byte Watch runtime screenshots, 2,151,345-byte Watch snapshots, and
   a 366-byte screenshot placeholder. The test fixture is corrected locally;
   no new Native run has been dispatched pending review.
+- 2026-08-28: Audited commit `d566eed87c397fea2cb9d17ba09bd0e0e3788251` and
+  run `33129416236`. The run was `Native Mobile CI`, workflow_dispatch, exact
+  head `c0982e47688bfd733d992d40bfc45d01186f68fa`, and failed only at
+  `Test iOS app target` with Swift test compilation error at
+  `LiveRoundAppModelTests.swift:2073`; the omitted fields were
+  `RecentRoundSummary.backGlobalId`, `.nine`, and `.teeBox`. The fix is pushed
+  in `d566eed8`; it changes only that test fixture plus this ledger. Static
+  source checks find one `RecentRoundSummary` initialization and one
+  `RoundHoleShotMapScreen` caller, with required identity fields present and
+  ordered. Homeserver focused contract and Python compilation passed. No
+  further omission was found; exact `d566eed8` is ready for one fixture-mode
+  Native rerun after Opus/owner confirmation. No rerun was dispatched here.
 - 2026-08-27: Replaced the missing-secret dependency with self-contained
   fixture-mode token wiring. Native workflow fixture startup now generates one
   64-hex-byte token from runner `openssl rand -hex 32`, fail-closes when
