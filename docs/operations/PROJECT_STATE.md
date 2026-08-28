@@ -1452,3 +1452,29 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   workflow/fixture tests passed 65/65, remote Python compilation, YAML parsing,
   bash syntax, and local diff-check passed. No Native rerun was dispatched;
   Opus read-only review is required before the next workflow action.
+- 2026-08-28: After Opus GO, ran exactly one authorized full fixture-mode
+  Native Mobile CI workflow `33146296505` at exact HEAD
+  `ea1199c9cd1809ad3b75af664df3a22b44e02657` on
+  `codex/p0-p1-p2-checkpoint-20260823`, with `fixture_mode=true`,
+  `capture_scope=full`, `review_round_ref=900001`, blank live URL/revision,
+  `require_live_preflight=false`, and ephemeral masked token. Fixture startup
+  and health passed; all four launch gates passed with the fixed URL
+  `http://127.0.0.1:9000`; iOS app target (263 tests) and SwiftJCS boundaries
+  passed; design snapshots and secret scan passed. iOS XCUITest compiled and
+  executed 9 tests but failed four existing behavior assertions: RealFlow
+  topo evidence did not settle, ReviewEdit verified evidence-hole topo did not
+  settle, offline downloaded-nearby round did not start, and no-course remote
+  coordinate did not settle to the expected empty/recoverable state. The
+  successful cases included tee selector, denied GPS/catalogue fallback, and
+  authorized GPS nearby course; no production fallback or unconfigured-backend
+  evidence was observed. iOS screenshots/video were collected and secret
+  scanned; UI-test app data and fixture were stopped and cleaned successfully.
+  Watch target passed 315 tests; Watch snapshots, runtime seed/restore,
+  runtime secret scan, evidence writer/scan, and uploads passed. Artifacts
+  finalized: `native-build-evidence-ci-fixture` 511 bytes (ID `9676675058`),
+  `watch-real-screenshots` 293,868 bytes, `watch-snapshots` 2,151,345 bytes,
+  `real-screenshots` 8,055,277 bytes, `real-video` 45,364,290 bytes, and
+  `design-snapshots` 3,694,424 bytes. No release/TestFlight/deploy/signing
+  action occurred and no further rerun was dispatched. Remaining P2 is the
+  four iOS UI behavior assertions and their topo/offline/GPS evidence; this
+  run does not claim complete iOS RealFlow/ReviewEdit/TeeSelection evidence.
