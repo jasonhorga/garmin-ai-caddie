@@ -23,6 +23,34 @@ class CIFixtureContractTests(unittest.TestCase):
             self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n")
             self.assertEqual(struct.unpack(">II", payload[16:24]), (64, 64))
 
+    def test_fixture_shotmaps_use_native_topo_geometry_contract(self) -> None:
+        try:
+            from server_v2.ci_fixture import FIXTURE_REVISION, shotmap
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        for hole in range(1, 19):
+            body = shotmap("fixture-round-1", hole)
+            self.assertEqual(body["mapKind"], "prodgeometry")
+            self.assertEqual(body["geometryRevision"], FIXTURE_REVISION)
+            self.assertTrue(body["map"]["image"].startswith("data:image/png;base64,"))
+            self.assertEqual((body["map"]["overlay"]["w"], body["map"]["overlay"]["h"]), (64, 64))
+
+    def test_fixture_package_holes_preserve_canonical_tee_coordinates(self) -> None:
+        try:
+            from server_v2.ci_fixture import COURSE_COORDINATES, _package
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        for global_id in (31793, 31795, 3881, 31797):
+            package = _package(f"home-{global_id}", global_id)
+            expected = COURSE_COORDINATES[global_id]
+            self.assertEqual(len(package["holes"]), 18)
+            self.assertEqual({(hole["teeLatitude"], hole["teeLongitude"]) for hole in package["holes"]}, {expected})
+        composite = _package("home-31795", 31795, back_global_id=3881)
+        front = [hole for hole in composite["holes"] if hole["number"] <= 9]
+        back = [hole for hole in composite["holes"] if hole["number"] >= 10]
+        self.assertEqual({(hole["teeLatitude"], hole["teeLongitude"]) for hole in front}, {COURSE_COORDINATES[31795]})
+        self.assertEqual({(hole["teeLatitude"], hole["teeLongitude"]) for hole in back}, {COURSE_COORDINATES[3881]})
+
     def test_beijing_palace_catalogue_and_identity_are_complete(self) -> None:
         try:
             from server_v2.ci_fixture import course_search, nearby, options, course_package, prep, coverage, tees

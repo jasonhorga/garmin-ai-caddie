@@ -49,6 +49,9 @@ COURSE_COORDINATES = {
     GLOBAL_ID: (39.9000, 116.4000),
     31797: (40.1200, 116.7000),
     3881: (36.5800, -121.9700),
+    # These supported back-course aliases share the Beijing fixture region.
+    31670: (39.9000, 116.4000),
+    31871: (39.9000, 116.4000),
 }
 
 
@@ -219,6 +222,9 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
         hole["number"] = display_hole
         hole["sourceGlobalId"] = source_course
         hole["sourceLocalHole"] = local_hole
+        tee_latitude, tee_longitude = COURSE_COORDINATES[source_course]
+        hole["teeLatitude"] = tee_latitude
+        hole["teeLongitude"] = tee_longitude
         payload["holes"].append(hole)
     payload["geometryCoverage"]["totalHoles"] = len(segment_holes)
     payload["geometryCoverage"]["readyHoles"] = len(segment_holes)
@@ -289,7 +295,7 @@ def shotmap(round_ref: str, hole: int, includeImage: bool = True, global_id: int
     _, requested_course, requested_back = _bound_round_context(round_ref, global_id, back_global_id, nine, tee_box)
     display_hole, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
     map_body = {"image": _png_data_uri(seed=hole) if includeImage else None, "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + hole, "route": [[4, 4, 0], [60, 60, 220 + hole]]}}
-    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": display_hole, "par": 4, "globalId": source_course, "localHole": local_hole, "sourceRef": f"{round_ref}:{display_hole}", "geometryRevision": FIXTURE_REVISION, "mapKind": "courseData", "map": map_body, "shots": [{"id": f"s{display_hole}-1", "club": "1D", "synthetic": False, "end": [8 + display_hole, 8], "sourceRef": f"{round_ref}:{display_hole}:0"}, {"id": f"s{display_hole}-2", "club": "8I", "synthetic": False, "end": [56, 56 - display_hole], "sourceRef": f"{round_ref}:{display_hole}:1"}], "manualPenalty": 0, "missingData": []})
+    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": display_hole, "par": 4, "globalId": source_course, "localHole": local_hole, "sourceRef": f"{round_ref}:{display_hole}", "geometryRevision": FIXTURE_REVISION, "mapKind": "prodgeometry", "map": map_body, "shots": [{"id": f"s{display_hole}-1", "club": "1D", "synthetic": False, "end": [8 + display_hole, 8], "sourceRef": f"{round_ref}:{display_hole}:0"}, {"id": f"s{display_hole}-2", "club": "8I", "synthetic": False, "end": [56, 56 - display_hole], "sourceRef": f"{round_ref}:{display_hole}:1"}], "manualPenalty": 0, "missingData": []})
 
 
 @ROUTE.get("/api/v2/courses/search")
