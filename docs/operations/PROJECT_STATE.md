@@ -1077,6 +1077,43 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   mutation, or production data synchronization was performed; the remaining
   blocker is why the corrected fixture catalogue/history payloads are not
   consumed by the iOS UI-test process.
+- 2026-08-28: Read-only diagnosis of run `33137626371` identified the common
+  cause of all 9 iOS UI failures. The UI-test runner's own diagnostics proved
+  `resolvedURL=http://127.0.0.1:9000`, `tokenLen=64`, GPS
+  `40.0454995,116.5461531`, and fixture health HTTP 200 with revision
+  `ci-fixture-20260827-v1`; the resolver also successfully selected round
+  `900001`, course `31795`, hole 1, two labelled shots (`1D`,`8I`), proving
+  that the runner could reach and decode `/history/rounds`, round detail, and
+  shotmap. The app process did not share that configuration: its captured
+  home/start/review trees repeatedly showed `未配置后端地址`, `附近球场暂时读取失败`,
+  and a disabled `开始记分`; the collected app log contains no fixture API
+  request/response evidence. Consequently the app never requested the
+  corrected `31793` search/nearby/options/tees or `31797` partial coverage,
+  nor the `900001` package/prep/geometry/topo/green/caddie routes. This is a
+  launch-environment propagation/configuration failure, not a fixture route,
+  Codable/map decode, course identity, resolver selection, or navigation race.
+  Failure matrix: RealFlow waited for the home `成绩` button, then failed its
+  first loaded-home/start prerequisite against the offline fixture package;
+  ReviewEdit reached `单场复盘` via its DEBUG fallback but the page showed
+  `未配置后端地址`, so `round-review-hole-1` never appeared and it failed
+  `review-edit evidence must open its resolver-verified real hole`; all seven
+  TeeSelection journeys reached `开始一场`, where the actual IDs were
+  `start-round-search-all-courses`, `start-round-primary-action`, and expected
+  `start-round-course-segment-31793`, but nearby/search rows were absent or
+  disabled, yielding the seven Beijing Palace/segment-31793 assertions.
+  Workflow inputs and runner env are correctly set in
+  `.github/workflows/native-mobile.yml`: fixture mode uses the loopback base,
+  `review_round_ref=900001`, GPS values, and the masked ephemeral token in
+  both plain and `TEST_RUNNER_` variables. The test resolver sees them, while
+  `XCUIApplication.launchEnvironment` does not result in those values inside
+  `AICaddieApp` on this target. Minimal repair scope is the iOS UI-test/app
+  launch configuration boundary: make the fixture base URL and token
+  explicitly reach the application process (with fail-closed fixture-only
+  guards and no production fallback), then re-run the existing unchanged
+  tests once after Opus review. Do not alter resolver thresholds, assertions,
+  fixture data, or mark failures skipped. No new run, deployment, release,
+  signing, TestFlight, or production action was performed during this
+  diagnosis.
 - 2026-08-27: Diagnosed Native fixture run `33126223345` startup failure with
   a homeserver reproduction: `uv` was unavailable (`command -v uv` empty), and
   the launcher stderr was `nohup: failed to run command 'uv': No such file or
