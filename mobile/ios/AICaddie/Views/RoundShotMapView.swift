@@ -1089,15 +1089,15 @@ public struct RoundShotMapPagerScreen: View {
             hole: current,
             apiBaseURL: apiBaseURL,
             adminToken: adminToken,
-            globalId: globalId,
-            backGlobalId: backGlobalId,
-            nine: nine,
-            teeBox: teeBox,
             showsNavigationTitle: false,
             onEditingChange: { editing in
                 if editing { editingHoles.insert(current) } else { editingHoles.remove(current) }
             },
-            mapRepository: mapRepository
+            mapRepository: mapRepository,
+            globalId: globalId,
+            backGlobalId: backGlobalId,
+            nine: nine,
+            teeBox: teeBox
         )
         .id("\(roundRef):\(current)")
         .overlay(alignment: .topTrailing) {

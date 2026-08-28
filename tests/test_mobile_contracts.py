@@ -3123,6 +3123,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("showsShotFacts.toggle()", shot_map_view)
         self.assertIn("private func toggleZoom()", shot_map_view)
         self.assertNotIn('Image(systemName: "plus.magnifyingglass")', shot_map_view)
+
         self.assertIn("final class RoundShotMapRepository", shot_map_view)
         self.assertIn("await mapRepository.prefetch(holes", shot_map_view)
         # The pager owns progressive all-hole warming. The summary hands it the shared repository
@@ -3936,6 +3937,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("WatchCaddieText.confidence(state.caddieConfidence)", glance_view)
         self.assertIn("待选旗位", glance_view)
         self.assertIn("mappin.and.ellipse", glance_view)
+
+    def test_round_shot_map_pager_identity_initializer_order(self) -> None:
+        source = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
+        pager_call = source.split("RoundHoleShotMapScreen(", 1)[1].split("        )\n        .id", 1)[0]
+        self.assertLess(pager_call.index("showsNavigationTitle:"), pager_call.index("globalId:"))
+        for field in ("roundRef:", "globalId:", "backGlobalId:", "nine:", "teeBox:", "mapRepository:"):
+            self.assertIn(field, pager_call)
 
 
 class RoundEditContractTests(unittest.TestCase):

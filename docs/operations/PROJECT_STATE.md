@@ -989,6 +989,13 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   bytes), and tiny iOS placeholder artifacts; no large artifact was retained.
   No second Native run, TestFlight, release, deploy, signing, or production
   action was performed.
+- 2026-08-28: Fixed the Native compile blocker found by run `33127924236`.
+  `RoundShotMapPagerScreen` now calls the dependency-injected
+  `RoundHoleShotMapScreen` initializer in its declared label order, preserving
+  `roundRef` plus `globalId`, `backGlobalId`, `nine`, and `teeBox` identity.
+  Added a focused source contract covering the sole caller and identity fields.
+  Remote focused contract and Python compilation passed. This is a source-only
+  correction; no Native rerun has been dispatched pending Opus/owner approval.
 - 2026-08-27: Replaced the missing-secret dependency with self-contained
   fixture-mode token wiring. Native workflow fixture startup now generates one
   64-hex-byte token from runner `openssl rand -hex 32`, fail-closes when
