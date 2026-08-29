@@ -475,10 +475,14 @@ class CIFixtureContractTests(unittest.TestCase):
         context = seed["context"]
         for key, value in (("roundId", "home-31795"), ("globalId", 31795), ("backGlobalId", 3881), ("nine", "all"), ("teeBox", "blue"), ("localHole", 1), ("displayHole", 10)):
             self.assertEqual(context[key], value)
+        self.assertIsInstance(context["clubProfiles"], dict)
         self.assertGreaterEqual(len(context["clubProfiles"]), 3)
         tee_response = caddie_decision({"shotType": "tee", "context": context})
         self.assertEqual([sequence["id"] for sequence in tee_response["sequences"]], ["safe", "stock", "attack"])
         self.assertEqual(tee_response["selectedSequence"]["id"], "stock")
+        self.assertTrue(all(len(sequence["clubs"]) >= 2 for sequence in tee_response["sequences"]))
+        self.assertTrue(all(sequence["sourceRefs"] for sequence in tee_response["sequences"]))
+        self.assertEqual(tee_response["selectedSequence"]["sourceRef"], "home-31795:10")
         response = caddie_decision({"shotType": "approach", "context": context})
         self.assertEqual(response["selected"]["courseGlobalId"], 3881)
         self.assertEqual(response["selected"]["localHole"], 1)
@@ -487,6 +491,24 @@ class CIFixtureContractTests(unittest.TestCase):
         back_response = caddie_decision({"shotType": "approach", "context": back_local})
         self.assertEqual(back_response["selected"]["localHole"], 1)
         self.assertEqual(back_response["selected"]["displayHole"], 10)
+
+    def test_package_repairs_legacy_list_shaped_club_profiles(self) -> None:
+        try:
+            import server_v2.ci_fixture as fixture
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+        template = json.loads(json.dumps(fixture.PACKAGE_TEMPLATE))
+        template["caddieContextSeeds"][0]["context"]["clubProfiles"] = []
+        original = fixture.PACKAGE_TEMPLATE
+        fixture.PACKAGE_TEMPLATE = template
+        try:
+            package = fixture.course_package(31793, round_id="prep-library-31793", tee_box="blue")
+        finally:
+            fixture.PACKAGE_TEMPLATE = original
+        seed = package["caddieContextSeeds"][0]
+        profiles = seed["context"]["clubProfiles"]
+        self.assertIsInstance(profiles, dict)
+        self.assertEqual(set(profiles), {"9I", "8I", "7I"})
 
     def test_install_status_uses_same_segment_resolver(self) -> None:
         try:

@@ -377,7 +377,13 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
         display_hole, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
         seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": display_hole, "displayHole": display_hole, "globalId": requested_course, "localHole": local_hole, "backGlobalId": requested_back, "nine": nine, "teeBox": tee_box})
         seed["context"].setdefault("geometry", {}).update({"coverage": "ready", "sourceGlobalId": source_course, "sourceLocalHole": local_hole})
-        seed["context"].setdefault("clubProfiles", _seed_club_profiles(seed))
+        club_profiles = _seed_club_profiles(seed)
+        existing_profiles = seed["context"].get("clubProfiles")
+        # The fixture template may carry an empty/list-shaped profile payload from an older
+        # package schema.  Tee sequences require the keyed decision profile contract; preserve
+        # an already-populated keyed map while repairing only that fixture-only stale shape.
+        if club_profiles and not (isinstance(existing_profiles, dict) and existing_profiles):
+            seed["context"]["clubProfiles"] = club_profiles
         seeds.append(seed)
     payload["caddieContextSeeds"] = seeds
     payload["recentHistory"]["holes"] = [{"number": hole, "sampleCount": 3, "averageToPar": 0.2, "repeatedIssues": []} for hole in segment_holes]
