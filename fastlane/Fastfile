@@ -247,9 +247,12 @@ platform :ios do
 
     app_profile = "match AppStore #{APP_BUNDLE_ID}"
     watch_profile = "match AppStore #{WATCH_BUNDLE_ID}"
+    repo_root = File.expand_path("..", __dir__)
+    ios_build_dir = File.join(repo_root, "build", "ios")
+    provenance_script = File.join(repo_root, "ops", "write_release_provenance.py")
     build_app(
       project: XCODE_PROJECT, scheme: SCHEME, configuration: "Release",
-      output_directory: "build/ios", output_name: OUTPUT_IPA,
+      output_directory: ios_build_dir, output_name: OUTPUT_IPA,
       export_method: "app-store", clean: true,
       export_options: {
         signingStyle: "manual",
@@ -262,8 +265,8 @@ platform :ios do
     backend_revision = upload_requested ? backend.fetch("revision") : ""
     api_origin = ENV["AI_CADDIE_API_BASE_URL"].to_s.strip
     provenance_args = [
-      "python3 ops/write_release_provenance.py",
-      "--ipa #{Shellwords.escape(File.join('build/ios', OUTPUT_IPA))}",
+      "python3 #{Shellwords.escape(provenance_script)}",
+      "--ipa #{Shellwords.escape(File.join(ios_build_dir, OUTPUT_IPA))}",
       "--commit #{Shellwords.escape(release_commit)}",
       "--workflow-run #{Shellwords.escape(ENV.fetch('GITHUB_RUN_ID', 'local'))}",
       "--marketing-version #{Shellwords.escape(get_version_number(xcodeproj: XCODE_PROJECT, target: "AICaddie"))}",
@@ -275,7 +278,7 @@ platform :ios do
     sh(provenance_args.join(" "))
 
     validate_release_provenance!(
-      path: File.join("build/ios", "release-provenance.json"),
+      path: File.join(ios_build_dir, "release-provenance.json"),
       release_commit: release_commit,
       backend_revision: backend_revision,
       api_origin: api_origin,
@@ -289,7 +292,7 @@ platform :ios do
       )
       sh("#{provenance_args.join(' ')} --upload-to-testflight")
       validate_release_provenance!(
-        path: File.join("build/ios", "release-provenance.json"),
+        path: File.join(ios_build_dir, "release-provenance.json"),
         release_commit: release_commit,
         backend_revision: backend_revision,
         api_origin: api_origin,
