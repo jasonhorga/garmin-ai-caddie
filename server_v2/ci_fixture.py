@@ -16,6 +16,7 @@ import zlib
 from fastapi import APIRouter, HTTPException, Query, Response
 
 from ai_caddie.core.fixtures import fixture_history_data
+from ai_caddie.caddie.decision_api import build_decision_from_request
 
 FIXTURE_REVISION = "ci-fixture-20260827-v1"
 ROUND_REF = "900001"
@@ -558,9 +559,22 @@ def caddie_decision(body: dict) -> dict:
     supplied_source_ref = context.get("sourceRef")
     if not isinstance(supplied_source_ref, str) or supplied_source_ref != source_ref:
         raise HTTPException(status_code=400, detail="fixture sourceRef missing or inconsistent")
-    context = {"source": "ios_live", "roundId": round_id, "globalId": int(context["globalId"]), "hole": hole, "guidanceMode": "automatic", "currentLocation": {"latitude": 39.9, "longitude": 116.4, "horizontalAccuracyM": 5.0, "capturedAt": "2026-08-27T00:00:00Z"}, **context}
-    option = {"id": f"stock-{display_hole}", "clubName": "8I", "carry_m": 144.0 + display_hole, "p10M": 132.0 + display_hole, "p90M": 153.0 + display_hole, "sampleSize": 24, "confidence": "high", "source": "ci_fixture", "dispersion": {"state": "modeled", "clubName": "8I", "carryP10_m": 132.0 + display_hole, "carryP90_m": 153.0 + display_hole, "sampleSize": 24, "sourceRef": source_ref, "courseGlobalId": course_identity, "localHole": expected_local, "displayHole": display_hole}, "courseGlobalId": course_identity, "localHole": expected_local, "displayHole": display_hole, "roundId": round_id, "sourceRef": source_ref}
-    return _with_markers({"schema": "ai-caddie-decision-v2", "decisionId": f"fixture-decision-{round_id}-{hole}", "sourceRef": source_ref, "evidenceRefs": [source_ref], "shotType": shot_type, "phase": "approach", "context": context, "options": [option], "selected": option, "selectedOptionId": option["id"], "selectedOption": option, "sequences": [{"id": option["id"], "clubName": "8I", "sourceRef": source_ref}], "selectedSequence": {"id": option["id"], "clubName": "8I", "sourceRef": source_ref}, "avoidZones": [], "forbiddenZones": [], "acceptableMiss": {"side": "short"}, "evidence": [{"label": "fixture", "value": "non_production", "sourceRef": source_ref}], "confidence": {"level": "high", "source": "ci_fixture"}, "missingData": [], "auditCriteria": []})
+    context = {
+        "source": "ios_live",
+        "roundId": round_id,
+        "globalId": int(context["globalId"]),
+        "hole": hole,
+        "guidanceMode": "automatic",
+        "currentLocation": {
+            "latitude": 39.9,
+            "longitude": 116.4,
+            "horizontalAccuracyM": 5.0,
+            "capturedAt": "2026-08-27T00:00:00Z",
+        },
+        **context,
+    }
+    payload = {"shotType": shot_type, "context": context, "includeExplanation": False}
+    return _with_markers(build_decision_from_request(payload))
 
 
 @ROUTE.get("/api/v2/caddie/context")
