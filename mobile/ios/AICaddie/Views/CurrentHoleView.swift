@@ -510,66 +510,71 @@ public struct CurrentHoleView: View {
     private var caddieDetailSurface: some View {
         ZStack {
             Color.white.ignoresSafeArea()
-            VStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("球童完整方案")
-                            .font(.title2.weight(.bold))
-                        Text("第 \(hole.number) 洞 · Par \(hole.par)")
-                            .font(.subheadline)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let caddieDecision {
+                        CaddiePlanView(
+                            response: caddieDecision,
+                            hazards: caddiePlanHazards,
+                            onSelectStrategyMode: { selectedStrategyMode = $0 }
+                        )
+                    } else {
+                        CaddiePlanView(
+                            seed: caddieContextSeed,
+                            hazards: caddiePlanHazards,
+                            onSelectStrategyMode: { selectedStrategyMode = $0 }
+                        )
+                    }
+                    if isLoadingCaddieDecision {
+                        ProgressView("更新球童建议…")
+                    }
+                    if let caddieErrorMessage {
+                        Text(caddieErrorMessage)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    Spacer()
                     Button {
-                        showCaddieDetail = false
+                        Task { await loadCaddieDecision() }
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
+                        Label("刷新球童", systemImage: "arrow.clockwise")
+                            .font(.subheadline)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("关闭球童方案")
+                    .disabled(isLoadingCaddieDecision)
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-
-                Divider()
-
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if let caddieDecision {
-                            CaddiePlanView(
-                                response: caddieDecision,
-                                hazards: caddiePlanHazards,
-                                onSelectStrategyMode: { selectedStrategyMode = $0 }
-                            )
-                        } else {
-                            CaddiePlanView(
-                                seed: caddieContextSeed,
-                                hazards: caddiePlanHazards,
-                                onSelectStrategyMode: { selectedStrategyMode = $0 }
-                            )
-                        }
-                        if isLoadingCaddieDecision {
-                            ProgressView("更新球童建议…")
-                        }
-                        if let caddieErrorMessage {
-                            Text(caddieErrorMessage)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Button {
-                            Task { await loadCaddieDecision() }
-                        } label: {
-                            Label("刷新球童", systemImage: "arrow.clockwise")
-                                .font(.subheadline)
-                        }
-                        .disabled(isLoadingCaddieDecision)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .safeAreaPadding(.bottom, 12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("球童完整方案")
+                        .font(.title2.weight(.bold))
+                    Text("第 \(hole.number) 洞 · Par \(hole.par)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    showCaddieDetail = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("关闭球童方案")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white)
+            .overlay(alignment: .bottom) { Divider() }
         }
         .tint(LiveHoleStyle.green)
         .preferredColorScheme(.light)
