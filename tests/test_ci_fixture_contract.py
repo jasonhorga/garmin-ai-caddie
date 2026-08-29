@@ -394,6 +394,7 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(back_decision["selected"]["courseGlobalId"], 3881)
         self.assertEqual(back_decision["selected"]["localHole"], 1)
         self.assertEqual(back_decision["selected"]["displayHole"], 10)
+        self.assertEqual(back_decision["selected"]["dispersion"]["courseGlobalId"], 3881)
         self.assertEqual(back_decision["selected"]["dispersion"]["localHole"], 1)
 
     def test_fixture_dynamic_round_forms_are_strictly_scoped(self) -> None:
