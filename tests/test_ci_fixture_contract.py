@@ -231,6 +231,8 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(decision["context"]["roundId"], "live-round-1")
         self.assertEqual(decision["context"]["globalId"], 3881)
         self.assertEqual(decision["sourceRef"], "live-round-1:1")
+        self.assertEqual(decision["selected"]["sourceRef"], "live-round-1:1")
+        self.assertEqual(decision["selected"]["courseGlobalId"], 3881)
         with self.assertRaises(HTTPException):
             caddie_decision({"shotType": "tee", "context": {"globalId": 99999, "hole": 1, "sourceRef": "900001:1"}})
 
