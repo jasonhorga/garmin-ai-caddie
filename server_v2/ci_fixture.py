@@ -46,6 +46,41 @@ def _course_name(value: int) -> str:
     return "Beijing Palace" if int(value) == PALACE_ID else ("Black Knight B/C" if int(value) == GLOBAL_ID else ("Fixture Open Course" if int(value) == 31797 else "Cypress Point Club"))
 
 
+def _tee_candidate_routes() -> list[dict[str, object]]:
+    return [
+        {
+            "id": "conservative_layup",
+            "label": "safe layup",
+            "carry_m": 218.0,
+            "landingLocal": [0.0, 218.0],
+            "expectedSurface": {"kind": "fairway"},
+            "nearRisks": [],
+            "lineRisks": [],
+            "riskScore": 0,
+        },
+        {
+            "id": "stock_line",
+            "label": "stock line",
+            "carry_m": 245.0,
+            "landingLocal": [0.0, 245.0],
+            "expectedSurface": {"kind": "fairway"},
+            "nearRisks": [],
+            "lineRisks": [{"kind": "bunker", "id": "bunker_1"}],
+            "riskScore": 1,
+        },
+        {
+            "id": "aggressive_line",
+            "label": "attack line",
+            "carry_m": 260.0,
+            "landingLocal": [0.0, 260.0],
+            "expectedSurface": {"kind": "rough"},
+            "nearRisks": [{"kind": "water", "distance_m": 9.0}],
+            "lineRisks": [{"kind": "water", "id": "water_1"}],
+            "riskScore": 4,
+        },
+    ]
+
+
 COURSE_COORDINATES = {
     PALACE_ID: (40.0455, 116.5462),
     GLOBAL_ID: (39.9000, 116.4000),
@@ -573,6 +608,10 @@ def caddie_decision(body: dict) -> dict:
         },
         **context,
     }
+    if shot_type == "tee":
+        context.setdefault("distanceToPin_m", 520.0)
+        if not context.get("candidateRoutes"):
+            context["candidateRoutes"] = _tee_candidate_routes()
     payload = {"shotType": shot_type, "context": context, "includeExplanation": False}
     return _with_markers(build_decision_from_request(payload))
 
