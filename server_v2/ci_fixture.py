@@ -416,7 +416,8 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
             "steps": [], "cautions": [], "landing_m": 210.0, "tee_club": "1D",
             "hazards": _fixture_prep_hazards(),
             "map": {"image": _png_data_uri(seed=number), "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + number, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 374.0 + number]]}},
-            "greenDistances": {"available": True, "frontM": 122.0, "middleM": 130.0, "backM": 138.0, "frontLat": 39.9001, "frontLon": 116.4001, "middleLat": 39.9002, "middleLon": 116.4002, "backLat": 39.9003, "backLon": 116.4003}, "playsLike": {"available": True, "deltaM": 0.0},
+            # Keep the declared tee→green metres aligned with the simulated tee projection.
+            "greenDistances": {"available": True, "frontM": 122.0, "middleM": 130.0, "backM": 138.0, "frontLat": 39.899737033671904, "frontLon": 116.40035431963724, "middleLat": 39.899667330924196, "middleLon": 116.40037755332776, "backLat": 39.899597628171854, "backLon": 116.40040078697098}, "playsLike": {"available": True, "deltaM": 0.0},
             "holeImageProjection": {"available": True, "widthPx": 64, "heightPx": 64, "refs": [{"lat": 39.9000, "lon": 116.4000, "px": 0.0, "py": 64.0}, {"lat": 39.9000, "lon": 116.4008, "px": 64.0, "py": 64.0}, {"lat": 39.9008, "lon": 116.4000, "px": 0.0, "py": 0.0}]},
             "greenOutline": {"available": True, "source": "ci_fixture", "distanceUnit": "metres", "pointsPx": [[52.0, 52.0], [60.0, 52.0], [60.0, 60.0], [52.0, 60.0] ]}}
         local_hole = number - 9 if requested_back is not None and number >= 10 else number
