@@ -1171,9 +1171,21 @@ def _reconcile_player_course_matches(
     """Apply the player overlay without touching provider result/cache objects."""
     provider_matches = list(matches or ())
     history_rows = _load_player_course_history_rows(player_id)
+    history_ids_needing_geometry = course_reconciliation.history_global_ids_needing_geometry(history_rows)
+    provider_ids: set[int] = set()
+    for match in provider_matches:
+        try:
+            global_id = int(match.global_id)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if global_id > 0:
+            provider_ids.add(global_id)
+    geometry_ids = tuple(sorted(set(history_ids_needing_geometry).intersection(provider_ids)))
     try:
-        geometry_locations = course_reconciliation.load_cached_geometry_locations(
-            (match.global_id for match in provider_matches)
+        geometry_locations = (
+            course_reconciliation.load_cached_geometry_locations(geometry_ids)
+            if geometry_ids
+            else {}
         )
     except Exception:
         # Cache-only corroboration is optional; the history coordinate remains

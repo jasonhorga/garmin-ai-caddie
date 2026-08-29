@@ -183,6 +183,35 @@ class CourseReconciliationEndpointTests(unittest.TestCase):
 
         return TestClient(app)
 
+    def test_geometry_loader_receives_only_missing_coordinate_provider_ids(self) -> None:
+        from server_v2 import main as server_main
+
+        missing = _history("Missing Coordinate Course", gid=40001)
+        missing.pop("lat")
+        missing.pop("lon")
+        unrelated = _history("Unrelated History Course", gid=40002)
+        unrelated.pop("lat")
+        unrelated.pop("lon")
+        provider_matches = [
+            PROVIDER,
+            CourseMatch(40001, "Missing Coordinate Course", 18, "Beijing", "Beijing", 0.8, 40.0, 116.5, 1.0),
+            CourseMatch(49999, "Unplayed Provider Course", 18, "Beijing", "Beijing", 0.7, 40.0, 116.6, 2.0),
+        ]
+        with (
+            patch.object(
+                server_main,
+                "_load_player_course_history_rows",
+                return_value=[_history(), missing, unrelated, _history("Same ID Missing", gid=31793)],
+            ),
+            patch.object(
+                server_main.course_reconciliation,
+                "load_cached_geometry_locations",
+                return_value={},
+            ) as loader,
+        ):
+            server_main._reconcile_player_course_matches(provider_matches, player_id="player-a")
+        loader.assert_called_once_with((40001,))
+
     def test_empty_provider_search_recalls_matching_history_alias(self) -> None:
         from server_v2 import main as server_main
 

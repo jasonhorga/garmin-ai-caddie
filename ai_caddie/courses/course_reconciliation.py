@@ -153,6 +153,31 @@ def _played(row: Mapping[str, Any]) -> bool:
     return not saw_count
 
 
+def history_global_ids_needing_geometry(
+    history_rows: Iterable[Mapping[str, Any]],
+) -> tuple[int, ...]:
+    """Return played-course ids whose history has no usable coordinate.
+
+    Geometry is only needed to complete evidence for a row that already has a
+    real course name and id.  Rows with a valid coordinate are deliberately
+    omitted because ``build_player_course_evidence`` can use that coordinate
+    directly; placeholder and explicitly unplayed rows cannot create evidence
+    and are omitted as well.
+    """
+    named_ids: set[int] = set()
+    coordinate_ids: set[int] = set()
+    for row in history_rows or ():
+        if not isinstance(row, Mapping) or not _names(row) or not _played(row):
+            continue
+        ids = _ids(row)
+        if not ids:
+            continue
+        named_ids.update(ids)
+        if _row_coord(row) is not None:
+            coordinate_ids.update(ids)
+    return tuple(sorted(named_ids - coordinate_ids))
+
+
 def build_player_course_evidence(
     history_rows: Iterable[Mapping[str, Any]],
     *,
