@@ -622,6 +622,17 @@ public final class SyncClient {
     /// Per-hole 复盘 shot map (`GET /api/v2/history/rounds/{ref}/holes/{hole}/shotmap`): this round's
     /// actual shots projected onto the hole's 2D render. The round screen prefetches all holes, so
     /// omit the duplicate embedded topo; its revision-bound PNG is fetched once through URLCache.
+    public func fetchRoundShotMap(roundRef: String, hole: Int) async throws -> RoundHoleShotMap {
+        try await fetchRoundShotMap(
+            roundRef: roundRef,
+            hole: hole,
+            globalId: nil,
+            backGlobalId: nil,
+            nine: nil,
+            teeBox: nil
+        )
+    }
+
     public func fetchRoundShotMap(roundRef: String, hole: Int, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) async throws -> RoundHoleShotMap {
         let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
         let endpoint = endpointURL("/api/v2/history/rounds/\(encoded)/holes/\(hole)/shotmap")
