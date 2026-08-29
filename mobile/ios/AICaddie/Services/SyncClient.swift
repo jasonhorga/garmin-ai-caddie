@@ -659,6 +659,16 @@ public final class SyncClient {
 
     /// Single-round 复盘 detail (`GET /api/v2/history/rounds/{ref}`): hole-by-hole scorecard +
     /// phase summary + graceful missing-data. Used by RoundReviewView when the player taps a round.
+    public func fetchRoundDetail(roundRef: String) async throws -> RoundDetail {
+        try await fetchRoundDetail(
+            roundRef: roundRef,
+            globalId: nil,
+            backGlobalId: nil,
+            nine: nil,
+            teeBox: nil
+        )
+    }
+
     public func fetchRoundDetail(roundRef: String, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) async throws -> RoundDetail {
         let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
         var components = URLComponents(url: endpointURL("/api/v2/history/rounds/\(encoded)"), resolvingAgainstBaseURL: false)

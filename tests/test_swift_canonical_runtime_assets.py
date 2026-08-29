@@ -456,7 +456,7 @@ class SwiftCanonicalRuntimeAssetTests(unittest.TestCase):
         visibility_step = steps["Verify SwiftJCS consumer boundaries"]
         self.assertEqual(
             visibility_step["if"],
-            "always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit')",
+            "${{ always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit') && steps.test_ios_app.outcome == 'success' }}",
         )
         visibility_gate = visibility_step["run"]
         self.assertIn('name: "ExternalAICaddieConsumer"', visibility_gate)
