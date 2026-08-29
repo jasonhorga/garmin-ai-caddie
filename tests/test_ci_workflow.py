@@ -1195,6 +1195,18 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn('UI.success("Signed IPA built; TestFlight upload was not requested.")', text)
         self.assertNotIn("create_app_online", text)
 
+        # Optional provenance flags must be appended conditionally. Keeping them
+        # outside the literal makes both artifact-only and upload paths parse in
+        # Ruby while preserving omission when a value is unavailable.
+        api_arg = 'provenance_args << "--api-origin #{Shellwords.escape(api_origin)}" unless api_origin.empty?'
+        backend_arg = 'provenance_args << "--backend-revision #{Shellwords.escape(backend_revision)}" unless backend_revision.empty?'
+        self.assertIn(api_arg, text)
+        self.assertIn(backend_arg, text)
+        self.assertLess(text.index('provenance_args = ['), text.index(api_arg))
+        self.assertLess(text.index(api_arg), text.index('provenance_args << "--upload-requested"'))
+        self.assertNotIn('"--api-origin #{Shellwords.escape(api_origin)}" unless api_origin.empty?,', text)
+        self.assertNotIn('"--backend-revision #{Shellwords.escape(backend_revision)}" unless backend_revision.empty?,', text)
+
         project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))
         targets = project["schemes"]["AICaddie"]["build"]["targets"]
         self.assertIn("AICaddieWatch", targets)

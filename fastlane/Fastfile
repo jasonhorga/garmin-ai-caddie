@@ -264,13 +264,13 @@ platform :ios do
     provenance_args = [
       "python3 ops/write_release_provenance.py",
       "--ipa #{Shellwords.escape(File.join('build/ios', OUTPUT_IPA))}",
-      "--api-origin #{Shellwords.escape(api_origin)}" unless api_origin.empty?,
-      "--backend-revision #{Shellwords.escape(backend_revision)}" unless backend_revision.empty?,
       "--commit #{Shellwords.escape(release_commit)}",
       "--workflow-run #{Shellwords.escape(ENV.fetch('GITHUB_RUN_ID', 'local'))}",
       "--marketing-version #{Shellwords.escape(get_version_number(xcodeproj: XCODE_PROJECT))}",
       "--build-number #{Shellwords.escape(get_build_number(xcodeproj: XCODE_PROJECT))}"
     ].compact
+    provenance_args << "--api-origin #{Shellwords.escape(api_origin)}" unless api_origin.empty?
+    provenance_args << "--backend-revision #{Shellwords.escape(backend_revision)}" unless backend_revision.empty?
     provenance_args << "--upload-requested" if upload_requested
     sh(provenance_args.join(" "))
 
