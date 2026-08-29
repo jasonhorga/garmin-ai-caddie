@@ -17,8 +17,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
-from ai_caddie.courses import course_search
+from ai_caddie.courses import course_reconciliation, course_search
 from ai_caddie.history import stats_cache
+from ai_caddie.history.stats_cache import cached_load_history_data
 from ai_caddie.rounds import round_corrections, round_ingest
 from ai_caddie.rounds.players import OWNER_ID
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error, sanitize_safe_meta
@@ -1110,13 +1111,14 @@ def course_search_endpoint(
     holes: int | None = None,
     latitude: float | None = None,
     longitude: float | None = None,
+    player_id: str = Depends(current_player_id),
 ) -> dict:
     """Search Garmin's course DB by name (+ optional city / hole-count guard); returns ranked
     matches with globalId. Feed a chosen globalId into /api/v2/courses/{global_id}/prep."""
     if (latitude is None) != (longitude is None):
         raise HTTPException(status_code=422, detail="latitude and longitude must be supplied together")
     try:
-        matches = course_search.courseview_search(
+        provider_matches = course_search.courseview_search(
             name,
             city=city,
             expected_holes=holes,
@@ -1125,21 +1127,73 @@ def course_search_endpoint(
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Garmin course catalogue unavailable") from exc
+    matches = _reconcile_player_course_matches(
+        provider_matches,
+        player_id=player_id,
+        query=name,
+        city=city,
+        append_history=True,
+    )
     return {
         "schema": "ai-caddie-course-search-v1",
         "query": name,
-        "matches": [
-            {"globalId": m.global_id, "name": m.name, "holes": m.holes,
-             "city": m.city, "province": m.province, "ratio": m.ratio,
-             "latitude": m.latitude, "longitude": m.longitude,
-             "distanceKm": m.distance_km}
-            for m in matches
-        ],
+        "matches": [_course_match_payload(match) for match in matches],
     }
 
 
+def _load_player_course_history_rows(player_id: str) -> list:
+    """Load only the requesting player's round metadata for catalogue overlays.
+
+    Reconciliation is presentation-only and must remain best-effort: a damaged
+    history file cannot turn an otherwise healthy provider response into a 5xx.
+    In particular, do not use ``load_history_data_for_mode`` here because its
+    owner fixture/snapshot fallback is intentionally shared demo data.
+    """
+    try:
+        data = cached_load_history_data(player_id=player_id)
+        rows = getattr(data, "rounds", ())
+        return list(rows or ())
+    except Exception:
+        logger.warning("course reconciliation history load failed for player %s", player_id, exc_info=True)
+        return []
+
+
+def _reconcile_player_course_matches(
+    matches,
+    *,
+    player_id: str,
+    query: str | None = None,
+    city: str | None = None,
+    nearby_origin: tuple[float, float] | None = None,
+    nearby_radius_km: float | None = None,
+    append_history: bool = False,
+) -> list[course_search.CourseMatch]:
+    """Apply the player overlay without touching provider result/cache objects."""
+    provider_matches = list(matches or ())
+    history_rows = _load_player_course_history_rows(player_id)
+    try:
+        geometry_locations = course_reconciliation.load_cached_geometry_locations(
+            (match.global_id for match in provider_matches)
+        )
+    except Exception:
+        # Cache-only corroboration is optional; the history coordinate remains
+        # usable when a local course-data file is missing or malformed.
+        geometry_locations = {}
+    return course_reconciliation.reconcile_course_matches(
+        provider_matches,
+        player_id=player_id,
+        history_rows=history_rows,
+        query=query,
+        city=city,
+        nearby_origin=nearby_origin,
+        nearby_radius_km=nearby_radius_km,
+        geometry_locations=geometry_locations,
+        append_history=append_history,
+    )
+
+
 def _course_match_payload(match: course_search.CourseMatch) -> dict:
-    return {
+    payload = {
         "globalId": match.global_id,
         "name": match.name,
         "holes": match.holes,
@@ -1150,6 +1204,31 @@ def _course_match_payload(match: course_search.CourseMatch) -> dict:
         "longitude": match.longitude,
         "distanceKm": match.distance_km,
     }
+    # Keep the wire contract additive. Plain provider rows retain their exact
+    # historical shape; provenance keys appear only for reconciled rows.
+    optional = {
+        "providerName": match.provider_name,
+        "providerLatitude": match.provider_latitude,
+        "providerLongitude": match.provider_longitude,
+        "providerDistanceKm": match.provider_distance_km,
+        "displayNameSource": match.display_name_source,
+        "displayCoordinateSource": match.display_coordinate_source,
+        "reconciliationDistanceKm": match.reconciliation_distance_km,
+        "reconciliationConflict": True if match.reconciliation_conflict else None,
+    }
+    for key, value in optional.items():
+        if value is not None:
+            payload[key] = value
+    if (
+        match.provider_name is not None
+        or match.display_name_source is not None
+        or match.display_coordinate_source is not None
+        or match.reconciliation_distance_km is not None
+        or match.reconciliation_conflict
+        or not match.provider_match
+    ):
+        payload["providerMatch"] = bool(match.provider_match)
+    return payload
 
 
 @app.get("/api/v2/courses/nearby")
@@ -1157,6 +1236,7 @@ def course_nearby_endpoint(
     latitude: float = Query(ge=-90, le=90),
     longitude: float = Query(ge=-180, le=180),
     radius_km: int = Query(default=50, ge=1, le=200),
+    player_id: str = Depends(current_player_id),
 ) -> dict:
     """List provider-wide Garmin catalogue rows around a coordinate; metadata only."""
     try:
@@ -1181,6 +1261,13 @@ def course_nearby_endpoint(
         partial_reason = None
         pages_fetched = 0
         cache_status = "adapter"
+    matches = _reconcile_player_course_matches(
+        matches,
+        player_id=player_id,
+        nearby_origin=(latitude, longitude),
+        nearby_radius_km=radius_km,
+        append_history=True,
+    )
     return {
         "schema": "ai-caddie-course-nearby-v1",
         "radiusKm": radius_km,

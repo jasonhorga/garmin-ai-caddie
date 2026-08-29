@@ -35,6 +35,13 @@ _NEARBY_CACHE_MAX_ENTRIES = 128
 
 @dataclass
 class CourseMatch:
+    """A provider catalogue row plus optional player-scoped presentation facts.
+
+    The first nine fields are the historical provider match contract.  The trailing
+    fields are intentionally additive: reconciliation happens at an API response
+    boundary and never mutates the provider cache or the underlying CourseView row.
+    """
+
     global_id: int
     name: str
     holes: int | None
@@ -44,6 +51,15 @@ class CourseMatch:
     latitude: float | None = None
     longitude: float | None = None
     distance_km: float | None = None
+    provider_name: str | None = None
+    provider_latitude: float | None = None
+    provider_longitude: float | None = None
+    provider_distance_km: float | None = None
+    display_name_source: str | None = None
+    display_coordinate_source: str | None = None
+    reconciliation_distance_km: float | None = None
+    reconciliation_conflict: bool = False
+    provider_match: bool = True
 
 
 @dataclass(frozen=True)
