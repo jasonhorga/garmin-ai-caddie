@@ -475,6 +475,10 @@ class CIFixtureContractTests(unittest.TestCase):
         context = seed["context"]
         for key, value in (("roundId", "home-31795"), ("globalId", 31795), ("backGlobalId", 3881), ("nine", "all"), ("teeBox", "blue"), ("localHole", 1), ("displayHole", 10)):
             self.assertEqual(context[key], value)
+        self.assertGreaterEqual(len(context["clubProfiles"]), 3)
+        tee_response = caddie_decision({"shotType": "tee", "context": context})
+        self.assertEqual([sequence["id"] for sequence in tee_response["sequences"]], ["safe", "stock", "attack"])
+        self.assertEqual(tee_response["selectedSequence"]["id"], "stock")
         response = caddie_decision({"shotType": "approach", "context": context})
         self.assertEqual(response["selected"]["courseGlobalId"], 3881)
         self.assertEqual(response["selected"]["localHole"], 1)

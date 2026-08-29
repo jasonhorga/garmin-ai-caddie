@@ -113,6 +113,30 @@ def _annotate_decision_metadata(
     return decision
 
 
+def _seed_club_profiles(seed: dict[str, object]) -> dict[str, dict[str, object]]:
+    profiles: dict[str, dict[str, object]] = {}
+    for option in seed.get("offlineOptions") or []:
+        if not isinstance(option, dict):
+            continue
+        club_name = str(option.get("clubName") or option.get("label") or option.get("id") or "").strip()
+        if not club_name:
+            continue
+        source_refs = []
+        for key in ("sampleRefs", "sourceRefs"):
+            value = option.get(key)
+            if isinstance(value, list):
+                source_refs.extend(str(ref) for ref in value if str(ref).strip())
+        profiles[club_name] = {
+            "clubName": club_name,
+            "median": option.get("carryM"),
+            "p10": option.get("p10M"),
+            "p90": option.get("p90M"),
+            "sampleSize": option.get("sampleSize"),
+            "sourceRefs": source_refs,
+        }
+    return profiles
+
+
 COURSE_COORDINATES = {
     PALACE_ID: (40.0455, 116.5462),
     GLOBAL_ID: (39.9000, 116.4000),
@@ -353,6 +377,7 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
         display_hole, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
         seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": display_hole, "displayHole": display_hole, "globalId": requested_course, "localHole": local_hole, "backGlobalId": requested_back, "nine": nine, "teeBox": tee_box})
         seed["context"].setdefault("geometry", {}).update({"coverage": "ready", "sourceGlobalId": source_course, "sourceLocalHole": local_hole})
+        seed["context"].setdefault("clubProfiles", _seed_club_profiles(seed))
         seeds.append(seed)
     payload["caddieContextSeeds"] = seeds
     payload["recentHistory"]["holes"] = [{"number": hole, "sampleCount": 3, "averageToPar": 0.2, "repeatedIssues": []} for hole in segment_holes]
