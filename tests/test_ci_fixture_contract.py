@@ -59,7 +59,7 @@ class CIFixtureContractTests(unittest.TestCase):
             self.skipTest(f"fixture router dependencies unavailable: {exc}")
         for rows in (course_search("北京")['matches'], nearby(40.0455, 116.5462)['matches'], options()['courses']):
             palace = next(row for row in rows if row['globalId'] == 31793)
-            self.assertEqual(palace['name'], 'Beijing Palace')
+            self.assertEqual(palace['name'], '北京丽宫体育公园高尔夫俱乐部')
         self.assertEqual(tees(31793)['globalId'], 31793)
         self.assertEqual(course_package(31793, round_id='home-31793')['course']['globalId'], 31793)
         self.assertEqual(prep(31793, holes=[1])['globalId'], 31793)
@@ -74,7 +74,7 @@ class CIFixtureContractTests(unittest.TestCase):
         search_rows = course_search(palace["name"], latitude=39.9, longitude=116.4)["matches"]
         self.assertIn(31793, {row["globalId"] for row in search_rows})
         self.assertIn(31793, {row["globalId"] for row in options()["courses"]})
-        self.assertEqual(palace["name"], "Beijing Palace")
+        self.assertEqual(palace["name"], "北京丽宫体育公园高尔夫俱乐部")
         self.assertIn(palace["holes"], (9, 18))
 
     def test_nearby_uses_real_fixture_coordinates_and_radius(self) -> None:
