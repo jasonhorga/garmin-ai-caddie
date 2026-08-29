@@ -81,6 +81,28 @@ def _tee_candidate_routes() -> list[dict[str, object]]:
     ]
 
 
+def _annotate_decision_metadata(
+    decision: dict[str, object],
+    *,
+    source_ref: str,
+    round_id: str,
+    course_identity: int,
+    global_id: int,
+    expected_local: int,
+    display_hole: int,
+) -> dict[str, object]:
+    for key in ("selected", "selectedOption", "selectedSequence"):
+        value = decision.get(key)
+        if isinstance(value, dict):
+            value.setdefault("sourceRef", source_ref)
+            value.setdefault("courseGlobalId", course_identity)
+            value.setdefault("globalId", global_id)
+            value.setdefault("localHole", expected_local)
+            value.setdefault("displayHole", display_hole)
+            value.setdefault("roundId", round_id)
+    return decision
+
+
 COURSE_COORDINATES = {
     PALACE_ID: (40.0455, 116.5462),
     GLOBAL_ID: (39.9000, 116.4000),
@@ -613,7 +635,18 @@ def caddie_decision(body: dict) -> dict:
         if not context.get("candidateRoutes"):
             context["candidateRoutes"] = _tee_candidate_routes()
     payload = {"shotType": shot_type, "context": context, "includeExplanation": False}
-    return _with_markers(build_decision_from_request(payload))
+    decision = build_decision_from_request(payload)
+    return _with_markers(
+        _annotate_decision_metadata(
+            decision,
+            source_ref=source_ref,
+            round_id=round_id,
+            course_identity=course_identity,
+            global_id=int(context["globalId"]),
+            expected_local=expected_local,
+            display_hole=display_hole,
+        )
+    )
 
 
 @ROUTE.get("/api/v2/caddie/context")
