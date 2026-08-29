@@ -23,6 +23,12 @@ ROUND_REF = "900001"
 GLOBAL_ID = 31795
 PALACE_ID = 31793
 PALACE_NAME = "北京丽宫体育公园高尔夫俱乐部"
+# Keep the Palace's physical-hole pars in one place so every fixture route
+# describes the same course, including composite-round local-hole mappings.
+PALACE_HOLE_PARS = (
+    4, 4, 3, 5, 4, 4, 3, 4, 5,
+    4, 3, 5, 4, 4, 4, 3, 4, 5,
+)
 LOCAL_HOLE = 1
 COURSE_ALIASES = {PALACE_ID: PALACE_ID, 31795: GLOBAL_ID, 31797: 31797, 3881: 3881, 31670: 31670, 31871: 31871}
 ROUND_ALIASES = {"900001": ROUND_REF, "live-31795": ROUND_REF, "live-round-1": ROUND_REF, "fixture-round-1": ROUND_REF}
@@ -45,6 +51,13 @@ def _course_request(value: int) -> int:
 
 def _course_name(value: int) -> str:
     return PALACE_NAME if int(value) == PALACE_ID else ("Black Knight B/C" if int(value) == GLOBAL_ID else ("Fixture Open Course" if int(value) == 31797 else "Cypress Point Club"))
+
+
+def _hole_par(global_id: int, local_hole: int) -> int:
+    """Return the factual Par for a physical fixture hole."""
+    if int(global_id) == PALACE_ID and 1 <= local_hole <= len(PALACE_HOLE_PARS):
+        return PALACE_HOLE_PARS[local_hole - 1]
+    return 4
 
 
 def _tee_candidate_routes() -> list[dict[str, object]]:
@@ -424,6 +437,7 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
         # 10..18, while the geometry service addresses the back course locally.
         display_hole, local_hole, source_course = _resolve_hole(nine, number, requested_course, requested_back)
         hole["number"] = display_hole
+        hole["par"] = _hole_par(source_course, local_hole)
         hole["sourceGlobalId"] = source_course
         hole["sourceLocalHole"] = local_hole
         tee_latitude, tee_longitude = COURSE_COORDINATES[source_course]
@@ -447,7 +461,7 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
         seed["hole"] = hole
         seed["sourceRef"] = seed_ref
         display_hole, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
-        seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": display_hole, "displayHole": display_hole, "globalId": requested_course, "localHole": local_hole, "backGlobalId": requested_back, "nine": nine, "teeBox": tee_box})
+        seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": display_hole, "displayHole": display_hole, "globalId": requested_course, "localHole": local_hole, "backGlobalId": requested_back, "nine": nine, "teeBox": tee_box, "par": _hole_par(source_course, local_hole)})
         seed["context"].setdefault("geometry", {}).update({"coverage": "ready", "sourceGlobalId": source_course, "sourceLocalHole": local_hole})
         club_profiles = _seed_club_profiles(seed)
         existing_profiles = seed["context"].get("clubProfiles")
@@ -493,11 +507,13 @@ def history_detail(round_ref: str, global_id: int | None = None, back_global_id:
         display_hole, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
         for shot in shots:
             shot["ref"] = f"{round_ref}:{hole}:{shot['order'] - 1}"
-        scorecard.append({"hole": display_hole, "score": 4, "globalId": source_course, "localHole": local_hole,
+        par = _hole_par(source_course, local_hole)
+        scorecard.append({"hole": display_hole, "par": par, "score": 4, "globalId": source_course, "localHole": local_hole,
                           "backGlobalId": requested_back, "sourceRef": f"{round_ref}:{display_hole}",
                           "shotRefs": [shot["ref"] for shot in shots]})
-        details.append({"hole": hole, "shotCount": len(shots), "shots": shots})
-    return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": str(round_ref), "requestedRef": str(round_ref), "found": True, "round": {"id": str(round_ref), "globalId": requested_course, "courseName": _course_name(requested_course), "date": "2026-05-18", "score": 78}, "scorecard": scorecard, "holeDetails": details})
+        details.append({"hole": hole, "par": par, "shotCount": len(shots), "shots": shots})
+    round_par = sum(_hole_par(course, local) for _, local, course in (_resolve_hole(nine, hole, requested_course, requested_back) for hole in _segment_holes(nine)))
+    return _with_markers({"schema": "ai-caddie-history-round-detail-v1", "roundRef": str(round_ref), "requestedRef": str(round_ref), "found": True, "round": {"id": str(round_ref), "globalId": requested_course, "courseName": _course_name(requested_course), "date": "2026-05-18", "score": 78, "par": round_par}, "scorecard": scorecard, "holeDetails": details})
 
 
 @ROUTE.get("/api/v2/history/rounds/{round_ref}/holes/{hole}/shotmap")
@@ -506,7 +522,7 @@ def shotmap(round_ref: str, hole: int, includeImage: bool = True, global_id: int
     _, requested_course, requested_back = _bound_round_context(round_ref, global_id, back_global_id, nine, tee_box)
     display_hole, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
     map_body = {"image": _png_data_uri(seed=hole) if includeImage else None, "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + hole, "route": [[4, 4, 0], [60, 60, 220 + hole]]}}
-    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": display_hole, "par": 4, "globalId": source_course, "localHole": local_hole, "sourceRef": f"{round_ref}:{display_hole}", "geometryRevision": FIXTURE_REVISION, "mapKind": "prodgeometry", "map": map_body, "shots": [{"id": f"s{display_hole}-1", "club": "1D", "synthetic": False, "end": [8 + display_hole, 8], "sourceRef": f"{round_ref}:{display_hole}:0"}, {"id": f"s{display_hole}-2", "club": "8I", "synthetic": False, "end": [56, 56 - display_hole], "sourceRef": f"{round_ref}:{display_hole}:1"}], "manualPenalty": 0, "missingData": []})
+    return _with_markers({"schema": "ai-caddie-round-hole-shotmap-v1", "found": True, "roundRef": str(round_ref), "hole": display_hole, "par": _hole_par(source_course, local_hole), "globalId": source_course, "localHole": local_hole, "sourceRef": f"{round_ref}:{display_hole}", "geometryRevision": FIXTURE_REVISION, "mapKind": "prodgeometry", "map": map_body, "shots": [{"id": f"s{display_hole}-1", "club": "1D", "synthetic": False, "end": [8 + display_hole, 8], "sourceRef": f"{round_ref}:{display_hole}:0"}, {"id": f"s{display_hole}-2", "club": "8I", "synthetic": False, "end": [56, 56 - display_hole], "sourceRef": f"{round_ref}:{display_hole}:1"}], "manualPenalty": 0, "missingData": []})
 
 
 @ROUTE.get("/api/v2/courses/search")
@@ -585,7 +601,7 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
         source_course = requested_back if requested_back is not None and number >= 10 else requested_course
         green_distances = _fixture_green_distances(source_course)
         hole_projection = _fixture_hole_projection(source_course)
-        hole = {"hole": number, "par": 4, "par_source": "garmin", "blue_yards": 410, "route_len_m": 375.0,
+        hole = {"hole": number, "par": _hole_par(source_course, local_hole), "par_source": "garmin", "blue_yards": 410, "route_len_m": 375.0,
             "route": [[0.0, 0.0, 0.0], [64.0, 64.0, _ROUTE_LENGTH_M]], "geometryCoverage": "ready", "geometryRevision": FIXTURE_REVISION,
             "sourceRefs": ["900001:1"], "missingData": [], "candidateRoutes": [], "carryTargets": [],
             "steps": [], "cautions": [], "landing_m": 210.0, "tee_club": "1D",

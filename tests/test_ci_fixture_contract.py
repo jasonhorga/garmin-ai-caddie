@@ -456,6 +456,36 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(back_decision["selected"]["dispersion"]["courseGlobalId"], 3881)
         self.assertEqual(back_decision["selected"]["dispersion"]["localHole"], 1)
 
+    def test_palace_pars_are_consistent_across_fixture_routes(self) -> None:
+        try:
+            from server_v2.ci_fixture import course_package, history_detail, prep, shotmap
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+
+        expected = [4, 4, 3, 5, 4, 4, 3, 4, 5, 4, 3, 5, 4, 4, 4, 3, 4, 5]
+        package = course_package(31793, round_id="home-31793", tee_box="blue")
+        package_pars = [hole["par"] for hole in package["holes"]]
+        prep_pars = [hole["par"] for hole in prep(31793, holes=list(range(1, 19)))["holes"]]
+        detail = history_detail("home-31793", global_id=31793)
+        history_pars = [hole["par"] for hole in detail["scorecard"]]
+        shotmap_pars = [shotmap("home-31793", hole, global_id=31793)["par"] for hole in range(1, 19)]
+
+        self.assertEqual(package_pars, expected)
+        self.assertEqual(prep_pars, expected)
+        self.assertEqual(history_pars, expected)
+        self.assertEqual(shotmap_pars, expected)
+        self.assertEqual(package_pars[1], 4)
+        self.assertIn(3, package_pars)
+        self.assertIn(5, package_pars)
+        self.assertEqual(sum(package_pars[:9]), 36)
+        self.assertEqual(sum(package_pars[9:]), 36)
+        self.assertEqual(sum(package_pars), 72)
+        self.assertEqual(detail["round"]["par"], 72)
+        self.assertEqual(
+            [seed["context"]["par"] for seed in package["caddieContextSeeds"]],
+            expected,
+        )
+
     def test_fixture_dynamic_round_forms_are_strictly_scoped(self) -> None:
         try:
             from fastapi import HTTPException
