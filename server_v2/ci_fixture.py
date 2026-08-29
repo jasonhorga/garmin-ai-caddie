@@ -147,6 +147,77 @@ COURSE_COORDINATES = {
     31871: (39.9000, 116.4000),
 }
 
+# The fixture route is a 375 m tee-to-green line. Keep its WGS84 projection and
+# green pins tied to the selected course anchor so the DEBUG simulator move,
+# phone rangefinder, and caddie distance all describe the same hole.
+_EARTH_RADIUS_M = 6_371_000.0
+_ROUTE_NORTH_M = 225.0
+_ROUTE_EAST_M = 300.0
+_ROUTE_LENGTH_M = math.hypot(_ROUTE_NORTH_M, _ROUTE_EAST_M)
+_GREEN_DISTANCES_M = (325.0, 333.0, 341.0)
+
+
+def _offset_coordinate(
+    origin: tuple[float, float],
+    *,
+    north_m: float = 0.0,
+    east_m: float = 0.0,
+) -> tuple[float, float]:
+    """Return a small local north/east offset from a WGS84 fixture anchor."""
+    latitude, longitude = origin
+    latitude_radians = math.radians(latitude)
+    return (
+        latitude + math.degrees(north_m / _EARTH_RADIUS_M),
+        longitude + math.degrees(east_m / (_EARTH_RADIUS_M * math.cos(latitude_radians))),
+    )
+
+
+def _fixture_hole_projection(source_course: int) -> dict[str, object]:
+    """Build the affine refs used by iOS/Watch for this course's fixture hole."""
+    tee = COURSE_COORDINATES[source_course]
+    # The route starts at pixel (0, 0), which is the third affine ref. The
+    # other refs are one route component behind the tee and keep the 64x64
+    # image axes non-degenerate.
+    frame_origin = _offset_coordinate(tee, north_m=-_ROUTE_NORTH_M)
+    east_ref = _offset_coordinate(frame_origin, east_m=_ROUTE_EAST_M)
+    return {
+        "available": True,
+        "widthPx": 64,
+        "heightPx": 64,
+        "refs": [
+            {"lat": frame_origin[0], "lon": frame_origin[1], "px": 0.0, "py": 64.0},
+            {"lat": east_ref[0], "lon": east_ref[1], "px": 64.0, "py": 64.0},
+            {"lat": tee[0], "lon": tee[1], "px": 0.0, "py": 0.0},
+        ],
+    }
+
+
+def _fixture_green_distances(source_course: int) -> dict[str, object]:
+    """Return F/M/B pins on the same local route frame as the projection."""
+    tee = COURSE_COORDINATES[source_course]
+    north_ratio = _ROUTE_NORTH_M / _ROUTE_LENGTH_M
+    east_ratio = _ROUTE_EAST_M / _ROUTE_LENGTH_M
+    front, middle, back = (
+        _offset_coordinate(
+            tee,
+            north_m=distance_m * north_ratio,
+            east_m=distance_m * east_ratio,
+        )
+        for distance_m in _GREEN_DISTANCES_M
+    )
+    return {
+        "available": True,
+        "frontM": _GREEN_DISTANCES_M[0],
+        "middleM": _GREEN_DISTANCES_M[1],
+        "backM": _GREEN_DISTANCES_M[2],
+        "frontLat": front[0],
+        "frontLon": front[1],
+        "middleLat": middle[0],
+        "middleLon": middle[1],
+        "backLat": back[0],
+        "backLon": back[1],
+    }
+
 
 def _round_id(value: str) -> str:
     value = str(value)
@@ -509,18 +580,19 @@ def prep(global_id: int, holes: list[int] | None = Query(default=None), render: 
     requested = segment_holes if holes is None or not isinstance(holes, list) else holes
     resolved_requested = [_resolve_hole(nine, hole, requested_course, requested_back) for hole in requested]
     def prep_hole(number: int) -> dict:
+        local_hole = number - 9 if requested_back is not None and number >= 10 else number
+        source_course = requested_back if requested_back is not None and number >= 10 else requested_course
+        green_distances = _fixture_green_distances(source_course)
+        hole_projection = _fixture_hole_projection(source_course)
         hole = {"hole": number, "par": 4, "par_source": "garmin", "blue_yards": 410, "route_len_m": 375.0,
-            "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 375.0]], "geometryCoverage": "ready", "geometryRevision": FIXTURE_REVISION,
+            "route": [[0.0, 0.0, 0.0], [64.0, 64.0, _ROUTE_LENGTH_M]], "geometryCoverage": "ready", "geometryRevision": FIXTURE_REVISION,
             "sourceRefs": ["900001:1"], "missingData": [], "candidateRoutes": [], "carryTargets": [],
             "steps": [], "cautions": [], "landing_m": 210.0, "tee_club": "1D",
             "hazards": _fixture_prep_hazards(),
-            "map": {"image": _png_data_uri(seed=number), "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + number, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, 374.0 + number]]}},
-            # Keep the declared tee→green metres aligned with the simulated tee projection.
-            "greenDistances": {"available": True, "frontM": 122.0, "middleM": 130.0, "backM": 138.0, "frontLat": 39.899737033671904, "frontLon": 116.40035431963724, "middleLat": 39.899667330924196, "middleLon": 116.40037755332776, "backLat": 39.899597628171854, "backLon": 116.40040078697098}, "playsLike": {"available": True, "deltaM": 0.0},
-            "holeImageProjection": {"available": True, "widthPx": 64, "heightPx": 64, "refs": [{"lat": 39.9000, "lon": 116.4000, "px": 0.0, "py": 64.0}, {"lat": 39.9000, "lon": 116.4008, "px": 64.0, "py": 64.0}, {"lat": 39.9008, "lon": 116.4000, "px": 0.0, "py": 0.0}]},
+            "map": {"image": _png_data_uri(seed=number), "overlay": {"w": 64, "h": 64, "ppm": 0.17, "ln": 374.0 + number, "route": [[0.0, 0.0, 0.0], [64.0, 64.0, _ROUTE_LENGTH_M]]}},
+            "greenDistances": green_distances, "playsLike": {"available": True, "deltaM": 0.0},
+            "holeImageProjection": hole_projection,
             "greenOutline": {"available": True, "source": "ci_fixture", "distanceUnit": "metres", "pointsPx": [[52.0, 52.0], [60.0, 52.0], [60.0, 60.0], [52.0, 60.0] ]}}
-        local_hole = number - 9 if requested_back is not None and number >= 10 else number
-        source_course = requested_back if requested_back is not None and number >= 10 else requested_course
         hole["sourceRefs"] = [f"{ROUND_REF}:{local_hole}"]
         hole["sourceGlobalId"] = source_course
         hole["sourceLocalHole"] = local_hole
@@ -657,6 +729,7 @@ def caddie_decision(body: dict) -> dict:
     supplied_source_ref = context.get("sourceRef")
     if not isinstance(supplied_source_ref, str) or supplied_source_ref != source_ref:
         raise HTTPException(status_code=400, detail="fixture sourceRef missing or inconsistent")
+    course_latitude, course_longitude = COURSE_COORDINATES[course_identity]
     context = {
         "source": "ios_live",
         "roundId": round_id,
@@ -664,8 +737,8 @@ def caddie_decision(body: dict) -> dict:
         "hole": hole,
         "guidanceMode": "automatic",
         "currentLocation": {
-            "latitude": 39.9,
-            "longitude": 116.4,
+            "latitude": course_latitude,
+            "longitude": course_longitude,
             "horizontalAccuracyM": 5.0,
             "capturedAt": "2026-08-27T00:00:00Z",
         },

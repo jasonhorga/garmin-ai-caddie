@@ -249,6 +249,65 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(player_clubs_bag("me")["schema"], "ai-caddie-effective-club-bag-v1")
         self.assertTrue(player_clubs_bag("me")["clubs"])
 
+    def test_fixture_prep_projection_and_green_enable_app_equivalent_tee_sequences(self) -> None:
+        try:
+            from server_v2.ci_fixture import COURSE_COORDINATES, caddie_decision, course_package, prep
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+
+        def project_from_topo_px(px: float, py: float, refs: list[dict[str, float]]) -> tuple[float, float]:
+            origin, ref_x, ref_y = refs[:3]
+            a = ref_x["px"] - origin["px"]
+            b = ref_y["px"] - origin["px"]
+            c = ref_x["py"] - origin["py"]
+            d = ref_y["py"] - origin["py"]
+            determinant = a * d - b * c
+            dx = px - origin["px"]
+            dy = py - origin["py"]
+            s = (dx * d - b * dy) / determinant
+            t = (a * dy - dx * c) / determinant
+            return (
+                origin["lat"] + s * (ref_x["lat"] - origin["lat"]) + t * (ref_y["lat"] - origin["lat"]),
+                origin["lon"] + s * (ref_x["lon"] - origin["lon"]) + t * (ref_y["lon"] - origin["lon"]),
+            )
+
+        def haversine_m(start: tuple[float, float], end: tuple[float, float]) -> float:
+            lat1, lon1 = (math.radians(value) for value in start)
+            lat2, lon2 = (math.radians(value) for value in end)
+            d_lat = lat2 - lat1
+            d_lon = lon2 - lon1
+            a = math.sin(d_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(d_lon / 2) ** 2
+            return 6_371_000.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+        for global_id in (31793, 31795, 3881, 31797):
+            hole = prep(global_id, holes=[1])["holes"][0]
+            expected_tee = COURSE_COORDINATES[global_id]
+            refs = hole["holeImageProjection"]["refs"]
+            projected_tee = project_from_topo_px(*hole["route"][0][:2], refs)
+            self.assertAlmostEqual(projected_tee[0], expected_tee[0], places=8)
+            self.assertAlmostEqual(projected_tee[1], expected_tee[1], places=8)
+            green = hole["greenDistances"]
+            middle = (green["middleLat"], green["middleLon"])
+            live_distance = haversine_m(expected_tee, middle)
+            self.assertGreaterEqual(live_distance, 260.0)
+            self.assertAlmostEqual(live_distance, green["middleM"], delta=1.0)
+
+        package = course_package(31793, round_id="home-31793", tee_box="blue")
+        seed = package["caddieContextSeeds"][0]
+        green = prep(31793, holes=[1])["holes"][0]["greenDistances"]
+        tee = COURSE_COORDINATES[31793]
+        context = dict(seed["context"])
+        context.update(
+            {
+                "currentLocation": {"latitude": tee[0], "longitude": tee[1]},
+                "targetLocation": {"latitude": green["middleLat"], "longitude": green["middleLon"]},
+                "distanceToPin_m": green["middleM"],
+            }
+        )
+        decision = caddie_decision({"shotType": "tee", "context": context})
+        self.assertEqual([sequence["id"] for sequence in decision["sequences"]], ["safe", "stock", "attack"])
+        self.assertTrue(all(len(sequence["clubs"]) >= 2 for sequence in decision["sequences"]))
+
     def test_fixture_review_and_asset_identity_is_fail_closed(self) -> None:
         try:
             from fastapi import HTTPException
