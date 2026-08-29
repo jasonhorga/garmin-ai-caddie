@@ -1202,6 +1202,9 @@ class CIWorkflowTests(unittest.TestCase):
         backend_arg = 'provenance_args << "--backend-revision #{Shellwords.escape(backend_revision)}" unless backend_revision.empty?'
         self.assertIn(api_arg, text)
         self.assertIn(backend_arg, text)
+        self.assertIn('get_version_number(xcodeproj: XCODE_PROJECT, target: "AICaddie")', text)
+        self.assertIn('get_build_number(xcodeproj: XCODE_PROJECT)', text)
+        self.assertNotIn('get_build_number(xcodeproj: XCODE_PROJECT, target:', text)
         self.assertLess(text.index('provenance_args = ['), text.index(api_arg))
         self.assertLess(text.index(api_arg), text.index('provenance_args << "--upload-requested"'))
         self.assertNotIn('"--api-origin #{Shellwords.escape(api_origin)}" unless api_origin.empty?,', text)

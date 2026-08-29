@@ -266,7 +266,7 @@ platform :ios do
       "--ipa #{Shellwords.escape(File.join('build/ios', OUTPUT_IPA))}",
       "--commit #{Shellwords.escape(release_commit)}",
       "--workflow-run #{Shellwords.escape(ENV.fetch('GITHUB_RUN_ID', 'local'))}",
-      "--marketing-version #{Shellwords.escape(get_version_number(xcodeproj: XCODE_PROJECT))}",
+      "--marketing-version #{Shellwords.escape(get_version_number(xcodeproj: XCODE_PROJECT, target: "AICaddie"))}",
       "--build-number #{Shellwords.escape(get_build_number(xcodeproj: XCODE_PROJECT))}"
     ].compact
     provenance_args << "--api-origin #{Shellwords.escape(api_origin)}" unless api_origin.empty?
