@@ -4,9 +4,9 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-08-28 UTC
+**Updated:** 2026-08-29 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**Source baseline:** `cc2ad861` (canonical cherry-pick of candidate `1aed8f50e46b49a9f56dcc98fdf242a0bbd51a30`)
+**Source baseline:** `9bff8293` (canonical release-hardening candidate with prep-hazard fixture repair; prior chain remains in Git history)
 **Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
 has runtime evidence and the owner approves the comparison.
 
@@ -35,6 +35,16 @@ candidate and production upstreams, Caddy, and the public Funnel all returning
 200; the earlier ingress timeout was transient. The candidate remains the
 public upstream, but its revision is not yet proven identical to the IPA and
 the first GitHub-runner readiness probe timed out once; a strict rerun passed.
+
+Release-hardening commit `1d0f352b` is integrated on the canonical checkout.
+Using the existing homeserver image
+`garmin-ai-caddie-api:6a6080c-candidate` (`sha256:b035a77c...`), the focused
+provenance/readiness/evidence suite passed 50/50; remote Python compilation and
+`git diff --check` passed. A broader 89-test invocation had 86 passes and three
+environment-only failures because the image has no `git`; a host-runtime run
+had one unrelated missing-`pathspec` environment failure. No TestFlight,
+signing, deployment, production, container, volume, or persistent-data write
+was performed.
 
 Canonical now includes the full release candidate chain through `cc2ad861`.
 Opus supplied a final GO verdict in the handoff; no repository report path or
@@ -117,6 +127,14 @@ starting the next slice.
 The current release-hardening candidate requires a fresh remote verification
 of the focused readiness/provenance/workflow suites. No production service,
 TestFlight upload, or signing resource is created by this source transition.
+Native Mobile CI rerun `33229825184` at `27f37e184988203a28ac720e15d87ca72737901a`
+reached the live iOS simulator flow and failed in `RealFlowUITests.testCaptureRealAppFlow()`
+at `RealFlowUITests.swift:614` because the tee decision only exposed
+`stock`-style output instead of the three complete route cards (`推荐打法`,
+`保守打法`, `进攻打法`). The fixture decision endpoint was then fixed in
+commit `cbed0a0e` to delegate tee/approach/recovery payload generation to the
+app’s own deterministic decision builder with explanations forced off. A new
+remote rerun is still required to verify that pushed fix.
 
 Native Mobile CI run `33130426502` at head `75b34810590e8b622b27e69e53f16bd16c416cfb`
 failed in the real iOS simulator screenshot step while compiling
@@ -671,6 +689,21 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   master checklist from memory.
 
 ## State Changes
+
+- 2026-08-28: Adopted the shared-runtime rule: remote verification uses the
+  immutable project API image's read-only `/app/.venv`; the only host fallback
+  is the lock-protected `/home/jason/garmin-ai-caddie-data/venvs/garmin-ai-caddie-ci`.
+  No dependency installation is allowed inside a worktree. After the release
+  candidate was integrated as `1d0f352b`, removed the clean local release
+  worktree and its unused remote `.venv`. A timestamped allow-list manifest
+  with SHA-256 `cb05bd62b828656f8392b643c2d7055e668488b4c5e4f6620496454ff1ed0b77`
+  records eight stale duplicated remote `.claude/worktrees` trees (about 7.2
+  GiB) removed after an open-file scan found no references. The unused remote
+  candidate venv was separately removed under manifest SHA-256
+  `8763a358a31e6a24f98e1cb4b657560b83865fca7afce6a0b9fdfc09775b7de3`.
+  Remote free space rose to about 29 GiB. The remaining local worktrees contain uncommitted
+  user/history artifacts and are retained; other projects' remote directories
+  and services were not touched.
 
 - 2026-08-24: Replaced the chat-sized plan with stable task IDs and set `R1`
   as the only queued next slice. Echo-style shell output is intentionally not
@@ -1669,3 +1702,72 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   Homeserver SSH banner exchange timed out during post-run diagnostics, so no
   remote resource cleanup was attempted; ambiguous `/tmp` and `/dev/shm`
   resources remain untouched pending owner-authorized access recovery.
+- 2026-08-28: The single delegated REL follow-up reverified the focused
+  release-readiness/provenance/evidence suites on the homeserver image
+  `garmin-ai-caddie-api:6a6080c-candidate` using its read-only `/app/.venv`:
+  `tests.test_phase6_external_readiness`, `tests.test_release_provenance`,
+  and `tests.test_release_evidence_pipeline` passed 48/48. The workflow
+  contract module remained 36/39, with the three failures limited to the
+  image lacking `git` (the documented shared host fallback venv is absent),
+  not product failures. The temporary source snapshot and container were
+  removed; no source change, release, signing, deploy, TestFlight upload, or
+  production mutation occurred. The shared-runtime rule remains mandatory:
+  no per-worktree `.venv` or dependency installation.
+- 2026-08-28: Installed the cross-project homeserver baseline at
+  `/home/jason/HOMESERVER-POLICY.md` (SHA-256
+  `08dd2719c67edb462168c1c3f292d7dee5828769c7734a8b273bc01618018c6e`) and
+  added missing root discovery pointers `/home/jason/AGENTS.md`,
+  `/home/jason/CLAUDE.md`, and `/home/jason/GEMINI.md` (each SHA-256
+  `48bf1cb2b65ebf5ae9277f4ecda853b39a80efd0c26216df629231852bac3cb8`).
+  Existing files were absent, so nothing was overwritten; the bootstrap
+  staging directory was removed. The policy is advisory until launcher/SSH
+  enforcement is installed, but it now gives every project a canonical shared
+  runtime, path, and cleanup contract.
+- 2026-08-28: The single delegated current-head REL audit re-ran the focused
+  release-readiness/provenance/evidence suite on
+  `garmin-ai-caddie-api:6a6080c-candidate` (`/app/.venv`): 48/48 passed;
+  targeted `compileall` and `git diff --check` also passed. The source-only
+  scratch and container were removed. `origin/codex/p0-p1-p2-checkpoint-20260823`
+  is still at `3baf632b`, while canonical HEAD is `1d0f352b`; consequently
+  current-head GitHub source/Native/Phase 6 evidence is blocked on explicit
+  authorization to push or dispatch. No code, production, signing, or
+  TestFlight action was taken.
+- 2026-08-28: Diagnosed and implemented the bounded fixture-only prep hazard
+  repair in commit `9bff8293` (original delegated commit
+  `d2313ba2`). `server_v2/ci_fixture.py` now supplies deterministic water and
+  bunker spans with ordered route distances and valid front/back pixel
+  boundaries; `tests.test_ci_fixture_contract` passed 31/31 in the fixed
+  homeserver image. Remote `compileall` passed and the implementation worktree,
+  scratch, and named container were removed under cleanup manifest
+  `4faab6f4d74b2e66ebaa87d30758121614af789add681783f124dbf4c15f1ce6`.
+  Native rerun is intentionally waiting for Opus read-only review; no
+  production data, deploy, signing, or TestFlight action occurred.
+- 2026-08-28: Opus completed a read-only review of `9bff8293` and returned GO:
+  the water/bunker details satisfy the Swift Codable contract, route and pixel
+  coordinates are coherent, and the fixture router remains isolated behind
+  `AI_CADDIE_FIXTURE_MODE=1`. Both temporary Opus snapshots were removed.
+  Current-head Native/macOS evidence is still blocked because canonical HEAD
+  `1d0f352b` plus `9bff8293` is not present on the protected remote branch;
+  pushing or dispatching that external workflow requires explicit owner
+  authorization. No source, production, signing, or TestFlight action was
+  taken in this review.
+- 2026-08-29: Read-only GitHub metadata check confirms the required signing
+  secret names are present and `AI_CADDIE_API_BASE_URL` is configured as
+  `https://caddie.taile36706.ts.net`; no backend-revision repository variable
+  is configured, so the upload/native workflows must receive the known public
+  backend revision explicitly (`6a6080c6...`) or have that variable added.
+  Remote branch `codex/p0-p1-p2-checkpoint-20260823` remains at `3baf632b`,
+  while local candidate HEAD is `9bff8293`. No push or workflow dispatch was
+  performed. The June `logs/phase6_external_readiness_latest.json` remains
+  historical evidence and cannot satisfy the current candidate's gate.
+- 2026-08-29: Read-only source/deployment comparison shows the public API
+  reports backend revision `6a6080c6...`, while the candidate contains later
+  backend-domain changes across 15 `server_v2`/`ai_caddie` files (the latest
+  `9bff8293` itself only adds fixture hazard data). This is not yet a proven
+  incompatibility, but current-head Native live evidence must either prove the
+  candidate against that deployed revision or follow an explicitly authorized
+  compatible backend deployment. GitHub has the signing-secret names and
+  `AI_CADDIE_API_BASE_URL`, but no `AI_CADDIE_BACKEND_REVISION` repository
+  variable; the known revision must therefore be supplied as an explicit
+  workflow input or configured before the release gate. The old local Phase 6
+  JSON (created 2026-06-07) is not valid evidence for this candidate.
