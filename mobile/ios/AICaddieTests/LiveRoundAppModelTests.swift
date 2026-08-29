@@ -1301,6 +1301,83 @@ final class LiveRoundAppModelTests: XCTestCase {
         )
     }
 
+    func testPrepareCourseRoundRevalidatesTemplateWithoutCaddieSeeds() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try localFixturePackage()
+        let prepared = try offlineReadyPackage(source)
+        let seedless = package(
+            prepared,
+            roundId: prepared.roundId,
+            recentRounds: prepared.recentHistory.rounds,
+            caddieContextSeeds: []
+        )
+        try store.saveCourseTemplate(seedless)
+        _ = try store.saveCourseTopoImage(
+            minimalPNGData(),
+            globalId: seedless.course.globalId,
+            localHole: seedless.holes[0].sourceLocalHole ?? seedless.holes[0].number
+        )
+
+        let roundId = "seed-repaired-round"
+        let remote = package(
+            source,
+            roundId: roundId,
+            recentRounds: source.recentHistory.rounds
+        )
+        let remoteData = try JSONEncoder().encode(remote)
+        let requestLock = NSLock()
+        var requestedPaths: [String] = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let path = try XCTUnwrap(request.url?.path)
+            requestLock.withLock { requestedPaths.append(path) }
+            guard path == "/api/v2/mobile/courses/\(source.course.globalId)/package" else {
+                throw URLError(.unsupportedURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: try XCTUnwrap(request.url),
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                remoteData
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://seed-repair.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client
+        )
+
+        await model.prepareCourseRound(
+            globalId: source.course.globalId,
+            roundId: roundId,
+            teeBox: source.course.teeBox,
+            nine: source.nine ?? "all"
+        )
+
+        XCTAssertEqual(
+            requestLock.withLock { requestedPaths },
+            ["/api/v2/mobile/courses/\(source.course.globalId)/package"],
+            "a map-complete template without caddie seeds must not bypass package revalidation"
+        )
+        XCTAssertEqual(model.package?.roundId, roundId)
+        XCTAssertEqual(model.package?.caddieContextSeeds.count, source.caddieContextSeeds.count)
+    }
+
     func testMatchingCourseRevisionReusesPrepAndTopoAfterBackgroundRevalidation() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -3991,7 +4068,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         _ source: LiveRoundPackage,
         roundId: String,
         recentRounds: [RecentRoundSummary],
-        holes: [Hole]? = nil
+        holes: [Hole]? = nil,
+        caddieContextSeeds: [CaddieContextSeed]? = nil
     ) -> LiveRoundPackage {
         let selectedHoles = holes ?? source.holes
         return LiveRoundPackage(
@@ -4013,7 +4091,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 totalHoles: selectedHoles.count
             ),
             readinessChecks: source.readinessChecks,
-            caddieContextSeeds: source.caddieContextSeeds,
+            caddieContextSeeds: caddieContextSeeds ?? source.caddieContextSeeds,
             weatherSnapshot: source.weatherSnapshot,
             clubProfiles: source.clubProfiles,
             caddieDecisionEndpoint: source.caddieDecisionEndpoint,

@@ -959,7 +959,8 @@ public final class LiveRoundAppModel: ObservableObject {
                    nine: nine
                ),
                template.hasCompleteOfflineCoursePrep,
-               offlineStore.hasCourseTopoImages(for: template) {
+               offlineStore.hasCourseTopoImages(for: template),
+               template.hasCaddieContextForEveryHole {
                 let offlinePackage = applyingSelectedCourseDisplayName(to: template.rebasedForOfflineStart(
                     roundId: requestedRoundId,
                     generatedAt: preparedAt

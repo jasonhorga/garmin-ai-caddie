@@ -106,6 +106,18 @@ public struct LiveRoundPackage: Codable, Equatable {
         return Set(holes.map(\.number)).isSubset(of: preciseDrawable)
     }
 
+    /// A local template is safe for immediate live play only when the caddie contract is also
+    /// complete. Older templates may have every topo bitmap but no per-hole seed; entering those
+    /// templates would bypass the online decision request and leave the first hole on fallback data.
+    public var hasCaddieContextForEveryHole: Bool {
+        guard !holes.isEmpty,
+              !caddieDecisionEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        let seededHoles = Set(caddieContextSeeds.map(\.hole))
+        return holes.allSatisfy { seededHoles.contains($0.number) }
+    }
+
     public func replacingCoursePrep(_ nextCoursePrep: CoursePrepPackage?) -> LiveRoundPackage {
         LiveRoundPackage(
             schema: schema,
