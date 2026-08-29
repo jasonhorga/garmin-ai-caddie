@@ -1582,7 +1582,7 @@ class MobileContractTests(unittest.TestCase):
         course_options_model = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")
         self.assertIn("public let latitude: Double?", course_options_model)
         self.assertIn("public let tees: [String]?", course_options_model)
-        self.assertIn("applySelectedCourse(globalIdText:", start_view)
+        self.assertIn("private func applySelectedCourse(_ option: MobileCourseOption)", start_view)
         self.assertIn('Text("发球台")', start_view)
         # 选发球台:候选来自 GET /courses/{id}/tees(颜色 + 总码数 + 默认台),端到端镜像 nine —
         # StartRoundView 收 onLoadCourseTees 闭包 → LiveRoundAppModel.loadCourseTees → SyncClient.fetchCourseTees。
