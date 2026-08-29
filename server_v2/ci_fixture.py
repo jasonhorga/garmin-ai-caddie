@@ -91,15 +91,25 @@ def _annotate_decision_metadata(
     expected_local: int,
     display_hole: int,
 ) -> dict[str, object]:
+    def annotate(node: dict[str, object]) -> None:
+        node.setdefault("sourceRef", source_ref)
+        node.setdefault("courseGlobalId", course_identity)
+        node.setdefault("globalId", global_id)
+        node.setdefault("localHole", expected_local)
+        node.setdefault("displayHole", display_hole)
+        node.setdefault("roundId", round_id)
+        dispersion = node.get("dispersion")
+        if isinstance(dispersion, dict):
+            dispersion.setdefault("sourceRef", source_ref)
+            dispersion.setdefault("courseGlobalId", course_identity)
+            dispersion.setdefault("globalId", global_id)
+            dispersion.setdefault("localHole", expected_local)
+            dispersion.setdefault("displayHole", display_hole)
+            dispersion.setdefault("roundId", round_id)
     for key in ("selected", "selectedOption", "selectedSequence"):
         value = decision.get(key)
         if isinstance(value, dict):
-            value.setdefault("sourceRef", source_ref)
-            value.setdefault("courseGlobalId", course_identity)
-            value.setdefault("globalId", global_id)
-            value.setdefault("localHole", expected_local)
-            value.setdefault("displayHole", display_hole)
-            value.setdefault("roundId", round_id)
+            annotate(value)
     return decision
 
 
