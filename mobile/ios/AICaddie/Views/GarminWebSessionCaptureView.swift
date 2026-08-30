@@ -84,6 +84,10 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
         private var golfProbeUsed = false
         private var captureGeneration = 0
 
+        static func shouldRetryCapture(attempt: Int) -> Bool {
+            attempt >= 0 && attempt + 1 < maxCaptureAttempts
+        }
+
         init(
             onCaptured: @escaping (CapturedGarminWebSession) -> Void,
             onStatus: @escaping (String) -> Void,
@@ -235,7 +239,7 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
             attempt: Int,
             generation: Int
         ) -> Bool {
-            guard attempt + 1 < Self.maxCaptureAttempts else { return false }
+            guard Self.shouldRetryCapture(attempt: attempt) else { return false }
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.captureRetryDelay) { [weak self, weak webView] in
                 guard let self, let webView, generation == self.captureGeneration else { return }
                 self.captureSessionMaterial(

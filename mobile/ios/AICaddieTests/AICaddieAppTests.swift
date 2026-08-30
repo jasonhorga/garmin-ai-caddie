@@ -74,4 +74,11 @@ final class AICaddieAppTests: XCTestCase {
             "连接失败，请重试"
         )
     }
+
+    func testGarminCaptureRetryIsBounded() {
+        XCTAssertTrue(GarminWebSessionCaptureView.Coordinator.shouldRetryCapture(attempt: 0))
+        XCTAssertTrue(GarminWebSessionCaptureView.Coordinator.shouldRetryCapture(attempt: 2))
+        XCTAssertFalse(GarminWebSessionCaptureView.Coordinator.shouldRetryCapture(attempt: 3))
+        XCTAssertFalse(GarminWebSessionCaptureView.Coordinator.shouldRetryCapture(attempt: -1))
+    }
 }
