@@ -868,6 +868,22 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## State Changes
 
+- 2026-08-30: Completed a scoped capacity cleanup with immutable manifests.
+  Removed 54 old Garmin artifact-only `codex-runs` entries (2.89 GiB total,
+  including one root-owned entry removed through a separately recorded exact
+  path) and 214 old Garmin/Phase 6/TestFlight `/tmp` entries (0.879 GiB).
+  The historical S70/review material was archived at
+  `/home/jason/garmin-ai-caddie-data/archives/garmin-legacy-review-20260830T0958Z.tar.zst`
+  (SHA-256 `e47200277282ebf9d4fac088a41a68e9b60f2f498daa1eaaa44f5e4ae1b389c5`).
+  All 35 Git-backed Garmin snapshots, including dirty snapshots, were kept;
+  other-project directories/processes, `/home/ubuntu/.codex/sessions` and
+  Codex databases, persistent volumes, images, and shared BuildKit cache were
+  not changed. Manifests are under
+  `/home/jason/garmin-ai-caddie-data/cleanup-manifests/20260830T0958Z-*` and
+  the local `/home/ubuntu/claude-web-data/repo/garmin-ai-caddie/.codex-tmp/local-cleanup-20260830`.
+  The hard protection rules were also added to `/home/ubuntu/HOMESERVER.md`
+  and copied to `/home/jason/HOMESERVER.md`.
+
 - 2026-08-28: Adopted the shared-runtime rule: remote verification uses the
   immutable project API image's read-only `/app/.venv`; the only host fallback
   is the lock-protected `/home/jason/garmin-ai-caddie-data/venvs/garmin-ai-caddie-ci`.
