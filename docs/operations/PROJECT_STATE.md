@@ -39,10 +39,21 @@ device gate or authorize production promotion.
   `33309492585` observed `state=VALID`, `expired=false`, and
   `externalState=IN_BETA_TESTING`. Exact build-45 artifact diagnostic run
   `33309532213` also passed.
-- **Remaining gate:** Independent installation and first-launch/start
-  verification on a physical iPhone/Watch for build `0.1.0 (45)`. No further
-  build, upload, deployment, or production-data action is pending until that
-  result is known.
+- **Common install failure update (2026-08-30):** The owner also reproduced
+  Apple's generic install failure for build `0.1.0 (43)`. Read-only status run
+  `33313130251` reports builds 43, 44, and 45 as `VALID` and unexpired; the
+  internal group `Jason's friends` contains all three. This makes a
+  build-specific source or signing regression unlikely. The remaining unknowns
+  are the device's iOS/watchOS/storage state, the Apple ID's internal/external
+  tester qualification, TestFlight client/cache/network state, and Apple's
+  CDN/install service. No new IPA is justified until a differential device or
+  installer result is captured.
+- **Remaining gate:** Physical installation and first-launch/start evidence on
+  one qualified iPhone (build 45 preferred, with 43 as a useful control), then
+  the paired Watch. Required evidence is the exact Apple ID/tester path, iOS and
+  watchOS versions, free storage, and whether a second compatible device can
+  install the same build. Until that differential is known, no further build,
+  upload, deployment, or production-data action is pending.
 
 ## Objective
 
@@ -58,7 +69,8 @@ code; do not restart the old multi-week plan tree.
 The current release candidate has a verified backend deployment, passing live
 iOS/Watch Native evidence, and a freshly repackaged TestFlight build as
 summarized above. The sole remaining release evidence is physical-device
-installation and first-launch/start verification for build `0.1.0 (45)`.
+installation and first-launch/start verification after the common install
+failure is separated into device/account versus Apple distribution causes.
 
 ### Historical context (retained; earlier snapshots)
 
