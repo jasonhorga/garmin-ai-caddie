@@ -74,12 +74,15 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
     }
 
     public final class Coordinator: NSObject, WKNavigationDelegate {
+        private static let maxCaptureAttempts = 4
+        private static let captureRetryDelay: TimeInterval = 0.25
         private let onCaptured: (CapturedGarminWebSession) -> Void
         private let onStatus: (String) -> Void
         private let formatter = ISO8601DateFormatter()
         private var lastFingerprint: String?
         private var lastRetryToken: Int
         private var golfProbeUsed = false
+        private var captureGeneration = 0
 
         init(
             onCaptured: @escaping (CapturedGarminWebSession) -> Void,
@@ -107,7 +110,7 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
                 return
             }
             report("正在检查 Garmin 登录状态…")
-            captureSessionMaterial(from: webView)
+            beginCapture(from: webView)
         }
 
         func report(_ status: String) {
@@ -134,11 +137,13 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
         }
 
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            // Invalidate a delayed cookie poll belonging to the previous page/redirect.
+            captureGeneration &+= 1
             report("正在检查 Garmin 登录状态…")
         }
 
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            captureSessionMaterial(from: webView)
+            beginCapture(from: webView)
         }
 
         public func webView(
@@ -157,24 +162,48 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
             report("Garmin 页面加载失败，请检查网络后重试")
         }
 
-        private func captureSessionMaterial(from webView: WKWebView) {
+        private func beginCapture(from webView: WKWebView) {
+            captureGeneration &+= 1
+            captureSessionMaterial(from: webView, attempt: 0, generation: captureGeneration)
+        }
+
+        private func captureSessionMaterial(
+            from webView: WKWebView,
+            attempt: Int,
+            generation: Int
+        ) {
             guard GarminWebSessionCaptureView.isOfficialGarminHost(webView.url?.host) else {
                 report("不支持的 Garmin 登录页面")
                 return
             }
             webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self, weak webView] cookies in
-                guard let self, let webView else {
+                guard let self, let webView, generation == self.captureGeneration else {
                     return
                 }
                 let garminCookies = cookies.filter { GarminWebSessionCaptureView.isOfficialGarminHost($0.domain) }
                 let cookiePairs = Self.garminCookiePairs(from: garminCookies)
                 guard !cookiePairs.isEmpty else {
+                    if self.scheduleCaptureRetry(
+                        from: webView,
+                        attempt: attempt,
+                        generation: generation
+                    ) {
+                        return
+                    }
                     self.report("尚未找到 Garmin 登录信息，请先完成登录")
                     return
                 }
                 webView.evaluateJavaScript(Self.csrfProbeScript) { value, _ in
+                    guard generation == self.captureGeneration else { return }
                     let antiForgery = Self.antiForgeryValue(from: garminCookies, javaScriptValue: value)
                     guard !antiForgery.isEmpty else {
+                        if self.scheduleCaptureRetry(
+                            from: webView,
+                            attempt: attempt,
+                            generation: generation
+                        ) {
+                            return
+                        }
                         self.report("已找到 Garmin Cookie，但尚未找到安全校验信息")
                         self.probeOfficialGolfPageIfNeeded(from: webView)
                         return
@@ -198,6 +227,24 @@ public struct GarminWebSessionCaptureView: UIViewRepresentable {
                     )
                 }
             }
+        }
+
+        @discardableResult
+        private func scheduleCaptureRetry(
+            from webView: WKWebView,
+            attempt: Int,
+            generation: Int
+        ) -> Bool {
+            guard attempt + 1 < Self.maxCaptureAttempts else { return false }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.captureRetryDelay) { [weak self, weak webView] in
+                guard let self, let webView, generation == self.captureGeneration else { return }
+                self.captureSessionMaterial(
+                    from: webView,
+                    attempt: attempt + 1,
+                    generation: generation
+                )
+            }
+            return true
         }
 
         private func probeOfficialGolfPageIfNeeded(from webView: WKWebView) {

@@ -59,4 +59,19 @@ final class AICaddieAppTests: XCTestCase {
             "Garmin 登录已失效，请先连接 Garmin 再搜索。"
         )
     }
+
+    func testGarminImportErrorsKeepAuthorizationFailureActionable() {
+        XCTAssertEqual(
+            GarminSessionView.importErrorMessage(SyncClientError.http(status: 401, body: nil)),
+            "Garmin 连接授权失败，请重新登录"
+        )
+        XCTAssertEqual(
+            GarminSessionView.importErrorMessage(SyncClientError.http(status: 422, body: nil)),
+            "Garmin 登录信息无效，请重新登录"
+        )
+        XCTAssertEqual(
+            GarminSessionView.importErrorMessage(URLError(.timedOut)),
+            "连接失败，请重试"
+        )
+    }
 }

@@ -109,6 +109,7 @@ public struct GarminSessionView: View {
     private func importCapturedSession(_ captured: CapturedGarminWebSession) async {
         guard let apiBaseURL else {
             statusText = "暂无法连接,请稍后重试"
+            webLoginStatus = "暂无法连接后端，请稍后重试"
             return
         }
 
@@ -134,20 +135,41 @@ public struct GarminSessionView: View {
                 )
             )
             connected = hasStoredSession()
-            showingWebLogin = false
             if let onSessionImported {
                 // The parent settings screen is the sole owner of Garmin sync state. Keep this
                 // account page connection-focused while the parent performs its refresh; otherwise
                 // two independent labels briefly report the same operation and can disagree.
                 statusText = "已连接"
-                _ = await onSessionImported()
-                statusText = "已连接 · 返回上一页查看同步状态"
+                webLoginStatus = "已连接，正在同步 Garmin 数据…"
+                let syncSucceeded = await onSessionImported()
+                if syncSucceeded {
+                    statusText = "已连接 · 同步完成"
+                    webLoginStatus = "已连接 · 同步完成"
+                    showingWebLogin = false
+                } else {
+                    statusText = "已连接 · 同步失败"
+                    webLoginStatus = "已连接，但同步失败，请重试"
+                }
             } else {
-                statusText = "已连接"
+                statusText = "已连接 · 登录完成"
+                webLoginStatus = "已连接 · 登录完成"
+                showingWebLogin = false
             }
         } catch {
-            statusText = "连接失败,请重试"
+            let message = Self.importErrorMessage(error)
+            statusText = message
+            webLoginStatus = message
         }
+    }
+
+    static func importErrorMessage(_ error: Error) -> String {
+        if case let SyncClientError.http(status, _) = error, [401, 403].contains(status) {
+            return "Garmin 连接授权失败，请重新登录"
+        }
+        if case let SyncClientError.http(status, _) = error, (400..<500).contains(status) {
+            return "Garmin 登录信息无效，请重新登录"
+        }
+        return "连接失败，请重试"
     }
 
     @MainActor
