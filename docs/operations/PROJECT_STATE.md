@@ -54,6 +54,13 @@ device gate or authorize production promotion.
   symptom. App-specific source, signing, backend, and Watch payload changes
   are paused until a non-AI-Caddie TestFlight install succeeds or an Apple
   installer error code is captured.
+- **Tester re-invitation (2026-08-30):** At the owner's request, workflow run
+  `33316324770` successfully re-added the existing external tester record
+  (`23***@qq.com`) to `Private Trial` using the explicit
+  `external_distribution=true` opt-in. A subsequent read-only run
+  `33316374289` confirmed build 45 remains `VALID` and the internal group still
+  contains builds 43, 44, and 45. This invitation does not change the physical
+  device-wide install blocker.
 - **Remaining gate:** Physical installation and first-launch/start evidence on
   one qualified iPhone (build 45 preferred, with 43 as a useful control), then
   the paired Watch. Required evidence is the exact Apple ID/tester path, iOS and
