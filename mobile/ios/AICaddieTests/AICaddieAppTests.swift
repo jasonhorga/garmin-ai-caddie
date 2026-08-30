@@ -52,22 +52,30 @@ final class AICaddieAppTests: XCTestCase {
         let error = SyncClientError.http(status: 401, body: nil)
         XCTAssertEqual(
             MobileCourseSearchView.searchErrorMessage(error, nearby: false),
-            "Garmin 登录已失效，请先连接 Garmin 再搜索。"
+            "Apple 登录已失效，请重新登录。"
         )
         XCTAssertEqual(
             MobileCourseSearchView.searchErrorMessage(error, nearby: true),
-            "Garmin 登录已失效，请先连接 Garmin 再搜索。"
+            "Apple 登录已失效，请重新登录。"
+        )
+        XCTAssertEqual(
+            MobileCourseSearchView.searchErrorMessage(SyncClientError.http(status: 403, body: nil), nearby: false),
+            "当前 Apple 账号无权访问球场目录。"
         )
     }
 
     func testGarminImportErrorsKeepAuthorizationFailureActionable() {
         XCTAssertEqual(
             GarminSessionView.importErrorMessage(SyncClientError.http(status: 401, body: nil)),
-            "Garmin 连接授权失败，请重新登录"
+            "Apple 登录已失效，请重新登录"
         )
         XCTAssertEqual(
             GarminSessionView.importErrorMessage(SyncClientError.http(status: 422, body: nil)),
             "Garmin 登录信息无效，请重新登录"
+        )
+        XCTAssertEqual(
+            GarminSessionView.importErrorMessage(SyncClientError.http(status: 403, body: nil)),
+            "当前 Apple 账号无权连接此 Garmin"
         )
         XCTAssertEqual(
             GarminSessionView.importErrorMessage(URLError(.timedOut)),

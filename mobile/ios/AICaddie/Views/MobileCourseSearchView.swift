@@ -467,8 +467,11 @@ public struct MobileCourseSearchView: View {
     }
 
     static func searchErrorMessage(_ error: Error, nearby: Bool) -> String {
-        if case let SyncClientError.http(status, _) = error, [401, 403].contains(status) {
-            return "Garmin 登录已失效，请先连接 Garmin 再搜索。"
+        if case let SyncClientError.http(status, _) = error, status == 401 {
+            return "Apple 登录已失效，请重新登录。"
+        }
+        if case let SyncClientError.http(status, _) = error, status == 403 {
+            return "当前 Apple 账号无权访问球场目录。"
         }
         return nearby
             ? "现在无法读取附近球场，请检查网络或改用名称搜索。"

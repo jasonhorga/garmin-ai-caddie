@@ -163,8 +163,11 @@ public struct GarminSessionView: View {
     }
 
     static func importErrorMessage(_ error: Error) -> String {
-        if case let SyncClientError.http(status, _) = error, [401, 403].contains(status) {
-            return "Garmin 连接授权失败，请重新登录"
+        if case let SyncClientError.http(status, _) = error, status == 401 {
+            return "Apple 登录已失效，请重新登录"
+        }
+        if case let SyncClientError.http(status, _) = error, status == 403 {
+            return "当前 Apple 账号无权连接此 Garmin"
         }
         if case let SyncClientError.http(status, _) = error, (400..<500).contains(status) {
             return "Garmin 登录信息无效，请重新登录"
