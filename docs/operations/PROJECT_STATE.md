@@ -6,8 +6,7 @@
 
 **Updated:** 2026-08-30 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**Source baseline:** `8f141b9d` (TestFlight artifact source; docs-only evidence
-follow-up `a5161ee1`; backend runtime revision
+**Source baseline:** `464d8d35` (TestFlight build 45 artifact source; backend runtime revision
 `1af378b811cd25edae12285c5745aef1b57d7faf`; prior chain remains in Git history)
 **Release rule:** production promotion remains gated on complete P0/P1/P2
 runtime evidence and owner approval. An owner-approved test-environment upload
@@ -26,49 +25,24 @@ device gate or authorize production promotion.
   steps at source `44c444c695c0f6c2630b6ccf0c2e2042f1d7a901`, including the
   live iOS and Watch flow against course `31793` / 北京丽宫. Commit `44c444c6`
   fixes the live UI-test marker handling.
-- **TestFlight:** Commit `8f141b9d9ea1697cda46c2c7c1fd10e32e468f74` adds the
-  explicit owner-approved test-environment path while retaining authenticated
-  readiness, public origin, health schema, and exact revision checks. CD run
-  `33300858579` succeeded; App Store Connect accepted and finished processing
-  marketing version `0.1.0`, TestFlight build `44`.
-- **TestFlight distribution:** The initial upload did not assign the build to
-  an external group. Run `33307618214` submitted build `44` for Beta App
-  Review and assigned it to `Private Trial`; status run `33307662731` then
-  observed `state=VALID`, `expired=false`, and `externalState=BETA_APPROVED`.
-  A repeated `assign_existing` run (`33307708592`) received Apple's
-  non-idempotent “tester(s) cannot be assigned” response; historical
-  successful assignment evidence remains, so this is not evidence that the
-  existing testers were removed. Physical installation is still unverified.
+- **TestFlight build 44 diagnosis:** The owner could see build `0.1.0 (44)` in
+  TestFlight but received Apple's generic “Unable to Install” dialog. Status
+  run `33308645751` still observed `VALID`, unexpired, and
+  `externalState=BETA_APPROVED`. Exact-artifact macOS diagnostic run
+  `33308974390` passed strict/deep code-sign verification for both the iOS app
+  and embedded Watch app, bundle/profile/team/version binding, profile expiry,
+  and arm architectures. Apple reported no TestFlight service incident.
+- **TestFlight build 45 replacement:** CD run `33309073713` built and uploaded
+  `0.1.0 (45)` from `464d8d35880bc0a5fc728800aef196c7c74841c5` so Apple would
+  regenerate its TestFlight package/CDN entry. Distribution run `33309432780`
+  submitted Beta Review and assigned build 45 to `Private Trial`; status run
+  `33309492585` observed `state=VALID`, `expired=false`, and
+  `externalState=IN_BETA_TESTING`. Exact build-45 artifact diagnostic run
+  `33309532213` also passed.
 - **Remaining gate:** Independent installation and first-launch/start
-  verification on a physical iPhone/Watch for build `0.1.0 (44)`. No further
-  source change, build, upload, deployment, or production-data action is
-  pending for this slice.
-- **Backend candidate:** The candidate was deployed from the clean detached
-  checkout at `/home/jason/codex-runs/garmin-ai-caddie-backend-deploy-20260830`
-  at exact revision `1af378b811cd25edae12285c5745aef1b57d7faf`. The verified
-  private-volume backup is
-  `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260830/private-volume-20260830.tar.gz`
-  (SHA-256
-  `9c632173043f3ac7010ef5883124ee1c57387ca3656aa387e873b102b819b162`).
-- **Native live evidence:** Native Mobile CI run `33297795933` passed all 38
-  steps at source `44c444c695c0f6c2630b6ccf0c2e2042f1d7a901`, including the
-  live iOS and Watch flow against course `31793` / 北京丽宫. Commit `44c444c6`
-  is the live-marker fix that keeps live UI tests out of fixture mode.
-- **TestFlight path:** Commit `8f141b9d9ea1697cda46c2c7c1fd10e32e468f74`
-  adds the explicit owner-approved test-environment bypass while retaining
-  authenticated readiness, public origin, health schema, and exact revision
-  checks. Exactly one CD run, `33300858579`, succeeded at that artifact source;
-  App Store Connect accepted and finished processing marketing version `0.1.0`,
-  TestFlight build `44` (`uploadCompleted=true`).
-- **TestFlight distribution:** Run `33307618214` submitted build `44` and
-  assigned it to `Private Trial`; status run `33307662731` observed
-  `externalState=BETA_APPROVED`, `state=VALID`, and `expired=false`. The
-  duplicate tester-assignment attempt `33307708592` was rejected by Apple's
-  non-idempotent relationship endpoint and does not prove group removal.
-- **Remaining gate:** The only open item is independent installation and
-  first-launch/start verification on a physical device (iPhone/Watch) for build
-  `0.1.0 (44)`. No additional source change, build, upload, deployment, or
-  production-data action is pending for this slice.
+  verification on a physical iPhone/Watch for build `0.1.0 (45)`. No further
+  build, upload, deployment, or production-data action is pending until that
+  result is known.
 
 ## Objective
 
@@ -82,9 +56,9 @@ code; do not restart the old multi-week plan tree.
 **`REL` — release readiness and TestFlight gate** (`evidence-open`)
 
 The current release candidate has a verified backend deployment, passing live
-iOS/Watch Native evidence, and a successfully processed TestFlight build as
+iOS/Watch Native evidence, and a freshly repackaged TestFlight build as
 summarized above. The sole remaining release evidence is physical-device
-installation and first-launch/start verification for build `0.1.0 (44)`.
+installation and first-launch/start verification for build `0.1.0 (45)`.
 
 ### Historical context (retained; earlier snapshots)
 
@@ -2083,3 +2057,18 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   `93ed970bfe703d0a200f08413060af70a96b1f0ee02812626dea06cda9540213`.
   No production data, deployment, or persistent service state was modified by
   this release action.
+- 2026-08-30: After the owner reproduced Apple's generic “Unable to Install”
+  dialog for build 44, read-only status run `33308645751` confirmed the build
+  remained valid, unexpired, and externally approved. The original build-44
+  artifact then passed macOS strict/deep code-sign, iOS/Watch bundle/profile,
+  Team ID, version, expiry, and architecture checks in run `33308974390`.
+  With Apple reporting no TestFlight incident, replacement CD run
+  `33309073713` built and uploaded `0.1.0 (45)` from commit
+  `464d8d35880bc0a5fc728800aef196c7c74841c5`; IPA SHA-256 is
+  `db1b135b3386d4a55ff104312a541fccdafbec1107980bf40d4ff1e107af8cc4`,
+  artifact ID is `9731483890`, and artifact ZIP digest is
+  `20143435fe4cd3399a316147558d940be4cfefe39bd22374f8de4934860b6a5d`.
+  Distribution run `33309432780` submitted the build and assigned it to
+  `Private Trial`; status run `33309492585` observed
+  `externalState=IN_BETA_TESTING`, and exact-artifact diagnostic run
+  `33309532213` passed. Physical installation remains the only open evidence.
