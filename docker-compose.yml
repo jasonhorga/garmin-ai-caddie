@@ -1,7 +1,18 @@
 services:
   api:
     build: .
-    restart: unless-stopped
+    # A failed boot must stop after a small, observable number of attempts.
+    # Infinite retries turn a dependency outage into a host-wide resource storm.
+    restart: "on-failure:3"
+    init: true
+    stop_grace_period: 30s
+    mem_limit: ${AI_CADDIE_API_MEMORY_LIMIT:-2g}
+    cpus: ${AI_CADDIE_API_CPUS:-2.0}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       AI_CADDIE_SECURITY_PROFILE: ${AI_CADDIE_SECURITY_PROFILE:-private}
       # No baked-in default: a deploy that forgets the .env override must FAIL CLOSED (start_api.sh
@@ -43,6 +54,17 @@ services:
 
   db:
     image: postgres:16
+    # Recover transient database crashes, but do not loop forever when the
+    # data directory or host is unhealthy.
+    restart: "on-failure:5"
+    stop_grace_period: 60s
+    mem_limit: ${AI_CADDIE_DB_MEMORY_LIMIT:-1g}
+    cpus: ${AI_CADDIE_DB_CPUS:-1.5}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       POSTGRES_USER: aicaddie
       POSTGRES_PASSWORD: ${AI_CADDIE_DB_PASSWORD:-aicaddie}

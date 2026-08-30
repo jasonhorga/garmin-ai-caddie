@@ -4,11 +4,37 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-08-29 UTC
+**Updated:** 2026-08-30 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**Source baseline:** `9bff8293` (canonical release-hardening candidate with prep-hazard fixture repair; prior chain remains in Git history)
-**Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
-has runtime evidence and the owner approves the comparison.
+**Source baseline:** `8f141b9d` (TestFlight artifact source; docs-only evidence
+follow-up `a5161ee1`; backend runtime revision
+`1af378b811cd25edae12285c5745aef1b57d7faf`; prior chain remains in Git history)
+**Release rule:** production promotion remains gated on complete P0/P1/P2
+runtime evidence and owner approval. An owner-approved test-environment upload
+may use the explicit test-environment flag, but does not close the physical
+device gate or authorize production promotion.
+
+## Current Work Summary
+
+- **Backend candidate:** Deployed from the clean detached checkout at
+  `/home/jason/codex-runs/garmin-ai-caddie-backend-deploy-20260830` at exact
+  revision `1af378b811cd25edae12285c5745aef1b57d7faf`. The verified private
+  volume backup is at
+  `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260830/private-volume-20260830.tar.gz`
+  (SHA-256 `9c632173043f3ac7010ef5883124ee1c57387ca3656aa387e873b102b819b162`).
+- **Native live evidence:** Native Mobile CI run `33297795933` passed all 38
+  steps at source `44c444c695c0f6c2630b6ccf0c2e2042f1d7a901`, including the
+  live iOS and Watch flow against course `31793` / 北京丽宫. Commit `44c444c6`
+  fixes the live UI-test marker handling.
+- **TestFlight:** Commit `8f141b9d9ea1697cda46c2c7c1fd10e32e468f74` adds the
+  explicit owner-approved test-environment path while retaining authenticated
+  readiness, public origin, health schema, and exact revision checks. CD run
+  `33300858579` succeeded; App Store Connect accepted and finished processing
+  marketing version `0.1.0`, TestFlight build `44`.
+- **Remaining gate:** Independent installation and first-launch/start
+  verification on a physical iPhone/Watch for build `0.1.0 (44)`. No further
+  source change, build, upload, deployment, or production-data action is
+  pending for this slice.
 
 ## Objective
 
@@ -19,7 +45,18 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`REL` — release readiness and TestFlight gate** (`in-progress`)
+**`REL` — release readiness and TestFlight gate** (`evidence-open`)
+
+The current release candidate has a verified backend deployment, passing live
+iOS/Watch Native evidence, and a successfully processed TestFlight build as
+summarized above. The sole remaining release evidence is physical-device
+installation and first-launch/start verification for build `0.1.0 (44)`.
+
+### Historical context (retained; earlier snapshots)
+
+The following paragraphs are retained historical snapshots. Statements that
+describe pre-deployment or pre-upload state are superseded by the current
+summary above; the historical evidence itself is not removed.
 
 `W1` and `S1` are closed with isolated current-head evidence. The public
 service still runs revision `6a6080c6...`; no production deployment or data
@@ -35,6 +72,37 @@ candidate and production upstreams, Caddy, and the public Funnel all returning
 200; the earlier ingress timeout was transient. The candidate remains the
 public upstream, but its revision is not yet proven identical to the IPA and
 the first GitHub-runner readiness probe timed out once; a strict rerun passed.
+
+The latest source candidate `affb58df` includes the bounded course-identity
+repair for Garmin global ID `31793`, where the provider currently says
+`Shadow Creek Golf Club` while this player's history says
+`北京丽宫体育公园高尔夫俱乐部`. The API keeps provider facts authoritative,
+applies a player-scoped historical display alias only after a strict 2 km
+physical match, and never mutates the shared provider cache. Empty provider
+searches can recover an explicitly matching historical alias; nearby overlays
+use a tighter radius; unknown, placeholder, unplayed, and coordinate-conflicting
+rows fail closed. Geometry cache reads are bounded to history IDs missing
+coordinates that are present in the current provider result. Homeserver
+verification of the final candidate passed 60/60 focused/regression tests,
+Python compilation, and diff-check; a read-only production snapshot check found
+six real `31793` rounds with the required ID/name/coordinate fields and matching
+cached geometry (0.173 km). No production deployment or data write has occurred.
+
+On 2026-08-30, the backend candidate was deployed from the clean detached
+checkout at `/home/jason/codex-runs/garmin-ai-caddie-backend-deploy-20260830`,
+exact revision `1af378b811cd25edae12285c5745aef1b57d7faf`. The verified private
+volume backup is
+`/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260830/private-volume-20260830.tar.gz`
+(3,349,748,487 bytes, 33,504 members, SHA-256
+`9c632173043f3ac7010ef5883124ee1c57387ca3656aa387e873b102b819b162`; `gzip -t`
+and checksum verification passed). Image
+`garmin-ai-caddie-api:1af378b-candidate-20260830` (image digest
+`sha256:237de4151516dcb6117fc2aaf514c7e177d9115fe55346337c4254517f666aaa`)
+is healthy in container `aicaddie-release-1af378b-candidate-20260830` on the
+existing `127.0.0.1:39055 -> 9000` mapping and shared private volume; health
+reports the exact revision. The prior container/image remain stopped and
+preserved for rollback. PostgreSQL, Caddy, Funnel, and persistent volumes were
+not otherwise modified, and no data synchronization/write was performed.
 
 Release-hardening commit `1d0f352b` is integrated on the canonical checkout.
 Using the existing homeserver image
@@ -373,7 +441,7 @@ project-level task list; historical plans are reference material.
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
-| `REL` | `in-progress` | Release and TestFlight gate; artifact-only readiness first. | Verify source/native gates, production provenance, signing/TestFlight readiness, then request explicit upload confirmation. Revision consistency and manual tester/device gates remain before upload. |
+| `REL` | `evidence-open` | Release and TestFlight gate; backend/native provenance and TestFlight build are complete. | Run `33300858579` processed build `0.1.0 (44)` from artifact source `8f141b9d`; remaining exit evidence is independent physical-device installation and first-launch/start verification. |
 
 ### Status vocabulary
 
@@ -637,8 +705,89 @@ means a named external decision or prerequisite is missing; `done` and
   were ready; only target tester assignment and physical iPhone/Watch
   installation remained `manual_required`. The workflow failed solely because
   `fail_when_incomplete=true`; it did not upload TestFlight.
+- Native Mobile CI run `33264517479` at exact HEAD
+  `affb58df7ab875bc8f26ab0c87c609d9b7d254aa` completed successfully (job
+  `99132103748`, status `success`); all 38 executed steps passed.
+  The six retained artifacts and GitHub digests are: `design-snapshots`
+  `sha256:75ad20a4668e24b2833fc43d3db85fefd1199a6c04734d02120a1e84460537c6`,
+  `real-screenshots`
+  `sha256:7953d14a46d6402a258f5c01388104758b377684e07fb7b45addca62822456b0`,
+  `real-video`
+  `sha256:fa2770f4dbcff756c86c8d36f663c2d76bc05a69045b76634e988d03f9bfe3b3`,
+  `watch-snapshots`
+  `sha256:6f1a5c04e54fed7f8acf6325e986889505173a45e0337f789e7c9b5d4e54a686`,
+  `watch-real-screenshots`
+  `sha256:05ae55ebadd9804082d331929989b8a09dd737d868ee06af3cc8954d9415b4c5`,
+  and `native-build-evidence-ci-fixture`
+  `sha256:e942ffd91c5578d0090a701785925fb44f468499ff014083a4d964b470010a76`.
+  Fixture/preflight skips were expected; no production, signing, deployment,
+  or TestFlight action occurred.
+- Artifact-only iOS workflow `33266986490` at the same exact HEAD terminated
+  in job `99138677684` before build: `fastlane/Fastfile:267` (and the paired
+  line 268) used an invalid `unless` modifier inside an array literal. All
+  setup/signing-secret checks passed; no IPA or provenance artifact was
+  published and `upload_to_testflight=false` prevented any TestFlight action.
+- Artifact-only iOS workflow `33268601901` at exact HEAD
+  `1af378b811cd25edae12285c5745aef1b57d7faf` completed successfully (job
+  `99142945097`, status `success`); `AICaddie-ipa` artifact ID `9719443927`
+  is 9,940,801 bytes with GitHub/ZIP SHA-256
+  `d42469f4a038fa13e69b28dc19cb135888ee3c2be3a49eccfc794914490a02f6`, and
+  the independent IPA SHA-256 is
+  `3948cb9ec2bd25ae001a96576916d631953adcf0b347cc968c1273019bf3a67b`.
+  Provenance binds version `0.1.0`, build `44`, and API host
+  `caddie.taile36706.ts.net`; `uploadRequested`, `uploadCompleted`, and
+  `uploadToTestflight` are all false, with `backendRevision=null` by the
+  artifact-only contract. No TestFlight upload occurred.
+- Phase 6 readiness run `33268954572` at exact HEAD
+  `1af378b811cd25edae12285c5745aef1b57d7faf` completed successfully (job
+  `99143871021`, status `success`, `fail_when_incomplete=false`). Artifact
+  `phase6-readiness-evidence` ID `9719506171` is 2,885 bytes with GitHub
+  digest `sha256:a21f5b8eb52da41118098da43841e2d4cf60816b03163db6182fe22ea76efc0e`;
+  downloaded readiness and roadmap JSON hashes are
+  `6e2b91fd8591ba2f1f73f5376e40b12914907648802724d10dedcc0b9468f98f` and
+  `1b0ebf63797678cb9982e92987ab5ba1096b4ec949c1121b778217d18763b2bd`.
+  Health was HTTP 200 at backend revision `6a6080c6f6867513ed461d20e98a29113bd65433`;
+  readiness was HTTP 200 with 15 valid checks and `degraded` status, but the
+  deployed handler did not emit the explicit authenticated marker (the
+  no/invalid-header response has zero checks). The overall state is
+  `incomplete`: Beta Review readiness/submission, tester
+  coverage, and iPhone/Watch installation remain `manual_required`, while
+  release provenance is degraded for `upload_flag_false` as designed.
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
+
+## Read-only Deployment Decision Summary (2026-08-29)
+
+- **Revision boundary:** local canonical `HEAD` is `affb58df7ab875bc8f26ab0c87c609d9b7d254aa`; the protected origin branch is `1af378b811cd25edae12285c5745aef1b57d7faf`. The artifact-only IPA and Phase 6 evidence are already recorded above at `1af378b8` (IPA ZIP digest `d42469f4...`, independent IPA digest `3948cb9e...`; readiness artifact digest `a21f5b8e...`). The homeserver scratch `garmin-ai-caddie-rel-20260829` has no Git metadata and is a mixed snapshot, so it is not source provenance.
+- **Running image is older:** `garmin-ai-caddie-api:6a6080c-candidate`, image `sha256:b035a77c4d70771ce5529f7898ce0a4a8a133965748f9607c729b37361bd3a03`, is labeled/deployed as backend revision `6a6080c6f6867513ed461d20e98a29113bd65433`. Its `/app/server_v2/main.py` matches that older revision and it has no course-reconciliation module; it is not the current candidate.
+- **Preserve before replacement:** capture the current container/Caddy metadata and back up the writable volumes `garmin-ai-caddie_ai-caddie-private` (about 10.51 GB) and `garmin-ai-caddie_ai-caddie-pgdata` (about 48 MB). Preserve container `aicaddie-release-6a6080c-candidate`, port `127.0.0.1:39055 -> 9000`, and the recovery manifest. `ops/backup_data.sh` exports the selected private data plus a SQLite/`pg_dump` identity backup and writes a hashed manifest; it is not a raw volume clone.
+- **Homeserver option:** after owner approval, build/tag the compatible candidate, stop/recreate only the API on the same volumes and port, and probe local, Caddy, and Funnel health. Boot runs bounded PostgreSQL readiness, `alembic upgrade head`, and identity seeding under a lock, so expect brief API downtime and migration risk. Rollback means recreating the preserved prior image/container with the same volumes/port; if a migration is not backward-compatible, restore the verified database snapshot rather than assuming image rollback is sufficient.
+- **Fly option:** the manual `Backend Fly Deploy` workflow creates/uses a separate Fly app and `ai_caddie_private` volume, sets runtime secrets and `AI_CADDIE_BUILD_REVISION`, deploys with `flyctl deploy --remote-only`, and may mutate `AI_CADDIE_API_BASE_URL`; it has no backup or rollback step. It does not contain homeserver data and therefore must not be treated as a data-preserving replacement without an explicit import/owner decision.
+- **Upload constraint:** the signed IPA is artifact-only (`backendRevision=null`, upload flags false). A connected upload requires an explicit backend revision/API-origin match and backend-health equality. Uploading this current app against the old public `6a6080c6...` backend would either fail the provenance gate or leave the course-reconciliation/client contract unproven; do not weaken the check or upload until a compatible backend is deployed or the app is rebuilt from the old revision.
+
+## Current Deployment/Native Blocker (2026-08-30)
+
+- The deployed candidate is healthy at exact backend revision
+  `1af378b811cd25edae12285c5745aef1b57d7faf`; the old `6a6080c6...` container
+  and image are stopped and retained for rollback. The verified backup,
+  container, image, and resource details are recorded above.
+- A redacted homeserver comparison found the candidate container, preserved old
+  container, and `/home/jason/watchreview/.env` all have length `64` and the
+  same SHA-256 digest
+  `61b3728ba1e2808aea5ce7328300efe334fda8fe00aa5e5a220bce545a8374319`.
+  The `.env` token authenticated successfully to candidate, Caddy, and public
+  Funnel `nearby` endpoints (HTTP 200, global ID `31793` present), so this is
+  not a candidate-versus-old-container token difference.
+- Native Mobile CI run `33293254635` used the public URL, exact app/backend
+  revision, `fixture_mode=false`, and `require_live_preflight=true`. Health
+  reached the expected revision, but live `/api/v2/courses/nearby` returned
+  HTTP 401 from the preflight; the run stopped there and performed no release
+  or TestFlight action. The GitHub log shows the admin token was injected and
+  masked, but GitHub does not expose its bytes for comparison. The GitHub
+  secret metadata says `AI_CADDIE_ADMIN_TOKEN` was last updated
+  `2026-08-10T02:19:38Z`; therefore a stale/mismatched GitHub secret is the
+  leading diagnosis, not a proven byte-level fact. Secret rotation requires a
+  separate explicit side-effect record.
 
 ## Exact Next Actions
 
@@ -647,10 +796,16 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
    candidate untouched unless a new failure is observed.
 2. Record target tester coverage and physical iPhone/Watch installation against
    the exact signed artifact.
-3. Keep production revision `6a6080c6...` unchanged until a deployment or
-   synchronization operation is explicitly approved.
+3. Keep the deployed candidate revision unchanged until a further replacement
+   or synchronization operation is explicitly approved; retain the prior
+   `6a6080c6...` image/container as the rollback target.
 4. Request a separate explicit confirmation before setting
    `upload_to_testflight=true`; a readiness pass alone never uploads a binary.
+5. Resolve the Native live-preflight credential mismatch before any rerun:
+   compare the GitHub Actions `AI_CADDIE_ADMIN_TOKEN` secret with the
+   deployed candidate token through a redacted digest/length check, then obtain
+   explicit authorization before changing either value. Do not weaken the
+   admin route or rerun Native while the values are unverified.
 
 ## Open Blockers / Facts
 
@@ -663,8 +818,10 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - The public Funnel root route was restored on 2026-08-25 from
   `127.0.0.1:443` to `:8080` under user authorization; the route backup
   directory and before/after SHAs are recorded above. Public endpoint checks
-  returned 200. The public backend remains `6a6080c6...`; the pre-existing
-  loopback-only candidate on `127.0.0.1:39055` was inspected but not changed.
+  returned 200. Before the 2026-08-30 transition, the public backend was
+  revision `6a6080c6...`; the prior image/container is now retained as the
+  rollback target. The current candidate deployment and its health evidence
+  are recorded above.
 - One runtime evidence boundary remains open: deferred-finish network retry is
   still unit-test-only. Cancel completion and old-seed tombstone rejection are
   covered by run `32791049667`.
@@ -1771,3 +1928,78 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   variable; the known revision must therefore be supplied as an explicit
   workflow input or configured before the release gate. The old local Phase 6
   JSON (created 2026-06-07) is not valid evidence for this candidate.
+- 2026-08-29: Fixed the fixture tee-decision metadata regression surfaced by
+  source CI `33232927555`. Commit `787c69f5` on branch
+  `codex/tee-meta-fix-20260829` restores `sourceRef`, `courseGlobalId`,
+  `globalId`, `localHole`, `displayHole`, and `roundId` on the fixture
+  decision's selected metadata while preserving the real decision builder's
+  tee route selection. The focused local syntax check passed and the branch
+  was pushed; the broader remote rerun is still pending.
+- 2026-08-29: Source CI `33233365006` then exposed nested `dispersion.localHole`
+  loss for composite back-nine contexts. Commit `d41a818e` on the same branch
+  extends the fixture annotation to nested `dispersion` objects on
+  `selected`, `selectedOption`, and `selectedSequence`. A stubbed local import
+  check for the failing back-nine case now passes; the branch was pushed.
+- 2026-08-29: Owner-authorized full fixture Native validation `33245546335`
+  is running at exact HEAD `3f82a742f795f1f1b335eba623ebab7e559166be` with
+  `capture_scope=full`, `fixture_mode=true`, `review_round_ref=900001`, and
+  live preflight disabled. Fixture startup, launch prerequisites, iOS target
+  tests, SwiftJCS boundaries, design snapshots, and secret scan have passed;
+  the real iOS UI journey is in progress. No production, signing, deploy, or
+  TestFlight action has been performed by this run.
+- 2026-08-29: Fixture Native run `33245546335` completed with one product
+  failure in `RealFlowUITests.testCaptureRealAppFlow` at line 589: after
+  opening the full caddie plan, its heading could not be brought into the
+  visible simulator viewport. iOS target/SwiftJCS/design scans, ReviewEdit,
+  all seven TeeSelection tests, Watch target, and Watch runtime screenshots
+  passed; real screenshot artifact upload separately hit an Actions service
+  timeout. The failure is assigned to a bounded caddie-surface layout fix;
+  no release or TestFlight action has been performed.
+- 2026-08-29: The single delegated course-reconciliation implementation was
+  completed in `a9e3f9e49d684cb84c65fe3fae1c0d77117ff5c4`, then bounded geometry
+  lookup was added in `8955b851eae6de01093d961c2353e533dc17c1a7` and integrated
+  as `affb58df`. The final homeserver run used the shared API image
+  `garmin-ai-caddie-api:6a6080c-candidate`: reconciliation/course-search/auth
+  focused and regression suites passed 60/60, `compileall` passed, and
+  `git diff --check` passed. A read-only production snapshot inspection found
+  six owner rounds for `31793`, all with `courseId` or
+  `frontNineGlobalCourseId`, course names, coordinates, city, and hole counts;
+  cached CourseView geometry corroborated the same venue at 0.173 km. The
+  geometry-candidate optimization is included in canonical commit `affb58df`.
+  Temporary containers and scratch data were removed; no ports, volumes,
+  services, deployment, signing, or TestFlight action occurred. Native live
+  rerun is still required after this source is available to the backend; the
+  public service remains revision `6a6080c6...`.
+- 2026-08-29: Native Mobile CI run `33264517479` completed successfully at
+  exact HEAD `affb58df`; job `99132103748` executed 38 passing steps. The
+  six artifact digests are recorded under Completed Evidence above. No
+  production or TestFlight mutation was performed; the artifact-only iOS
+  provenance workflow is the next external gate.
+- 2026-08-29: REL external evidence advanced without any production mutation:
+  artifact-only iOS run `33268601901` and Phase 6 readiness run `33268954572`
+  both passed their workflows at exact HEAD `1af378b8`. The signed candidate
+  is intentionally not a release-ready upload: its manifest has
+  `backendRevision=null`, all upload flags false, and Phase 6 reports
+  `upload_flag_false`; backend health is 200 on deployed revision
+  `6a6080c6...`, while its legacy readiness response lacks the explicit auth
+  marker (15 checks with the runner credential versus 0 for no/invalid
+  header). Beta Review, tester coverage, and physical install evidence remain
+  open. The writer/Fastlane contract was audited and requires origin/backend
+  revision plus health equality only on the `upload_to_testflight=true` path,
+  so no script change is warranted.
+- 2026-08-30: After the redacted equality check (candidate and preserved old
+  container plus `/home/jason/watchreview/.env`: length 64, identical digest
+  `61b3728ba1e2808aea5ce7328300efe334fda8fe00aa5e5a220bce545a8374319`), the
+  owner-authorized GitHub secret remediation was applied once via stdin:
+  `AI_CADDIE_ADMIN_TOKEN` updated at `2026-08-30T05:13:15Z`. The secret value
+  was not printed or persisted; GitHub does not expose it for a direct digest
+  comparison. Native rerun is the next and only validation action.
+- 2026-08-30: After the one-time authorized secret synchronization, dispatched
+  exactly one live Native Mobile CI rerun `33294247633` at branch HEAD
+  `1af378b811cd25edae12285c5745aef1b57d7faf` with `capture_scope=full`,
+  `fixture_mode=false`, public API origin
+  `https://caddie.taile36706.ts.net`, exact `backend_revision`, blank review
+  reference, and `require_live_preflight=true`. The run passed launch
+  prerequisites and live course discovery; iOS live-simulator and independent
+  Watch/evidence stages were still running at this update. No TestFlight,
+  signing, or additional deployment action was performed.

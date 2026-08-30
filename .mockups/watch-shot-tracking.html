@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>手表 · 记杆流程 v6(球道图全屏 · 计分屏统一)</title>
+<style>
+  :root{ --bg:#0b0f0d; --card:#14201a; --green:#3ddc84; --green2:#2ba85f; --ink:#f4f7f5;
+         --ink60:rgba(244,247,245,.62); --ink50:rgba(244,247,245,.5); --ink40:rgba(244,247,245,.4);
+         --blue:#5ac8fa; --amber:#ffcf5c; --red:#ff6b5e; --line:rgba(255,255,255,.1);
+         --gray:#3a3a3c; --gray2:#2c2c2e; }
+  *{box-sizing:border-box; margin:0; padding:0; -webkit-font-smoothing:antialiased}
+  body{ background:#06100b; color:var(--ink);
+        font-family:-apple-system,"SF Pro Text","PingFang SC","Microsoft YaHei",sans-serif; padding:34px 22px 60px}
+  h1{font-size:19px; font-weight:800; margin-bottom:4px}
+  .sub{color:var(--ink60); font-size:13px; margin-bottom:20px; line-height:1.55; max-width:960px}
+  .sub b{color:var(--ink)} .sub .g{color:var(--green); font-weight:800} .sub .a{color:var(--amber); font-weight:800}
+  .row{display:flex; flex-wrap:wrap; gap:32px 24px; align-items:flex-start}
+  .screen{width:196px}
+  .cap{font-size:11.5px; color:var(--ink60); margin-top:10px; line-height:1.45}
+  .cap b{color:var(--ink)} .cap .g{color:var(--green); font-weight:800} .cap .a{color:var(--amber); font-weight:800}
+  .step{display:inline-block; font-size:10px; font-weight:800; color:#04140b; background:var(--green); border-radius:6px; padding:1px 7px; margin-bottom:6px}
+  .step.b{background:var(--blue)} .step.a{background:var(--amber)}
+  .watch{position:relative; width:196px; height:240px; border-radius:52px; background:#000;
+          padding:15px 14px; box-shadow:0 0 0 3px #1c1c1e, 0 14px 34px rgba(0,0,0,.6); overflow:hidden}
+  .time{position:absolute; top:9px; left:0; right:0; text-align:center; font-size:12px; color:var(--ink60); font-weight:600}
+  .frame{height:100%; display:flex; flex-direction:column; padding-top:16px}
+  .detected{background:rgba(61,220,132,.16); border:1px solid rgba(61,220,132,.4); color:var(--green); border-radius:10px; padding:5px 9px; font-size:11px; font-weight:800; text-align:center}
+  .qq{font-size:10px; color:var(--ink50); text-align:center; margin-top:5px; font-weight:700}
+  .clist{display:flex; flex-direction:column; gap:4px; margin-top:7px}
+  .crow{display:flex; align-items:center; justify-content:space-between; padding:7px 10px; border-radius:9px; background:var(--card); font-size:14px; font-weight:700}
+  .crow.sel{background:linear-gradient(180deg,var(--green),var(--green2)); color:#04140b}
+  .crow.sel2{background:linear-gradient(180deg,#5ac8fa,#2b9fd6); color:#04140b}
+  .crow .tag{font-size:9px; font-weight:900; opacity:.8} .crow.dim{opacity:.5}
+  .crownhint{position:absolute; right:2px; top:48%; font-size:8px; color:var(--ink40); writing-mode:vertical-rl; letter-spacing:1px}
+  .okbtn{margin-top:6px; text-align:center; font-size:12px; font-weight:900; color:var(--green); border:1px solid rgba(61,220,132,.45); border-radius:10px; padding:6px}
+  .hd{display:flex; justify-content:space-between; align-items:baseline}
+  .hd .hole{font-size:14px; font-weight:800} .hd .par{font-size:10px; color:var(--ink60)}
+  .thisd{background:rgba(0,0,0,.5); border:1px solid var(--line); border-radius:11px; padding:6px 9px; display:flex; align-items:baseline; gap:7px; margin-top:8px}
+  .thisd .k{font-size:9px; color:var(--ink60); font-weight:700} .thisd .big{font-size:24px; font-weight:900; color:var(--amber)} .thisd .u{font-size:9px; color:var(--ink40)}
+  .mapbg{flex:1; margin-top:7px; border-radius:14px; position:relative; overflow:hidden; background:radial-gradient(120% 90% at 60% 20%,#1f3a26,#0c1a11)}
+  .mapbg .fairway{position:absolute; left:38%; top:8%; width:26%; height:86%; border-radius:40% 40% 46% 46%; background:linear-gradient(180deg,#3f7a4c,#2f5d39); transform:rotate(6deg)}
+  .mapbg .green{position:absolute; left:46%; top:10%; width:20%; height:20%; border-radius:50%; background:#57a86a}
+  .mapbg .you{position:absolute; left:44%; top:60%; width:12px; height:12px; border-radius:50%; background:var(--blue); box-shadow:0 0 0 3px rgba(90,200,250,.3)}
+  .mapbg .prev{position:absolute; left:40%; top:82%; width:8px; height:8px; border-radius:50%; background:#fff; opacity:.85}
+  .mapbg .lineto{position:absolute; left:41%; top:63%; width:2px; height:19%; background:rgba(255,255,255,.4); transform:rotate(8deg)}
+  /* green screen with score icon */
+  .greenview{flex:1; display:flex; flex-direction:column; margin-top:7px}
+  .gmap{flex:1; border-radius:14px; position:relative; overflow:hidden; background:radial-gradient(120% 100% at 50% 40%,#2f6b40,#123821)}
+  .gmap .pin{position:absolute; left:49%; top:34%; width:3px; height:22px; background:#fff}
+  .gmap .flag{position:absolute; left:51%; top:32%; width:9px; height:7px; background:var(--red)}
+  .gmap .ball{position:absolute; left:44%; top:62%; width:8px; height:8px; border-radius:50%; background:#fff; box-shadow:0 0 0 3px rgba(255,255,255,.25)}
+  .scoreicon{position:absolute; left:0; right:0; bottom:6px; display:flex; justify-content:center}
+  .scoreicon .b{background:var(--green); color:#04140b; font-size:12px; font-weight:900; padding:6px 16px; border-radius:20px; box-shadow:0 4px 14px rgba(61,220,132,.4); display:flex; align-items:center; gap:5px}
+  .greenview .hint{font-size:9px; color:var(--ink40); text-align:center; margin-top:5px}
+  /* FULL-BLEED hole map (matches watch-holeview-zoom) — fills the whole watch */
+  .fullmap{position:absolute; inset:0; border-radius:52px; overflow:hidden}
+  .fullmap svg{position:absolute; inset:0; width:100%; height:100%}
+  .mappill{position:absolute; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.72);
+           border:1px solid rgba(255,255,255,.14); border-radius:14px; padding:4px 11px; white-space:nowrap;
+           font-weight:800; display:flex; align-items:baseline; gap:5px; backdrop-filter:blur(2px)}
+  .mappill.top{top:30px} .mappill.bot{bottom:12px}
+  .mappill .k{font-size:9px; color:var(--ink60); font-weight:700}
+  .mappill .big{font-size:20px; color:var(--amber)} .mappill .u{font-size:9px; color:var(--ink40)}
+  .mappill .lab{font-size:12px; color:var(--ink)}
+  .crownind{position:absolute; right:5px; top:38%; width:4px; height:88px; border-radius:3px; background:rgba(255,255,255,.18)}
+  .crownind .thumb{position:absolute; left:0; right:0; top:30%; height:34px; border-radius:3px; background:var(--green)}
+  .maphint{position:absolute; left:0; right:0; bottom:2px; text-align:center; font-size:8px; color:var(--ink40); font-weight:700}
+  .scorepill{position:absolute; left:50%; transform:translateX(-50%); bottom:11px; background:var(--green); color:#04140b;
+             font-size:12px; font-weight:900; padding:6px 16px; border-radius:20px; box-shadow:0 4px 14px rgba(61,220,132,.45);
+             display:flex; align-items:center; gap:5px}
+  /* SCORE / finalize screen — matches existing WatchScoreHoleView */
+  .sc{display:flex; flex-direction:column; height:100%}
+  .sc .title{font-size:13px; font-weight:800}
+  .sc .totrow{display:flex; align-items:center; gap:10px; margin-top:6px}
+  .totbtn{width:40px; height:40px; border-radius:15px; background:var(--gray); color:#e8e8ea; font-size:22px; font-weight:700; display:flex; align-items:center; justify-content:center; flex:none}
+  .sc .totmid{flex:1; text-align:center; line-height:1}
+  .sc .totnum{font-size:34px; font-weight:900; font-variant-numeric:tabular-nums}
+  .sc .topar{font-size:11px; font-weight:800; margin-top:1px}
+  .sc .topar.over{color:var(--amber)} .sc .topar.par{color:var(--green)}
+  .sc .autohint{font-size:8.5px; color:var(--ink40); text-align:center; margin-top:3px; letter-spacing:.2px}
+  .srow{display:flex; align-items:center; margin-top:7px}
+  .srow .lab{font-size:11px; color:var(--ink60); flex:1}
+  .stbtn{width:26px; height:26px; border-radius:9px; background:var(--gray); color:#e8e8ea; font-size:15px; font-weight:700; display:flex; align-items:center; justify-content:center}
+  .srow .sval{font-size:14px; font-weight:700; min-width:20px; text-align:center; font-variant-numeric:tabular-nums}
+  .srow .stwrap{display:flex; align-items:center; gap:7px}
+  .scbtns{margin-top:auto; display:flex; flex-direction:column; gap:5px}
+  .savebtn{text-align:center; font-size:13px; font-weight:900; color:var(--green); background:rgba(61,220,132,.14); border:1px solid rgba(61,220,132,.4); border-radius:12px; padding:7px}
+  .cancelbtn{text-align:center; font-size:12px; font-weight:700; color:var(--ink60); border:1px solid var(--line); border-radius:12px; padding:6px}
+  /* menu screen — matches WatchMenuView */
+  .menu{display:flex; flex-direction:column; height:100%}
+  .menu .mt{font-size:14px; font-weight:800; margin-bottom:2px}
+  .mrow{display:flex; align-items:center; justify-content:space-between; padding:9px 4px; border-bottom:1px solid var(--line); font-size:14px}
+  .mrow.sel{color:var(--green); font-weight:800}
+  .mrow.red{color:var(--red)}
+  .mrow .chev{font-size:11px; color:var(--ink40)}
+  .mrow .badge{font-size:8.5px; font-weight:900; color:#04140b; background:var(--green); border-radius:5px; padding:1px 6px}
+  /* principle strip */
+  .prin{flex:1; display:flex; flex-direction:column; justify-content:center; gap:8px}
+  .prin .big{font-size:13px; font-weight:800; text-align:center; line-height:1.4}
+  .prin .big .g{color:var(--green)}
+  .prin .seq{display:flex; flex-direction:column; gap:5px; font-size:10.5px; color:var(--ink60)}
+  .prin .seq b{color:var(--ink)}
+  .note{margin-top:34px; color:var(--ink60); font-size:13px; line-height:1.8; max-width:960px; border-top:1px solid var(--line); padding-top:18px}
+  .note b{color:var(--ink)} .note .g{color:var(--green); font-weight:800} .note .a{color:var(--amber); font-weight:800} .note .q{color:var(--amber); font-weight:800}
+</style></head>
+<body>
+  <h1>手表 · 记杆流程 v6（球道图全屏 · 计分屏统一）</h1>
+  <div class="sub"><b>核心没变:进不进下一洞,只认你那一下「手动计分」。</b>自动检测只记杆 + 提示,<span class="g">绝不自动收洞</span>。所有杆一律记进<b>当前这一洞</b>——推出果岭切回来、跑到下一洞往回打,没手动计分前都算当前洞,提示<span class="a">永远能取消</span>。<br><b>这版三处改动(照你说的):</b> ① <b>球道图全屏</b>——满屏真实球场图,距离浮在图上(第③④屏,和你之前那套 watch-holeview 一样)。② <b>收洞卡=你之前那套手表里的计分屏</b>:大号总杆步进器,<b>默认=系统记到的杆数,你确认或改</b>;<span class="g">填几推自动加进总杆</span>。③ <b>计分入口不常驻</b>:果岭冒快捷图标;不在果岭从<b>菜单</b>永远能进(第⑥屏)。</div>
+
+  <div class="row">
+    <!-- 1 -->
+    <div class="screen">
+      <div class="step">① 检测到一杆</div>
+      <div class="watch"><div class="time">10:24</div><div class="crownhint">转冠翻</div><div class="frame">
+        <div class="detected">✓ 记进第7洞</div><div class="qq">刚才用的是?(默认推荐杆)</div>
+        <div class="clist"><div class="crow sel"><span>七号铁</span><span class="tag">推荐</span></div>
+          <div class="crow"><span>八号铁</span></div><div class="crow"><span>六号铁</span></div><div class="crow dim"><span>挖起杆</span></div></div>
+      </div></div>
+      <div class="cap"><b>① 打完一杆</b> · 自动记下位置、弹选杆(默认推荐)。这杆<b>记进当前第7洞</b>,不显示距离。</div>
+    </div>
+    <!-- 2 -->
+    <div class="screen">
+      <div class="step">② 想改转表冠</div>
+      <div class="watch"><div class="time">10:24</div><div class="crownhint">转冠翻</div><div class="frame">
+        <div class="detected">✓ 记进第7洞</div><div class="qq">刚才用的是?</div>
+        <div class="clist"><div class="crow"><span>七号铁</span><span class="tag">推荐</span></div>
+          <div class="crow sel2"><span>八号铁</span><span class="tag">已选</span></div><div class="crow"><span>六号铁</span></div></div>
+        <div class="okbtn">OK</div>
+      </div></div>
+      <div class="cap"><b>② 打别的杆才改</b> · 转表冠选 → OK。没管它 = 默认推荐杆,确认过的才进球杆统计。</div>
+    </div>
+    <!-- 3 full-bleed hole map -->
+    <div class="screen">
+      <div class="step">③ 点掉 → 全屏球道图</div>
+      <div class="watch"><div class="time" style="z-index:3">10:26</div>
+        <div class="fullmap">
+          <svg viewBox="0 0 196 240" preserveAspectRatio="xMidYMid slice">
+            <defs>
+              <linearGradient id="fw" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#2f5d39"/><stop offset="1" stop-color="#4c8c54"/></linearGradient>
+              <radialGradient id="grn" cx="0.5" cy="0.4" r="0.65"><stop offset="0" stop-color="#8fd89a"/><stop offset="1" stop-color="#5aa86a"/></radialGradient>
+            </defs>
+            <rect width="196" height="240" fill="#06120b"/>
+            <path d="M70,240 C58,196 92,158 82,116 C74,84 96,54 98,20 L126,20 C130,52 116,80 124,116 C132,158 106,196 118,240 Z" fill="url(#fw)"/>
+            <path d="M94,236 C84,196 112,158 103,118 C97,86 111,56 112,22" fill="none" stroke="#5fa668" stroke-width="7" stroke-linecap="round" opacity="0.4"/>
+            <g fill="#1e4a29"><circle cx="48" cy="40" r="5"/><circle cx="40" cy="66" r="4"/><circle cx="55" cy="92" r="5"/><circle cx="44" cy="120" r="4"/><circle cx="52" cy="150" r="5"/><circle cx="42" cy="178" r="4"/><circle cx="56" cy="205" r="5"/><circle cx="46" cy="228" r="4"/><circle cx="62" cy="54" r="3"/><circle cx="60" cy="135" r="3"/><circle cx="50" cy="190" r="3"/>
+              <circle cx="140" cy="34" r="5"/><circle cx="150" cy="60" r="4"/><circle cx="134" cy="88" r="5"/><circle cx="146" cy="116" r="4"/><circle cx="138" cy="146" r="5"/><circle cx="150" cy="174" r="4"/><circle cx="136" cy="202" r="5"/><circle cx="144" cy="228" r="4"/><circle cx="128" cy="72" r="3"/><circle cx="132" cy="158" r="3"/><circle cx="146" cy="200" r="3"/></g>
+            <g fill="#2f6b3a"><circle cx="49" cy="41" r="2"/><circle cx="54" cy="93" r="2"/><circle cx="53" cy="151" r="2"/><circle cx="139" cy="35" r="2"/><circle cx="135" cy="89" r="2"/><circle cx="137" cy="147" r="2"/></g>
+            <ellipse cx="107" cy="28" rx="17" ry="13" fill="url(#grn)"/>
+            <line x1="109" y1="28" x2="109" y2="10" stroke="#fff" stroke-width="2"/><rect x="109" y="10" width="9" height="6" fill="#ff6b5e"/>
+            <path d="M95,186 C87,150 113,122 106,88 C101,64 107,44 108,30" fill="none" stroke="#fff" stroke-width="2.4" stroke-dasharray="5 5" opacity="0.85"/>
+            <circle cx="106" cy="88" r="6" fill="#fff" opacity="0.9"/>
+            <circle cx="88" cy="214" r="4.5" fill="#fff" opacity="0.8"/>
+            <circle cx="95" cy="186" r="11" fill="rgba(90,200,250,0.25)"/><circle cx="95" cy="186" r="6.5" fill="#3aa0e6" stroke="#cdeaff" stroke-width="1.5"/>
+          </svg>
+          <div class="mappill top"><span class="lab">中 178 · 到果岭</span></div>
+          <div class="mappill" style="bottom:44px"><span class="lab" style="font-size:11px">上一杆 42 码</span></div>
+          <div class="crownind"><div class="thumb"></div></div>
+          <div class="maphint">转表冠缩放</div>
+        </div>
+      </div>
+      <div class="cap"><b>③ 点掉列表 → 球道图全屏</b> · <b>就是已建成的那张 holeview(全屏态)</b>:顶部「中·到果岭」(planning 下一杆)+ 图上「上一杆 42」(刚打这杆多远)。不是新画一张,不冲突。</div>
+    </div>
+    <!-- 4 full-bleed green + score icon -->
+    <div class="screen">
+      <div class="step">④ 上果岭:全屏 + 计分图标</div>
+      <div class="watch"><div class="time" style="z-index:3">10:31</div>
+        <div class="fullmap">
+          <svg viewBox="0 0 196 240" preserveAspectRatio="xMidYMid slice">
+            <defs><radialGradient id="grn2" cx="0.5" cy="0.42" r="0.7"><stop offset="0" stop-color="#8fd89a"/><stop offset="0.7" stop-color="#5aa86a"/><stop offset="1" stop-color="#3f7d4d"/></radialGradient></defs>
+            <rect width="196" height="240" fill="#06120b"/>
+            <ellipse cx="98" cy="118" rx="92" ry="104" fill="url(#grn2)"/>
+            <ellipse cx="98" cy="112" rx="60" ry="70" fill="none" stroke="#4a8c58" stroke-width="1.5" opacity="0.5"/>
+            <ellipse cx="98" cy="106" rx="32" ry="40" fill="none" stroke="#4a8c58" stroke-width="1.5" opacity="0.5"/>
+            <line x1="99" y1="96" x2="99" y2="66" stroke="#fff" stroke-width="2.6"/><rect x="99" y="66" width="12" height="8" fill="#ff6b5e"/>
+            <circle cx="99" cy="96" r="4" fill="#e7fff0" stroke="#333" stroke-width="0.6"/>
+            <circle cx="84" cy="158" r="9" fill="rgba(255,255,255,0.28)"/><circle cx="84" cy="158" r="5.5" fill="#fff" stroke="#8fd89a" stroke-width="1.5"/>
+          </svg>
+          <div class="mappill top"><span class="k">到旗</span><span class="big">12</span><span class="u">码</span></div>
+          <div class="scorepill">✎ 计分收洞</div>
+          <div class="maphint">果岭不检测推杆 · 点图标收洞</div>
+        </div>
+      </div>
+      <div class="cap"><b>④ 上果岭</b> · 满屏果岭图,静默、不弹选杆(推杆腕上测不准)。底部冒一个<b class="g">计分快捷图标</b>提示"可以收洞了"。<b>你不点,杆就一直记在第7洞。</b></div>
+    </div>
+    <!-- 5 SCORE / finalize — unified with WatchScoreHoleView -->
+    <div class="screen">
+      <div class="step a">⑤ 收洞卡 = 现有计分屏</div>
+      <div class="watch"><div class="time">10:33</div><div class="frame">
+        <div class="sc">
+          <div class="title">第 7 洞 · Par 4</div>
+          <div class="totrow">
+            <div class="totbtn">−</div>
+            <div class="totmid"><div class="totnum">5</div><div class="topar over">+1</div></div>
+            <div class="totbtn">＋</div>
+          </div>
+          <div class="autohint">总杆 = 系统记 3 + 推杆 2 · 可改</div>
+          <div class="srow"><span class="lab">推杆</span><span class="stwrap"><span class="stbtn">−</span><span class="sval">2</span><span class="stbtn">＋</span></span></div>
+          <div class="srow"><span class="lab">罚杆</span><span class="stwrap"><span class="stbtn">−</span><span class="sval">0</span><span class="stbtn">＋</span></span></div>
+          <div class="scbtns"><div class="savebtn">保存本洞（收洞 →）</div><div class="cancelbtn">取消</div></div>
+        </div>
+      </div></div>
+      <div class="cap"><b>⑤ 点图标 → 收洞卡</b>,就是你之前那套手表里的<b>计分屏</b>。大号<b>总杆默认=系统记到的杆数</b>,<b class="g">填几推自动加进总杆</b>,你 − ＋ 再确认或改;罚杆在这加。<b class="a">取消</b>=继续记当前洞;<b>保存</b>=手动计分,才进下一洞。</div>
+    </div>
+    <!-- 6 MENU — always-available scoring entry -->
+    <div class="screen">
+      <div class="step b">⑥ 不在果岭?菜单常驻</div>
+      <div class="watch"><div class="time">10:28</div><div class="frame">
+        <div class="menu">
+          <div class="mt">菜单</div>
+          <div class="mrow sel"><span>记这一洞 · 收洞</span><span class="badge">计分</span></div>
+          <div class="mrow"><span>计分卡</span><span class="chev">›</span></div>
+          <div class="mrow"><span>选洞</span><span class="chev">›</span></div>
+          <div class="mrow red"><span>结束本场</span></div>
+        </div>
+      </div></div>
+      <div class="cap"><b>⑥ 计分入口永远在</b> · 图标只在果岭冒;<b>任何时候</b>划到菜单都能点「记这一洞」进同一张收洞卡——果岭没检测到、想早收、想补,都从这进。</div>
+    </div>
+    <!-- 7 principle -->
+    <div class="screen">
+      <div class="step b">⑦ 没计分前 = 都算这洞</div>
+      <div class="watch"><div class="time">10:34</div><div class="frame">
+        <div class="prin">
+          <div class="big">没手动计分前<br><span class="g">每一杆都进当前洞</span></div>
+          <div class="seq">
+            <div>· 推出果岭 → 切回来那杆 = <b>第7洞</b></div>
+            <div>· 跑到8号洞往回打一杆 = 还是 <b>第7洞</b></div>
+            <div>· 系统提示收洞 → 你 <b>取消</b> = 继续记第7洞</div>
+            <div>· 直到你点「保存」 → 才进第8洞</div>
+          </div>
+        </div>
+      </div></div>
+      <div class="cap"><b>⑦ 一条铁律</b> · 进洞<b>只认手动计分</b>。GPS 在哪都不自动进洞——这就把"推出果岭/往回打/几何误判"全兜住了。第18洞用「结束本场」收尾。</div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>v6 相比 v5 改了什么(全按你说的):</b><br>
+    · <b class="g">球道图全屏</b>(第③④屏)——满屏真实球场图,距离做成浮层药丸盖在图上,右侧转表冠缩放条,和你之前那套 <b>watch-holeview</b> 一致。不再是小方块地图。<br>
+    · <b>推杆自动加进总杆</b>:填「2 推」→ 总杆自动 +2,你再确认或改。少按两下。<br>
+    <b>到这里全定了,下面是我要落的 SwiftUI 骨架:</b><br>
+    · 先把<b>现有计分屏 WatchScoreHoleView</b> 接到「果岭图标 / 菜单入口」,加「总杆默认 = 系统记到的挥杆数 + 推杆自动加」。<br>
+    · 球道图收尾用<b>现有全屏 WatchHoleMapView(fullMap 态)</b>,记杆流程里显示「离上一杆 N 码」。<br>
+    · 记杆那段:先做<b>手动触发版</b>(打完点一下弹选杆),自动挥杆检测(AutoShot)后接——检测可靠性(推杆/切杆/试挥不误记)是真机调的活,先不挡这条流程。<br>
+    哪块还别扭你圈;没问题我就开工。
+  </div>
+</body></html>

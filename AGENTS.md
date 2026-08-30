@@ -30,6 +30,11 @@ defines ownership and resource lifetime, not a new product plan.
   snapshot may exist at a time. Parallel opinions use the same snapshot.
 - Never install a private `.venv` in every worktree. Use the shared remote
   environment/cache or a named Docker image.
+- On the homeserver, prefer the project API image's read-only `/app/.venv`.
+  If a host virtualenv is unavoidable, use only
+  `/home/jason/garmin-ai-caddie-data/venvs/garmin-ai-caddie-ci`, guarded by the
+  shared-environment lock and rebuilt from `uv.lock`. Never run dependency
+  installation inside a copied worktree.
 
 ## 3. Lifetime and cleanup
 
