@@ -31,6 +31,14 @@ device gate or authorize production promotion.
   readiness, public origin, health schema, and exact revision checks. CD run
   `33300858579` succeeded; App Store Connect accepted and finished processing
   marketing version `0.1.0`, TestFlight build `44`.
+- **TestFlight distribution:** The initial upload did not assign the build to
+  an external group. Run `33307618214` submitted build `44` for Beta App
+  Review and assigned it to `Private Trial`; status run `33307662731` then
+  observed `state=VALID`, `expired=false`, and `externalState=BETA_APPROVED`.
+  A repeated `assign_existing` run (`33307708592`) received Apple's
+  non-idempotent “tester(s) cannot be assigned” response; historical
+  successful assignment evidence remains, so this is not evidence that the
+  existing testers were removed. Physical installation is still unverified.
 - **Remaining gate:** Independent installation and first-launch/start
   verification on a physical iPhone/Watch for build `0.1.0 (44)`. No further
   source change, build, upload, deployment, or production-data action is
@@ -52,6 +60,11 @@ device gate or authorize production promotion.
   checks. Exactly one CD run, `33300858579`, succeeded at that artifact source;
   App Store Connect accepted and finished processing marketing version `0.1.0`,
   TestFlight build `44` (`uploadCompleted=true`).
+- **TestFlight distribution:** Run `33307618214` submitted build `44` and
+  assigned it to `Private Trial`; status run `33307662731` observed
+  `externalState=BETA_APPROVED`, `state=VALID`, and `expired=false`. The
+  duplicate tester-assignment attempt `33307708592` was rejected by Apple's
+  non-idempotent relationship endpoint and does not prove group removal.
 - **Remaining gate:** The only open item is independent installation and
   first-launch/start verification on a physical device (iPhone/Watch) for build
   `0.1.0 (44)`. No additional source change, build, upload, deployment, or
