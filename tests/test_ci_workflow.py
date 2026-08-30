@@ -1192,8 +1192,34 @@ class CIWorkflowTests(unittest.TestCase):
         self.assertIn("AI_CADDIE_API_BASE_URL=#{Shellwords.escape(api_base_url)}", text)
         self.assertIn("AI_CADDIE_ADMIN_TOKEN", text)
         self.assertIn('ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"', text)
+        self.assertIn('ENV.fetch("ALLOW_TEST_ENVIRONMENT_UPLOAD", "false") == "true"', text)
+        self.assertIn('ALLOW_TEST_ENVIRONMENT_UPLOAD requires UPLOAD_TO_TESTFLIGHT=true', text)
+        self.assertIn('preflight_backend!(allow_degraded_readiness: allow_degraded_readiness)', text)
+        self.assertIn("readiness_shape_valid", text)
+        self.assertIn("runtime_readiness_complete", text)
+        self.assertIn("Test-environment upload opt-in", text)
         self.assertIn('UI.success("Signed IPA built; TestFlight upload was not requested.")', text)
         self.assertNotIn("create_app_online", text)
+
+        # Optional provenance flags must be appended conditionally. Keeping them
+        # outside the literal makes both artifact-only and upload paths parse in
+        # Ruby while preserving omission when a value is unavailable.
+        api_arg = 'provenance_args << "--api-origin #{Shellwords.escape(api_origin)}" unless api_origin.empty?'
+        backend_arg = 'provenance_args << "--backend-revision #{Shellwords.escape(backend_revision)}" unless backend_revision.empty?'
+        self.assertIn(api_arg, text)
+        self.assertIn(backend_arg, text)
+        self.assertIn('get_version_number(xcodeproj: XCODE_PROJECT, target: "AICaddie")', text)
+        self.assertIn('get_build_number(xcodeproj: XCODE_PROJECT)', text)
+        self.assertNotIn('get_build_number(xcodeproj: XCODE_PROJECT, target:', text)
+        self.assertIn('repo_root = File.expand_path("..", __dir__)', text)
+        self.assertIn('provenance_script = File.join(repo_root, "ops", "write_release_provenance.py")', text)
+        self.assertIn('output_directory: ios_build_dir', text)
+        self.assertIn('"python3 #{Shellwords.escape(provenance_script)}"', text)
+        self.assertIn('path: File.join(ios_build_dir, "release-provenance.json")', text)
+        self.assertLess(text.index('provenance_args = ['), text.index(api_arg))
+        self.assertLess(text.index(api_arg), text.index('provenance_args << "--upload-requested"'))
+        self.assertNotIn('"--api-origin #{Shellwords.escape(api_origin)}" unless api_origin.empty?,', text)
+        self.assertNotIn('"--backend-revision #{Shellwords.escape(backend_revision)}" unless backend_revision.empty?,', text)
 
         project = yaml.safe_load(Path("mobile/ios/project.yml").read_text(encoding="utf-8"))
         targets = project["schemes"]["AICaddie"]["build"]["targets"]
@@ -1214,8 +1240,14 @@ class CIWorkflowTests(unittest.TestCase):
         workflow_text = Path(".github/workflows/ios-testflight.yml").read_text(encoding="utf-8")
         self.assertIn("vars.AI_CADDIE_API_BASE_URL", workflow_text)
         self.assertIn("UPLOAD_TO_TESTFLIGHT", workflow_text)
+        self.assertIn("ALLOW_TEST_ENVIRONMENT_UPLOAD", workflow_text)
         self.assertIn("AI_CADDIE_ADMIN_TOKEN", workflow_text)
         self.assertIn("expected_backend_revision", inputs)
+        self.assertIn("test_environment_upload", inputs)
+        self.assertEqual(inputs["test_environment_upload"]["type"], "boolean")
+        self.assertFalse(inputs["test_environment_upload"]["default"])
+        self.assertIn("owner", inputs["test_environment_upload"]["description"].lower())
+        self.assertIn("github.event.inputs.test_environment_upload", workflow_text)
 
         info_plist = Path("mobile/ios/AICaddie/Info.plist").read_text(encoding="utf-8")
         self.assertNotIn("AICaddieAdminToken", info_plist)

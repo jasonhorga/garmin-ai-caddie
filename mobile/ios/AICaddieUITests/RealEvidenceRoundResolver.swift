@@ -116,7 +116,7 @@ final class RealEvidenceRoundResolver {
             // the marker and are Garmin-backed, so reject only an explicit manual source here.
             .filter { nonEmptyString($0["source"])?.lowercased() != "manual" }
             .sorted(by: evidenceCardPrecedes)
-        let requestedRef = preferredRoundRef?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedRef = Self.normalizedPreferredRoundRef(preferredRoundRef)
         let cards = requestedRef.map { ref in
             allCards.filter { nonEmptyString($0["id"]) == ref }
         } ?? allCards
@@ -235,6 +235,15 @@ final class RealEvidenceRoundResolver {
             }
         }
         throw RealEvidenceRoundResolverError.noEligibleRound
+    }
+
+    /// Workflow dispatch inputs use an empty string when no preferred round was supplied. Treat
+    /// that value like nil so the resolver inspects the bounded recent history instead of filtering
+    /// every card against an impossible empty id.
+    static func normalizedPreferredRoundRef(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func record(_ roundRef: String, _ hole: Int?, _ reason: String) {

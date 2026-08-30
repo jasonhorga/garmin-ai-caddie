@@ -27,8 +27,15 @@ final class ReviewEditUITests: XCTestCase {
         continueAfterFailure = false
         app.launchEnvironment["AI_CADDIE_API_BASE_URL"] = cfg("AI_CADDIE_API_BASE_URL") ?? ""
         app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"] = cfg("AI_CADDIE_ADMIN_TOKEN") ?? ""
-        app.launchEnvironment["AI_CADDIE_FIXTURE_MODE"] = cfg("AI_CADDIE_FIXTURE_MODE") ?? "0"
-        app.launchEnvironment["AI_CADDIE_DATA_MODE"] = cfg("AI_CADDIE_DATA_MODE") ?? ""
+        for key in UITestBackendLaunchConfiguration.markerKeys {
+            app.launchEnvironment.removeValue(forKey: key)
+        }
+        app.launchEnvironment.merge(
+            UITestBackendLaunchConfiguration.markers(
+                fixtureMode: cfg("AI_CADDIE_FIXTURE_MODE"),
+                dataMode: cfg("AI_CADDIE_DATA_MODE")
+            )
+        ) { _, new in new }
         app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
         app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.5461531"
         app.launchEnvironment["UITEST_MODE"] = "1"

@@ -35,6 +35,27 @@ device gate or authorize production promotion.
   verification on a physical iPhone/Watch for build `0.1.0 (44)`. No further
   source change, build, upload, deployment, or production-data action is
   pending for this slice.
+- **Backend candidate:** The candidate was deployed from the clean detached
+  checkout at `/home/jason/codex-runs/garmin-ai-caddie-backend-deploy-20260830`
+  at exact revision `1af378b811cd25edae12285c5745aef1b57d7faf`. The verified
+  private-volume backup is
+  `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260830/private-volume-20260830.tar.gz`
+  (SHA-256
+  `9c632173043f3ac7010ef5883124ee1c57387ca3656aa387e873b102b819b162`).
+- **Native live evidence:** Native Mobile CI run `33297795933` passed all 38
+  steps at source `44c444c695c0f6c2630b6ccf0c2e2042f1d7a901`, including the
+  live iOS and Watch flow against course `31793` / 北京丽宫. Commit `44c444c6`
+  is the live-marker fix that keeps live UI tests out of fixture mode.
+- **TestFlight path:** Commit `8f141b9d9ea1697cda46c2c7c1fd10e32e468f74`
+  adds the explicit owner-approved test-environment bypass while retaining
+  authenticated readiness, public origin, health schema, and exact revision
+  checks. Exactly one CD run, `33300858579`, succeeded at that artifact source;
+  App Store Connect accepted and finished processing marketing version `0.1.0`,
+  TestFlight build `44` (`uploadCompleted=true`).
+- **Remaining gate:** The only open item is independent installation and
+  first-launch/start verification on a physical device (iPhone/Watch) for build
+  `0.1.0 (44)`. No additional source change, build, upload, deployment, or
+  production-data action is pending for this slice.
 
 ## Objective
 
@@ -2003,3 +2024,33 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   prerequisites and live course discovery; iOS live-simulator and independent
   Watch/evidence stages were still running at this update. No TestFlight,
   signing, or additional deployment action was performed.
+- 2026-08-30: Added the explicit owner-approved test-environment upload path in
+  commit `8f141b9d9ea1697cda46c2c7c1fd10e32e468f74` (message:
+  `ci: allow explicitly approved test-environment upload`). The Fastlane
+  bypass only relaxes degraded operational readiness when both
+  `test_environment_upload=true` and `upload_to_testflight=true`; public HTTPS
+  origin, authenticated readiness shape, health schema, and exact backend
+  revision checks remain mandatory. Homeserver verification passed the two
+  focused workflow contract tests (`2/2`), remote Ruby `ruby -c` (`Syntax OK`),
+  and `git diff --check`. The temporary Ruby container and scratch `.venv`
+  were removed; the downloaded release artifact remains at
+  `/home/jason/codex-runs/ios-testflight-33300858579-artifact`.
+- 2026-08-30: With owner approval, dispatched exactly one iOS TestFlight CD
+  run `33300858579` at commit
+  `8f141b9d9ea1697cda46c2c7c1fd10e32e468f74`, using
+  `api_base_url=https://caddie.taile36706.ts.net`, expected backend revision
+  `1af378b811cd25edae12285c5745aef1b57d7faf`,
+  `upload_to_testflight=true`, and `test_environment_upload=true`. Run/job
+  `33300858579`/`99228619111` completed successfully. App Store Connect
+  accepted and finished processing marketing version `0.1.0`, TestFlight build
+  `44`, and set the requested changelog; no tester-device installation or
+  launch has been independently verified. Release provenance reports
+  `uploadRequested=true`, `uploadCompleted=true`, `uploadToTestflight=true`,
+  and `backendRevisionVerified=true`. IPA SHA-256 is
+  `1063aa602d2265aa94707178c6c152f0ecbc87c53982b8661738463084c4a584`;
+  provenance JSON SHA-256 is
+  `eeebce7c26cca567c9fb291c7ccd36b2756b0d95260b22de2b424b97f8fb8b3e`;
+  GitHub artifact `AICaddie-ipa` ID `9728952402` has ZIP digest
+  `93ed970bfe703d0a200f08413060af70a96b1f0ee02812626dea06cda9540213`.
+  No production data, deployment, or persistent service state was modified by
+  this release action.

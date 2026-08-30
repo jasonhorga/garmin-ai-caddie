@@ -114,7 +114,7 @@ platform :ios do
     value.downcase
   end
 
-  def preflight_backend!
+  def preflight_backend!(allow_degraded_readiness: false)
     origin = ENV["AI_CADDIE_API_BASE_URL"].to_s.strip
     UI.user_error!("AI_CADDIE_API_BASE_URL must be a public HTTPS origin for upload") if origin.empty?
     parsed = URI.parse(origin)
@@ -150,7 +150,20 @@ platform :ios do
     UI.user_error!("backend health schema mismatch") unless health["schema"] == "ai-caddie-health-v2"
     readiness = fetch_json.call("/api/v2/readiness")
     checks = readiness["checks"]
-    UI.user_error!("backend readiness evidence missing") unless readiness["schema"] == "ai-caddie-readiness-v1" && readiness["authenticated"] == true && readiness["runtimeStatus"] == "ready" && readiness["serviceStatus"] == "ready" && %w[ready degraded].include?(readiness["status"]) && checks.is_a?(Array) && !checks.empty? && checks.all? { |row| row.is_a?(Hash) && !row["label"].to_s.strip.empty? && %w[ready degraded error unknown].include?(row["state"]) }
+    readiness_shape_valid = readiness["schema"] == "ai-caddie-readiness-v1" &&
+      readiness["authenticated"] == true &&
+      %w[ready degraded].include?(readiness["status"]) &&
+      %w[ready degraded].include?(readiness["runtimeStatus"]) &&
+      %w[ready degraded].include?(readiness["serviceStatus"]) &&
+      checks.is_a?(Array) && !checks.empty? &&
+      checks.all? { |row| row.is_a?(Hash) && !row["label"].to_s.strip.empty? && %w[ready degraded error unknown].include?(row["state"]) }
+    runtime_readiness_complete = readiness["runtimeStatus"] == "ready" && readiness["serviceStatus"] == "ready"
+    unless readiness_shape_valid && (runtime_readiness_complete || allow_degraded_readiness)
+      UI.user_error!("backend readiness evidence missing")
+    end
+    if allow_degraded_readiness && !runtime_readiness_complete
+      UI.important("Test-environment upload opt-in: allowing degraded operational readiness; health, revision, origin, and authenticated readiness checks remain enforced.")
+    end
     actual = health["revision"].to_s.strip.downcase
     UI.user_error!("backend health revision is missing or invalid") unless actual.match?(/\A[0-9a-fA-F]{40}\z/)
     expected = ENV["EXPECTED_BACKEND_REVISION"].to_s.strip.downcase
@@ -226,6 +239,8 @@ platform :ios do
   desc "Build the app (with embedded watch app) and upload to TestFlight"
   lane :beta do
     upload_requested = ENV.fetch("UPLOAD_TO_TESTFLIGHT", "false") == "true"
+    allow_degraded_readiness = ENV.fetch("ALLOW_TEST_ENVIRONMENT_UPLOAD", "false") == "true"
+    UI.user_error!("ALLOW_TEST_ENVIRONMENT_UPLOAD requires UPLOAD_TO_TESTFLIGHT=true") if allow_degraded_readiness && !upload_requested
     release_commit = release_commit!(required: upload_requested)
     api_key = load_asc_api_key!
     ensure_match_env!
@@ -247,9 +262,12 @@ platform :ios do
 
     app_profile = "match AppStore #{APP_BUNDLE_ID}"
     watch_profile = "match AppStore #{WATCH_BUNDLE_ID}"
+    repo_root = File.expand_path("..", __dir__)
+    ios_build_dir = File.join(repo_root, "build", "ios")
+    provenance_script = File.join(repo_root, "ops", "write_release_provenance.py")
     build_app(
       project: XCODE_PROJECT, scheme: SCHEME, configuration: "Release",
-      output_directory: "build/ios", output_name: OUTPUT_IPA,
+      output_directory: ios_build_dir, output_name: OUTPUT_IPA,
       export_method: "app-store", clean: true,
       export_options: {
         signingStyle: "manual",
@@ -258,24 +276,24 @@ platform :ios do
       xcargs: build_xcargs
     )
 
-    backend = preflight_backend! if upload_requested
+    backend = preflight_backend!(allow_degraded_readiness: allow_degraded_readiness) if upload_requested
     backend_revision = upload_requested ? backend.fetch("revision") : ""
     api_origin = ENV["AI_CADDIE_API_BASE_URL"].to_s.strip
     provenance_args = [
-      "python3 ops/write_release_provenance.py",
-      "--ipa #{Shellwords.escape(File.join('build/ios', OUTPUT_IPA))}",
-      "--api-origin #{Shellwords.escape(api_origin)}" unless api_origin.empty?,
-      "--backend-revision #{Shellwords.escape(backend_revision)}" unless backend_revision.empty?,
+      "python3 #{Shellwords.escape(provenance_script)}",
+      "--ipa #{Shellwords.escape(File.join(ios_build_dir, OUTPUT_IPA))}",
       "--commit #{Shellwords.escape(release_commit)}",
       "--workflow-run #{Shellwords.escape(ENV.fetch('GITHUB_RUN_ID', 'local'))}",
-      "--marketing-version #{Shellwords.escape(get_version_number(xcodeproj: XCODE_PROJECT))}",
+      "--marketing-version #{Shellwords.escape(get_version_number(xcodeproj: XCODE_PROJECT, target: "AICaddie"))}",
       "--build-number #{Shellwords.escape(get_build_number(xcodeproj: XCODE_PROJECT))}"
     ].compact
+    provenance_args << "--api-origin #{Shellwords.escape(api_origin)}" unless api_origin.empty?
+    provenance_args << "--backend-revision #{Shellwords.escape(backend_revision)}" unless backend_revision.empty?
     provenance_args << "--upload-requested" if upload_requested
     sh(provenance_args.join(" "))
 
     validate_release_provenance!(
-      path: File.join("build/ios", "release-provenance.json"),
+      path: File.join(ios_build_dir, "release-provenance.json"),
       release_commit: release_commit,
       backend_revision: backend_revision,
       api_origin: api_origin,
@@ -289,7 +307,7 @@ platform :ios do
       )
       sh("#{provenance_args.join(' ')} --upload-to-testflight")
       validate_release_provenance!(
-        path: File.join("build/ios", "release-provenance.json"),
+        path: File.join(ios_build_dir, "release-provenance.json"),
         release_commit: release_commit,
         backend_revision: backend_revision,
         api_origin: api_origin,
