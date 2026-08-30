@@ -21,8 +21,8 @@ public struct AppSession: Codable, Equatable {
         return expiresAt <= Date()
     }
 
-    /// A malformed Keychain row must never make the app appear signed in while every request is
-    /// unauthenticated. The backend-issued token and player scope are both required to use a session.
+    /// A malformed persisted row must never make the app appear signed in while requests are
+    /// unauthenticated. Both backend-issued fields are required for a usable session.
     public var isUsable: Bool {
         !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !playerId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -90,18 +90,13 @@ public final class SessionStore: ObservableObject {
         persisting.write(session)
     }
 
-    /// Re-read the Keychain after the device has unlocked. A first read can legitimately return no
-    /// item while the device is still locked; refreshing on scene activation prevents a false
-    /// sign-in screen after a relaunch without weakening the Keychain accessibility policy.
+    /// Re-read Keychain after the device has unlocked. A protected-data read can transiently return
+    /// nil during first launch; preserve an already-valid in-memory session rather than forcing the
+    /// user back through Apple sign-in. Invalid or expired rows are still cleared fail-closed.
     public func reload() {
-        let stored = persisting.read()
-        guard let stored, stored.isUsable, !stored.isExpired else {
-            if stored != nil { persisting.clear() }
-            lock.lock()
-            liveTokenValue = nil
-            liveExpiry = nil
-            lock.unlock()
-            publish(nil)
+        guard let stored = persisting.read() else { return }
+        guard stored.isUsable, !stored.isExpired else {
+            signOut()
             return
         }
         lock.lock()
@@ -180,7 +175,10 @@ public struct KeychainSessionPersisting: SessionPersisting {
         guard let data = try? JSONEncoder().encode(session) else { return }
         let updateStatus = SecItemUpdate(
             baseQuery as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
+            [
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            ] as CFDictionary
         )
         guard updateStatus == errSecItemNotFound else { return }
         var query = baseQuery
