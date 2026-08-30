@@ -268,9 +268,16 @@ jobs:
               puts "No TestFlight groups found."
             else
               groups.each do |group|
+                builds = safely { group.fetch_builds }
+                build_summary = if builds.is_a?(Array)
+                                  builds.map { |build| "#{safely { build.version }}:#{safely { build.id }}" }.join(",")
+                                else
+                                  builds.to_s
+                                end
                 puts(
                   "- #{group.name} id=#{group.id} internal=#{group.is_internal_group} " \
-                  "publicLinkEnabled=#{group.public_link_enabled} allBuilds=#{group.has_access_to_all_builds}"
+                  "publicLinkEnabled=#{group.public_link_enabled} allBuilds=#{group.has_access_to_all_builds} " \
+                  "builds=#{build_summary}"
                 )
               end
             end
@@ -287,7 +294,10 @@ jobs:
               testers.each do |tester|
                 puts(
                   "- #{redact_email(tester.email)} state=#{describe(tester.beta_tester_state)} " \
+                  "inviteType=#{describe(tester.invite_type)} deleted=#{describe(tester.is_deleted)} " \
                   "devices=#{describe(tester.number_of_installed_devices)} " \
+                  "installed=#{describe(tester.installed_cf_bundle_short_version_string)}" \
+                  "(#{describe(tester.installed_cf_bundle_version)}) " \
                   "latest=#{describe(tester.latest_expiring_cf_bundle_short_version_string)}" \
                   "(#{describe(tester.latest_expiring_cf_bundle_version_string)})"
                 )
