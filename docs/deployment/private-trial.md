@@ -200,15 +200,25 @@ With the same read-only GitHub metadata token, the preflight also inspects recen
 `iOS TestFlight Testers` workflow logs and records a safe summary when App Store
 Connect reports `READY_FOR_BETA_SUBMISSION`. It stores only build/status enums
 and a run-id source, never tester email addresses or raw log lines.
+
+The `iOS TestFlight Testers` workflow defaults to the existing internal
+`Jason's friends` group for `operation=distribute`. That private path only
+validates the internal group and binds the selected build; it does not create a
+group, submit Beta App Review, or notify external testers. If the internal group
+is missing, the workflow fails closed instead of creating an external group.
+
+External tester, review, and distribution operations require the explicit
+workflow input `external_distribution=true`. They use `groups` (default
+`Private Trial`), and only this opt-in path may create a missing external group.
 The same log summary can record that app-level TestFlight tester records and the
 `Private Trial` group exist, but app-level tester records alone do not satisfy
 target tester coverage; the gate stays open until group assignment or internal
 coverage is confirmed.
 If the target testers already exist at the app level, run the GitHub
-`iOS TestFlight Testers` workflow with `operation=assign_existing` and
-`groups=Private Trial`. Its successful log records the group assignment count
-without exposing raw tester email addresses, and that count can satisfy target
-tester coverage.
+`iOS TestFlight Testers` workflow with `operation=assign_existing`,
+`external_distribution=true`, and `groups=Private Trial`. Its successful log
+records the group assignment count without exposing raw tester email addresses,
+and that count can satisfy target tester coverage.
 
 The backend probe does not count as ready unless `AI_CADDIE_ADMIN_TOKEN` is
 provided; public `/api/v2/readiness` alone is not enough for the external

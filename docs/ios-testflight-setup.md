@@ -62,11 +62,19 @@ Current branch: `codex/release-hardening-20260827`.
   TestFlight build at a deployed backend without another upload.
 - Run the `iOS TestFlight Testers` workflow manually:
   - `operation=list` shows uploaded builds, TestFlight groups, and currently visible testers.
-  - `operation=add` adds comma-separated external tester emails to the configured group
-    (default `Private Trial`).
-  - `operation=assign_existing` assigns currently visible app-level TestFlight testers
-    to the configured group without printing raw email addresses. Use this when the
-    testers already exist in App Store Connect and only group membership is missing.
+  - The default private `operation=distribute` path binds the selected build to the
+    existing internal group `Jason's friends` (or the explicitly supplied
+    `internal_group`). It does not create a group, submit Beta App Review, or notify
+    external testers.
+  - `operation=add` adds comma-separated external tester emails to `groups` (default
+    `Private Trial`). `operation=assign_existing` assigns currently visible app-level
+    external testers to those groups without printing raw email addresses. Both
+    operations require `external_distribution=true`.
+  - `operation=configure_review` and `operation=submit_review` are external-only and
+    also require `external_distribution=true`.
+  - To distribute a build to an external group, set `external_distribution=true` and
+    choose `groups` (default `Private Trial`). Only this explicit path may create a
+    missing external group.
   - For automated external Beta App Review submission, set the
     `TESTFLIGHT_FEEDBACK_EMAIL` repo secret. It is intentionally secret-only
     because this repo is public. If you fill the Beta App feedback email
@@ -86,9 +94,6 @@ Current branch: `codex/release-hardening-20260827`.
     info and Beta App Review details from configured secrets when needed, and
     submits the selected build for external Beta App Review without changing
     tester/group membership.
-  - `operation=distribute` assigns the latest or selected build to that external
-    TestFlight group. External distribution may require Beta App Review before testers
-    can install.
   This workflow calls fastlane's Spaceship/App Store Connect API directly instead of the
   `pilot builds/list/add/distribute` subcommands, because Apple's current API no longer
   accepts the legacy `buildDeliveries` relationship used by those listing paths.
