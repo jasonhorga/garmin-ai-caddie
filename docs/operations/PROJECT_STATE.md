@@ -6,8 +6,9 @@
 
 **Updated:** 2026-08-30 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**Source baseline:** `464d8d35` (TestFlight build 45 artifact source; backend runtime revision
-`1af378b811cd25edae12285c5745aef1b57d7faf`; prior chain remains in Git history)
+**Source baseline:** `1fc603b8d0761d134210968cf05ab489241a3f9b` (TestFlight build 46
+artifact source; backend runtime revision `1af378b811cd25edae12285c5745aef1b57d7faf`;
+prior chain remains in Git history)
 **Release rule:** production promotion remains gated on complete P0/P1/P2
 runtime evidence and owner approval. An owner-approved test-environment upload
 may use the explicit test-environment flag, but does not close the physical
@@ -61,8 +62,25 @@ device gate or authorize production promotion.
   `33316374289` confirmed build 45 remains `VALID` and the internal group still
   contains builds 43, 44, and 45. This invitation does not change the physical
   device-wide install blocker.
+- **Current auth candidate native evidence (2026-08-30):** Native Mobile CI run
+  `33323039610` passed all iOS and Watch steps at `1fc603b8`, including the real
+  iOS flow, Watch runtime seed/restore screens, artifact scans, and cleanup. It
+  used the isolated CI fixture; it is source/runtime evidence for the Apple-session
+  gate and Garmin-auth error handling, not a substitute for physical-device login.
+- **TestFlight build 46 (2026-08-30):** CD run `33325484872` built and uploaded
+  `0.1.0 (46)` from `1fc603b8`; Apple finished processing it successfully. The
+  release provenance records IPA SHA-256
+  `cc781a40f2745664e172635390f78efcdcf514ed423dc4c37b75c4ed86c652e9`, API
+  origin `caddie.taile36706.ts.net`, and backend revision
+  `1af378b811cd25edae12285c5745aef1b57d7faf`. Read-only TestFlight run
+  `33326041311` confirmed build 46 is `VALID`, unexpired, and in
+  `IN_BETA_TESTING`; the existing internal group `Jason's friends` has
+  `allBuilds=true` and already lists build 46. Attempted run `33325963680` to
+  explicitly attach an internal group failed with Apple's expected
+  `Cannot add internal group to a build` response; no external group was created
+  and no distribution action is required for the internal group.
 - **Remaining gate:** Physical installation and first-launch/start evidence on
-  one qualified iPhone (build 45 preferred, with 43 as a useful control), then
+  one qualified iPhone (build 46 preferred, with 45 as a useful control), then
   the paired Watch. Required evidence is the exact Apple ID/tester path, iOS and
   watchOS versions, free storage, and whether a second compatible device can
   install the same build. Until that differential is known, no further build,
