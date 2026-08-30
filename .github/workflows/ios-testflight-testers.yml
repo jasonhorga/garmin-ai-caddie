@@ -44,6 +44,11 @@ on:
         description: 'Source TestFlight workflow run for diagnose_artifact'
         required: false
         default: ''
+      diagnose_bundles:
+        description: 'Print Apple-processed build bundle metadata for list'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -118,6 +123,7 @@ jobs:
           TESTFLIGHT_REVIEW_CONTACT_LAST_NAME: ${{ secrets.TESTFLIGHT_REVIEW_CONTACT_LAST_NAME }}
           TESTFLIGHT_REVIEW_CONTACT_PHONE: ${{ secrets.TESTFLIGHT_REVIEW_CONTACT_PHONE }}
           NOTIFY_EXTERNAL_TESTERS: ${{ github.event.inputs.notify_external_testers }}
+          DIAGNOSE_BUNDLES: ${{ github.event.inputs.diagnose_bundles }}
         run: |
           set -euo pipefail
           bundle exec ruby - <<'RUBY'
@@ -223,10 +229,36 @@ jobs:
                   "missingExportCompliance=#{safely { build.missing_export_compliance? }} " \
                   "#{beta_detail_state}"
                 )
+                print_build_bundles(build) if bool_input?(ENV["DIAGNOSE_BUNDLES"])
               end
             end
             puts "::endgroup::"
             builds
+          end
+
+          def print_build_bundles(build)
+            bundles = build.build_bundles || []
+            puts "::group::Apple-processed build bundles"
+            if bundles.empty?
+              puts "No build bundle metadata returned."
+            else
+              bundles.each do |bundle|
+                puts(
+                  "- bundleId=#{describe(bundle.bundle_id)} type=#{describe(bundle.bundle_type)} " \
+                  "sdkBuild=#{describe(bundle.sdk_build)} platformBuild=#{describe(bundle.platform_build)} " \
+                  "fileName=#{describe(bundle.file_name)} architectures=#{describe(bundle.supported_architectures)} " \
+                  "requiredCapabilities=#{describe(bundle.required_capabilities)} " \
+                  "deviceProtocols=#{describe(bundle.device_protocols)} " \
+                  "locationServices=#{describe(bundle.uses_location_services)} " \
+                  "prerenderedIcon=#{describe(bundle.has_prerendered_icon)}"
+                )
+                puts "  entitlements=#{describe(bundle.entitlements)}"
+              end
+            end
+            puts "::endgroup::"
+          rescue => e
+            puts "Build bundle metadata unavailable: #{e.class}"
+            puts "::endgroup::"
           end
 
           def print_groups(app)
