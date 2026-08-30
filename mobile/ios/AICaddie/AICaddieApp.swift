@@ -191,6 +191,9 @@ public struct AICaddieApp: App {
             // hosting controller owns status-bar contrast for the whole NavigationStack.
             .preferredColorScheme(usesDarkLiveChrome ? .dark : .light)
             .task {
+                // Keychain reads can be unavailable before the first device unlock. Re-read here so
+                // a relaunch does not strand a valid Apple session on the sign-in screen.
+                sessionStore.reload()
                 guard !requiresSignIn else { return }
                 if let session = sessionStore.currentSession {
                     // Rebind the account before reading any durable package or Garmin state. This is
@@ -201,6 +204,7 @@ public struct AICaddieApp: App {
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
+                    sessionStore.reload()
                     model.syncOnForeground()
                 } else if phase == .background {
                     model.continuePrepDownloadsInBackground()
@@ -772,6 +776,7 @@ public final class LiveRoundAppModel: ObservableObject {
             courseOptions = try await syncClient.fetchCourseOptions().courses
             courseOptionsRefreshSucceeded = true
         } catch {
+            invalidateAppleSessionIfNeeded(error)
             AICaddieLog.network.error("Course options fetch failed: \(String(describing: error), privacy: .public)")
             courseOptions = []
         }
@@ -3629,12 +3634,17 @@ public final class LiveRoundAppModel: ObservableObject {
     ) async throws -> [MobileCourseSearchMatch] {
         prioritizeCourseDiscovery()
         guard let syncClient else { throw URLError(.notConnectedToInternet) }
-        return try await syncClient.searchCourses(
-            name: name,
-            city: city,
-            latitude: latitude,
-            longitude: longitude
-        )
+        do {
+            return try await syncClient.searchCourses(
+                name: name,
+                city: city,
+                latitude: latitude,
+                longitude: longitude
+            )
+        } catch {
+            invalidateAppleSessionIfNeeded(error)
+            throw error
+        }
     }
 
     public func nearbyCourses(
@@ -3652,11 +3662,16 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         #endif
         guard let syncClient else { throw URLError(.notConnectedToInternet) }
-        return try await syncClient.nearbyCourses(
-            latitude: latitude,
-            longitude: longitude,
-            radiusKm: radiusKm
-        )
+        do {
+            return try await syncClient.nearbyCourses(
+                latitude: latitude,
+                longitude: longitude,
+                radiusKm: radiusKm
+            )
+        } catch {
+            invalidateAppleSessionIfNeeded(error)
+            throw error
+        }
     }
 
     /// Nearby/name discovery is the player's foreground intent. Stop an older round's best-effort
@@ -3665,6 +3680,20 @@ public final class LiveRoundAppModel: ObservableObject {
     private func prioritizeCourseDiscovery() {
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
+    }
+
+    /// A server-side 401 means the persisted Apple session is no longer valid. Clear it so the root
+    /// immediately presents Sign in with Apple instead of leaving the player in a dead catalogue or
+    /// Garmin-settings screen. Do not treat a 403 as expiry: a valid family-member session can be
+    /// authenticated but intentionally forbidden from an owner-only operation.
+    private func invalidateAppleSessionIfNeeded(_ error: Error) {
+        guard case let SyncClientError.http(status, _) = error, status == 401,
+              SessionStore.shared.currentSession != nil else { return }
+        #if DEBUG
+        // UI tests use an explicit admin-token bypass and deliberately do not have an Apple session.
+        guard ProcessInfo.processInfo.environment["UITEST_MODE"] != "1" else { return }
+        #endif
+        SessionStore.shared.signOut()
     }
 
     /// Load the course's selectable tee boxes (GET /courses/{id}/tees) for the 开始一场 picker —
@@ -3688,6 +3717,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             return try await syncClient.fetchCourseTees(globalId: globalId).tees
         } catch {
+            invalidateAppleSessionIfNeeded(error)
             AICaddieLog.network.error("Course tees fetch failed (preserving current course state): \(String(describing: error), privacy: .public)")
             return []
         }
