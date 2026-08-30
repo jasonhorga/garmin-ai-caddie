@@ -83,6 +83,20 @@ final class AICaddieAppTests: XCTestCase {
         )
     }
 
+    func testGarminImport401InvalidatesAppleSessionExceptExplicitUITestBypass() {
+        let error = SyncClientError.http(status: 401, body: nil)
+        #if DEBUG
+        XCTAssertTrue(GarminSessionView.shouldInvalidateAppleSession(error, environment: [:]))
+        XCTAssertFalse(GarminSessionView.shouldInvalidateAppleSession(error, environment: ["UITEST_MODE": "1"]))
+        #else
+        XCTAssertTrue(GarminSessionView.shouldInvalidateAppleSession(error, environment: ["UITEST_MODE": "1"]))
+        #endif
+        XCTAssertFalse(GarminSessionView.shouldInvalidateAppleSession(
+            SyncClientError.http(status: 422, body: nil),
+            environment: [:]
+        ))
+    }
+
     func testGarminCaptureRetryIsBounded() {
         XCTAssertTrue(GarminWebSessionCaptureView.Coordinator.shouldRetryCapture(attempt: 0))
         XCTAssertTrue(GarminWebSessionCaptureView.Coordinator.shouldRetryCapture(attempt: 2))

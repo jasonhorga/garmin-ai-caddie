@@ -156,10 +156,26 @@ public struct GarminSessionView: View {
                 showingWebLogin = false
             }
         } catch {
+            if Self.shouldInvalidateAppleSession(error, environment: ProcessInfo.processInfo.environment) {
+                SessionStore.shared.signOut()
+            }
             let message = Self.importErrorMessage(error)
             statusText = message
             webLoginStatus = message
         }
+    }
+
+    static func shouldInvalidateAppleSession(
+        _ error: Error,
+        environment: [String: String]
+    ) -> Bool {
+        guard case let SyncClientError.http(status, _) = error, status == 401 else { return false }
+        #if DEBUG
+        return environment["UITEST_MODE"] != "1"
+        #else
+        _ = environment
+        return true
+        #endif
     }
 
     static func importErrorMessage(_ error: Error) -> String {
