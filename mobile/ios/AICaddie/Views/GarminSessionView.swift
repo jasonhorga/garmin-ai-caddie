@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// 连接 Garmin:在内嵌网页里登录自己的 Garmin,我们只抓登录后的 cookie(不存密码)绑定到后端
 /// (成员走 /players/{id}/…,owner 走 owner 路由)。纯网页登录流 —— 消费界面没有任何"会话头 /
@@ -14,6 +15,8 @@ public struct GarminSessionView: View {
     @State private var isImporting = false
     @State private var connected = false
     @State private var showingWebLogin = false
+    @State private var webLoginStatus = "请在 Garmin 页面完成登录"
+    @State private var loginRetryToken = 0
 
     public init(
         apiBaseURL: URL? = nil,
@@ -31,6 +34,7 @@ public struct GarminSessionView: View {
         Form {
             Section("Garmin") {
                 Button {
+                    webLoginStatus = "请在 Garmin 页面完成登录"
                     showingWebLogin = true
                 } label: {
                     Label(connected ? "重新连接 Garmin" : "连接 Garmin", systemImage: "link")
@@ -56,13 +60,41 @@ public struct GarminSessionView: View {
         }
         .sheet(isPresented: $showingWebLogin) {
             NavigationStack {
-                GarminWebSessionCaptureView { captured in
-                    Task {
-                        await importCapturedSession(captured)
+                VStack(spacing: 0) {
+                    GarminWebSessionCaptureView(
+                        onCaptured: { captured in
+                            Task {
+                                await importCapturedSession(captured)
+                            }
+                        },
+                        retryToken: loginRetryToken,
+                        onStatus: { status in
+                            webLoginStatus = status
+                        }
+                    )
+                    HStack(spacing: 8) {
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(.secondary)
+                        Text(webLoginStatus)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(uiColor: .secondarySystemBackground))
                 }
                 .navigationTitle("登录 Garmin")
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            loginRetryToken &+= 1
+                        } label: {
+                            Label("检查登录", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(isImporting)
+                    }
                     ToolbarItem(placement: .cancellationAction) {
                         Button("取消") {
                             showingWebLogin = false

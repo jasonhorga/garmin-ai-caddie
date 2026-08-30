@@ -11,21 +11,35 @@ public struct AICaddieApp: App {
     @StateObject private var model = LiveRoundAppModel()
     @StateObject private var sessionStore = SessionStore.shared
     @Environment(\.scenePhase) private var scenePhase
-    @State private var showNoPackageSettings = false
     @State private var usesDarkLiveChrome = false
 
     public init() {}
 
-    /// Production: everyone signs in with Apple (no admin token / 「本人」 in the product). DEBUG —
-    /// the simulator/CI cannot perform a real Apple sign-in — skips the gate so tests keep running
-    /// on the existing admin-token / empty path.
+    /// Only an explicit DEBUG UI-test launch may bypass Apple sign-in. Ordinary DEBUG launches use
+    /// the same session gate as Release so local development cannot accidentally run in another
+    /// account's scope.
     private var requiresSignIn: Bool {
+        Self.requiresAppleSignIn(
+            environment: ProcessInfo.processInfo.environment,
+            session: sessionStore.currentSession
+        )
+    }
+
+    static func debugUITestBypassAllowed(environment: [String: String]) -> Bool {
         #if DEBUG
-        return false
+        return environment["UITEST_MODE"] == "1"
         #else
-        guard let session = sessionStore.currentSession else { return true }
-        return session.isExpired
+        return false
         #endif
+    }
+
+    static func requiresAppleSignIn(
+        environment: [String: String],
+        session: AppSession?
+    ) -> Bool {
+        guard !debugUITestBypassAllowed(environment: environment) else { return false }
+        guard let session else { return true }
+        return session.isExpired
     }
 
     public var body: some Scene {
@@ -169,85 +183,7 @@ public struct AICaddieApp: App {
                         }
                     )
                 } else {
-                    NavigationStack {
-                        StartRoundView(
-                            courseOptions: model.courseOptions,
-                            downloadedCourseOptions: model.downloadedCourseOptions,
-                            syncStatus: model.syncStatus,
-                            isPreparing: model.isPreparingRound,
-                            apiBaseURL: model.apiBaseURL,
-                            adminTokenConfigured: model.adminTokenConfigured,
-                            onPrepareRound: { roundId in
-                                Task {
-                                    await model.prepareRound(roundId: roundId)
-                                }
-                            },
-                            onPrepareCourseRound: { globalId, roundId, teeBox, nine in
-                                Task {
-                                    await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine)
-                                }
-                            },
-                            onPrepareCompositeRound: { globalId, backGlobalId, teeBox, roundId in
-                                Task {
-                                    await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox)
-                                }
-                            },
-                            onRememberCourseDisplayName: { globalId, name in
-                                model.rememberSelectedCourseDisplayName(globalId: globalId, name: name)
-                            },
-                            onSaveBackendConfiguration: { apiBaseURLText, adminTokenText in
-                                Task {
-                                    await model.saveBackendConfiguration(apiBaseURLText: apiBaseURLText, adminTokenText: adminTokenText)
-                                }
-                            },
-                            onClearBackendConfiguration: {
-                                Task {
-                                    await model.clearBackendConfiguration()
-                                }
-                            },
-                            onConnectGarmin: { showNoPackageSettings = true },
-                            onLoadCourseTees: { globalId in await model.loadCourseTees(globalId: globalId) },
-                            onSearchCourses: { name, city, latitude, longitude in
-                                try await model.searchCourses(
-                                    name: name,
-                                    city: city,
-                                    latitude: latitude,
-                                    longitude: longitude
-                                )
-                            },
-                            onNearbyCourses: { latitude, longitude, radiusKm in
-                                try await model.nearbyCourses(
-                                    latitude: latitude,
-                                    longitude: longitude,
-                                    radiusKm: radiusKm
-                                )
-                            }
-                        )
-                        .safeAreaInset(edge: .top, spacing: 0) {
-                            if let pending = model.pendingWatchRoundStart {
-                                HubPendingWatchCard(
-                                    courseName: pending.courseName,
-                                    activeHole: pending.activeHole
-                                )
-                                .padding(.horizontal, 16)
-                                .padding(.top, 8)
-                                .padding(.bottom, 4)
-                                .background(Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255))
-                                .accessibilityIdentifier("no-package-watch-round-pending")
-                            }
-                        }
-                        .disabled(model.pendingWatchRoundStart != nil)
-                        // First launch with no data: the empty-state CTA + this gear both open the
-                        // Garmin-connect sheet so a signed-in user can pull their courses and score.
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button { showNoPackageSettings = true } label: { Image(systemName: "gearshape") }
-                            }
-                        }
-                        .sheet(isPresented: $showNoPackageSettings) {
-                            noPackageSettingsSheet
-                        }
-                    }
+                    NoPackageHubView(model: model)
                 }
             }
             // Product chrome is light except for the immersive live-hole instrument. Drive the
@@ -255,14 +191,13 @@ public struct AICaddieApp: App {
             // hosting controller owns status-bar contrast for the whole NavigationStack.
             .preferredColorScheme(usesDarkLiveChrome ? .dark : .light)
             .task {
-                #if DEBUG
-                await model.bootstrap()
-                #else
+                guard !requiresSignIn else { return }
                 if let session = sessionStore.currentSession {
+                    // Rebind the account before reading any durable package or Garmin state. This is
+                    // required on DEBUG relaunches too; the UI-test bypass is the only no-session path.
                     model.activateSession(session, migrateLegacyData: true)
-                    await model.bootstrap()
                 }
-                #endif
+                await model.bootstrap()
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active {
@@ -274,10 +209,44 @@ public struct AICaddieApp: App {
         }
     }
 
-    /// 无数据首启时的 sheet(用户已用 Apple 登录):连接 Garmin 拉取球场,或直接开始记分。
-    private var noPackageSettingsSheet: some View {
+}
+
+/// Stable signed-in landing surface used when no package is available yet (first launch, offline,
+/// or Garmin data has not been imported). It keeps all primary destinations reachable without
+/// manufacturing a fake course package.
+private struct NoPackageHubView: View {
+    @ObservedObject var model: LiveRoundAppModel
+
+    var body: some View {
         NavigationStack {
             List {
+                Section {
+                    NavigationLink {
+                        startRoundView
+                    } label: {
+                        Label("打球", systemImage: "flag.checkered")
+                    }
+                } header: {
+                    Text("打球")
+                } footer: {
+                    Text(model.syncStatus)
+                }
+
+                Section {
+                    NavigationLink {
+                        prepCourseView
+                    } label: {
+                        Label("备战", systemImage: "scope")
+                    }
+                    NavigationLink {
+                        ResultsView(apiBaseURL: model.apiBaseURL, adminToken: model.adminToken)
+                    } label: {
+                        Label("成绩", systemImage: "chart.line.uptrend.xyaxis")
+                    }
+                } header: {
+                    Text("球局")
+                }
+
                 Section {
                     NavigationLink {
                         GarminSessionView(
@@ -289,27 +258,87 @@ public struct AICaddieApp: App {
                     } label: {
                         Label("连接 Garmin", systemImage: "link")
                     }
-                    Button {
-                        Task { await model.bootstrap() }
-                        showNoPackageSettings = false
+                    NavigationLink {
+                        BackendSettingsView(
+                            apiBaseURL: model.apiBaseURL,
+                            adminTokenConfigured: model.adminTokenConfigured,
+                            syncStatus: model.syncStatus,
+                            onSave: { baseURL, token in
+                                Task { await model.saveBackendConfiguration(apiBaseURLText: baseURL, adminTokenText: token) }
+                            },
+                            onClear: {
+                                Task { await model.clearBackendConfiguration() }
+                            }
+                        )
                     } label: {
-                        Label("开始记分", systemImage: "flag.checkered")
+                        Label("设置", systemImage: "gearshape")
                     }
-                    .foregroundStyle(LiveHoleStyle.green)
                 } header: {
-                    Text("打球")
-                } footer: {
-                    Text("连接 Garmin 会自动拉取你的球场和历史;连接好后点「开始记分」,用手机就能记分。")
+                    Text("账号与连接")
                 }
             }
-            .navigationTitle("开始")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { showNoPackageSettings = false }
+            .navigationTitle("AI Caddie")
+            .background(HubStyle.grouped)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let pending = model.pendingWatchRoundStart {
+                    HubPendingWatchCard(courseName: pending.courseName, activeHole: pending.activeHole)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                        .background(HubStyle.grouped)
+                        .accessibilityIdentifier("no-package-watch-round-pending")
                 }
             }
         }
+    }
+
+    private var startRoundView: some View {
+        StartRoundView(
+            courseOptions: model.courseOptions,
+            downloadedCourseOptions: model.downloadedCourseOptions,
+            syncStatus: model.syncStatus,
+            isPreparing: model.isPreparingRound,
+            apiBaseURL: model.apiBaseURL,
+            adminTokenConfigured: model.adminTokenConfigured,
+            onPrepareRound: { roundId in Task { await model.prepareRound(roundId: roundId) } },
+            onPrepareCourseRound: { globalId, roundId, teeBox, nine in
+                Task { await model.prepareCourseRound(globalId: globalId, roundId: roundId, teeBox: teeBox, nine: nine) }
+            },
+            onPrepareCompositeRound: { globalId, backGlobalId, teeBox, roundId in
+                Task { await model.prepareCompositeRound(globalId: globalId, backGlobalId: backGlobalId, roundId: roundId, teeBox: teeBox) }
+            },
+            onRememberCourseDisplayName: { globalId, name in
+                model.rememberSelectedCourseDisplayName(globalId: globalId, name: name)
+            },
+            onSaveBackendConfiguration: { baseURL, token in
+                Task { await model.saveBackendConfiguration(apiBaseURLText: baseURL, adminTokenText: token) }
+            },
+            onClearBackendConfiguration: { Task { await model.clearBackendConfiguration() } },
+            onConnectGarmin: {},
+            onLoadCourseTees: { await model.loadCourseTees(globalId: $0) },
+            onSearchCourses: { name, city, lat, lon in
+                try await model.searchCourses(name: name, city: city, latitude: lat, longitude: lon)
+            },
+            onNearbyCourses: { lat, lon, radius in
+                try await model.nearbyCourses(latitude: lat, longitude: lon, radiusKm: radius)
+            }
+        )
+    }
+
+    private var prepCourseView: some View {
+        PrepCoursePickerView(
+            courseOptions: model.courseOptions,
+            downloadedCourseOptions: model.downloadedCourseOptions,
+            downloadedCourseKeys: model.downloadedCourseKeys,
+            downloads: model.prepCourseDownloads,
+            downloadPresentation: model.prepCourseDownloadPresentation,
+            apiBaseURL: model.apiBaseURL,
+            adminToken: model.adminToken,
+            offlineStore: model.offlineStore,
+            onDownload: { model.downloadPrepCourse($0) },
+            onRetryDownload: { model.retryPrepCourseDownload(id: $0) },
+            onValidateReadyDownload: { await model.validateReadyPrepCourse($0) }
+        )
     }
 }
 

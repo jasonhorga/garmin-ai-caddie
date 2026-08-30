@@ -438,7 +438,7 @@ public struct MobileCourseSearchView: View {
             matches = results.filter { seen.insert($0.globalId).inserted }
         } catch {
             matches = []
-            errorText = "现在无法搜索球场，请检查网络后重试。"
+            errorText = Self.searchErrorMessage(error, nearby: false)
         }
     }
 
@@ -462,8 +462,17 @@ public struct MobileCourseSearchView: View {
             ).filter { seen.insert($0.globalId).inserted }
         } catch {
             matches = []
-            errorText = "现在无法读取附近球场，请检查网络或改用名称搜索。"
+            errorText = Self.searchErrorMessage(error, nearby: true)
         }
+    }
+
+    static func searchErrorMessage(_ error: Error, nearby: Bool) -> String {
+        if case let SyncClientError.http(status, _) = error, [401, 403].contains(status) {
+            return "Garmin 登录已失效，请先连接 Garmin 再搜索。"
+        }
+        return nearby
+            ? "现在无法读取附近球场，请检查网络或改用名称搜索。"
+            : "现在无法搜索球场，请检查网络后重试。"
     }
 
 }
