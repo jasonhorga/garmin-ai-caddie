@@ -48,6 +48,12 @@ device gate or authorize production promotion.
   tester qualification, TestFlight client/cache/network state, and Apple's
   CDN/install service. No new IPA is justified until a differential device or
   installer result is captured.
+- **Device-wide TestFlight update (2026-08-30):** After rebooting the iPhone,
+  the owner also failed to install unrelated TestFlight apps. This is a
+  device/account/TestFlight-client/network symptom, not an AI Caddie binary
+  symptom. App-specific source, signing, backend, and Watch payload changes
+  are paused until a non-AI-Caddie TestFlight install succeeds or an Apple
+  installer error code is captured.
 - **Remaining gate:** Physical installation and first-launch/start evidence on
   one qualified iPhone (build 45 preferred, with 43 as a useful control), then
   the paired Watch. Required evidence is the exact Apple ID/tester path, iOS and
