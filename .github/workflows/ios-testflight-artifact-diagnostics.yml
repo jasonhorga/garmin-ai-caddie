@@ -1,0 +1,95 @@
+name: iOS TestFlight Artifact Diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Workflow run that uploaded the AICaddie-ipa artifact'
+        required: true
+        type: string
+      artifact_name:
+        description: 'Artifact name from the source run'
+        required: true
+        default: 'AICaddie-ipa'
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: ios-testflight-artifact-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Download the exact uploaded artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ github.event.inputs.artifact_name }}
+          path: artifact
+          run-id: ${{ github.event.inputs.source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify iPhone and Watch install payload
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ipa="$(find artifact -type f -name '*.ipa' -print -quit)"
+          test -n "$ipa" || { echo 'No IPA found in artifact'; exit 1; }
+          mkdir payload
+          ditto -x -k "$ipa" payload
+
+          app="$(find payload/Payload -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$app" || { echo 'No iOS app found in IPA'; exit 1; }
+          watch="$(find "$app/Watch" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$watch" || { echo 'No embedded Watch app found in IPA'; exit 1; }
+
+          codesign --verify --deep --strict --verbose=4 "$app"
+          codesign --verify --strict --verbose=4 "$watch"
+
+          codesign -d --entitlements :- "$app" > ios-entitlements.plist
+          codesign -d --entitlements :- "$watch" > watch-entitlements.plist
+          security cms -D -i "$app/embedded.mobileprovision" > ios-profile.plist
+          security cms -D -i "$watch/embedded.mobileprovision" > watch-profile.plist
+
+          ios_bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
+          watch_bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$watch/Info.plist")"
+          companion_bundle="$(/usr/libexec/PlistBuddy -c 'Print :WKCompanionAppBundleIdentifier' "$watch/Info.plist")"
+          ios_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")"
+          watch_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$watch/Info.plist")"
+          ios_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")"
+          watch_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$watch/Info.plist")"
+
+          test "$ios_bundle" = 'com.ai-caddie.mobile'
+          test "$watch_bundle" = 'com.ai-caddie.mobile.watchkitapp'
+          test "$companion_bundle" = "$ios_bundle"
+          test "$watch_version" = "$ios_version"
+          test "$watch_build" = "$ios_build"
+
+          for target in ios watch; do
+            signed_app_id="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "${target}-entitlements.plist")"
+            profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "${target}-profile.plist")"
+            signed_team="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.team-identifier' "${target}-entitlements.plist")"
+            profile_team="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.team-identifier' "${target}-profile.plist")"
+            test "$signed_app_id" = "$profile_app_id"
+            test "$signed_team" = "$profile_team"
+            test "$signed_team" = '6HB84897DJ'
+          done
+
+          ios_minimum="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist")"
+          watch_minimum="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$watch/Info.plist")"
+          ios_expiry="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' ios-profile.plist)"
+          watch_expiry="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' watch-profile.plist)"
+
+          echo "iOS: bundle=$ios_bundle version=$ios_version build=$ios_build minimumOS=$ios_minimum"
+          echo "Watch: bundle=$watch_bundle version=$watch_version build=$watch_build minimumOS=$watch_minimum"
+          echo "Profiles: iOS expiry=$ios_expiry; Watch expiry=$watch_expiry"
+          ios_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
+          watch_executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$watch/Info.plist")"
+          lipo -info "$app/$ios_executable"
+          lipo -info "$watch/$watch_executable"
