@@ -1771,3 +1771,33 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
   variable; the known revision must therefore be supplied as an explicit
   workflow input or configured before the release gate. The old local Phase 6
   JSON (created 2026-06-07) is not valid evidence for this candidate.
+- 2026-08-30: Added the explicit owner-approved test-environment upload path in
+  commit `8f141b9d9ea1697cda46c2c7c1fd10e32e468f74` (message:
+  `ci: allow explicitly approved test-environment upload`). The Fastlane
+  bypass only relaxes degraded operational readiness when both
+  `test_environment_upload=true` and `upload_to_testflight=true`; public HTTPS
+  origin, authenticated readiness shape, health schema, and exact backend
+  revision checks remain mandatory. Homeserver verification passed the two
+  focused workflow contract tests (`2/2`), remote Ruby `ruby -c` (`Syntax OK`),
+  and `git diff --check`. The temporary Ruby container and scratch `.venv`
+  were removed; the downloaded release artifact remains at
+  `/home/jason/codex-runs/ios-testflight-33300858579-artifact`.
+- 2026-08-30: With owner approval, dispatched exactly one iOS TestFlight CD
+  run `33300858579` at commit
+  `8f141b9d9ea1697cda46c2c7c1fd10e32e468f74`, using
+  `api_base_url=https://caddie.taile36706.ts.net`, expected backend revision
+  `1af378b811cd25edae12285c5745aef1b57d7faf`,
+  `upload_to_testflight=true`, and `test_environment_upload=true`. Run/job
+  `33300858579`/`99228619111` completed successfully. App Store Connect
+  accepted and finished processing marketing version `0.1.0`, TestFlight build
+  `44`, and set the requested changelog; no tester-device installation or
+  launch has been independently verified. Release provenance reports
+  `uploadRequested=true`, `uploadCompleted=true`, `uploadToTestflight=true`,
+  and `backendRevisionVerified=true`. IPA SHA-256 is
+  `1063aa602d2265aa94707178c6c152f0ecbc87c53982b8661738463084c4a584`;
+  provenance JSON SHA-256 is
+  `eeebce7c26cca567c9fb291c7ccd36b2756b0d95260b22de2b424b97f8fb8b3e`;
+  GitHub artifact `AICaddie-ipa` ID `9728952402` has ZIP digest
+  `93ed970bfe703d0a200f08413060af70a96b1f0ee02812626dea06cda9540213`.
+  No production data, deployment, or persistent service state was modified by
+  this release action.
