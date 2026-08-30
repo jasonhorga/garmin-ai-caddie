@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: 'list, add, assign_existing, configure_review, submit_review, or distribute'
+        description: 'Manage testers or diagnose an uploaded IPA'
         required: true
         default: 'list'
         type: choice
@@ -18,6 +18,7 @@ on:
           - configure_review
           - submit_review
           - distribute
+          - diagnose_artifact
       tester_emails:
         description: 'Comma/newline-separated external tester emails for add'
         required: false
@@ -39,6 +40,14 @@ on:
         required: false
         default: false
         type: boolean
+      source_run_id:
+        description: 'Source TestFlight workflow run for diagnose_artifact'
+        required: false
+        default: ''
+
+permissions:
+  actions: read
+  contents: read
 
 concurrency:
   group: ios-testflight-testers
@@ -46,6 +55,7 @@ concurrency:
 
 jobs:
   testers:
+    if: ${{ github.event.inputs.operation != 'diagnose_artifact' }}
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -613,3 +623,10 @@ jobs:
             raise "Unsupported operation: #{operation}"
           end
           RUBY
+
+  artifact_diagnostics:
+    if: ${{ github.event.inputs.operation == 'diagnose_artifact' }}
+    uses: ./.github/workflows/ios-testflight-artifact-diagnostics.yml
+    with:
+      source_run_id: ${{ github.event.inputs.source_run_id }}
+      artifact_name: AICaddie-ipa

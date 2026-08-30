@@ -12,6 +12,16 @@ on:
         required: true
         default: 'AICaddie-ipa'
         type: string
+  workflow_call:
+    inputs:
+      source_run_id:
+        description: 'Workflow run that uploaded the AICaddie-ipa artifact'
+        required: true
+        type: string
+      artifact_name:
+        description: 'Artifact name from the source run'
+        required: true
+        type: string
 
 permissions:
   actions: read
@@ -29,10 +39,10 @@ jobs:
       - name: Download the exact uploaded artifact
         uses: actions/download-artifact@v4
         with:
-          name: ${{ github.event.inputs.artifact_name }}
+          name: ${{ inputs.artifact_name }}
           path: artifact
-          run-id: ${{ github.event.inputs.source_run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
 
       - name: Verify iPhone and Watch install payload
         shell: bash
