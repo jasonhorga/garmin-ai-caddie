@@ -4,11 +4,39 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-08-29 UTC
+**Updated:** 2026-08-30 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**Source baseline:** `9bff8293` (canonical release-hardening candidate with prep-hazard fixture repair; prior chain remains in Git history)
-**Release rule:** no TestFlight upload until every P0/P1/P2 release gate below
-has runtime evidence and the owner approves the comparison.
+**Source baseline:** `8f141b9d` (TestFlight artifact source; docs-only evidence
+follow-up `a5161ee1`; backend runtime revision
+`1af378b811cd25edae12285c5745aef1b57d7faf`; prior chain remains in Git history)
+**Release rule:** production promotion remains gated on complete P0/P1/P2
+runtime evidence and owner approval. An owner-approved test-environment upload
+may use the explicit test-environment flag, but does not close the physical
+device gate or authorize production promotion.
+
+## Current Work Summary
+
+- **Backend candidate:** The candidate was deployed from the clean detached
+  checkout at `/home/jason/codex-runs/garmin-ai-caddie-backend-deploy-20260830`
+  at exact revision `1af378b811cd25edae12285c5745aef1b57d7faf`. The verified
+  private-volume backup is
+  `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260830/private-volume-20260830.tar.gz`
+  (SHA-256
+  `9c632173043f3ac7010ef5883124ee1c57387ca3656aa387e873b102b819b162`).
+- **Native live evidence:** Native Mobile CI run `33297795933` passed all 38
+  steps at source `44c444c695c0f6c2630b6ccf0c2e2042f1d7a901`, including the
+  live iOS and Watch flow against course `31793` / 北京丽宫. Commit `44c444c6`
+  is the live-marker fix that keeps live UI tests out of fixture mode.
+- **TestFlight path:** Commit `8f141b9d9ea1697cda46c2c7c1fd10e32e468f74`
+  adds the explicit owner-approved test-environment bypass while retaining
+  authenticated readiness, public origin, health schema, and exact revision
+  checks. Exactly one CD run, `33300858579`, succeeded at that artifact source;
+  App Store Connect accepted and finished processing marketing version `0.1.0`,
+  TestFlight build `44` (`uploadCompleted=true`).
+- **Remaining gate:** The only open item is independent installation and
+  first-launch/start verification on a physical device (iPhone/Watch) for build
+  `0.1.0 (44)`. No additional source change, build, upload, deployment, or
+  production-data action is pending for this slice.
 
 ## Objective
 
@@ -19,7 +47,18 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`REL` — release readiness and TestFlight gate** (`in-progress`)
+**`REL` — release readiness and TestFlight gate** (`evidence-open`)
+
+The current release candidate has a verified backend deployment, passing live
+iOS/Watch Native evidence, and a successfully processed TestFlight build as
+summarized above. The sole remaining release evidence is physical-device
+installation and first-launch/start verification for build `0.1.0 (44)`.
+
+### Historical context (retained; earlier snapshots)
+
+The following paragraphs are retained historical snapshots. Statements that
+describe pre-deployment or pre-upload state are superseded by the current
+summary above; the historical evidence itself is not removed.
 
 `W1` and `S1` are closed with isolated current-head evidence. The public
 service still runs revision `6a6080c6...`; no production deployment or data
@@ -373,7 +412,7 @@ project-level task list; historical plans are reference material.
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
-| `REL` | `in-progress` | Release and TestFlight gate; artifact-only readiness first. | Verify source/native gates, production provenance, signing/TestFlight readiness, then request explicit upload confirmation. Revision consistency and manual tester/device gates remain before upload. |
+| `REL` | `evidence-open` | Release and TestFlight gate; backend/native provenance and TestFlight build are complete. | Run `33300858579` processed build `0.1.0 (44)` from artifact source `8f141b9d`; remaining exit evidence is independent physical-device installation and first-launch/start verification. |
 
 ### Status vocabulary
 
