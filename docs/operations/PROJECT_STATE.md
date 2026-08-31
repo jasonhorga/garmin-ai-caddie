@@ -79,6 +79,22 @@ device gate or authorize production promotion.
   explicitly attach an internal group failed with Apple's expected
   `Cannot add internal group to a build` response; no external group was created
   and no distribution action is required for the internal group.
+- **Build-46 visibility diagnosis (2026-08-31):** Read-only TestFlight runs
+  `33348268598` and `33348480014` reconfirmed build 46 as `VALID`, unexpired,
+  with `internalState=IN_BETA_TESTING` and `externalState=READY_FOR_BETA_SUBMISSION`.
+  The internal `Jason's friends` group has `allBuilds=true` and includes 46;
+  the external `Private Trial` group currently contains 45, 44, and 3 only.
+  Apple-processed bundle metadata is arm64 for the iOS app with the embedded
+  Watch entitlement set, so no architecture or bundle-compatibility filter is
+  indicated. The API's `internalReady=false` is expected for a build already
+  in `IN_BETA_TESTING` (the fastlane helper only returns true for the earlier
+  `READY_FOR_BETA_TESTING` state). The owner reports `2322190@qq.com` is listed
+  in both tester paths; the current API listing exposes it as an app-level
+  external tester, while internal App Store Connect-user qualification is not
+  exposed by this workflow. Do not upload another build. The next check is the
+  exact Apple ID signed into TestFlight and its accepted App Store Connect
+  internal-user invitation; external visibility would additionally require
+  assigning 46 and passing Beta App Review.
 - **Remaining gate:** Physical installation and first-launch/start evidence on
   one qualified iPhone (build 46 preferred, with 45 as a useful control), then
   the paired Watch. Required evidence is the exact Apple ID/tester path, iOS and
