@@ -4,7 +4,7 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-08-30 UTC
+**Updated:** 2026-08-31 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
 **Source baseline:** `1fc603b8d0761d134210968cf05ab489241a3f9b` (TestFlight build 46
 artifact source; backend runtime revision `1af378b811cd25edae12285c5745aef1b57d7faf`;
@@ -95,6 +95,17 @@ device gate or authorize production promotion.
   exact Apple ID signed into TestFlight and its accepted App Store Connect
   internal-user invitation; external visibility would additionally require
   assigning 46 and passing Beta App Review.
+- **Owner visibility confirmation (2026-08-31):** The owner confirmed that
+  build 46 is now visible in TestFlight. Future release distribution remains
+  internal-first; no new build or external-review submission was performed.
+  The API snapshot still records the external `Private Trial` group with its
+  older explicit build set, so this confirmation is recorded as device/UI
+  evidence rather than an API claim about external assignment.
+- **Post-release cleanup (2026-08-31):** The exact allow-list and protected
+  resources are recorded in
+  `docs/operations/cleanup-20260831-build46.md`. No source worktree,
+  rollback artifact, persistent data, shared cache, or other project/session
+  resource is in the deletion scope.
 - **Remaining gate:** Physical installation and first-launch/start evidence on
   one qualified iPhone (build 46 preferred, with 45 as a useful control), then
   the paired Watch. Required evidence is the exact Apple ID/tester path, iOS and
