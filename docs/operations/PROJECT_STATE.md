@@ -112,6 +112,19 @@ device gate or authorize production promotion.
   watchOS versions, free storage, and whether a second compatible device can
   install the same build. Until that differential is known, no further build,
   upload, deployment, or production-data action is pending.
+- **Local workspace cleanup (2026-08-31):** The four generated geometry/
+  CourseView directories were checksum-verified and moved to the additive
+  homeserver import at
+  `/home/jason/garmin-ai-caddie-data/imports/local-cache-20260831/`; the local
+  copies were then removed.  Completed Garmin physical worktrees were removed
+  while their Git branch refs were retained.  Closed Garmin-only Codex/Claude
+  transcripts and generated review artifacts were removed from the editing box
+  after their allow-list checks; review evidence is preserved under
+  `/home/jason/garmin-ai-caddie-data/archives/local-generated-20260831/`, and
+  durable memory remains in the canonical Claude `memory/` directory and this
+  repository.  No active process, credential, user-round data, or production
+  Docker volume was touched.  Full records are in
+  `docs/operations/cleanup-20260831-local-garmin.md`.
 
 ## Objective
 
