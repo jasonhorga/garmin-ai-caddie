@@ -165,9 +165,15 @@ the production manual-search `tee_box=unknown` package test `1/1`. Python
 was not green: `2,042` tests ran with `5` failures, `17` errors, `13` skips;
 the observed failures/errors include unrelated stale workflow/authority
 expectations and missing container tools/dependencies, so no full-suite pass is
-claimed. Swift compilation, Xcode/Simulator, Playwright, and physical-device
-interaction remain open because this editing host and homeserver do not provide
-Xcode/Swift or a paired device. With no course geometry/cache at all, a client
+claimed. GitHub Native Mobile CI run `33624244255` at commit `7dbb29be`
+passed all 38 workflow steps: the iOS app target, `RealFlowUITests`,
+`ReviewEditUITests`, and all 7 `TeeSelectionUITests` passed with zero failures;
+the Watch target executed 329 tests with zero failures, and the real Watch
+seed/restore step uploaded 22 screenshots. The real iOS step explicitly covered
+the no-GPS manual catalogue fallback and map/caddie restore assertions. Swift
+compilation and Xcode/Simulator runtime evidence are therefore green in CI;
+physical iPhone/Watch interaction and S70 hardware comparison remain open
+because this editing host and homeserver do not provide a paired device. With no course geometry/cache at all, a client
 can only show a map-preparation placeholder; it cannot invent a real course
 map. With no GPS it can start, show cached/downloaded geometry, and use local
 map targets, but it must not record a fabricated shot coordinate. The reusable
@@ -566,7 +572,7 @@ project-level task list; historical plans are reference material.
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
 | `REL` | `evidence-open` | Release and TestFlight gate; backend/native provenance and TestFlight build are complete. | Run `33300858579` processed build `0.1.0 (44)` from artifact source `8f141b9d`; remaining exit evidence is independent physical-device installation and first-launch/start verification. |
-| `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Focused homeserver contracts pass 147/147, including production `tee_box=unknown`; source checks pass. Full discovery is not green, and Swift compile plus physical-device proof remain open. |
+| `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Focused homeserver contracts pass 147/147, including production `tee_box=unknown`; GitHub Native Mobile CI `33624244255` at `7dbb29be` passed all 38 steps, including iOS/Watch builds, 7 TeeSelection UI tests, RealFlow/ReviewEdit, Watch 329 tests, and 22 Watch runtime screenshots. Physical iPhone/Watch and S70 hardware proof remain open. |
 
 ### Status vocabulary
 
@@ -579,6 +585,10 @@ means a named external decision or prerequisite is missing; `done` and
 
 ## Completed Evidence
 
+- `7dbb29be`: Native Mobile CI run `33624244255` passed all 38 steps. Real iOS
+  XCUITest coverage passed `RealFlowUITests` (including no-GPS map/caddie
+  restore), `ReviewEditUITests`, and 7/7 `TeeSelectionUITests`; Watch target
+  passed 329 tests and Watch runtime produced 22 screenshots with secret scans.
 - `10d56855`: Watch provisional shot acceptance/completion is idempotent; Native
   Mobile CI run `32684985178` passed.
 - `ca3fa89`: caddie tiers are distinct (`稳妥`, `标准`, `进攻`); focused remote
