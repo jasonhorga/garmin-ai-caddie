@@ -1468,6 +1468,12 @@ public struct CurrentHoleView: View {
            ) {
             resolved = rendered
         }
+        #if DEBUG
+        // A freshly fetched hole can be visible before SwiftUI publishes the `@State` assignment
+        // performed by retainThenPublishHolePrep. Move the deterministic simulator fix from the
+        // already-resolved value so a hole transition cannot temporarily disable shot capture.
+        moveSimulatedLocationToHoleTeeIfRequested(resolved)
+        #endif
         await retainThenPublishHolePrep(
             resolved,
             globalId: mapGlobalId,
@@ -1477,9 +1483,6 @@ public struct CurrentHoleView: View {
         // Re-push to the watch now that F/M/B + plays-like are available. The ordered bootstrap will
         // fetch and push the matching caddie decision immediately after this map step.
         if let holePrep {
-            #if DEBUG
-            moveSimulatedLocationToHoleTeeIfRequested(holePrep)
-            #endif
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
         }
         return true
