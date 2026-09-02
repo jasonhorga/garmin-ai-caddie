@@ -656,8 +656,19 @@ class CIWorkflowTests(unittest.TestCase):
             source = harness.read_text(encoding="utf-8")
             self.assertIn('app.launchEnvironment["AI_CADDIE_API_BASE_URL"]', source)
             self.assertIn('app.launchEnvironment["AI_CADDIE_ADMIN_TOKEN"]', source)
-            self.assertIn('app.launchEnvironment["AI_CADDIE_FIXTURE_MODE"]', source)
-            self.assertIn('app.launchEnvironment["AI_CADDIE_DATA_MODE"]', source)
+            # Fixture markers are deliberately centralized: live runs must remove them, while
+            # fixture runs may pass validated values through the shared helper. Requiring direct
+            # per-key assignments here would reject the fail-closed merge contract.
+            self.assertIn("UITestBackendLaunchConfiguration.markerKeys", source)
+            self.assertIn("UITestBackendLaunchConfiguration.markers(", source)
+            self.assertIn("app.launchEnvironment.merge(", source)
+
+        launch_configuration = Path(
+            "mobile/ios/AICaddieUITests/UITestBackendLaunchConfiguration.swift"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"AI_CADDIE_FIXTURE_MODE"', launch_configuration)
+        self.assertIn('"AI_CADDIE_DATA_MODE"', launch_configuration)
+        self.assertIn('guard mode != "0" || !data.isEmpty else { return [:] }', launch_configuration)
 
         self.assertIn("capture_scope", inputs)
         self.assertEqual(["full", "review", "edit"], inputs["capture_scope"]["options"])
