@@ -7,6 +7,8 @@ final class LocationProviderTests: XCTestCase {
 
     override func tearDown() {
         unsetenv("UITEST_LOCATION_AUTHORIZATION")
+        unsetenv("UITEST_GPS_LAT")
+        unsetenv("UITEST_GPS_LON")
         super.tearDown()
     }
 
@@ -39,6 +41,32 @@ final class LocationProviderTests: XCTestCase {
         XCTAssertEqual(provider.authorizationStatus, .denied)
         provider.locationManagerDidChangeAuthorization(CLLocationManager())
         XCTAssertEqual(provider.authorizationStatus, .denied)
+        XCTAssertNil(provider.latestFix)
+    }
+
+    func testInjectedFixMovesImmediatelyForAMultiHoleJourney() throws {
+        setenv("UITEST_GPS_LAT", "40.0454995", 1)
+        setenv("UITEST_GPS_LON", "116.5461531", 1)
+        let provider = LocationProvider()
+        provider.startUpdatingLocation()
+
+        let moved = try XCTUnwrap(provider.moveSimulatedFixForUITest(
+            latitude: 40.0474938219,
+            longitude: 116.5442115447
+        ))
+        let latest = try XCTUnwrap(provider.latestFix)
+
+        XCTAssertEqual(moved.coordinate.latitude, 40.0474938219, accuracy: 0.0000001)
+        XCTAssertEqual(moved.coordinate.longitude, 116.5442115447, accuracy: 0.0000001)
+        XCTAssertEqual(latest.coordinate.latitude, moved.coordinate.latitude, accuracy: 0.0000001)
+        XCTAssertEqual(latest.coordinate.longitude, moved.coordinate.longitude, accuracy: 0.0000001)
+    }
+
+    func testUITestMovementNeverCreatesAFixWithoutInjectedGPS() {
+        setenv("UITEST_LOCATION_AUTHORIZATION", "authorized", 1)
+        let provider = LocationProvider()
+
+        XCTAssertNil(provider.moveSimulatedFixForUITest(latitude: 40.0, longitude: 116.0))
         XCTAssertNil(provider.latestFix)
     }
 

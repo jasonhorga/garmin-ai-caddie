@@ -245,6 +245,10 @@ public struct CurrentHoleView: View {
         }
         .task(id: hole.number) {
             #if DEBUG
+            // The package already carries factual Tee coordinates for every ready hole. Move the
+            // deterministic multi-hole simulator journey before waiting on the per-hole prep GET;
+            // otherwise the new hole can appear with shot capture disabled for the whole request.
+            moveSimulatedLocationToHoleTeeIfRequested(hole)
             UITestEventLatencyTrace.record(
                 "live-hole.load.begin hole=\(hole.number) course=\(package.course.globalId)"
             )
@@ -1565,18 +1569,37 @@ public struct CurrentHoleView: View {
     /// A simulator cannot physically walk between holes. For the continuous real-course UI journey,
     /// recover this prep route's Tee GPS from the same calibrated topo projection used by the product.
     /// The explicit launch flag plus DEBUG compile gate prevent test movement from entering TestFlight.
+    private func moveSimulatedLocationToHoleTeeIfRequested(_ packageHole: Hole) {
+        guard let latitude = packageHole.teeLatitude,
+              let longitude = packageHole.teeLongitude else { return }
+        applySimulatedLocationIfRequested(latitude: latitude, longitude: longitude)
+    }
+
     private func moveSimulatedLocationToHoleTeeIfRequested(_ prep: CoursePrepHole) {
-        guard ProcessInfo.processInfo.environment["UITEST_FOLLOW_HOLE_TEE"] == "1",
-              let first = prep.resolvedMapOverlay?.route.first, first.count >= 2,
+        guard let first = prep.resolvedMapOverlay?.route.first, first.count >= 2,
               let refs = prep.holeImageProjection?.refs,
               let tee = WatchEventBridge.projectFromTopoPx(
                   px: first[0],
                   py: first[1],
                   refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
               ) else { return }
-        locationProvider.moveSimulatedFixForUITest(
-            latitude: tee.latitude,
-            longitude: tee.longitude
+        applySimulatedLocationIfRequested(latitude: tee.latitude, longitude: tee.longitude)
+    }
+
+    private func applySimulatedLocationIfRequested(latitude: Double, longitude: Double) {
+        guard ProcessInfo.processInfo.environment["UITEST_FOLLOW_HOLE_TEE"] == "1",
+              let fix = locationProvider.moveSimulatedFixForUITest(
+                  latitude: latitude,
+                  longitude: longitude
+              ) else { return }
+        // Keep the view's derived state in the same transaction. Waiting for the @Published delivery
+        // leaves `gpsHoleCandidate` on the previous hole for a frame and disables the shot button.
+        currentCoordinate = fix.coordinate
+        currentHorizontalAccuracyM = fix.horizontalAccuracyM
+        gpsHoleCandidate = LiveHoleGPSResolver.candidate(
+            holes: package.holes,
+            coordinate: fix.coordinate,
+            horizontalAccuracyM: fix.horizontalAccuracyM
         )
     }
     #endif

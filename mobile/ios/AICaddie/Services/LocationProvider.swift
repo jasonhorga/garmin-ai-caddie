@@ -101,16 +101,19 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
     /// Move the deterministic simulator fix while a real multi-hole UI journey advances. The guard
     /// keeps this inert unless the process was launched with UITEST_GPS_LAT/LON; Release/TestFlight
     /// builds do not compile this entry point at all.
-    public func moveSimulatedFixForUITest(latitude: Double, longitude: Double) {
+    @discardableResult
+    public func moveSimulatedFixForUITest(latitude: Double, longitude: Double) -> LocationFix? {
         guard simulatedFix != nil,
               latitude.isFinite, (-90...90).contains(latitude),
-              longitude.isFinite, (-180...180).contains(longitude) else { return }
-        latestFix = LocationFix(
+              longitude.isFinite, (-180...180).contains(longitude) else { return nil }
+        let movedFix = LocationFix(
             coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
             horizontalAccuracyM: latestFix?.horizontalAccuracyM ?? 5,
             altitudeM: latestFix?.altitudeM,
             capturedAt: formatter.string(from: Date())
         )
+        latestFix = movedFix
+        return movedFix
     }
     #endif
 
