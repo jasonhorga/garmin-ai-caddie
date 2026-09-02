@@ -31,7 +31,7 @@ final class LiveMapPixelDistanceTests: XCTestCase {
         )
         XCTAssertNil(
             LiveMapPixelDistanceLayout.resolve(
-                referencePx: CGPoint(x: .infinity, y: 0),
+                referencePx: CGPoint(x: CGFloat.infinity, y: 0),
                 targetPx: CGPoint(x: 10, y: 0),
                 pinPx: CGPoint(x: 20, y: 0),
                 pixelsPerMetre: 1
