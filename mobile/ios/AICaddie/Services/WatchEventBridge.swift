@@ -620,12 +620,6 @@ public final class WatchEventBridge: NSObject {
             roundId: package.roundId,
             courseName: package.course.name,
             activeHole: activeHole,
-            globalId: package.course.globalId,
-            backGlobalId: package.holes
-                .compactMap(\.sourceGlobalId)
-                .first(where: { $0 != package.course.globalId }),
-            teeBox: package.course.teeBox,
-            nine: package.nine ?? "all",
             holes: package.holes
                 .sorted { $0.number < $1.number }
                 .map { hole in
@@ -638,7 +632,13 @@ public final class WatchEventBridge: NSObject {
                         teeLongitude: tee?.longitude,
                         globalId: hole.sourceGlobalId ?? package.course.globalId
                     )
-                }
+                },
+            globalId: package.course.globalId,
+            backGlobalId: package.holes
+                .compactMap(\.sourceGlobalId)
+                .first(where: { $0 != package.course.globalId }),
+            teeBox: package.course.teeBox,
+            nine: package.nine ?? "all"
         )
     }
 

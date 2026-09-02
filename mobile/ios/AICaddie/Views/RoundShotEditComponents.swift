@@ -316,8 +316,9 @@ public struct RoundShotEditLayer: View {
     private var effectiveClubs: [String] { clubs.isEmpty ? roundEditCommonClubs : clubs }
 
     private func openPrecisionEditor(for shot: RoundShot, discardOnCancel: Bool = false) {
-        guard let end = shot.end, end.count >= 2,
-              end[0].isFinite, end[1].isFinite else { return }
+        // History shot pixels are integer overlay coordinates; unlike a GPS-derived Double they
+        // cannot carry NaN/Infinity. The count check is the only validity gate needed here.
+        guard let end = shot.end, end.count >= 2 else { return }
         let number = (editModel.map.shots.firstIndex(where: { $0.id == shot.id }) ?? 0) + 1
         precisionRequest = RoundShotPrecisionRequest(
             shotId: shot.id,
@@ -366,7 +367,7 @@ public struct RoundShotEditLayer: View {
 
     private func nearestHit(to location: CGPoint, frame: CGRect) -> RoundShot? {
         guard frame.contains(location) else { return nil }
-        editModel.map.shots
+        return editModel.map.shots
             .filter { hitTest($0, location, frame: frame) }
             .min { lhs, rhs in
                 viewDistance(lhs, to: location, frame: frame)
