@@ -465,6 +465,10 @@ final class RealFlowUITests: XCTestCase {
 
         // ---- Section 4b (full only): nearby + name search → uninstalled course → lightweight/precise map ----
         if let newCourseEvidence {
+            // This section deliberately removes the injected fix for its restore/no-GPS proof.
+            // Keep the following approved-course journey deterministic instead of letting that
+            // scenario's launch environment hide the nearby catalogue row.
+            defer { restoreDefaultGPSLaunchEnvironment() }
             try exerciseNewCourseDiscovery(newCourseEvidence)
         }
 
@@ -1245,6 +1249,12 @@ final class RealFlowUITests: XCTestCase {
     }
 
     // MARK: - navigation helpers
+
+    private func restoreDefaultGPSLaunchEnvironment() {
+        app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
+        app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.5461531"
+        app.launchEnvironment.removeValue(forKey: "UITEST_LOCATION_AUTHORIZATION")
+    }
 
     private func launchFresh() {
         if app.state == .runningForeground { app.terminate() }
