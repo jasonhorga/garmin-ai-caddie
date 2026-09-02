@@ -6,8 +6,8 @@
 
 **Updated:** 2026-09-02 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
-**Source baseline:** `1fc603b8d0761d134210968cf05ab489241a3f9b` (TestFlight build 46
-artifact source; backend runtime revision `1af378b811cd25edae12285c5745aef1b57d7faf`;
+**Source baseline:** `d189b3b475891225c9ecb86b0f672c12be3c5c40` (TestFlight build 47
+artifact source; backend runtime revision `c16488911038d7e5b47ec310d1aaf05ca29950df`;
 prior chain remains in Git history)
 **Release rule:** production promotion remains gated on complete P0/P1/P2
 runtime evidence and owner approval. An owner-approved test-environment upload
@@ -17,113 +17,68 @@ device gate or authorize production promotion.
 ## Current Work Summary
 
 - **Backend candidate:** Deployed from the clean detached checkout at
-  `/home/jason/codex-runs/garmin-ai-caddie-backend-deploy-20260830` at exact
-  revision `1af378b811cd25edae12285c5745aef1b57d7faf`. The verified private
-  volume backup is at
-  `/home/jason/garmin-ai-caddie-data/operations/backend-deploy-20260830/private-volume-20260830.tar.gz`
-  (SHA-256 `9c632173043f3ac7010ef5883124ee1c57387ca3656aa387e873b102b819b162`).
-- **Native live evidence:** Native Mobile CI run `33297795933` passed all 38
-  steps at source `44c444c695c0f6c2630b6ccf0c2e2042f1d7a901`, including the
-  live iOS and Watch flow against course `31793` / 北京丽宫. Commit `44c444c6`
-  fixes the live UI-test marker handling.
-- **TestFlight build 44 diagnosis:** The owner could see build `0.1.0 (44)` in
-  TestFlight but received Apple's generic “Unable to Install” dialog. Status
-  run `33308645751` still observed `VALID`, unexpired, and
-  `externalState=BETA_APPROVED`. Exact-artifact macOS diagnostic run
-  `33308974390` passed strict/deep code-sign verification for both the iOS app
-  and embedded Watch app, bundle/profile/team/version binding, profile expiry,
-  and arm architectures. Apple reported no TestFlight service incident.
-- **TestFlight build 45 replacement:** CD run `33309073713` built and uploaded
-  `0.1.0 (45)` from `464d8d35880bc0a5fc728800aef196c7c74841c5` so Apple would
-  regenerate its TestFlight package/CDN entry. Distribution run `33309432780`
-  submitted Beta Review and assigned build 45 to `Private Trial`; status run
-  `33309492585` observed `state=VALID`, `expired=false`, and
-  `externalState=IN_BETA_TESTING`. Exact build-45 artifact diagnostic run
-  `33309532213` also passed.
-- **Common install failure update (2026-08-30):** The owner also reproduced
-  Apple's generic install failure for build `0.1.0 (43)`. Read-only status run
-  `33313130251` reports builds 43, 44, and 45 as `VALID` and unexpired; the
-  internal group `Jason's friends` contains all three. This makes a
-  build-specific source or signing regression unlikely. The remaining unknowns
-  are the device's iOS/watchOS/storage state, the Apple ID's internal/external
-  tester qualification, TestFlight client/cache/network state, and Apple's
-  CDN/install service. No new IPA is justified until a differential device or
-  installer result is captured.
-- **Device-wide TestFlight update (2026-08-30):** After rebooting the iPhone,
-  the owner also failed to install unrelated TestFlight apps. This is a
-  device/account/TestFlight-client/network symptom, not an AI Caddie binary
-  symptom. App-specific source, signing, backend, and Watch payload changes
-  are paused until a non-AI-Caddie TestFlight install succeeds or an Apple
-  installer error code is captured.
-- **Tester re-invitation (2026-08-30):** At the owner's request, workflow run
-  `33316324770` successfully re-added the existing external tester record
-  (`23***@qq.com`) to `Private Trial` using the explicit
-  `external_distribution=true` opt-in. A subsequent read-only run
-  `33316374289` confirmed build 45 remains `VALID` and the internal group still
-  contains builds 43, 44, and 45. This invitation does not change the physical
-  device-wide install blocker.
-- **Current auth candidate native evidence (2026-08-30):** Native Mobile CI run
-  `33323039610` passed all iOS and Watch steps at `1fc603b8`, including the real
-  iOS flow, Watch runtime seed/restore screens, artifact scans, and cleanup. It
-  used the isolated CI fixture; it is source/runtime evidence for the Apple-session
-  gate and Garmin-auth error handling, not a substitute for physical-device login.
-- **TestFlight build 46 (2026-08-30):** CD run `33325484872` built and uploaded
-  `0.1.0 (46)` from `1fc603b8`; Apple finished processing it successfully. The
-  release provenance records IPA SHA-256
-  `cc781a40f2745664e172635390f78efcdcf514ed423dc4c37b75c4ed86c652e9`, API
-  origin `caddie.taile36706.ts.net`, and backend revision
-  `1af378b811cd25edae12285c5745aef1b57d7faf`. Read-only TestFlight run
-  `33326041311` confirmed build 46 is `VALID`, unexpired, and in
-  `IN_BETA_TESTING`; the existing internal group `Jason's friends` has
-  `allBuilds=true` and already lists build 46. Attempted run `33325963680` to
-  explicitly attach an internal group failed with Apple's expected
-  `Cannot add internal group to a build` response; no external group was created
-  and no distribution action is required for the internal group.
-- **Build-46 visibility diagnosis (2026-08-31):** Read-only TestFlight runs
-  `33348268598` and `33348480014` reconfirmed build 46 as `VALID`, unexpired,
-  with `internalState=IN_BETA_TESTING` and `externalState=READY_FOR_BETA_SUBMISSION`.
-  The internal `Jason's friends` group has `allBuilds=true` and includes 46;
-  the external `Private Trial` group currently contains 45, 44, and 3 only.
-  Apple-processed bundle metadata is arm64 for the iOS app with the embedded
-  Watch entitlement set, so no architecture or bundle-compatibility filter is
-  indicated. The API's `internalReady=false` is expected for a build already
-  in `IN_BETA_TESTING` (the fastlane helper only returns true for the earlier
-  `READY_FOR_BETA_TESTING` state). The owner reports `2322190@qq.com` is listed
-  in both tester paths; the current API listing exposes it as an app-level
-  external tester, while internal App Store Connect-user qualification is not
-  exposed by this workflow. Do not upload another build. The next check is the
-  exact Apple ID signed into TestFlight and its accepted App Store Connect
-  internal-user invitation; external visibility would additionally require
-  assigning 46 and passing Beta App Review.
-- **Owner visibility confirmation (2026-08-31):** The owner confirmed that
-  build 46 is now visible in TestFlight. Future release distribution remains
-  internal-first; no new build or external-review submission was performed.
-  The API snapshot still records the external `Private Trial` group with its
-  older explicit build set, so this confirmation is recorded as device/UI
-  evidence rather than an API claim about external assignment.
+  `/home/jason/codex-runs/garmin-ai-caddie-map1-deploy-20260902` at exact
+  revision `c16488911038d7e5b47ec310d1aaf05ca29950df`, in container
+  `aicaddie-release-c1648891-candidate-20260902`; image digest is
+  `sha256:866493b220417d84bf01ac8ed15c4b977c6718304229f810c2d22d3527b6742b`.
+  The public endpoint `https://caddie.taile36706.ts.net` reports healthy
+  `ai-caddie-health-v2`; an authenticated package probe for course `31793`
+  returned 18 holes, 18/18 ready geometries, `teeBox=unknown`, and caddie seed
+  source references.
+- **Source CI:** GitHub run `33680857200` at `d189b3b4` passed backend (2,047
+  tests, 13 skips), frontend component/lint/build/visual smoke, and Docker
+  API/sync smoke jobs.
+- **Native live evidence:** Native Mobile CI run `33680501425` at mobile
+  source `c5902a96` passed all 38 evidence steps. iOS and Watch manifests are
+  `passed`; the live iOS journey covered no-GPS manual search/start, map and
+  caddie restore, review editing, and the 7 TeeSelection UI tests. Watch tests
+  (329) and 22 runtime screenshots also passed. The mobile tree is identical
+  between `c5902a96` and the current `d189b3b4` (the latter adds only Python
+  contract coverage). Native artifact `9868217071` has digest
+  `sha256:70183f3155e434c617b5d53590be8857e6aab791b17dc518c99af04f46aa0415`.
+- **TestFlight build 47:** iOS TestFlight CD run `33686521143` built and
+  uploaded `0.1.0 (47)` from `d189b3b4`. Apple finished processing it;
+  provenance records `uploadRequested=true`, `uploadCompleted=true`, and
+  `uploadToTestflight=true`. IPA SHA-256 is
+  `19936b224428aa2e740fc7b277f26b80f91c52b44c567b75cbe310349db4f3ad`;
+  artifact `AICaddie-ipa` ID `9868598629` has ZIP digest
+  `sha256:19865fc1d6190c5e58e882f63062b39b1cebd00d730c3b656c8e54ed7fdbe82b`.
+- **Apple status:** Read-only App Store Connect run `33687613975` reports
+  build 47 `VALID`, `expired=false`, `internalState=IN_BETA_TESTING`, and
+  `externalState=READY_FOR_BETA_SUBMISSION`. Internal group `Jason's friends`
+  uses `allBuilds=true` and includes build 47. The external `Private Trial`
+  group does not include build 47; no external distribution or Beta Review
+  submission was performed.
+- **Artifact diagnostics:** Exact IPA run `33687517758` passed iOS/Watch
+  codesign, bundle/profile/team/version/build binding, profile expiry, and arm
+  architecture checks. These checks do not substitute for a physical install.
+- **Phase 6 release audit:** Run `33687800258` passed provenance, backend,
+  signing, and API checks, while the overall result correctly remains
+  `incomplete`: external Beta Review, target tester coverage, and physical
+  iPhone/Watch installation are unconfirmed. `install_verified` remains
+  `false` by design.
+- **Remaining release gate:** Build 47 is uploaded and visible to the internal
+  all-builds group, but physical iPhone/Watch first-launch/start evidence,
+  exact tester qualification, and any external Beta Review remain open. Do not
+  upload another build or trigger external distribution until those checks are
+  explicitly completed.
 - **Post-release cleanup (2026-08-31):** The exact allow-list and protected
   resources are recorded in
   `docs/operations/cleanup-20260831-build46.md`. No source worktree,
   rollback artifact, persistent data, shared cache, or other project/session
   resource is in the deletion scope.
-- **Remaining gate:** Physical installation and first-launch/start evidence on
-  one qualified iPhone (build 46 preferred, with 45 as a useful control), then
-  the paired Watch. Required evidence is the exact Apple ID/tester path, iOS and
-  watchOS versions, free storage, and whether a second compatible device can
-  install the same build. Until that differential is known, no further build,
-  upload, deployment, or production-data action is pending.
 - **Local workspace cleanup (2026-08-31):** The four generated geometry/
   CourseView directories were checksum-verified and moved to the additive
   homeserver import at
   `/home/jason/garmin-ai-caddie-data/imports/local-cache-20260831/`; the local
-  copies were then removed.  Completed Garmin physical worktrees were removed
-  while their Git branch refs were retained.  Closed Garmin-only Codex/Claude
+  copies were then removed. Completed Garmin physical worktrees were removed
+  while their Git branch refs were retained. Closed Garmin-only Codex/Claude
   transcripts and generated review artifacts were removed from the editing box
   after their allow-list checks; review evidence is preserved under
   `/home/jason/garmin-ai-caddie-data/archives/local-generated-20260831/`, and
   durable memory remains in the canonical Claude `memory/` directory and this
-  repository.  No active process, credential, user-round data, or production
-  Docker volume was touched.  Full records are in
+  repository. No active process, credential, user-round data, or production
+  Docker volume was touched. Full records are in
   `docs/operations/cleanup-20260831-local-garmin.md`.
 
 ## Objective
@@ -143,10 +98,10 @@ View flag placement, and review shot placement. Release evidence remains open
 under `REL` and is not changed by this slice.
 
 The current release candidate has a verified backend deployment, passing live
-iOS/Watch Native evidence, and a freshly repackaged TestFlight build as
-summarized above. The sole remaining release evidence is physical-device
-installation and first-launch/start verification after the common install
-failure is separated into device/account versus Apple distribution causes.
+iOS/Watch Native evidence, and processed TestFlight build 47 as summarized
+above. The remaining release evidence is physical-device installation and
+first-launch/start verification, exact tester qualification, and (if desired)
+external Beta Review/distribution; no new upload is pending.
 
 MAP1 implementation evidence (2026-09-02): the Watch/iPhone map-first start,
 pixel-safe Touch Target and Green View editors, S70-style drag loupes, and
@@ -161,26 +116,22 @@ A network-disabled, read-only homeserver run in the existing API image passed
 `147/147` focused tests: `tests.test_mobile_contracts` `94/94`,
 `tests.test_ci_fixture_contract` `35/35`, `tests.test_course_tees` `17/17`, and
 the production manual-search `tee_box=unknown` package test `1/1`. Python
-`compileall` and `git diff --check` also pass. An earlier full Python discovery
-was not green: `2,042` tests ran with `5` failures, `17` errors, `13` skips;
-the observed failures/errors include unrelated stale workflow/authority
-expectations and missing container tools/dependencies, so no full-suite pass is
-claimed. GitHub Native Mobile CI run `33624244255` at commit `7dbb29be`
-passed all 38 workflow steps: the iOS app target, `RealFlowUITests`,
-`ReviewEditUITests`, and all 7 `TeeSelectionUITests` passed with zero failures;
-the Watch target executed 329 tests with zero failures, and the real Watch
-seed/restore step uploaded 22 screenshots. The real iOS step explicitly covered
-the no-GPS manual catalogue fallback and map/caddie restore assertions. Swift
-compilation and Xcode/Simulator runtime evidence are therefore green in CI;
-physical iPhone/Watch interaction and S70 hardware comparison remain open
-because this editing host and homeserver do not provide a paired device. With no course geometry/cache at all, a client
-can only show a map-preparation placeholder; it cannot invent a real course
-map. With no GPS it can start, show cached/downloaded geometry, and use local
-map targets, but it must not record a fabricated shot coordinate. The reusable
-remote source snapshot is
+`compileall` and `git diff --check` also pass. Source CI run `33680857200`
+then passed the full backend/frontend/Docker contract jobs. Native Mobile CI
+run `33680501425` passed all 38 steps at mobile source `c5902a96`, including
+the no-GPS manual catalogue fallback, map/caddie restore, review precision
+editing, 7 TeeSelection UI tests, 329 Watch tests, and 22 Watch runtime
+screenshots. Swift compilation and simulator runtime evidence are therefore
+green in CI; physical iPhone/Watch interaction and S70 Digital Crown/touch
+comparison remain open because no paired hardware is available here. With no
+course geometry/cache at all, a client can only show a map-preparation
+placeholder; it cannot invent a real course map. With no GPS it can start,
+show cached/downloaded geometry, and use local map targets, but it must not
+record a fabricated shot coordinate. The reusable remote source snapshot is
 `/home/jason/codex-runs/garmin-ai-caddie-map1-20260902` (29 MiB), expires
-2026-09-09; all focused test/compile containers were `--rm` and are gone. Homeserver
-free space is 12 GiB, so no new build, browser, or review session was started.
+2026-09-09; all focused test/compile containers were `--rm` and are gone.
+Homeserver free space is approximately 6.6 GiB, so no new heavy verification
+session was started.
 
 ### Historical context (retained; earlier snapshots)
 
@@ -571,8 +522,8 @@ project-level task list; historical plans are reference material.
 | `S1` | `done` | Sync provenance, resumable background course download, real club-distance data, and Garmin-to-client consistency. | Focused backend/Web gates plus Native Mobile CI `32837705596` at `bf84ea8a`: iOS 257 tests, Watch 315 tests, iOS/Watch design snapshots, real iOS flow/video, 11 Watch runtime screenshots, secret scans, and non-empty runtime/build artifacts. |
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
-| `REL` | `evidence-open` | Release and TestFlight gate; backend/native provenance and TestFlight build are complete. | Run `33300858579` processed build `0.1.0 (44)` from artifact source `8f141b9d`; remaining exit evidence is independent physical-device installation and first-launch/start verification. |
-| `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Focused homeserver contracts pass 147/147, including production `tee_box=unknown`; GitHub Native Mobile CI `33624244255` at `7dbb29be` passed all 38 steps, including iOS/Watch builds, 7 TeeSelection UI tests, RealFlow/ReviewEdit, Watch 329 tests, and 22 Watch runtime screenshots. Physical iPhone/Watch and S70 hardware proof remain open. |
+| `REL` | `evidence-open` | Release and TestFlight gate; backend/native provenance and build 47 are complete. | CD run `33686521143` processed build `0.1.0 (47)` from `d189b3b4`; diagnostics `33687517758` and ASC status `33687613975` passed/confirmed validity. Physical-device installation, exact tester coverage, and optional external Beta Review remain open. |
+| `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Focused homeserver contracts pass 147/147, including production `tee_box=unknown`; Native Mobile CI `33680501425` at `c5902a96` passed all 38 steps, including iOS/Watch builds, no-GPS map/caddie restore, 7 TeeSelection UI tests, ReviewEdit, Watch 329 tests, and 22 Watch runtime screenshots. Physical iPhone/Watch and S70 hardware proof remain open. |
 
 ### Status vocabulary
 
@@ -585,6 +536,31 @@ means a named external decision or prerequisite is missing; `done` and
 
 ## Completed Evidence
 
+- `d189b3b4`: Source CI run `33680857200` passed backend (2,047 tests, 13
+  skips), frontend component/lint/build/visual smoke, and Docker API/sync
+  smoke. The MAP1 mobile source is unchanged from `c5902a96`.
+- Backend candidate revision `c1648891` is deployed from
+  `/home/jason/codex-runs/garmin-ai-caddie-map1-deploy-20260902` in
+  `aicaddie-release-c1648891-candidate-20260902`; public health and the
+  authenticated course `31793` package probe passed with 18/18 geometries and
+  factual `teeBox=unknown` provenance.
+- `c5902a96`: Native Mobile CI run `33680501425` passed all 38 steps; iOS and
+  Watch manifests passed, Watch 329 tests passed, and 22 runtime screenshots
+  were uploaded. Native artifact `9868217071` has digest
+  `sha256:70183f3155e434c617b5d53590be8857e6aab791b17dc518c99af04f46aa0415`.
+- `d189b3b4`: TestFlight CD run `33686521143` uploaded and Apple processed
+  build `0.1.0 (47)`. IPA SHA-256 is
+  `19936b224428aa2e740fc7b277f26b80f91c52b44c567b75cbe310349db4f3ad`;
+  artifact `9868598629` ZIP digest is
+  `sha256:19865fc1d6190c5e58e882f63062b39b1cebd00d730c3b656c8e54ed7fdbe82b`.
+- Exact artifact diagnostics run `33687517758` passed signing/profile/team/
+  version/build/architecture checks. ASC status run `33687613975` confirmed
+  build 47 `VALID`, unexpired, in internal beta testing and included by the
+  internal all-builds group; it is not assigned to `Private Trial`.
+- Phase 6 audit run `33687800258` passed provenance/backend/signing/API checks
+  and intentionally remained `incomplete` because external review, tester
+  coverage, and physical installation are unconfirmed; `install_verified` is
+  `false`.
 - `7dbb29be`: Native Mobile CI run `33624244255` passed all 38 steps. Real iOS
   XCUITest coverage passed `RealFlowUITests` (including no-GPS map/caddie
   restore), `ReviewEditUITests`, and 7/7 `TeeSelectionUITests`; Watch target
@@ -891,7 +867,10 @@ means a named external decision or prerequisite is missing; `done` and
 
 These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
-## Read-only Deployment Decision Summary (2026-08-29)
+## Historical Deployment Decision Summary (2026-08-29; superseded 2026-09-02)
+
+The following deployment decision records are retained for provenance. The
+current candidate, deployment, and TestFlight state are in the summary above.
 
 - **Revision boundary:** local canonical `HEAD` is `affb58df7ab875bc8f26ab0c87c609d9b7d254aa`; the protected origin branch is `1af378b811cd25edae12285c5745aef1b57d7faf`. The artifact-only IPA and Phase 6 evidence are already recorded above at `1af378b8` (IPA ZIP digest `d42469f4...`, independent IPA digest `3948cb9e...`; readiness artifact digest `a21f5b8e...`). The homeserver scratch `garmin-ai-caddie-rel-20260829` has no Git metadata and is a mixed snapshot, so it is not source provenance.
 - **Running image is older:** `garmin-ai-caddie-api:6a6080c-candidate`, image `sha256:b035a77c4d70771ce5529f7898ce0a4a8a133965748f9607c729b37361bd3a03`, is labeled/deployed as backend revision `6a6080c6f6867513ed461d20e98a29113bd65433`. Its `/app/server_v2/main.py` matches that older revision and it has no course-reconciliation module; it is not the current candidate.
@@ -900,7 +879,10 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 - **Fly option:** the manual `Backend Fly Deploy` workflow creates/uses a separate Fly app and `ai_caddie_private` volume, sets runtime secrets and `AI_CADDIE_BUILD_REVISION`, deploys with `flyctl deploy --remote-only`, and may mutate `AI_CADDIE_API_BASE_URL`; it has no backup or rollback step. It does not contain homeserver data and therefore must not be treated as a data-preserving replacement without an explicit import/owner decision.
 - **Upload constraint:** the signed IPA is artifact-only (`backendRevision=null`, upload flags false). A connected upload requires an explicit backend revision/API-origin match and backend-health equality. Uploading this current app against the old public `6a6080c6...` backend would either fail the provenance gate or leave the course-reconciliation/client contract unproven; do not weaken the check or upload until a compatible backend is deployed or the app is rebuilt from the old revision.
 
-## Current Deployment/Native Blocker (2026-08-30)
+## Historical Deployment/Native Blocker (2026-08-30; resolved 2026-09-02)
+
+The credential/revision blocker below was resolved by the current backend and
+Native runs recorded above; it is retained only as historical diagnosis.
 
 - The deployed candidate is healthy at exact backend revision
   `1af378b811cd25edae12285c5745aef1b57d7faf`; the old `6a6080c6...` container
@@ -926,37 +908,34 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## Exact Next Actions
 
-1. Add/verify a strict revision and API-origin match between the signed IPA,
-   public candidate, and backend before release; keep the healthy route and
-   candidate untouched unless a new failure is observed.
-2. Record target tester coverage and physical iPhone/Watch installation against
-   the exact signed artifact.
-3. Keep the deployed candidate revision unchanged until a further replacement
-   or synchronization operation is explicitly approved; retain the prior
-   `6a6080c6...` image/container as the rollback target.
-4. Request a separate explicit confirmation before setting
-   `upload_to_testflight=true`; a readiness pass alone never uploads a binary.
-5. Resolve the Native live-preflight credential mismatch before any rerun:
-   compare the GitHub Actions `AI_CADDIE_ADMIN_TOKEN` secret with the
-   deployed candidate token through a redacted digest/length check, then obtain
-   explicit authorization before changing either value. Do not weaken the
-   admin route or rerun Native while the values are unverified.
+1. Install build 47 on one qualified physical iPhone and record the exact
+   Apple ID/tester path, iOS version, storage, install result, and first launch.
+2. Pair the Watch, install/launch the companion, and exercise the map-first
+   no-GPS start plus Green View/Touch Target/review placement with the Digital
+   Crown and touch input.
+3. Record target tester coverage. Keep build 47 internal unless the owner
+   separately approves adding it to `Private Trial` and submitting Beta Review.
+4. Keep backend revision `c1648891` and build 47 unchanged while the physical
+   gate is open; retain the prior image/container as rollback material. Do not
+   upload another build or run a production synchronization as a test.
 
 ## Open Blockers / Facts
 
 - Local machine is an editing/control plane; builds, Xcode, Playwright and
   other heavy work run on homeserver or GitHub Actions.
-- No immutable production revision has been approved for a deployment/sync
-  operation; do not trigger production synchronization as a test.
+- Production promotion and synchronization remain gated on owner approval and
+  physical-device evidence; do not trigger synchronization as a test.
 - The focused green baked fixture is still 1024 px; do not stretch it and call
   it a 1280 px evidence asset.
 - The public Funnel root route was restored on 2026-08-25 from
   `127.0.0.1:443` to `:8080` under user authorization; the route backup
   directory and before/after SHAs are recorded above. Public endpoint checks
-  returned 200. Before the 2026-08-30 transition, the public backend was
-  revision `6a6080c6...`; the prior image/container is now retained as the
-  rollback target. The current candidate deployment and its health evidence
-  are recorded above.
+  returned 200. The current public candidate is revision `c1648891...`; the
+  prior `6a6080c6...` image/container is retained as the rollback target. The
+  current candidate deployment and its health evidence are recorded above.
+- Physical iPhone/Watch installation, first-launch/start behavior, exact tester
+  qualification, and external Beta Review remain unverified. CI and simulator
+  evidence cannot close those hardware/account gates.
 - One runtime evidence boundary remains open: deferred-finish network retry is
   still unit-test-only. Cancel completion and old-seed tombstone rejection are
   covered by run `32791049667`.
@@ -982,6 +961,28 @@ These are code/test facts, not proof of a physical Apple Watch Ultra session.
 
 ## State Changes
 
+- 2026-09-02: MAP1 implementation and its contract coverage are integrated at
+  source baseline `d189b3b4`; focused homeserver contracts pass 147/147 and
+  source CI `33680857200` is green. The map-first no-GPS start, factual
+  `teeBox=unknown` handling, phone map/caddie flow, manual map distance
+  placement, and S70-style drag loupes for Touch Target, Green View, and
+  review edits are covered by the current code and tests.
+- 2026-09-02: Deployed the compatible backend candidate from
+  `/home/jason/codex-runs/garmin-ai-caddie-map1-deploy-20260902` at revision
+  `c16488911038d7e5b47ec310d1aaf05ca29950df`; health and authenticated course
+  `31793` package probes passed. Native Mobile CI `33680501425` passed all 38
+  steps, including iOS/Watch runtime evidence and Watch screenshots.
+- 2026-09-02: TestFlight CD `33686521143` uploaded and Apple processed build
+  `0.1.0 (47)` from `d189b3b4`; IPA SHA-256 is
+  `19936b224428aa2e740fc7b277f26b80f91c52b44c567b75cbe310349db4f3ad`.
+  Exact artifact diagnostics `33687517758` passed. ASC status `33687613975`
+  confirms build 47 is valid and included in the internal all-builds group;
+  it is not assigned to the external `Private Trial` group.
+- 2026-09-02: Phase 6 audit `33687800258` passed provenance/backend/signing/API
+  checks but remains `incomplete` by design. External Beta Review, tester
+  coverage, and physical iPhone/Watch installation and first launch are still
+  open; `install_verified=false`. No new build or external distribution was
+  triggered.
 - 2026-08-30: Completed a scoped capacity cleanup with immutable manifests.
   Removed 54 old Garmin artifact-only `codex-runs` entries (2.89 GiB total,
   including one root-owned entry removed through a separately recorded exact
