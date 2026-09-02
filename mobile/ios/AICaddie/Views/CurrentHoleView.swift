@@ -409,7 +409,6 @@ public struct CurrentHoleView: View {
                 selectedClub: selectedClub,
                 selectedClubMetres: selectedClubMetres,
                 targetCoordinate: $targetCoordinate,
-                targetPixel: $targetPixel,
                 referenceCoordinate: mapReferenceCoordinate,
                 referenceIsLive: mapReferenceIsLive,
                 pinCoordinate: effectiveMapPinCoordinate,
@@ -419,6 +418,7 @@ public struct CurrentHoleView: View {
                 onTargetCommitted: { coordinate in
                     handleMapTargetCommitted(coordinate, kind: "target")
                 },
+                targetPixel: $targetPixel,
                 onTargetPixelChanged: { pixel in
                     handleMapTargetPixelChanged(pixel, kind: "target")
                 },
