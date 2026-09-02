@@ -292,7 +292,7 @@ public struct LivePlayMapDetailView: View {
                 ?? distanceYards(from: referenceCoordinate, to: targetCoordinate)
         let secondDistance = resolvedPixelDistances?.targetToPinYards
             ?? distanceYards(from: targetCoordinate, to: pinCoordinate)
-        VStack(alignment: .leading, spacing: 7) {
+        return VStack(alignment: .leading, spacing: 7) {
             if hasTarget {
                 HStack(spacing: 14) {
                     distanceValue(

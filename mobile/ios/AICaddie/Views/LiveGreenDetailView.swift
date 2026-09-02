@@ -253,7 +253,7 @@ public struct LiveGreenDetailView: View {
                 : (distanceYards(from: targetCoordinate, to: pinCoordinate)
                     ?? pixelDistances?.targetToPinYards))
             : nil
-        VStack(alignment: .leading, spacing: 7) {
+        return VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 14) {
                 distanceValue(
                     label: referenceIsLive ? "当前位置 → 旗位" : "发球台 → 旗位",
