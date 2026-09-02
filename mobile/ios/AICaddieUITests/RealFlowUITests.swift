@@ -1121,8 +1121,13 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("09e-new-course-precise-map"); dump("09e-new-course-precise-map")
 
         // No score has been written yet. The durable live cursor created by Start must still restore
-        // this exact selected course at hole 1 after process death.
+        // this exact selected course at hole 1 after process death. Remove the journey's default
+        // Beijing Palace fix before relaunching: this deliberately exercises the searched-course,
+        // authorized-but-fixless contract instead of turning a Tee reference into a shot location.
         app.terminate()
+        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LAT")
+        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LON")
+        app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "authorized"
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
         let inProgress = app.buttons["home-in-progress-round"]
@@ -1132,11 +1137,25 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("09f-new-course-restored-home"); dump("09f-new-course-restored-home")
         inProgress.tap()
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 20))
+        let restoredTopo = app.descendants(matching: .any)
+            .matching(identifier: "topo-hole-base-ready").firstMatch
         XCTAssertTrue(
-            app.descendants(matching: .any)
-                .matching(identifier: "topo-hole-base-ready").firstMatch
-                .waitForExistence(timeout: 90),
+            restoredTopo.waitForExistence(timeout: 90),
             "restored new-course round must reopen the same precise first-hole map"
+        )
+        let restoredMap = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'live-hole-map-'"))
+            .firstMatch
+        XCTAssertTrue(
+            restoredMap.waitForExistence(timeout: 12),
+            "a searched course must show its factual map immediately even without a GPS fix"
+        )
+        let restoredCaddie = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "球童建议已就绪"))
+            .firstMatch
+        XCTAssertTrue(
+            restoredCaddie.waitForExistence(timeout: 75),
+            "a searched course without GPS must still expose the static-map caddie recommendation"
         )
 
         let parText = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Par '")).firstMatch
@@ -1145,7 +1164,23 @@ final class RealFlowUITests: XCTestCase {
             parText.label.split(separator: " ").dropFirst().first.flatMap { Int($0) },
             "new-course hole 1 Par must be factual"
         )
-        try recordJourneyShot(selectActualClub: false)
+        let noGPSRecord = app.buttons["记一杆"]
+        XCTAssertTrue(
+            scrollTo(noGPSRecord, maxSwipes: 18),
+            "a no-GPS round must still expose the shot action in the live controls"
+        )
+        XCTAssertFalse(
+            noGPSRecord.isEnabled,
+            "a no-GPS round must not record a fabricated current position"
+        )
+        XCTAssertTrue(
+            app.staticTexts["等待 GPS 定位后即可记杆"].waitForExistence(timeout: 5),
+            "the disabled shot action must explain that a factual GPS fix is required"
+        )
+        XCTAssertFalse(
+            app.staticTexts["这一杆用了什么球杆？"].exists,
+            "no-GPS shot capture must not open the actual-club prompt"
+        )
         try confirmJourneyHole(hole: 1, par: par, manual: false, fairwayLabel: nil)
         let restoredFirstHoleHeading = app.staticTexts["第 1 洞"]
         let restoredSecondHoleHeading = app.staticTexts["第 2 洞"]

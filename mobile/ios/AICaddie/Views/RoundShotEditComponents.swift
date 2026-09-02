@@ -288,11 +288,11 @@ public struct RoundShotEditLayer: View {
                     guard let px = pixel(at: value.location, frame: frame, clampToMap: false) else { return }
                     let id = editModel.addShot(px: px, afterShotId: editModel.selectedShotId)
                     guard !id.isEmpty,
-                          let added = editModel.map.shots.first(where: { $0.id == id }) else { return }
+                          editModel.map.shots.contains(where: { $0.id == id }) else { return }
                     editModel.selectedShotId = id
-                    // S70-style focused placement: a new landing goes straight into the precision
-                    // surface, and cancelling that surface removes only this unconfirmed draft.
-                    openPrecisionEditor(for: added, discardOnCancel: true)
+                    // Keep the map open for continuous placement. The selected draft exposes an
+                    // explicit S70-style precision action below, so adding a point never interrupts
+                    // the player's next tap/drag; only the explicit action opens the full editor.
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 }
             }
