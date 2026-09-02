@@ -453,6 +453,16 @@ public struct WatchCoursePrepGreenOutline: Decodable, Equatable {
         self.available = available
         self.pointsPx = pointsPx
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case available, pointsPx
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        available = try container.decodeIfPresent(Bool.self, forKey: .available) ?? false
+        pointsPx = try container.decodeIfPresent([[Double]].self, forKey: .pointsPx) ?? []
+    }
 }
 
 public struct WatchCoursePrepHazards: Decodable, Equatable {

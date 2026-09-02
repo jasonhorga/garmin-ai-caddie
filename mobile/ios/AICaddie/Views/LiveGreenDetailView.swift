@@ -1,5 +1,6 @@
 import CoreLocation
 import SwiftUI
+import AICaddieDomain
 #if canImport(UIKit)
 import UIKit
 #endif
