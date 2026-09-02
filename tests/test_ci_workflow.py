@@ -1119,7 +1119,15 @@ class CIWorkflowTests(unittest.TestCase):
         inputs = triggers["workflow_dispatch"]["inputs"]
 
         self.assertEqual(
-            ["list", "add", "assign_existing", "configure_review", "submit_review", "distribute"],
+            [
+                "list",
+                "add",
+                "assign_existing",
+                "configure_review",
+                "submit_review",
+                "distribute",
+                "diagnose_artifact",
+            ],
             inputs["operation"]["options"],
         )
         self.assertIn("tester_emails", inputs)
