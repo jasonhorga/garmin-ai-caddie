@@ -12,6 +12,9 @@ public final class RoundEditModel: ObservableObject {
     @Published public var saveError: String?
     @Published public var draggingShotId: String?
     @Published public var selectedShotId: String?
+    /// Transient request emitted by list controls and consumed by the map overlay. Keeping the
+    /// request on the shared draft lets a sibling list open the same precision editor as a map tap.
+    @Published public var precisionShotRequest: String?
     /// A current prodgeometry revision plus its exact overlay owns the authoritative pixel frame.
     /// The PNG is transferred through the revision-bound topo URL rather than repeated inside every
     /// shot-map JSON response, so `map.image == nil` does not make that frame imprecise. CourseData
@@ -54,6 +57,7 @@ public final class RoundEditModel: ObservableObject {
         saveError = nil
         draggingShotId = nil
         selectedShotId = nil
+        precisionShotRequest = nil
         pendingSaveOp = nil
     }
 
@@ -66,6 +70,7 @@ public final class RoundEditModel: ObservableObject {
         saveError = nil
         draggingShotId = nil
         selectedShotId = nil
+        precisionShotRequest = nil
         pendingSaveOp = nil
     }
 
@@ -193,6 +198,19 @@ public final class RoundEditModel: ObservableObject {
         markChanged()
     }
 
+    /// Ask the overlaid map to open the full precision surface for one existing landing.
+    /// Position editing remains fail-closed when the map has no authoritative pixel frame.
+    public func requestPrecision(for shotId: String) {
+        guard canEditPositions,
+              map.shots.contains(where: { $0.id == shotId }) else { return }
+        selectedShotId = shotId
+        precisionShotRequest = shotId
+    }
+
+    public func clearPrecisionRequest() {
+        precisionShotRequest = nil
+    }
+
     // MARK: - Commit / refresh
 
     /// Persist the whole approved draft in one idempotent request. Returns true only after the server
@@ -202,7 +220,12 @@ public final class RoundEditModel: ObservableObject {
         guard hasUnsavedChanges else {
             map = originalMap
             isEditing = false
+            hasUnsavedChanges = false
+            saveError = nil
+            draggingShotId = nil
             selectedShotId = nil
+            precisionShotRequest = nil
+            pendingSaveOp = nil
             return true
         }
 

@@ -150,6 +150,71 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    func testManualSearchProvenanceSurvivesSiblingLoopButNotAnotherVenue() {
+        let searchedLoop = MobileCourseOption(
+            globalId: 31670,
+            name: "Shenzhen Mission Hills Golf Club ~ Faldo",
+            holes: 9,
+            venueName: "Shenzhen Mission Hills Golf Club",
+            segmentLabel: "Faldo",
+            segmentHoles: 9
+        )
+        let siblingLoop = MobileCourseOption(
+            globalId: 31671,
+            name: "Shenzhen Mission Hills Golf Club ~ Ozaki",
+            holes: 9,
+            venueName: "Shenzhen Mission Hills Golf Club",
+            segmentLabel: "Ozaki",
+            segmentHoles: 9
+        )
+        let otherVenue = MobileCourseOption(
+            globalId: 31874,
+            name: "Haikou Mission Hills Golf Club ~ Blackstone",
+            holes: 18,
+            venueName: "Haikou Mission Hills Golf Club"
+        )
+
+        XCTAssertTrue(
+            StartRoundView.preservesManualSearchProvenance(
+                wasManualSearch: true,
+                previous: searchedLoop,
+                next: siblingLoop
+            )
+        )
+        XCTAssertFalse(
+            StartRoundView.preservesManualSearchProvenance(
+                wasManualSearch: true,
+                previous: searchedLoop,
+                next: otherVenue
+            )
+        )
+        XCTAssertFalse(
+            StartRoundView.preservesManualSearchProvenance(
+                wasManualSearch: false,
+                previous: searchedLoop,
+                next: siblingLoop
+            )
+        )
+    }
+
+    func testManualSearchCanStartWhileTeeAuthorityIsStillLoading() {
+        let common: (Bool) -> Bool = { manualSearch in
+            StartRoundView.isStartAllowed(
+                isPreparing: false,
+                isLoadingTees: true,
+                roundId: "live-31670-test",
+                courseGlobalId: 31670,
+                teeBox: "unknown",
+                selectedCourseRequiresRemoteTees: true,
+                teeOptions: [],
+                selectedCourseWasManualSearch: manualSearch
+            )
+        }
+
+        XCTAssertTrue(common(true))
+        XCTAssertFalse(common(false))
+    }
+
     func testTailSearchSelectionCarriesCourseIntoStartRoundState() {
         let tail = MobileCourseOption(
             globalId: 31793,

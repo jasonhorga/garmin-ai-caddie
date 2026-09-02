@@ -56,7 +56,7 @@ public struct WatchRoundSetupView: View {
         self.onLoadTees = onLoadTees
         self.onStart = onStart
         self.onBack = onBack
-        _selectedTee = State(initialValue: front.preferredTee)
+        _selectedTee = State(initialValue: Self.initialTee(for: front))
         _selectedPrimaryGlobalId = State(initialValue: front.globalId)
         _selectedBackGlobalId = State(initialValue: nil)
         let startsWithHoles = Self.hasCompatibleBackLoop(front: front, courses: courses)
@@ -146,10 +146,10 @@ public struct WatchRoundSetupView: View {
                     .padding(7)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 } else if teeChoices.isEmpty {
-                    HStack(spacing: 6) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .foregroundStyle(.yellow)
-                        Text("发球台资料稍后补齐 · 先按 \(selectedTee) T 开局")
+                        HStack(spacing: 6) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .foregroundStyle(.yellow)
+                            Text("发球台资料稍后补齐 · 先按 \(teeSummary(selectedTee)) 开局")
                     }
                     .font(.system(size: 13, weight: .bold))
                     .padding(7)
@@ -429,7 +429,7 @@ public struct WatchRoundSetupView: View {
     }
 
     private var selectedTeeSummary: String {
-        teeChoices.first(where: \.isSelected)?.title ?? "\(selectedTee.capitalized) T"
+        teeChoices.first(where: \.isSelected)?.title ?? teeSummary(selectedTee)
     }
 
     private func venueName(_ option: WatchCourseOption) -> String {
@@ -450,16 +450,16 @@ public struct WatchRoundSetupView: View {
         case "full":
             selectedPrimaryGlobalId = front.globalId
             selectedBackGlobalId = globalId
-            selectedTee = front.preferredTee
+            selectedTee = Self.initialTee(for: front)
         case "front":
             selectedPrimaryGlobalId = front.globalId
             selectedBackGlobalId = nil
-            selectedTee = front.preferredTee
+            selectedTee = Self.initialTee(for: front)
         case "back":
             guard let option = backOptions.first(where: { $0.globalId == globalId }) else { return }
             selectedPrimaryGlobalId = option.globalId
             selectedBackGlobalId = nil
-            selectedTee = option.preferredTee
+            selectedTee = Self.initialTee(for: option)
         default:
             return
         }
@@ -495,6 +495,21 @@ public struct WatchRoundSetupView: View {
                 ? tee.name
                 : "\(tee.name) T"
         }
+    }
+
+    private static func initialTee(for course: WatchCourseOption) -> String {
+        let explicit = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasExplicit = explicit.map {
+            !$0.isEmpty && $0.caseInsensitiveCompare("unknown") != .orderedSame
+        } ?? false
+        if course.tees.isEmpty && !hasExplicit {
+            return "unknown"
+        }
+        return course.preferredTee
+    }
+
+    private func teeSummary(_ tee: String) -> String {
+        tee.caseInsensitiveCompare("unknown") == .orderedSame ? "球场默认 T" : "\(tee) T"
     }
 
     @MainActor

@@ -34,6 +34,26 @@ COURSE_ALIASES = {PALACE_ID: PALACE_ID, 31795: GLOBAL_ID, 31797: 31797, 3881: 38
 ROUND_ALIASES = {"900001": ROUND_REF, "live-31795": ROUND_REF, "live-round-1": ROUND_REF, "fixture-round-1": ROUND_REF}
 UUID_RE = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 PREP_LIBRARY_RE = r"prep-library-([0-9]+)"
+_FIXTURE_TEE_BOXES = {"blue", "white"}
+
+
+def _fixture_tee(value: str | None, *, default: str | None = None) -> str | None:
+    """Normalize a client Tee token while allowing an explicit unresolved/default Tee.
+
+    Manual course search can start before Tee metadata has arrived.  ``unknown`` therefore means
+    "let the course choose its default", whereas any other unsupported colour remains a contract
+    error.  Keeping the unresolved token in the response lets iOS/Watch retain that provenance.
+    """
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        normalized = str(default or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized == "unknown":
+        return normalized
+    if normalized not in _FIXTURE_TEE_BOXES:
+        raise HTTPException(status_code=404, detail="fixture tee not found")
+    return normalized
 
 
 def _course_id(value: int) -> int:
@@ -287,8 +307,7 @@ def _bound_round_context(round_id: str, global_id: int | None = None, back_globa
         raise HTTPException(status_code=400, detail="fixture round/course mismatch")
     requested_back = _course_request(back_global_id) if back_global_id is not None else None
     _segment_holes(nine)
-    if tee_box is not None and tee_box not in {"blue", "white"}:
-        raise HTTPException(status_code=404, detail="fixture tee not found")
+    _fixture_tee(tee_box)
     return resolved, requested_course, requested_back
 
 
@@ -396,7 +415,8 @@ def _with_markers(payload: dict) -> dict:
 
 
 def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all", back_global_id: int | None = None, tee_box: str = "blue") -> dict:
-    _, requested_course, requested_back = _bound_round_context(round_id, global_id, back_global_id, nine, tee_box)
+    requested_tee = _fixture_tee(tee_box, default="blue") or "blue"
+    _, requested_course, requested_back = _bound_round_context(round_id, global_id, back_global_id, nine, requested_tee)
     requested_round = str(round_id)
     segment_holes = _segment_holes(nine)
     payload = json.loads(json.dumps(PACKAGE_TEMPLATE))
@@ -422,7 +442,7 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
     payload["sourceCoverage"]["dataMode"] = "ci_fixture"
     payload["course"]["globalId"] = requested_course
     payload["course"]["name"] = _course_name(requested_course)
-    payload["course"]["teeBox"] = tee_box
+    payload["course"]["teeBox"] = requested_tee
     payload["nine"] = nine
     payload["frontCourseGlobalId"] = requested_course
     if requested_back is not None:
@@ -461,7 +481,7 @@ def _package(round_id: str, global_id: int | None = GLOBAL_ID, nine: str = "all"
         seed["hole"] = hole
         seed["sourceRef"] = seed_ref
         display_hole, local_hole, source_course = _resolve_hole(nine, hole, requested_course, requested_back)
-        seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": display_hole, "displayHole": display_hole, "globalId": requested_course, "localHole": local_hole, "backGlobalId": requested_back, "nine": nine, "teeBox": tee_box, "par": _hole_par(source_course, local_hole)})
+        seed.setdefault("context", {}).update({"roundId": requested_round, "sourceRef": seed_ref, "hole": display_hole, "displayHole": display_hole, "globalId": requested_course, "localHole": local_hole, "backGlobalId": requested_back, "nine": nine, "teeBox": requested_tee, "par": _hole_par(source_course, local_hole)})
         seed["context"].setdefault("geometry", {}).update({"coverage": "ready", "sourceGlobalId": source_course, "sourceLocalHole": local_hole})
         club_profiles = _seed_club_profiles(seed)
         existing_profiles = seed["context"].get("clubProfiles")
@@ -573,8 +593,7 @@ def nearby(latitude: float, longitude: float, radius_km: int = 50) -> dict:
 def coverage(global_id: int, holes: list[int] | None = Query(default=None), nine: str = "all", back_global_id: int | None = None,
              tee_box: str | None = None) -> dict:
     requested_course = _course_request(global_id)
-    if tee_box is not None and tee_box not in {"blue", "white"}:
-        raise HTTPException(status_code=404, detail="fixture tee not found")
+    _fixture_tee(tee_box)
     requested = [LOCAL_HOLE] if holes is None or not isinstance(holes, list) else holes
     resolved = [_resolve_hole(nine, hole, requested_course, _course_request(back_global_id) if back_global_id is not None else None) for hole in requested]
     is_open_candidate = requested_course == 31797
@@ -676,12 +695,11 @@ def sync_status() -> dict:
 def install_status(global_id: int, tee_box: str = "blue", nine: str = "all", back_global_id: int | None = None) -> dict:
     requested_course = _course_request(global_id)
     requested_back = _course_request(back_global_id) if back_global_id is not None else None
-    if tee_box not in {"blue", "white"}:
-        raise HTTPException(status_code=404, detail="fixture install target not found")
+    requested_tee = _fixture_tee(tee_box, default="blue") or "blue"
     segment_holes = _segment_holes(nine)
     rows = [{"globalId": course, "localHole": local, "displayHole": display, "geometry": "ready", "geometryRevision": FIXTURE_REVISION, "topo": "ready", "topoRevision": FIXTURE_REVISION, "error": None} for display, local, course in (_resolve_hole(nine, hole, requested_course, requested_back) for hole in segment_holes)]
     return _with_markers({"schema": "ai-caddie-course-install-v1", "jobId": "fixture-install", "globalId": requested_course,
-                          "teeBox": tee_box, "nine": nine, "phase": "ready", "stage": "complete",
+                          "teeBox": requested_tee, "nine": nine, "phase": "ready", "stage": "complete",
                           "totalHoles": len(segment_holes), "geometryReady": len(segment_holes), "topoReady": len(segment_holes), "updatedAt": "2026-08-27T00:00:00Z",
                           "error": None, "holes": rows})
 
@@ -716,12 +734,12 @@ def green_png(global_id: int, hole: int, x: float = 0, y: float = 0, width: floa
 def course_package(global_id: int, round_id: str | None = None, tee_box: str | None = None, nine: str = "all", back_global_id: int | None = None) -> dict:
     if round_id is None:
         raise HTTPException(status_code=404, detail="fixture round not found")
-    return _package(round_id, global_id, nine, back_global_id, tee_box or "blue")
+    return _package(round_id, global_id, nine, back_global_id, tee_box if tee_box is not None else "blue")
 
 
 @ROUTE.get("/api/v2/mobile/rounds/{round_id}/package")
 def round_package(round_id: str, tee_box: str | None = None, nine: str = "all", back_global_id: int | None = None, global_id: int | None = None) -> dict:
-    return _package(round_id, global_id, nine, back_global_id, tee_box or "blue")
+    return _package(round_id, global_id, nine, back_global_id, tee_box if tee_box is not None else "blue")
 
 
 @ROUTE.post("/api/v2/caddie/decision")

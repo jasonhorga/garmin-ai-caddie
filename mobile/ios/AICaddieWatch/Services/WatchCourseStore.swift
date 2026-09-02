@@ -23,6 +23,41 @@ public final class WatchCourseStore {
         loadCourses().first { $0.option.globalId == globalId }
     }
 
+    /// Resolve a cache by the complete setup the player selected. Exact front/back/Tee identity
+    /// wins. When the picker has no concrete Tee yet, an explicitly downloaded Tee for the same
+    /// loop pair is a safe fallback; the inverse is deliberately forbidden so a selected Tee can
+    /// never display another Tee's yardages or geometry.
+    public func course(selection: WatchCourseSelection) -> WatchCourseTemplate? {
+        let courses = loadCourses()
+        if let exact = courses.first(where: { $0.matches(selection) }) {
+            return exact
+        }
+        guard !selection.hasExplicitTee else { return nil }
+        return courses.last { template in
+            template.option.globalId == selection.front.globalId
+                && template.backOption?.globalId == selection.back?.globalId
+                && WatchCourseSelection.hasExplicitTee(template.teeBox)
+        }
+    }
+
+    /// Identity-only variant for round restoration, where the original course-option display
+    /// metadata is no longer available. The cache matcher intentionally uses only Garmin ids and Tee.
+    public func course(
+        frontGlobalId: Int,
+        backGlobalId: Int?,
+        teeBox: String?
+    ) -> WatchCourseTemplate? {
+        let front = WatchCourseOption(globalId: frontGlobalId, name: "", holes: 1)
+        let back = backGlobalId.map { WatchCourseOption(globalId: $0, name: "", holes: 1) }
+        return course(
+            selection: WatchCourseSelection(
+                front: front,
+                back: back,
+                teeBox: teeBox ?? "unknown"
+            )
+        )
+    }
+
     /// A composite 18-hole cache is stored under its front option, while active holes 10–18 carry
     /// the back option's Garmin globalId. Map recovery must resolve either authority without changing
     /// the stricter front-selection lookup used when a player starts a course.
@@ -34,7 +69,9 @@ public final class WatchCourseStore {
 
     public func save(_ course: WatchCourseTemplate) throws {
         var courses = loadCourses()
-        if let index = courses.firstIndex(where: { $0.option.globalId == course.option.globalId }) {
+        // Templates are immutable facts for one front/back/Tee setup. Replacing only the same
+        // composite key lets several nine-hole pairings and Tee choices coexist in one file.
+        if let index = courses.firstIndex(where: { $0.cacheKey == course.cacheKey }) {
             courses[index] = course
         } else {
             courses.append(course)
@@ -48,12 +85,74 @@ public enum WatchCourseTemplateBuilderError: Error {
 }
 
 public enum WatchCourseTemplateBuilder {
+    /// Translate the optional first-hole seed embedded in a fast package into the source-loop keys
+    /// used by `/prep` and the Watch round state. Package holes carry both a display number and, for
+    /// composite rounds, the physical loop's global/local identity; the seed only carries the former
+    /// plus its owning package global id. Resolve source identity before grouping so hole 10 from a
+    /// back loop cannot accidentally become hole 10 of the front loop.
+    public static func seededPreps(
+        from package: WatchCoursePackage
+    ) -> [Int: WatchCoursePrepResponse] {
+        guard let seed = package.coursePrep, !seed.holes.isEmpty else { return [:] }
+
+        let packageHoles = package.holes.sorted { $0.number < $1.number }
+        var grouped: [Int: [Int: WatchCoursePrepHole]] = [:]
+
+        for prepHole in seed.holes {
+            // First use the strongest available authority: the prep package's global id plus its
+            // local hole number. This handles normal holes and repeated use of one physical loop.
+            var matches = packageHoles.filter { hole in
+                let sourceGlobalId = hole.sourceGlobalId ?? package.course.globalId
+                let sourceLocalHole = hole.sourceLocalHole ?? hole.number
+                return sourceGlobalId == seed.globalId && sourceLocalHole == prepHole.hole
+            }
+
+            // A nine-hole/back-loop fast seed can be numbered in display space (10...18), while
+            // its source local hole is 1...9. Fall back to that display identity when the exact
+            // source pair is not present in the payload.
+            if matches.isEmpty {
+                matches = packageHoles.filter { $0.number == prepHole.hole }
+            }
+
+            if matches.isEmpty {
+                // Keep malformed/older payloads useful when they contain a valid prep but no
+                // source metadata. The builder will still only consume this row if its resolved
+                // source key matches a package hole.
+                let fallbackGlobalId = seed.globalId > 0 ? seed.globalId : package.course.globalId
+                grouped[fallbackGlobalId, default: [:]][prepHole.hole] = prepHole
+                continue
+            }
+
+            for packageHole in matches {
+                let sourceGlobalId = packageHole.sourceGlobalId ?? package.course.globalId
+                let sourceLocalHole = packageHole.sourceLocalHole ?? packageHole.number
+                guard sourceGlobalId > 0, sourceLocalHole > 0 else { continue }
+                // The response is indexed by source local hole. Store a single row per local key;
+                // repeated display holes of the same physical loop intentionally share geometry.
+                grouped[sourceGlobalId, default: [:]][sourceLocalHole] = prepHole.renumbered(
+                    to: sourceLocalHole
+                )
+            }
+        }
+
+        return grouped.reduce(into: [:]) { result, entry in
+            let holes = entry.value.values.sorted { $0.hole < $1.hole }
+            guard !holes.isEmpty else { return }
+            result[entry.key] = WatchCoursePrepResponse(
+                globalId: entry.key,
+                clubs: seed.clubs,
+                holes: holes
+            )
+        }
+    }
+
     public static func build(
         option: WatchCourseOption,
         backOption: WatchCourseOption? = nil,
         package: WatchCoursePackage,
         prepsByGlobalId: [Int: WatchCoursePrepResponse],
         topoImagesByGlobalId: [Int: [Int: Data]] = [:],
+        selectedTee: String? = nil,
         cachedAt: String
     ) throws -> WatchCourseDownload {
         guard !package.holes.isEmpty else { throw WatchCourseTemplateBuilderError.emptyPackage }
@@ -185,7 +284,7 @@ public enum WatchCourseTemplateBuilder {
             option: locatedOption,
             backOption: locatedBackOption,
             courseName: resolvedCourseName(package: package, option: option),
-            teeBox: package.course.teeBox,
+            teeBox: selectedTee ?? package.course.teeBox,
             holeStates: states,
             cachedAt: cachedAt
         )

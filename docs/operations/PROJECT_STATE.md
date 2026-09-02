@@ -4,7 +4,7 @@
 > Long reviews and historical plans remain reference material; they are not the
 > live task queue.
 
-**Updated:** 2026-08-31 UTC
+**Updated:** 2026-09-02 UTC
 **Branch:** `codex/p0-p1-p2-checkpoint-20260823`
 **Source baseline:** `1fc603b8d0761d134210968cf05ab489241a3f9b` (TestFlight build 46
 artifact source; backend runtime revision `1af378b811cd25edae12285c5745aef1b57d7faf`;
@@ -135,13 +135,46 @@ code; do not restart the old multi-week plan tree.
 
 ## Current Slice
 
-**`REL` — release readiness and TestFlight gate** (`evidence-open`)
+**`MAP1` — map-first cold start and precision placement** (`evidence-open`)
+
+The current product slice verifies the no-GPS Watch/iPhone start path, two-leg
+map distance semantics, and S70-style magnification for Touch Target, Green
+View flag placement, and review shot placement. Release evidence remains open
+under `REL` and is not changed by this slice.
 
 The current release candidate has a verified backend deployment, passing live
 iOS/Watch Native evidence, and a freshly repackaged TestFlight build as
 summarized above. The sole remaining release evidence is physical-device
 installation and first-launch/start verification after the common install
 failure is separated into device/account versus Apple distribution causes.
+
+MAP1 implementation evidence (2026-09-02): the Watch/iPhone map-first start,
+pixel-safe Touch Target and Green View editors, S70-style drag loupes, and
+review landing precision editor are wired in the current workspace. The Watch
+now keeps an unresolved Tee as `unknown` instead of displaying or submitting a
+fabricated Blue Tee; the production package route accepts that token, retains
+its provenance in the response, and resolves an internal distance only from a
+factual CourseView Tee list. Without that authority it stays unresolved rather
+than selecting the longest geometry row.
+
+A network-disabled, read-only homeserver run in the existing API image passed
+`147/147` focused tests: `tests.test_mobile_contracts` `94/94`,
+`tests.test_ci_fixture_contract` `35/35`, `tests.test_course_tees` `17/17`, and
+the production manual-search `tee_box=unknown` package test `1/1`. Python
+`compileall` and `git diff --check` also pass. An earlier full Python discovery
+was not green: `2,042` tests ran with `5` failures, `17` errors, `13` skips;
+the observed failures/errors include unrelated stale workflow/authority
+expectations and missing container tools/dependencies, so no full-suite pass is
+claimed. Swift compilation, Xcode/Simulator, Playwright, and physical-device
+interaction remain open because this editing host and homeserver do not provide
+Xcode/Swift or a paired device. With no course geometry/cache at all, a client
+can only show a map-preparation placeholder; it cannot invent a real course
+map. With no GPS it can start, show cached/downloaded geometry, and use local
+map targets, but it must not record a fabricated shot coordinate. The reusable
+remote source snapshot is
+`/home/jason/codex-runs/garmin-ai-caddie-map1-20260902` (29 MiB), expires
+2026-09-09; all focused test/compile containers were `--rm` and are gone. Homeserver
+free space is 12 GiB, so no new build, browser, or review session was started.
 
 ### Historical context (retained; earlier snapshots)
 
@@ -533,6 +566,7 @@ project-level task list; historical plans are reference material.
 | `R1` | `done` | Web map-first review editor/cache slice described above. | Focused tests plus remote add/drag/delete/reorder/save/reload evidence. |
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
 | `REL` | `evidence-open` | Release and TestFlight gate; backend/native provenance and TestFlight build are complete. | Run `33300858579` processed build `0.1.0 (44)` from artifact source `8f141b9d`; remaining exit evidence is independent physical-device installation and first-launch/start verification. |
+| `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Focused homeserver contracts pass 147/147, including production `tee_box=unknown`; source checks pass. Full discovery is not green, and Swift compile plus physical-device proof remain open. |
 
 ### Status vocabulary
 

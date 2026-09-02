@@ -110,11 +110,28 @@ def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[
             from ai_caddie.courses.course_reference import courseview_tees
 
             used_keys: set[str] = set()
+            release_tees = []
             for row in courseview_tees(int(global_id), allow_fetch=False):
-                key = _release_tee_box_key(row.get("name"), row.get("index"), used_keys)
+                key = _release_tee_box_key(
+                    row.get("name"),
+                    row.get("index"),
+                    used_keys,
+                )
+                release_tees.append((key, row))
                 if requested in {key, str(row.get("name") or "").strip().lower()}:
                     tee_set = int(row["index"])
                     break
+            if requested == "unknown" and tee_set is None and release_tees:
+                # ``unknown`` is an unresolved player choice, not a Tee named "unknown". Resolve
+                # only through the same factual CourseView list used by the Tee picker (Blue when
+                # that course publishes it, otherwise its first/back Tee). If release authority is
+                # unavailable, stay unresolved instead of silently substituting the longest
+                # geometry row below.
+                _, default_row = next(
+                    (item for item in release_tees if item[0] == "blue"),
+                    release_tees[0],
+                )
+                tee_set = int(default_row["index"])
         except Exception:
             tee_set = None
     if tee_set is None:
@@ -123,6 +140,9 @@ def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[
         match = next((t for t in tees if tee_set in (t.get("sets") or [])), None)
         if match:
             return match
+
+    if requested == "unknown":
+        return None
 
     return max(tees, key=lambda t: float(t.get("target_distance_m") or 0.0))
 

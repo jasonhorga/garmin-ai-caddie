@@ -39,6 +39,10 @@ public struct StartRoundView: View {
     @State private var courseGlobalIdText: String
     @State private var backGlobalIdText: String = ""
     @State private var userPickedVenue = false
+    /// A text-search result is an explicit course choice even when Garmin is still loading its
+    /// Tee authority.  Keep that provenance separate from the nearby picker so a cold/no-GPS
+    /// search can start the round immediately without weakening the nearby loading gate.
+    @State private var selectedCourseWasManualSearch = false
     @State private var teeBox: String
     @State private var nine: String
     /// 所选球场的发球台列表(含码数/默认),来自 GET /courses/{id}/tees;为空则用球场自带 Tee 名。
@@ -123,12 +127,39 @@ public struct StartRoundView: View {
     }
 
     private var canStart: Bool {
-        !isPreparing
-            && !isLoadingTees
+        Self.isStartAllowed(
+            isPreparing: isPreparing,
+            isLoadingTees: isLoadingTees,
+            roundId: roundId,
+            courseGlobalId: courseGlobalId,
+            teeBox: teeBox,
+            selectedCourseRequiresRemoteTees: selectedCourseRequiresRemoteTees,
+            teeOptions: teeOptions,
+            selectedCourseWasManualSearch: selectedCourseWasManualSearch
+        )
+    }
+
+    /// The primary action is independent of GPS. A manually searched course has explicit player
+    /// intent and may enter the map with the server's `unknown` Tee while Tee authority continues in
+    /// the background; nearby discovery keeps the stricter loading gate.
+    static func isStartAllowed(
+        isPreparing: Bool,
+        isLoadingTees: Bool,
+        roundId: String,
+        courseGlobalId: Int?,
+        teeBox: String,
+        selectedCourseRequiresRemoteTees: Bool,
+        teeOptions: [String],
+        selectedCourseWasManualSearch: Bool
+    ) -> Bool {
+        let hasManualSearchFallback = selectedCourseWasManualSearch
+            && !teeBox.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return !isPreparing
+            && (hasManualSearchFallback || !isLoadingTees)
             && !roundId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && courseGlobalId != nil
             && !teeBox.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (!selectedCourseRequiresRemoteTees || !teeOptions.isEmpty)
+            && (!selectedCourseRequiresRemoteTees || !teeOptions.isEmpty || hasManualSearchFallback)
     }
 
     public var body: some View {
@@ -283,9 +314,15 @@ public struct StartRoundView: View {
               let first = group.segments.first else {
             return
         }
+        let retainsManualSearch = selectedCourseWasManualSearch
+            && selectedSegment.map { Self.samePhysicalVenue($0, first) } == true
         if userInitiated {
             userPickedVenue = true
         }
+        // A manual search remains an explicit start authority while the player switches among
+        // loops in that same physical venue. Crossing to another venue returns to the normal Tee
+        // loading gate, even when SwiftUI invokes this setter during catalogue refresh.
+        selectedCourseWasManualSearch = retainsManualSearch
         backGlobalIdText = ""
         fetchedTees = []
         teeLoadFailed = false
@@ -515,6 +552,11 @@ public struct StartRoundView: View {
         let selected = String(segment.globalId) == courseGlobalIdText
         Button {
             userPickedVenue = true
+            selectedCourseWasManualSearch = Self.preservesManualSearchProvenance(
+                wasManualSearch: selectedCourseWasManualSearch,
+                previous: selectedSegment,
+                next: segment
+            )
             backGlobalIdText = ""  // changing the front loop resets any "add second nine" choice
             fetchedTees = []
             teeLoadFailed = false
@@ -632,20 +674,35 @@ public struct StartRoundView: View {
     private var teeOptions: [String] {
         let fetched = fetchedTees.map(\.teeBox)
         let courseTees = selectedSegment?.tees ?? []
-        if selectedCourseRequiresRemoteTees, fetched.isEmpty, courseTees.isEmpty,
-           teeBox.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [] }
-        let base = !fetched.isEmpty
-            ? fetched
-            : (courseTees.isEmpty ? ["blue", "white", "red", "gold", "black", "green", "yellow", "silver"] : courseTees)
+        if !fetched.isEmpty {
+            return Self.normalizedTeeOptions(fetched, currentTeeBox: teeBox)
+        }
+        if !courseTees.isEmpty {
+            return Self.normalizedTeeOptions(courseTees, currentTeeBox: teeBox)
+        }
+
+        // A remotely searched course has no local Tee authority yet. Keep the explicit
+        // `unknown` request available so it can start immediately, but never present a
+        // fabricated colour list while the real `/tees` response is pending or unavailable.
+        if selectedCourseRequiresRemoteTees || selectedCourseWasManualSearch {
+            let current = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
+            return current.caseInsensitiveCompare("unknown") == .orderedSame ? ["unknown"] : []
+        }
+
+        let base = ["blue", "white", "red", "gold", "black", "green", "yellow", "silver"]
+        return Self.normalizedTeeOptions(base, currentTeeBox: teeBox)
+    }
+
+    private static func normalizedTeeOptions(_ values: [String], currentTeeBox: String) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
-        for tee in base {
+        for tee in values {
             let trimmed = tee.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty, seen.insert(trimmed.lowercased()).inserted else { continue }
             result.append(trimmed)
         }
         // 保证当前所选台一定可选,即使它不在解析出的列表里。
-        let currentTrimmed = teeBox.trimmingCharacters(in: .whitespaces)
+        let currentTrimmed = currentTeeBox.trimmingCharacters(in: .whitespaces)
         if !currentTrimmed.isEmpty, seen.insert(currentTrimmed.lowercased()).inserted {
             result.append(currentTrimmed)
         }
@@ -830,6 +887,7 @@ public struct StartRoundView: View {
             candidates: matches.compactMap { resolvedOption(for: $0) }
         )
         userPickedVenue = true
+        selectedCourseWasManualSearch = true
         backGlobalIdText = ""
         // Re-selecting the same search result (for example nearby first, then name search) keeps
         // its already-fetched Tee authority. Clearing it would not retrigger `.task(id:)` because
@@ -843,6 +901,18 @@ public struct StartRoundView: View {
         // the option up again immediately after assigning remoteCourseOptions can observe the
         // previous candidate list when a long virtualized search result is being dismissed.
         applySelectedCourse(option)
+        // A search result may have no Tee rows yet. `unknown` is an explicit server-side request
+        // for the course default, not a fabricated colour or GPS-dependent choice; it lets the
+        // player enter the map while the Tee request continues in the background. Do not carry a
+        // previously selected colour into a course whose Tee authority is still unknown.
+        let hasSearchTeeAuthority = !(option.tees ?? []).isEmpty
+            || option.teeBox.map {
+                let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                return !trimmed.isEmpty && trimmed.caseInsensitiveCompare("unknown") != .orderedSame
+            } ?? false
+        if fetchedTees.isEmpty && !hasSearchTeeAuthority {
+            teeBox = "unknown"
+        }
     }
 
     /// Selecting one catalogue row returns to the compact start form, but the sibling loops from
@@ -852,17 +922,34 @@ public struct StartRoundView: View {
         selected: MobileCourseOption,
         candidates: [MobileCourseOption]
     ) -> [MobileCourseOption] {
-        func venue(_ option: MobileCourseOption) -> String {
-            option.venueName
-                ?? option.name.components(separatedBy: " ~ ").first?
-                    .trimmingCharacters(in: .whitespaces)
-                ?? option.name
-        }
-        let selectedVenue = venue(selected)
+        let selectedVenue = courseVenueName(selected)
         var seen = Set<Int>()
         return ([selected] + candidates).filter {
-            venue($0) == selectedVenue && seen.insert($0.globalId).inserted
+            courseVenueName($0) == selectedVenue && seen.insert($0.globalId).inserted
         }
+    }
+
+    /// Keep the manual-search start exception scoped to one physical venue. The provider models
+    /// each playable loop as a separate global ID, so comparing IDs here would incorrectly revoke
+    /// the exception when the player changes A/B/C or chooses a second nine.
+    static func courseVenueName(_ option: MobileCourseOption) -> String {
+        option.venueName
+            ?? option.name.components(separatedBy: " ~ ").first?
+                .trimmingCharacters(in: .whitespaces)
+            ?? option.name
+    }
+
+    static func samePhysicalVenue(_ lhs: MobileCourseOption, _ rhs: MobileCourseOption) -> Bool {
+        courseVenueName(lhs).trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare(courseVenueName(rhs).trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+    }
+
+    static func preservesManualSearchProvenance(
+        wasManualSearch: Bool,
+        previous: MobileCourseOption?,
+        next: MobileCourseOption
+    ) -> Bool {
+        wasManualSearch && previous.map { samePhysicalVenue($0, next) } == true
     }
 
     private var locationDiscoveryKey: String {

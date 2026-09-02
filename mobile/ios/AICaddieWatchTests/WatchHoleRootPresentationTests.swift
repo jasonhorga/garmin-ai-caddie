@@ -1,4 +1,5 @@
 import XCTest
+import CoreLocation
 @testable import AICaddieWatch
 
 final class WatchHoleRootPresentationTests: XCTestCase {
@@ -35,6 +36,30 @@ final class WatchHoleRootPresentationTests: XCTestCase {
         )
     }
 
+    func testSelectedCourseWithoutFirstMapPayloadUsesMapPreparingRoot() {
+        XCTAssertEqual(
+            WatchHoleRootPresentation.resolve(
+                hasQualifiedWristFix: false,
+                hasGeometry: false,
+                hasLiveCenterDistance: false,
+                courseDataPending: true
+            ),
+            .mapPreparing
+        )
+    }
+
+    func testMapPreparingWinsOverAStaticDistanceFallback() {
+        XCTAssertEqual(
+            WatchHoleRootPresentation.resolve(
+                hasQualifiedWristFix: false,
+                hasGeometry: false,
+                hasLiveCenterDistance: true,
+                courseDataPending: true
+            ),
+            .mapPreparing
+        )
+    }
+
     func testDistanceFactsProvideTheRootWhenGeometryIsUnavailable() {
         XCTAssertEqual(
             WatchHoleRootPresentation.resolve(
@@ -50,6 +75,17 @@ final class WatchHoleRootPresentationTests: XCTestCase {
         XCTAssertEqual(
             WatchHoleRootPresentation.resolve(
                 hasQualifiedWristFix: true,
+                hasGeometry: false,
+                hasLiveCenterDistance: false
+            ),
+            .scoreOnly
+        )
+    }
+
+    func testMissingWristFixWithoutGeometryDoesNotPromoteAStaticDistanceToTheRoot() {
+        XCTAssertEqual(
+            WatchHoleRootPresentation.resolve(
+                hasQualifiedWristFix: false,
                 hasGeometry: false,
                 hasLiveCenterDistance: false
             ),
@@ -92,6 +128,51 @@ final class WatchHoleRootPresentationTests: XCTestCase {
                 hasQualifiedRangeFix: true
             ),
             123
+        )
+    }
+
+    func testBridgedGreenRangeMustContainAllThreeEdges() {
+        XCTAssertFalse(
+            WatchRoundContainerView.hasCompleteGreenRange(nil)
+        )
+        XCTAssertFalse(
+            WatchRoundContainerView.hasCompleteGreenRange((front: 100, center: nil, back: 120))
+        )
+        XCTAssertTrue(
+            WatchRoundContainerView.hasCompleteGreenRange((front: 100, center: 110, back: 120))
+        )
+    }
+
+    func testRangeQualificationRequiresAFreshWristFixEvenWithACompleteBridgeFact() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let expired = WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40, longitude: 116),
+            horizontalAccuracyM: 5,
+            capturedAt: ISO8601DateFormatter().string(from: now.addingTimeInterval(-16))
+        )
+
+        XCTAssertFalse(
+            WatchRoundContainerView.rangeFixIsQualified(
+                shotLocation: expired,
+                watchGreenYards: nil,
+                now: now
+            )
+        )
+        XCTAssertFalse(
+            WatchRoundContainerView.rangeFixIsQualified(
+                shotLocation: expired,
+                watchGreenYards: (front: 100, center: 110, back: 120),
+                now: now
+            )
+        )
+    }
+
+    func testRangeQualificationRejectsMissingWristFixEvenWithACompleteBridgeFact() {
+        XCTAssertFalse(
+            WatchRoundContainerView.rangeFixIsQualified(
+                shotLocation: nil,
+                watchGreenYards: (front: 100, center: 110, back: 120)
+            )
         )
     }
 

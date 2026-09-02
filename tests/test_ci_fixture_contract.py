@@ -160,6 +160,29 @@ class CIFixtureContractTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             round_package(ROUND_REF, back_global_id=99999)
 
+    def test_manual_search_unknown_tee_uses_default_without_losing_provenance(self) -> None:
+        try:
+            from fastapi import HTTPException
+            from server_v2.ci_fixture import _fixture_tee, course_package, coverage, install_status
+        except ImportError as exc:
+            self.skipTest(f"fixture router dependencies unavailable: {exc}")
+
+        self.assertEqual(_fixture_tee(" UNKNOWN "), "unknown")
+        package = course_package(31793, round_id="live-31793-12345678-1234-4234-8234-123456789abc", tee_box=" UNKNOWN ")
+        self.assertEqual(package["course"]["teeBox"], "unknown")
+        self.assertEqual(package["caddieContextSeeds"][0]["context"]["teeBox"], "unknown")
+        self.assertEqual(coverage(31793, holes=[1], tee_box="unknown")["globalId"], 31793)
+        self.assertEqual(install_status(31793, tee_box="unknown")["teeBox"], "unknown")
+
+        for call in (
+            lambda: _fixture_tee("green"),
+            lambda: course_package(31793, round_id="home-31793", tee_box="green"),
+            lambda: coverage(31793, holes=[1], tee_box="green"),
+            lambda: install_status(31793, tee_box="green"),
+        ):
+            with self.assertRaises(HTTPException):
+                call()
+
     def test_prep_library_package_binds_course_identity_and_assets(self) -> None:
         try:
             from fastapi import HTTPException

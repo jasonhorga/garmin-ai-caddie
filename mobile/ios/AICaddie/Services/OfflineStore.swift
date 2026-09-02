@@ -1601,7 +1601,9 @@ public final class OfflineStore {
                     state.penaltyCount = Int(penalties)
                 }
             case .club:
-                if let clubName = stringPayload("clubName", in: event.payload), !clubName.isEmpty {
+                if let clubName = stringPayload("clubName", in: event.payload),
+                   !clubName.isEmpty,
+                   clubName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "unknown" {
                     state.selectedClub = clubName
                 }
                 if let shotType = stringPayload("shotType", in: event.payload) {
@@ -1628,6 +1630,10 @@ public final class OfflineStore {
                 case .missing:
                     break
                 }
+                // Map target edits are lightweight state changes, not player-location facts. Older
+                // clients emitted only club fields, so accept the optional target tuple without
+                // requiring a synthetic GPS/location event. Explicit nulls clear the whole tuple.
+                applyTargetPayload(event.payload, to: &state)
             case .location:
                 if let latitude = numberPayload("latitude", in: event.payload) {
                     state.latitude = latitude
@@ -1635,15 +1641,7 @@ public final class OfflineStore {
                 if let longitude = numberPayload("longitude", in: event.payload) {
                     state.longitude = longitude
                 }
-                if let targetLatitude = numberPayload("targetLatitude", in: event.payload) {
-                    state.targetLatitude = targetLatitude
-                }
-                if let targetLongitude = numberPayload("targetLongitude", in: event.payload) {
-                    state.targetLongitude = targetLongitude
-                }
-                if let targetKind = stringPayload("targetKind", in: event.payload) {
-                    state.targetKind = targetKind
-                }
+                applyTargetPayload(event.payload, to: &state)
                 switch optionalNumberPayload("horizontalAccuracyM", in: event.payload) {
                 case .number(let horizontalAccuracyM):
                     state.horizontalAccuracyM = horizontalAccuracyM
@@ -2609,6 +2607,52 @@ public final class OfflineStore {
             return .null
         default:
             return .missing
+        }
+    }
+
+    /// Fold target coordinates shared by club/location events. A target is not a player GPS fix;
+    /// keeping this separate also makes an explicit clear remove stale state on relaunch.
+    private func applyTargetPayload(
+        _ payload: [String: JSONValue],
+        to state: inout LiveHoleStateSnapshot
+    ) {
+        let hasLatitude = payload.keys.contains("targetLatitude")
+        let hasLongitude = payload.keys.contains("targetLongitude")
+        let hasKind = payload.keys.contains("targetKind")
+        guard hasLatitude || hasLongitude || hasKind else { return }
+        // The three fields form one atomic value. A partial tuple is never merged with an older
+        // value: doing so can resurrect an old flag after a clear or pair a new coordinate with the
+        // wrong target kind. Events that contain none of the fields above return early, preserving
+        // compatibility with older club/location events.
+        func clearTarget() {
+            state.targetLatitude = nil
+            state.targetLongitude = nil
+            state.targetKind = nil
+        }
+
+        guard hasLatitude, hasLongitude, hasKind,
+              case .number(let latitude) = payload["targetLatitude"],
+              case .number(let longitude) = payload["targetLongitude"],
+              latitude.isFinite,
+              longitude.isFinite,
+              (-90...90).contains(latitude),
+              (-180...180).contains(longitude),
+              case .string(let rawKind) = payload["targetKind"],
+              let kind = Self.normalizedTargetKind(rawKind) else {
+            clearTarget()
+            return
+        }
+        state.targetLatitude = latitude
+        state.targetLongitude = longitude
+        state.targetKind = kind
+    }
+
+    private static func normalizedTargetKind(_ raw: String) -> String? {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "pin": return "pin"
+        case "target", "map_target": return "target"
+        case "green_center": return "green_center"
+        default: return nil
         }
     }
 

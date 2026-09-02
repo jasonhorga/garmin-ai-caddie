@@ -82,9 +82,14 @@
         "properties": {
           "payload": {
             "type": "object",
-            "additionalProperties": false,
-            "required": ["clubName"],
-            "properties": {
+              "additionalProperties": false,
+              "required": ["clubName"],
+              "dependentRequired": {
+                "targetLatitude": ["targetLongitude", "targetKind"],
+                "targetLongitude": ["targetLatitude", "targetKind"],
+                "targetKind": ["targetLatitude", "targetLongitude"]
+              },
+              "properties": {
               "clubName": { "type": "string" },
               "source": { "type": "string" },
               "shotType": { "type": "string", "enum": ["tee", "approach", "recovery"] },
@@ -98,7 +103,15 @@
                 "additionalProperties": true,
                 "description": "Compact audit snapshot for an offline decision. Online decisions are resolved by decisionId from the server ledger."
               },
-              "actualShot": { "type": "object", "additionalProperties": true }
+              "actualShot": { "type": "object", "additionalProperties": true },
+              "targetLatitude": { "type": ["number", "null"] },
+              "targetLongitude": { "type": ["number", "null"] },
+              "targetKind": {
+                "anyOf": [
+                  { "type": "string", "enum": ["pin", "target", "green_center"] },
+                  { "type": "null" }
+                ]
+              }
             }
           }
         }
@@ -158,18 +171,28 @@
         "properties": {
           "payload": {
             "type": "object",
-            "additionalProperties": false,
-            "required": ["latitude", "longitude"],
-            "properties": {
+              "additionalProperties": false,
+              "required": ["latitude", "longitude"],
+              "dependentRequired": {
+                "targetLatitude": ["targetLongitude", "targetKind"],
+                "targetLongitude": ["targetLatitude", "targetKind"],
+                "targetKind": ["targetLatitude", "targetLongitude"]
+              },
+              "properties": {
               "latitude": { "type": "number" },
               "longitude": { "type": "number" },
               "source": { "type": "string" },
               "horizontalAccuracyM": { "type": ["number", "null"] },
               "altitudeM": { "type": ["number", "null"] },
-              "targetLatitude": { "type": "number" },
-              "targetLongitude": { "type": "number" },
+              "targetLatitude": { "type": ["number", "null"] },
+              "targetLongitude": { "type": ["number", "null"] },
               "targetSource": { "type": "string" },
-              "targetKind": { "type": "string", "enum": ["pin", "target", "green_center"] }
+              "targetKind": {
+                "anyOf": [
+                  { "type": "string", "enum": ["pin", "target", "green_center"] },
+                  { "type": "null" }
+                ]
+              }
             }
           }
         }

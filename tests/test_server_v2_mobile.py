@@ -1101,6 +1101,78 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(payload["caddieContextSeeds"][0]["sourceRef"], "live-new-course:1")
         self.assertEqual(payload["caddieContextSeeds"][0]["context"]["globalId"], 55555)
 
+    def test_manual_search_unknown_tee_starts_and_preserves_provenance(self) -> None:
+        client = TestClient(app)
+        data = HistoryData(raw_rounds=[], rounds=[], shots=[])
+
+        def coverage_for_test(
+            global_id: int,
+            local_hole: int,
+            **_kwargs: object,
+        ) -> dict[str, object]:
+            return {
+                "globalId": global_id,
+                "localHole": local_hole,
+                "coverage": "ready",
+                "hasHazards": True,
+                "hasMeshes": True,
+                "evidence": [],
+                "missingData": [],
+            }
+
+        def geometry_for_test(global_id: int, local_hole: int) -> dict[str, object]:
+            return {
+                "globalId": global_id,
+                "refLat": 40.0,
+                "refLon": 116.0,
+                "tees": [
+                    {
+                        "tee_index": 1,
+                        "sets": [1],
+                        "position": [0.0, 0.0],
+                        "target_distance_m": 390.0 + local_hole,
+                    },
+                    {
+                        "tee_index": 2,
+                        "sets": [2],
+                        "position": [10.0, 20.0],
+                        "target_distance_m": 350.0 + local_hole,
+                    },
+                ],
+            }
+
+        from ai_caddie.courses import course_reference
+
+        with (
+            patch("server_v2.mobile._refresh_course_release_authority"),
+            patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "fixture")),
+            patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=coverage_for_test),
+            patch("ai_caddie.caddie.mobile_live._load_mobile_hazards", side_effect=geometry_for_test),
+            patch.object(
+                course_reference,
+                "courseview_par",
+                return_value=[4, 5, 3, 4, 3, 4, 4, 5, 4, 4, 5, 3, 4, 3, 4, 4, 5, 4],
+            ),
+            patch.object(
+                course_reference,
+                "courseview_tees",
+                return_value=[
+                    {"name": "Gold", "gender": "MEN", "index": 1},
+                    {"name": "Blue", "gender": "MEN", "index": 2},
+                ],
+            ),
+        ):
+            response = client.get(
+                "/api/v2/mobile/courses/55555/package",
+                params={"round_id": "live-manual-unknown", "tee_box": "unknown"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["course"]["teeBox"], "unknown")
+        self.assertEqual(payload["caddieContextSeeds"][0]["context"]["teeBox"], "unknown")
+        self.assertEqual(payload["holes"][0]["yards"], round(351.0 * 1.09361))
+
     def test_existing_course_package_uses_selected_tee_geometry_yardage(self) -> None:
         """A prior round is only a course template; today's selected Tee owns nominal hole length."""
         from ai_caddie.caddie import mobile_live

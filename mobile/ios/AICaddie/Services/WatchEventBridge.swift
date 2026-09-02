@@ -256,17 +256,31 @@ public struct WatchRoundSeedPayload: Codable, Equatable {
     public let courseName: String
     public let activeHole: Int
     public let holes: [WatchRoundSeedHolePayload]
+    /// Setup identity is optional for backward-compatible seeds, but lets the Watch select the
+    /// exact cached front/back/Tee template after a process restart.
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let teeBox: String?
+    public let nine: String?
 
     public init(
         roundId: String,
         courseName: String,
         activeHole: Int,
-        holes: [WatchRoundSeedHolePayload]
+        holes: [WatchRoundSeedHolePayload],
+        globalId: Int? = nil,
+        backGlobalId: Int? = nil,
+        teeBox: String? = nil,
+        nine: String? = nil
     ) {
         self.roundId = roundId
         self.courseName = courseName
         self.activeHole = activeHole
         self.holes = holes
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.teeBox = teeBox
+        self.nine = nine
     }
 }
 
@@ -606,6 +620,12 @@ public final class WatchEventBridge: NSObject {
             roundId: package.roundId,
             courseName: package.course.name,
             activeHole: activeHole,
+            globalId: package.course.globalId,
+            backGlobalId: package.holes
+                .compactMap(\.sourceGlobalId)
+                .first(where: { $0 != package.course.globalId }),
+            teeBox: package.course.teeBox,
+            nine: package.nine ?? "all",
             holes: package.holes
                 .sorted { $0.number < $1.number }
                 .map { hole in

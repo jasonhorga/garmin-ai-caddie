@@ -12,7 +12,9 @@ public struct AICaddieWatchApp: App {
 
     private struct ActiveCourseUpgradeKey: Equatable {
         let roundId: String
-        let globalId: Int
+        let frontGlobalId: Int
+        let backGlobalId: Int?
+        let teeBox: String?
         let config: WatchRoundConfig
     }
 
@@ -205,7 +207,11 @@ public struct AICaddieWatchApp: App {
                         roundModel.seedRound(
                             prepared.holeStates,
                             activeHole: prepared.holeStates.first?.hole,
-                            courseName: prepared.courseName
+                            courseName: prepared.courseName,
+                            courseGlobalId: selection.front.globalId,
+                            backCourseGlobalId: selection.back?.globalId,
+                            teeBox: selection.teeBox,
+                            nine: "all"
                         )
                         syncClient.sendRoundStart(
                             WatchRoundStart(
@@ -244,9 +250,11 @@ public struct AICaddieWatchApp: App {
         .task(id: activeCourseUpgradeKey) {
             guard let key = activeCourseUpgradeKey,
                   let upgraded = await courseLibrary.upgradeCachedCourseWhenReady(
-                    globalId: key.globalId,
+                    globalId: key.frontGlobalId,
                     roundId: key.roundId,
                     config: key.config,
+                    backGlobalId: key.backGlobalId,
+                    teeBox: key.teeBox,
                     onProgress: { states in
                         guard roundModel.round?.roundId == key.roundId else { return }
                         roundModel.applyCourseMapUpgrade(states)
@@ -279,14 +287,17 @@ public struct AICaddieWatchApp: App {
 
     private var activeCourseUpgradeKey: ActiveCourseUpgradeKey? {
         guard let round = roundModel.round,
-              let globalId = round.holeStates.first(where: { $0.hole == round.activeHole })?.globalId
+              let frontGlobalId = round.courseGlobalId
+                ?? round.holeStates.first(where: { $0.hole == round.activeHole })?.globalId
                 ?? round.holeStates.compactMap(\.globalId).first,
               let config = syncClient.config else {
             return nil
         }
         return ActiveCourseUpgradeKey(
             roundId: round.roundId,
-            globalId: globalId,
+            frontGlobalId: frontGlobalId,
+            backGlobalId: round.backCourseGlobalId,
+            teeBox: round.teeBox,
             config: config
         )
     }

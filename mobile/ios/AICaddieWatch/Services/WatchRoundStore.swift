@@ -87,6 +87,12 @@ public final class WatchRoundStore {
         public var pendingEvents: [WatchInputEvent]
         /// Round-level course label for the watch UI (optional — older persisted rounds decode it as nil).
         public var courseName: String?
+        /// Optional setup identity used to resume the exact cached front/back/Tee template.
+        /// These keys are absent in older persisted rounds and are intentionally nullable.
+        public var courseGlobalId: Int?
+        public var backCourseGlobalId: Int?
+        public var teeBox: String?
+        public var nine: String?
         /// In-progress user facts are optional so rounds written by older app versions still decode.
         public var pendingManualShot: WatchPendingManualShot?
         public var pendingAutoShotCandidate: WatchPendingAutoShotCandidate?
@@ -101,6 +107,10 @@ public final class WatchRoundStore {
             holeStates: [WatchRoundState] = [],
             pendingEvents: [WatchInputEvent] = [],
             courseName: String? = nil,
+            courseGlobalId: Int? = nil,
+            backCourseGlobalId: Int? = nil,
+            teeBox: String? = nil,
+            nine: String? = nil,
             pendingManualShot: WatchPendingManualShot? = nil,
             pendingAutoShotCandidate: WatchPendingAutoShotCandidate? = nil,
             scoreDraft: WatchScoreDraft? = nil,
@@ -111,6 +121,10 @@ public final class WatchRoundStore {
             self.holeStates = holeStates
             self.pendingEvents = pendingEvents
             self.courseName = courseName
+            self.courseGlobalId = courseGlobalId
+            self.backCourseGlobalId = backCourseGlobalId
+            self.teeBox = teeBox
+            self.nine = nine
             self.pendingManualShot = pendingManualShot
             self.pendingAutoShotCandidate = pendingAutoShotCandidate
             self.scoreDraft = scoreDraft

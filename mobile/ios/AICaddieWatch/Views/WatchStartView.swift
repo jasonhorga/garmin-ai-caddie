@@ -550,7 +550,11 @@ public struct WatchStartView: View {
     }
 
     private func standardSubtitle(for course: WatchCourseOption) -> String {
-        "\(course.playableHoleCount) 洞 · \(course.preferredTee)"
+        let tee = course.preferredTee
+        let teeLabel = tee.caseInsensitiveCompare("unknown") == .orderedSame
+            ? "球场默认 T"
+            : "\(tee) T"
+        return "\(course.playableHoleCount) 洞 · \(teeLabel)"
     }
 
     private var filteredCourses: [WatchCourseOption] {

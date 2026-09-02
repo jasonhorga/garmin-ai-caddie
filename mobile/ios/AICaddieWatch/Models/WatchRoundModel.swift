@@ -787,6 +787,10 @@ public final class WatchRoundModel: ObservableObject {
             holeStates: states,
             pendingEvents: existing?.pendingEvents ?? [],
             courseName: seed.courseName,
+            courseGlobalId: seed.globalId ?? existing?.courseGlobalId ?? states.first?.globalId,
+            backCourseGlobalId: seed.backGlobalId ?? existing?.backCourseGlobalId,
+            teeBox: seed.teeBox ?? existing?.teeBox,
+            nine: seed.nine ?? existing?.nine,
             pendingManualShot: retainedManualShot,
             pendingAutoShotCandidate: existing?.pendingAutoShotCandidate,
             scoreDraft: retainedScoreDraft,
@@ -834,12 +838,24 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     /// Replace the active round with a fresh set of per-hole snapshots and start at the given hole.
-    public func seedRound(_ states: [WatchRoundState], activeHole: Int? = nil, courseName: String? = nil) {
+    public func seedRound(
+        _ states: [WatchRoundState],
+        activeHole: Int? = nil,
+        courseName: String? = nil,
+        courseGlobalId: Int? = nil,
+        backCourseGlobalId: Int? = nil,
+        teeBox: String? = nil,
+        nine: String? = nil
+    ) {
         guard let first = states.first else { return }
         var persisted = WatchRoundStore.PersistedRound(roundId: first.roundId)
         persisted.holeStates = states.sorted { $0.hole < $1.hole }
         persisted.activeHole = activeHole ?? persisted.holeStates.first?.hole ?? 0
         persisted.courseName = courseName
+        persisted.courseGlobalId = courseGlobalId
+        persisted.backCourseGlobalId = backCourseGlobalId
+        persisted.teeBox = teeBox
+        persisted.nine = nine
         try? store.save(persisted)
         round = persisted
         restoreInteractionState(from: persisted)

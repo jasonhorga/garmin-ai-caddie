@@ -1,3 +1,4 @@
+import CoreGraphics
 import SwiftUI
 
 // Presentational building blocks for the redesigned 实战/记分 (live hole) screen.
@@ -369,6 +370,9 @@ struct LivePlayHeader: View {
     let roundToParText: String
     var onBack: (() -> Void)? = nil
     var onFinishRound: (() -> Void)? = nil
+    /// Opens the S70-style detailed touch-target map. Kept optional so compact callers (including
+    /// snapshots and Watch-adjacent previews) retain their existing header width.
+    var onOpenMap: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -415,6 +419,19 @@ struct LivePlayHeader: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("结束或放弃本场")
                 .accessibilityIdentifier("live-round-end-menu")
+            }
+            if let onOpenMap {
+                Button(action: onOpenMap) {
+                    Image(systemName: "map.fill")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .frame(width: 36, height: 36)
+                        .background(LivePlayStyle.panelFill.opacity(0.7), in: Circle())
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("打开详细地图")
+                .accessibilityIdentifier("live-open-map-detail")
             }
         }
     }
@@ -1039,23 +1056,136 @@ enum LivePlayMapOverlayLayout {
               topInset < heroSize.height else {
             return nil
         }
-        let mapHeight = heroSize.height - topInset
-        let scale = min(
-            heroSize.width / CGFloat(overlayWidth),
-            mapHeight / CGFloat(overlayHeight)
-        )
-        let renderedWidth = CGFloat(overlayWidth) * scale
-        let renderedHeight = CGFloat(overlayHeight) * scale
-        let origin = CGPoint(
-            x: (heroSize.width - renderedWidth) / 2,
-            y: topInset + (mapHeight - renderedHeight) / 2
-        )
+        guard let frame = mapFrame(
+            overlayWidth: overlayWidth,
+            overlayHeight: overlayHeight,
+            in: heroSize,
+            topInset: topInset
+        ) else { return nil }
+        let scale = frame.width / CGFloat(overlayWidth)
         return CGPoint(
-            x: origin.x + CGFloat(overlayPoint[0]) * scale,
-            y: origin.y + CGFloat(overlayPoint[1]) * scale
+            x: frame.minX + CGFloat(overlayPoint[0]) * scale,
+            y: frame.minY + CGFloat(overlayPoint[1]) * scale
         )
     }
 
+    /// The exact fitted map rectangle used by `project`. Exposing it keeps interactive hit testing
+    /// and marker overlays on the same aspect-fit frame instead of guessing from the phone width.
+    static func mapFrame(
+        overlayWidth: Int,
+        overlayHeight: Int,
+        in viewportSize: CGSize,
+        topInset: CGFloat = 0
+    ) -> CGRect? {
+        guard overlayWidth > 0, overlayHeight > 0,
+              viewportSize.width.isFinite, viewportSize.height.isFinite,
+              viewportSize.width > 0, viewportSize.height > 0,
+              topInset.isFinite, topInset >= 0, topInset < viewportSize.height else {
+            return nil
+        }
+        let mapHeight = viewportSize.height - topInset
+        let scale = min(
+            viewportSize.width / CGFloat(overlayWidth),
+            mapHeight / CGFloat(overlayHeight)
+        )
+        guard scale.isFinite, scale > 0 else { return nil }
+        let renderedWidth = CGFloat(overlayWidth) * scale
+        let renderedHeight = CGFloat(overlayHeight) * scale
+        return CGRect(
+            x: (viewportSize.width - renderedWidth) / 2,
+            y: topInset + (mapHeight - renderedHeight) / 2,
+            width: renderedWidth,
+            height: renderedHeight
+        )
+    }
+
+    /// Convert a screen point back into overlay pixels. Points outside the fitted map are rejected
+    /// unless `clampToMap` is requested, which is useful while a target marker is dragged near an
+    /// image edge. Invalid dimensions and non-finite coordinates always return nil.
+    static func unproject(
+        screenPoint: CGPoint,
+        overlayWidth: Int,
+        overlayHeight: Int,
+        from viewportSize: CGSize,
+        topInset: CGFloat = 0,
+        clampToMap: Bool = false
+    ) -> [Double]? {
+        guard screenPoint.x.isFinite, screenPoint.y.isFinite,
+              let frame = mapFrame(
+                  overlayWidth: overlayWidth,
+                  overlayHeight: overlayHeight,
+                  in: viewportSize,
+                  topInset: topInset
+              ) else { return nil }
+        let inside = frame.contains(screenPoint)
+        guard inside || clampToMap else { return nil }
+        let x = min(max(screenPoint.x, frame.minX), frame.maxX)
+        let y = min(max(screenPoint.y, frame.minY), frame.maxY)
+        let scale = frame.width / CGFloat(overlayWidth)
+        guard scale.isFinite, scale > 0 else { return nil }
+        return [
+            Double((x - frame.minX) / scale),
+            Double((y - frame.minY) / scale),
+        ]
+    }
+
+}
+
+/// Pixel-only distances for a manually placed map target.  This is the honest fallback when a
+/// course has a drawable overlay but no geo->pixel projection anchors (for example a searched
+/// course opened before GPS or projection metadata is available).  It deliberately carries no
+/// latitude/longitude, so a map tap can never masquerade as a location fix or a shot event.
+public struct LiveMapPixelDistances: Equatable {
+    public let referenceToTargetYards: Int
+    public let targetToPinYards: Int
+
+    public init(referenceToTargetYards: Int, targetToPinYards: Int) {
+        self.referenceToTargetYards = referenceToTargetYards
+        self.targetToPinYards = targetToPinYards
+    }
+}
+
+public enum LiveMapPixelDistanceLayout {
+    /// Resolve the two S70 Touch Target ranges from one shared pixel frame.  `pixelsPerMetre` is
+    /// supplied by CourseView's overlay, so the result stays valid for both raster and vector maps.
+    public static func resolve(
+        referencePx: CGPoint,
+        targetPx: CGPoint,
+        pinPx: CGPoint,
+        pixelsPerMetre: Double
+    ) -> LiveMapPixelDistances? {
+        let points = [referencePx, targetPx, pinPx]
+        guard points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }),
+              pixelsPerMetre.isFinite,
+              pixelsPerMetre > 0 else {
+            return nil
+        }
+
+        let firstMetres = hypot(
+            Double(targetPx.x - referencePx.x),
+            Double(targetPx.y - referencePx.y)
+        ) / pixelsPerMetre
+        let secondMetres = hypot(
+            Double(pinPx.x - targetPx.x),
+            Double(pinPx.y - targetPx.y)
+        ) / pixelsPerMetre
+        guard firstMetres.isFinite, secondMetres.isFinite,
+              firstMetres >= 0, secondMetres >= 0 else {
+            return nil
+        }
+        let firstYards = firstMetres * 1.09361
+        let secondYards = secondMetres * 1.09361
+        guard firstYards.isFinite, secondYards.isFinite,
+              let firstValue = Int(exactly: firstYards.rounded()),
+              let secondValue = Int(exactly: secondYards.rounded()) else {
+            return nil
+        }
+
+        return LiveMapPixelDistances(
+            referenceToTargetYards: firstValue,
+            targetToPinYards: secondValue
+        )
+    }
 }
 
 /// A cold course can draw Garmin's lightweight route immediately, but that package does not prove

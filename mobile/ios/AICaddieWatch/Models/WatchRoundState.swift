@@ -234,19 +234,33 @@ public struct WatchRoundSeed: Codable, Equatable {
     public let courseName: String
     public let activeHole: Int
     public let holes: [WatchRoundSeedHole]
+    /// Optional setup identity. Older phone seeds omit these keys; the Watch can still recover from
+    /// the per-hole global ids in that case.
+    public let globalId: Int?
+    public let backGlobalId: Int?
+    public let teeBox: String?
+    public let nine: String?
 
     public init(
         schema: String = "ai-caddie-watch-round-seed-v1",
         roundId: String,
         courseName: String,
         activeHole: Int,
-        holes: [WatchRoundSeedHole]
+        holes: [WatchRoundSeedHole],
+        globalId: Int? = nil,
+        backGlobalId: Int? = nil,
+        teeBox: String? = nil,
+        nine: String? = nil
     ) {
         self.schema = schema
         self.roundId = roundId
         self.courseName = courseName
         self.activeHole = activeHole
         self.holes = holes
+        self.globalId = globalId
+        self.backGlobalId = backGlobalId
+        self.teeBox = teeBox
+        self.nine = nine
     }
 }
 

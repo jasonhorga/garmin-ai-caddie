@@ -69,7 +69,23 @@ public struct CurrentHoleView: View {
     @State private var distanceToPinText: String = ""
     @State private var selectedLie: String = "fairway"
     @State private var currentCoordinate: CLLocationCoordinate2D?
+    /// A manually chosen Touch Target point.  This is intentionally separate from the movable
+    /// green flag below: S70's Touch Target and View Green are two different instruments.
     @State private var targetCoordinate: CLLocationCoordinate2D?
+    /// Overlay pixel for a Touch Target.  Unlike the optional coordinate, this remains usable when
+    /// a searched course has a map but no geo projection anchors or GPS fix yet.
+    @State private var targetPixel: CGPoint?
+    /// The per-round flag position edited on the View Green surface.  `nil` means use the factual
+    /// provider/geometry pin carried by `mapPinCoordinate`.
+    @State private var greenPinCoordinate: CLLocationCoordinate2D?
+    /// Full-hole topo pixel for a manually moved flag. This remains usable when the map has no
+    /// affine geo anchors; it is session-local and never becomes a GPS/event coordinate by itself.
+    @State private var greenPinPixel: CGPoint?
+    @State private var targetKind: String?
+    /// The legacy wire contract has one target tuple.  Keep track of which instrument was edited
+    /// last so a Watch/old server receives the tuple the golfer is looking at, without making the
+    /// two on-screen coordinates share storage again.
+    @State private var lastTargetEditKind: String?
     @State private var currentHorizontalAccuracyM: Double?
     @State private var note: String = ""
     @State private var caddieDecision: CaddieDecisionResponse?
@@ -81,6 +97,8 @@ public struct CurrentHoleView: View {
     @State private var showRoundSummary = false
     @State private var showDiscardConfirmation = false
     @State private var showCaddieDetail = false
+    @State private var showMapDetail = false
+    @State private var showGreenDetail = false
     @State private var scoreDraft: LiveScoreDraft?
     @State private var showScorecard = false
     @State private var gpsHoleCandidate: LiveHoleGPSCandidate?
@@ -151,6 +169,9 @@ public struct CurrentHoleView: View {
         self.onRetainReadyHolePrep = onRetainReadyHolePrep
         let seed = package.caddieContextSeeds.first { $0.hole == hole.number }
         let restoredHoleState = liveRoundState?.holeState(for: hole.number)
+        let restoredTarget = Self.restoredTarget(from: restoredHoleState)
+        let restoredManualTarget = restoredTarget?.kind == "pin" ? nil : restoredTarget
+        let restoredGreenPin = restoredTarget?.kind == "pin" ? restoredTarget?.coordinate : nil
         self._score = State(initialValue: restoredHoleState?.score ?? hole.par)
         self._puttCount = State(initialValue: restoredHoleState?.putts ?? 2)
         self._penaltyCount = State(initialValue: restoredHoleState?.penaltyCount ?? 0)
@@ -174,11 +195,16 @@ public struct CurrentHoleView: View {
         } else {
             self._currentCoordinate = State(initialValue: nil)
         }
-        if let targetLatitude = restoredHoleState?.targetLatitude, let targetLongitude = restoredHoleState?.targetLongitude {
-            self._targetCoordinate = State(initialValue: CLLocationCoordinate2D(latitude: targetLatitude, longitude: targetLongitude))
+        if let restoredManualTarget {
+            self._targetCoordinate = State(initialValue: restoredManualTarget.coordinate)
         } else {
             self._targetCoordinate = State(initialValue: nil)
         }
+        self._targetPixel = State(initialValue: nil)
+        self._greenPinCoordinate = State(initialValue: restoredGreenPin)
+        self._greenPinPixel = State(initialValue: nil)
+        self._targetKind = State(initialValue: restoredManualTarget?.kind)
+        self._lastTargetEditKind = State(initialValue: restoredTarget?.kind)
     }
 
     public var body: some View {
@@ -209,7 +235,7 @@ public struct CurrentHoleView: View {
                                 onSelect: { selectClub($0) }
                             )
                             LiveHolePrimaryActions(
-                                canRecordShot: currentCoordinate != nil,
+                                canRecordShot: liveCoordinateForCurrentHole != nil,
                                 recordedShotCount: recordedNonPuttShotCount,
                                 onRecordShot: recordShotLocation,
                                 onConfirmScore: beginScoreConfirmation
@@ -313,6 +339,73 @@ public struct CurrentHoleView: View {
         }
         .fullScreenCover(isPresented: $showCaddieDetail) {
             caddieDetailSurface
+        }
+        .fullScreenCover(isPresented: $showMapDetail) {
+            if let holePrep {
+                LivePlayMapDetailView(
+                    hole: holePrep,
+                    topoURL: liveTopoURL,
+                    selectedClub: selectedClub,
+                    selectedClubMetres: selectedClubMetres,
+                    targetCoordinate: $targetCoordinate,
+                    targetPixel: $targetPixel,
+                    referenceCoordinate: mapReferenceCoordinate,
+                    referenceIsLive: mapReferenceIsLive,
+                    pinCoordinate: effectiveMapPinCoordinate,
+                    onTargetChanged: { coordinate in
+                        handleMapTargetChanged(coordinate, kind: "target")
+                    },
+                    onTargetCommitted: { coordinate in
+                        handleMapTargetCommitted(coordinate, kind: "target")
+                    },
+                    onTargetPixelChanged: { pixel in
+                        handleMapTargetPixelChanged(pixel, kind: "target")
+                    },
+                    onTargetPixelCommitted: { pixel in
+                        handleMapTargetPixelCommitted(pixel, kind: "target")
+                    }
+                )
+            } else {
+                ZStack {
+                    LivePlayStyle.base.ignoresSafeArea()
+                    ProgressView("地图准备中…")
+                        .tint(.white)
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showGreenDetail) {
+            if let holePrep {
+                LiveGreenDetailView(
+                    hole: holePrep,
+                    detailURL: greenDetailURL,
+                    topoURL: liveTopoURL,
+                    targetCoordinate: $greenPinCoordinate,
+                    targetPixel: $greenPinPixel,
+                    referenceCoordinate: mapReferenceCoordinate,
+                    referenceIsLive: mapReferenceIsLive,
+                    pinCoordinate: mapPinCoordinate,
+                    onTargetChanged: { coordinate in
+                        handleMapTargetChanged(coordinate, kind: "pin")
+                    },
+                    onTargetCommitted: { coordinate in
+                        handleMapTargetCommitted(coordinate, kind: "pin")
+                    },
+                    onTargetPixelChanged: { pixel in
+                        handleMapTargetPixelChanged(pixel, kind: "pin")
+                    },
+                    onTargetPixelCommitted: { pixel in
+                        handleMapTargetPixelCommitted(pixel, kind: "pin")
+                    }
+                )
+            } else {
+                ZStack {
+                    LivePlayStyle.base.ignoresSafeArea()
+                    ProgressView("果岭地图准备中…")
+                        .tint(.white)
+                        .foregroundStyle(.white)
+                }
+            }
         }
         .sheet(item: $scoreDraft) { presentedDraft in
             LiveScoreConfirmationView(
@@ -435,7 +528,7 @@ public struct CurrentHoleView: View {
                         frontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
                         middleYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
                         backYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
-                        toPinYards: Int(distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)),
+                        toPinYards: displayedTargetYards,
                         isLive: isGreenRangeLive
                     )
                     .position(x: min(118, geo.size.width * 0.31), y: 137)
@@ -467,6 +560,19 @@ public struct CurrentHoleView: View {
             }
             .frame(height: liveHeroHeight)
             .allowsHitTesting(false)
+            // The hero is the first map instrument, so a player should not have to find the
+            // secondary "更多调整" disclosure before opening Touch Target. Keep this transparent
+            // layer below the header (which is declared next) and above the decorative overlays;
+            // the panel below the hero has its own higher z-index and keeps its buttons tappable.
+            Rectangle()
+                .fill(.clear)
+                .frame(maxWidth: .infinity)
+                .frame(height: max(liveHeroHeight - LivePlayMapOverlayLayout.liveMapTopInset, 1))
+                .offset(y: LivePlayMapOverlayLayout.liveMapTopInset / 2)
+                .contentShape(Rectangle())
+                .onTapGesture { showMapDetail = true }
+                .accessibilityLabel("打开地图并选目标")
+                .accessibilityIdentifier("live-open-map-from-hero")
             LivePlayHeader(
                 holeNumber: hole.number,
                 par: hole.par,
@@ -474,7 +580,8 @@ public struct CurrentHoleView: View {
                 teeLabel: teeLabelZh,
                 roundToParText: roundToParText,
                 onBack: { dismiss() },
-                onFinishRound: { showRoundSummary = true }
+                onFinishRound: { showRoundSummary = true },
+                onOpenMap: { showMapDetail = true }
             )
             .padding(.horizontal, 20)
             .padding(.top, 4)
@@ -599,10 +706,28 @@ public struct CurrentHoleView: View {
                     .keyboardType(.decimalPad)
                 Button {
                     targetCoordinate = currentCoordinate
+                    targetPixel = nil
+                    targetKind = currentCoordinate == nil ? nil : "target"
+                    lastTargetEditKind = currentCoordinate == nil ? nil : "target"
+                    if currentCoordinate != nil {
+                        distanceToPinText = ""
+                        persistMapTarget(coordinate: targetCoordinate, kind: "target")
+                        Task { await loadCaddieDecision(syncClub: !hasUserSelectedClub) }
+                    }
                 } label: {
                     Label("设为目标点", systemImage: "mappin.and.ellipse")
                 }
                 .disabled(currentCoordinate == nil)
+                Button {
+                    showMapDetail = true
+                } label: {
+                    Label("打开地图选目标", systemImage: "map")
+                }
+                Button {
+                    showGreenDetail = true
+                } label: {
+                    Label("放大果岭 / 拖动旗位", systemImage: "flag.fill")
+                }
                 Stepper("罚杆 \(penaltyCount)", value: $penaltyCount, in: 0...4)
                 TextField("备注", text: $note)
             }
@@ -758,13 +883,63 @@ public struct CurrentHoleView: View {
         )
     }
 
+    private var greenDetailURL: URL? {
+        guard let caddieBaseURL,
+              let prep = holePrep,
+              let outline = prep.greenOutline,
+              outline.available,
+              let projection = prep.holeImageProjection,
+              let width = projection.widthPx,
+              let height = projection.heightPx,
+              let crop = GreenDetailCrop.around(
+                  points: outline.pointsPx,
+                  imageWidth: Double(width),
+                  imageHeight: Double(height)
+              ) else { return nil }
+        let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
+        let mapLocalHole = hole.sourceLocalHole ?? hole.number
+        return SyncClient.greenDetailImageURL(
+            baseURL: caddieBaseURL,
+            globalId: mapGlobalId,
+            localHole: mapLocalHole,
+            crop: crop,
+            geometryRevision: prep.geometryRevision
+        )
+    }
+
     /// The route endpoint is the selected green target used by the shared map render. Projecting it
     /// here keeps the live target ring on that real green instead of at one fixed screen coordinate.
     private func liveGreenTarget(in heroSize: CGSize) -> CGPoint? {
-        guard let overlay = holePrep?.resolvedMapOverlay,
-              let greenTarget = overlay.route.last else {
-            return nil
+        guard let overlay = holePrep?.resolvedMapOverlay else { return nil }
+        if let movedPin = greenPinPixel,
+           movedPin.x.isFinite,
+           movedPin.y.isFinite,
+           let point = LivePlayMapOverlayLayout.project(
+               overlayPoint: [Double(movedPin.x), Double(movedPin.y)],
+               overlayWidth: overlay.w,
+               overlayHeight: overlay.h,
+               into: heroSize,
+               topInset: LivePlayMapOverlayLayout.liveMapTopInset
+           ) {
+            return point
         }
+        if let movedPin = greenPinCoordinate,
+           let refs = holePrep?.holeImageProjection?.refs,
+           let projected = WatchEventBridge.projectToTopoPx(
+               lat: movedPin.latitude,
+               lon: movedPin.longitude,
+               refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+           ),
+           let point = LivePlayMapOverlayLayout.project(
+               overlayPoint: projected,
+               overlayWidth: overlay.w,
+               overlayHeight: overlay.h,
+               into: heroSize,
+               topInset: LivePlayMapOverlayLayout.liveMapTopInset
+           ) {
+            return point
+        }
+        guard let greenTarget = overlay.route.last else { return nil }
         return LivePlayMapOverlayLayout.project(
             overlayPoint: greenTarget,
             overlayWidth: overlay.w,
@@ -787,7 +962,7 @@ public struct CurrentHoleView: View {
     }
 
     private func livePlayerTarget(in heroSize: CGSize) -> CGPoint? {
-        guard let currentCoordinate,
+        guard let currentCoordinate = liveCoordinateForCurrentHole,
               let overlay = holePrep?.resolvedMapOverlay,
               let refs = holePrep?.holeImageProjection?.refs,
               refs.count >= 3,
@@ -803,6 +978,373 @@ public struct CurrentHoleView: View {
             into: heroSize,
             topInset: LivePlayMapOverlayLayout.liveMapTopInset
         )
+    }
+
+    /// Touch Target uses the live fix when it is plausibly on this hole. Without GPS it falls back
+    /// to the factual Tee anchor carried by the package or reconstructed from the map projection;
+    /// this is a display/reference coordinate only and is never sent as `currentLocation`.
+    private var mapReferenceCoordinate: CLLocationCoordinate2D? {
+        if mapReferenceIsLive, let currentCoordinate {
+            return currentCoordinate
+        }
+        if let latitude = hole.teeLatitude, let longitude = hole.teeLongitude,
+           latitude.isFinite, longitude.isFinite,
+           (-90...90).contains(latitude), (-180...180).contains(longitude) {
+            return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        }
+        guard let prep = holePrep,
+              let first = prep.resolvedMapOverlay?.route.first,
+              first.count >= 2,
+              let refs = prep.holeImageProjection?.refs else {
+            return nil
+        }
+        let projected = WatchEventBridge.projectFromTopoPx(
+            px: first[0],
+            py: first[1],
+            refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+        )
+        return projected.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+    }
+
+    private var mapReferenceIsLive: Bool {
+        hasPlausibleLiveFix
+    }
+
+    private var hasPlausibleLiveFix: Bool {
+        guard let fix = locationProvider.latestFix else { return false }
+        if gpsHoleCandidate?.hole == hole.number { return true }
+        guard let green = liveGreenDistances,
+              let latitude = green.middleLat,
+              let longitude = green.middleLon else { return false }
+        let metres = GeoDistance.haversineMetres(
+            fix.coordinate.latitude,
+            fix.coordinate.longitude,
+            latitude,
+            longitude
+        )
+        return metres.isFinite && metres <= GeoDistance.maximumUsefulGreenMetres
+    }
+
+    private var mapPinCoordinate: CLLocationCoordinate2D? {
+        if let prep = holePrep,
+           let last = prep.resolvedMapOverlay?.route.last,
+           last.count >= 2,
+           let refs = prep.holeImageProjection?.refs,
+           let projected = WatchEventBridge.projectFromTopoPx(
+               px: last[0],
+               py: last[1],
+               refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+           ) {
+            return CLLocationCoordinate2D(latitude: projected.latitude, longitude: projected.longitude)
+        }
+        if let green = liveGreenDistances,
+           let latitude = green.middleLat,
+           let longitude = green.middleLon {
+            return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        }
+        return nil
+    }
+
+    /// The pin shown by the map surfaces. A manually moved flag wins over the provider's factual
+    /// route endpoint, while the latter remains the fallback for untouched holes.
+    private var effectiveMapPinCoordinate: CLLocationCoordinate2D? {
+        greenPinCoordinate ?? mapPinCoordinate
+    }
+
+    /// The legacy Watch/event payload has one coordinate tuple. Until that contract grows a second
+    /// tuple, publish the instrument edited most recently. If that instrument is pixel-only (or was
+    /// just cleared), fall back to the other coordinate-bearing instrument instead of clearing a
+    /// still-visible flag/target. Pixel-only state remains local and is never promoted to WGS84.
+    private var wireTargetSelection: (coordinate: CLLocationCoordinate2D, kind: String)? {
+        let preferred = Self.normalizedTargetKind(lastTargetEditKind)
+
+        func targetSelection() -> (coordinate: CLLocationCoordinate2D, kind: String)? {
+            guard let coordinate = validTargetCoordinate(targetCoordinate) else { return nil }
+            let kind = Self.normalizedTargetKind(targetKind)
+            return (coordinate, kind == "pin" ? "target" : (kind ?? "target"))
+        }
+
+        func pinSelection() -> (coordinate: CLLocationCoordinate2D, kind: String)? {
+            guard let coordinate = validTargetCoordinate(greenPinCoordinate) else { return nil }
+            return (coordinate, "pin")
+        }
+
+        if preferred == "pin", let selection = pinSelection() { return selection }
+        if preferred != "pin", let selection = targetSelection() { return selection }
+        if let selection = targetSelection() { return selection }
+        if let selection = pinSelection() { return selection }
+        return nil
+    }
+
+    private var wireTargetCoordinate: CLLocationCoordinate2D? {
+        wireTargetSelection?.coordinate
+    }
+
+    private var wireTargetKind: String? {
+        wireTargetSelection?.kind
+    }
+
+    private func validTargetCoordinate(
+        _ coordinate: CLLocationCoordinate2D?
+    ) -> CLLocationCoordinate2D? {
+        guard let coordinate,
+              coordinate.latitude.isFinite,
+              coordinate.longitude.isFinite,
+              (-90...90).contains(coordinate.latitude),
+              (-180...180).contains(coordinate.longitude) else {
+            return nil
+        }
+        return coordinate
+    }
+
+    private func hasTargetState(for kind: String) -> Bool {
+        if Self.normalizedTargetKind(kind) == "pin" {
+            return greenPinCoordinate != nil || greenPinPixel != nil
+        }
+        return targetCoordinate != nil || targetPixel != nil
+    }
+
+    /// Keep the legacy preference aligned with the remaining local instruments after a clear. The
+    /// pixel checks deliberately count as state so a no-projection edit remains the most-recent
+    /// instrument locally, while `wireTargetSelection` still falls back to another real coordinate.
+    private func refreshLastTargetEditKind(preferred: String?) {
+        let preferred = Self.normalizedTargetKind(preferred)
+        if preferred == "pin", hasTargetState(for: "pin") {
+            lastTargetEditKind = "pin"
+            return
+        }
+        if preferred != "pin", hasTargetState(for: "target") {
+            lastTargetEditKind = "target"
+            return
+        }
+        if hasTargetState(for: "target") {
+            lastTargetEditKind = "target"
+        } else if hasTargetState(for: "pin") {
+            lastTargetEditKind = "pin"
+        } else {
+            lastTargetEditKind = nil
+        }
+    }
+
+    /// Distance from the current map reference to a manually moved flag. This is deliberately not
+    /// the same as `mapTargetDistanceMetres`: a Touch Target is an aim point, while a moved flag is
+    /// the hole's endpoint.
+    private var greenPinDistanceMetres: Double? {
+        if let coordinateDistance = distanceFromMapReference(to: greenPinCoordinate) {
+            return coordinateDistance
+        }
+        return pixelDistanceMetres(from: mapReferencePixel, to: validMapPixel(greenPinPixel))
+    }
+
+    private func distanceFromMapReference(to endpoint: CLLocationCoordinate2D?) -> Double? {
+        guard let start = mapReferenceCoordinate, let endpoint else { return nil }
+        let metres = GeoDistance.haversineMetres(
+            start.latitude,
+            start.longitude,
+            endpoint.latitude,
+            endpoint.longitude
+        )
+        guard metres.isFinite, metres > 0, metres <= GeoDistance.maximumUsefulGreenMetres else {
+            return nil
+        }
+        return metres
+    }
+
+    private var mapTargetDistanceMetres: Double? {
+        if let coordinateDistance = distanceFromMapReference(to: targetCoordinate) {
+            return coordinateDistance
+        }
+        return pixelDistanceMetres(from: mapReferencePixel, to: validMapPixel(targetPixel))
+    }
+
+    /// The shared topo pixel frame is still measurable when a searched/off-course course has no
+    /// affine geo anchors. Prefer a projected coordinate when available, then use the factual route
+    /// endpoints as the tee/pin references.
+    private var mapReferencePixel: CGPoint? {
+        guard let overlay = holePrep?.resolvedMapOverlay else { return nil }
+        if let reference = mapReferenceCoordinate,
+           let refs = holePrep?.holeImageProjection?.refs,
+           let projected = WatchEventBridge.projectToTopoPx(
+               lat: reference.latitude,
+               lon: reference.longitude,
+               refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+           ),
+           projected.count >= 2,
+           projected[0].isFinite,
+           projected[1].isFinite {
+            return CGPoint(x: projected[0], y: projected[1])
+        }
+        guard let first = overlay.route.first,
+              first.count >= 2,
+              first[0].isFinite,
+              first[1].isFinite else { return nil }
+        return CGPoint(x: first[0], y: first[1])
+    }
+
+    private func pixelDistanceMetres(from start: CGPoint?, to end: CGPoint?) -> Double? {
+        guard let start,
+              let end,
+              let ppm = holePrep?.resolvedMapOverlay?.ppm,
+              ppm.isFinite,
+              ppm > 0,
+              start.x.isFinite,
+              start.y.isFinite,
+              end.x.isFinite,
+              end.y.isFinite else { return nil }
+        let metres = hypot(Double(end.x - start.x), Double(end.y - start.y)) / ppm
+        guard metres.isFinite,
+              metres >= 0,
+              metres <= GeoDistance.maximumUsefulGreenMetres else { return nil }
+        return metres
+    }
+
+    private func validMapPixel(_ pixel: CGPoint?) -> CGPoint? {
+        guard let pixel,
+              pixel.x.isFinite,
+              pixel.y.isFinite,
+              let overlay = holePrep?.resolvedMapOverlay,
+              pixel.x >= 0,
+              pixel.y >= 0,
+              pixel.x <= CGFloat(overlay.w),
+              pixel.y <= CGFloat(overlay.h) else { return nil }
+        return pixel
+    }
+
+    private var displayedTargetYards: Int? {
+        guard targetCoordinate != nil
+                || targetPixel != nil
+                || greenPinCoordinate != nil
+                || greenPinPixel != nil
+                || distanceToPinMetres != nil else {
+            return nil
+        }
+        return effectiveDistanceToPinMetres.flatMap { greenYards($0) }
+    }
+
+    private func handleMapTargetChanged(_ coordinate: CLLocationCoordinate2D?, kind: String = "target") {
+        let normalizedKind = Self.normalizedTargetKind(kind) ?? "target"
+        if normalizedKind == "pin" {
+            // View Green owns the flag binding. Never let a flag drag replace a Touch Target.
+            greenPinCoordinate = coordinate
+        } else {
+            // Touch Target owns the manual aim point. Keep its kind separate from the flag state.
+            targetCoordinate = coordinate
+            targetKind = coordinate == nil ? nil : normalizedKind
+        }
+        if coordinate == nil {
+            refreshLastTargetEditKind(preferred: normalizedKind)
+        } else {
+            lastTargetEditKind = normalizedKind
+        }
+        // A selected map point is the authoritative target for this request. Clear a previous text
+        // override so the map and the caddie never describe different distances.
+        if coordinate != nil || normalizedKind == "pin" {
+            distanceToPinText = ""
+        }
+        // This callback runs for every drag frame. Keep the phone map/distance surface live locally;
+        // the committed callback sends one complete Watch payload after the finger is released.
+    }
+
+    /// Pixel callbacks are deliberately separate from coordinate callbacks. A pixel is enough to
+    /// keep the map and local distance instrument live, but it is never promoted to a fake WGS84/GPS
+    /// event when projection refs are unavailable.
+    private func handleMapTargetPixelChanged(_ pixel: CGPoint?, kind: String = "target") {
+        let normalizedKind = Self.normalizedTargetKind(kind) ?? "target"
+        if normalizedKind == "pin" {
+            greenPinPixel = pixel
+        } else {
+            targetPixel = pixel
+        }
+        if let pixel {
+            lastTargetEditKind = normalizedKind
+            distanceToPinText = ""
+        } else if normalizedKind == "pin" {
+            greenPinCoordinate = nil
+            refreshLastTargetEditKind(preferred: normalizedKind)
+        } else {
+            targetCoordinate = nil
+            targetKind = nil
+            refreshLastTargetEditKind(preferred: normalizedKind)
+        }
+        // Pixel updates also run once per drag frame, so defer cross-device delivery until commit.
+    }
+
+    private func handleMapTargetPixelCommitted(_ pixel: CGPoint?, kind: String = "target") {
+        if pixel == nil {
+            // Explicit clears are persisted by the coordinate commit. There is no second refresh
+            // here: both detail surfaces emit coordinate + pixel callbacks for one gesture.
+            return
+        }
+
+        // If the same gesture also produced a coordinate callback, that callback owns persistence.
+        // Pixel-only edits stay session-local; the caddie still gets the new pixel-derived distance.
+        let normalizedKind = Self.normalizedTargetKind(kind) ?? "target"
+        let coordinate = normalizedKind == "pin" ? greenPinCoordinate : targetCoordinate
+        guard coordinate == nil else { return }
+        sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+        Task { await loadCaddieDecision(syncClub: !hasUserSelectedClub) }
+    }
+
+    private func handleMapTargetCommitted(_ coordinate: CLLocationCoordinate2D?, kind: String = "target") {
+        let normalizedKind = Self.normalizedTargetKind(kind) ?? "target"
+        // `applyTarget/applyFlag` emits a nil coordinate before its pixel callback when projection
+        // anchors are unavailable. That is a pixel-only placement, not an explicit clear; wait for
+        // the pixel commit and keep any other coordinate on the legacy wire tuple.
+        let pixelOnlyPlacement = coordinate == nil && hasTargetState(for: normalizedKind)
+        if !pixelOnlyPlacement {
+            if let coordinate = validTargetCoordinate(coordinate) {
+                let kind = normalizedKind == "pin"
+                    ? "pin"
+                    : (Self.normalizedTargetKind(targetKind) ?? normalizedKind)
+                persistMapTarget(coordinate: coordinate, kind: kind)
+            } else if let fallback = wireTargetSelection {
+                // Clearing the most-recent instrument must not clear the other one from the
+                // legacy single-tuple Watch/backend contract.
+                persistMapTarget(coordinate: fallback.coordinate, kind: fallback.kind)
+            } else {
+                persistMapTarget(coordinate: nil, kind: "target")
+            }
+        }
+        sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+        if !pixelOnlyPlacement {
+            Task { await loadCaddieDecision(syncClub: !hasUserSelectedClub) }
+        }
+    }
+
+    /// Persist target edits as a lightweight club/state event. It carries no latitude/longitude for
+    /// the player, so offline map selection never masquerades as a GPS location event.
+    private func persistMapTarget() {
+        persistMapTarget(
+            coordinate: targetCoordinate,
+            kind: targetCoordinate == nil ? "target" : (targetKind ?? "target")
+        )
+    }
+
+    private func persistMapTarget(coordinate: CLLocationCoordinate2D?, kind: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let trimmedClub = selectedClub.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The club event contract requires a non-empty clubName. A target edit is still meaningful
+        // before a club is chosen, so use an explicit compatibility placeholder; restore logic never
+        // surfaces this placeholder as the selected club.
+        let persistedClub = trimmedClub.isEmpty ? "unknown" : trimmedClub
+        let targetDistance: Double? = {
+            guard coordinate != nil else { return nil }
+            if Self.normalizedTargetKind(kind) == "pin" {
+                return distanceFromMapReference(to: coordinate)
+            }
+            return distanceFromMapReference(to: coordinate)
+        }()
+        var payload: [String: JSONValue] = [
+            "clubName": .string(persistedClub),
+            "targetLatitude": coordinate.map { .number($0.latitude) } ?? .null,
+            "targetLongitude": coordinate.map { .number($0.longitude) } ?? .null,
+            "targetKind": coordinate == nil ? .null : .string(Self.normalizedTargetKind(kind) ?? "target"),
+            "distanceToPinM": targetDistance.map(JSONValue.number) ?? .null,
+        ]
+        payload["shotType"] = .string(selectedShotType)
+        payload["strategyMode"] = .string(selectedStrategyMode)
+        payload["lie"] = .string(selectedLie)
+        emit(kind: .club, timestamp: timestamp, payload: payload)
     }
 
     @MainActor
@@ -1105,7 +1647,9 @@ public struct CurrentHoleView: View {
     /// 仅当有实时定位且该洞 prep 带果岭 F/M/B 经纬度时返回;否则 nil → 调用方回退到静态 tee→green 距离。
     /// 读取 @Published 的 `locationProvider.latestFix`,所以定位每次更新(球员走动)都会驱动重算与刷新。
     private var liveGreenYards: (front: Int?, middle: Int?, back: Int?)? {
-        guard let fix = locationProvider.latestFix, let gd = liveGreenDistances else { return nil }
+        guard hasPlausibleLiveFix,
+              let fix = locationProvider.latestFix,
+              let gd = liveGreenDistances else { return nil }
         let here = fix.coordinate
         let front = GeoDistance.yards(from: here.latitude, here.longitude, to: gd.frontLat, gd.frontLon)
         let middle = GeoDistance.yards(from: here.latitude, here.longitude, to: gd.middleLat, gd.middleLon)
@@ -1117,7 +1661,9 @@ public struct CurrentHoleView: View {
     /// watch P1d LIVE 果岭测距(米):当前 GPS → 前/中/后果岭 haversine 米距,发给手表当 F/M/B,让手表
     /// 成为真正的测距仪(距离随走动更新)。与 `liveGreenYards` 同源,但保留米制以复用手表侧 m→码 转换。
     private var liveGreenMetres: (front: Double?, middle: Double?, back: Double?)? {
-        guard let fix = locationProvider.latestFix, let gd = liveGreenDistances else { return nil }
+        guard hasPlausibleLiveFix,
+              let fix = locationProvider.latestFix,
+              let gd = liveGreenDistances else { return nil }
         let here = fix.coordinate
         func metres(_ lat: Double?, _ lon: Double?) -> Double? {
             guard let lat, let lon else { return nil }
@@ -1598,11 +2144,11 @@ public struct CurrentHoleView: View {
                 shotType: selectedShotType,
                 distanceToPinM: effectiveDistanceToPinMetres,
                 lie: selectedLie,
-                coordinate: currentCoordinate,
-                targetCoordinate: targetCoordinate,
-                targetKind: targetCoordinate == nil ? nil : "pin",
-                horizontalAccuracyM: currentHorizontalAccuracyM,
-                capturedAt: locationProvider.latestFix?.capturedAt,
+                coordinate: liveCoordinateForCurrentHole,
+                targetCoordinate: wireTargetCoordinate,
+                targetKind: wireTargetKind,
+                horizontalAccuracyM: liveCoordinateForCurrentHole == nil ? nil : currentHorizontalAccuracyM,
+                capturedAt: liveCoordinateForCurrentHole == nil ? nil : locationProvider.latestFix?.capturedAt,
                 strategyMode: selectedStrategyMode,
                 visionFindings: visionFindings
             )
@@ -1707,7 +2253,7 @@ public struct CurrentHoleView: View {
         // fix is available, else falls back to the tee — so the map pans as you walk (companion mode).
         let mapGlobalId = hole.sourceGlobalId ?? package.course.globalId
         let youPxOverride: [Double]? = {
-            guard let coord = currentCoordinate, let refs = hip?.refs, refs.count >= 3 else { return nil }
+            guard let coord = liveCoordinateForCurrentHole, let refs = hip?.refs, refs.count >= 3 else { return nil }
             return WatchEventBridge.projectToTopoPx(
                 lat: coord.latitude, lon: coord.longitude,
                 refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) })
@@ -1732,9 +2278,9 @@ public struct CurrentHoleView: View {
             decision: decision,
             offlineOption: offlineOption,
             distanceToPinM: effectiveDistanceToPinMetres,
-            targetLatitude: targetCoordinate?.latitude,
-            targetLongitude: targetCoordinate?.longitude,
-            targetKind: targetCoordinate == nil ? nil : "pin",
+            targetLatitude: wireTargetCoordinate?.latitude,
+            targetLongitude: wireTargetCoordinate?.longitude,
+            targetKind: wireTargetKind,
             frontGreenM: liveGreens?.front ?? (greenOK ? green?.frontM : nil),
             centerGreenM: liveGreens?.middle ?? (greenOK ? green?.middleM : nil),
             backGreenM: liveGreens?.back ?? (greenOK ? green?.backM : nil),
@@ -1800,11 +2346,27 @@ public struct CurrentHoleView: View {
         } else {
             currentCoordinate = nil
         }
-        if let targetLatitude = restoredHoleState.targetLatitude, let targetLongitude = restoredHoleState.targetLongitude {
-            targetCoordinate = CLLocationCoordinate2D(latitude: targetLatitude, longitude: targetLongitude)
+        if let restoredTarget = Self.restoredTarget(from: restoredHoleState) {
+            if restoredTarget.kind == "pin" {
+                targetCoordinate = nil
+                targetKind = nil
+                greenPinCoordinate = restoredTarget.coordinate
+            } else {
+                targetCoordinate = restoredTarget.coordinate
+                targetKind = restoredTarget.kind
+                greenPinCoordinate = nil
+            }
+            lastTargetEditKind = restoredTarget.kind
         } else {
             targetCoordinate = nil
+            greenPinCoordinate = nil
+            targetKind = nil
+            lastTargetEditKind = nil
         }
+        // Pixel targets are session-local unless the server has a geo coordinate to reproject. A
+        // restored hole starts without a stale point from the previously visible hole.
+        targetPixel = nil
+        greenPinPixel = nil
         currentHorizontalAccuracyM = restoredHoleState.horizontalAccuracyM
         lastAppliedRestoredHoleState = restoredHoleState
         sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
@@ -1952,7 +2514,7 @@ public struct CurrentHoleView: View {
     }
 
     private func recordShotLocation() {
-        guard let currentCoordinate else { return }
+        guard let currentCoordinate = liveCoordinateForCurrentHole else { return }
         let shotOrder = recordedNonPuttShotCount + 1
         let builder = LiveRoundEventBuilder(roundId: package.roundId)
         let locationEvent = builder.makeLocationEvent(
@@ -1960,8 +2522,8 @@ public struct CurrentHoleView: View {
             coordinate: currentCoordinate,
             horizontalAccuracyM: currentHorizontalAccuracyM,
             altitudeM: locationProvider.latestFix?.altitudeM,
-            targetCoordinate: targetCoordinate,
-            targetKind: targetCoordinate == nil ? nil : "pin"
+            targetCoordinate: wireTargetCoordinate,
+            targetKind: wireTargetKind
         )
         onEvent(locationEvent)
         pendingPhoneShot = PendingPhoneShot(locationEvent: locationEvent, shotOrder: shotOrder)
@@ -2037,11 +2599,15 @@ public struct CurrentHoleView: View {
     /// target wins; otherwise use live GPS→green-middle, then the downloaded tee→middle fallback.
     private var effectiveDistanceToPinMetres: Double? {
         LiveCaddieDistance.resolve(
-            manualM: distanceToPinMetres,
+            manualM: distanceToPinMetres ?? mapTargetDistanceMetres ?? greenPinDistanceMetres,
             liveMiddleM: liveGreenMetres?.middle,
             staticMiddleM: liveGreenDistances?.middleM,
             holeYards: hole.yards
         )
+    }
+
+    private var liveCoordinateForCurrentHole: CLLocationCoordinate2D? {
+        mapReferenceIsLive ? currentCoordinate : nil
     }
 
     /// 后端存的米 → 前端显示的整码(恢复已记距离时用)。
@@ -2055,5 +2621,36 @@ public struct CurrentHoleView: View {
               metres > 0,
               metres <= GeoDistance.maximumUsefulGreenMetres else { return "" }
         return yardsText(fromMetres: metres)
+    }
+
+    /// Target semantics are shared by iPhone, Watch and the server event contract. `map_target` was
+    /// emitted by an intermediate build; read it as a normal manual target so an upgrade does not
+    /// strand the saved point, but never emit that legacy token again.
+    private static func normalizedTargetKind(_ raw: String?) -> String? {
+        switch raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "pin": return "pin"
+        case "target", "map_target": return "target"
+        case "green_center": return "green_center"
+        default: return nil
+        }
+    }
+
+    private static func restoredTarget(
+        from state: LiveHoleStateSnapshot?
+    ) -> (coordinate: CLLocationCoordinate2D, kind: String)? {
+        guard let state,
+              let latitude = state.targetLatitude,
+              let longitude = state.targetLongitude,
+              latitude.isFinite,
+              longitude.isFinite,
+              (-90...90).contains(latitude),
+              (-180...180).contains(longitude),
+              let kind = normalizedTargetKind(state.targetKind) else {
+            return nil
+        }
+        return (
+            CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+            kind
+        )
     }
 }

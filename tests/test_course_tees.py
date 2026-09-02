@@ -112,6 +112,44 @@ class CourseTeeOptionsTests(unittest.TestCase):
         self.assertIsNotNone(selected)
         self.assertEqual(selected["tee_index"], 1)
 
+    def test_unknown_tee_uses_published_course_default_without_losing_authority(self) -> None:
+        geometry = {
+            "hazards": {
+                "globalId": 10283,
+                "tees": [
+                    {"tee_index": 1, "sets": [1], "position": [0.0, 0.0], "target_distance_m": 320.0},
+                    {"tee_index": 2, "sets": [2], "position": [1.0, 1.0], "target_distance_m": 280.0},
+                ],
+            }
+        }
+        release_tees = [
+            {"name": "Gold", "gender": "MEN", "index": 1},
+            {"name": "Blue", "gender": "MEN", "index": 2},
+        ]
+
+        with patch(
+            "ai_caddie.courses.course_reference.courseview_tees",
+            create=True,
+            return_value=release_tees,
+        ):
+            selected = _selected_tee(geometry, "unknown")
+
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected["tee_index"], 2)
+
+    def test_unknown_tee_stays_unresolved_without_release_authority(self) -> None:
+        geometry = _geometry_with_tees({1: 320.0, 2: 280.0})
+        geometry["hazards"]["globalId"] = 10283
+
+        with patch(
+            "ai_caddie.courses.course_reference.courseview_tees",
+            create=True,
+            return_value=[],
+        ):
+            selected = _selected_tee(geometry, "unknown")
+
+        self.assertIsNone(selected)
+
     def test_yardage_summed_per_set_across_holes(self) -> None:
         # 2 holes, each with black(set1)=300m, blue(set2)=280m, red(set5)=250m.
         per_hole = _geometry_with_tees({1: 300.0, 2: 280.0, 5: 250.0})

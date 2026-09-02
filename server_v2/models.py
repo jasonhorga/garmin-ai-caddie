@@ -26,6 +26,7 @@ ReportConfidence = Literal["low", "medium", "high"]
 GeometryCoverageState = Literal["ready", "partial", "missing"]
 GeometryEnsureStatus = Literal["cached", "downloaded", "failed"]
 CaddieShotType = Literal["tee", "approach", "recovery"]
+LiveTargetKind = Literal["pin", "target", "green_center"]
 GarminSessionSource = Literal["manual_paste", "web_secure_paste", "ios_secure_input", "ios_keychain_replay", "ios_web_login"]
 AnnotationTargetType = Literal["round", "hole", "shot", "decision"]
 AnnotationKind = Literal[
@@ -62,6 +63,9 @@ _LIVE_EVENT_PAYLOAD_FIELDS: dict[str, tuple[set[str], set[str]]] = {
             "decisionId",
             "decision",
             "actualShot",
+            "targetLatitude",
+            "targetLongitude",
+            "targetKind",
         },
     ),
     "putt": ({"putts"}, {"source"}),
@@ -89,6 +93,9 @@ _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
         "decisionId": "string",
         "decision": "object",
         "actualShot": "object",
+        "targetLatitude": "nullable_number",
+        "targetLongitude": "nullable_number",
+        "targetKind": "nullable_string",
     },
     "putt": {"putts": "number", "source": "string"},
     "penalty": {"penalties": "number", "source": "string"},
@@ -99,10 +106,10 @@ _LIVE_EVENT_PAYLOAD_FIELD_TYPES: dict[str, dict[str, str]] = {
         "source": "string",
         "horizontalAccuracyM": "nullable_number",
         "altitudeM": "nullable_number",
-        "targetLatitude": "number",
-        "targetLongitude": "number",
+        "targetLatitude": "nullable_number",
+        "targetLongitude": "nullable_number",
         "targetSource": "string",
-        "targetKind": "string",
+        "targetKind": "nullable_string",
     },
     "photo": {
         "assetLocalId": "string",
@@ -134,6 +141,8 @@ _LIVE_EVENT_PAYLOAD_ENUMS: dict[tuple[str, str], set[str]] = {
     ("score", "fairway"): {"hit", "left", "right"},
     ("club", "shotType"): {"tee", "approach", "recovery"},
     ("club", "strategyMode"): {"protect_score", "stock", "attack"},
+    ("club", "targetKind"): {"pin", "target", "green_center"},
+    ("location", "targetKind"): {"pin", "target", "green_center"},
 }
 
 
@@ -186,10 +195,25 @@ def _validate_live_event_payload(kind: str, payload: dict[str, Any]) -> None:
         ):
             raise ValueError(f"{kind} payload field {field} must be a string array")
         allowed_values = _LIVE_EVENT_PAYLOAD_ENUMS.get((kind, field))
-        if allowed_values is not None and value not in allowed_values:
+        if allowed_values is not None and value is not None and value not in allowed_values:
             raise ValueError(
                 f"{kind} payload field {field} must be one of {', '.join(sorted(allowed_values))}"
             )
+
+    # A manually placed target is a single value, not three independently mergeable fields. Keep
+    # the wire contract all-or-none so replay cannot pair a fresh coordinate with a stale kind. All
+    # three may still be null, which is the explicit clear emitted by the phone.
+    target_fields = {"targetLatitude", "targetLongitude", "targetKind"}
+    present_target_fields = keys & target_fields
+    if present_target_fields and present_target_fields != target_fields:
+        raise ValueError(f"{kind} target fields must be supplied together")
+    if present_target_fields == target_fields:
+        latitude = payload.get("targetLatitude")
+        longitude = payload.get("targetLongitude")
+        if latitude is not None and not -90 <= latitude <= 90:
+            raise ValueError(f"{kind} payload field targetLatitude is out of range")
+        if longitude is not None and not -180 <= longitude <= 180:
+            raise ValueError(f"{kind} payload field targetLongitude is out of range")
     media_type = payload.get("mediaType")
     if kind == "club" and not str(payload.get("clubName") or "").strip():
         raise ValueError("club payload field clubName must be non-empty")

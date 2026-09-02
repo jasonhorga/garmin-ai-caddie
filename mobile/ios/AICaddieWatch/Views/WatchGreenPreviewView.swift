@@ -185,6 +185,27 @@ enum WatchGreenPreviewLayout {
 
     static func contains(_ point: CGPoint, polygon: [CGPoint]) -> Bool {
         guard polygon.count >= 3, point.x.isFinite, point.y.isFinite else { return false }
+        // A finger landing exactly on the sampled outline should remain a valid flag position. The
+        // source coordinates are image pixels, so a sub-pixel tolerance absorbs raster/gesture
+        // rounding without admitting a visibly outside point.
+        let edgeTolerance: CGFloat = 0.75
+        for index in polygon.indices {
+            let a = polygon[index]
+            let b = polygon[(index + 1) % polygon.count]
+            let dx = b.x - a.x
+            let dy = b.y - a.y
+            let lengthSquared = dx * dx + dy * dy
+            guard lengthSquared > 0 else { continue }
+            let cross = (point.x - a.x) * dy - (point.y - a.y) * dx
+            let distanceNumerator = abs(cross)
+            if distanceNumerator <= edgeTolerance * sqrt(lengthSquared) {
+                let projection = (point.x - a.x) * dx + (point.y - a.y) * dy
+                if projection >= -edgeTolerance,
+                   projection <= lengthSquared + edgeTolerance {
+                    return true
+                }
+            }
+        }
         var inside = false
         var previous = polygon.count - 1
         for current in polygon.indices {
@@ -476,6 +497,39 @@ enum WatchGreenPreviewLayout {
     }
 }
 
+/// Keep the drag loupe inside the readable part of the round display. The flag itself may be near
+/// an edge of the green, but the preview should remain fully visible and leave the bottom instrument
+/// controls tappable.
+enum WatchGreenMagnifierLayout {
+    static func position(
+        focus: CGPoint,
+        size: CGSize,
+        diameter: CGFloat = 92,
+        bottomControlClearance: CGFloat = WatchDisplayGeometry.instrumentControlSize + 8
+    ) -> CGPoint {
+        guard size.width > 0, size.height > 0, diameter > 0 else {
+            return CGPoint(x: size.width * 0.5, y: size.height * 0.5)
+        }
+        let safeRect = WatchDisplayGeometry.contentRect(in: size)
+        let half = diameter * 0.5
+        let minX = safeRect.minX + half
+        let maxX = max(minX, safeRect.maxX - half)
+        let minY = safeRect.minY + half
+        let maxY = max(minY, safeRect.maxY - half - max(bottomControlClearance, 0))
+        let safeFocus = CGPoint(
+            x: focus.x.isFinite ? focus.x : safeRect.midX,
+            y: focus.y.isFinite ? focus.y : safeRect.midY
+        )
+        let above = safeFocus.y - half - 18
+        let below = safeFocus.y + half + 18
+        let preferredY = above >= minY ? above : below
+        return CGPoint(
+            x: min(max(safeFocus.x, minX), maxX),
+            y: min(max(preferredY, minY), maxY)
+        )
+    }
+}
+
 private struct WatchGreenCrownModifier: ViewModifier {
     @Binding var zoomScale: Double
     @Binding var rotationDegrees: Double
@@ -567,6 +621,15 @@ public struct WatchGreenPreviewView: View {
     @State private var persistenceTask: Task<Void, Never>?
     @State private var placementChanged = false
     @State private var isDraggingFlag = false
+    /// A completed flag drag can deliver a simultaneous spatial tap in the same run loop. Keep that
+    /// tap from moving the flag a second time (or from landing on a control underneath it).
+    @State private var suppressFlagTap = false
+    /// Screen-space finger location while moving the flag. This is transient UI state only; the
+    /// persisted placement continues to use the validated image-space point below.
+    @State private var flagDragLocation: CGPoint?
+
+    private static let flagLoupeDiameter: CGFloat = 92
+    private static let flagLoupeMagnification: CGFloat = 2.35
 
     public init(
         geometry: WatchHoleMapGeometry,
@@ -603,6 +666,31 @@ public struct WatchGreenPreviewView: View {
             ZStack {
                 Canvas { context, size in
                     drawGreen(&context, size: size, viewport: viewport)
+                }
+
+                // Garmin's Green View gives the user a larger visual target while the flag is held.
+                // Re-rendering the same map layer keeps the loupe aligned with the active rotation,
+                // Crown zoom and high-resolution detail bitmap instead of enlarging a stale snapshot.
+                if let focus = flagDragLocation, isDraggingFlag {
+                    WatchGreenFlagMagnifierLoupe(
+                        mapSize: proxy.size,
+                        focus: focus,
+                        diameter: Self.flagLoupeDiameter,
+                        magnification: Self.flagLoupeMagnification
+                    ) {
+                        Canvas { context, size in
+                            drawGreen(&context, size: size, viewport: viewport)
+                        }
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                    }
+                    .position(
+                        WatchGreenMagnifierLayout.position(
+                            focus: focus,
+                            size: proxy.size,
+                            diameter: Self.flagLoupeDiameter
+                        )
+                    )
+                    .allowsHitTesting(false)
                 }
 
                 if rangeUnavailable {
@@ -677,10 +765,11 @@ public struct WatchGreenPreviewView: View {
                 }
             }
             .contentShape(Rectangle())
-            .gesture(flagGesture(viewport: viewport))
+            .gesture(flagGesture(viewport: viewport, size: proxy.size))
             .simultaneousGesture(
                 SpatialTapGesture().onEnded { value in
-                    moveFlag(to: value.location, viewport: viewport)
+                    guard !suppressFlagTap else { return }
+                    moveFlag(to: value.location, viewport: viewport, size: proxy.size)
                 }
             )
         }
@@ -696,6 +785,9 @@ public struct WatchGreenPreviewView: View {
         .onChange(of: rotationDegrees) { _ in schedulePlacementPersistence() }
         .onDisappear {
             persistenceTask?.cancel()
+            flagDragLocation = nil
+            isDraggingFlag = false
+            suppressFlagTap = false
             if placementChanged { persistPlacement() }
         }
         .ignoresSafeArea()
@@ -751,10 +843,14 @@ public struct WatchGreenPreviewView: View {
             : "到旗 \(metrics.playerToPinYards) 码，\(edges)"
     }
 
-    private func flagGesture(viewport: WatchGreenViewport) -> some Gesture {
+    private func flagGesture(viewport: WatchGreenViewport, size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
                 guard canMoveFlag else { return }
+                let safeRect = WatchDisplayGeometry.contentRect(in: size)
+                // The bottom rail owns Back and rotate. A simultaneous map gesture must never
+                // reinterpret a control press as a flag move, even when the flag is near that edge.
+                guard value.startLocation.y < safeRect.maxY - 50 else { return }
                 if !isDraggingFlag {
                     let flagCanvas = viewport.canvasPoint(pin)
                     guard hypot(
@@ -762,7 +858,9 @@ public struct WatchGreenPreviewView: View {
                         value.startLocation.y - flagCanvas.y
                     ) <= 36 else { return }
                     isDraggingFlag = true
+                    suppressFlagTap = true
                 }
+                flagDragLocation = value.location
                 let candidate = viewport.imagePoint(value.location)
                 guard WatchGreenPreviewLayout.contains(
                     candidate,
@@ -772,7 +870,12 @@ public struct WatchGreenPreviewView: View {
                 placementChanged = true
             }
             .onEnded { value in
-                guard canMoveFlag, isDraggingFlag else { return }
+                guard canMoveFlag, isDraggingFlag else {
+                    flagDragLocation = nil
+                    isDraggingFlag = false
+                    DispatchQueue.main.async { suppressFlagTap = false }
+                    return
+                }
                 isDraggingFlag = false
                 let candidate = viewport.imagePoint(value.location)
                 if WatchGreenPreviewLayout.contains(
@@ -784,11 +887,17 @@ public struct WatchGreenPreviewView: View {
                 } else {
                     persistPlacement()
                 }
+                flagDragLocation = nil
+                // SpatialTapGesture may finish alongside this drag. Delay release by one run loop.
+                DispatchQueue.main.async { suppressFlagTap = false }
             }
     }
 
-    private func moveFlag(to canvasPoint: CGPoint, viewport: WatchGreenViewport) {
+    private func moveFlag(to canvasPoint: CGPoint, viewport: WatchGreenViewport, size: CGSize) {
         guard canMoveFlag else { return }
+        let safeRect = WatchDisplayGeometry.contentRect(in: size)
+        // Keep the bottom instrument rail exclusively actionable by its own controls.
+        guard canvasPoint.y < safeRect.maxY - 50 else { return }
         let candidate = viewport.imagePoint(canvasPoint)
         guard WatchGreenPreviewLayout.contains(
             candidate,
@@ -1027,5 +1136,67 @@ public struct WatchGreenPreviewView: View {
                 at: point
             )
         }
+    }
+}
+
+/// A circular, transform-stable preview for Watch Green flag placement. `content` is already
+/// rendered in the full watch canvas coordinate system; the affine offset below places the exact
+/// finger pixel at the loupe crosshair even when the underlying green is Crown-zoomed or rotated.
+private struct WatchGreenFlagMagnifierLoupe<Content: View>: View {
+    let content: Content
+    let mapSize: CGSize
+    let focus: CGPoint
+    let diameter: CGFloat
+    let magnification: CGFloat
+
+    init(
+        mapSize: CGSize,
+        focus: CGPoint,
+        diameter: CGFloat,
+        magnification: CGFloat,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.content = content()
+        self.mapSize = mapSize
+        self.focus = focus
+        self.diameter = diameter
+        self.magnification = magnification
+    }
+
+    var body: some View {
+        let safeMagnification = max(magnification.isFinite ? magnification : 1, 1)
+        let safeFocus = CGPoint(
+            x: focus.x.isFinite ? focus.x : mapSize.width * 0.5,
+            y: focus.y.isFinite ? focus.y : mapSize.height * 0.5
+        )
+        let dx = diameter * 0.5 - safeFocus.x * safeMagnification
+        let dy = diameter * 0.5 - safeFocus.y * safeMagnification
+
+        ZStack(alignment: .topLeading) {
+            content
+                .frame(width: mapSize.width, height: mapSize.height)
+                .scaleEffect(safeMagnification, anchor: .topLeading)
+                .offset(x: dx, y: dy)
+        }
+        .frame(width: diameter, height: diameter, alignment: .topLeading)
+        .clipShape(Circle())
+        .overlay {
+            ZStack {
+                Rectangle()
+                    .fill(Color.white.opacity(0.95))
+                    .frame(width: 1.5, height: 20)
+                Rectangle()
+                    .fill(Color.white.opacity(0.95))
+                    .frame(width: 20, height: 1.5)
+            }
+            .shadow(color: .black.opacity(0.65), radius: 0.8)
+        }
+        .overlay(Circle().strokeBorder(Color.white, lineWidth: 2.8))
+        .overlay(Circle().strokeBorder(Color.black.opacity(0.28), lineWidth: 1))
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.42), radius: 6, y: 3)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("拖动旗位时的放大视图")
+        .accessibilityIdentifier("watch-green-flag-magnifier")
     }
 }

@@ -275,6 +275,7 @@ final class WatchHoleMapViewportTests: XCTestCase {
             CGPoint(x: 0, y: 10),
         ]
         XCTAssertTrue(WatchGreenPreviewLayout.contains(CGPoint(x: 5, y: 5), polygon: outline))
+        XCTAssertTrue(WatchGreenPreviewLayout.contains(CGPoint(x: 10, y: 5), polygon: outline))
         XCTAssertFalse(WatchGreenPreviewLayout.contains(CGPoint(x: 15, y: 5), polygon: outline))
     }
 
@@ -690,6 +691,77 @@ final class WatchHoleMapViewportTests: XCTestCase {
         XCTAssertLessThan(resting, middle)
         XCTAssertLessThan(middle, maximum)
         XCTAssertEqual(maximum, WatchHoleMapView.maximumCrownScale, accuracy: 0.0001)
+    }
+
+    func testGreenFlagMagnifierStaysInsideSafeGuideAndAboveControlRail() {
+        let faces = [
+            CGSize(width: 176, height: 215),
+            CGSize(width: 198, height: 242),
+            CGSize(width: 205, height: 251),
+        ]
+
+        for size in faces {
+            let safeRect = WatchDisplayGeometry.contentRect(in: size)
+            let diameter: CGFloat = 92
+            for focus in [
+                CGPoint(x: -20, y: -20),
+                CGPoint(x: size.width + 20, y: size.height + 20),
+                CGPoint(x: safeRect.midX, y: safeRect.midY),
+            ] {
+                let position = WatchGreenMagnifierLayout.position(
+                    focus: focus,
+                    size: size,
+                    diameter: diameter
+                )
+                let frame = CGRect(
+                    x: position.x - diameter / 2,
+                    y: position.y - diameter / 2,
+                    width: diameter,
+                    height: diameter
+                )
+                XCTAssertGreaterThanOrEqual(frame.minX, safeRect.minX - 0.001)
+                XCTAssertLessThanOrEqual(frame.maxX, safeRect.maxX + 0.001)
+                XCTAssertGreaterThanOrEqual(frame.minY, safeRect.minY - 0.001)
+                XCTAssertLessThanOrEqual(frame.maxY, safeRect.maxY - WatchDisplayGeometry.instrumentControlSize - 8 + 0.001)
+            }
+        }
+    }
+
+    func testTouchTargetMagnifierStaysInsideSafeGuideAndAboveControlRail() {
+        let faces = [
+            CGSize(width: 176, height: 215),
+            CGSize(width: 198, height: 242),
+            CGSize(width: 205, height: 251),
+        ]
+
+        for size in faces {
+            let safeRect = WatchDisplayGeometry.contentRect(in: size)
+            let diameter: CGFloat = 92
+            for focus in [
+                CGPoint(x: -20, y: -20),
+                CGPoint(x: size.width + 20, y: size.height + 20),
+                CGPoint(x: safeRect.midX, y: safeRect.midY),
+            ] {
+                let position = WatchTouchTargetMagnifierLayout.position(
+                    focus: focus,
+                    size: size,
+                    diameter: diameter
+                )
+                let frame = CGRect(
+                    x: position.x - diameter / 2,
+                    y: position.y - diameter / 2,
+                    width: diameter,
+                    height: diameter
+                )
+                XCTAssertGreaterThanOrEqual(frame.minX, safeRect.minX - 0.001)
+                XCTAssertLessThanOrEqual(frame.maxX, safeRect.maxX + 0.001)
+                XCTAssertGreaterThanOrEqual(frame.minY, safeRect.minY - 0.001)
+                XCTAssertLessThanOrEqual(
+                    frame.maxY,
+                    safeRect.maxY - WatchDisplayGeometry.instrumentControlSize - 8 + 0.001
+                )
+            }
+        }
     }
 
 }

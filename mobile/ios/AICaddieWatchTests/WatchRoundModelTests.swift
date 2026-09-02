@@ -1,4 +1,5 @@
 import CoreLocation
+import Foundation
 import XCTest
 @testable import AICaddieWatch
 
@@ -831,7 +832,12 @@ final class WatchRoundModelTests: XCTestCase {
         let model = seededModel(holes: [state])
         let view = WatchRoundContainerView(
             model: model,
-            watchGreenYards: (front: 199, center: 211, back: 223)
+            watchGreenYards: (front: 199, center: 211, back: 223),
+            shotLocation: WatchLocationFix(
+                coordinate: CLLocationCoordinate2D(latitude: 40, longitude: 116),
+                horizontalAccuracyM: 5,
+                capturedAt: ISO8601DateFormatter().string(from: Date())
+            )
         )
 
         XCTAssertEqual(view.distanceText, "211 码")

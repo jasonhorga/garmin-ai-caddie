@@ -3220,6 +3220,59 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
         if client_id:
             field_clients.setdefault((hole_no, field), set()).add(client_id)
 
+    def apply_target_payload(
+        hole_no: int,
+        state: dict[str, Any],
+        payload: dict[str, Any],
+        client_id: str,
+    ) -> None:
+        """Fold an optional target tuple carried by either club or location events.
+
+        Target edits are not GPS fixes.  A pair of explicit nulls (or a null kind) is an
+        intentional clear and must remove the previous tuple rather than leaving a stale flag
+        visible after relaunch.  Events that do not carry any target keys leave the prior target
+        untouched, preserving compatibility with older club/location events.
+        """
+        target_keys = {"targetLatitude", "targetLongitude", "targetKind"}
+        if not target_keys.intersection(payload):
+            return
+
+        # Coordinates and kind are one atomic tuple. Never merge a partial update with an older
+        # tuple: a new coordinate paired with an old kind (or vice versa) is indistinguishable from
+        # a stale target after a relaunch. Events with no target keys returned above preserve the
+        # previous value for compatibility with older club/location events.
+        for field in target_keys.intersection(payload):
+            mark(hole_no, field, client_id)
+
+        def clear_target() -> None:
+            state.pop("targetLatitude", None)
+            state.pop("targetLongitude", None)
+            state.pop("targetKind", None)
+
+        if not all(field in payload for field in target_keys):
+            clear_target()
+            return
+
+        latitude = _safe_float(payload.get("targetLatitude"))
+        longitude = _safe_float(payload.get("targetLongitude"))
+        raw_kind = payload.get("targetKind")
+        kind = raw_kind.strip().lower() if isinstance(raw_kind, str) else ""
+        if (
+            latitude is None
+            or longitude is None
+            or not math.isfinite(latitude)
+            or not math.isfinite(longitude)
+            or not -90 <= latitude <= 90
+            or not -180 <= longitude <= 180
+            or kind not in {"pin", "target", "green_center"}
+        ):
+            clear_target()
+            return
+
+        state["targetLatitude"] = latitude
+        state["targetLongitude"] = longitude
+        state["targetKind"] = kind
+
     for row in rows:
         latest_sequence = max(latest_sequence, _safe_int(row.get("serverSequence")) or 0)
         event = row.get("event")
@@ -3254,7 +3307,7 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
                 mark(hole_no, "penalty", client_id)
         elif kind == "club":
             club_name = str(payload.get("clubName") or "")
-            if club_name:
+            if club_name and club_name.strip().lower() != "unknown":
                 state["selectedClub"] = club_name
                 mark(hole_no, "club", client_id)
             if "shotType" in payload:
@@ -3266,13 +3319,13 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
             if "distanceToPinM" in payload:
                 raw = payload.get("distanceToPinM")
                 state["distanceToPinM"] = _safe_float(raw) if raw is not None else None
+            apply_target_payload(hole_no, state, payload, client_id)
         elif kind == "location":
-            for key in ("latitude", "longitude", "targetLatitude", "targetLongitude"):
+            for key in ("latitude", "longitude"):
                 value = _safe_float(payload.get(key))
                 if value is not None:
                     state[key] = value
-            if "targetKind" in payload:
-                state["targetKind"] = str(payload.get("targetKind") or "")
+            apply_target_payload(hole_no, state, payload, client_id)
             if "horizontalAccuracyM" in payload:
                 raw = payload.get("horizontalAccuracyM")
                 state["horizontalAccuracyM"] = _safe_float(raw) if raw is not None else None

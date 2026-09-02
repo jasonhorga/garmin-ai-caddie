@@ -1015,9 +1015,20 @@ class MobileContractTests(unittest.TestCase):
         self.assertEqual(payload_rules["club"]["properties"]["lie"]["type"], "string")
         self.assertEqual(payload_rules["club"]["properties"]["distanceToPinM"]["type"], ["number", "null"])
         self.assertEqual(payload_rules["club"]["properties"]["offlineOptionId"]["type"], ["string", "null"])
-        self.assertEqual(payload_rules["location"]["properties"]["targetLatitude"]["type"], "number")
-        self.assertEqual(payload_rules["location"]["properties"]["targetLongitude"]["type"], "number")
-        self.assertEqual(payload_rules["location"]["properties"]["targetKind"]["enum"], ["pin", "target", "green_center"])
+        self.assertEqual(
+            payload_rules["location"]["properties"]["targetLatitude"]["type"],
+            ["number", "null"],
+        )
+        self.assertEqual(
+            payload_rules["location"]["properties"]["targetLongitude"]["type"],
+            ["number", "null"],
+        )
+        target_kind_schema = payload_rules["location"]["properties"]["targetKind"]
+        self.assertEqual(
+            target_kind_schema["anyOf"][0]["enum"],
+            ["pin", "target", "green_center"],
+        )
+        self.assertEqual(target_kind_schema["anyOf"][1]["type"], "null")
         self.assertEqual(payload_rules["photo"]["properties"]["mediaType"]["const"], "photo")
         self.assertEqual(payload_rules["video"]["properties"]["mediaType"]["const"], "video")
         self.assertEqual(schema["properties"]["eventId"]["minLength"], 1)
@@ -1059,6 +1070,34 @@ class MobileContractTests(unittest.TestCase):
             self,
             schema,
             {**base_event, "kind": "club", "payload": {"clubName": "8I", "unexpected": "drop"}},
+        )
+        _assert_json_schema_accepts(
+            self,
+            schema,
+            {
+                **base_event,
+                "kind": "location",
+                "payload": {
+                    "latitude": 22.279,
+                    "longitude": 114.162,
+                    "targetLatitude": None,
+                    "targetLongitude": None,
+                    "targetKind": None,
+                },
+            },
+        )
+        _assert_json_schema_rejects(
+            self,
+            schema,
+            {
+                **base_event,
+                "kind": "location",
+                "payload": {
+                    "latitude": 22.279,
+                    "longitude": 114.162,
+                    "targetLatitude": None,
+                },
+            },
         )
 
     def test_live_round_event_schema_supports_optional_client_id_for_multi_device_dedup(self) -> None:
@@ -2126,9 +2165,16 @@ class MobileContractTests(unittest.TestCase):
             'stringPayload("lie", in: event.payload)',
             'numberPayload("latitude", in: event.payload)',
             'numberPayload("longitude", in: event.payload)',
-            'numberPayload("targetLatitude", in: event.payload)',
-            'numberPayload("targetLongitude", in: event.payload)',
-            'stringPayload("targetKind", in: event.payload)',
+        ]:
+            self.assertIn(payload_key, offline_store)
+        self.assertIn("applyTargetPayload(event.payload, to: &state)", offline_store)
+        for payload_key in [
+            'payload.keys.contains("targetLatitude")',
+            'payload.keys.contains("targetLongitude")',
+            'payload.keys.contains("targetKind")',
+            'case .number(let latitude) = payload["targetLatitude"]',
+            'case .number(let longitude) = payload["targetLongitude"]',
+            'case .string(let rawKind) = payload["targetKind"]',
         ]:
             self.assertIn(payload_key, offline_store)
         self.assertIn('optionalNumberPayload("distanceToPinM", in: event.payload)', offline_store)
@@ -3242,9 +3288,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("distanceToPinM: effectiveDistanceToPinMetres", current_hole)
         self.assertIn("LiveCaddieDistance.resolve", current_hole)
         self.assertIn("lie: selectedLie", current_hole)
-        self.assertIn("coordinate: currentCoordinate", current_hole)
-        self.assertIn("targetCoordinate: targetCoordinate", current_hole)
-        self.assertIn('targetKind: targetCoordinate == nil ? nil : "pin"', current_hole)
+        self.assertIn("coordinate: liveCoordinateForCurrentHole", current_hole)
+        self.assertIn("targetCoordinate: $targetCoordinate", current_hole)
+        self.assertIn("targetPixel: $targetPixel", current_hole)
+        self.assertIn("targetKind: wireTargetKind", current_hole)
         self.assertIn("@State private var caddieDecision: CaddieDecisionResponse?", current_hole)
         self.assertIn("isLoadingCaddieDecision", current_hole)
         self.assertIn("caddieErrorMessage", current_hole)
@@ -3264,6 +3311,25 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("route: holePrep.resolvedMapOverlay?.route", current_hole)
         self.assertIn("selectedOfflineOption", current_hole)
         self.assertIn("sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)", current_hole)
+        green_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveGreenDetailView.swift")
+        live_map_detail = _read_required_source(self, IOS_DIR / "Views" / "LivePlayMapDetailView.swift")
+        shot_edit = _read_required_source(self, IOS_DIR / "Views" / "RoundShotEditComponents.swift")
+        self.assertIn("LiveGreenDetailView", green_detail)
+        self.assertIn('live-green-zoom-in', green_detail)
+        self.assertIn('live-green-zoom-out', green_detail)
+        self.assertIn('live-green-flag-magnifier', green_detail)
+        self.assertIn("LivePlayMapDetailView", live_map_detail)
+        self.assertIn('live-map-zoom-in', live_map_detail)
+        self.assertIn('live-map-zoom-out', live_map_detail)
+        self.assertIn("targetDragLocation", live_map_detail)
+        self.assertIn("LiveMapTargetMagnifierLoupe", live_map_detail)
+        self.assertIn('live-map-target-magnifier', live_map_detail)
+        self.assertIn("RoundShotPrecisionEditor", shot_edit)
+        self.assertIn('round-shot-precision-zoom-in', shot_edit)
+        self.assertIn('round-shot-precision-zoom-out', shot_edit)
+        self.assertIn('round-shot-precision-open', shot_edit)
+        self.assertIn('round-shot-drag-magnifier', shot_edit)
+        self.assertIn('round-shot-precision-magnifier', shot_edit)
         self.assertIn("watchBridge?.sendStateToWatch", current_hole)
         # Location is an actual-shot fact built independently from end-of-hole score confirmation.
         # Keeping this contract on the event builder prevents the score-save view from having to
@@ -3571,14 +3637,44 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("measuredPxOverride", map_view)
         self.assertIn("case touchTarget", map_view)
         self.assertIn("SpatialTapGesture", map_view)
+        self.assertIn("touchTargetDragGesture", map_view)
+        self.assertIn("WatchTouchTargetMagnifierLoupe", map_view)
+        self.assertIn("WatchTouchTargetMagnifierLayout.position", map_view)
+        self.assertIn('watch-touch-target-magnifier', map_view)
         self.assertNotIn("pinDragOverride", map_view)
         self.assertIn("selectedPin", green_view)
         self.assertIn("onPlacementChange", green_view)
         self.assertIn("persistPlacement", green_view)
+        # Green View flag placement keeps a S70-style local loupe over the held finger while the
+        # source point remains in the shared image frame.
+        self.assertIn("flagDragLocation", green_view)
+        self.assertIn("WatchGreenFlagMagnifierLoupe", green_view)
+        self.assertIn("WatchGreenMagnifierLayout.position", green_view)
+        self.assertIn('watch-green-flag-magnifier', green_view)
         self.assertNotIn("onLongPressGesture", map_view)
         self.assertIn(".onLongPressGesture(minimumDuration: 0.6) { model.openMenu() }", container)
         self.assertIn("let yardsPerPixel", map_view) # derived px→码, no extra payload
         self.assertIn(".onTapGesture { holeMapBigText.toggle() }", container)
+
+    def test_watch_unknown_tee_does_not_fabricate_blue(self) -> None:
+        course_model = _read_required_source(
+            self,
+            WATCH_DIR / "Models" / "WatchCourseDownload.swift",
+        )
+        start_view = _read_required_source(self, WATCH_DIR / "Views" / "WatchStartView.swift")
+        setup_view = _read_required_source(
+            self,
+            WATCH_DIR / "Views" / "WatchRoundSetupView.swift",
+        )
+
+        preferred_tee = course_model.split("public var preferredTee: String {", 1)[1].split(
+            "public func withTees(",
+            1,
+        )[0]
+        self.assertIn('?? "unknown"', preferred_tee)
+        self.assertNotIn('?? "Blue"', preferred_tee)
+        self.assertIn('? "球场默认 T"', start_view)
+        self.assertIn('return "unknown"', setup_view)
 
     def test_watch_native_gps_wiring(self) -> None:
         # watch P3: the watch's OWN GPS recomputes you-px + green distances from the wrist (less phone

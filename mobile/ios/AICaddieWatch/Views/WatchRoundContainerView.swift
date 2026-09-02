@@ -4,6 +4,10 @@ import SwiftUI
 /// projection; they never change the scoring or shot state machine behind it.
 public enum WatchHoleRootPresentation: Equatable {
     case acquiringGPS
+    /// A round has a selected course, but its first factual map payload has not arrived yet. This is
+    /// intentionally distinct from `scoreOnly`: starting a round should land on the map instrument,
+    /// even when the map is still being transferred in the background.
+    case mapPreparing
     case map
     case distances
     case scoreOnly
@@ -11,12 +15,14 @@ public enum WatchHoleRootPresentation: Equatable {
     public static func resolve(
         hasQualifiedWristFix: Bool,
         hasGeometry: Bool,
-        hasLiveCenterDistance: Bool
+        hasLiveCenterDistance: Bool,
+        courseDataPending: Bool = false
     ) -> Self {
         // GPS is a rangefinder input, not a round-entry gate. Keep the course map/score controls
         // usable during a cold fix (S70 shows 999 until location is ready); the caller supplies that
         // sentinel only for presentation and never fabricates a coordinate or shot fact.
         if hasGeometry { return .map }
+        if courseDataPending { return .mapPreparing }
         if hasLiveCenterDistance { return .distances }
         return .scoreOnly
     }
@@ -52,6 +58,95 @@ public struct WatchGPSAcquiringView: View {
         .ignoresSafeArea()
         .accessibilityElement(children: .combine)
         .accessibilityLabel("999 码，等待定位")
+    }
+}
+
+/// First-frame map instrument for a newly started round whose CourseView/topo facts are still being
+/// downloaded. It deliberately avoids drawing a synthetic fairway: the only spatial content shown
+/// before `WatchHoleMapGeometry` exists is the honest loading affordance. The course identity and
+/// explicit 999 values make the transition from setup to play visible without blocking on GPS/network.
+public struct WatchMapPreparingView: View {
+    public let courseName: String
+    public let hole: Int
+    public let par: Int
+
+    public init(courseName: String, hole: Int, par: Int) {
+        self.courseName = courseName
+        self.hole = hole
+        self.par = par
+    }
+
+    public var body: some View {
+        GeometryReader { proxy in
+            let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
+            VStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Text("H\(hole) · P\(par)")
+                        .font(.system(size: 17, weight: .black))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                    Spacer(minLength: 0)
+                }
+                .frame(width: safeRect.width, alignment: .leading)
+
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color(red: 0.08, green: 0.20, blue: 0.12))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                        }
+                    VStack(spacing: 7) {
+                        Image(systemName: "map.fill")
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(AICaddieDesignTokens.hudGreen)
+                        ProgressView()
+                            .tint(.white)
+                        Text("地图准备中")
+                            .font(.system(size: 13, weight: .black))
+                            .foregroundStyle(.white)
+                        Text(courseName)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.65))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                    }
+                    .padding(.horizontal, 14)
+                }
+                .frame(width: safeRect.width, height: max(92, safeRect.height * 0.48))
+
+                HStack(spacing: 9) {
+                    range("前")
+                    range("中")
+                    range("后")
+                }
+                Text("可先记分，地图到达后自动显示")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.68)
+            }
+            .frame(width: safeRect.width, height: safeRect.height)
+            .position(x: safeRect.midX, y: safeRect.midY)
+        }
+        .background(Color.black)
+        .ignoresSafeArea()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("第 \(hole) 洞，球场地图准备中，前中后距离 999 码")
+        .accessibilityIdentifier("watch-map-preparing-root")
+    }
+
+    private func range(_ label: String) -> some View {
+        VStack(spacing: 0) {
+            Text("999")
+                .font(.system(size: 22, weight: .black, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+            Text(label)
+                .font(.system(size: 11, weight: .black))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -128,6 +223,28 @@ public struct WatchRoundContainerView: View {
         live ?? fallbackMetres.map(WatchUnits.yards)
     }
 
+    /// A complete F/M/B tuple can be supplied by the phone bridge or a deterministic UI fixture.
+    /// Treat it as one coherent range fact; a partial tuple must never make one edge look live while
+    /// the remaining edges are still unavailable.
+    static func hasCompleteGreenRange(
+        _ range: (front: Int?, center: Int?, back: Int?)?
+    ) -> Bool {
+        guard let range else { return false }
+        return range.front != nil && range.center != nil && range.back != nil
+    }
+
+    static func rangeFixIsQualified(
+        shotLocation: WatchLocationFix?,
+        watchGreenYards: (front: Int?, center: Int?, back: Int?)?,
+        now: Date = Date()
+    ) -> Bool {
+        // Bridged F/M/B values describe course/range facts, but cannot prove that the Watch has a
+        // current position. S70-style cold start must keep the map interactive and show 999 until
+        // a fresh, accurate wrist fix arrives.
+        guard let shotLocation else { return false }
+        return WatchLocationProvider.isLiveRangefinderFix(shotLocation, now: now)
+    }
+
     /// Static phone-pushed green ranges are course facts, not a live rangefinder reading. They may
     /// calibrate the map only after a qualified wrist fix exists; otherwise callers must keep the
     /// distance unavailable and render the explicit acquiring state.
@@ -141,7 +258,6 @@ public struct WatchRoundContainerView: View {
     }
 
     private func frontYd(_ s: WatchRoundState) -> Int? {
-        if let live = watchGreenYards?.front { return live }
         guard hasQualifiedRangeFix else { return 999 }
         return Self.effectiveGreenYards(live: watchGreenYards?.front, fallbackMetres: s.frontGreenM) ?? 999
     }
@@ -192,17 +308,16 @@ public struct WatchRoundContainerView: View {
     }
 
     private func backYd(_ s: WatchRoundState) -> Int? {
-        if let live = watchGreenYards?.back { return live }
         guard hasQualifiedRangeFix else { return 999 }
         return Self.effectiveGreenYards(live: watchGreenYards?.back, fallbackMetres: s.backGreenM) ?? 999
     }
 
     /// Prefer the Watch's live walk-off distance; retain older server/phone facts as an offline fallback.
     private func latestShotDistanceM(_ s: WatchRoundState) -> Double? {
-        if let fix = shotLocation,
+        if let fix = qualifiedShotLocation,
            let live = model.distanceFromLatestShotM(
-            latitude: fix.coordinate.latitude,
-            longitude: fix.coordinate.longitude
+                latitude: fix.coordinate.latitude,
+                longitude: fix.coordinate.longitude
            ) {
             return live
         }
@@ -299,6 +414,10 @@ public struct WatchRoundContainerView: View {
                     },
                     onBack: { model.backToMenu() }
                 )
+                // SwiftUI may otherwise reuse Green View's local pin/zoom state for the next hole.
+                // The identity changes only when the factual instrument changes, so ordinary live
+                // GPS/score updates do not interrupt an in-progress drag.
+                .id(instrumentIdentity("green", state: state, geometry: geometry))
             } else {
                 Color.black.onAppear { model.backToMenu() }
             }
@@ -459,22 +578,36 @@ public struct WatchRoundContainerView: View {
     }
 
     var distanceText: String? {
-        guard let center = watchGreenYards?.center else {
-            return shotLocation == nil ? "999 码 · 等待定位" : "999 码 · 等待球场数据"
-        }
+        guard hasQualifiedRangeFix else { return "999 码 · 等待定位" }
+        guard let state = model.activeHoleState,
+              let center = Self.canonicalCenterYards(
+                live: watchGreenYards?.center,
+                fallbackMetres: state.centerGreenM,
+                hasQualifiedRangeFix: true
+              ) else { return "999 码 · 等待球场数据" }
         if WatchGeoMath.isBeyondUsefulGreenRange(center) { return "离本洞较远" }
         return "\(WatchGeoMath.greenRangeText(center)) 码"
     }
 
-    /// A delivered Watch green range is itself proof that a qualified wrist fix was available for
-    /// that calculation. Keep it visible if the independently published location object arrives a
-    /// frame later; only the complete absence of both facts should fall back to Garmin-style 999.
+    /// A delivered Watch green range remains unusable as a live distance until the Watch publishes
+    /// a fresh, accurate coordinate. This prevents stale bridge values from masking the Garmin-style
+    /// 999 cold-start state.
     private var hasQualifiedRangeFix: Bool {
-        if shotLocation != nil { return true }
-        guard let range = watchGreenYards else { return false }
-        // F/M/B is one fact set. Do not show a real edge with a 999 centre when a partial payload
-        // arrives during a handoff; wait for the complete live range instead.
-        return range.front != nil && range.center != nil && range.back != nil
+        Self.rangeFixIsQualified(
+            shotLocation: shotLocation,
+            watchGreenYards: watchGreenYards
+        )
+    }
+
+    /// Only a fresh, accurate wrist coordinate can support direction, shot capture, or a live
+    /// walk-off calculation. A complete bridged F/M/B tuple can keep distance presentation alive,
+    /// but it cannot manufacture a coordinate for those actions.
+    private var qualifiedShotLocation: WatchLocationFix? {
+        guard let shotLocation,
+              WatchLocationProvider.isLiveRangefinderFix(shotLocation) else {
+            return nil
+        }
+        return shotLocation
     }
 
     private var activeFlagCoordinate: (latitude: Double, longitude: Double)? {
@@ -494,8 +627,8 @@ public struct WatchRoundContainerView: View {
 
     private var flagDirectionState: WatchFlagDirectionState {
         WatchFlagDirectionResolver.resolve(
-            playerLatitude: shotLocation?.coordinate.latitude,
-            playerLongitude: shotLocation?.coordinate.longitude,
+            playerLatitude: qualifiedShotLocation?.coordinate.latitude,
+            playerLongitude: qualifiedShotLocation?.coordinate.longitude,
             flagLatitude: activeFlagCoordinate?.latitude,
             flagLongitude: activeFlagCoordinate?.longitude,
             heading: watchHeading
@@ -610,6 +743,7 @@ public struct WatchRoundContainerView: View {
                 model.openHoleMap()
             }
         )
+        .id(instrumentIdentity("root-map", state: s, geometry: renderedGeometry))
     }
 
     private func holeMapDetailView(
@@ -641,6 +775,7 @@ public struct WatchRoundContainerView: View {
             interactionMode: .touchTarget,
             onBack: { model.backToHome() }
         )
+        .id(instrumentIdentity("touch-target", state: s, geometry: geometry))
         .focusable(true)
         .digitalCrownRotation(
             $holeMapCrownScale,
@@ -654,6 +789,21 @@ public struct WatchRoundContainerView: View {
         .onChange(of: s.hole) { _ in
             holeMapCrownScale = WatchHoleMapView.restingCrownScale
         }
+    }
+
+    /// Stable identity for views that own transient drag/zoom state. Dynamic player coordinates are
+    /// deliberately excluded: they update the map facts in place instead of cancelling a gesture.
+    private func instrumentIdentity(
+        _ mode: String,
+        state: WatchRoundState,
+        geometry: WatchHoleMapGeometry
+    ) -> String {
+        let width = Int(geometry.imageSize.width.rounded())
+        let height = Int(geometry.imageSize.height.rounded())
+        let crop = geometry.greenDetailRectPx.map {
+            "\(Int($0.minX.rounded())):\(Int($0.minY.rounded())):\(Int($0.width.rounded())):\(Int($0.height.rounded()))"
+        } ?? "none"
+        return "\(mode)|\(state.globalId ?? 0)|\(state.hole)|\(state.geometryRevision ?? "none")|\(width)x\(height)|\(crop)"
     }
 
     /// Driver Distance is drawn only from a real bag median. Missing/unknown values remove the arc;
@@ -743,10 +893,20 @@ public struct WatchRoundContainerView: View {
 
     @ViewBuilder
     private func currentHoleRoot(_ s: WatchRoundState) -> some View {
+        let mapPending = holeGeometry == nil && (
+            s.globalId != nil
+                || s.geometryCoverage?.caseInsensitiveCompare("pending") == .orderedSame
+                || s.geometryCoverage?.caseInsensitiveCompare("partial") == .orderedSame
+        )
         switch WatchHoleRootPresentation.resolve(
-            hasQualifiedWristFix: shotLocation != nil,
+            hasQualifiedWristFix: hasQualifiedRangeFix,
             hasGeometry: holeGeometry != nil,
-            hasLiveCenterDistance: watchGreenYards?.center != nil
+            hasLiveCenterDistance: Self.canonicalCenterYards(
+                live: watchGreenYards?.center,
+                fallbackMetres: s.centerGreenM,
+                hasQualifiedRangeFix: hasQualifiedRangeFix
+            ) != nil,
+            courseDataPending: mapPending
         ) {
         case .acquiringGPS:
             // Kept for old deep links/tests; production resolution above deliberately never blocks
@@ -754,13 +914,26 @@ public struct WatchRoundContainerView: View {
             currentHoleInstrument { WatchGPSAcquiringView() }
         case .map:
             currentHoleInstrument {
-                if holeMapBigText, watchGreenYards?.center != nil {
+                if holeMapBigText,
+                   Self.canonicalCenterYards(
+                    live: watchGreenYards?.center,
+                    fallbackMetres: s.centerGreenM,
+                    hasQualifiedRangeFix: hasQualifiedRangeFix
+                   ) != nil {
                     distanceHero(s, big: true)
                         .contentShape(Rectangle())
                         .onTapGesture { holeMapBigText = false }
                 } else if let geometry = holeGeometry {
                     holeMapView(s, geometry)
                 }
+            }
+        case .mapPreparing:
+            currentHoleInstrument {
+                WatchMapPreparingView(
+                    courseName: model.courseName,
+                    hole: s.hole,
+                    par: s.par
+                )
             }
         case .distances:
             currentHoleInstrument {
@@ -808,7 +981,7 @@ public struct WatchRoundContainerView: View {
                         systemName: "plus",
                         label: "手动记杆",
                         identifier: "watch-hole-record-shot",
-                        isEnabled: shotLocation != nil,
+                        isEnabled: qualifiedShotLocation != nil,
                         action: { recordManualShot() }
                     )
                 }
@@ -860,7 +1033,7 @@ public struct WatchRoundContainerView: View {
             courseDataPending: s.geometryCoverage == "pending",
             pendingUploads: model.pendingUploads,
             hasHoleMap: false,
-            canRecordShot: shotLocation != nil,
+            canRecordShot: qualifiedShotLocation != nil,
             onRecordShot: { recordManualShot() },
             onScoreHole: { model.startScoringActiveHole() },
             onPreviousHole: { model.goToPreviousHole() },
@@ -871,7 +1044,7 @@ public struct WatchRoundContainerView: View {
     }
 
     private func recordManualShot() {
-        guard let fix = shotLocation else { return }
+        guard let fix = qualifiedShotLocation else { return }
         model.beginManualShot(
             latitude: fix.coordinate.latitude,
             longitude: fix.coordinate.longitude,

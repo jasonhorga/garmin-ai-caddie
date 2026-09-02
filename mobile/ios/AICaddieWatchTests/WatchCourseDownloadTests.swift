@@ -65,6 +65,56 @@ final class WatchCourseDownloadTests: XCTestCase {
         )
     }
 
+    func testProgressSnapshotsDoNotPublishPlaceholderOverAnEarlierDrawableMap() {
+        let map = WatchHoleMap(
+            w: 360,
+            h: 560,
+            you: [180, 520],
+            pin: [180, 40],
+            layup: [180, 260],
+            apex: [180, 390],
+            greenCtrl: [180, 150],
+            route: [[180, 520, 0], [180, 40, 400]]
+        )
+        let drawable = WatchRoundState(
+            roundId: "progress-round",
+            hole: 1,
+            par: 4,
+            distanceM: 365,
+            selectedClub: nil,
+            globalId: 7001,
+            holeMap: map,
+            geometryCoverage: "partial",
+            score: 0,
+            putts: 0,
+            penaltyCount: 0,
+            caddieConfidence: "offline"
+        )
+        let placeholder = WatchRoundState(
+            roundId: "progress-round",
+            hole: 1,
+            par: 4,
+            distanceM: 365,
+            selectedClub: nil,
+            globalId: 7001,
+            holeMap: nil,
+            geometryCoverage: "pending",
+            score: 0,
+            putts: 0,
+            penaltyCount: 0,
+            caddieConfidence: "pending"
+        )
+
+        // The first prep batch makes hole 1 drawable. A later package snapshot still contains the
+        // same hole row, but without geometry while its precise raster is queued. Only the first
+        // snapshot is eligible for `applyCourseMapUpgrade`, so the visible map cannot disappear.
+        let firstPublished = WatchCourseLibrary.drawableHoleStates(from: [drawable])
+        let laterPublished = WatchCourseLibrary.drawableHoleStates(from: [placeholder])
+        XCTAssertEqual(firstPublished.map(\.hole), [1])
+        XCTAssertTrue(laterPublished.isEmpty)
+        XCTAssertEqual(firstPublished.first?.holeMap, map)
+    }
+
     private let client = WatchBackendClient(baseURL: URL(string: "https://caddie.example")!)
 
     func testCoursePrepClubProvenanceDecodesAndLegacyFieldsRemainOptional() throws {
@@ -80,6 +130,47 @@ final class WatchCourseDownloadTests: XCTestCase {
         ))
         XCTAssertNil(legacy.clubs.first?.token)
         XCTAssertNil(legacy.clubs.first?.distanceSource)
+
+        let lightweightWithoutBag = try client.decodeCoursePrep(Data(
+            #"{"globalId":1}"#.utf8
+        ))
+        XCTAssertTrue(lightweightWithoutBag.clubs.isEmpty)
+        XCTAssertTrue(lightweightWithoutBag.holes.isEmpty)
+    }
+
+    func testFastPackageSeedBuildsFirstHoleMapBeforePrepFetch() throws {
+        let option = WatchCourseOption(
+            globalId: 7002,
+            name: "Remote Course",
+            holes: 18,
+            teeBox: "Blue"
+        )
+        let package = try client.decodeCoursePackage(Data(
+            #"{"roundId":"fast-seed-1","course":{"globalId":7002,"name":"Remote Course","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":400,"geometryCoverage":"partial","sourceGlobalId":7002,"sourceLocalHole":1}],"coursePrep":{"globalId":7002,"holes":[{"hole":1,"par":4,"geometryCoverage":"partial","landing_m":180.0,"route":[[0.0,0.0,0.0],[0.0,180.0,180.0]],"holeImageProjection":{"available":true,"widthPx":500,"heightPx":700,"refs":[{"lat":40.0,"lon":116.0,"px":100.0,"py":600.0},{"lat":40.0,"lon":116.001,"px":220.0,"py":600.0},{"lat":40.001,"lon":116.0,"px":100.0,"py":480.0}]},"greenOutline":{"available":false}}]}}"#.utf8
+        ))
+
+        XCTAssertEqual(package.coursePrep?.clubs, [])
+        let seeded = WatchCourseTemplateBuilder.seededPreps(from: package)
+        let download = try WatchCourseTemplateBuilder.build(
+            option: option,
+            package: package,
+            prepsByGlobalId: seeded,
+            cachedAt: "2026-08-31T00:00:00Z"
+        )
+        let state = try XCTUnwrap(download.template.holeStates.first)
+        XCTAssertEqual(seeded[7002]?.holes.first?.hole, 1)
+        XCTAssertNotNil(state.holeMap, "the embedded CourseView seed must be drawable immediately")
+        XCTAssertEqual(state.geometryCoverage, "partial")
+    }
+
+    func testSeededPrepMapsDisplayBackHoleToItsSourceLoopAndLocalHole() throws {
+        let package = try client.decodeCoursePackage(Data(
+            #"{"roundId":"fast-seed-composite","course":{"globalId":7001,"name":"Composite","teeBox":"Blue"},"holes":[{"number":1,"par":4,"yards":400,"sourceGlobalId":7001,"sourceLocalHole":1},{"number":10,"par":4,"yards":390,"sourceGlobalId":7002,"sourceLocalHole":1}],"coursePrep":{"globalId":7001,"holes":[{"hole":1},{"hole":10}]}}"#.utf8
+        ))
+
+        let seeded = WatchCourseTemplateBuilder.seededPreps(from: package)
+        XCTAssertEqual(seeded[7001]?.holes.map(\.hole), [1])
+        XCTAssertEqual(seeded[7002]?.holes.map(\.hole), [1])
     }
 
     private func validTopoData() throws -> Data {
@@ -223,6 +314,18 @@ final class WatchCourseDownloadTests: XCTestCase {
         )
 
         XCTAssertEqual(option.preferredTee, "Blue")
+    }
+
+    func testPreferredTeeStaysUnknownWithoutTeeAuthority() {
+        let option = WatchCourseOption(
+            globalId: 7004,
+            name: "无发球台资料球场",
+            holes: 18,
+            teeBox: "unknown",
+            tees: []
+        )
+
+        XCTAssertEqual(option.preferredTee, "unknown")
     }
 
     func testBuildsOfflineRoundTemplateFromRealPackageAndRenderedPrep() throws {
@@ -569,6 +672,107 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertEqual(store.compositeCourse(containingGlobalId: back.globalId), template)
     }
 
+    func testCourseStoreKeepsDistinctBackLoopsAndTeesUnderOneFrontId() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("watch-composite-keys-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WatchCourseStore(directoryURL: directory)
+        let front = WatchCourseOption(
+            globalId: 7001,
+            name: "组合球场 ~ A",
+            holes: 9,
+            teeBox: "Blue",
+            segmentHoles: 9
+        )
+        let backA = WatchCourseOption(
+            globalId: 7002,
+            name: "组合球场 ~ B",
+            holes: 9,
+            teeBox: "Blue",
+            segmentHoles: 9
+        )
+        let backB = WatchCourseOption(
+            globalId: 7003,
+            name: "组合球场 ~ C",
+            holes: 9,
+            teeBox: "Blue",
+            segmentHoles: 9
+        )
+
+        func template(back: WatchCourseOption?, tee: String) -> WatchCourseTemplate {
+            WatchCourseTemplate(
+                option: front,
+                backOption: back,
+                courseName: "\(front.name)-\(back?.name ?? "single")-\(tee)",
+                teeBox: tee,
+                holeStates: [
+                    WatchRoundState(
+                        roundId: "download-only",
+                        hole: 1,
+                        par: 4,
+                        distanceM: 300,
+                        selectedClub: nil,
+                        globalId: front.globalId,
+                        score: 0,
+                        putts: 0,
+                        penaltyCount: 0,
+                        caddieConfidence: "offline"
+                    )
+                ],
+                cachedAt: "2026-09-01T00:00:00Z"
+            )
+        }
+
+        let blueB = template(back: backA, tee: "Blue")
+        let whiteB = template(back: backA, tee: " White ")
+        let blueC = template(back: backB, tee: "Blue")
+        try store.save(blueB)
+        try store.save(whiteB)
+        try store.save(blueC)
+
+        XCTAssertEqual(store.loadCourses().count, 3)
+        XCTAssertEqual(
+            store.course(selection: WatchCourseSelection(front: front, back: backA, teeBox: "white"))?.cacheKey,
+            whiteB.cacheKey
+        )
+        XCTAssertEqual(
+            store.course(selection: WatchCourseSelection(front: front, back: backB, teeBox: "BLUE"))?.cacheKey,
+            blueC.cacheKey
+        )
+        XCTAssertNil(
+            store.course(selection: WatchCourseSelection(front: front, back: backA, teeBox: "Red")),
+            "a concrete Tee must not reuse another concrete Tee"
+        )
+        XCTAssertEqual(
+            store.course(selection: WatchCourseSelection(front: front, back: backA, teeBox: "unknown"))?.cacheKey,
+            whiteB.cacheKey,
+            "an unspecified Tee may reuse a concrete cache for the same loop pair"
+        )
+    }
+
+    func testConcreteTeeCannotReuseAnUnknownTeeCache() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("watch-unknown-tee-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WatchCourseStore(directoryURL: directory)
+        let option = WatchCourseOption(globalId: 7004, name: "无 Tee 球场", holes: 9)
+        let template = WatchCourseTemplate(
+            option: option,
+            courseName: option.name,
+            teeBox: "unknown",
+            holeStates: [],
+            cachedAt: "2026-09-01T00:00:00Z"
+        )
+        try store.save(template)
+
+        XCTAssertNotNil(
+            store.course(selection: WatchCourseSelection(front: option, teeBox: "UNKNOWN"))
+        )
+        XCTAssertNil(
+            store.course(selection: WatchCourseSelection(front: option, teeBox: "Blue"))
+        )
+    }
+
     func testRoundSetupSelectionKeepsExplicitTeeAndBackLoop() {
         let front = WatchCourseOption(
             globalId: 31669,
@@ -766,7 +970,7 @@ final class WatchCourseDownloadTests: XCTestCase {
     }
 
     @MainActor
-    func testImmediateStartDoesNotBypassPartialCache() throws {
+    func testImmediateStartReusesPartialCacheWhileUpgradeRemainsVisible() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("watch-course-immediate-partial-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -820,11 +1024,12 @@ final class WatchCourseDownloadTests: XCTestCase {
         )
 
         XCTAssertEqual(prepared.roundId, "immediate-pending")
-        XCTAssertTrue(prepared.holeStates.allSatisfy { state in
-            state.geometryCoverage == "pending"
-                && state.distanceM == nil
-                && state.caddieConfidence == "pending"
-        })
+        let first = try XCTUnwrap(prepared.holeStates.first { $0.hole == 1 })
+        XCTAssertEqual(first.geometryCoverage, "partial")
+        XCTAssertNotNil(first.holeMap, "an already downloaded partial map must be visible immediately")
+        XCTAssertEqual(first.par, 5)
+        XCTAssertEqual(first.distanceM, 372)
+        XCTAssertTrue(prepared.holeStates.contains { $0.geometryCoverage == "ready" })
         XCTAssertTrue(library.diagnosticErrorMessage?.contains("第 1 洞") == true)
         XCTAssertEqual(
             WatchCourseStore(directoryURL: directory).course(globalId: 3882)?.holeStates.first?.geometryCoverage,

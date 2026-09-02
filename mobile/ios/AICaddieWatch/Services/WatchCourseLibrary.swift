@@ -253,7 +253,7 @@ public final class WatchCourseLibrary: ObservableObject {
         preparingCourseId = selection.front.globalId
         defer { preparingCourseId = nil }
 
-        if let cached = store.course(globalId: selection.front.globalId), cached.matches(selection) {
+        if let cached = store.course(selection: selection) {
             if config == nil, !Self.preciseTemplateReady(cached, imageStore: imageStore) {
                 let missing = Self.missingPreciseHoles(in: cached, imageStore: imageStore)
                 errorMessage = "球场地图还没下载完整，请联网后继续补齐"
@@ -297,18 +297,23 @@ public final class WatchCourseLibrary: ObservableObject {
         _ selection: WatchCourseSelection
     ) -> WatchPreparedCourse {
         var incompleteCachedHoles: [Int] = []
-        var hasMatchingIncompleteCache = false
-        if let cached = store.course(globalId: selection.front.globalId), cached.matches(selection) {
+        if let cached = store.course(selection: selection) {
             if Self.preciseTemplateReady(cached, imageStore: imageStore) {
                 errorMessage = nil
                 diagnosticErrorMessage = nil
                 return cached.makeRound(roundId: makeRoundId())
             }
-            // A partial package is still useful to the bounded upgrade task, but it is not an
-            // offline map. Keep its identity and let the provisional template below replace the
-            // active round so a stale hole map/hazard/caddie cannot be presented as complete.
+            // A partial package is still immediately playable. Rebase the existing template onto
+            // this round instead of replacing its already-downloaded hole maps with an all-pending
+            // bootstrap. `geometryCoverage` remains partial on every incomplete hole, so callers
+            // can keep the upgrade affordance and never mistake the package for a complete cache.
             incompleteCachedHoles = Self.missingPreciseHoles(in: cached, imageStore: imageStore)
-            hasMatchingIncompleteCache = true
+            errorMessage = nil
+            diagnosticErrorMessage = incompleteCachedHoles.isEmpty
+                ? "球场数据后台补齐中"
+                : "球场数据后台补齐中：第 \(Self.holeList(incompleteCachedHoles)) 洞"
+            courses = Self.uniqueOptions(from: [cached.option, cached.backOption].compactMap { $0 } + courses)
+            return cached.makeRound(roundId: makeRoundId())
         }
 
         let roundId = makeRoundId()
@@ -347,12 +352,8 @@ public final class WatchCourseLibrary: ObservableObject {
             holeStates: states,
             cachedAt: now()
         )
-        // Keep a matching partial package intact. The upgrade task can resume its downloaded holes
-        // from that durable cache while this round uses the all-pending provisional view. A fresh
-        // setup (or no cache) still persists the provisional identity for process-kill recovery.
-        if !hasMatchingIncompleteCache {
-            try? store.save(template)
-        }
+        // A fresh setup (or no cache) persists the provisional identity for process-kill recovery.
+        try? store.save(template)
         courses = Self.uniqueOptions(from: [frontOption, backOption].compactMap { $0 } + courses)
         errorMessage = nil
         diagnosticErrorMessage = incompleteCachedHoles.isEmpty
@@ -382,7 +383,19 @@ public final class WatchCourseLibrary: ObservableObject {
                     roundId: roundId,
                     config: config,
                     backgroundGeometry: shouldQueueGeometry,
-                    includePreparedGeometry: true
+                    includePreparedGeometry: true,
+                    onProgress: { [weak self] partial in
+                        guard let self else { return }
+                        // Persist the partial package before publishing it. A process interruption
+                        // after the first prep batch must reopen the same factual vector map rather
+                        // than falling back to the all-pending bootstrap state.
+                        try? self.persist(partial)
+                        let prepared = partial.template.makeRound(roundId: roundId)
+                        // A progress snapshot contains package rows for every hole. Only apply rows
+                        // with drawable geometry to the active round: an as-yet-unfetched row must
+                        // never clear a map that an earlier batch already made visible.
+                        onProgress?(Self.drawableHoleStates(from: prepared.holeStates))
+                    }
                 )
                 shouldQueueGeometry = false
                 // Persist every valid partial attempt so one slow hole cannot make the Watch fetch
@@ -390,7 +403,10 @@ public final class WatchCourseLibrary: ObservableObject {
                 // the template, map geometry and every production raster are all present.
                 try persist(download)
                 let prepared = download.template.makeRound(roundId: roundId)
-                onProgress?(prepared.holeStates)
+                // The final package can still contain factual rows whose precise geometry was not
+                // returned in this attempt. Do not publish those placeholder rows over maps that
+                // an earlier progress batch already made drawable in the active round.
+                onProgress?(Self.drawableHoleStates(from: prepared.holeStates))
                 if Self.preciseDownloadReady(download) {
                     errorMessage = nil
                     return prepared
@@ -437,12 +453,24 @@ public final class WatchCourseLibrary: ObservableObject {
         globalId: Int,
         roundId: String,
         config: WatchRoundConfig?,
+        backGlobalId: Int? = nil,
+        teeBox: String? = nil,
         onProgress: (([WatchRoundState]) -> Void)? = nil
     ) async -> WatchPreparedCourse? {
-        guard let config,
-              let cached = store.compositeCourse(containingGlobalId: globalId) else {
+        guard let config else {
             return nil
         }
+        let cached: WatchCourseTemplate?
+        if backGlobalId != nil || teeBox != nil {
+            cached = store.course(
+                frontGlobalId: globalId,
+                backGlobalId: backGlobalId,
+                teeBox: teeBox
+            )
+        } else {
+            cached = store.compositeCourse(containingGlobalId: globalId)
+        }
+        guard let cached else { return nil }
         let selection = WatchCourseSelection(
             front: cached.option,
             back: cached.backOption,
@@ -457,12 +485,39 @@ public final class WatchCourseLibrary: ObservableObject {
         )
     }
 
+    /// Resume a specific cached setup. This overload is used by the active-round shell when more
+    /// than one Tee or back-loop template shares the same front Garmin id.
+    public func upgradeCachedCourseWhenReady(
+        selection: WatchCourseSelection,
+        roundId: String,
+        config: WatchRoundConfig?,
+        onProgress: (([WatchRoundState]) -> Void)? = nil
+    ) async -> WatchPreparedCourse? {
+        guard let config,
+              let cached = store.course(selection: selection) else {
+            return nil
+        }
+        let cachedSelection = WatchCourseSelection(
+            front: cached.option,
+            back: cached.backOption,
+            teeBox: cached.teeBox,
+            ensureGeometry: true
+        )
+        return await upgradeCourseWhenReady(
+            cachedSelection,
+            roundId: roundId,
+            config: config,
+            onProgress: onProgress
+        )
+    }
+
     private func fetchCourseDownload(
         _ selection: WatchCourseSelection,
         roundId: String,
         config: WatchRoundConfig,
         backgroundGeometry: Bool,
-        includePreparedGeometry: Bool
+        includePreparedGeometry: Bool,
+        onProgress: ((WatchCourseDownload) -> Void)? = nil
     ) async throws -> WatchCourseDownload {
         let client = makeClient(config)
         let package = try await client.fetchCoursePackage(
@@ -474,6 +529,11 @@ public final class WatchCourseLibrary: ObservableObject {
             backgroundGeometry: backgroundGeometry
         )
 
+        // The fast package may already contain a drawable first-hole CourseView seed. Keep it in
+        // the same source-global/local dictionary used by the full prep path so a cold start can
+        // render that map before any `/prep` request returns.
+        var preps = WatchCourseTemplateBuilder.seededPreps(from: package)
+
         // Starting a round must not wait while a new course renders eighteen maps. Package facts
         // already provide ordered holes, Par, Tee and yardage, which are enough to start recording
         // honestly. The active-round recovery task fetches prep + rasters and upgrades in place.
@@ -482,8 +542,9 @@ public final class WatchCourseLibrary: ObservableObject {
                 option: selection.front,
                 backOption: selection.back,
                 package: package,
-                prepsByGlobalId: [:],
+                prepsByGlobalId: preps,
                 topoImagesByGlobalId: [:],
+                selectedTee: selection.teeBox,
                 cachedAt: now()
             )
             let missing = Self.missingPreciseHoles(in: lightweight)
@@ -499,11 +560,29 @@ public final class WatchCourseLibrary: ObservableObject {
             requestedByGlobalId[globalId, default: []].insert(localHole)
             displayHoleByGlobalId[globalId, default: [:]][localHole] = hole.number
         }
-        var preps: [Int: WatchCoursePrepResponse] = [:]
         var topoImages: [Int: [Int: Data]] = [:]
+
+        func publishProgress() throws {
+            let partial = try WatchCourseTemplateBuilder.build(
+                option: selection.front,
+                backOption: selection.back,
+                package: package,
+                prepsByGlobalId: preps,
+                topoImagesByGlobalId: topoImages,
+                selectedTee: selection.teeBox,
+                cachedAt: now()
+            )
+            onProgress?(partial)
+        }
+
+        // Publish the embedded seed before entering the potentially slow prep loop. This is what
+        // makes a manually searched course open on a real map even when GPS is unavailable.
+        if !preps.isEmpty {
+            try publishProgress()
+        }
+
         for globalId in requestedByGlobalId.keys.sorted() {
             let localHoles = requestedByGlobalId[globalId, default: []].sorted()
-            var prepParts: [WatchCoursePrepResponse] = []
             for start in stride(
                 from: 0,
                 to: localHoles.count,
@@ -513,17 +592,18 @@ public final class WatchCourseLibrary: ObservableObject {
                     start + WatchBackendClient.maximumCoursePrepHolesPerRequest,
                     localHoles.count
                 )
-                prepParts.append(try await client.fetchCoursePrep(
+                let response = try await client.fetchCoursePrep(
                     globalId: globalId,
                     localHoles: Array(localHoles[start..<end])
-                ))
+                )
+
+                // Prep is deliberately delivered in small batches. Publish the route/projection
+                // immediately after each response so the first hole can become a vector map while
+                // later batches and precise topo rasters continue in the background.
+                preps[globalId] = Self.mergePrep(preps[globalId], response, globalId: globalId)
+                try publishProgress()
             }
-            let prep = WatchCoursePrepResponse(
-                globalId: globalId,
-                clubs: prepParts.first?.clubs ?? [],
-                holes: prepParts.flatMap(\.holes)
-            )
-            preps[globalId] = prep
+            let prep = preps[globalId] ?? WatchCoursePrepResponse(globalId: globalId)
             let readyHoles = Set(prep.holes.compactMap { hole in
                 hole.geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame
                     ? hole.hole
@@ -559,6 +639,9 @@ public final class WatchCourseLibrary: ObservableObject {
                 }
                 if let topoData {
                     topoImages[globalId, default: [:]][localHole] = topoData
+                    // Keep the visible vector map in place and upgrade the same hole as soon as its
+                    // authoritative raster lands; no second round or GPS fix is required.
+                    try publishProgress()
                 }
 
                 // View Green has its own geometry-rendered detail asset. It is independent of the
@@ -604,6 +687,7 @@ public final class WatchCourseLibrary: ObservableObject {
             package: package,
             prepsByGlobalId: preps,
             topoImagesByGlobalId: topoImages,
+            selectedTee: selection.teeBox,
             cachedAt: now()
         )
         let missing = Self.missingPreciseHoles(in: download)
@@ -635,6 +719,40 @@ public final class WatchCourseLibrary: ObservableObject {
 
     private static func preciseDownloadReady(_ download: WatchCourseDownload) -> Bool {
         expectedHoleCount(for: download.template) > 0 && missingPreciseHoles(in: download).isEmpty
+    }
+
+    /// A package/prep response describes every requested hole, including rows whose geometry is
+    /// still queued or unavailable. Those placeholder rows must not be sent to the active round:
+    /// `applyCourseMapUpgrade` treats a received geometry snapshot as authoritative and would
+    /// otherwise clear a map that an earlier batch already made drawable. The builder's non-nil
+    /// `holeMap` is the shared, validated drawability gate for both vector and raster maps.
+    static func drawableHoleStates(from states: [WatchRoundState]) -> [WatchRoundState] {
+        states.filter { $0.holeMap != nil }
+    }
+
+    /// Merge one `/prep` response into the package seed without dropping a previously drawable
+    /// hole. The backend may omit club facts on lightweight/partial responses, so an empty incoming
+    /// bag does not erase a non-empty seed bag either.
+    private static func mergePrep(
+        _ existing: WatchCoursePrepResponse?,
+        _ incoming: WatchCoursePrepResponse,
+        globalId: Int
+    ) -> WatchCoursePrepResponse {
+        // Older partial caches may contain duplicate hole rows (for example after a retried
+        // nine-hole response).  `uniqueKeysWithValues` traps on those rows; a last-response-wins
+        // fold keeps the upgrade path recoverable and matches the merge below.
+        var holesByNumber = (existing?.holes ?? []).reduce(into: [Int: WatchCoursePrepHole]()) {
+            $0[$1.hole] = $1
+        }
+        for hole in incoming.holes {
+            holesByNumber[hole.hole] = hole
+        }
+        let clubs = incoming.clubs.isEmpty ? (existing?.clubs ?? []) : incoming.clubs
+        return WatchCoursePrepResponse(
+            globalId: globalId,
+            clubs: clubs,
+            holes: holesByNumber.values.sorted { $0.hole < $1.hole }
+        )
     }
 
     private static func missingPreciseHoles(in download: WatchCourseDownload) -> [Int] {

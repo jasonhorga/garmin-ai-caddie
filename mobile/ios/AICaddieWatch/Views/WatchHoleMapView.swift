@@ -117,6 +117,38 @@ enum WatchTouchTargetDistanceLayout {
     }
 }
 
+/// Keep the Touch Target drag loupe inside the readable display guide and above the bottom back/
+/// clear controls. The selected course point itself is independent and may still sit at a map edge.
+enum WatchTouchTargetMagnifierLayout {
+    static func position(
+        focus: CGPoint,
+        size: CGSize,
+        diameter: CGFloat = 92,
+        bottomControlClearance: CGFloat = WatchDisplayGeometry.instrumentControlSize + 8
+    ) -> CGPoint {
+        guard size.width > 0, size.height > 0, diameter > 0 else {
+            return CGPoint(x: size.width * 0.5, y: size.height * 0.5)
+        }
+        let safeRect = WatchDisplayGeometry.contentRect(in: size)
+        let half = diameter * 0.5
+        let minX = safeRect.minX + half
+        let maxX = max(minX, safeRect.maxX - half)
+        let minY = safeRect.minY + half
+        let maxY = max(minY, safeRect.maxY - half - max(bottomControlClearance, 0))
+        let safeFocus = CGPoint(
+            x: focus.x.isFinite ? focus.x : safeRect.midX,
+            y: focus.y.isFinite ? focus.y : safeRect.midY
+        )
+        let above = safeFocus.y - half - 18
+        let below = safeFocus.y + half + 18
+        let preferredY = above >= minY ? above : below
+        return CGPoint(
+            x: min(max(safeFocus.x, minX), maxX),
+            y: min(max(preferredY, minY), maxY)
+        )
+    }
+}
+
 enum WatchHoleMapRouteOverlay: Equatable {
     case none
     case currentShot
@@ -380,6 +412,13 @@ public struct WatchHoleMapView: View {
     public let interactionMode: WatchHoleMapInteractionMode
     /// 选点测距: the last tapped point in IMAGE-px space (crosshair + two small route ranges).
     @State private var liveMeasuredPx: CGPoint?
+    /// Transient screen-space focus used only while the Touch Target handle is being dragged.
+    @State private var measuredDragLocation: CGPoint?
+    @State private var isDraggingMeasuredPoint = false
+    @State private var suppressTargetTap = false
+
+    private static let targetLoupeDiameter: CGFloat = 92
+    private static let targetLoupeMagnification: CGFloat = 2.35
 
     private var measuredPx: CGPoint? { liveMeasuredPx }
 
@@ -504,6 +543,7 @@ public struct WatchHoleMapView: View {
                   location.y < safeRect.maxY - 48 else { return }
             onOpenMapDetail()
         case .touchTarget:
+            guard !suppressTargetTap else { return }
             let safeRect = WatchDisplayGeometry.contentRect(in: size)
             let hitsBack = location.x <= safeRect.minX + 50
                 && location.y >= safeRect.maxY - 50
@@ -511,7 +551,7 @@ public struct WatchHoleMapView: View {
                 && location.x >= safeRect.maxX - 62
                 && location.y >= safeRect.maxY - 48
             guard !hitsBack, !hitsClear else { return }
-            liveMeasuredPx = imagePx(fromCanvas: location, size: size)
+            liveMeasuredPx = clampedImagePx(imagePx(fromCanvas: location, size: size))
         case .passive:
             break
         }
@@ -556,6 +596,29 @@ public struct WatchHoleMapView: View {
                 Canvas { context, size in
                     drawMap(&context, size: size)
                 }
+                if interactionMode == .touchTarget,
+                   let focus = measuredDragLocation,
+                   isDraggingMeasuredPoint {
+                    WatchTouchTargetMagnifierLoupe(
+                        mapSize: geo.size,
+                        focus: focus,
+                        diameter: Self.targetLoupeDiameter,
+                        magnification: Self.targetLoupeMagnification
+                    ) {
+                        Canvas { context, size in
+                            drawMap(&context, size: size)
+                        }
+                        .frame(width: geo.size.width, height: geo.size.height)
+                    }
+                    .position(
+                        WatchTouchTargetMagnifierLayout.position(
+                            focus: focus,
+                            size: geo.size,
+                            diameter: Self.targetLoupeDiameter
+                        )
+                    )
+                    .allowsHitTesting(false)
+                }
                 // Hole identity and vector-map upgrade status remain truthful even before F/M/B
                 // coordinates arrive. Distance-dependent controls stay gated inside `overlay`.
                 overlay(geo.size)
@@ -565,9 +628,15 @@ public struct WatchHoleMapView: View {
             }
             .contentShape(Rectangle())
             .simultaneousGesture(SpatialTapGesture().onEnded { handleTap($0.location, size: geo.size) })
+            .simultaneousGesture(touchTargetDragGesture(size: geo.size))
         }
         .background(Color.black)
         .ignoresSafeArea()
+        .onDisappear {
+            measuredDragLocation = nil
+            isDraggingMeasuredPoint = false
+            suppressTargetTap = false
+        }
     }
 
     private func touchTargetControls(_ size: CGSize) -> some View {
@@ -580,6 +649,7 @@ public struct WatchHoleMapView: View {
             if measuredPx != nil {
                 Button {
                     liveMeasuredPx = nil
+                    measuredDragLocation = nil
                 } label: {
                     Label("清除", systemImage: "xmark")
                         .font(.system(size: 13, weight: .black))
@@ -602,6 +672,51 @@ public struct WatchHoleMapView: View {
             }
         }
         .frame(width: size.width, height: size.height)
+    }
+
+    /// S70 Touch Target supports dragging the selected crosshair for fine adjustment. At the first
+    /// placement a drag may begin anywhere on the map; once a target exists, the gesture must start
+    /// near its handle so scrolling or control taps cannot silently move it.
+    private func touchTargetDragGesture(size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 3)
+            .onChanged { value in
+                guard interactionMode == .touchTarget else { return }
+                let safeRect = WatchDisplayGeometry.contentRect(in: size)
+                let startsInControlRail = value.startLocation.y >= safeRect.maxY - 50
+                guard !startsInControlRail else { return }
+
+                if !isDraggingMeasuredPoint {
+                    if let measuredPx {
+                        let marker = anchors(size).t(measuredPx)
+                        guard hypot(
+                            marker.x - value.startLocation.x,
+                            marker.y - value.startLocation.y
+                        ) <= 34 else { return }
+                    }
+                    isDraggingMeasuredPoint = true
+                    suppressTargetTap = true
+                }
+
+                measuredDragLocation = value.location
+                liveMeasuredPx = clampedImagePx(imagePx(fromCanvas: value.location, size: size))
+            }
+            .onEnded { value in
+                guard interactionMode == .touchTarget, isDraggingMeasuredPoint else { return }
+                liveMeasuredPx = clampedImagePx(imagePx(fromCanvas: value.location, size: size))
+                measuredDragLocation = nil
+                isDraggingMeasuredPoint = false
+                // SpatialTapGesture can be delivered in the same run loop; leave it suppressed for
+                // that delivery so finger-up cannot create a second target point.
+                DispatchQueue.main.async { suppressTargetTap = false }
+            }
+    }
+
+    private func clampedImagePx(_ point: CGPoint) -> CGPoint {
+        guard geometry.imageSize.width > 0, geometry.imageSize.height > 0 else { return point }
+        return CGPoint(
+            x: min(max(point.x, 0), geometry.imageSize.width),
+            y: min(max(point.y, 0), geometry.imageSize.height)
+        )
     }
 
     /// Shared transform so the Canvas vectors and the Text overlay agree on where map points land.
@@ -631,7 +746,8 @@ public struct WatchHoleMapView: View {
     // and (when available) one small Caddie entry. Route facts belong on the map; explanatory copy
     // and framed cards belong one level deeper.
     private func overlay(_ size: CGSize) -> some View {
-        let pl = showPlaysLike
+        // An unavailable range is a sentinel, so never apply plays-like math to 999.
+        let pl = showPlaysLike && !rangeUnavailable
         let d = pl ? playsLikeDelta : 0
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
         return ZStack(alignment: .topLeading) {
@@ -879,17 +995,20 @@ public struct WatchHoleMapView: View {
         flag.closeSubpath()
         context.fill(flag, with: .color(flagRed))
 
-        // YOU.
-        var arrowP = Path()
-        arrowP.move(to: CGPoint(x: player.x, y: player.y - 12))
-        arrowP.addLine(to: CGPoint(x: player.x - 4, y: player.y - 5.5))
-        arrowP.addLine(to: CGPoint(x: player.x + 4, y: player.y - 5.5))
-        arrowP.closeSubpath()
-        context.fill(arrowP, with: .color(.white))
-        let dot: CGFloat = 3.8
-        let dotRect = CGRect(x: player.x - dot, y: player.y - dot, width: dot * 2, height: dot * 2)
-        context.fill(Path(ellipseIn: dotRect), with: .color(youBlue))
-        context.stroke(Path(ellipseIn: dotRect), with: .color(.white), style: StrokeStyle(lineWidth: 1.2))
+        // YOU is a live rangefinder fact, not the fallback Tee/reference anchor used during a
+        // no-GPS cold start. Do not paint the reference point as the player's current position.
+        if !rangeUnavailable {
+            var arrowP = Path()
+            arrowP.move(to: CGPoint(x: player.x, y: player.y - 12))
+            arrowP.addLine(to: CGPoint(x: player.x - 4, y: player.y - 5.5))
+            arrowP.addLine(to: CGPoint(x: player.x + 4, y: player.y - 5.5))
+            arrowP.closeSubpath()
+            context.fill(arrowP, with: .color(.white))
+            let dot: CGFloat = 3.8
+            let dotRect = CGRect(x: player.x - dot, y: player.y - dot, width: dot * 2, height: dot * 2)
+            context.fill(Path(ellipseIn: dotRect), with: .color(youBlue))
+            context.stroke(Path(ellipseIn: dotRect), with: .color(.white), style: StrokeStyle(lineWidth: 1.2))
+        }
 
         // Mask the data-column region to pure black.
         context.fill(Path(CGRect(x: 0, y: 0, width: mapLeft, height: size.height)), with: .color(.black))
@@ -1334,4 +1453,61 @@ public struct WatchHoleMapView: View {
         let toPars: [Int: Int] = [1: 0, 2: 1, 3: -1]
         return (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 4) }
     }()
+}
+
+/// Circular preview used while fine-tuning Watch Touch Target. `content` is already rendered in the
+/// watch canvas coordinate system, so this transform places the exact held pixel at the crosshair.
+private struct WatchTouchTargetMagnifierLoupe<Content: View>: View {
+    let content: Content
+    let mapSize: CGSize
+    let focus: CGPoint
+    let diameter: CGFloat
+    let magnification: CGFloat
+
+    init(
+        mapSize: CGSize,
+        focus: CGPoint,
+        diameter: CGFloat,
+        magnification: CGFloat,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.content = content()
+        self.mapSize = mapSize
+        self.focus = focus
+        self.diameter = diameter
+        self.magnification = magnification
+    }
+
+    var body: some View {
+        let safeMagnification = max(magnification.isFinite ? magnification : 1, 1)
+        let safeFocus = CGPoint(
+            x: focus.x.isFinite ? focus.x : mapSize.width * 0.5,
+            y: focus.y.isFinite ? focus.y : mapSize.height * 0.5
+        )
+        let dx = diameter * 0.5 - safeFocus.x * safeMagnification
+        let dy = diameter * 0.5 - safeFocus.y * safeMagnification
+
+        ZStack(alignment: .topLeading) {
+            content
+                .frame(width: mapSize.width, height: mapSize.height)
+                .scaleEffect(safeMagnification, anchor: .topLeading)
+                .offset(x: dx, y: dy)
+        }
+        .frame(width: diameter, height: diameter, alignment: .topLeading)
+        .clipShape(Circle())
+        .overlay {
+            ZStack {
+                Rectangle().fill(Color.white.opacity(0.95)).frame(width: 1.5, height: 20)
+                Rectangle().fill(Color.white.opacity(0.95)).frame(width: 20, height: 1.5)
+            }
+            .shadow(color: .black.opacity(0.65), radius: 0.8)
+        }
+        .overlay(Circle().strokeBorder(Color.white, lineWidth: 2.8))
+        .overlay(Circle().strokeBorder(Color.black.opacity(0.28), lineWidth: 1))
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.42), radius: 6, y: 3)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("拖动测距目标时的放大视图")
+        .accessibilityIdentifier("watch-touch-target-magnifier")
+    }
 }
