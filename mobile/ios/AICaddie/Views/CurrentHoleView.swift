@@ -208,76 +208,7 @@ public struct CurrentHoleView: View {
     }
 
     public var body: some View {
-        // 打球屏 v2 reskin: DARK, map-as-backdrop, Apple-Maps-style glass data panel. All state /
-        // bindings / events / GPS / watch / restore wiring is unchanged — only the body's look/layout.
-        ZStack {
-            LivePlayStyle.base.ignoresSafeArea()
-            ScrollViewReader { scrollProxy in
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        heroSection
-                            .id(Self.holeRootScrollAnchor)
-
-                        // Dark-glass data panel: distance hero → caddie strip → shot/score actions →
-                        // tab bar. Floats up over the map's lower edge (mirrors the approved mockup).
-                        LivePlayPanel {
-                            LiveCaddieStrip(
-                                clubs: caddieClubChips,
-                                playsText: caddiePlaysText,
-                                isLoading: isLoadingCaddieDecision || isPreciseHoleMapPending,
-                                isReady: caddieDecision != nil
-                                    && !isPreciseHoleMapPending
-                                    && !isLoadingCaddieDecision,
-                                errorText: isPreciseHoleMapPending
-                                    ? "精确地图准备中 · 球童建议稍后更新"
-                                    : caddieErrorMessage,
-                                onExpand: { showCaddieDetail = true },
-                                onSelect: { selectClub($0) }
-                            )
-                            LiveHolePrimaryActions(
-                                canRecordShot: liveCoordinateForCurrentHole != nil,
-                                recordedShotCount: recordedNonPuttShotCount,
-                                onRecordShot: recordShotLocation,
-                                onConfirmScore: beginScoreConfirmation
-                            )
-                            LiveScorecardButton(onTap: { showScorecard = true })
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.top, -22)
-                        .zIndex(2)
-
-                        // Secondary live controls remain part of the dark playing instrument. The full
-                        // caddie plan is a focused light surface so the approved three-card hierarchy is
-                        // not buried beneath a second copy of the rangefinder panel.
-                        VStack(spacing: 12) {
-                            moreAdjustCard
-                            mediaCard
-                            manageSection
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.top, 16)
-                    }
-                    .padding(.bottom, 24)
-                }
-                .onChange(of: holeRootScrollRequest) { _, _ in
-                    withAnimation(.easeOut(duration: 0.22)) {
-                        scrollProxy.scrollTo(Self.holeRootScrollAnchor, anchor: .top)
-                    }
-                }
-            }
-            #if DEBUG
-            if package.hasCompleteOfflineCoursePrep,
-               offlineStore?.hasCourseTopoImages(for: package) == true {
-                Text("离线地图已准备")
-                    .font(.system(size: 1))
-                    .foregroundStyle(Color.white.opacity(0.02))
-                    .frame(width: 1, height: 1)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("离线地图已准备")
-                    .accessibilityIdentifier("live-hole-offline-course-ready")
-            }
-            #endif
-        }
+        liveHoleContent
         // The app shell is intentionally light, but this approved live-play surface is dark.
         // Request dark system chrome here so the status-bar time, network, and battery stay visible.
         .preferredColorScheme(.dark)
@@ -341,146 +272,26 @@ public struct CurrentHoleView: View {
             caddieDetailSurface
         }
         .fullScreenCover(isPresented: $showMapDetail) {
-            if let holePrep {
-                LivePlayMapDetailView(
-                    hole: holePrep,
-                    topoURL: liveTopoURL,
-                    selectedClub: selectedClub,
-                    selectedClubMetres: selectedClubMetres,
-                    targetCoordinate: $targetCoordinate,
-                    targetPixel: $targetPixel,
-                    referenceCoordinate: mapReferenceCoordinate,
-                    referenceIsLive: mapReferenceIsLive,
-                    pinCoordinate: effectiveMapPinCoordinate,
-                    onTargetChanged: { coordinate in
-                        handleMapTargetChanged(coordinate, kind: "target")
-                    },
-                    onTargetCommitted: { coordinate in
-                        handleMapTargetCommitted(coordinate, kind: "target")
-                    },
-                    onTargetPixelChanged: { pixel in
-                        handleMapTargetPixelChanged(pixel, kind: "target")
-                    },
-                    onTargetPixelCommitted: { pixel in
-                        handleMapTargetPixelCommitted(pixel, kind: "target")
-                    }
-                )
-            } else {
-                ZStack {
-                    LivePlayStyle.base.ignoresSafeArea()
-                    ProgressView("地图准备中…")
-                        .tint(.white)
-                        .foregroundStyle(.white)
-                }
-            }
+            mapDetailSurface
         }
         .fullScreenCover(isPresented: $showGreenDetail) {
-            if let holePrep {
-                LiveGreenDetailView(
-                    hole: holePrep,
-                    detailURL: greenDetailURL,
-                    topoURL: liveTopoURL,
-                    targetCoordinate: $greenPinCoordinate,
-                    targetPixel: $greenPinPixel,
-                    referenceCoordinate: mapReferenceCoordinate,
-                    referenceIsLive: mapReferenceIsLive,
-                    pinCoordinate: mapPinCoordinate,
-                    onTargetChanged: { coordinate in
-                        handleMapTargetChanged(coordinate, kind: "pin")
-                    },
-                    onTargetCommitted: { coordinate in
-                        handleMapTargetCommitted(coordinate, kind: "pin")
-                    },
-                    onTargetPixelChanged: { pixel in
-                        handleMapTargetPixelChanged(pixel, kind: "pin")
-                    },
-                    onTargetPixelCommitted: { pixel in
-                        handleMapTargetPixelCommitted(pixel, kind: "pin")
-                    }
-                )
-            } else {
-                ZStack {
-                    LivePlayStyle.base.ignoresSafeArea()
-                    ProgressView("果岭地图准备中…")
-                        .tint(.white)
-                        .foregroundStyle(.white)
-                }
-            }
+            greenDetailSurface
         }
         .sheet(item: $scoreDraft) { presentedDraft in
-            LiveScoreConfirmationView(
-                draft: Binding(
-                    get: { scoreDraft ?? presentedDraft },
-                    set: { next in
-                        scoreDraft = next
-                        if let offlineStore {
-                            try? offlineStore.saveLiveScoreDraft(roundId: package.roundId, draft: next)
-                        }
-                    }
-                ),
-                nextHole: presentedDraft.advanceAfterSave ? nextHole(after: presentedDraft.hole) : nil,
-                onAccept: acceptScoreConfirmation,
-                onCancel: cancelScoreConfirmation
-            )
+            scoreConfirmationSurface(for: presentedDraft)
         }
         .sheet(item: $pendingPhoneShot, onDismiss: {
             // Recording starts from the lower action panel. After selecting or skipping the optional
             // club, restore the S70-style Hole Root instead of leaving the player below the map.
             holeRootScrollRequest += 1
         }) { pendingShot in
-            LiveActualClubPromptView(
-                shotNumber: pendingShot.shotOrder,
-                choices: actualClubChoices,
-                onSelect: { club in recordActualClub(club, for: pendingShot) },
-                onSkip: { pendingPhoneShot = nil }
-            )
+            actualClubPromptSurface(for: pendingShot)
         }
         .sheet(isPresented: $showScorecard, onDismiss: presentPendingHistoricalScoreEdit) {
-            LiveRoundScorecardView(
-                courseName: package.course.name,
-                holes: package.holes,
-                liveRoundState: liveRoundState,
-                recordedScoreHoles: recordedScoreHoles,
-                gpsCandidate: gpsHoleCandidate,
-                onGoToHole: { selectedHole in
-                    showScorecard = false
-                    onAdvanceHole(selectedHole)
-                },
-                onEdit: { selectedHole in
-                    pendingHistoricalScoreHole = selectedHole
-                    showScorecard = false
-                }
-            )
+            scorecardSurface
         }
         .sheet(isPresented: $showRoundSummary) {
-            LiveRoundFinishSummaryView(
-                courseName: package.course.name,
-                holesCompleted: completedHoleStates.count,
-                holeCount: package.holes.count,
-                totalStrokes: completedHoleStates.reduce(0) { $0 + $1.state.score },
-                toPar: completedHoleStates.isEmpty
-                    ? nil
-                    : completedHoleStates.reduce(0) { $0 + $1.state.score - $1.hole.par },
-                totalPutts: completedHoleStates.reduce(0) { $0 + $1.state.putts },
-                fairwaysHit: completedHoleStates.filter { $0.state.fairwayResult == LiveFairwayResult.hit.rawValue }.count,
-                fairwaysRecorded: completedHoleStates.filter { $0.hole.par != 3 && $0.state.fairwayResult != nil }.count,
-                totalPenalties: completedHoleStates.reduce(0) { $0 + $1.state.penaltyCount },
-                pendingEventCount: pendingEventCount,
-                isFinishingRound: isFinishingRound,
-                finishErrorMessage: finishErrorMessage,
-                onFinish: {
-                    Task {
-                        if await onFinishRound() {
-                            showRoundSummary = false
-                        }
-                    }
-                },
-                onContinue: { showRoundSummary = false },
-                onDiscard: {
-                    showRoundSummary = false
-                    showDiscardConfirmation = true
-                }
-            )
+            roundSummarySurface
         }
         .confirmationDialog(
             "放弃这场球局？",
@@ -495,6 +306,244 @@ public struct CurrentHoleView: View {
         } message: {
             Text("未保存到历史的本场成绩、落点和待上传媒体将被删除。")
         }
+    }
+
+    // Keep the large live-play layout in its own opaque view boundary. Besides making the
+    // hierarchy easier to read, this prevents SwiftUI's modifier chain in `body` from forcing the
+    // compiler to infer every map, panel, and sheet expression as one type-checking problem.
+    private var liveHoleContent: some View {
+        ZStack {
+            LivePlayStyle.base.ignoresSafeArea()
+            liveHoleScrollView
+            #if DEBUG
+            offlineReadyMarker
+            #endif
+        }
+    }
+
+    private var liveHoleScrollView: some View {
+        ScrollViewReader { scrollProxy in
+            ScrollView(showsIndicators: false) {
+                liveHoleStack
+                    .padding(.bottom, 24)
+            }
+            .onChange(of: holeRootScrollRequest) { _, _ in
+                withAnimation(.easeOut(duration: 0.22)) {
+                    scrollProxy.scrollTo(Self.holeRootScrollAnchor, anchor: .top)
+                }
+            }
+        }
+    }
+
+    private var liveHoleStack: some View {
+        VStack(spacing: 0) {
+            heroSection
+                .id(Self.holeRootScrollAnchor)
+            livePrimaryPanel
+            liveSecondaryCards
+        }
+    }
+
+    private var livePrimaryPanel: some View {
+        // Dark-glass data panel: distance hero → caddie strip → shot/score actions → tab bar.
+        LivePlayPanel {
+            LiveCaddieStrip(
+                clubs: caddieClubChips,
+                playsText: caddiePlaysText,
+                isLoading: isLoadingCaddieDecision || isPreciseHoleMapPending,
+                isReady: caddieDecision != nil
+                    && !isPreciseHoleMapPending
+                    && !isLoadingCaddieDecision,
+                errorText: isPreciseHoleMapPending
+                    ? "精确地图准备中 · 球童建议稍后更新"
+                    : caddieErrorMessage,
+                onExpand: { showCaddieDetail = true },
+                onSelect: { selectClub($0) }
+            )
+            LiveHolePrimaryActions(
+                canRecordShot: liveCoordinateForCurrentHole != nil,
+                recordedShotCount: recordedNonPuttShotCount,
+                onRecordShot: recordShotLocation,
+                onConfirmScore: beginScoreConfirmation
+            )
+            LiveScorecardButton(onTap: { showScorecard = true })
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, -22)
+        .zIndex(2)
+    }
+
+    private var liveSecondaryCards: some View {
+        // Secondary live controls remain part of the dark playing instrument.
+        VStack(spacing: 12) {
+            moreAdjustCard
+            mediaCard
+            manageSection
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 16)
+    }
+
+    #if DEBUG
+    @ViewBuilder
+    private var offlineReadyMarker: some View {
+        if package.hasCompleteOfflineCoursePrep,
+           offlineStore?.hasCourseTopoImages(for: package) == true {
+            Text("离线地图已准备")
+                .font(.system(size: 1))
+                .foregroundStyle(Color.white.opacity(0.02))
+                .frame(width: 1, height: 1)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("离线地图已准备")
+                .accessibilityIdentifier("live-hole-offline-course-ready")
+        }
+    }
+    #endif
+
+    @ViewBuilder
+    private var mapDetailSurface: some View {
+        if let holePrep {
+            LivePlayMapDetailView(
+                hole: holePrep,
+                topoURL: liveTopoURL,
+                selectedClub: selectedClub,
+                selectedClubMetres: selectedClubMetres,
+                targetCoordinate: $targetCoordinate,
+                targetPixel: $targetPixel,
+                referenceCoordinate: mapReferenceCoordinate,
+                referenceIsLive: mapReferenceIsLive,
+                pinCoordinate: effectiveMapPinCoordinate,
+                onTargetChanged: { coordinate in
+                    handleMapTargetChanged(coordinate, kind: "target")
+                },
+                onTargetCommitted: { coordinate in
+                    handleMapTargetCommitted(coordinate, kind: "target")
+                },
+                onTargetPixelChanged: { pixel in
+                    handleMapTargetPixelChanged(pixel, kind: "target")
+                },
+                onTargetPixelCommitted: { pixel in
+                    handleMapTargetPixelCommitted(pixel, kind: "target")
+                }
+            )
+        } else {
+            ZStack {
+                LivePlayStyle.base.ignoresSafeArea()
+                ProgressView("地图准备中…")
+                    .tint(.white)
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var greenDetailSurface: some View {
+        if let holePrep {
+            LiveGreenDetailView(
+                hole: holePrep,
+                detailURL: greenDetailURL,
+                topoURL: liveTopoURL,
+                targetCoordinate: $greenPinCoordinate,
+                targetPixel: $greenPinPixel,
+                referenceCoordinate: mapReferenceCoordinate,
+                referenceIsLive: mapReferenceIsLive,
+                pinCoordinate: mapPinCoordinate,
+                onTargetChanged: { coordinate in
+                    handleMapTargetChanged(coordinate, kind: "pin")
+                },
+                onTargetCommitted: { coordinate in
+                    handleMapTargetCommitted(coordinate, kind: "pin")
+                },
+                onTargetPixelChanged: { pixel in
+                    handleMapTargetPixelChanged(pixel, kind: "pin")
+                },
+                onTargetPixelCommitted: { pixel in
+                    handleMapTargetPixelCommitted(pixel, kind: "pin")
+                }
+            )
+        } else {
+            ZStack {
+                LivePlayStyle.base.ignoresSafeArea()
+                ProgressView("果岭地图准备中…")
+                    .tint(.white)
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+
+    private func scoreConfirmationSurface(for presentedDraft: LiveScoreDraft) -> some View {
+        LiveScoreConfirmationView(
+            draft: Binding(
+                get: { scoreDraft ?? presentedDraft },
+                set: { next in
+                    scoreDraft = next
+                    if let offlineStore {
+                        try? offlineStore.saveLiveScoreDraft(roundId: package.roundId, draft: next)
+                    }
+                }
+            ),
+            nextHole: presentedDraft.advanceAfterSave ? nextHole(after: presentedDraft.hole) : nil,
+            onAccept: acceptScoreConfirmation,
+            onCancel: cancelScoreConfirmation
+        )
+    }
+
+    private func actualClubPromptSurface(for pendingShot: PendingPhoneShot) -> some View {
+        LiveActualClubPromptView(
+            shotNumber: pendingShot.shotOrder,
+            choices: actualClubChoices,
+            onSelect: { club in recordActualClub(club, for: pendingShot) },
+            onSkip: { pendingPhoneShot = nil }
+        )
+    }
+
+    private var scorecardSurface: some View {
+        LiveRoundScorecardView(
+            courseName: package.course.name,
+            holes: package.holes,
+            liveRoundState: liveRoundState,
+            recordedScoreHoles: recordedScoreHoles,
+            gpsCandidate: gpsHoleCandidate,
+            onGoToHole: { selectedHole in
+                showScorecard = false
+                onAdvanceHole(selectedHole)
+            },
+            onEdit: { selectedHole in
+                pendingHistoricalScoreHole = selectedHole
+                showScorecard = false
+            }
+        )
+    }
+
+    private var roundSummarySurface: some View {
+        LiveRoundFinishSummaryView(
+            courseName: package.course.name,
+            holesCompleted: completedHoleStates.count,
+            holeCount: package.holes.count,
+            totalStrokes: completedHoleStates.reduce(0) { $0 + $1.state.score },
+            toPar: completedHoleStates.isEmpty
+                ? nil
+                : completedHoleStates.reduce(0) { $0 + $1.state.score - $1.hole.par },
+            totalPutts: completedHoleStates.reduce(0) { $0 + $1.state.putts },
+            fairwaysHit: completedHoleStates.filter { $0.state.fairwayResult == LiveFairwayResult.hit.rawValue }.count,
+            fairwaysRecorded: completedHoleStates.filter { $0.hole.par != 3 && $0.state.fairwayResult != nil }.count,
+            totalPenalties: completedHoleStates.reduce(0) { $0 + $1.state.penaltyCount },
+            pendingEventCount: pendingEventCount,
+            isFinishingRound: isFinishingRound,
+            finishErrorMessage: finishErrorMessage,
+            onFinish: {
+                Task {
+                    if await onFinishRound() {
+                        showRoundSummary = false
+                    }
+                }
+            },
+            onContinue: { showRoundSummary = false },
+            onDiscard: {
+                showRoundSummary = false
+                showDiscardConfirmation = true
+            }
+        )
     }
 
     private var caddieContextSeed: CaddieContextSeed? {
