@@ -179,6 +179,7 @@ class ContractAuthorityTests(unittest.TestCase):
     def test_active_live_event_schema_change_is_not_legacy_rejected(self) -> None:
         fixture = AuthorityFixture()
         self.addCleanup(fixture.close)
+        fixture.write_manifest()
         fixture.write(
             "mobile/contracts/live_round_event.schema.json",
             json.dumps({"properties": {"clientId": {"type": "string"}}}),
