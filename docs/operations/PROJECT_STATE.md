@@ -102,6 +102,13 @@ device gate or authorize production promotion.
   `source/map1-2026-09-04` are unchanged. This reconciliation performed no
   upload, external distribution, deployment, synchronization, or production
   data write.
+- **Cloud audit (in progress):** A read-only snapshot at
+  `/dev/shm/garmin-ai-caddie-cloud-audit-20260904` was created by Codex at
+  `2026-09-04T03:29:05Z` from `04ab1da8b77950d0cdf3dde09174f2c76460f0ec`.
+  It is 32 MiB, contains no `.venv`, `node_modules`, build products, or
+  credentials, and expires at `2026-09-05T03:29:05Z`. Cloud may inspect this
+  snapshot only; no containers, services, ports, caches, or dependencies are
+  created for the audit.
 
 ## Objective
 
@@ -546,7 +553,7 @@ project-level task list; historical plans are reference material.
 | `R2` | `done` | iOS/Web review parity, first-frame/cache, overlay-first layout, and unified trend entry after `R1`. | Half Moon Bay round-by-round facts, same-round iOS/Web request/first-frame evidence, public comparison page, and owner `go` approval. |
 | `REL` | `evidence-open` | Release and TestFlight gate; backend/native provenance and build 47 are complete. | CD run `33686521143` processed build `0.1.0 (47)` from `d189b3b4`; diagnostics `33687517758` and ASC status `33687613975` passed/confirmed validity. Physical-device installation, exact tester coverage, and optional external Beta Review remain open. |
 | `MAP1` | `evidence-open` | No-GPS map-first start and precision placement across Watch/iOS/review. | Focused homeserver contracts pass 147/147, including production `tee_box=unknown`; Native Mobile CI `33680501425` at `c5902a96` passed all 38 steps, and reconciliation Source/Native runs `33832029115`/`33832029223` passed at `a331281a`. Physical iPhone/Watch and S70 hardware proof remain open. |
-| `CLOUD-AUDIT` | `queued` | Read-only whole-repository audit after branch reconciliation; preserve history and release refs while it runs. | A dated temporary snapshot, findings report, resource handoff, and cleanup record from the delegated audit session. |
+| `CLOUD-AUDIT` | `in-progress` | Read-only whole-repository audit after branch reconciliation; preserve history and release refs while it runs. | Snapshot `/dev/shm/garmin-ai-caddie-cloud-audit-20260904` (created 2026-09-04T03:29:05Z, expires 2026-09-05T03:29:05Z); pending dated findings report, resource handoff, and cleanup record. |
 
 ### Status vocabulary
 
@@ -941,7 +948,7 @@ Native runs recorded above; it is retained only as historical diagnosis.
 4. Keep backend revision `c1648891` and build 47 unchanged while the physical
    gate is open; retain the prior image/container as rollback material. Do not
    upload another build or run a production synchronization as a test.
-5. Run the queued Cloud whole-repository audit from a read-only temporary
+5. Complete the Cloud whole-repository audit from the recorded read-only
    snapshot. Exclude credentials, `.venv`, `node_modules`, and build products;
    retain the reconciliation branch, old PRs, and historical refs until the
    audit handoff and cleanup are complete.
@@ -1002,9 +1009,14 @@ Native runs recorded above; it is retained only as historical diagnosis.
   part of the merged tree.
 - 2026-09-04: Reconciliation changed no release or runtime state. TestFlight,
   backend, and source tags remain pinned; no upload, deployment, external
-  distribution, synchronization, or production data write occurred. Queue the
-  read-only Cloud whole-repository audit as the next engineering action while
-  `REL` and `MAP1` hardware evidence remain open.
+  distribution, synchronization, or production data write occurred. Started
+  the read-only Cloud whole-repository audit from the recorded temporary
+  snapshot; `REL` and `MAP1` hardware evidence remain open.
+- 2026-09-04: Cloud audit snapshot lifecycle recorded before delegation:
+  `/dev/shm/garmin-ai-caddie-cloud-audit-20260904`, owner Codex/Cloud,
+  created `03:29:05Z`, expiry `2026-09-05T03:29:05Z`, no containers/services/
+  ports/dependencies. Cleanup and findings handoff remain open until the
+  audit returns.
 - 2026-09-02: MAP1 implementation and its contract coverage are integrated at
   source baseline `d189b3b4`; focused homeserver contracts pass 147/147 and
   source CI `33680857200` is green. The map-first no-GPS start, factual
